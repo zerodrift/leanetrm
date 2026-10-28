@@ -270,6 +270,9 @@ def main():
             if args.assistant_check and migration.name=='0121_agent_history_window.sql':
                 from check_agent_administration import check_history_window_upgrade
                 check_history_window_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0122_pin_turn_bound.sql':
+                from check_agent_turns import check_pin_bound_upgrade
+                check_pin_bound_upgrade(query,migration.read_text())
             if args.check and migration.name=='0116_remove_unused_cash_rounding.sql':
                 from check_cash_rounding_retirement import run_checks as check_cash_retirement
                 check_cash_retirement(query,migration.read_text())

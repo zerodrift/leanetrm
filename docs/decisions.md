@@ -249,6 +249,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D250 | The page assistant reads PPA bookings through Read trades; PPA bookings is not a Navigate page | Decided under the owner's delegation (2026-10-27). Refines D184, D190 and D191. An inspected PPA is reported as Read trades' trade view of it (`trades.trade_v1`, instrument type `ppa`); a listed book as the new `ppa_book` view of exactly one book (`trades.ppa_book_v1`), the page's own directory read of the whole book at the turn's pin, rechecking the book's scope, refused `result_too_large` above 64 trades, listing the page's columns. Both capture no context, run under the Blotter's accesses and permissions and bind the pinned context, cutoff and frame, not the page's own market inputs and cutoff, which Looking at says. PPA bookings and the targets its reads issue are not opened by Navigate (`tool_arguments_invalid`), since the database's navigation targets do not list it. No migration, runtime-set or permission change |
 | D251 | Saved Blotter views can be listed in the sidebar; PPA bookings has no sidebar entry | Decided by the owner (2026-10-28). Saved views are layout version 5, which adds `sidebar` (true or false), set by Show in the sidebar when a view is saved; earlier layouts are not migrated. The sidebar lists a person's flagged views under the Blotter and opens one as choosing it in the Blotter does. PPA bookings stays a Trading page opened from New trade; a person who wants a PPA list saves a Blotter view of PPAs and lists it. No migration or permission change |
 | D252 | The Blotter lists a PPA the selected market data cannot price as not valued; one such PPA no longer refuses the whole read | Decided under the owner's delegation (2026-10-28). Refines D246. When the PPAs of a Blotter read cannot be priced together because the market data has no price for part of some delivery (`interval_block_coverage`, `interval_curve_coverage`, `interval_actual_missing`, or a frame without a needed projection), the trades concerned are listed whole as not valued with `unpriced_delivery` and the rest are priced together as before. Any other refusal, or one no single trade explains, still refuses the read. An interval no period block covers is now `interval_block_coverage`, apart from overlapping blocks (`interval_block_partition`). Whole-book consumers keep refusing. No migration or permission change |
+| D256 | A turn's pinned As of frame may hold up to 256 KiB | Decided by the owner (2026-10-27). Migration 0122 raises `assistant.pin_turn`'s bound on a frame's pin JSON from 64 KiB to 256 KiB (262,144 bytes); nothing else changes. It applies over 0072's definition or one already identical to its own, as the hosted pilot's has been since its hotfix. |
 
 ## Proposed implementation choices
 
@@ -1074,3 +1075,18 @@ Blotter's.
   refused read and within the request's deadline. Attributing the refusal to its
   bindings in one preparation, as `missing_curve_view` already is, would remove that
   cost and is left as follow-up work.
+
+## D256 — A turn's pinned As of frame may hold up to 256 KiB
+
+A page-assistant turn asked over an As of frame stores the frame's exact pins (§7.2).
+0072 refused pins whose JSON exceeded 64 KiB with `turn_input`. A close that pins about
+a thousand prices writes about 86 KB, so on the hosted pilot every turn over such a
+frame failed before its model was called. With the owner's approval the pilot's
+`assistant.pin_turn` was replaced in place with a bound of 262,144 bytes on 2026-10-27.
+
+Migration 0122 makes that the reviewed definition: 0072's, with the bound raised to
+256 KiB and nothing else changed. It fails closed unless the function it replaces is
+0072's or already its own, with the same owner and privileges, so it applies both to a
+database at 0121 and to the pilot after its hotfix. A frame's pins between 64 KiB and
+256 KiB are now kept as given; larger ones are still refused `turn_input`. The bound
+stays a fixed value in the function.

@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 from uuid import UUID, uuid4
-from assistant_context import ISSUER, WINDOW, Contexts, check_guard, expect, holding, refused, waiting
+from assistant_context import ISSUER, WINDOW, Contexts, check_guard, expect, holding, migration_body, refused, waiting
 from assistant_fixture import AGENTS, MODELS, Fixture
 from check_model_versions import command as model_command
 from check_provider_tests import Worker, bytea, usage
@@ -159,6 +159,20 @@ def check_job_reads_upgrade(query, migration):
         *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in helpers),
         *((f'GRANT EXECUTE ON FUNCTION {helper} TO PUBLIC;', helper) for helper in helpers),
         ('ALTER TABLE assistant.tool_read_access RENAME CONSTRAINT tool_read_access_check TO tool_read_access_renamed;', 'assistant.tool_read_access_check')))
+
+
+PIN = 'assistant.pin_turn(uuid,bytea,date,jsonb,integer)'
+
+
+def check_pin_bound_upgrade(query, migration):
+    """Before 0122 applies: it refuses a changed pin_turn or one whose privileges differ, and applies over a database whose
+    pin_turn already carries 0122's definition, as the hosted pilot's has since its hotfix (D256)."""
+    check_guard(query, migration, '0122', 'pin_turn_bound', (
+        (f"ALTER FUNCTION {PIN} SET work_mem='64kB';", PIN), (f'REVOKE EXECUTE ON FUNCTION {PIN} FROM openetrm_runtime;', PIN)))
+    hotfix = (f"SET LOCAL search_path=pg_catalog;DO $hotfix$ BEGIN EXECUTE replace(pg_get_functiondef('{PIN}'::regprocedure),"
+              "'>65536)','>262144)');END $hotfix$;")
+    query(f'BEGIN;{hotfix}{migration_body(migration)}ROLLBACK;')
+    print('PASS migration 0122 applies over a pin_turn that already carries its definition', flush=True)
 
 
 def conversation_0072():
@@ -994,6 +1008,21 @@ def run_checks(url, query, psql, manifest, environment):
           and json.loads(query(f"SELECT pins::text FROM assistant.turns WHERE id='{as_of.id}';")) == pins
           and query('SELECT assistant.is_uuid_array(NULL);') == 'f', pinned)
     end(as_of, 'failed', 'request_cancelled')
+    # A close pins about a thousand prices (D256): a frame's pins of up to 256 KiB are kept, and larger ones refused.
+    def frame_pins(count):
+        observations = [str(uuid4()) for _ in range(count)]
+        return {**pins, 'observationIds': observations, 'frozenObservationIds': observations[:1]}
+    large, beyond = frame_pins(2000), frame_pins(7000)
+    sized = Turn()
+    ask(sized, mode='retained', context=retained, frame=frame)
+    contexts.runtime('trader', refused(f'PERFORM {pin_sql(sized, pins=beyond)};', 'turn_input'))
+    as_person('trader', f'SELECT {pin_sql(sized, pins=large)}::text;')
+    sizes = query(f"SELECT octet_length(pins::text)||','||octet_length({literal(json.dumps(beyond))}::jsonb::text) FROM assistant.turns "
+                  f"WHERE id='{sized.id}';")
+    kept, refused_size = map(int, sizes.split(','))
+    check("an As of frame's pins of more than 64 KiB and up to 256 KiB are kept as given, and larger ones are refused",
+          65536 < kept <= 262144 < refused_size and json.loads(query(f"SELECT pins::text FROM assistant.turns WHERE id='{sized.id}';")) == large, sizes)
+    end(sized, 'failed', 'request_cancelled')
     plain = Turn()
     ask(plain, mode='retained', context=retained)
     contexts.runtime('trader', refused(f'PERFORM {pin_sql(plain, pins=pins)};', 'turn_input'))
