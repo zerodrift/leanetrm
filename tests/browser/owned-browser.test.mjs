@@ -160,6 +160,17 @@ test('ordinary page readiness keeps its short bound when the page never becomes 
   assert.equal(elapsed,10000);assert.equal(polls,200);
 });
 
+test('a wait across a navigation polls the next page when the navigation cuts a poll off, and still fails on any other error',async()=>{
+  const navigated=Error(JSON.stringify({code:-32000,message:'Inspected target navigated or closed'}));
+  let elapsed=0,polls=0;
+  const actions=browserPageActions(async()=>{polls++;if(polls===2)throw navigated;return polls===3;},{pause:async ms=>{elapsed+=ms;},now:()=>elapsed});
+  await actions.wait("location.pathname==='/auth'");
+  assert.equal(polls,3);
+  const failing=browserPageActions(async()=>{throw Error(JSON.stringify({code:-32000,message:'Cannot find context with specified id'}));},{pause:async()=>{},now:()=>0});
+  await assert.rejects(failing.wait(idle),/Cannot find context/);
+  const clicking=browserPageActions(async()=>{throw navigated;},{pause:async()=>{},now:()=>0});
+  await assert.rejects(clicking.click('#synthetic-book'),/navigated or closed/,'only a poll is repeated, never an action');
+});
 
 test('page action wait overrides stay finite and reject invalid budgets before clicking',async()=>{
   let calls=0;

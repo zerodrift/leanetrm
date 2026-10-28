@@ -25,10 +25,10 @@ static class TableViewChecks
 
     public static void Run()
     {
-        // Version 4 is the only version: it records the desk grouping beside the grid, column split and chart.
+        // Version 5 is the only version: it records whether the sidebar lists the view beside the desk grouping, grid, column split and chart.
         var layout=new Dictionary<string,object?>
         {
-            ["version"]=4,["name"]="My trades",["mode"]="trades",["rowGroup"]="book",
+            ["version"]=5,["sidebar"]=true,["name"]="My trades",["mode"]="trades",["rowGroup"]="book",
             ["columns"]=new[]{"book","quantity","unit","priceUnit"},["bookIds"]=Array.Empty<string>(),["portfolioIds"]=Array.Empty<string>(),
             ["groupBy"]=Array.Empty<string>(),["measures"]=Array.Empty<string>(),["query"]="Jan",
             ["columnFilters"]=new Dictionary<string,string>{{"book","Book A"},{"quantity",">= 100.000000000000000001"}},
@@ -47,17 +47,23 @@ static class TableViewChecks
         }
         Refuses(Without(layout,"rowGroup"),"a layout that leaves its desk grouping out");
         Console.WriteLine("PASS rejects a layout that leaves its desk grouping out");
-        // Layouts of versions 1 to 3 are refused: each as that version stored it, and as the current layout under that version.
-        var version3=Without(layout,"rowGroup");version3["version"]=3;
+        TableViews.Validate(Element(With(layout,("sidebar",false))));
+        Console.WriteLine("PASS account layout records whether the sidebar lists it");
+        foreach(var sidebar in new object?[]{null,"true",1})Refuses(With(layout,("sidebar",sidebar)),"a sidebar choice that is not true or false");
+        Refuses(Without(layout,"sidebar"),"a layout that leaves its sidebar choice out");
+        Console.WriteLine("PASS rejects a sidebar choice that is not stated as true or false");
+        // Layouts of versions 1 to 4 are refused: each as that version stored it, and as the current layout under that version.
+        var version4=Without(layout,"sidebar");version4["version"]=4;
+        var version3=Without(version4,"rowGroup");version3["version"]=3;
         var version2=new Dictionary<string,object?>(version3){["version"]=2,["chart"]=new {visible=true,measure="quantity"}};
         var version1=Without(version2,"splitBy","grid","chart");version1["version"]=1;
-        foreach(var (version,stored) in new[]{(1,version1),(2,version2),(3,version3)})
+        foreach(var (version,stored) in new[]{(1,version1),(2,version2),(3,version3),(4,version4)})
         {
             Refuses(stored,"a version "+version+" layout");
             Refuses(With(layout,("version",version)),"the current layout stamped as version "+version);
             Console.WriteLine("PASS rejects layouts saved by version "+version);
         }
-        foreach(var version in new object?[]{0,5,"4",null})Refuses(With(layout,("version",version)),"version "+JsonSerializer.Serialize(version));
+        foreach(var version in new object?[]{0,6,"5",null})Refuses(With(layout,("version",version)),"version "+JsonSerializer.Serialize(version));
         Console.WriteLine("PASS rejects layouts of a version this release does not know");
         var visual=With(layout,("chart",new {visible=true,measure="presentValue",kind="heatmap"}));
         TableViews.Validate(Element(visual));

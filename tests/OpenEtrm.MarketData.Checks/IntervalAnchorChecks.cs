@@ -68,6 +68,9 @@ internal static class IntervalAnchorChecks
         Reject("interval_anchor_ambiguous",()=>Prepare(curve with{Definition=definition with{BalanceBlocks=[..definition.BalanceBlocks,new(f.C("extra"),BlockMembership.All,null,[extra])]},
             SelectedAnchors=curve.SelectedAnchors!.Add(extra.Key)}));
         Reject("interval_anchor_missing",()=>Prepare(curve with{SelectedAnchors=ImmutableHashSet.Create(balance.Key)}));
+        // An interval no period block covers has no price; one two period blocks cover is an ambiguous definition.
+        Reject("interval_block_coverage",()=>new IntervalPriceResolver(built,new Dictionary<CurveKey,PreparedCurve>{{curve.Key,Prepare(curve with{Definition=definition with{Blocks=[]}})}}).Prices(curve.Key,new(2031,11,1)));
+        Reject("interval_block_partition",()=>new IntervalPriceResolver(built,new Dictionary<CurveKey,PreparedCurve>{{curve.Key,Prepare(curve with{Definition=definition with{Blocks=[..definition.Blocks,..definition.Blocks]}})}}).Prices(curve.Key,new(2031,11,1)));
         Reject("interval_actual_missing",()=>Prepare(curve,actuals.Skip(1).ToArray()));
         var laterActual=new IntervalActual(from.AddDays(10),from.AddDays(10).AddHours(1),new(ExactDecimal.Parse("999"),unit),at.AddHours(1),Guid.NewGuid(),2);
         var noHindsight=Prepare(curve,[..actuals,laterActual],at.AddHours(2));

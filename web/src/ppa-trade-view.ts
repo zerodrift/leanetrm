@@ -16,7 +16,7 @@ export async function readPpaView(api:Api,context:Record<string,unknown>,h:Holdi
   history:{revision:number;event_kind:string;effective_at:string;reason:string}[]}>('ppa/editor',{snapshotId:context.snapshotId,tradeId:h.tradeId,knownAt:ppaCutoff(knownAt)});
  const binding=detail.bindings.find(b=>b.binding_id===h.bindingId),instrument=detail.instruments.find(i=>i.instrumentId===binding?.instrument_id);
  if(!binding||!instrument||String(detail.head.revision)!==h.revision)throw Error('The PPA binding changed. Refresh the Blotter.');
- return{amend:{allowed:false,reason:'Forward amendments and termination are available in the PPA workbench.'},view:zone=>{
+ return{amend:{allowed:false,reason:'Forward amendments and termination are made in PPA bookings, which New trade opens.'},view:zone=>{
   const terms:TermSection[]=[{title:'PPA trade',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Quantity',`${h.quantity} ${h.unit}`],
    ['Delivery',`${instrument.terms.delivery.from} to ${instrument.terms.delivery.to}`],['Binding coverage',`${displayInstant(binding.coverage_from,zone)} to ${displayInstant(binding.coverage_to,zone)}`],
    ['Value measure','Value excluding overdue cash'],['Pending meter readings',policy]]}];

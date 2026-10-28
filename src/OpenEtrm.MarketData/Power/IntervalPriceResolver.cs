@@ -151,7 +151,9 @@ public sealed class PreparedCurve
                 foreach(var interval in intervals)
                 {
                     var covering=byStart[interval.Start].ToArray();
-                    if(covering.Count(b=>!b.Balance)!=1)throw new MarketDataException("interval_block_partition","Period blocks must partition the requested grid exactly once.");
+                    var owning=covering.Count(b=>!b.Balance);
+                    if(owning==0)throw new MarketDataException("interval_block_coverage","No period block of the curve covers an interval of the requested window.");
+                    if(owning>1)throw new MarketDataException("interval_block_partition","Period blocks must partition the requested grid exactly once.");
                     if(eligible.ContainsKey(interval.Start))continue;
                     var balances=covering.Where(b=>b.Balance && b.Contract.Expiry>valuationAt && s.SelectedAnchors!.Contains(b.Contract.Key)).ToArray();
                     if(balances.Length>1)throw new MarketDataException("interval_anchor_ambiguous","More than one selected live balance prices the same product interval.");

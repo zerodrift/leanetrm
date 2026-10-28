@@ -2,10 +2,11 @@ import {aiTabs} from './agent-settings.js';
 
 // The sidebar's groups in order, each with the pages it lists. A page is named by the id of its entry (`nav-<page>`),
 // a sidebar button, or for the hourly prices of Curves & prices the switch beside its contract prices; its group's
-// label is the eyebrow above the page title.
-export type NavigationGroup={id:'trading'|'markets'|'operations'|'settings'|'admin';label:string;pages:readonly string[]};
+// label is the eyebrow above the page title. `opened` are a group's pages that another page opens instead of the sidebar:
+// PPA bookings, from the Blotter's new trade panel and its PPA positions.
+export type NavigationGroup={id:'trading'|'markets'|'operations'|'settings'|'admin';label:string;pages:readonly string[];opened?:readonly string[]};
 export const navigationGroups:readonly NavigationGroup[]=[
- {id:'trading',label:'Trading',pages:['futures','ppa']},
+ {id:'trading',label:'Trading',pages:['futures'],opened:['ppa']},
  {id:'markets',label:'Markets',pages:['market','custom-curves','delivery','interval-series','interval-curves']},
  {id:'operations',label:'Operations',pages:['jobs']},
  {id:'settings',label:'Settings',pages:['configuration','schedules','power','reference','parties']},
@@ -14,7 +15,7 @@ export const navigationGroups:readonly NavigationGroup[]=[
 
 const unknownPage=()=>Error('This page could not load. Please refresh.');
 export function pageGroup(page:string):string{
- const group=navigationGroups.find(g=>g.pages.includes(page));
+ const group=navigationGroups.find(g=>g.pages.includes(page)||g.opened?.includes(page));
  if(!group)throw unknownPage();
  return group.label;
 }

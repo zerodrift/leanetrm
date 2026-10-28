@@ -1,5 +1,5 @@
 import {sideSession} from './side-session.mjs';
-import {newTrade} from './new-trade.mjs';
+import {newTrade,openPpaBookings} from './new-trade.mjs';
 import {qualifyProvider,pricedModel} from './model-fixture.mjs';
 import {chooseFutures} from './futures-selection.mjs';
 
@@ -259,7 +259,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'delivery_prices',selection:{}})`);
   // PPA bookings is read once it lists a book (D250): before that Looking at says so and nothing is asked; then Read current
   // page reads the listed book's PPA trades.
-  await click('#nav-ppa');
+  await openPpaBookings({click,wait});
   await wait(`${q('#ppa-book-filter')}.options.length>1&&${idle}`);
   await set('#assistant-question','Which PPAs are in this book?');
   await check('Looking at on PPA bookings before a book is listed says to load one, and nothing is asked',
