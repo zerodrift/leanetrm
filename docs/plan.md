@@ -1334,3 +1334,30 @@ single-period and scheduled tickets show the required amendment and exact change
 terms. Existing preview cashflows remain the valuation review. Publishing economic
 index changes, selecting newer versions for existing contracts, bulk impact
 analysis and a separate forecast-configuration migration remain future work.
+
+Operational limits (P42, proposed): move each operating value out of code into
+explicit, versioned configuration, keeping its ceiling fixed, and state each value
+once. See [operational limits](operational-limits.md) for the complete inventory. In
+order, each its own PR with failing checks first and none started before the owner
+accepts P42:
+
+1. Assistant installation limits: a revisioned table for the pins bound, workspace
+   turns, retained-context reserve and longest grant, saved under `ManageAgents`,
+   recorded on each turn; runtime set `turns_v8`.
+2. Sign-in policy: a revisioned table for sign-in lifetime, lockout, minimum password
+   length and invitation lifetime under `ManageAccess`, recorded on each hosted
+   session; the cookie expires with the session row, so the lifetime is stated once.
+3. Tool result records and bytes on the agent version, as 0121 added the history
+   window.
+4. A required `limits` section in the hosted configuration for request deadlines, body
+   sizes, pools, timeouts and `max_connections`, the sign-in rate, page sessions,
+   heartbeats, polls and provider transport, checked against each other; the gateway's
+   body sizes and read timeout are written from it, and the API serves its request
+   deadlines to the page, which no longer has its own timeout. The collection and
+   reference commands take their HTTP timeouts and deadlines from their own settings.
+5. Each operation the page validates against serves its limits; the page's copies of
+   server limits are removed.
+6. One shared ceiling for the 4,096 retained contexts per catalog.
+7. Settings pages for the installation limits and sign-in policy.
+
+The pilot's next schema window applies 0122 (D256) over its hotfixed `pin_turn`.
