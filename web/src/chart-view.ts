@@ -33,7 +33,10 @@ function axisEnd(range:{min:number;max:number}){
   const power=10**Math.floor(Math.log10(largest));return [1,1.2,1.5,2,2.5,3,4,5,6,8,10].map(step=>step*power).find(end=>end>=largest)!;
 }
 const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
-export function chartOptions(spec:ChartSpec){
+// The shares of a horizontal chart's width its category labels and its listed texts may take, beyond which they are cut short
+// (their tooltips and text alternatives keep them whole), so the bars always keep the rest.
+const labelShares=[.4,.22],labelWidth=(width:number,share:number)=>Math.floor(width*share);
+export function chartOptions(spec:ChartSpec,size?:{width:number}){
   for(const series of spec.series)if(new Set(series.points.map(p=>p.x)).size!==series.points.length)throw Error('A chart series needs distinct category identities.');
   const categories=[...new Set(spec.series.flatMap(s=>s.points.map(p=>p.x)))];
   const marked=new Set(spec.marked);
@@ -50,6 +53,7 @@ export function chartOptions(spec:ChartSpec){
   for(const p of all){if(p.marker&&!markerOf.has(p.x))markerOf.set(p.x,p.marker);if(p.text!==undefined&&!texted.has(p.x))texted.set(p.x,p);}
   // A dot of each marker color before the labels of the categories that name one.
   const markers=[...new Set(markerOf.values())];
+  const bounded=(share:number)=>horizontal&&size?{width:labelWidth(size.width,share),overflow:'truncate' as const}:{};
   const markedLabel=(key:string)=>{const marker=markerOf.get(key);return marker?`{m${markers.indexOf(marker)}|●} ${categoryLabel(key)}`:categoryLabel(key);};
   // Approximate coordinates position pixels only. Tooltips retain server strings.
   const coordinate=(value:string|null)=>value===null?null:plotNumber(value);
@@ -79,7 +83,7 @@ export function chartOptions(spec:ChartSpec){
   };
   const seriesName=(index:number)=>publicText(spec.series[index].name)+(spec.series.filter(s=>s.name===spec.series[index].name).length>1?' · '+(index+1):'');
   const categoryAxis={type:'category' as const,name:spec.categoryTitle??spec.axisName??(spec.axis==='delivery'?'Delivery period':spec.axis==='maturity'?'Maturity date':spec.axis==='observation'?'Observation date':'Book'),nameLocation:'middle' as const,nameGap:32,nameTextStyle:{color:'#64776d',fontSize:11},data:categories,axisLine:{lineStyle:{color:'#cbd9d1'}},axisTick:{show:false},axisPointer:{label:{formatter:(p:{value:string})=>categoryLabel(String(p.value))}},
-    axisLabel:{color:'#64776d',fontSize:11,hideOverlap:true,formatter:markers.length?markedLabel:categoryLabel,...(markers.length?{rich:Object.fromEntries(markers.map((color,i)=>[`m${i}`,{color,fontSize:11}]))}:{})}};
+    axisLabel:{color:'#64776d',fontSize:11,hideOverlap:true,...bounded(labelShares[0]),formatter:markers.length?markedLabel:categoryLabel,...(markers.length?{rich:Object.fromEntries(markers.map((color,i)=>[`m${i}`,{color,fontSize:11}]))}:{})}};
   const valueAxis={type:'value' as const,name:spec.unit,nameLocation:'end' as const,nameGap:18,scale:spec.kind!=='bar',nameTextStyle:{color:'#607457',align:'left' as const,fontSize:11},axisLabel:{color:'#6c7e63',fontSize:10},splitLine:{lineStyle:{color:'#e8eee3'}},
     // Diverging bars keep zero in the middle, so a gain and a loss of one size are drawn alike, between round axis ends.
     ...(horizontal&&spec.kind==='bar'?{min:(v:{min:number;max:number})=>-axisEnd(v),max:axisEnd}:{}),
@@ -89,7 +93,7 @@ export function chartOptions(spec:ChartSpec){
     // need no tick labels; others keep a few, apart from each other.
     ...(horizontal?{name:'',splitNumber:4,axisLabel:texts?{show:false}:{color:'#6c7e63',fontSize:10,hideOverlap:true}}:{})};
   const textAxis={type:'category' as const,data:categories,inverse:true,position:'right' as const,axisLine:{show:false},axisTick:{show:false},axisPointer:{show:false},
-    axisLabel:{color:'#2c3a32',fontSize:11,fontWeight:600,formatter:textOf,rich:{gain:{color:ink.gain,fontSize:11,fontWeight:600},loss:{color:ink.loss,fontSize:11,fontWeight:600}}}};
+    axisLabel:{color:'#2c3a32',fontSize:11,fontWeight:600,...bounded(labelShares[1]),formatter:textOf,rich:{gain:{color:ink.gain,fontSize:11,fontWeight:600},loss:{color:ink.loss,fontSize:11,fontWeight:600}}}};
   const option={
     // The HTML caption names the chart on screen; the canvas title is shown only in saved images.
     title:{show:false,text:publicText(spec.title),subtext:publicText(spec.subtitle??''),left:8,top:0,textStyle:{fontSize:12,fontWeight:500,color:'#3b5841'},subtextStyle:{fontSize:10,color:'#738469'}},
@@ -123,19 +127,27 @@ const active=new Map<HTMLElement,{chart:Chart;resize:ResizeObserver}>();
 export function clearChart(host:HTMLElement,message=''){
   const existing=active.get(host);if(existing){existing.resize.disconnect();existing.chart.dispose();active.delete(host);}host.replaceChildren();if(message)host.textContent=message;
 }
+// Bounds the labels of a drawn horizontal chart to its new width: its categories', and its listed texts' when it has them.
+function boundLabels(chart:Chart,width:number){
+  const axes=(chart.getOption().yAxis as unknown[]).length;
+  chart.setOption({yAxis:labelShares.slice(0,axes).map(share=>({axisLabel:{width:labelWidth(width,share)}}))});
+}
 export function renderChart(host:HTMLElement,spec:ChartSpec){
-  clearChart(host);const option=chartOptions(spec);host.classList.remove('empty');host.setAttribute('aria-label',publicText(spec.title));host.dataset.chartAxis=spec.axis;host.dataset.chartUnit=spec.unit;host.dataset.chartKind=spec.kind??'line';
+  clearChart(host);host.classList.remove('empty');host.setAttribute('aria-label',publicText(spec.title));host.dataset.chartAxis=spec.axis;host.dataset.chartUnit=spec.unit;host.dataset.chartKind=spec.kind??'line';
   const toolbar=document.createElement('div');toolbar.className='chart-toolbar';
   const caption=document.createElement('span'),name=document.createElement('strong');name.textContent=publicText(spec.title);caption.append(name);
   if(spec.subtitle){const subtitle=document.createElement('small');subtitle.textContent=publicText(spec.subtitle);caption.append(subtitle);}toolbar.append(caption);
   const plot=document.createElement('div');plot.className='standard-chart-plot';plot.setAttribute('role','img');plot.setAttribute('aria-label',publicText(spec.title));
   host.append(toolbar,plot);
+  const horizontal=spec.orientation==='horizontal';
+  let option;try{option=chartOptions(spec,horizontal?{width:plot.clientWidth}:undefined);}catch(error){host.replaceChildren();throw error;}
   if(!spec.series.some(s=>s.points.some(p=>p.y!==null))){plot.textContent='No values available for this selection.';return;}
   const chart=init(plot,undefined,{renderer:'canvas'});try{chart.setOption(option);}catch(error){chart.dispose();host.replaceChildren();throw error;}
-  const resize=new ResizeObserver(()=>chart.resize());resize.observe(plot);active.set(host,{chart,resize});
+  // A horizontal chart's labels are bounded by its width, so they are bounded again whenever it resizes.
+  const resize=new ResizeObserver(()=>{if(horizontal)boundLabels(chart,plot.clientWidth);chart.resize();});resize.observe(plot);active.set(host,{chart,resize});
   function action(label:string,callback:()=>void){const button=document.createElement('button');button.type='button';button.className='text-button';button.textContent=label;button.onclick=callback;toolbar.append(button);}
   // Horizontal bars show every category and have no zoom to reset.
-  if(spec.orientation!=='horizontal')action('Reset zoom',()=>chart.dispatchAction({type:'dataZoom',start:0,end:100}));
+  if(!horizontal)action('Reset zoom',()=>chart.dispatchAction({type:'dataZoom',start:0,end:100}));
   if(spec.exportImage)action('Save image',()=>spec.exportImage!(()=>{if(active.get(host)?.chart!==chart||!host.isConnected)throw Error('Refresh this chart before exporting.');const a=document.createElement('a');a.download='leanetrm-chart.png';chart.setOption({title:{show:true},legend:{top:48},grid:{top:82}});try{a.href=chart.getDataURL({type:'png',pixelRatio:2,backgroundColor:'#fff'});}finally{chart.setOption({title:{show:false},legend:{top:4},grid:{top:option.grid.top}});}a.click();}));
 }
 
@@ -144,7 +156,8 @@ export function renderChart(host:HTMLElement,spec:ChartSpec){
 export function updateChart(host:HTMLElement,spec:ChartSpec){
  const existing=active.get(host);
  if(!existing||spec.exportImage){renderChart(host,spec);return;}
- const option=chartOptions(spec);
+ const plot=host.querySelector<HTMLElement>('.standard-chart-plot');
+ const option=chartOptions(spec,spec.orientation==='horizontal'&&plot?{width:plot.clientWidth}:undefined);
  // New zoom options omit start/end, so ECharts retains the current window while updating availability.
  existing.chart.setOption(option,{replaceMerge:['series']});
  host.setAttribute('aria-label',publicText(spec.title));host.dataset.chartUnit=spec.unit;host.dataset.chartAxis=spec.axis;host.dataset.chartKind=spec.kind??'line';
