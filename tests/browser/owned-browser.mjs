@@ -117,7 +117,10 @@ const actionWait=(()=>{const value=process.env.OPENETRM_BROWSER_ACTION_WAIT_MS;i
 // Page actions share the same evaluator for the primary page and owned tabs.
 export function browserPageActions(evaluate,{pause=delay,now=()=>performance.now()}={}){
   const budget=(milliseconds=actionWait)=>{if(!Number.isFinite(milliseconds)||milliseconds<=0||milliseconds>60000)throw Error('Page action wait must be finite, positive and at most 60 seconds.');return milliseconds;};
-  async function wait(expression,milliseconds){const duration=budget(milliseconds),until=now()+duration;while(now()<until){if(await evaluate(expression))return;await pause(Math.max(0,Math.min(50,until-now())));}throw Error('Timed out after '+duration+'ms: '+expression);}
+  // A navigation the page makes while a poll runs answers that poll with an error; the condition is read again on the next page.
+  const navigated=error=>/"Inspected target navigated or closed"/.test(error.message);
+  const poll=async expression=>{try{return await evaluate(expression);}catch(error){if(navigated(error))return false;throw error;}};
+  async function wait(expression,milliseconds){const duration=budget(milliseconds),until=now()+duration;while(now()<until){if(await poll(expression))return;await pause(Math.max(0,Math.min(50,until-now())));}throw Error('Timed out after '+duration+'ms: '+expression);}
   async function click(selector,milliseconds){const duration=budget(milliseconds);await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);await wait(idle,duration);}
   async function set(selector,value){await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
   async function submit(selector,milliseconds){const duration=budget(milliseconds);await evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);await wait(idle,duration);}
