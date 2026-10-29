@@ -43,7 +43,8 @@ public sealed partial class TradeReads
                 if(!Equals(await permission.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
             var data=await database.Read(connection,ct,observationIds:view.Frame.ObservationIds,
                 referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
-            return new{holding=await blotter.Position(connection,data,view.CalculationFrame,selected,ct)};
+            return new{holding=await blotter.Position(connection,data,view.CalculationFrame,selected,ct),
+                curveNames=await new MarketReads(database).BoundCurveNames(connection,ct)};
         },ct);
     }
 }

@@ -1193,6 +1193,14 @@ Amended by the owner (2026-10-28).
   detail beneath that row in the Blotter, in place of the docked side panel's
   Position mode. New trade, Risk report and the assistant keep the side panel.
 
+Amended by the owner (2026-10-29): the inline control says **Close position
+view**. Double-clicking an individual trade row opens a separate, read-only
+window for its Terms, History and schedules. That window retains the selected
+snapshot, resolved knowledge context, trade binding and revision; every backend
+read still checks current authority. It does not advance the parent workspace's
+context or expose booking, amendment or settlement actions. A missing context or
+denied read clears the detail rather than substituting current data.
+
 ### Bounds and choices still open
 
 - Whether each row is itself a graph node (its amount depending on its price,

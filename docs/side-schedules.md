@@ -148,6 +148,14 @@ missing typed bindings and manifest mismatches remain hard errors. It never
 regenerates a booked schedule. Transient drafts use
 the same generator and pricing contracts without storing a schedule.
 
+Individual trade rows support an inline position view and a separate read-only
+window on double-click. Both inspect the backend's selected trade revision and
+retained market context. The separate window shares the existing product Terms,
+History and bounded schedule readers, including a selected PPA month's interval
+pages; it can read an individual position while complete-book pricing is
+unavailable. Current authority is checked again on every read. It does not run
+pricing in the browser or change the parent workspace's context.
+
 Unpublished chunks are immutable and bound to the actor, command, expected head
 and compiler versions. A seal checks complete typed content; a separate final
 publication header controls business visibility. Final publication, instrument

@@ -86,12 +86,17 @@ test('a close control detached during a refresh is enabled again when the page b
  assert.equal(f.host.hidden,true);assert.equal(f.closed.length,1);
 });
 
+test('opening an editor reports its new row height before a following prompt can focus below it',async()=>{
+ const f=fixture();await f.shell.show(position);
+ f.position.form(true);assert.deepEqual(f.resized,[false]);
+});
+
 test('returning a focused editor to its read keeps the current position visible, without moving another focus or a reset position',async()=>{
- const f=fixture();await f.shell.show(position);f.position.form(true);document.activeElement=f.host;
+ const f=fixture();await f.shell.show(position);f.position.form(true);f.resized.length=0;document.activeElement=f.host;
  f.position.form(false);assert.deepEqual(f.resized,[true]);
  f.resized.length=0;f.position.form(false);assert.deepEqual(f.resized,[],'drawing the existing read must not keep scrolling it back');
- f.position.form(true);document.activeElement=new Element();f.position.form(false);
- assert.deepEqual(f.resized,[],'another control now owns focus');
- f.position.form(true);f.shell.reset();document.activeElement=f.host;f.position.form(false);
+ f.position.form(true);f.resized.length=0;document.activeElement=new Element();f.position.form(false);
+ assert.deepEqual(f.resized,[false],'the layout changes without taking focus from another control');
+ f.position.form(true);f.resized.length=0;f.shell.reset();document.activeElement=f.host;f.position.form(false);
  assert.deepEqual(f.resized,[],'a reset must not bring back its old position');
 });

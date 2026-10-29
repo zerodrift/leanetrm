@@ -38,13 +38,17 @@ export function requirePricedFacts(facts:PositionFacts,priced:{context:FactsCont
 
 
 export type IndividualPosition={context:FactsContext;asOf:string;holding:Holding};
+export function readSelectedPosition(value:unknown,context:FactsContext,asOf:string,selected:Pick<PositionFact,'tradeId'|'bindingId'|'revision'|'instrumentType'>):IndividualPosition{
+ const response=value as IndividualPosition,holding=response?.holding;
+ if(!response?.context||!sameContext(response.context,context)||response.asOf!==asOf||!holding||key(holding)!==key(selected)||
+   String(holding.revision)!==String(selected.revision)||holding.instrumentType!==selected.instrumentType)
+  throw Error('The individual position does not match its booked facts. Refresh the Blotter.');
+ return response;
+}
 /** A single valuation belongs only to its requested, already displayed fact. */
 export function readIndividualPosition(value:unknown,facts:PositionFacts,selected:PositionFact):IndividualPosition{
-  const response=value as IndividualPosition,holding=response?.holding;
-  if(!response?.context||!sameContext(response.context,facts.context)||response.asOf!==facts.asOf||
-    !facts.positions.some(fact=>key(fact)===key(selected)&&fact.revision===selected.revision)||
-    !holding||key(holding)!==key(selected)||String(holding.revision)!==String(selected.revision)||
-    holding.instrumentType!==selected.instrumentType||holding.bookId!==selected.bookId)
+  const response=readSelectedPosition(value,facts.context,facts.asOf,selected);
+  if(!facts.positions.some(fact=>key(fact)===key(selected)&&fact.revision===selected.revision)||response.holding.bookId!==selected.bookId)
     throw Error('The individual position does not match its booked facts. Refresh the Blotter.');
   return response;
 }

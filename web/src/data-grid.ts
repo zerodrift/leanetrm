@@ -12,7 +12,7 @@ export const emptyGridLayout=():GridLayout=>({order:[],widths:{},sort:[]});
 // toolbarHost: where the filter toolbar (search, column filters, row count) is drawn, when not above the table.
 // giveUp: columns, by index, that the grid gives up in this order, one at a time, only while the columns it shows do not fit its width, as a
 // consumer that takes room from it asks; `fitColumns` changes them while the grid stands. A grid with room for all of them shows all.
-type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void;
+type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void;onRowDoubleOpen?:(index:number)=>void;
   cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:{keys:string[];order:string[];header:(key:string,count:number)=>HTMLElement};rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;giveUp?:readonly number[]};
 export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[],isBusy:()=>boolean,options:GridOptions){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,value?:string)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=publicText(value);return n;};
@@ -40,7 +40,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     choices.forEach((value,index)=>select.append(new Option(value||'(Blank)',String(index))));select.value=state.columns[i]===null?'':String(choices.indexOf(state.columns[i]!));
     select.onchange=()=>{if(!current())return;state.columns[i]=select.value===''?null:choices[Number(select.value)];apply();};label.append(select);filterPanel.append(label);selects.push(select);
   });
-  const container=el('div');container.className='standard-data-grid';host.replaceChildren(...(options.toolbarHost?[]:[toolbar]),filterPanel,hiddenNote,container);options.toolbarHost?.replaceChildren(toolbar);
+  // A selection can remove its hidden-row notice between native clicks. Keep
+  // the notice below the grid so that change cannot move a row under the pointer.
+  const container=el('div');container.className='standard-data-grid';host.replaceChildren(...(options.toolbarHost?[]:[toolbar]),filterPanel,container,hiddenNote);options.toolbarHost?.replaceChildren(toolbar);
   let alive=true,ready=false,markBuilt=()=>{};
   // Resolves once the table is built, so work asked for earlier waits for it instead of being skipped.
   const built=new Promise<void>(resolve=>{markBuilt=resolve;});
@@ -48,7 +50,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // A pointer gesture belongs to one row. Selection, dragging and scrolling
   // must not become an accidental edit when the pointer is released.
   let gesture:{row:Element|null;x:number;y:number;cancelled:boolean}|undefined;
-  const pointerDown=(event:PointerEvent)=>{gesture={row:(event.target as Element).closest('.tabulator-row'),x:event.clientX,y:event.clientY,cancelled:event.button!==0};};
+  const pointerDown=(event:PointerEvent)=>{const selection=window.getSelection();gesture={row:(event.target as Element).closest('.tabulator-row'),x:event.clientX,y:event.clientY,cancelled:event.button!==0||!!(selection&&!selection.isCollapsed&&container.contains(selection.anchorNode))};};
   const pointerMove=(event:PointerEvent)=>{if(gesture&&Math.hypot(event.clientX-gesture.x,event.clientY-gesture.y)>5)gesture.cancelled=true;};
   const cancelGesture=()=>{if(gesture)gesture.cancelled=true;};
   container.addEventListener('pointerdown',pointerDown,true);
@@ -139,14 +141,43 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // its focus before Tabulator handles that scroll and rebuilds the visible rows.
   const keepDetailFocusOnScroll=()=>{const held=focusedDetail();if(held)requestAnimationFrame(()=>{if(alive)restoreDetailFocus(held);});};
   container.addEventListener('scroll',keepDetailFocusOnScroll,true);
-  function openRow(row:any){if(!current()||!options.onRowOpen)return;const index=Number(row.getData().__sourceIndex);if(Number.isInteger(index)&&index>=0&&index<rows.length)options.onRowOpen(index);}
-  table.on('rowClick',(event:MouseEvent,row:any)=>{
+  function openRow(row:GridRow){if(!current()||!options.onRowOpen)return;const index=sourceIndex(row);if(Number.isInteger(index)&&index>=0&&index<rows.length)options.onRowOpen(index);}
+  function safeRowGesture(event:MouseEvent,targetRow:HTMLElement){
     const selection=window.getSelection(),target=event.target as Element;
-    if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||target.closest('a,button,input,select,textarea,[contenteditable=true],.position-expansion')||
-      selection&&!selection.isCollapsed&&container.contains(selection.anchorNode)||
-      event.detail>0&&gesture&&(gesture.cancelled||gesture.row!==row.getElement()))return;
+    return current()&&event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&
+      !target.closest('a,button,input,select,textarea,[contenteditable=true],.position-expansion')&&
+      !(selection&&!selection.isCollapsed&&container.contains(selection.anchorNode))&&
+      !(event.detail>0&&gesture&&(gesture.cancelled||gesture.row!==targetRow));
+  }
+  // Virtual redraws can replace a row element between the two clicks. The
+  // immutable source index identifies the same position within this grid.
+  let doubleCandidate:number|undefined;
+  const indexAt=(element:HTMLElement)=>{const row=table.getRows().find(row=>row.getElement()===element);return row?sourceIndex(row):undefined;};
+  // A second native mousedown selects a word before dblclick. Keep text
+  // selection available for drags and existing selections; suppress only that
+  // automatic selection for a second click on the same eligible row.
+  const secondMouseDown=(event:MouseEvent)=>{
+    const row=(event.target as Element).closest<HTMLElement>('.tabulator-row');
+    if(options.onRowDoubleOpen&&event.detail===2&&row&&doubleCandidate!==undefined&&indexAt(row)===doubleCandidate&&safeRowGesture(event,row))event.preventDefault();
+  };
+  container.addEventListener('mousedown',secondMouseDown,true);
+  table.on('rowClick',(event:MouseEvent,row:GridRow)=>{
+    const target=row.getElement();
+    if(!safeRowGesture(event,target)){doubleCandidate=undefined;return;}
+    if(options.onRowDoubleOpen&&event.detail>1)return;
+    doubleCandidate=options.onRowDoubleOpen&&event.detail===1?sourceIndex(row):undefined;
     openRow(row);
   });
+  // Handle the eligible double click before the grid's cell handler, which
+  // otherwise selects the whole cell even when mousedown was prevented.
+  const doubleClick=(event:MouseEvent)=>{
+    const target=(event.target as Element).closest<HTMLElement>('.tabulator-row'),candidate=doubleCandidate;doubleCandidate=undefined;
+    if(!options.onRowDoubleOpen||!target||candidate===undefined||!safeRowGesture(event,target))return;
+    const index=indexAt(target);if(index!==candidate)return;
+    if(index===undefined||!Number.isInteger(index)||index<0||index>=rows.length)return;
+    event.preventDefault();event.stopPropagation();options.onRowDoubleOpen(index);
+  };
+  container.addEventListener('dblclick',doubleClick,true);
   const searched=(cells:string[],index:number)=>options.searchText?[...cells,options.searchText[index]]:cells;
   function matches(row:Record<string,string>){return matchesTableRow(searched(headers.map((_,i)=>row[field(i)]),Number(row.__sourceIndex)),state.query,state.columns,options.visible,numeric);}
   const matchesSource=(index:number)=>matchesTableRow(searched(values[index],index),state.query,state.columns,options.visible,numeric);
@@ -205,9 +236,16 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     selectRow(index:number|null){opened=index;update();if(ready&&alive)for(const row of table.getRows())markOpen(row);},
     /** Retains the detail beneath its source row through sorting and virtual redraws. */
     detailRow(index:number|null,body:HTMLElement){
-      if(index===null){detail?.body.remove();detail=undefined;}else if(detail?.index!==index||detail?.body!==body){detail?.body.remove();detail={index,body};}
+      const changed=index===null?detail!==undefined:detail?.index!==index||detail?.body!==body;
+      if(index===null){detail?.body.remove();detail=undefined;}else if(changed){detail?.body.remove();detail={index,body};}
       sizeDetail();
-      if(ready&&alive)for(const row of table.getRows()){markOpen(row);row.normalizeHeight();}
+      if(ready&&alive){
+        for(const row of table.getRows()){markOpen(row);row.normalizeHeight();}
+        // Removing an offscreen detail also changes the virtual renderer's
+        // estimated row height and padding. A full public redraw rebuilds
+        // those estimates; retain the person's horizontal and vertical place.
+        if(changed&&index===null){const holder=container.querySelector<HTMLElement>('.tabulator-tableholder'),top=holder?.scrollTop??0,left=holder?.scrollLeft??0;table.redraw(true);if(holder){holder.scrollTop=top;holder.scrollLeft=left;}}
+      }
     },
     resizeDetail(keepVisible=false){
       sizeDetail();if(!ready||!alive)return;
@@ -229,6 +267,6 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     focusRow(index:number){whenDrawn(index,row=>row.getElement().focus({preventScroll:true}));},
     /** Scrolls the row of a source index into view, in the grid and in the page, as far as it takes to show it, once the grid has drawn again. */
     revealRow(index:number){whenDrawn(index,row=>row.getElement().scrollIntoView({block:'nearest'}));},
-    destroy(){if(!alive)return;alive=false;resizing.disconnect();gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',keepDetailFocusOnScroll,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);document.removeEventListener('focusin',focusChanged,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',keepDetailFocusOnScroll,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);document.removeEventListener('focusin',focusChanged,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }

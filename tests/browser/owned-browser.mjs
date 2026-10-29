@@ -155,9 +155,12 @@ export async function withOwnedBrowser(targetFile,browserPath,run){
     socket=new WebSocket(await waitForBrowserPage(directory,chrome));
     const {command,evaluate,wait,click,set,submit,abandon}=await connect(socket,errors);
     // Another tab of this browser, sharing its cookies and storage origin, over a debugger connection of its own.
-    async function tab(){
-      const port=await waitForBrowserPort(directory,chrome),response=await fetch(`http://127.0.0.1:${port}/json/new?about:blank`,{method:'PUT'});
-      const created=await response.json(),address=new URL(created.webSocketDebuggerUrl);
+    async function tab(targetId){
+      const port=await waitForBrowserPort(directory,chrome),response=await fetch(`http://127.0.0.1:${port}`+(targetId===undefined?'/json/new?about:blank':'/json/list'),{method:targetId===undefined?'PUT':'GET'});
+      const found=await response.json(),created=targetId===undefined?found:found.find(item=>item.id===targetId);
+      if(!created)throw Error('The owned popup target is unavailable.');
+      if(targetId!==undefined){const popup=new URL(created.url);if(popup.origin!==url.origin||popup.pathname!=='/position.html')throw Error('Only this owned browser’s trade popup can be attached.');}
+      const address=new URL(created.webSocketDebuggerUrl);
       if(created.type!=='page'||address.protocol!=='ws:'||address.hostname!=='127.0.0.1'||address.port!==String(port)||!/^\/devtools\/page\/[^/]+$/.test(address.pathname))
         throw Error('Browser debugger tab URL does not match the exact owned loopback port.');
       const other=new WebSocket(address.href),driver=await connect(other,errors);tabs.push({other,driver});

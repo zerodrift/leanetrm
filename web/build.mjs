@@ -1,7 +1,7 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import {bundleApplication} from './bundle-app.mjs';
 mkdirSync('dist', { recursive: true });
-for (const file of ['index.html', 'app.css']) copyFileSync(`src/${file}`, `dist/${file}`);
+for (const file of ['index.html', 'app.css','position.html','position-window.css']) copyFileSync(`src/${file}`, `dist/${file}`);
 
 mkdirSync('dist/vendor', {recursive:true});
 for(const [source,target] of [
@@ -23,10 +23,12 @@ for(const [source,target] of [
 const library=readFileSync('node_modules/klinecharts/dist/index.esm.js','utf8');
 if(library.split('process.env.NODE_ENV').length!==2)throw Error('The chart library no longer reads process.env.NODE_ENV exactly once.');
 writeFileSync('dist/vendor/klinecharts.js',library.replace('process.env.NODE_ENV',"'production'"));
-const metafile=await bundleApplication('dist');
-const imported=Object.values(metafile.outputs)[0].imports.map(item=>item.path);
-// Only the vendor modules the application imports are preloaded.
-const preloads=imported.map(file=>`<link rel="modulepreload" href="${file.slice(1)}">`).join('');
-const html=readFileSync('dist/index.html','utf8'),entry='<script type="module" src="/app.js"></script>';
-if(html.split(entry).length!==2)throw Error('The built page must name one application module.');
-writeFileSync('dist/index.html',html.replace(entry,preloads+entry));
+for(const [name,page] of [['app.js','index.html'],['position-window.js','position.html']]){
+ const metafile=await bundleApplication('dist',name);
+ const imported=Object.values(metafile.outputs)[0].imports.map(item=>item.path);
+ // Only the vendor modules this page imports are preloaded.
+ const preloads=imported.map(file=>`<link rel="modulepreload" href="${file.slice(1)}">`).join('');
+ const html=readFileSync('dist/'+page,'utf8'),entry=`<script type="module" src="/${name}"></script>`;
+ if(html.split(entry).length!==2)throw Error('The built page must name one application module.');
+ writeFileSync('dist/'+page,html.replace(entry,preloads+entry));
+}

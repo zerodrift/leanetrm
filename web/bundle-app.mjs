@@ -4,9 +4,10 @@ import {build} from 'esbuild';
 
 export const vendorModules=Object.freeze(['./vendor/echarts.js','./vendor/tabulator.js','./vendor/klinecharts.js']);
 
-export async function bundleApplication(directory){
+export async function bundleApplication(directory,entry='app.js'){
+  if(!['app.js','position-window.js'].includes(entry))throw Error('Choose an application entry point.');
   const root=realpathSync(directory);
-  const result=await build({absWorkingDir:root,entryPoints:['app.js'],bundle:true,write:false,metafile:true,
+  const result=await build({absWorkingDir:root,entryPoints:[entry],bundle:true,write:false,metafile:true,
     format:'esm',platform:'browser',target:'es2022',external:vendorModules,logLevel:'silent'});
   const outputs=Object.values(result.metafile.outputs),imports=outputs[0]?.imports??[];
   for(const file of Object.keys(result.metafile.inputs)){
@@ -20,7 +21,7 @@ export async function bundleApplication(directory){
   const staging=mkdtempSync(join(cache,'app-bundle-')),temporary=join(staging,'app.js');
   try{
     writeFileSync(temporary,result.outputFiles[0].contents,{flag:'wx'});
-    renameSync(temporary,join(root,'app.js'));
+    renameSync(temporary,join(root,entry));
   }finally{rmSync(staging,{recursive:true,force:true});}
   return result.metafile;
 }

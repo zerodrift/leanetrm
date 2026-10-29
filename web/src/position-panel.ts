@@ -182,6 +182,7 @@ type Detail={key:string}&({state:'loading'}|{state:'ready';read:DetailRead}|{sta
  */
 export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal'|'focusForm'>,o:{
   zone:()=>string;busy:()=>boolean;canAmend:()=>boolean;
+  tabs?:readonly PositionTab[];
   /** Whether Curves & prices lists a market: a position in one it does not list has no curve to open. */
   curveListed:(curve:string)=>boolean;
   /** The market context the desk reads in, as a key: a trade read belongs to one. */
@@ -192,7 +193,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
    * a position is open, and `close` ends it, asking first when it holds edits.
    */
   amendment:{open:(h:Holding)=>void;shown:(h:Holding)=>boolean;close:()=>Promise<void>};
-  openCurve:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
+  openCurve?:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
 }){
   let input:PositionInput|undefined,tab:PositionTab='curve',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
   // Whether the last drawing found the position's amendment open, and whether the person has just opened it, which takes focus into it.
@@ -220,7 +221,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     const row=el('div','side-panel-actions'),amend=el('button',undefined,'Amend'),open=el('button','secondary','Open curve'),note=el('p','field-help side-panel-note'),openNote=el('p','field-help side-panel-note');
     amend.type=open.type='button';amend.id='side-panel-amend';open.id='side-panel-open-curve';note.id='side-panel-amend-note';openNote.id='side-panel-open-curve-note';note.hidden=openNote.hidden=true;
     amend.onclick=()=>{if(o.amendment.shown(at.holding))void o.amendment.close().then(sync);else o.amendment.open(at.holding);};
-    open.onclick=()=>{const target=openCurveTarget(at.holding,at.row,at.shape);o.openCurve(target.curve,target.contractId);};
+    open.onclick=()=>{const target=openCurveTarget(at.holding,at.row,at.shape);o.openCurve?.(target.curve,target.contractId);};
     row.append(amend,open);actions={amend,open,note,openNote};
     shell.element('head').replaceChildren(kicker,title,el('p','side-panel-sub',now.subtitle),value,row,note,openNote);
   }
@@ -359,7 +360,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     for(const button of view().querySelectorAll<HTMLButtonElement>('.side-panel-terms-actions button'))button.disabled=o.busy();
     actions.note.hidden=control.note===null;actions.note.textContent=control.note===null?'':publicText(control.note);
     const several=at.row.severalCurves,listed=!several&&o.curveListed(at.holding.curve);
-    actions.open.disabled=o.busy()||!listed;say(actions.openNote,actions.open,curveNote(listed,several));
+    actions.open.hidden=!o.openCurve;actions.open.disabled=o.busy()||!listed;say(actions.openNote,actions.open,o.openCurve?curveNote(listed,several):null);
     if(!o.busy())refocus();
   }
   // Shows a reason beside a button, and points the button at it for assistive technology; nothing shown and nothing pointed at for none.
@@ -371,7 +372,9 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     /** Shows a position on its requested tab, or Terms when none is selected. */
     show(next:PositionInput,start:PositionTab='terms'){
       input=next;tab=start;detail=undefined;held=undefined;generation++;
-      tabs=setupTabs(shell.element('tabs'),positionTabs,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>{tab=id as PositionTab;paint();shell.element('body').scrollTop=0;}});
+      const available=o.tabs?positionTabs.filter(([id])=>o.tabs!.includes(id)):positionTabs;
+      if(!available.some(([id])=>id===start))throw Error('Choose an available position tab.');
+      tabs=setupTabs(shell.element('tabs'),available,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>{tab=id as PositionTab;paint();shell.element('body').scrollTop=0;}});
       paint();
     },
     /** Draws the same position again from a newer read of the desk. */

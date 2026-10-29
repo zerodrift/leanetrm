@@ -90,7 +90,7 @@ export function setupDeskPanel(o:{
   let openedAt:number|undefined;
   function drop(){o.position.clear();openedAt=undefined;o.grid()?.selectRow(null);}
   // Draws the position the panel is on from the read on screen now, or closes the panel, saying so, when that read does not hold it.
-  function draw(opening:boolean,tab?:PositionTab){
+  function draw(opening:boolean,tab?:PositionTab,reveal=true){
     const mode=o.shell.current();
     if(mode?.kind!=='position')return;
     const index=positionIndex(o.holdings()??[],mode),at=index<0?undefined:o.input(index);
@@ -98,17 +98,19 @@ export function setupDeskPanel(o:{
     openedAt=index;
     if(opening)o.position.show(at,tab);else o.position.update(at);
     o.grid()?.selectRow(index);
-    // A position opened by a booking or by the assistant can be a row out of sight: it is shown, as a row the person pressed already is.
-    if(opening)o.grid()?.revealRow(index);
+    // Booking and assistant targets can be offscreen. A row press already
+    // names the visible row; scrolling its expanded height would move that
+    // row's ordinary cells away from the pointer before a second click.
+    if(opening&&reveal)o.grid()?.revealRow(index);
   }
   return {
     /** Opens the position of a row, on a tab when one is named. The row that is already open is only given focus: its tab and its reads stay. */
-    async open(index:number,tab?:PositionTab){
+    async open(index:number,tab?:PositionTab,reveal=true){
       const h=o.holdings()?.[index];
       if(!h||!o.input(index))return;
       const mode=positionMode(h),shown=sameMode(o.shell.current(),mode);
       // The person may be asked first, and a newer read may land while they decide: the position is looked up when they have.
-      if(await o.shell.show(mode)&&!shown)draw(true,tab);
+      if(await o.shell.show(mode)&&!shown)draw(true,tab,reveal);
     },
     /** The workspace row of the position the panel shows now in the read on screen, or nothing. */
     shown(){

@@ -66,6 +66,8 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
             ALTER TABLE trading.ppa_instruments ENABLE TRIGGER retained_side_schedules;
             COMMIT;""")
     assert query("SELECT t.tgenabled FROM pg_trigger t WHERE t.tgrelid='trading.ppa_instruments'::regclass AND t.tgname='retained_side_schedules';")=='O'
+    incomplete_ids=set(json.loads(query(f"SELECT json_agg(trade_id) FROM trading.ppa_trade_revisions WHERE book_id='{large_book}';")))
+    assert len(incomplete_ids)==2
     incomplete_preview=fixture.preview(long_terms,scope='books',ids=[large_book],expected=422)
     assert incomplete_preview['code']=='side_schedule_missing' and 'valueExcludingOverdue' not in incomplete_preview,incomplete_preview
     # Retain a position in the separately published bundle. Scope inspection
@@ -114,17 +116,21 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
     viewer.call('jobs/close-book-risk/create',body,expected=403)
     print('PASS close risk: explicit policies, replay conflict and current submission authority',flush=True)
     before_jobs=query('SELECT count(*) FROM automation.jobs;')
-    for selected,code in [(large_book,'side_schedule_missing'),(mixed_book,'pilot_close_inputs'),(unsupported_book,'pilot_close_inputs')]:
+    for selected in (large_book,mixed_book,unsupported_book):
         refused=deepcopy(body);refused['schedule']['requestId']=str(uuid4());refused['definition']['bookIds']=[selected]
         started=time.monotonic()
         result=owner.call('jobs/close-book-risk/create',refused,expected=422)
-        assert result['code']==code and 'totals' not in result,(selected,code,result)
+        assert result['code']=='pilot_close_inputs' and 'totals' not in result,(selected,result)
+        if selected==large_book:
+            affected={x['tradeId'] for x in result['affectedBindings']}
+            assert affected and affected<=incomplete_ids,result
+            assert {x['reason'] for x in result['affectedBindings']}=={'side_schedule_missing'},result
         if selected==mixed_book:
             assert {x['tradeId'] for x in result['affectedBindings']}=={incompatible['tradeId']},result
         if selected==unsupported_book:
             assert {x['tradeId'] for x in result['affectedBindings']}=={unsupported['tradeId']},result
         assert query('SELECT count(*) FROM automation.jobs;')==before_jobs
-        print(f'PASS close risk: {code} refusal in {time.monotonic()-started:.3f}s without admission',flush=True)
+        print(f'PASS close risk: complete-scope refusal in {time.monotonic()-started:.3f}s without admission',flush=True)
     print('PASS close risk: missing retained schedules and incompatible complete books refuse admission without partial totals',flush=True)
 
     def due(job):

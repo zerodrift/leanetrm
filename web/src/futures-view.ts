@@ -1,4 +1,5 @@
 import {readPpaView} from './ppa-trade-view.js';
+import {openPositionWindow,type PositionWindowSelection} from './position-window-selection.js';
 import {readPositionFacts,requirePricedFacts,readIndividualPosition,type PositionFacts,type PositionFact,type IndividualPosition} from './position-facts.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {type PartyCatalog,type Trader} from './trade-annotations.js';
@@ -252,6 +253,16 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
   // control disabled. `kept` hears that the person kept them, for a control that has already changed.
   function guarded(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await leave())await act(work);else kept?.();})();}
+  function popout(selected:Pick<PositionFact,'tradeId'|'bindingId'|'revision'|'instrumentType'>){
+    if(busy())return;
+    if(editing()||pending.command){options.notice('Finish the current trade edit before opening a separate trade window.');return;}
+    const read=holdings??facts;
+    if(!read||!snapshot)throw Error('Read the position facts before opening a separate trade window.');
+    const selection:PositionWindowSelection={snapshotId:snapshot,context:read.context,asOf:read.asOf,
+      tradeId:selected.tradeId,bindingId:selected.bindingId,revision:selected.revision,instrumentType:selected.instrumentType,zone:options.zone(),
+      example:(new URL(location.href).searchParams.get('example')??'baseline') as PositionWindowSelection['example']};
+    openPositionWindow(location.href,selection,(url,target,features)=>window.open(url,target,features));
+  }
   // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
   function settle(h:Holding){guarded(()=>swapEditor.openSettlement(h));}
   // New trade (D221) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
@@ -587,7 +598,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
         onLayout:layout=>{if(!shown)view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
         group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>shown?riskGroupHeader(headers.get(key)!,count,leftOut(key)):groupHeader(headers.get(key)!,count,money)}:undefined,
         initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
-        onRowOpen:index=>void deskPanel.open(index)});
+        onRowOpen:index=>void deskPanel.open(index,undefined,false),onRowDoubleOpen:index=>{const h=held[index];popout({...h,revision:Number(h.revision),instrumentType:h.instrumentType as PositionFact['instrumentType']});}});
       workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>{
         if(busy())return;captureLayout();view.columns=selected;render();
       },[...deskFields]);
@@ -743,7 +754,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const previousFilters=factsGrid?.state();
     factsGrid=workspace.render('desk-positions','facts:'+facts.context.contextId,
       ['Trade','Book','Instrument','Market','Delivery','Booked quantity','Value'],rows,[],busy,
-      {keys:['tradeReference','book','instrumentType','market','delivery','bookedQuantity','value'],stretch:true,rowHeight:46,onReady:sync,layout:factsLayout,onLayout:layout=>{factsLayout=layout;},initial:previousFilters,cellTitles:rows,giveUp:[6,2,4,1],onRowOpen:index=>void openFact(index)});
+      {keys:['tradeReference','book','instrumentType','market','delivery','bookedQuantity','value'],stretch:true,rowHeight:46,onReady:sync,layout:factsLayout,onLayout:layout=>{factsLayout=layout;},initial:previousFilters,cellTitles:rows,giveUp:[6,2,4,1],onRowOpen:index=>void openFact(index),onRowDoubleOpen:index=>popout(facts!.positions[index])});
     workspace.columns([],[],()=>{});text('futures-summary',`${facts.positions.length} of ${facts.total} trade bindings loaded. ${message}.`);
     get('futures-page').dataset.pricingContext=facts.context.contextId;options.onReadContext(facts.asOf,facts.context.knownAt);sync();if(individual)deskPanel.sync();
   }
@@ -759,7 +770,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(started!==generation||whereAmI()!==scope||get('futures-page').hidden||individualController!==controller||holdings)return;
       if(facts?.context.contextId!==from.context.contextId)return;
       individual=readIndividualPosition(value,from,selected);
-      await deskPanel.open(0);
+      await deskPanel.open(0,undefined,false);
     }catch(error){
       if(started!==generation||whereAmI()!==scope||get('futures-page').hidden||individualController!==controller)return;
       if((error as {code?:string}).code==='access_denied')clear();

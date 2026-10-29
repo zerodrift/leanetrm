@@ -37,10 +37,12 @@ export function setupPositionExpansion(side:SidePanel,o:{unsaved:()=>boolean;bus
  const position={
   element:(name:'head'|'tabs'|'body'|'view'|'form')=>parts[name],
   form(on:boolean){
-   const active=document.activeElement,closing=!on&&!parts.form.hidden;
+   const active=document.activeElement,changed=on===parts.form.hidden,closing=!on&&!parts.form.hidden;
    const keepVisible=closing&&mode!==null&&(!active||host.contains(active)||active===document.body||active===document.documentElement);
    parts.view.hidden=on;parts.form.hidden=!on;
-   if(keepVisible)o.resized(true);
+   // A following prompt may focus beneath the newly opened form before the
+   // ResizeObserver runs. Measure this structural change synchronously.
+   if(changed&&mode!==null)o.resized(keepVisible);
   },
   reveal:()=>host.scrollIntoView({block:'nearest'}),
   focusForm(){

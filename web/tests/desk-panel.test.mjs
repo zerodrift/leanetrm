@@ -41,6 +41,14 @@ test('each binding of one trade opens its own position, and marks its own row',a
  assert.deepEqual(state.mode(),positionMode(second));
 });
 
+test('a row press opens its position without scrolling the row underneath the pointer',async()=>{
+ const state=desk();
+ await state.controller.open(0,undefined,false);
+ assert.deepEqual(state.log.filter(([what])=>what!=='shell.show'),[['position.show',0],['grid.select',0]]);
+ state.log.length=0;await state.controller.open(1);
+ assert.deepEqual(state.log.filter(([what])=>what==='grid.reveal'),[['grid.reveal',1]],'programmatic openings still bring their position into view');
+});
+
 test('pressing the row that is already open leaves the panel as it is, so its tab and its reads are kept',async()=>{
  const state=desk();
  await state.controller.open(0);state.log.length=0;
