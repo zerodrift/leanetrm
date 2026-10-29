@@ -321,6 +321,15 @@ exactly; their supported source adapters and interpreter must refuse unknown
 financial semantics. Database seal enforcement, authorized loading and live
 valuation through this format remain separate integration work.
 
+Input selection now propagates per-cell base/scenario eligibility through the
+stored operand addresses. Separate payment rows retain their own value dates and
+selection, even when they share a lookup. Broadcasts union source uses;
+reductions require their complete retained input windows. Holding and overdue
+amounts do not request unused discount factors. These are source requests under
+one context, not new schedule rows or a replacement execution graph. Source
+resolution, pricing and trade-owned settlement integration remain subsequent
+work; selecting the scenario lane does not make a published fixing shockable.
+
 ## Checks
 
 Behavior checks precede each implementation step and stay independent of the
