@@ -1,6 +1,7 @@
 # Side schedule evaluation
 
-Status: design accepted for the local implementation trial (2026-10-28). This
+Status: design accepted for the local implementation trial (2026-10-28), amended
+to retain executable schedules at booking (2026-10-29). This
 record specifies the contract, not completion evidence. Current executable scope
 and measurements are recorded in [whole-term side schedules](side-schedules.md).
 
@@ -18,10 +19,14 @@ observations, applications, averages and amounts, with one contribution per
 period or interval). D253 leaves open whether each row is itself a
 graph node, or the side reads node values and sums, and asks for a bound and a
 benchmark. D258 retains each booked side's complete schedule, rows and edges, in
-PostgreSQL. This record proposes how a loaded schedule executes: compiled once
-per calculation into columns, with node values read under one resolved context,
-and only the work a scenario changes repeated. D257 decides the price node the
-rows read. Neither changes D253's or D258's contract.
+PostgreSQL. The owner's 2026-10-29 amendment to D258 requires compilation at
+booking, with the complete executable schedule retained for every Side family.
+Booked valuation reads that program directly and binds its dynamic input columns
+under one resolved context; it does not compile or rebuild the schedule on load.
+Independent source reads run concurrently in bounded batches under the same
+temporal and authorization contract. D257 decides the price node the rows read.
+This supersedes the earlier compile-per-calculation proposal. Implementation and
+qualification of direct execution remain work.
 
 ## Baseline before the trial
 
@@ -68,8 +73,9 @@ D253 replaces both with `ScheduleRow`; the behaviour below is the parity target.
 
 The first matching row applies, in the order holding, discounted, overdue,
 delivered: a delivered certificate with a later value date is a holding, and
-delivered certificates take no payment key. Payment sides have only undue rows; a
-due payment is refused before valuation. Rows that are delivered but not yet paid
+delivered certificates take no payment key. Dated swap payment valuation admits
+only undue rows; a due payment is refused before valuation. Interval payment
+sides retain their explicit overdue measures. Rows that are delivered but not yet paid
 remain `InMeasure`: they are discounted and take scenario prices, including
 estimates under `EstimateUntilActual`. Price state (fixed, actual, published
 fixing, projected, modeled, estimated) is per row and need not be contiguous in
@@ -92,7 +98,7 @@ and reference revisions are unchanged. Two things are computed per row from the
 valuation instant, and together they form the partition:
 
 - **Value-date boundary.** Rows whose value date is after the valuation instant are
-  undue. Compilation retains a separate value-date index; one search finds them.
+  undue. Booking retains a separate value-date index; one search finds them.
   Payment order need not match delivery order.
 - **Delivered boundary.** Rows whose interval has ended are delivered. One search on
   interval ends finds them. It helps determine holdings and `EconomicClass`, and
@@ -103,14 +109,22 @@ Quantity state comes from the resolved quantity node; elapsed delivery alone doe
 not make a forecast metered or contractual. Delivery and payment indexes stay
 independent.
 
-Rows outside the measure (overdue and delivered) read base-context node values in
-every scenario, as today; a scenario evaluation therefore reads two contexts, both
-recorded.
+Rows outside the measure (overdue and delivered) read unshocked base values in
+every scenario. Base and shocked input lanes belong to the same resolved
+financial context, with their scenario identities recorded explicitly.
 
-## Compiled schedule
+Evaluated state keeps price selection, delivery progress, contractual expiry and
+payment state separate. A fixed price, elapsed delivery or expiry does not mean
+paid. Settlement state is resolved for the trade binding and obligation
+occurrence under the same effective time and knowledge cutoff; it is never
+stored as mutable state on a reusable Side. Missing lifecycle support remains
+explicit. This contract introduces no additional settlement commands.
 
-Valuation loads a booked side's retained schedule (D258), or takes a draft's
-transient one, and compiles it once per calculation into columns:
+## Booked executable schedule
+
+Booking constructs and validates the complete executable schedule (D258),
+including these columns and addresses. A draft constructs the same contract
+transiently. Booked valuation loads and executes it directly:
 
 | Column | Contents |
 | --- | --- |
@@ -121,19 +135,31 @@ transient one, and compiles it once per calculation into columns:
 | Node-to-row index | For each node, the contribution rows that read it |
 | Row map | For each retained row, the execution terms it contributes to: one observation may feed several slots, and several applications and averages fuse into one coefficient |
 
-Compilation follows the retained rows' roles, roots and edges and groups what the
-PV roots read. Grouping fuses rows into coefficients for execution only; no
-retained row is dropped, and drill-down re-evaluates any retained row on request
-from node values. Grouping is exact only for operations affine in their live price
+Booking follows the retained rows' roles, roots and edges and records what the
+PV roots read. No retained calculation is dropped, and bounded drill-down reads
+the same operation and cell addresses. Optional reductions follow stored
+instructions; valuation does not derive another execution plan from the rows.
+Grouping is exact only for operations affine in their live price
 nodes, with quantities independent of price: each operation version declares
 whether it is, and the declaration is checked independently. Affine grouping is
 an optional fast path. Other qualified operation versions use their declared
 model evaluator; an unsupported operation is refused rather than forced into a
-linear representation. This enables no option model by itself. The compiled schedule
+linear representation. This enables no option model by itself. The executable schedule
 holds references and contract terms only, never node values.
-Its identity is the side's economic identity, its instrument and slot context, its
-coverage, the definition and reference revisions (including clock, TOU and shape
-definitions) and the evaluation implementation version.
+The reusable program's identity includes the side's economic identity, exact
+definition and reference revisions (including clock, TOU and shape definitions),
+declared input-port shapes and execution version. The instrument's retained
+composition binds those ports to its sibling sides at booking; it does not make
+the reusable Side specific to that instrument. Value reuse additionally requires
+the resolved port mappings, coverage and full context/scenario. Requested
+coverage is an evaluation input, not a reason to rebuild the schedule.
+
+Publication must prove that executable instructions, operands, bindings, grids,
+ports and named roots agree with the typed relational definition. A content
+digest establishes byte integrity, not this semantic correspondence. Publication
+of both representations is atomic and idempotent. A missing or unsupported
+executable schedule refuses under the existing reporting policy; it never invokes
+a generator or falls back to the previous valuation path.
 
 ## One resolved context
 
@@ -162,6 +188,14 @@ records one identity and each role's cutoff explicitly:
   first record the context it belongs to. Discount factors have no rates cutoff
   yet; the step that records the context either defines one or explicitly leaves
   discount inputs to their current snapshot-identity check.
+
+Independent source requests use bounded parallel reads after the authorized
+context-capture transaction has committed and disposed. Each read uses its own
+connection, the same committed context and explicit source cutoffs, with current
+authorization; none captures a fresh current view. The caller joins complete
+immutable results and rechecks authority before publication. A failed or
+cancelled batch returns no partial successful valuation. This describes the
+required adapter boundary, not a completed database implementation.
 
 ## Evaluation
 
@@ -204,15 +238,18 @@ This is an exact regrouping of exact rational arithmetic. Parity covers both of
 today's forms: interval components (`quantity × (multiplier × price + adder)`)
 and dated swap payment applications (`(price + spread) × w_a / W_p × unit multiplier ×
 unit quantity × allocated quantity`). Which grouping is constant and which is
-live is a per-context property of the nodes, so the grouping is rebuilt with node
-values; the compiled schedule is not.
+live is a per-context property of the nodes. Coefficients and accumulators are
+computed values under stored reduction instructions; their values may change
+with context or scenario, while operation addresses and topology remain fixed.
+Non-affine operations retain interval evaluation. A shape or quantity shock must
+invalidate any reduced coefficients that depend on it.
 
 Period summaries key on `SidePeriodKey` (class, coverage, lifecycle, quantity
 state and value date); the modeled amount is a separate measure. The base
 valuation groups by
 `(p, d, SidePeriodKey, modeled)`; scenario valuations need PV only and use the
 coarse grouping. The Blotter's evaluated schedule (D253) is produced from the same
-compiled rows and node values on request, for example a month's rows at a time.
+stored rows and node values on request, for example a month's rows at a time.
 
 ## Answer to D253's row-node question
 
@@ -252,23 +289,21 @@ holds rates fixed); they remain future work.
 
 ## Reuse within and across calculations
 
-Within one calculation, a side's compiled schedule serves the base and every
-scenario. Across calculations the retained schedule (D258) is reloaded, and the
-graph already advances frames copy-on-write (`GraphSession.Advance`, or `Rebind`
-when a frame's resolved dependencies differ, as when a fixing instant passes and a
-node's dependency moves from its projection to its fixing). Reusing
-compiled columns across calculations needs a
-process-level cache, which today's design deliberately does not have ("No global
-cache or implicit current-data read exists"). It is not proposed here; a later
-proposal would define its authorization namespace, keying, retention bound and
-concurrency, with adversarial review, after measurements show compilation matters.
+Within one calculation, a side's loaded executable schedule serves the base and
+every scenario. Source selectors resolve the eligible input branches under the
+selected context. Crossing a fixing instant changes eligible source values and
+dependencies, not stored schedule instructions. Across calculations the same
+published executable schedule is reloaded. This proposes no process-level value
+cache; any later cache needs explicit authorization, identity, retention and
+concurrency rules with independent review. Shared-side value reuse also includes
+resolved sibling ports, requested coverage and the complete context/scenario.
 
 ## Identity and storage
 
-- The retained schedule (D258) is the stored artifact. Compiled columns are
-  derived per calculation and never stored; receipts add the evaluation
-  implementation version and the retained schedule's identity.
-- Equal compiled contents do not establish PV reuse across contexts
+- The retained schedule (D258) includes the executable artifact constructed at
+  booking. Receipts record its exact identity and execution version. Market
+  samples and evaluated values are not part of the reusable definition.
+- Equal executable contents do not establish PV reuse across contexts
   ([schedules](schedules-and-contract-sequences.md#shared-immutable-data-composition-and-the-fast-path)).
 - This record adds no table beyond D258's.
 
@@ -287,10 +322,11 @@ evaluation's algorithm:
    evaluation.
 2. **Lineage.** Every retained row maps to the execution terms it contributes to,
    and every row re-evaluated on request reconciles to its roots.
-3. **Schedule independence.** One side's compiled schedule is identical across
+3. **Schedule independence.** One side's executable schedule is identical across
    consecutive valuation dates and a fixing publication; only node values and the
-   partition differ. A correction changes node values, and compiled quantity terms
-   only where quantity preparation stays compiled (see open questions).
+   input-use masks differ. A correction changes resolved quantity, price or
+   discount values, not stored instructions. A booked read invokes no schedule
+   generator, lowering pass or replacement execution-graph compiler.
 4. **One context.** A snapshot or node input from another context is refused.
 5. **Node-level reuse.** A scenario reaching one node gives the same PV as full
    evaluation and recomputes only the terms that read it; the evaluated schedule
@@ -298,37 +334,39 @@ evaluation's algorithm:
 
 A benchmark records workload, unique sides, rows, nodes and contracts, scenarios,
 terms recomputed, allocations, retained memory and environment, separately for
-schedule loading, input preparation, schedule compilation, base evaluation and
-each scenario, as D253's row-node question requires.
+booking-time compilation, schedule loading, input preparation, base evaluation
+and each scenario, as D253's row-node question requires.
 
 ## Order of work
 
 The owner authorized a local implementation trial on 2026-10-28. Each behavior
 starts with an independent failing check. Publication and hosted schema changes
-remain separate actions. D253's side types and D258's retained schedules are separate
-work; steps 3 to 5 apply to their rows.
+remain separate actions. The 2026-10-29 amendment applies to every Side family.
+Each integration step is a separate reviewable commit:
 
 1. Benchmark the current interval and payment paths, separating input
    preparation from evaluation, for base and up/down.
 2. Record the resolved context on the market snapshot or its frame, and refuse
    valuation inputs that do not belong to it; define a rates cutoff for discount
    factors or explicitly keep their current check.
-3. Compile a loaded or draft schedule into columns, with its row map, and
-   evaluate it by the grouping above, behind the parity and lineage checks.
-4. Node-level scenario reuse from the scenario graph's affected closure. Interval
-   pricing (`IntervalPriceResolver`, `BlockShaping`) runs outside `GraphSession`
-   today; its price nodes must become graph nodes first.
-5. Produce the Blotter's evaluated schedule from the retained rows, the row map
-   and node values.
+3. Persist the complete executable schedule at booking, prove correspondence to
+   the typed definition, and load it without generators or read-time compilation.
+4. Resolve explicit dynamic inputs concurrently under one committed context,
+   preserving authorization, lineage, units and grids. Evaluate stored scalar and
+   vector instructions behind the exact parity and lineage checks.
+5. Reuse unaffected scenario values using declared dependencies and the retained
+   reverse addresses; compare with independent full repricing.
+6. Produce the Blotter's evaluated schedule and context-based row states from
+   retained addresses and resolved values.
 
 ## Open questions
 
 - Should a corrected historical view (context §7) select mark corrections known by
   `known_at`, rather than the frame's pins? That would refine D174 and needs its
   own decision.
-- Which parts of PPA quantity preparation (asset versions, normalization,
-  shaping) become graph nodes and which stay compiled terms; step 1's measurements
-  show whether it matters.
+- Which source algorithms require graph nodes for their supported scenarios.
+  Normalization and shaping remain explicit operations with declared dependencies
+  regardless of the source adapter; a product label does not select an evaluator.
 - How often grouping by payment and node reduces work on hourly-shaped books.
 - Which lifecycle policy the unified `FixedSide` and `FloatingSide` carry for a due
   payment, and where it is declared: today swaps refuse one (`side_payment_due`)

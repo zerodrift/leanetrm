@@ -302,7 +302,7 @@ through the evidence and acceptance criteria in the plan.
 | P40 | Deliver linear PPAs through audited interval series, shaped interval curves and reusable physical/financial sides | [PPA design](ppa-design.md): physical sides value commodity received or delivered at the location's effective-dated valuation curve; financial sides price the contractual payment; rows stay gross. `PpaInstrument` has open side memberships and a 1 MW contract-capacity unit; a virtual PPA has no physical side. Shaping calibrates stored additive or multiplicative shapes to a non-overlapping block partition. Pending actuals require an explicit fail or estimate policy; a virtual PPA may declare one net payment group of its own sides. Option-like terms are rejected. Phase C conventions and bounded consumers were subsequently accepted and implemented under D194–D201; the current catalog admits five explicit compositions, not arbitrary memberships. Net grouping and settlement remain proposals following P39 |
 | P41 | Refines D215 and D220: when settlement starts, a swap's Blotter row changes only `presentValue` (the remaining value), `mark` (none, and so no mark minus price), `settlement` and `lifecycle`. Its fixed price (the common one for a scheduled swap), delivery (floating dates for a single-period swap, the envelope for a scheduled one), market key, label and curves, side-2 quote multiplier, quantity, commodity and direction stay as the Projection row stated them | D220 keeps a position's booked facts whatever the close values; a lifecycle changes what values a position, not what was booked, and nulls would drop fixed-price statistics and move a single-period swap's delivery and market grouping when settlement starts. `--scheduled-swap-check` compares each swap's row before and after its first determination. Awaiting the owner's confirmation |
 | P42 | Move operational limits out of code into explicit, versioned configuration | [operational-limits.md](operational-limits.md): each limit keeps a fixed ceiling in code and the database, and its operating value moves to the agent version, installation settings (revisioned, under `ManageAgents` or `ManageAccess`) or hosted configuration, by owner. No value is filled in by code; a missing or out-of-range value is refused. Every operation records the revision or configuration digest it applied. Contract constants, calculation limits and pre-authorization guards stay fixed. Proposed 2026-10-27 after D251; awaiting the owner's review |
-| P43 | Evaluate D253 schedules by compiling rows once per calculation and reading node values under one resolved context | [side-plans.md](side-plans.md): answers D253's row-node question for D258's retained schedules. Rows are retained relationally but are not calculation-graph nodes; valuation compiles a loaded schedule into node, payment, term and row-map columns, reads price, quantity and discount node values under one resolved context that records each role's cutoff without changing D174, and sums by payment and live price node, with fixed prices, actuals and published fixings (D257) as constants. The schedule depends only on the side's parameters and revisions; time lives in the nodes and the partition. Scenarios recompute only the terms whose nodes are in the scenario graph's affected closure and report no per-node amount. No table beyond D258's and no cross-calculation cache. Accepted for the local implementation trial on 2026-10-28; revised after independent design review and recast under D253. Implementation qualification remains pending |
+| P43 | Execute D253's booked schedules directly with dynamic inputs under one resolved context | [side-plans.md](side-plans.md): answers D253's row-node question for D258's retained schedules. Rows are retained relationally but are not individual calculation-graph nodes. The owner's 2026-10-29 amendment supersedes compilation per calculation: booking retains the complete executable schedule, and valuation directly reads its price, quantity and discount inputs under one context with explicit per-role cutoffs. Independent authorized source reads run concurrently in bounded batches; source selection and evaluated row states vary with context while the stored instructions do not. Scenarios recompute affected terms and report no per-node amount. No cross-calculation value cache. Accepted for the local implementation trial on 2026-10-28, amended 2026-10-29; direct-execution implementation and qualification remain pending |
 
 ## Clarifications that must survive implementation
 
@@ -1538,15 +1538,44 @@ survives an amendment of later periods. A retained schedule serves both.
   (`swap_observation_schedules`, `swap_scheduled_periods`,
   `swap_power_quantity_intervals` and related rows) are superseded by rebooking under
   D253's definitions, with no compatibility path.
-- **Execution.** PostgreSQL stores; the managed backend evaluates. Loaded rows
-  compile into compact execution columns with a row map from each stored row to the
-  execution terms it contributes to, so lineage reaches every stored row (P43).
+- **Execution (owner amendment, 2026-10-29).** PostgreSQL retains the complete
+  executable schedule for every supported Side family, including dated and
+  interval sides. Booking constructs and validates the operation order, input
+  bindings, scalar/vector layouts, reductions, payment and lifecycle selectors,
+  sibling-port mappings and row/output maps. The managed backend evaluates that
+  retained program directly. A booked read does not regenerate schedules,
+  reconstruct a topology from Side parameters, lower expressions, or compile a
+  replacement execution graph. Deserialization reads the published instructions;
+  integrity, supported-version and current-authority checks remain mandatory.
+  Missing or inconsistent executable content refuses; it never triggers a builder.
+  The same executable contract serves all sided instruments, rather than a
+  PPA-specific valuation shortcut.
+  A valuation binds one resolved financial context and immutable scenario, then
+  resolves the program's price, fixing, discount and dynamic-quantity inputs.
+  Independent input reads execute concurrently in bounded batches, with shared
+  source requests deduplicated. Each read preserves the selected temporal cut,
+  exact input versions and current authorization. Dependency-ordered arithmetic,
+  normalization and shaping evaluate the stored instructions; changed inputs do
+  not change the stored schedule. No market samples or scenario values become
+  part of the reusable executable definition. Lineage maps evaluated values back
+  to the same published rows and roots.
   Loading does not reconstruct the superseded scalar-operation DAG. Bounded
   interval detail is a view over the retained vector operations and exact cells.
   Grid alignment, units and source dependencies are reusable column contracts;
   each financial or physical operation retains its own supported version and
   semantics. This does not authorize a generic scripting or matrix-expression
   language.
+- **Evaluated row state (owner clarification, 2026-10-29).** Row state is resolved
+  under the user's selected financial context, alongside prices and quantities;
+  it is not a mutable field on the published schedule. Price selection (forward,
+  actual or fixed), delivery progress, contractual expiry and payment state are
+  separate facts. Expiry or a fixed price never establishes payment. Settlement
+  facts belong to the trade binding and obligation occurrence, so trades sharing
+  a Side can have different payment states. Historical views use lifecycle facts
+  visible at their effective time and knowledge cutoff. Missing lifecycle support
+  is reported explicitly rather than inferred from a date. The common execution
+  path must preserve these distinctions in its evaluated schedule; this
+  clarification does not claim additional lifecycle commands are implemented.
 
 ### Qualification
 
