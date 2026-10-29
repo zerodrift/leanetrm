@@ -178,8 +178,14 @@ count and a sparkline, from one batched read at the selected close. Cards for
 curves the close cannot price say why ("No remaining contracts"). Choosing a
 card selects the curve, as the library does.
 
-**Library.** Unchanged in behavior, with the commodity dot and the curve's
-sparkline beside each name. `.curve-button` keeps its markup.
+**Curve kinds.** Each card, library row and the selected curve's header show
+the curve's kind (D259) as a coloured icon badge named by its label: Market
+settlement, Trader mark, Interest rate, Basis / spread or Scaled. The kind
+comes with the navigation read; the browser never infers it.
+
+**Library.** Unchanged in behavior, with the commodity dot, the kind badge and
+the curve's sparkline beside each name. `.curve-button` keeps its markup; its
+spans stay its text.
 
 **Selected curve.**
 
@@ -216,9 +222,12 @@ context or curve closes the panel.
 - **Header bar.** The curve's name, its state chip (Draft, Published, Unsaved
   changes) and version, and the actions on one line. Code, name and template
   move into the panel's **Details** mode.
-- **Library.** Saved curves as a list with state chips, replacing the select.
-  **New curve** starts from a blank graph or a template. The catalog read
-  already returns the state and version shown.
+- **Library.** Saved curves as a list with state chips, replacing the select,
+  grouped under their kind (D259) with its badge on each entry. **New curve**
+  starts from a blank graph or a template. The catalog read returns the state,
+  version and kind shown. The header shows the open saved version's kind badge;
+  an unsaved edit has none until it is saved. A source card shows the kind of
+  the curve or published curve it reads.
 - **Graph.** The workbench keeps its palette, board, formula mode and
   behavior. It becomes the main area, styled with tokens instead of literal
   colors.

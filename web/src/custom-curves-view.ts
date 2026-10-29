@@ -6,17 +6,19 @@ import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {setupCurveBlend} from './curve-blend.js';
 import {askInPanel,setupSidePanel,setupTabs} from './side-panel.js';
 import {renderTile,space} from './tiles.js';
+import {kindBadge,kindGroups,kindLabel,kindsVersion,type CurveKind} from './curve-kinds.js';
 
 type Choice={value:unknown;label:string};
 type Field={key:string;label:string;type:string;required?:boolean;options?:Choice[];help?:string;when?:{key:string;values:string[]}};
 type Operator={kind:string;label:string;description?:string;inputPorts:{name:string;label?:string;type:string;required?:boolean}[];outputType:string;fields:Field[];dynamicInputs?:{type:string;label:string;prefix:string}};
 type Template={code:string;name:string;description?:string;available?:boolean;unavailableReason?:string;definition:CurveDefinition;layout?:CurveLayout};
-type Recipe={id:string;version:number;generation:number;state:string;definition:CurveDefinition;layout?:CurveLayout;publishedAt?:string};
+type Recipe={id:string;version:number;generation:number;state:string;kind:CurveKind;definition:CurveDefinition;layout?:CurveLayout;publishedAt?:string};
 type ActivationSegment={effectiveFrom:string;effectiveTo:string;version:number;outputNode:string};
 type ActivationPlan={curveId:string;revision:number;policy:string;reason:string;segments:ActivationSegment[];knownFrom?:string|null};
 type Source={code:string;name:string;catalogId?:string;revisionId?:string;contracts?:{id:string;label:string;deliveryFrom:string;deliveryTo:string}[]};
 type Schedule={id?:string;version:number;symbol?:string;name:string};
-type Catalog={context?:{effectiveOn?:string;knownAt?:string};canEdit:boolean;canPublish:boolean;operators:Operator[];templates:Template[];sources:Source[];publishedSources?:{label:string;reference:PublishedSourceReference}[];calendars:(Source&{reference?:unknown})[];schedules:Schedule[];recipes:Recipe[];formulaSupported?:boolean};
+/** Saved curves, sources and published sources carry the backend's kind (D259, `kindsVersion`). */
+type Catalog={kindsVersion:typeof kindsVersion;context?:{effectiveOn?:string;knownAt?:string};canEdit:boolean;canPublish:boolean;operators:Operator[];templates:Template[];sources:(Source&{kind:CurveKind})[];publishedSources?:{label:string;kind:CurveKind;reference:PublishedSourceReference}[];calendars:(Source&{reference?:unknown})[];schedules:Schedule[];recipes:Recipe[];formulaSupported?:boolean};
 type Preview={columns:string[];rows:(string|null)[][];at?:string;snapshotId?:string;summary?:PreviewSummary;chart?:ChartSpec;context?:{effectiveOn?:string;knownAt?:string};dependencies?:unknown[];inputs?:unknown[];trace?:unknown;warnings?:string[]};
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Options={api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;source:()=>{snapshotId:string;context?:unknown};historical:()=>boolean;marketScopeChanged?:()=>void;unsavedChanged?:()=>void;
@@ -61,7 +63,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  // Header: the curve's name, its state and version, and the actions on one line.
  const head=el('header');head.className='custom-curve-head';const titles=el('div');titles.className='custom-curve-titles';
  const kicker=el('p','Custom curve');kicker.className='eyebrow';const heading=el('h2');heading.id='custom-curves-heading';
- const status=el('p');status.id='custom-curves-state';status.className='custom-curve-status';status.setAttribute('role','status');titles.append(kicker,heading,status);
+ const headKind=el('span');headKind.id='custom-curves-kind';const titleRow=el('div');titleRow.className='custom-curve-title-row';titleRow.append(headKind,heading);
+ const status=el('p');status.id='custom-curves-state';status.className='custom-curve-status';status.setAttribute('role','status');titles.append(kicker,titleRow,status);
  const previewButton=button('Preview','custom-curves-preview',()=>void o.act(preview));previewButton.className='secondary';
  const saveButton=button('Save draft','custom-curves-save',()=>void o.act(save));
  const publishButton=button('Publish','custom-curves-publish',()=>void o.act(publish));publishButton.className='secondary';
@@ -181,6 +184,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  function editAllowed(){return !!catalog?.canEdit&&!o.historical();}
  function renderStatus(){accessNote.hidden=!catalog||editAllowed();const previewAccess=document.getElementById('preview-access');accessNote.textContent=o.historical()?'This historical view is read-only. Return to current inputs to edit curves.':catalog?.canPublish?'This account can publish saved drafts, but editing is read-only. '+(previewAccess&&!previewAccess.hidden?'Choose Market Data Editor in Profile → Preview access to edit.':'Ask your workspace administrator for market-data authoring access.'):'Curve editing is read-only for this account. '+(previewAccess&&!previewAccess.hidden?'Choose Market Data Editor in Profile → Preview access to edit.':'Ask your workspace administrator for market-data authoring access.');
   heading.textContent=publicText(definition.name||(selected?selected.definition.name:'New curve'));
+  // The backend names a saved version's kind; an edit is not classified until it is saved.
+  headKind.replaceChildren(...selected&&!dirty?[kindBadge(selected.kind,'md')]:[]);
   const parts:HTMLElement[]=[];
   if(selected)parts.push(chip(recipeStateLabel(selected.state),selected.state),el('span','Version '+selected.version));
   if(dirty)parts.push(chip('Unsaved changes','unsaved'),...(selected?[]:[el('span','Not saved yet')]));
@@ -210,13 +215,19 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  function openDefinition(next:CurveDefinition,positions:CurveLayout={},recipe?:Recipe,show?:View){generation++;clearGraphModes();effectiveCurve=undefined;clearActivation();mode='visual';definition=clone(next);layout={...positions};estimated.clear();selected=recipe;selectedNode=definition.nodes.find(node=>(catalog?.operators.find(operator=>operator.kind===node.kind)?.fields.length??0)>0)?.id||definition.output||definition.nodes[0]?.id||'';dirty=false;formulaDirty=false;formula.value='';templateHelp.textContent='';code.value=definition.code;name.value=definition.name;clearPreview();render();notifyMarketScope();if(show)showView(show);}
  function openRecipe(recipe:Recipe,show?:View){if(catalog){catalog.recipes=[...catalog.recipes.filter(r=>r.id!==recipe.id||r.version!==recipe.version),recipe];renderLibrary();}openDefinition(recipe.definition,recipe.layout,recipe,show);setTemplate('');}
  function renderLibrary(){const recipes=catalog?.recipes??[];
-  library.replaceChildren(...recipes.map(recipe=>{const item=el('li'),entry=button('','',()=>replacing(()=>openRecipe(recipe,activeView))),title=el('span',recipe.definition.name);entry.className='custom-curve-entry';entry.dataset.recipe=recipe.id+'|'+recipe.version;title.className='custom-curve-entry-name';entry.setAttribute('aria-label',`${recipe.definition.name}, ${recipeStateLabel(recipe.state)}, ${recipe.definition.code} version ${recipe.version}`);entry.append(title,chip(recipeStateLabel(recipe.state),recipe.state),el('small',`${recipe.definition.code} · v${recipe.version}`));item.append(entry);return item;}));
+  const entry=(recipe:Recipe)=>{const item=el('li'),entry=button('','',()=>replacing(()=>openRecipe(recipe,activeView))),title=el('span',recipe.definition.name);entry.className='custom-curve-entry';entry.dataset.recipe=recipe.id+'|'+recipe.version;title.className='custom-curve-entry-name';entry.setAttribute('aria-label',`${recipe.definition.name}, ${kindLabel(recipe.kind)}, ${recipeStateLabel(recipe.state)}, ${recipe.definition.code} version ${recipe.version}`);entry.append(kindBadge(recipe.kind),title,chip(recipeStateLabel(recipe.state),recipe.state),el('small',`${recipe.definition.code} · v${recipe.version}`));item.append(entry);return item;};
+  // Saved curves are grouped by kind, in the kinds' order; each group keeps the library's order. Every entry is drawn first, so that an
+  // unknown kind fails rather than drops its curve.
+  const entries=recipes.map(recipe=>({kind:recipe.kind,item:entry(recipe)}));
+  library.replaceChildren(...kindGroups.flatMap(g=>g.kinds).flatMap(kind=>{const listed=entries.filter(e=>e.kind===kind);if(!listed.length)return [];
+   const group=el('li'),name=el('span',kindLabel(kind)),list=el('ul');group.className='custom-curve-kind-group';name.className='custom-curve-kind-name';name.id='custom-curves-kind-'+kind;
+   list.className='custom-curve-list';list.setAttribute('aria-labelledby',name.id);list.append(...listed.map(e=>e.item));group.append(name,list);return [group];}));
   if(catalog&&!recipes.length){const none=el('li','No saved curves yet. Start a new curve to save one.');none.className='custom-curve-empty';library.append(none);}
   markLibrary();
   // Ingredients chosen for a combination the catalog no longer offers cannot be built, so they are not kept to block the page.
   if(!catalog?.operators.some(op=>op.kind==='weighted_panels'))blend.reset();
   templates.replaceChildren();option(templates,'','Choose a template…');for(const template of catalog?.templates??[])option(templates,template.code,template.name);const combination=catalog?.operators.find(op=>op.kind==='weighted_panels');blend.catalog(catalog?.publishedSources??[],combination?.fields.find(f=>f.key==='aggregation')?.options??[],combination?.fields.find(f=>f.key==='alignment')?.options??[]);}
- async function load(){clearActivation();clearPreview();const request=guard();catalog=undefined;library.replaceChildren();templates.replaceChildren();operations.replaceChildren();properties.replaceChildren();canvas.replaceChildren();code.value='';name.value='';sync();notifyMarketScope();const loaded=await o.api<Catalog>('custom-curves');if(!current(request))return;catalog=loaded;discarded=false;if(selected&&!catalog.recipes.some(recipe=>recipe.id===selected?.id&&recipe.version===selected.version)){definition=empty();layout={};selected=undefined;selectedNode='';dirty=false;effectiveCurve=undefined;}try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?{...JSON.parse(stored),uncertain:true}:undefined;}catch{pending.clear();}renderLibrary();renderPalette();formulaButton.hidden=!catalog.formulaSupported;render();notifyMarketScope();}
+ async function load(){clearActivation();clearPreview();const request=guard();catalog=undefined;library.replaceChildren();templates.replaceChildren();operations.replaceChildren();properties.replaceChildren();canvas.replaceChildren();code.value='';name.value='';sync();notifyMarketScope();const loaded=await o.api<Catalog>('custom-curves');if(!current(request))return;if(loaded.kindsVersion!==kindsVersion)throw Error('The curve library is inconsistent. Refresh and try again.');catalog=loaded;discarded=false;if(selected&&!catalog.recipes.some(recipe=>recipe.id===selected?.id&&recipe.version===selected.version)){definition=empty();layout={};selected=undefined;selectedNode='';dirty=false;effectiveCurve=undefined;}try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?{...JSON.parse(stored),uncertain:true}:undefined;}catch{pending.clear();}renderLibrary();renderPalette();formulaButton.hidden=!catalog.formulaSupported;render();notifyMarketScope();}
  async function reloadSelected(){const request=guard(),id=selected?.id,version=selected?.version;await load();if(!current(request)||!id)return;const fresh=catalog?.recipes.find(recipe=>recipe.id===id&&recipe.version===version);if(fresh)openRecipe(fresh);}
  let shownTemplate='';
  function setTemplate(code:string){templates.value=code;shownTemplate=code;}
@@ -352,6 +363,11 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   const target=document.elementFromPoint(event.clientX,event.clientY)?.closest<HTMLButtonElement>('[data-connect-target]');if(target&&canvas.contains(target))target.click();else cancelConnect();};
  board.addEventListener('pointerup',endWire);board.addEventListener('pointercancel',endWire);
 
+ /** The backend's kind of the curve a source card reads, when the catalog lists it. */
+ function ingredientKind(node:CurveNode){
+  if(node.kind==='source')return catalog?.sources.find(s=>s.code===node.parameters.curve)?.kind;
+  if(node.kind==='published_source')return catalog?.publishedSources?.find(s=>JSON.stringify(s.reference)===JSON.stringify(node.publishedSource))?.kind;
+ }
  function targetButton(label:string,run:()=>void){const node=button('','',run);node.className='custom-curve-dot connectable';node.dataset.connectTarget='';node.setAttribute('aria-label',label);return node;}
  function renderCard(node:CurveNode,targets:ConnectableTarget[]){
   const position=layout[node.id],card=el('section'),title=nodeTitle(node),editable=editAllowed(),operator=operatorOf(node);
@@ -359,7 +375,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   card.className='custom-curve-node'+(selectedNode===node.id?' selected':'')+(definition.output===node.id?' output':'')+(isSource?' connect-source':'')+(connecting&&!isSource&&!mine.length?' dimmed':'');
   card.dataset.nodeId=node.id;card.dataset.kind=node.kind;card.style.left=position.x+'px';card.style.top=position.y+'px';card.setAttribute('aria-label',title+' '+node.id);
   card.onclick=event=>{if((event.target as Element).closest('button,li[data-contract-id]'))return;selectNode(node.id);};
-  const handle=button(title,'',()=>selectNode(node.id));handle.className='custom-curve-node-handle';handle.setAttribute('aria-label','Select or move '+title);handle.setAttribute('aria-pressed',String(selectedNode===node.id));handle.setAttribute('aria-haspopup','menu');handle.setAttribute('aria-expanded','false');
+  const handle=button(title,'',()=>selectNode(node.id)),kind=ingredientKind(node);handle.className='custom-curve-node-handle';handle.setAttribute('aria-label','Select or move '+title+(kind?', '+kindLabel(kind):''));if(kind)handle.prepend(kindBadge(kind));handle.setAttribute('aria-pressed',String(selectedNode===node.id));handle.setAttribute('aria-haspopup','menu');handle.setAttribute('aria-expanded','false');
   withMenu(card,at=>cardMenu(node,at),handle);
   handle.onkeydown=event=>{if(o.busy()||!editAllowed()||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();layout[node.id]={x:Math.max(0,layout[node.id].x+(event.key==='ArrowRight'?12:event.key==='ArrowLeft'?-12:0)),y:Math.max(0,layout[node.id].y+(event.key==='ArrowDown'?12:event.key==='ArrowUp'?-12:0))};estimated.delete(node.id);renderGraph();focusCard(node.id);};
   handle.onpointerdown=event=>{if(o.busy()||!editAllowed()||event.button!==0)return;selectedNode=node.id;drag={id:node.id,pointer:event.pointerId,startX:event.clientX,startY:event.clientY,x:position.x,y:position.y};handle.setPointerCapture(event.pointerId);};
