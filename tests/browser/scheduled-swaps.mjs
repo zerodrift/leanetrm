@@ -5,6 +5,8 @@ import {newTrade} from './new-trade.mjs';
 // Scheduled financial swaps (D214) are booked, read and amended in the Blotter's side panel (D221): the scheduled ticket takes the panel's
 // form part in place of the swap ticket, and a booked scheduled trade opens from its row, its terms by period and its review in Terms.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
+ // Native typing needs the same focused-page behavior as an interactive window.
+ await command('Emulation.setFocusEmulationEnabled',{enabled:true});
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('trader');
  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{const response=await send(input,init);if(input==='/api/swaps/scheduled-price')window.scheduledPricing={request:JSON.parse(init.body),status:response.status,result:await response.clone().json()};if(input==='/api/swaps/book'&&response.ok){window.scheduledBooking={request:JSON.parse(init.body),result:await response.clone().json()};}return response;};})()`);
@@ -18,7 +20,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await wait("document.querySelector('#side-panel').hidden&&document.querySelector('#position-details')?.hidden!==false&&"+idle);
  }
  // Typing as a person does, which the form counts as an edit.
- const typeInto=async(selector,text)=>{await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);await command('Input.insertText',{text});};
+ const typeInto=async(selector,text)=>{
+  await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);
+  await wait(`document.activeElement===document.querySelector(${JSON.stringify(selector)})`);
+  await command('Input.insertText',{text});
+  await wait(`document.querySelector(${JSON.stringify(selector)}).value===${JSON.stringify(text)}`);
+ };
  // The panel shows a position: a row is pressed, after the search leaves only that row.
  async function openRow(reference){
   await set('#blotter-filters .table-search',reference);await wait(idle);
