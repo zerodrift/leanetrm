@@ -24,7 +24,11 @@ public sealed record CurveScheduleReference(Guid CatalogId,Guid Id,int Version);
 public sealed record CustomCurveVersion(Guid Id,int Version,int Generation,string State,RecipeDefinition Definition,
     ImmutableDictionary<string,CurveNodePosition> Layout,int? PublicationOrder,DateTimeOffset? PublishedAt,
     ImmutableDictionary<string,CurveSourceReference> Sources,ImmutableDictionary<string,CalendarReference> Calendars,
-    ImmutableDictionary<string,CurveScheduleReference> Schedules,string EngineVersion="custom_curve_recipe_v2");
+    ImmutableDictionary<string,CurveScheduleReference> Schedules,string EngineVersion="custom_curve_recipe_v2")
+{
+    // Named from the exact saved definition at read time, never stored.
+    public string Kind=>CurveKinds.Of(Definition);
+}
 
 // Normalized graph persistence. Only operator scalars and layout are JSON; reference relationships use FKs.
 public sealed class CustomCurvesStore(PreviewDatabase database)

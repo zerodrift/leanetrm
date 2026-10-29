@@ -11,6 +11,15 @@ def run_checks(url, query=None, manifest=None):
     client.call('profile',{'profile':'viewer'})
     catalog=client.call('custom-curves')
     assert not catalog['canEdit'] and not catalog['canPublish']
+    # Each curve is named by its exact definition: market curves by rule and role, saved graphs by their output step.
+    assert catalog['kindsVersion']=='curve_kinds_v1'
+    source_kinds={row['code']:row['kind'] for row in catalog['sources']}
+    assert (source_kinds['ng_monthly'],source_kinds['ng_daily'],source_kinds['ng_fixed_spread'],source_kinds['ng_fixed_bridge'])==('market_settlement','trader_mark','trader_mark','basis_spread'),source_kinds
+    navigation=client.call('workspace/navigation')
+    assert navigation['kindsVersion']=='curve_kinds_v1'
+    navigation_kinds={row['code']:row['kind'] for row in navigation['curves']}
+    assert all(navigation_kinds[code]==kind for code,kind in source_kinds.items()),navigation_kinds
+    assert set(navigation_kinds.values())<={'market_settlement','trader_mark','basis_spread','scaled','custom'},navigation_kinds
     templates={row['code']:row for row in catalog['templates']}
     assert {'ng_prompt','ng_balmo','ng_average'} <= templates.keys()
     frame=next(frame for frame in boot['frames'] if frame['at'].startswith('2020-12-18T16:00:00'))
@@ -117,6 +126,9 @@ def run_checks(url, query=None, manifest=None):
         assert client.call('custom-curves/publish',publish)['publicationOrder']==published['publicationOrder']
     client.call('profile',{'profile':'viewer'})
     assert any(r['id']==saved['id'] for r in client.call('custom-curves')['recipes'])
+    final=client.call('custom-curves')
+    assert next(r['kind'] for r in final['recipes'] if r['id']==saved['id'])=='prompt_contract'
+    assert [row['kind'] for row in final['publishedSources'] if row['reference']['curveId']==saved['id']]==['prompt_contract'],final['publishedSources']
     # A certified cutoff before publication must never discover the later graph.
     historical=client.call('market/context',{'effectiveOn':'2020-12-18','knownAt':before['context']['knownAt'],'mode':'at','selection':'latest_correction'})
     assert not any(r['id']==saved['id'] for r in client.call('custom-curves')['recipes'])

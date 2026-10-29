@@ -793,6 +793,10 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     prepared, events = settled(ask(agent_state=curve_agent, report={'page': 'custom_curves', 'selection': {}})['turn'])
     recorded = steps(prepared)
     result = answers(requests(since)[-1])['toolu_curve_2']
+    catalog = answers(requests(since)[-1])['toolu_curve_1'][0]['result']
+    check('the agent catalog names each curve by its kind and the version that classified it',
+          catalog['kindsVersion'] == 'curve_kinds_v1' and {r['code']: r['kind'] for r in catalog['sources']}['future'] == 'market_settlement'
+          and all(r['kind'] in ('prompt_contract', 'custom') for r in catalog['recipes']), catalog)
     check('the agent catalog and curve preparation use real pinned backend operations and issue an explicit proposal target without saving',
           prepared['state'] == 'completed' and [r['operation'] for r in recorded] == ['custom_curves.catalog_v1', 'custom_curves.prepare_v1', 'navigation.target_v1']
           and all(r['code'] is None for r in recorded) and result[1] is False
