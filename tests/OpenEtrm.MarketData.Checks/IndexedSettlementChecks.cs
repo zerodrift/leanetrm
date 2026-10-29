@@ -13,8 +13,8 @@ internal static class IndexedSettlementChecks
         foreach(var minutes in new[]{60,15})
         {
             var f=new PpaAcceptanceFixture(minutes);var physical=f.Physical(volume:true).Memberships[0];
-            var side=new PpaFloatingSide(Guid.NewGuid(),f.Terms(new SlotQuantity([new(PpaRole.EnergyDelivery)])),new(f.C("synthetic_hub"),PpaAcceptanceFixture.D("2"),new(PpaAcceptanceFixture.D("3"),f.EnergyPrice)));
-            var instrument=new PpaInstrument(Guid.NewGuid(),f.Definitions,f.Reference,[physical,new(new(PpaRole.IndexedPayment),side,PpaAcceptanceFixture.D("-1"))],[f.Asset.Key],false,PpaInstrument.Implementation);
+            var side=new FloatingSide(Guid.NewGuid(),f.Terms(new SlotQuantity([new(PpaRole.EnergyDelivery)]),normalization:physical.Side.Terms.Normalization),new(f.C("synthetic_hub"),PpaAcceptanceFixture.D("2"),new(PpaAcceptanceFixture.D("3"),f.EnergyPrice),null));
+            var instrument=new PpaInstrument(Guid.NewGuid(),f.Definitions,f.Reference,[physical,new(new(PpaRole.IndexedPayment),side,PpaAcceptanceFixture.D("-1"))],false,PpaInstrument.Implementation);
             var binding=new GrossPaymentBinding(Guid.NewGuid(),1,instrument,new(PpaRole.IndexedPayment),side.Id,new(f.From,f.To),PpaAcceptanceFixture.D("80"));
             var identity=new PaymentOccurrenceIdentity(f.Definitions.CatalogId,Guid.NewGuid(),Guid.NewGuid(),f.Month);
             var plan=MonthlyGrossPreview.Plan(identity,binding,[binding],false,null,f.To,f.Clock);

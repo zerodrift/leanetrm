@@ -79,7 +79,7 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
             // This contract has metered quantities and consumes no TOU/profile fallback.
             if(terms.NormalizationAssets.Length is <1 or >MonthlyGrossPreview.MaximumAssets)throw Error("incompatible","Declare one through four normalization assets explicitly.");
             var sideIds=envelope.GetProperty("sideIds").EnumerateArray().ToDictionary(s=>new SideSlot(PpaCompiler.Role(s.Text("role")),s.GetProperty("ordinal").GetInt32()),s=>s.Id("sideId"));
-            var instrument=PpaCompiler.Compile(data,terms,[],id,sideIds);
+            var instrument=PpaCompiler.Compile(data,terms,[],await PpaCompiler.ReadQuantityTypes(connection,data,terms,ct),id,sideIds);
             await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);compiled.Add(id,instrument);
         }
         GrossPaymentBinding Binding(JsonElement row,Guid side,int origin,string role,int ordinal)=>new(row.Id("binding_id"),origin,compiled[row.Id("instrument_id")],new(PpaCompiler.Role(role),ordinal),side,
@@ -118,14 +118,14 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
         }).ToImmutableArray();
         GrossIndexedPrices? indexPrices=null;var priceSources=new List<object>();
         var known=IntervalSeriesStore.ParseInstant(request.KnownAt);
-        if(MonthlyGrossPreview.Member(original).Side is PpaFloatingSide)
+        if(MonthlyGrossPreview.Member(original).Side is FloatingSide)
         {
             if(lineage.Text("contract")!=MonthlyGrossPreview.IndexedImplementation)throw Error("incompatible","The lineage must explicitly opt into the indexed calculation contract.");
             data=new PreviewData(bundle,data.Definitions,data.References,await PreviewDatabase.ReadObservationPins(connection,bundle,frame.ObservationIds,ct)){CalendarDaysRead=true};
             var snapshot=data.Snapshot(frame);var tou=await PpaReads.Tou(connection,data,frame,context,[],ct);
             var (frozen,frozenContext)=await IntervalCurvesStore.FrozenKnowledge(connection,data,snapshot,known,ct);
             var curves=ImmutableDictionary.CreateBuilder<CurveKey,PreparedCurve>();
-            foreach(var group in plan.Contributions.GroupBy(r=>((PpaFloatingSide)MonthlyGrossPreview.Member(r.Binding).Side).Price.Curve))
+            foreach(var group in plan.Contributions.GroupBy(r=>((FloatingSide)MonthlyGrossPreview.Member(r.Binding).Side).Price.Curve))
             {
                 var spans=PpaReads.Union(group.Select(r=>new DeliveryCoverage(r.Interval.Start,r.Interval.End)));
                 var read=await PpaReads.ReadNativePrice(connection,data,frame,group.Key,spans,known,tou,frozen,ct);
@@ -146,7 +146,7 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
             due=new{at=plan.DueAt,status=frame.At>=plan.DueAt?"overdue_candidate":"not_due_candidate",paymentRuleId=lineage.Id("payment_rule_id"),adjustmentPolicy=lineage.Text("adjustment_due")},
             components=value.Components.Select(c=>new{key=c.Origin.Key,bindingId=c.Origin.Binding.BindingId,originRevision=c.Origin.Binding.OriginRevision,instrumentId=c.Origin.Binding.Instrument.Id,
                 sideId=c.Origin.Binding.SideId,originalMw=c.Origin.Binding.Mw.ToString(),c.Origin.Interval,c.Origin.Strike,paymentPrice=c.Index is null?null:new{c.PaymentPrice!.Numerator,c.PaymentPrice.Denominator},
-                index=c.Index is {} p?new{curve=((PpaFloatingSide)MonthlyGrossPreview.Member(c.Origin.Binding).Side).Price.Curve.Code,state=p.State.ToString(),p.Publication,contractuallyFinal=false,
+                index=c.Index is {} p?new{curve=((FloatingSide)MonthlyGrossPreview.Member(c.Origin.Binding).Side).Price.Curve.Code,state=p.State.ToString(),p.Publication,contractuallyFinal=false,
                     price=new{p.Price!.Numerator,p.Price.Denominator},p.DueAt,actual=new{p.Actual!.BatchId,p.Actual.Revision,p.Actual.KnownAt,value=p.Actual.Price.Value.ToString()}}:null,c.Origin.DueAt,c.Quantity,c.Cash,normalization=new{c.Normalization.Aggregate,c.Normalization.CapacityBasis,c.Normalization.PerUnit,
                     contributions=c.Normalization.Contributions.Select(n=>new{n.Volume.Asset,n.Volume.Source,n.Volume.AssetVersion,n.Volume.Stage,n.Volume.SourceStage,n.Volume.Energy,n.PerUnit,n.Volume.Series,n.Volume.Revision,n.Volume.KnownAt,n.Volume.ContextId})}}),
             proposalPins=new{lineage,tradeHead=head,selectedBindings=rows.Select(WireBinding),lineageMappings=mappings,originalBinding=WireBinding(originalRow),terms=envelopes.Values,knowledgeContext=context,knownAt=request.KnownAt,

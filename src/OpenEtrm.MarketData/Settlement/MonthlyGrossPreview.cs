@@ -48,8 +48,8 @@ public static class MonthlyGrossPreview
     public static PpaMembership Member(GrossPaymentBinding b)
     {
         var member=b.Instrument.Memberships.SingleOrDefault(m=>m.Slot==b.Slot && m.Side.Id==b.SideId);
-        if(member is null || !(b.Instrument.Capability=="fixed_physical" && b.Slot.Role==PpaRole.StrikePayment && member.Side is PpaFixedSide ||
-            b.Instrument.Capability=="indexed_physical" && b.Slot.Role==PpaRole.IndexedPayment && member.Side is PpaFloatingSide) || b.Mw.CompareTo(default)<=0 || b.BindingId==Guid.Empty || b.OriginRevision<1)
+        if(member is null || !(b.Instrument.Capability=="fixed_physical" && b.Slot.Role==PpaRole.StrikePayment && member.Side is FixedSide ||
+            b.Instrument.Capability=="indexed_physical" && b.Slot.Role==PpaRole.IndexedPayment && member.Side is FloatingSide) || b.Mw.CompareTo(default)<=0 || b.BindingId==Guid.Empty || b.OriginRevision<1)
             throw Invalid("incompatible","An exact original fixed or indexed physical payment membership and positive original MW are required.");
         return member;
     }
@@ -95,7 +95,7 @@ public static class MonthlyGrossPreview
             foreach(var interval in cells)
             {
                 var key=new PaymentContributionKey(identity.Catalog,identity.Trade,original.BindingId,original.Instrument.Id,original.Slot,interval.Start,interval.End);
-                rows.Add(new(key,b,interval,(member.Side as PpaFixedSide)?.Price.At(interval.OperatingDate),due));
+                rows.Add(new(key,b,interval,(member.Side as FixedSide)?.Price.At(interval.OperatingDate),due));
             }
         }
         if(rows.Count==0 || rows.Count>MaximumCells || rows.Select(r=>r.Key).Distinct().Count()!=rows.Count)throw Invalid("manifest","The selected month needs nonempty exclusive complete coverage.");
@@ -134,7 +134,7 @@ public static class MonthlyGrossPreview
                 cancellationToken.ThrowIfCancellationRequested();
                 var normalized=CapacityNormalization.PerUnit(selectedAssets,[..all.Where(v=>v.Interval==row.Interval.Delivery)],row.Interval.Delivery,volume.Stage,context);
                 var index=row.Strike is null?(prices??throw Invalid("price_missing","The explicit index requires complete eligible native prices.")).At(row):null;
-                var paymentPrice=row.Strike ?? index!.Price!.ScaleFraction(((PpaFloatingSide)Member(binding).Side).Price.Multiplier.ScaledValue,ExactDecimal.WorkingScale).Add(ExactUnitPrice.FromPrice(((PpaFloatingSide)Member(binding).Side).Price.Adder));
+                var paymentPrice=row.Strike ?? index!.Price!.ScaleFraction(((FloatingSide)Member(binding).Side).Price.Multiplier.ScaledValue,ExactDecimal.WorkingScale).Add(ExactUnitPrice.FromPrice(((FloatingSide)Member(binding).Side).Price.Adder));
                 var quantity=normalized.PerUnit.Scale(binding.Mw);var cash=quantity.Times(paymentPrice).Scale(Member(binding).Coefficient);
                 components.Add(new(row,normalized,quantity,cash){Index=index,PaymentPrice=paymentPrice});
             }

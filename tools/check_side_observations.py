@@ -28,7 +28,7 @@ def run_checks(url, query, manifest, psql=None, environment=None):
             'implementation': 'monthly_payment_date_rules_v1'}
     fixed = {'price': '3', 'currency': source['currencyCode'], 'deliveryFrom': '2021-01-01',
              'deliveryTo': '2021-02-01', 'paymentSchedule': rule}
-    floating = {'curve': source['curve'], 'index': source['index'], 'currency': source['currencyCode'],
+    floating = {'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': source['curve'], 'index': source['index'], 'currency': source['currencyCode'],
                 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule,
                 'resetFrequency': 'daily', 'averagingMethod': 'observation_arithmetic',
                 'observationSchedule': {'implementation': 'side_observation_schedule_v1', 'calendar': calendar, 'quantities': None}}
@@ -185,7 +185,7 @@ def _weighted_actuals_and_risk(client, query, context, draft, floating, booking,
     assert detail['valuation']['sides'][1]['payments'][0]['observationSchedule'] == inspection
     before_missing = query('SELECT count(*) FROM trading.publications;')
     missing_context = {**context, 'snapshotId': frame('2021-01-15T09:00:00')['id']}
-    period_query = {'definitionRevisionId': draft['definitionRevisionId'], 'commodity': draft['commodity'],
+    period_query = {'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'definitionRevisionId': draft['definitionRevisionId'], 'commodity': draft['commodity'],
                     'curve': floating['curve'], 'index': floating['index'], 'resetFrequency': 'daily', 'averagingMethod': 'quantity_weighted'}
     partial_dates = client.call('swaps/observation-options', {**period_query, 'context': partial_context})
     assert any(p['deliveryFrom'] == '2021-01-01' for p in partial_dates['deliveryPeriods'])

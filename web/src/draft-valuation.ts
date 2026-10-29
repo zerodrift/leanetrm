@@ -1,3 +1,4 @@
+import {projectionPolicyLabels,type ProjectionPolicyReceipt} from './projection-policy.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {clearChart,renderChart} from './chart-view.js';
 import {curveChart,type CurveShape} from './desk-model.js';
@@ -8,7 +9,7 @@ import {curveName,deliveryLabel,publicText} from './market-view.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 export type DraftPrice={context:{contextId:string};canRunDealRisk:boolean;unbooked:boolean;measure:string;currency:string;executionPnl?:string;valuation?:{presentValue:string};quantity?:{amount:string;specification:unknown};bumpPolicy:string;numericalPolicy:string;resolvedFixedPrice?:string;parRate?:{price:{value:string};decimalPlaces:number;policy:string}|null};
 type Draft={context:Record<string,unknown>;[key:string]:unknown};
-type Risk={measure:string;currency:string;factors:{factor:{curves:string[];deliveryFrom:string;deliveryTo:string};bump:string;basePv:string;upPnl:string;downPnl:string;delta:string;gamma:string;deltaUnit:string;gammaUnit:string}[]};
+type Risk={projectionPolicies:ProjectionPolicyReceipt[];measure:string;currency:string;factors:{factor:{curves:string[];deliveryFrom:string;deliveryTo:string};bump:string;basePv:string;upPnl:string;downPnl:string;delta:string;gamma:string;deltaUnit:string;gammaUnit:string}[]};
 
 // Presentation only: prices, conversions and scenarios are authorized backend
 // operations. Risk uses the exact context returned by Price, with no market roll.
@@ -18,13 +19,13 @@ type Risk={measure:string;currency:string;factors:{factor:{curves:string[];deliv
 export function draftValuation<D extends Draft>(host:HTMLElement,o:{product:'futures'|'swaps';api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;draft:()=>Promise<D>;key:()=>string;priced?:(result:DraftPrice)=>Promise<void>;denied:()=>void;
  markets:(draft:D)=>DraftMarket[];shape:(market:DraftMarket)=>Promise<CurveShape|string>}){
  let generation=0,retained:unknown,canRisk=false,requested=false;
- const title=document.createElement('h3'),actions=document.createElement('div'),price=document.createElement('button'),risk=document.createElement('button'),summary=document.createElement('p'),note=document.createElement('p'),curves=document.createElement('div'),rows=document.createElement('div');
+ const title=document.createElement('h3'),actions=document.createElement('div'),price=document.createElement('button'),risk=document.createElement('button'),summary=document.createElement('p'),note=document.createElement('p'),curves=document.createElement('div'),rows=document.createElement('div'),policies=document.createElement('div');
  title.className='draft-title';title.textContent='Price before booking';curves.className='draft-curves';
- actions.className='schedule-actions';price.type=risk.type='button';price.textContent='Price';risk.textContent='Risk';risk.className='secondary';summary.setAttribute('role','status');note.className='field-help';rows.className='table-wrap';actions.append(price,risk);host.replaceChildren(title,actions,summary,note,curves,rows);
+ actions.className='schedule-actions';price.type=risk.type='button';price.textContent='Price';risk.textContent='Risk';risk.className='secondary';summary.setAttribute('role','status');note.className='field-help';rows.className='table-wrap';actions.append(price,risk);host.replaceChildren(title,actions,summary,note,curves,policies,rows);policies.id=o.product+'-draft-projection-policies';
  price.id=o.product+'-draft-price';risk.id=o.product+'-draft-risk';summary.id=o.product+'-draft-value';rows.id=o.product+'-draft-exposure';curves.id=o.product+'-draft-curves';
  function sync(){price.disabled=o.busy();risk.disabled=o.busy()||!retained||!canRisk;}
  function takeDownCurves(){for(const plot of curves.querySelectorAll<HTMLElement>('.chart'))clearChart(plot);curves.replaceChildren();}
- function reset(clearRequest=true){if(clearRequest)requested=false;generation++;retained=undefined;canRisk=false;summary.textContent='';note.textContent='';takeDownCurves();rows.replaceChildren();sync();}
+ function reset(clearRequest=true){if(clearRequest)requested=false;generation++;retained=undefined;canRisk=false;summary.textContent='';note.textContent='';policies.replaceChildren();takeDownCurves();rows.replaceChildren();sync();}
  async function safe(work:()=>Promise<void>){try{await work();}catch(error){reset(false);if((error as {code?:string}).code==='access_denied')o.denied();throw error;}}
  async function priceCurrent(){
   requested=true;reset(false);const started=generation,key=o.key(),draft=await o.draft();if(started!==generation||key!==o.key())return;
@@ -58,9 +59,10 @@ export function draftValuation<D extends Draft>(host:HTMLElement,o:{product:'fut
  function line(text:string){const p=document.createElement('p');p.className='field-help';p.textContent=publicText(text);return p;}
  price.onclick=()=>void o.act(()=>safe(priceCurrent));
  risk.onclick=()=>void o.act(()=>safe(async()=>{
-  if(!retained)throw Error('Price the current instrument first.');const started=generation,key=o.key();rows.replaceChildren();
+  if(!retained)throw Error('Price the current instrument first.');const started=generation,key=o.key();rows.replaceChildren();policies.replaceChildren();
   const result=await o.api<Risk>(o.product+'/draft-risk',retained);if(started!==generation||key!==o.key())return;
   await prepareAmountDisplay(result,body=>o.api<string[]>('amounts/display',body));if(started!==generation||key!==o.key())return;
+  policies.replaceChildren(...projectionPolicyLabels(result.projectionPolicies).map(line));
   const raw=result.factors.map(r=>[r.factor.curves.map(curveName).join(' / '),deliveryLabel(r.factor.deliveryFrom,r.factor.deliveryTo),r.delta,r.deltaUnit,r.gamma,r.gammaUnit,r.basePv,r.upPnl,r.downPnl]);
   const display=raw.map((values,i)=>[...values.slice(0,2),amountText(result.factors[i].delta,'factor'),values[3],amountText(result.factors[i].gamma,'factor'),values[5],amountText(result.factors[i].basePv,'money'),amountText(result.factors[i].upPnl,'money'),amountText(result.factors[i].downPnl,'money')]);
   renderRegularTable(rows,o.product+'-draft-risk',key,['Market factor','Contract','Exposure','Exposure unit','Gamma','Gamma unit',`Base (${result.currency})`,`Up change (${result.currency})`,`Down change (${result.currency})`],raw,[2,4,6,7,8],o.busy,{displayRows:display});

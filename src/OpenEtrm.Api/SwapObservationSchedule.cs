@@ -43,7 +43,7 @@ public sealed partial class SwapStore
             new Quantity(ExactDecimal.Parse(Required(row.Quantity.Value)),row.Quantity.Specification))).ToImmutableArray());
     }
 
-    private static object? ObservationInspection(SidePaymentValue payment)
+    private static object? ObservationInspection(ScheduleRowValue payment)
     {
         if(payment.Plan.Averaging is not {} averaging)return null;
         var mode=SwapObservationCompatibility.Mode(averaging);

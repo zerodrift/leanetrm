@@ -4,14 +4,14 @@ using OpenEtrm.MarketData.Power;
 namespace OpenEtrm.MarketData.Trading;
 
 // One immutable input context owns this preparation cache. It stores raw asset work, never a side
-// value: a payment side's sibling bindings and its instrument's denominator remain calculation inputs.
+// value: typed sibling bindings and the side's complete normalization remain calculation inputs.
 internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
 {
     private readonly record struct RawScope(VolumeSourceKey Source,QuantityStage Stage,ReferenceKey Energy,DateOnly Month);
     private readonly Dictionary<RawScope,Dictionary<DateTimeOffset,AssetVolume>> raw=[];
     private readonly QuantitySeriesIndexes seriesIndexes=new(inputs.Context);
     private sealed record NormalizedVolume(PpaDelivery Delivery,QuantityStage Stage,ImmutableArray<VolumeSourceKey> Sources,
-        ImmutableArray<AssetKey> Assets,Quantity Unit,ReferenceKey Energy,ImmutableArray<DeliveryCoverage> Coverage,
+        DefinitionIdentity Normalization,ReferenceKey Energy,ImmutableArray<DeliveryCoverage> Coverage,
         ImmutableArray<PreparedQuantityRow> Rows);
     private readonly List<NormalizedVolume> normalizedVolumes=[];
     internal int VolumeComputations { get; private set; }
@@ -19,15 +19,16 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
     internal int SeriesValidations=>seriesIndexes.Validations;
     internal int SeriesSelections=>seriesIndexes.Selections;
 
-    internal ImmutableArray<PreparedQuantityRow> Prepare(PpaSide side,PpaInstrument instrument,
+    internal ImmutableArray<PreparedQuantityRow> Prepare(Side side,PpaInstrument instrument,
         Func<SideSlot,ImmutableArray<PreparedQuantityRow>> sibling)
     {
-        var prepared=side.Terms.Quantity switch
+        var terms=RetainedSideSchedules.Terms(side);
+        var prepared=terms.Quantity switch
         {
-            VolumeQuantity volume=>Volume(side.Terms.Delivery,volume,instrument),
-            ProfileQuantity profile=>Profile(side.Terms.Delivery,profile,instrument),
-            SlotQuantity slot=>Slots(slot,sibling),
-            AccreditedQuantity accredited when side is CapacityDeliverySide capacity=>Capacity(side.Terms.Delivery,accredited,capacity,instrument),
+            VolumeQuantity volume=>Volume(side,terms,volume,instrument),
+            ProfileQuantity profile=>Profile(side,terms.Delivery,profile,instrument),
+            SlotQuantity slot=>Slots(slot,terms.InputPorts,sibling),
+            AccreditedQuantity accredited when side is CapacityDeliverySide capacity=>Capacity(terms,accredited,capacity,instrument),
             _=>throw Invalid("Select a supported explicit quantity source for this side.")
         };
         if(side is PowerPhysicalSide physical)
@@ -39,39 +40,43 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
         }
         if(side is CertificateDeliverySide certificate)
         {
-            var target=Quantity(certificate.CertificateQuantity);
-            if(target.Dimension.Code!="certificate" || certificate.Conversion.CompareTo(default)<=0 || prepared.Any(r=>Quantity(r.Quantity.Specification).Commodity!=target.Commodity))
+            var target=Quantity(certificate.CertificateQuantity);var conversion=side.RetainedPlan?.CertificateConversion??certificate.Conversion;
+            if(target.Dimension.Code!="certificate" || conversion.CompareTo(default)<=0 || prepared.Any(r=>Quantity(r.Quantity.Specification).Commodity!=target.Commodity))
                 throw Invalid("Certificate conversion requires positive certificates per MWh of the same exact commodity.");
-            return [..prepared.Select(row=>row with {Quantity=Convert(row.Quantity,target.Key,certificate.Conversion),
-                Components=[..row.Components.Select(c=>c with {Quantity=Convert(c.Quantity,target.Key,certificate.Conversion)})]})];
+            prepared=[..prepared.Select(row=>row with {Quantity=Convert(row.Quantity,target.Key,conversion),
+                Components=[..row.Components.Select(c=>c with {Quantity=Convert(c.Quantity,target.Key,conversion)})]})];
         }
+        if(prepared.Any(row=>row.Quantity.Specification!=side.Terms.ScheduleQuantity))
+            throw PpaErrors.Error("ppa_quantity_unit","schedule_quantity","Resolved rows must retain the side's declared native quantity type and unit.");
         return prepared;
     }
 
-    private ImmutableArray<PreparedQuantityRow> Volume(PpaDelivery delivery,VolumeQuantity volume,PpaInstrument instrument)
+    private ImmutableArray<PreparedQuantityRow> Volume(Side side,PpaSideTerms terms,VolumeQuantity volume,PpaInstrument instrument)
     {
-        var assets=Assets(instrument.NormalizationAssets);
+        var delivery=terms.Delivery;var normalization=terms.Normalization;var assets=Assets(normalization.Assets);
         if(volume.Sources.IsDefaultOrEmpty || volume.Sources.Distinct().Count()!=volume.Sources.Length)
             throw Invalid("Declare distinct exact volume sources.");
         var sources=volume.Sources.Select(key=>inputs.Reference.Sources.TryGetValue(key,out var value) && value.Key==key?value:throw Invalid("A selected volume source is absent from the exact input context.")).ToArray();
         if(sources.Length!=assets.Length || sources.Select(s=>s.Asset).Distinct().Count()!=sources.Length ||
             !sources.Select(s=>s.Asset).ToHashSet().SetEquals(assets.Select(a=>a.Key)))
-            throw PpaErrors.Error("ppa_normalization","assets","The source contributions must cover exactly the instrument's declared normalization assets.");
+            throw PpaErrors.Error("ppa_normalization","assets","The source contributions must cover exactly the side's declared normalization assets.");
+        if(normalization.Policy!=PpaNormalizationPolicy.SumCapacityInForce||assets.Any(a=>a.CapacityQuantity.Key!=normalization.Basis))
+            throw PpaErrors.Error("ppa_normalization","basis","Every asset must retain the side's selected capacity-in-force basis and policy.");
         if(sources.Any(s=>s.Clock!=delivery.Clock || s.IntervalMinutes!=delivery.IntervalMinutes) || assets.Any(a=>a.Clock!=delivery.Clock))
             throw Cadence();
         var energies=sources.Select(s=>Series(s.MeteredSeries).Quantity).Distinct().ToArray();
         if(energies.Length!=1 || energies[0] is not {} energyKey)throw Invalid("Every source must explicitly declare the same exact metered energy specification.");
+        if(energyKey!=volume.Energy)throw PpaErrors.Error("ppa_quantity_unit","volume","The selected meter headers must match the side's declared exact energy unit.");
         var energy=Quantity(energyKey);var coverage=inputs.PreparedCoverage(instrument);
         // The owner fixes all source revisions, asset versions, valuation/knowledge instants
         // and policies. Only identical quantity scopes share pre-certificate MWh rows.
         var retained=normalizedVolumes.FirstOrDefault(v=>v.Delivery==delivery && v.Stage==volume.Stage &&
-            v.Unit==instrument.UnitQuantity && v.Energy==energy.Key && v.Sources.SequenceEqual(volume.Sources) &&
-            v.Assets.SequenceEqual(instrument.NormalizationAssets) && v.Coverage.SequenceEqual(coverage));
+            v.Normalization==DefinitionIdentity.For(normalization) && v.Energy==energy.Key && v.Sources.SequenceEqual(volume.Sources) && v.Coverage.SequenceEqual(coverage));
         if(retained is not null)return retained.Rows;
         var rows=ImmutableArray.CreateBuilder<PreparedQuantityRow>();
         foreach(var month in Months(delivery))
         {
-            var periods=Periods(delivery,month).Where(p=>inputs.Includes(instrument,p.Delivery)).ToArray();
+            var periods=Periods(side,delivery,month).Where(p=>inputs.Includes(instrument,p.Delivery)).ToArray();
             if(periods.Length==0)continue;
             var contributions=sources.SelectMany(source=>Raw(source,assets.Single(a=>a.Key==source.Asset),volume.Stage,energy,month,periods))
                 .GroupBy(v=>v.Interval.Start).ToDictionary(g=>g.Key,g=>g.ToImmutableArray());
@@ -85,7 +90,7 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
             }
         }
         var result=rows.ToImmutable();
-        normalizedVolumes.Add(new(delivery,volume.Stage,volume.Sources,instrument.NormalizationAssets,instrument.UnitQuantity,energy.Key,coverage,result));
+        normalizedVolumes.Add(new(delivery,volume.Stage,volume.Sources,DefinitionIdentity.For(normalization),energy.Key,coverage,result));
         return result;
     }
 
@@ -104,13 +109,15 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
         return [..periods.Select(p=>retained[p.Start])];
     }
 
-    private ImmutableArray<PreparedQuantityRow> Profile(PpaDelivery delivery,ProfileQuantity profile,PpaInstrument instrument)
+    private ImmutableArray<PreparedQuantityRow> Profile(Side side,PpaDelivery delivery,ProfileQuantity profile,PpaInstrument instrument)
     {
+        if(side.RetainedPlan is {} retained)return [..retained.NativeRows.Where(row=>inputs.Includes(instrument,row.Obligation.Interval!))
+            .Select(row=>new PreparedQuantityRow(row.Obligation.Interval!,retained.ProfileQuantity(row),VolumeState.Contractual,null,[],[],[]))];
         var source=new ContractProfileQuantity(Clock(delivery.Clock),delivery.IntervalMinutes,profile.Hours,Quantity(profile.Capacity),Quantity(profile.Energy));
         var rows=ImmutableArray.CreateBuilder<PreparedQuantityRow>();
         foreach(var month in Months(delivery))
         {
-            var selected=Periods(delivery,month).Where(p=>inputs.Includes(instrument,p.Delivery)).Select(p=>p.Start).ToHashSet();
+            var selected=Periods(side,delivery,month).Where(p=>inputs.Includes(instrument,p.Delivery)).Select(p=>p.Start).ToHashSet();
             if(selected.Count==0)continue;
             rows.AddRange(source.Rows(month).Where(r=>selected.Contains(r.Interval.Start))
                 .Select(r=>new PreparedQuantityRow(r.Interval,r.PerUnit,r.State,null,[],[],[])));
@@ -118,11 +125,14 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
         return rows.ToImmutable();
     }
 
-    private static ImmutableArray<PreparedQuantityRow> Slots(SlotQuantity quantity,Func<SideSlot,ImmutableArray<PreparedQuantityRow>> sibling)
+    private static ImmutableArray<PreparedQuantityRow> Slots(SlotQuantity quantity,ImmutableArray<ScheduleInputPort> ports,Func<SideSlot,ImmutableArray<PreparedQuantityRow>> sibling)
     {
         if(quantity.Slots.IsDefaultOrEmpty || quantity.Slots.Distinct().Count()!=quantity.Slots.Length)
             throw Invalid("Bind distinct delivery slots explicitly.");
         var selected=quantity.Slots.Select(sibling).ToArray();
+        if(ports.IsDefault||!ports.Select(p=>p.Slot).SequenceEqual(quantity.Slots)||
+            selected.Where((rows,n)=>rows.Any(row=>row.Quantity.Specification!=ports[n].Quantity)).Any())
+            throw PpaErrors.Error("ppa_quantity_unit","input_port","A bound quantity must match its declared exact input type and unit.");
         if(selected.Any(rows=>rows.IsDefault || rows.Select(r=>r.Interval.Start).Distinct().Count()!=rows.Length))
             throw Invalid("Every bound delivery slot must supply distinct native quantity rows.");
         var first=selected[0];
@@ -145,26 +155,32 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
         })];
     }
 
-    private ImmutableArray<PreparedQuantityRow> Capacity(PpaDelivery delivery,AccreditedQuantity quantity,CapacityDeliverySide side,PpaInstrument instrument)
+    private ImmutableArray<PreparedQuantityRow> Capacity(PpaSideTerms terms,AccreditedQuantity quantity,CapacityDeliverySide side,PpaInstrument instrument)
     {
+        var delivery=terms.Delivery;
         if(delivery.From.Day!=1 || delivery.To.Day!=1)
             throw PpaErrors.Error("ppa_segment_boundary","capacity","Capacity quantity requires complete operating months.");
         if(quantity.Assets.IsDefaultOrEmpty || quantity.Assets.Distinct().Count()!=quantity.Assets.Length ||
-            !quantity.Assets.ToHashSet().SetEquals(instrument.NormalizationAssets))
-            throw PpaErrors.Error("ppa_normalization","assets","Capacity entitlement requires the same explicit instrument asset set.");
+            !quantity.Assets.ToHashSet().SetEquals(terms.Normalization.Assets))
+            throw PpaErrors.Error("ppa_normalization","assets","Capacity entitlement requires the side's explicit normalization asset set.");
         var assets=Assets(quantity.Assets);var target=Quantity(side.CapacityQuantity);var clock=Clock(delivery.Clock);
+        if(terms.Normalization.Policy!=PpaNormalizationPolicy.SumCapacityInForce||assets.Any(a=>a.CapacityQuantity.Key!=terms.Normalization.Basis))
+            throw PpaErrors.Error("ppa_normalization","basis","Every accredited asset must retain the side's selected capacity-in-force basis and policy.");
         if(assets.Any(a=>a.Clock!=delivery.Clock))throw Cadence();
         if(target.Unit.Code!="megawatt_day" || target.Dimension.Code!="energy" || assets.Any(a=>a.CapacityQuantity.Commodity!=target.Commodity))throw Invalid("MW-day entitlement must retain the assets' exact commodity.");
         var result=ImmutableArray.CreateBuilder<PreparedQuantityRow>();
         foreach(var month in Months(delivery))
         {
-            var interval=new DeliveryInterval(clock.StartOfDay(month).ToUniversalTime(),clock.StartOfDay(month.AddMonths(1)).ToUniversalTime(),month,0,0,1);
+            var interval=side.RetainedPlan is {} retained?retained.NativeRows.Single(row=>row.Obligation.Interval!.OperatingDate==month).Obligation.Interval!:
+                new DeliveryInterval(clock.StartOfDay(month).ToUniversalTime(),clock.StartOfDay(month.AddMonths(1)).ToUniversalTime(),month,0,0,1);
             if(!inputs.Includes(instrument,interval))continue;
             var components=assets.ToDictionary(a=>a.Key,_=>ExactQuantity.FromQuantity(new(default,target.Key)));
             var versions=ImmutableArray.CreateBuilder<AssetVersionKey>();var days=ImmutableArray.CreateBuilder<CapacityDay>();
-            for(var day=month;day<month.AddMonths(1);day=day.AddDays(1))
+            var dailyIntervals=side.RetainedPlan is {} stored?stored.CapacityDays.Where(day=>day.OperatingDate>=month&&day.OperatingDate<month.AddMonths(1)):
+                Enumerable.Range(0,DateTime.DaysInMonth(month.Year,month.Month)).Select(n=>new DeliveryInterval(clock.StartOfDay(month.AddDays(n)).ToUniversalTime(),clock.StartOfDay(month.AddDays(n+1)).ToUniversalTime(),month.AddDays(n),0,0,1));
+            foreach(var dayInterval in dailyIntervals)
             {
-                var daily=CapacityNormalization.AccreditedPerUnit(assets,day,inputs.Context);
+                var day=dayInterval.OperatingDate;var daily=CapacityNormalization.AccreditedPerInterval(assets,dayInterval,inputs.Context);
                 versions.AddRange(daily.Versions);
                 foreach(var asset in assets)
                 {
@@ -172,7 +188,7 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
                     var version=asset.Versions.Single(v=>v.From==selected.From);
                     // One operating day, including either DST day, contributes its declared MW ratio.
                     var value=new ExactQuantity(version.AccreditedCapacity!.Value.ScaledValue*daily.CapacityBasis.DenominatorValue,
-                        ExactDecimal.WorkingScale*daily.CapacityBasis.NumeratorValue,target.Key);
+                        ExactDecimal.WorkingScale*daily.CapacityBasis.NumeratorValue,target.Key).Scale(side.RetainedPlan?.CapacityEntitlementFactor??PpaErrors.One);
                     components[asset.Key]=components[asset.Key].Add(value);
                     days.Add(new(day,selected,asset.Location,value));
                 }
@@ -188,8 +204,11 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
         if(keys.IsDefaultOrEmpty || keys.Distinct().Count()!=keys.Length)throw Invalid("Supply distinct exact normalization assets.");
         return [..keys.Select(key=>inputs.Reference.Assets.TryGetValue(key,out var asset) && asset.Key==key?asset:throw Invalid("A required asset is absent from the exact input context."))];
     }
-    private PowerInterval[] Periods(PpaDelivery delivery,DateOnly month)=>PowerHours.Compile(
-        delivery.From>month?delivery.From:month,delivery.To<month.AddMonths(1)?delivery.To:month.AddMonths(1),Clock(delivery.Clock),TimeOfUse.All(delivery.IntervalMinutes),[],delivery.IntervalMinutes);
+    private PowerInterval[] Periods(Side side,PpaDelivery delivery,DateOnly month)=>side.RetainedPlan is {} retained
+        ?[..retained.MonthIntervals(month)
+            .Select(interval=>{var local=TimeZoneInfo.ConvertTime(interval.Start,Clock(delivery.Clock).Zone);
+                return new PowerInterval(interval.Start,interval.End,interval.OperatingDate,interval.HourBeginning,interval.HourBeginning+1,interval.Minute,(int)local.Offset.TotalMinutes,interval.Occurrence,false);})]
+        :PowerHours.Compile(delivery.From>month?delivery.From:month,delivery.To<month.AddMonths(1)?delivery.To:month.AddMonths(1),Clock(delivery.Clock),TimeOfUse.All(delivery.IntervalMinutes),[],delivery.IntervalMinutes);
     private static IEnumerable<DateOnly> Months(PpaDelivery delivery)
     {
         for(var month=new DateOnly(delivery.From.Year,delivery.From.Month,1);month<delivery.To;month=month.AddMonths(1))yield return month;

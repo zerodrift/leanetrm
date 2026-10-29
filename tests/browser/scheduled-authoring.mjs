@@ -11,14 +11,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);
  const catalog=await evaluate(`(async()=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;window.syntheticPost=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};const c=await window.syntheticPost('swaps/catalog',{snapshotId:${JSON.stringify(frame)},convention:'independent_side_financial_swap_v2',knowledgeMode:'current'});const send=window.fetch;window.fetch=async(input,init)=>{const r=await send(input,init);if(String(input).endsWith('/api/swaps/book')&&r.ok)window.syntheticScheduledBook={request:JSON.parse(init.body),result:await r.clone().json()};return r;};return c;})()`);
  // The scheduled ticket is in the side panel's form part, open for entry.
- const ticket="(()=>{const root=document.querySelector('#scheduled-swap-editor'),form=document.querySelector('#side-panel-form');return !!root&&!root.hidden&&form.contains(root)&&!form.hidden;})()";
+ const ticket="(()=>{const root=document.querySelector('#scheduled-swap-editor'),form=root?.closest('#side-panel-form,#position-details-form');return !!root&&!root.hidden&&!!form&&form.contains(root)&&!form.hidden;})()";
  // A panel left open by the last booking is closed first, giving up anything its form holds.
- async function closePanel(){if(await evaluate("!document.querySelector('#side-panel').hidden"))await closeNewTrade({click,evaluate,wait});}
+ async function closePanel(){if(await evaluate("document.querySelector('#position-details')?.hidden===false")){await click('#position-details .position-close');if(await evaluate("document.querySelector('#position-details-prompt')?.hidden===false"))await click('#position-details-prompt button:not(.secondary)');}else if(await evaluate("!document.querySelector('#side-panel').hidden"))await closeNewTrade({click,evaluate,wait});}
  // A booked trade opens from its row, once the search leaves only that row, and Amend puts its ticket in the panel.
  async function reopen(reference){
   await closePanel();await set('#blotter-filters .table-search',reference);await wait(idle);
   await wait(`(()=>{const rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length);return rows.length===1&&rows[0].textContent.includes(${JSON.stringify(reference)});})()`);
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#side-panel').dataset.mode==='position'&&"+idle);
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details')?.hidden===false&&"+idle);
   await click('#side-panel-amend');await wait(ticket);await wait(idle);
  }
  const period=(slot,n)=>`document.querySelectorAll('#scheduled-swap-editor .scheduled-side-columns>.instrument-side')[${slot}].querySelectorAll('.scheduled-period')[${n}]`;
@@ -31,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   for(const slot of [0,1]){await evaluate(`document.querySelectorAll('#scheduled-swap-editor .scheduled-side-columns>.instrument-side')[${slot}].querySelector('button').click()`);await wait(idle);}
   for(let n=0;n<months;n++){
    await evaluate(`for(const slot of [0,1]){const p=document.querySelectorAll('#scheduled-swap-editor .scheduled-side-columns>.instrument-side')[slot].querySelectorAll('.scheduled-period')[${n}];p.querySelector('[data-role=period-amount]').value='100';const price=p.querySelector('[data-role=fixed-price]');if(price)price.value=${JSON.stringify(n===0?'3':'4')};}`);
-   const index=JSON.stringify([catalog.indices.find(i=>i.curve===curve).definitionRevisionId,curve,catalog.indices.find(i=>i.curve===curve).index]);await label(1,n,'Index and projection curve',index);await label(1,n,'Reset frequency',curve==='daily_gas'?'daily':'monthly');
+   const index=JSON.stringify([catalog.indices.find(i=>i.curve===curve).definitionRevisionId,curve,catalog.indices.find(i=>i.curve===curve).index]);await label(1,n,'Index and projection curve',index);await label(1,n,'Price settlement','curve_target');await label(1,n,'Reset frequency',curve==='daily_gas'?'daily':'monthly');
    for(const slot of [0,1]){await evaluate(`${period(slot,n)}.querySelector('button').click()`);await wait(idle);}
   }
  }

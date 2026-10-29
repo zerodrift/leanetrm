@@ -53,13 +53,12 @@ def run_booking_checks(query, manifest, trade_id):
         token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         value = "'" + json.dumps(request).replace("'", "''") + "'::jsonb"
         return query(f"""BEGIN;{setup}SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');
-          SELECT security.save_projected_swap_with_parties('{catalog}','{request_id}',NULL,NULL,
+          SELECT security.save_composed_swap('{catalog}','{request_id}',NULL,NULL,
            (p->>'book')::uuid,(p->>'definition')::uuid,(p->>'referenceCatalog')::uuid,(p->>'referenceRevision')::uuid,
-           p->>'curve',p->>'index',p->>'fixedCurrency',p->>'floatingCurrency',(p->>'fixedFrom')::date,(p->>'fixedTo')::date,
-           (p->>'fixedPayment')::timestamptz,(p->>'floatingFrom')::date,(p->>'floatingTo')::date,(p->>'floatingPayment')::timestamptz,
-           p->>'averaging',(p->>'price')::numeric,(p->>'quantity')::numeric,(p->>'coefficient')::numeric,(p->>'discounting')::boolean,
-           (p->>'valuation')::timestamptz,NULL,(p->>'effective')::timestamptz,p->>'reason',p->>'implementation',
-           p->'fixedSchedule',p->'floatingSchedule',p->>'commodity',NULL,NULL,p->>'memo',p->'booking','{{}}'::uuid[],p->'customProjection')
+           p->>'commodity',NULLIF(p->'fixed','null'::jsonb),NULLIF(p->'firstFloating','null'::jsonb),p->'floating',
+           (p->>'quantity')::numeric,(p->>'coefficient')::numeric,(p->>'discounting')::boolean,
+           (p->>'valuation')::timestamptz,(p->>'effective')::timestamptz,p->>'reason',p->>'implementation',
+           p->>'memo',p->'booking','{{}}'::uuid[])
           FROM(SELECT {value} p)request;ROLLBACK;""")
 
     assert json.loads(invoke(original, operation))['tradeId'] == trade_id
@@ -71,13 +70,13 @@ def run_booking_checks(query, manifest, trade_id):
       UPDATE market_data.custom_curve_versions SET state='published',publication_order=(SELECT max(publication_order)+1 FROM market_data.custom_curve_versions WHERE catalog_id='{catalog}'),published_at=clock_timestamp(),publication_xid=pg_current_xact_id()
        WHERE catalog_id='{catalog}' AND curve_id='{missing}';"""
     failures = []
-    for changed, label, setup in [({**original, 'definition': other_revision}, 'another exact market revision', ''),
-                                 ({**original, 'customProjection': {**original['customProjection'], 'curveId': missing,
-                                     'version': 1, 'outputNode': 'result'}}, 'a projection without source relationships', missing_setup)]:
+    for changed, label, setup, code in [({**original, 'definition': other_revision}, 'another exact market revision', '', 'swap_definition'),
+                                 ({**original, 'floating': {**original['floating'], 'customProjection': {**original['floating']['customProjection'], 'curveId': missing,
+                                     'version': 1, 'outputNode': 'result'}}}, 'a projection without source relationships', missing_setup, 'custom_projection')]:
         try:
             invoke(changed, str(uuid4()), setup)
         except RuntimeError as error:
-            if 'custom_projection' not in str(error):
+            if code not in str(error):
                 failures.append(f'The SQL command did not reject {label}: ' + str(error))
         else:
             failures.append(f'The SQL command accepted {label}')

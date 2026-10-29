@@ -54,7 +54,7 @@ def run_checks(url, query, manifest, client=None):
     swap = {**swap_context, **booking(), 'operationId': str(uuid4()), 'bookId': body['bookId'],
             'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': False,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule},
-            'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
+            'floating': {'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
                          'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01',
                          'paymentSchedule': rule, 'resetFrequency': 'monthly', 'averagingMethod': 'none'}}
     c.call('swaps/preview', swap); booked = c.call('swaps/book', swap)

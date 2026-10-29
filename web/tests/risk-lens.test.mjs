@@ -12,7 +12,7 @@ const holding=(n,v,o={})=>({tradeId:`t${n}`,bindingId:`b${n}`,bookId:'book-a',bo
  instrumentType:'future',measure:'futures_execution_pnl',measureLabel:'Futures execution P&L',values:v,...o});
 const factor=(id,unit,bump,positions)=>({factor:{id,label:`Synthetic ${id}`,coordinate:'market_quote',kind:'contract',unit},bump,totals:[],positions});
 const left=[{tradeId:'t9',bindingId:'b9',bookId:'book-b',tradeReference:'TR-000009',instrumentType:'future',reason:'source_expired'}];
-const report=(factors,excludedPositions=left)=>({factors,excludedPositions,scenario:{depth:0,isBase:true},context:{contextId:'x1'},snapshotId:'s1'});
+const report=(factors,excludedPositions=left)=>({projectionPolicies:[],factors,excludedPositions,scenario:{depth:0,isBase:true},context:{contextId:'x1'},snapshotId:'s1'});
 const key=n=>positionKey({tradeId:`t${n}`,bindingId:`b${n}`});
 
 test('a position moved by two factors has two shocks, each with its own results, and no value combined from them',()=>{
@@ -240,4 +240,15 @@ test('a run states how many shocks it ran, and only how many are known while a p
  assert.deepEqual(shockCount(partial),{known:1,total:65});
  assert.equal(shocksText(shockCount(partial)),'1 shock known of 65');
  assert.ok(runBar(partial,{zone:'UTC',knowledge:'current knowledge',results:{state:'none'}}).detail.startsWith('65 held contracts · '));
+});
+
+
+test('a risk run repeats the server settlement-basis label and refuses missing policy evidence',async()=>{
+ const {setCurveNames}=await import('../dist/market-view.js');setCurveNames([]);
+ const selection={mode:2,curveTargetIndex:{...usd,code:'target_index'},selectedIndex:{...usd,code:'selected_index'},projectionPolicy:'forward_curve_no_basis_v1'};
+ const part={...report([],[]),projectionPolicies:[{instrumentId:'instrument-one',sideId:'side-one',curve:{...usd,code:'synthetic_curve'},settlement:selection,label:'Curve risk with unmodelled basis to selected_index'}]};
+ const options={zone:'UTC',knowledge:'current knowledge',results:{state:'shown',excluded:[]}};
+ assert.deepEqual(runBar(run({parts:[{report:part},{report:structuredClone(part)}]}),options).notes,[{kind:'note',text:'Curve risk with unmodelled basis to selected_index'}]);
+ const incomplete={...part};delete incomplete.projectionPolicies;
+ assert.throws(()=>runBar(run({parts:[{report:incomplete}]}),options),/projection policies/);
 });

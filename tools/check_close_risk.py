@@ -25,7 +25,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
     fixture.load(60,'2031-11-01','2051-11-01')
     book=str(uuid4())
     query(f"INSERT INTO trading.books VALUES('{manifest['catalogId']}','{book}','d0000000-0000-0000-0000-000000000001','Synthetic existing close risk',1,'2020-01-01T00:00:00Z');")
-    trade,booking=fixture.book(terms(manifest),'2031-11-02T04:00:00Z','2031-11-03T05:00:00Z',book=book)
+    trade,booking=fixture.book_resuming(terms(manifest),'2031-11-02T04:00:00Z','2031-11-03T05:00:00Z',book=book)
     frames=owner.call('workspace')['frames']
     live_owner=next(f for f in frames if instant(f['at'])==instant(manifest['closeRisk']['at']) and 'test_existing_close_energy' not in f['curveContracts'] and not f.get('ppaBundle'))
     policy=owner.call('jobs/pilot-close/catalog')['valuationPolicyChoices'][0]['policy']
@@ -40,37 +40,59 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
     collector=Collector(query,manifest,{'energy':{'provider':'PJM','sourceId':config['source'],'clock':'synthetic_eastern'}})
     day_start=datetime.fromisoformat(day).replace(tzinfo=ZoneInfo('America/New_York')).astimezone(timezone.utc)
     original_actual=collector.publish('energy',day,day_start,24,60,['40']*24,1)
-    held_trade,_=fixture.book(terms(manifest,first=dates['first'],last=dates['last']),first,last,book=held_book)
-    # Two distinct long contracts fit the per-scenario bound but exceed the
-    # declared row-scenario budget with all native energy/certificate shocks.
+    held_trade,_=fixture.book_resuming(terms(manifest,first=dates['first'],last=dates['last']),first,last,book=held_book)
+    # Deliberately incomplete artifacts must refuse valuation and risk admission.
+    # Seed current terms only in this owned negative fixture, with the named
+    # artifact trigger restored before commit. This does not qualify booking or
+    # valuation of a 20-year stored graph. CloseRiskPreflightChecks independently
+    # verifies the row-scenario bound without allocating retained storage.
     large_book=str(uuid4())
     query(f"INSERT INTO trading.books VALUES('{manifest['catalogId']}','{large_book}','d0000000-0000-0000-0000-000000000001','Synthetic admission bound',1,'2020-01-01T00:00:00Z');")
     long_terms=terms(manifest,first='2031-11-01',last='2051-11-01')
     for strike in ('40','41'):
         long_terms['memberships'][1]['side']['fixedPrice']['price']=strike
-        fixture.book(long_terms,'2031-11-01T04:00:00Z','2051-11-01T04:00:00Z',book=large_book)
+        incomplete=fixture.booking_request(long_terms,'2031-11-01T04:00:00Z','2051-11-01T04:00:00Z',book=large_book)
+        token=query("SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context("
+            f"'https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
+        valuation=next(frame['at'] for frame in fixture.client.call('workspace')['frames'] if frame['id']==fixture.frame)
+        payload={'action':'booked',**{key:incomplete[key] for key in ('snapshotId','tradeId','expectedRevision','bookId','boundaryAt',
+            'coverageFrom','coverageTo','quantity','reason','memo','booking','terms')},'valuationAt':valuation,'effectiveAt':valuation}
+        document=json.dumps(payload).replace("'","''")
+        query(f"""BEGIN;
+            ALTER TABLE trading.ppa_instruments DISABLE TRIGGER retained_side_schedules;
+            SET SESSION AUTHORIZATION preview_runtime; SELECT security.use_context('{token}');
+            SELECT security.save_ppa_booking('{manifest['catalogId']}','{incomplete['operationId']}','{document}'::jsonb);
+            RESET SESSION AUTHORIZATION;
+            ALTER TABLE trading.ppa_instruments ENABLE TRIGGER retained_side_schedules;
+            COMMIT;""")
+    assert query("SELECT t.tgenabled FROM pg_trigger t WHERE t.tgrelid='trading.ppa_instruments'::regclass AND t.tgname='retained_side_schedules';")=='O'
+    incomplete_preview=fixture.preview(long_terms,scope='books',ids=[large_book],expected=422)
+    assert incomplete_preview['code']=='side_schedule_missing' and 'valueExcludingOverdue' not in incomplete_preview,incomplete_preview
     # Retain a position in the separately published bundle. Scope inspection
     # must find it even though the selected close cannot value that bundle.
     mixed_book=str(uuid4())
     query(f"INSERT INTO trading.books VALUES('{manifest['catalogId']}','{mixed_book}','d0000000-0000-0000-0000-000000000001','Synthetic complete-book refusal',1,'2020-01-01T00:00:00Z');")
-    fixture.book(terms(manifest),'2031-11-02T04:00:00Z','2031-11-03T05:00:00Z',book=mixed_book)
+    fixture.book_resuming(terms(manifest),'2031-11-02T04:00:00Z','2031-11-03T05:00:00Z',book=mixed_book)
     from check_ppa_bookings_http import profile_terms
     bundle=manifest['ppaR3']['bundle'];other=profile_terms(manifest);other.update(bundle)
     other_frame=next(f for f in fixture.client.call('ppa/frames') if f.get('ppaBundle')==bundle and instant(f['at'])==instant(manifest['frames'][0]['at']))
     retained_frame=fixture.frame
     fixture.frame=other_frame['id']
-    incompatible,_=fixture.book(other,'2031-11-02T04:00:00Z','2031-11-03T05:00:00Z',book=mixed_book)
+    incompatible,_=fixture.book_resuming(other,'2031-11-02T04:00:00Z','2031-11-03T05:00:00Z',book=mixed_book)
     fixture.frame=retained_frame
     fixture.revise(manifest['intervalCurves']['shapeSeries']['additive'],'2031-11-01T04:00:00Z',['0']*721)
     unsupported_book=str(uuid4())
     query(f"INSERT INTO trading.books VALUES('{manifest['catalogId']}','{unsupported_book}','d0000000-0000-0000-0000-000000000001','Synthetic unavailable dependency',1,'2020-01-01T00:00:00Z');")
-    unsupported,_=fixture.book(profile_terms(manifest),'2031-11-02T04:00:00Z','2031-11-03T05:00:00Z',book=unsupported_book)
+    unsupported,_=fixture.book_resuming(profile_terms(manifest),'2031-11-02T04:00:00Z','2031-11-03T05:00:00Z',book=unsupported_book)
     held_frame=next(f for f in frames if instant(f['at'])==instant(dates['at']) and 'test_existing_close_energy' in f['curveContracts'] and not f.get('ppaBundle'))
     import time
     remaining=(instant(manifest['closeRisk']['at'])-datetime.now(timezone.utc)).total_seconds()
     if remaining>0:
         print(f'Waiting {remaining:.1f}s for the explicitly selected close instant; no future knowledge or clock substitution.',flush=True)
         time.sleep(remaining)
+    # This correction is known to the later admission certificate but was not
+    # known at the close. valuation_instant_v1 must still use the original 0.5.
+    fixture.revise(config['forecast'],'2031-11-02T04:00:00Z',['0.7']*25)
     close=owner.call('market/closes/register',dict(requestId=str(uuid4()),snapshotId=live_owner['id'],name='Synthetic existing close'))
     held_close=owner.call('market/closes/register',dict(requestId=str(uuid4()),snapshotId=held_frame['id'],name='Synthetic retained holdings close'))
     now=datetime.now(timezone.utc)
@@ -92,7 +114,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
     viewer.call('jobs/close-book-risk/create',body,expected=403)
     print('PASS close risk: explicit policies, replay conflict and current submission authority',flush=True)
     before_jobs=query('SELECT count(*) FROM automation.jobs;')
-    for selected,code in [(large_book,'risk_size'),(mixed_book,'pilot_close_inputs'),(unsupported_book,'pilot_close_inputs')]:
+    for selected,code in [(large_book,'side_schedule_missing'),(mixed_book,'pilot_close_inputs'),(unsupported_book,'pilot_close_inputs')]:
         refused=deepcopy(body);refused['schedule']['requestId']=str(uuid4());refused['definition']['bookIds']=[selected]
         started=time.monotonic()
         result=owner.call('jobs/close-book-risk/create',refused,expected=422)
@@ -103,7 +125,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
             assert {x['tradeId'] for x in result['affectedBindings']}=={unsupported['tradeId']},result
         assert query('SELECT count(*) FROM automation.jobs;')==before_jobs
         print(f'PASS close risk: {code} refusal in {time.monotonic()-started:.3f}s without admission',flush=True)
-    print('PASS close risk: actual long-term work bound and incompatible complete book refuse before admission without partial totals',flush=True)
+    print('PASS close risk: missing retained schedules and incompatible complete books refuse admission without partial totals',flush=True)
 
     def due(job):
         query(f"UPDATE automation.jobs SET next_due_at=clock_timestamp()-interval '1 second' WHERE id='{job['id']}';")

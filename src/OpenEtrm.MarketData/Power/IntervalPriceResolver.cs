@@ -14,7 +14,7 @@ public sealed record ShapedIntervalCurve(CurveKey Key,PriceUnit Unit,IntervalAct
     // Certified publication knowledge, supplied by the authorized reader for exact pinned observations.
     public ImmutableDictionary<ObservationKey,DateTimeOffset> FrozenKnowledge { get; init; } = ImmutableDictionary<ObservationKey,DateTimeOffset>.Empty;
 }
-public sealed record PeriodContractCurve(CurveKey Key,PriceUnit Unit,ImmutableArray<MarketContract> Contracts,
+public sealed record PeriodContractCurve(CurveKey Key,PriceUnit Unit,ReferenceKey SettlementIndex,ImmutableArray<MarketContract> Contracts,
     ImmutableArray<IndexFixing> Fixings):PriceCurve(Key,Unit);
 
 internal sealed record PreparedPriceMonth(ImmutableArray<DeliveryInterval> Intervals,
@@ -36,7 +36,22 @@ public sealed class PreparedCurve
     private PreparedCurve(PriceCurve curve,DateTimeOffset valuationAt,DateTimeOffset knownAt,
         ImmutableDictionary<DateOnly,PreparedPriceMonth> periods)
     {Curve=curve;ValuationAt=valuationAt;KnownAt=knownAt;Periods=periods;Months=[..periods.Keys.Order()];}
-    public ImmutableArray<CurveRequest> Dependencies(DateOnly month)=>Period(month).Dependencies;
+    public ImmutableArray<CurveRequest> Dependencies(DateOnly month)=>Dependencies(month,null);
+    public ImmutableArray<CurveRequest> Dependencies(DateOnly month,PriceSettlementSelection? selection)
+    {
+        var period=Period(month);
+        if(Curve is not PeriodContractCurve curve)
+        {
+            if(selection is not null)throw Invalid("Interval curves take no period settlement selection.");
+            return period.Dependencies;
+        }
+        selection??=PriceSettlementSelection.CurveTarget(curve.SettlementIndex);
+        if(selection.CurveTargetIndex!=curve.SettlementIndex)throw Invalid("The settlement selection must retain the exact period curve target.");
+        return [..period.Contracts.Where(contract=>PeriodPriceSelector.RequiresProjection(selection,contract,Fixing(curve,contract,selection),ValuationAt))
+            .Select(contract=>new CurveRequest(Key,contract.Key))];
+    }
+    internal static IndexFixing? Fixing(PeriodContractCurve curve,MarketContract contract,PriceSettlementSelection selection)=>
+        curve.Fixings.SingleOrDefault(f=>f.Index==selection.SelectedIndex && f.From==contract.DeliveryFrom && f.To==contract.DeliveryTo);
     internal PreparedPriceMonth Period(DateOnly month)=>Periods.TryGetValue(month,out var period)?period:
         throw new MarketDataException("interval_price_source","The requested month is outside the prepared coverage.");
 
@@ -57,8 +72,9 @@ public sealed class PreparedCurve
         if(curve is PeriodContractCurve pc)
         {
             if(pc.Contracts.IsDefaultOrEmpty || pc.Fixings.IsDefault || shape.Count!=0 || actuals.Count!=0 ||
-                pc.Contracts.Any(c=>c.Interval is not null) || pc.Fixings.GroupBy(f=>(f.From,f.To)).Any(g=>g.Count()!=1))
+                pc.Contracts.Any(c=>c.Interval is not null) || pc.Fixings.GroupBy(f=>(f.Index,f.From,f.To)).Any(g=>g.Count()!=1))
                 throw Invalid("Period curves require distinct date-only contracts and explicit qualified fixing schedules.");
+            Money.RequireKey(pc.SettlementIndex);
             var selected=pc.Contracts.Where(c=>spans.Any(s=>Utc(c.DeliveryFrom)<s.To && Utc(c.DeliveryTo)>s.From)).ToArray();
             if(selected.Length==0 || selected.Any(c=>!spans.Any(s=>s.From<=Utc(c.DeliveryFrom) && s.To>=Utc(c.DeliveryTo))))
                 throw Invalid("Period pricing requires whole declared periods.");
@@ -87,12 +103,11 @@ public sealed class PreparedCurve
             {
                 var contracts=group.Value.OrderBy(c=>c.DeliveryFrom).ToImmutableArray();
                 if(contracts.Zip(contracts.Skip(1)).Any(p=>p.First.DeliveryTo>p.Second.DeliveryFrom))throw Invalid("Period contracts cannot overlap.");
-                var dependencies=contracts.Where(c=>pc.Fixings.SingleOrDefault(f=>f.From==c.DeliveryFrom && f.To==c.DeliveryTo) is not {} fixing || valuationAt<fixing.FixingAt)
-                    .Select(c=>new CurveRequest(pc.Key,c.Key)).ToImmutableArray();
-                if(contracts.Any(c=>dependencies.Any(d=>d.Contract==c.Key) && c.Expiry<=valuationAt))
-                    throw new MarketDataException("source_expired","A period without a due qualified fixing requires its live mark.");
+                // Preparation retains geometry and all qualified definitions.
+                // The bound selection owns expiry/fixing admission when its
+                // dependencies are requested; another index can already be due.
                 periods.Add(group.Key,new([..contracts.Select(c=>new DeliveryInterval(Utc(c.DeliveryFrom),Utc(c.DeliveryTo),c.DeliveryFrom,0,0,1))],
-                    ImmutableDictionary<DateTimeOffset,IntervalActual>.Empty,dependencies,null,contracts,[..contracts.Select(c=>(new CurveRequest(pc.Key,c.Key),c))]));
+                    ImmutableDictionary<DateTimeOffset,IntervalActual>.Empty,[],null,contracts,[..contracts.Select(c=>(new CurveRequest(pc.Key,c.Key),c))]));
             }
             return new(curve,valuationAt,knownAt,periods.ToImmutable());
         }
@@ -188,7 +203,7 @@ public sealed class IntervalPriceResolver
     private readonly ImmutableDictionary<CurveKey,PreparedCurve> curves;
     private readonly IntervalPriceResolver? basis;
     private readonly Dictionary<CurveRequest,BuiltValue> values;
-    private readonly Dictionary<(CurveKey,DateOnly),ImmutableArray<IntervalPriceResolution>> cache=[];
+    private readonly Dictionary<(CurveKey,DateOnly,PriceSettlementSelection?),ImmutableArray<IntervalPriceResolution>> cache=[];
     private readonly Dictionary<(CurveKey,DateOnly),ShapedCurveBuild> shapes=[];
     public int Resolved { get; private set; }
     public int ReusedMonths { get; private set; }
@@ -206,20 +221,31 @@ public sealed class IntervalPriceResolver
             curves.Any(p=>!@base.curves.TryGetValue(p.Key,out var old) || !ReferenceEquals(p.Value,old))))
             throw Invalid("Reuse requires the same prepared request, immutable snapshot and unshocked base scenario.");
     }
-    public ImmutableArray<IntervalPriceResolution> Prices(CurveKey curve,DateOnly month)
+    internal void RequireContext(CurveBuild authority, IReadOnlyDictionary<CurveKey,PreparedCurve> prepared)
     {
-        var key=(curve,month);if(cache.TryGetValue(key,out var cached))return cached;
+        if (authority is null || prepared is null || !ReferenceEquals(authority.Graph, scenario.Graph) ||
+            !ReferenceEquals(authority.Model, scenario.Model) || !authority.Snapshot.HasSameInputs(scenario.Snapshot) || prepared.Count != curves.Count ||
+            prepared.Any(p => !curves.TryGetValue(p.Key, out var retained) || !ReferenceEquals(p.Value, retained)))
+            throw Invalid("Price admission must retain the exact scenario and immutable prepared curve inputs.");
+    }
+    public ImmutableArray<IntervalPriceResolution> Prices(CurveKey curve,DateOnly month)=>Prices(curve,month,null);
+    public ImmutableArray<IntervalPriceResolution> Prices(CurveKey curve,DateOnly month,PriceSettlementSelection? selection)
+    {
         if(!curves.TryGetValue(curve,out var prepared))throw new MarketDataException("risk_dependency","The curve was not declared for this request.");
+        if(prepared.Curve is PeriodContractCurve periodCurve)selection??=PriceSettlementSelection.CurveTarget(periodCurve.SettlementIndex);
+        else if(selection is not null)throw Invalid("Interval curves take no period settlement selection.");
+        var key=(curve,month,selection);if(cache.TryGetValue(key,out var cached))return cached;
         var period=prepared.Period(month);
+        var dependencies=prepared.Dependencies(month,selection);
         // Observed cells suppress market work, never the validation of their exact source definition.
         foreach(var source in period.Sources)scenario.Model.RequireIntervalPriceSource(source.Request,source.Contract,prepared.Unit);
-        foreach(var dependency in period.Dependencies)
+        foreach(var dependency in dependencies)
         {
             if(!values.ContainsKey(dependency))throw new MarketDataException("risk_dependency","A declared price dependency is absent from the scenario.");
         }
-        if(basis is not null && period.Dependencies.All(d=>basis.values.TryGetValue(d,out var prior) && ReferenceEquals(prior,values[d])))
+        if(basis is not null && dependencies.All(d=>basis.values.TryGetValue(d,out var prior) && ReferenceEquals(prior,values[d])))
         {
-            var reused=basis.Prices(curve,month);cache.Add(key,reused);ReusedMonths++;return reused;
+            var reused=basis.Prices(curve,month,selection);cache.Add(key,reused);ReusedMonths++;return reused;
         }
         ImmutableArray<IntervalPriceResolution> result;ShapedCurveBuild? completedShape=null;
         if(prepared.Curve is PeriodContractCurve pc)
@@ -227,13 +253,14 @@ public sealed class IntervalPriceResolver
             result=[..period.Contracts.Select((contract,i)=>
             {
                 var request=new CurveRequest(pc.Key,contract.Key);scenario.Model.RequireIntervalPriceSource(request,contract,pc.Unit);
-                var fixing=pc.Fixings.SingleOrDefault(f=>f.From==contract.DeliveryFrom && f.To==contract.DeliveryTo);
-                if(fixing is not null && IndexFixingPricing.Resolve(scenario,scenario.Model.PeriodLookup(request,contract,fixing)) is {} fixedPrice)
-                    return new IntervalPriceResolution(period.Intervals[i],IntervalPriceState.PublishedFixing,ExactUnitPrice.FromPrice(fixedPrice.Price),[],null,fixing.FixingAt)
-                        {Publication="published_fixing",Anchor=new(request,InputUse.FrozenFact,fixedPrice.Lineage),LiveMarketRiskCoverage="observed"};
-                var mark=values[request];
-                return new IntervalPriceResolution(period.Intervals[i],IntervalPriceState.Projected,ExactUnitPrice.FromPrice(mark.Price),mark.Lineage,null,fixing?.FixingAt??contract.Expiry)
-                    {Anchor=new(request,InputUse.Variable,mark.Lineage)};
+                var fixing=PreparedCurve.Fixing(pc,contract,selection!);
+                var lookup=scenario.Model.PeriodLookup(request,contract,selection!,fixing);
+                var source=PeriodPriceSelector.Admit(scenario,lookup);
+                var resolved=PeriodPriceSelector.Resolve(scenario,lookup,r=>scenario.Pricing.Price(r,default),r=>scenario.Pricing.Lineage(r,default));
+                return new IntervalPriceResolution(period.Intervals[i],resolved.State==SchedulePriceState.Actual?IntervalPriceState.PublishedFixing:IntervalPriceState.Projected,
+                    resolved.Price,source.Projection is null?[]:resolved.Lineage,null,fixing?.FixingAt??contract.Expiry)
+                    {PeriodSelection=source,Publication=source.Projection is null?"published_fixing":"mark",Anchor=new(request,source.Projection is null?InputUse.FrozenFact:InputUse.Variable,resolved.Lineage),
+                     LiveMarketRiskCoverage=source.Projection is null?"observed":selection!.Mode==PriceSettlementMode.Override?"curve_risk_unmodelled_basis":"live_anchor"};
             })];
         }
         else
@@ -243,7 +270,7 @@ public sealed class IntervalPriceResolver
             if(period.Shape is {} inputs)
             {
                 if(basis is not null)basis.Prices(curve,month);
-                var shaped=BlockShaping.Evaluate(inputs,scenario,basis is not null && basis.shapes.TryGetValue(key,out var old)?old:null);
+                var shaped=BlockShaping.Evaluate(inputs,scenario,basis is not null && basis.shapes.TryGetValue((curve,month),out var old)?old:null);
                 completedShape=shaped;
                 var uses=scenario.Evaluations.ToDictionary(e=>e.Result.Request,e=>e.Use);
                 foreach(var cell in shaped.Prices)forward.Add(cell.Start,(cell.Price,new(cell.Block,uses[cell.Block],cell.Lineage)));
@@ -277,7 +304,7 @@ public sealed class IntervalPriceResolver
             })];
         }
         if(completedShape is {} completed)
-        {shapes.Add(key,completed);CalibratedBlocks+=completed.CalibratedBlocks;ReusedBlocks+=completed.ReusedBlocks;}
+        {shapes.Add((curve,month),completed);CalibratedBlocks+=completed.CalibratedBlocks;ReusedBlocks+=completed.ReusedBlocks;}
         cache.Add(key,result);Resolved++;return result;
     }
     private static MarketDataException Invalid(string message)=>new("interval_price_source",message);

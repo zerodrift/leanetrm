@@ -52,7 +52,11 @@ public sealed record PpaIndexInput([property:JsonRequired]string Curve,
     [property:JsonRequired]string Quantity,
     [property:JsonRequired]string Multiplier,
     [property:JsonRequired]string IndexMultiplier,
-    [property:JsonRequired]string Adder);
+    [property:JsonRequired]string Adder,
+    [property:JsonRequired]PriceSettlementInput? Settlement);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PriceSettlementInput([property:JsonRequired]string Mode,
+    [property:JsonRequired]string? Index,[property:JsonRequired]string? ProjectionPolicy);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PpaAttributeInput([property:JsonRequired]string Quantity,
     [property:JsonRequired]string? Conversion,

@@ -12,9 +12,14 @@ export async function startNewTrade({click,wait}){
 }
 
 /** Opens PPA bookings as the sidebar has no entry for it: from the Blotter's New trade panel. */
-export async function openPpaBookings({click,wait}){
-  await click('#nav-futures');
-  await wait("document.querySelector('#page-title').textContent==='Blotter'&&!document.querySelector('#futures-new').disabled&&"+idle);
+export async function openPpaBookings({click,wait,evaluate}){
+  try{
+    await click('#nav-futures');
+    await wait("document.querySelector('#page-title').textContent==='Blotter'&&!document.querySelector('#futures-new').disabled&&"+idle);
+  }catch(error){
+    const observed=await evaluate("({pricing:document.querySelector('#futures-page').dataset.pricingState,error:document.querySelector('#error').textContent,summary:document.querySelector('#futures-summary').textContent,booking:document.querySelector('#new-trade-availability').textContent})");
+    throw Error(error.message+' · observed '+JSON.stringify(observed),{cause:error});
+  }
   await startNewTrade({click,wait});await click('#new-trade-ppa');
   await wait("document.querySelector('#page-title').textContent==='PPA bookings'&&"+idle);
 }

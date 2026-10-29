@@ -21,22 +21,29 @@ internal static class PpaPortfolio
 {
     internal static object Receipt(ValuationReceipt receipt)=>new{
         receipt.Definitions,receipt.Reference,receipt.Snapshot,receipt.ValuationAt,receipt.KnownAt,receipt.KnowledgeContext,
+        sourceKnowledgePolicy=receipt.KnowledgePolicy switch {
+            IntervalKnowledgePolicy.ValuationInstant=>"valuation_instant_v1",
+            IntervalKnowledgePolicy.ResolvedCutoff=>"resolved_cutoff_v1",
+            _=>throw PpaCompiler.Error("ppa_context","The source knowledge policy is unsupported.")},resolvedKnowledge=receipt.MarketInputs.Knowledge,
         pending=receipt.Pending==OpenEtrm.MarketData.Power.PendingActualsPolicy.EstimateUntilActual?"estimate_until_actual_v1":"require_actuals_v1",receipt.Coverage,
         quantities=receipt.QuantityRevisions.Select(q=>new{q.Series,q.Revision,q.KnownAt,q.Context}),receipt.Shapes,
         actuals=receipt.Actuals.Select(a=>new{a.Batch,a.Revision,a.KnownAt}),receipt.AssetVersions,receipt.Implementations};
 
     internal static async Task<PpaPortfolioInput?> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ScheduleContext context,ImmutableArray<Guid> books,CloseBookRiskDefinition policy,CancellationToken ct)
-        =>await Prepare(connection,data,frame,context,books,policy.PendingActuals,frame.At,ct);
+        =>await Prepare(connection,data,frame,context,await Scope(connection,data,frame,context,books,ct),policy.PendingActuals,frame.At,IntervalKnowledgePolicy.ValuationInstant,ct);
     internal static async Task<PpaPortfolioInput?> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ScheduleContext context,ImmutableArray<Guid> books,string? pending,DateTimeOffset known,CancellationToken ct)
-        =>await Prepare(connection,data,frame,context,await Scope(connection,data,frame,context,books,ct),pending,known,ct);
+        =>await Prepare(connection,data,frame,context,await Scope(connection,data,frame,context,books,ct),pending,known,IntervalKnowledgePolicy.ResolvedCutoff,ct);
     // The head revision and bindings of every PPA trade in the books, as the selected context sees them.
     internal static async Task<PpaScope> Scope(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ScheduleContext context,ImmutableArray<Guid> books,CancellationToken ct)
+        =>await Scope(connection,data.DefinitionRevision.CatalogId,frame,context,books,ct);
+    internal static async Task<PpaScope> Scope(NpgsqlConnection connection,Guid catalog,InputFrame frame,
+        ScheduleContext context,ImmutableArray<Guid> books,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"SELECT security.ppa_read_scope($1,'books',$2::uuid[],$3,$4,false)::text",
-            data.DefinitionRevision.CatalogId,books.ToArray(),context.ContextId!.Value,frame.At);
+            catalog,books.ToArray(),context.ContextId!.Value,frame.At);
         var scope=JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
         return new(scope.GetProperty("heads").EnumerateArray().ToImmutableDictionary(r=>r.Id("trade_id"),r=>r.Clone()),
             [..scope.GetProperty("bindings").EnumerateArray().Select(r=>r.Clone())]);
@@ -46,7 +53,7 @@ internal static class PpaPortfolio
         binding.Id("reference_catalog_id")==data.ReferenceRevision.CatalogId&&binding.Id("reference_revision_id")==data.ReferenceRevision.RevisionId;
     // Values every binding of the scope or none: one booked under other versions refuses the whole scope.
     internal static async Task<PpaPortfolioInput?> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,
-        ScheduleContext context,PpaScope scope,string? pending,DateTimeOffset known,CancellationToken ct)
+        ScheduleContext context,PpaScope scope,string? pending,DateTimeOffset known,IntervalKnowledgePolicy knowledgePolicy,CancellationToken ct,RetainedScheduleStore? retained=null)
     {
         var heads=scope.Heads;var rows=scope.Bindings.ToArray();
         if(rows.Length==0)return null;
@@ -64,12 +71,14 @@ internal static class PpaPortfolio
         PpaCompiler.PreflightWork(rows.Select(r=>(terms[r.Id("instrument_id")],r.Text("coverage_from"),r.Text("coverage_to"),r.Id("instrument_id").ToString())));
         var tou=await PpaReads.Tou(connection,data,frame,context.ContextId!.Value,terms.Values,ct);
         var instruments=new Dictionary<Guid,PpaInstrument>();
+        retained??=new RetainedScheduleStore(data.DefinitionRevision.CatalogId);
         foreach(var pair in envelopes)
         {
             try
             {
-                var instrument=PpaCompiler.Compile(data,terms[pair.Key],tou,pair.Key,
+                var instrument=PpaCompiler.Compile(data,terms[pair.Key],tou,await PpaCompiler.ReadQuantityTypes(connection,data,terms[pair.Key],ct),pair.Key,
                     pair.Value.GetProperty("sideIds").EnumerateArray().ToDictionary(s=>new SideSlot(PpaCompiler.Role(s.Text("role")),s.GetProperty("ordinal").GetInt32()),s=>s.Id("sideId")));
+                instrument=RetainedSideSchedules.Attach(instrument,await retained.Load(connection,pair.Key,context.ContextId,frame.At,ct));
                 await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);instruments.Add(pair.Key,instrument);
             }
             catch(MarketDataException error){throw CloseRiskInputsException.For(rows.Where(r=>r.Id("instrument_id")==pair.Key),error.Code);}
@@ -77,7 +86,7 @@ internal static class PpaPortfolio
         var bindings=rows.Select(r=>new PpaBinding(r.Id("trade_id"),r.GetProperty("revision").GetInt32(),r.Id("binding_id"),instruments[r.Id("instrument_id")],
             new(r.Instant("coverage_from"),r.Instant("coverage_to")),r.Number("quantity"))).ToImmutableArray();
         var work=PpaCompiler.Work(bindings.Select(b=>(b.Instrument,b.Coverage)),[],i=>PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code));
-        var prepared=await new PpaReads().Prepare(connection,data,frame,bindings,known,context.ContextId!.Value,PpaQuantitiesStore.Policy(pending),[],ct,closeRiskInputs:true);
+        var prepared=await new PpaReads().Prepare(connection,data,frame,bindings,known,new(context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt)),knowledgePolicy,PpaQuantitiesStore.Policy(pending),[],ct,closeRiskInputs:true);
         var trades=bindings.GroupBy(b=>b.TradeId!.Value).Select(g=>new Trade(g.Key,heads[g.Key].Id("book_id"),
             [..g.Select(b=>new TradeInstrument(b.BindingId,b.Instrument,new(b.Mw,b.Instrument.UnitQuantity.Specification),coverage:b.Coverage))])).ToImmutableArray();
         var portfolio=ValuationPortfolio.FromTrades(trades,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)

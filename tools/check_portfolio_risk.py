@@ -256,7 +256,7 @@ def run_supplemental_scope(Client, check, query, manifest, run_worker):
              'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'],
              'quantity': '100', 'fixedCoefficient': '-1', 'discounting': False,
              'fixed': {'price': '3', 'currency': index['currencyCode'], **delivery, 'paymentSchedule': payment},
-             'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
+             'floating': {'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
                           **delivery, 'paymentSchedule': payment, 'resetFrequency': 'daily', 'averagingMethod': 'arithmetic'}}
     booked = client.call('swaps/book', terms)
     client.call('profile', {'profile': 'risk'})

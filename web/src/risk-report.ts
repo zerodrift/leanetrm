@@ -1,3 +1,4 @@
+import type {ProjectionPolicyReceipt} from './projection-policy.js';
 import type {ValuationReason} from './valuation-status.js';
 
 export type RiskAmounts={base:string;up:string;down:string;upPnl:string;downPnl:string;delta:string;gamma:string};
@@ -19,7 +20,7 @@ export type RiskWorkReport={heldInstruments:number;work:{positionCount:number;un
  * A portfolio risk report: each factor's results by book and by holding, and the positions the run leaves out. An earlier job's
  * result can lack its list of those positions, which is refused when it is shown, never read as leaving out none.
  */
-export type RiskReport=RiskWorkReport&{displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;
+export type RiskReport=RiskWorkReport&{projectionPolicies:ProjectionPolicyReceipt[];displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;
   excludedPositions?:ExcludedPosition[];factors:{factor:RiskFactor;bump:string;totals:RiskTotal[];positions:RiskPosition[]}[]};
 export function riskWorkDetails(report:RiskWorkReport){
   return [

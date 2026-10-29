@@ -138,12 +138,12 @@ public sealed partial class CurveModel
             !curveMembers[curve.Key].Contains(contract.Key) || PriceUnit.FromQuote(Quote(curve))!=unit)
             Fail("interval_price_source","Prepared sources must match the scenario's exact definitions and price unit.");
     }
-    internal IndexPriceLookup PeriodLookup(CurveRequest request,MarketContract contract,IndexFixing fixing)
+    internal IndexPriceLookup PeriodLookup(CurveRequest request,MarketContract contract,PriceSettlementSelection selection,IndexFixing? fixing)
     {
         if(!curves.TryGetValue(request.Curve,out var curve))throw new MarketDataException("interval_price_source","The period curve is absent.");
         var quote=Quote(curve);
-        RequireIndexProjection(request,contract,fixing.Index,quote);
-        return new(fixing.Index,quote,request,contract,null,fixing);
+        RequireIndexProjection(request,contract,selection.CurveTargetIndex,quote);
+        return new(selection,quote,request,contract,null,fixing);
     }
 
     private QuantitySpecification Quantity(QuoteSpecification q) => quantities.TryGetValue(q.Quantity, out var x)
@@ -414,8 +414,8 @@ public sealed partial class CurveModel
     {
         var inputs=ValidateSnapshot(snapshot,cancellation);
         var receipt=Risk.QuoteScenario.Base(snapshot);
-        var context=new Calculation.ResolvedCalculationContext(snapshot.Id,receipt.Id,snapshot.ValuationAt,
-            snapshot.MarketCutoff,snapshot.ValuationAt,snapshot.MarketCutoff);
+        var context=new Calculation.ResolvedCalculationContext(snapshot.Knowledge?.ContextId??snapshot.Id,receipt.Id,snapshot.ValuationAt,
+            snapshot.Knowledge?.KnownAt??snapshot.MarketCutoff,snapshot.ValuationAt,snapshot.MarketCutoff);
         var compiled=CompileValidated(snapshot,requests,false,context,inputs,cancellation);
         var plan=Calculation.ConnectedCurves.Compile(compiled.Definitions,requests.Select(r=>compiled.Points[(r,InputUse.Variable)]).ToImmutableArray(),
             context,new DefinitionBindings(this),cancellation);

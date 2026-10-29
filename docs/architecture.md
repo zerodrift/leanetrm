@@ -421,8 +421,9 @@ These are distinct concepts:
   their weights. Several delivery dates may consume one observation. The valued
   application points to the same generated price term and resolved price as its
   observation subtotal; inspection never builds a parallel calculation.
-- A composite side contains explicit members, coefficients, roles and ordering.
-  Dependencies between components, including quantity sources, are explicit.
+- A side owns whole-term parameters, never child sides (D253). Coefficients,
+  roles and ordering belong to instrument memberships. Dependencies between
+  quantities and their sources are explicit schedule references.
 
 Each side may have its own commodity, location, unit, currency, index, delivery
 shape, observation convention, payment convention and calendar. An instrument
@@ -584,10 +585,13 @@ Schedule definitions retain delivery intervals, observation rules, payment rules
 calendars, time zones and source versions. Generated events retain their source
 definition and trade/instrument/membership context.
 
-Each side owns its generated schedule and its PV operation. Its payment rows
-retain delivery/observation terms, typed per-unit quantities, exact price lookups,
-weights and resolved prices, contractual payment dates/currency, discount inputs and model
-versions. The side computes each payment PV from those rows and sums its own
+Each side owns its generated schedule and its PV operation. `GenerateSchedule()`
+uses its parameters alone, including captured rules for its exact-version clock
+and calendar. A `ScheduleRow` retains delivery/observation windows, typed quantity
+terms or source references, price references and a contractual payment key/date.
+It holds no market value. The common `ScheduleRowValue` records resolved quantity,
+prices, amount, discount factor and PV under one immutable scenario. The side
+computes each payment PV from those rows and sums its own
 payment PVs. Instrument.PV delegates to Side.PV and sums membership-signed side
 results. The trade scales that instrument PV by its quantity once. Membership
 direction and booked quantity do not enter independent side valuation.
@@ -745,10 +749,13 @@ representable trade value. The final conversion enforces the selected monetary
 policy. Unit-level valuation and external trade quantities are mandatory for
 every instrument (D146).
 
-FixedSide and FloatingSide now implement independent GenerateSchedule and PV
-operations. Each constituent fixed/floating definition generates one payment;
-`MonthlySwapSide` composes them into a managed multi-payment strip. Constituent
-delivery/payment dates and quote multipliers can differ. Side valuation receives no instrument,
+FixedSide and FloatingSide implement independent GenerateSchedule and PV
+operations for swaps and PPAs. Whole-term dated period parameters replace the
+monthly/scheduled side wrappers; interval parameters support PPA clocks, masks,
+source quantities, and fixed or indexed prices. Period delivery/payment dates
+and quote multipliers can differ. A dated fixed-price term must be constant
+through each declared row; finer price changes require explicit finer rows.
+Side valuation receives no instrument,
 membership direction or trade quantity. The context supplies exact declared
 market inputs and side-specific discount factors. FixedSide can value without a
 built commodity market; FloatingSide requires its own exact projection lookups.
@@ -756,6 +763,31 @@ Instrument.PV validates compatible side outputs bound to the same valuation
 operation, including its scenario and discount inputs, then sums their signed
 values without interpreting or netting side cashflows. A snapshot ID alone cannot
 validate a cached side result; scenario overlays can share the same snapshot.
+
+PPA graph compilation binds the generated rows to typed quantity, price, cash and
+discount nodes. Immutable columns share monthly grids; an interval is a column
+cell, rather than a separate heap graph node. The retained connected price graph
+supplies quote and computed-output shocks, including nested scenarios. Volume
+sources, capacity, degradation/loss adjustments, normalization and linked delivery
+quantities have declared edges. Only affected columns are evaluated in a child
+scenario; aggregate roots sum the same cells that bounded detail reads expose.
+Frozen actuals and historical source admission retain their own knowledge cutoff.
+Plans and scenarios are receipt identities, and calculation caches remain owned
+by the authorized request. See [side schedules](side-schedules.md) for bounds,
+storage changes and measured qualification.
+D258 retains every logical pricing row in immutable PostgreSQL content tables.
+For the compact local trial, a native row is a typed vector operation over an
+exact grid and selection, rather than one physical record per interval's
+arithmetic. Shared column operations retain exact units and dependencies; the
+database remains stock PostgreSQL. The backend evaluates those columns directly
+and derives bounded interval detail without expanding a scalar-operation DAG.
+Publication metadata lives on a separate append-only header, and child reads
+inherit its temporal and current-authority checks. Booking stages complete
+content before the short final publication transaction. Valuation loads the
+retained rows, edges, typed bindings and named roots; missing content is refused
+rather than regenerated. [Side schedule evaluation](side-plans.md) describes the
+local trial contract; [whole-term side schedules](side-schedules.md) records
+qualified implementation and limits.
 
 Payment factors match exact side/payment occurrence, instant, currency and full
 snapshot. Missing, duplicate, extra or nonpositive factors fail. Standalone

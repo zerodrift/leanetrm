@@ -146,6 +146,8 @@ internal static class DirectReadChecks
         Same("a historical trading workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,chosen,report,[],false,ct)),
             Unadorned(Recorded("historical","response"),chosen,"catalog","blotter"));
         Same("a booking directory workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,again,report,[],true,ct)),Unadorned(Recorded("directory"),again,"catalog","blotter"));
+        Same("a standalone booking directory preserves the exact retained catalog metadata",await AsTrader((c,ct)=>tradeReads.Directory(c,again,ct)),
+            Unadorned(Recorded("directory"),again,"catalog","blotter")["catalog"]);
         Same("a pivoted blotter matches its page",await AsTrader((c,ct)=>tradeReads.Blotter(c,again,recorded.GetProperty("pivot").Deserialize<FuturesBlotterView>(Json)!,ct)),Unadorned(Recorded("pivoted"),again));
         Same("futures trade detail matches its page",await AsTrader((c,ct)=>tradeReads.FuturesTrade(c,again,recorded.GetProperty("trade").GetProperty("request").GetProperty("tradeId").GetGuid(),null,ct)),
             Unadorned(Recorded("trade","response"),again));

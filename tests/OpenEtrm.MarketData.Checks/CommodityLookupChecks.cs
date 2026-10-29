@@ -175,9 +175,9 @@ internal sealed class CommodityLookupFixture
         var fixedSide = new FixedSide(Guid.NewGuid(), new(ExactDecimal.Parse("4"), Quote), unit, from, to, payment, FixedSide.Implementation, Quote);
         var projections = Enumerable.Range(first, count).Select(n => new SwapProjection(Request(n), contracts[n])).ToImmutableArray();
         var floating = indexed
-            ? new FloatingSide(Guid.NewGuid(), R("local_index"), Quote, unit, from, to, Enumerable.Range(first - firstMonth, count).Select(Fixing).ToImmutableArray(), payment,
+            ? new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(R("local_index")), Quote, unit, from, to, Enumerable.Range(first - firstMonth, count).Select(Fixing).ToImmutableArray(), payment,
                 averaging, projections, FloatingSide.IndexedImplementation)
-            : new FloatingSide(Guid.NewGuid(), R("local_index"), Quote, unit, from, to, Fixing(first - firstMonth).FixingAt, payment,
+            : new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(R("local_index")), Quote, unit, from, to, Fixing(first - firstMonth).FixingAt, payment,
                 averaging, projections, FloatingSide.Implementation);
         return new(Guid.NewGuid(), [new(fixedSide, ExactDecimal.Parse("-1")), new(floating, ExactDecimal.Parse("1"))], FinancialSwapInstrument.Implementation, false);
     }

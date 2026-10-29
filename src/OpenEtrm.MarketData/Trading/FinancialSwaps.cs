@@ -16,61 +16,84 @@ public sealed record FloatingProjectionBinding([property: IdentityField] Immutab
 public sealed record SwapProjectionBindings([property: IdentityField] ImmutableArray<FloatingProjectionBinding> Sides);
 public sealed record SwapObservationCalendar(ReferenceKey Key, DateSet BusinessDays);
 
-[EconomicDefinition("FixedSide_v3")]
-public sealed record FixedSide : Side
+[EconomicDefinition("FixedSide_v4")]
+public sealed partial record FixedSide : Side
 {
     public const string Implementation = "fixed_total_payment_v1";
-    [IdentityField]
-    public UnitPrice Price { get; }
-    [IdentityField]
-    public ReferenceKey QuoteKey { get; }
+    [IdentityField] public FixedPriceTerm Price { get; }
+    [IdentityField] public ReferenceKey? DateQuoteKey { get; }
+    public ReferenceKey QuoteKey=>DateQuoteKey??throw new MarketDataException("side_schedule_terms","A native interval fixed price has no dated observation quote binding.");
     public Quantity UnitQuantity { get; }
-    [IdentityField]
-    public ReferenceKey QuantityBasis => UnitQuantity.Specification;
-    [IdentityField]
-    public DateOnly DeliveryFrom { get; }
-    [IdentityField]
-    public DateOnly DeliveryTo { get; }
-    [IdentityField]
-    public DateTimeOffset PaymentAt { get; }
-    [IdentityField]
-    public PaymentRule? PaymentSchedule { get; }
-    public override ImmutableArray<CurveRequest> Dependencies => [];
+    [IdentityField] public ReferenceKey QuantityBasis => UnitQuantity.Specification;
+    [IdentityField] public ImmutableArray<FixedSidePeriod> Periods { get; } = [];
+    public ReferenceKey Currency => Price.Unit.Currency;
+    public DateOnly DeliveryFrom => IntervalDefinition is {} native?native.Delivery.From:Periods[0].DeliveryFrom;
+    public DateOnly DeliveryTo => IntervalDefinition is {} native?native.Delivery.To:Periods[^1].DeliveryTo;
+    public DateTimeOffset PaymentAt => SinglePeriod.PaymentAt;
+    public PaymentRule? PaymentSchedule => SinglePeriod.PaymentSchedule;
+    public ImmutableArray<OpenEtrm.Shared.Numerics.ExactRatio> Quantities => [..Periods.Select(p=>p.Allocation)];
+    private FixedSidePeriod SinglePeriod => Periods.Length == 1 ? Periods[0] :
+        throw new MarketDataException("side_payment_scope", "Select a payment period from this whole-term side.");
+    public override ImmutableArray<CurveRequest> Dependencies => IntervalDefinition is null?[]:throw PpaErrors.Error("ppa_context","dependencies","Prepare the exact interval inputs before declaring dependencies.");
 
+    public FixedSide(Guid id, FixedPriceTerm price, QuoteSpecification quote, Quantity unitQuantity,
+        ImmutableArray<FixedSidePeriod> periods) : base(id)
+    {
+        if(price is null || quote is null || unitQuantity is null || unitQuantity.Amount != ExactDecimal.Parse("1") ||
+            price.Unit != PriceUnit.FromQuote(quote) || price.Unit.Quantity != unitQuantity.Specification)
+            throw new MarketDataException("swap_definition", "A fixed side requires explicit price terms, quote and one exact external quantity unit.");
+        Money.RequireKey(quote.Key);
+        if(quote.Key.Revision != price.Unit.Currency.Revision)
+            throw new MarketDataException("swap_definition", "The exact quote and price references must share a revision.");
+        if(periods.IsDefaultOrEmpty||periods.Any(p=>p is null))throw new MarketDataException("swap_side_periods","Supply explicit nonempty whole-term period parameters.");
+        SwapSidePeriods.Validate(periods.Select(p=>(p.DeliveryFrom,p.DeliveryTo,p.PaymentAt,p.Allocation,p.PaymentSchedule)).ToImmutableArray(), price.Unit.Currency);
+        foreach(var period in periods)RequireConstantPrice(price,period.DeliveryFrom,period.DeliveryTo);
+        Price=price;DateQuoteKey=quote.Key;UnitQuantity=unitQuantity;Periods=periods;
+    }
+    private static void RequireConstantPrice(FixedPriceTerm price,DateOnly from,DateOnly to)
+    {
+        var first=price.At(from);var last=price.At(to.AddDays(-1));
+        var interior=price switch
+        {
+            FlatPrice=>Enumerable.Empty<DateOnly>(),
+            SteppedPrice stepped=>stepped.Steps.Select(s=>s.From).Where(date=>date>from&&date<to),
+            EscalatedPrice=>Enumerable.Empty<DateOnly>(),
+            _=>throw new MarketDataException("side_price_cadence","Select a supported explicit fixed price term.")
+        };
+        if(first!=last||interior.Any(date=>price.At(date)!=first))
+            throw new MarketDataException("side_price_cadence","A dated row requires one constant contractual price; select finer delivery periods at every price change.");
+    }
     public FixedSide(Guid id, UnitPrice price, Quantity unitQuantity, DateOnly deliveryFrom,
         DateOnly deliveryTo, DateTimeOffset paymentAt, string implementation, QuoteSpecification quote)
-        : this(id,price,unitQuantity,deliveryFrom,deliveryTo,paymentAt,implementation,false,quote) { }
-    public FixedSide(Guid id,UnitPrice price,Quantity unitQuantity,DateOnly deliveryFrom,DateOnly deliveryTo,
-        PaymentRule paymentSchedule,string implementation,QuoteSpecification quote)
-        : this(id,price,unitQuantity,deliveryFrom,deliveryTo,PaymentBoundary(paymentSchedule,deliveryFrom,deliveryTo),implementation,true,quote)
-    {
-        if(paymentSchedule.Calendar is {} calendar&&calendar.Key.Revision!=price.Unit.Currency.Revision)
-            throw new MarketDataException("payment_calendar","The payment calendar must use the side's exact reference revision.");
-        PaymentSchedule=paymentSchedule;
-    }
+        : this(id, RequirePrice(price,implementation), quote, unitQuantity,
+            [new(deliveryFrom,deliveryTo,paymentAt,OpenEtrm.Shared.Numerics.ExactRatio.One,null)]) { }
+    public FixedSide(Guid id, UnitPrice price, Quantity unitQuantity, DateOnly deliveryFrom,
+        DateOnly deliveryTo, PaymentRule paymentSchedule, string implementation, QuoteSpecification quote)
+        : this(id, RequirePrice(price,implementation),quote,unitQuantity,
+            [new(deliveryFrom,deliveryTo,PaymentBoundary(paymentSchedule,deliveryFrom,deliveryTo),OpenEtrm.Shared.Numerics.ExactRatio.One,paymentSchedule)]) { }
+    private static FixedPriceTerm RequirePrice(UnitPrice? price,string implementation) =>
+        RequirePrice(price is null?null:new FlatPrice(price),implementation);
+    private static FixedPriceTerm RequirePrice(FixedPriceTerm? price,string implementation) =>
+        price is not null && implementation==Implementation?price:
+        throw new MarketDataException("swap_definition","Select explicit fixed price terms and their supported implementation.");
     internal static DateTimeOffset PaymentBoundary(PaymentRule? rule,DateOnly from,DateOnly to)=>
         PaymentBoundary((rule??throw new MarketDataException("payment_rule","An explicit payment rule is required.")).Generate(from,to).Date);
     internal static DateTimeOffset PaymentBoundary(DateOnly date)=>new(date.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc));
-    private FixedSide(Guid id,UnitPrice price,Quantity unitQuantity,DateOnly deliveryFrom,DateOnly deliveryTo,
-        DateTimeOffset paymentAt,string implementation,bool scheduled,QuoteSpecification quote) : base(id)
+    public override SideSchedule GenerateSchedule()=>IntervalDefinition is null?GenerateDatedSchedule():new IntervalSideSchedule(this);
+    public SidePaymentSchedule GenerateDatedSchedule()
     {
-        if (price is null || unitQuantity is null || implementation != Implementation ||
-            unitQuantity.Amount != ExactDecimal.Parse("1") || price.Unit.Quantity != unitQuantity.Specification ||
-            deliveryFrom >= deliveryTo || !TradingInstant.IsSupported(paymentAt) ||
-            !scheduled && DateOnly.FromDateTime(paymentAt.UtcDateTime) < deliveryTo)
-            throw new MarketDataException("swap_definition", "A fixed side requires explicit price, one exact quantity unit, delivery interval and payment after delivery.");
-        if(quote is null || price.Unit != PriceUnit.FromQuote(quote)) throw new MarketDataException("swap_definition","The selected exact quote must match the fixed price unit.");
-        Money.RequireKey(quote.Key);
-        if(quote.Key.Revision != price.Unit.Currency.Revision) throw new MarketDataException("swap_definition","The exact quote and price references must share a revision.");
-        QuoteKey = quote.Key;
-        Price = price; UnitQuantity = unitQuantity; DeliveryFrom = deliveryFrom;
-        DeliveryTo = deliveryTo; PaymentAt = paymentAt;
+        if(RetainedPlan is {} retained)return retained.DatedSchedule();
+        var payments=Periods.Select((period,n)=>
+        {
+            var primitive=new ScheduleRow(Id,period.DeliveryFrom,period.DeliveryTo,period.PaymentAt,Currency,UnitQuantity,null,null,null,
+                [new(ExactDecimal.Parse("1"),Price,period.DeliveryFrom)],Implementation,
+                [new(period.DeliveryFrom,period.DeliveryTo,0,ExactDecimal.Parse("1"),Implementation)],Implementation,
+                period.PaymentSchedule?.Generate(period.DeliveryFrom,period.DeliveryTo),period.PaymentSchedule);
+            return new ScheduleRow(primitive,Id,n,new(period.Allocation.Numerator,period.Allocation.Denominator,UnitQuantity.Specification));
+        }).ToImmutableArray();
+        return new(Id,Currency,UnitQuantity,Implementation,payments);
     }
-    public override SidePaymentSchedule GenerateSchedule() => new(new(Id, DeliveryFrom, DeliveryTo, PaymentAt,
-        Price.Unit.Currency, UnitQuantity, null, null, null,
-        [new(ExactDecimal.Parse("1"), Price, null)], Implementation,
-        [new(DeliveryFrom,DeliveryTo,0,ExactDecimal.Parse("1"),Implementation)],Implementation,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
-    public override PaymentSideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
+    public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
 }
 
 public sealed record CustomCurveProjectionBinding(Guid CatalogId, Guid CurveId, int Version,
@@ -100,155 +123,148 @@ public sealed record CustomCurveProjectionBinding(Guid CatalogId, Guid CurveId, 
     }
 }
 
-[EconomicDefinition("FloatingSide_v3")]
-public sealed record FloatingSide : Side
+[EconomicDefinition("FloatingSide_v8")]
+public sealed partial record FloatingSide : Side
 {
     public const string Implementation = "prefixing_index_projection_v1";
     public const string IndexedImplementation = "index_observation_fixings_v1";
     public const int MaximumDeliveryDays = 366;
-    [IdentityField]
-    public ReferenceKey Index { get; }
-    [IdentityField]
-    public QuoteSpecification Quote { get; }
+    [IdentityField] public PriceSettlementSelection? DateSettlement { get; }
+    public PriceSettlementSelection Settlement=>DateSettlement??throw new MarketDataException("side_schedule_terms","Select the dated settlement contract of this floating side.");
+    public ReferenceKey Index=>Settlement.SelectedIndex;
+    public override ImmutableArray<SettlementProjection> SettlementProjections
+    {
+        get
+        {
+            var selection=DateSettlement??IntervalPriceDefinition?.Settlement;
+            if(selection is null)return [];
+            var curves=IntervalDefinition is null?Periods.SelectMany(p=>p.Projections).Select(p=>p.Market.Curve).Distinct():
+                [new CurveKey(Price.Curve.Revision,Price.Curve.Code)];
+            return [..curves.Select(curve=>new SettlementProjection(Id,curve,selection))];
+        }
+    }
+    [IdentityField] public QuoteSpecification? DateQuote { get; }
+    public QuoteSpecification Quote=>DateQuote??throw new MarketDataException("side_schedule_terms","A native interval floating side has an explicit interval price unit.");
     public Quantity UnitQuantity { get; }
-    [IdentityField]
-    public ReferenceKey QuantityBasis => UnitQuantity.Specification;
-    [IdentityField]
-    public DateOnly DeliveryFrom { get; }
-    [IdentityField]
-    public DateOnly DeliveryTo { get; }
-    [IdentityField]
-    public DateTimeOffset FirstFixingAt { get; }
-    public ImmutableArray<IndexFixing> Fixings { get; } = [];
-    public CustomCurveProjectionBinding? CustomProjection { get; private init; }
+    [IdentityField] public ReferenceKey QuantityBasis => UnitQuantity.Specification;
+    [IdentityField] public ImmutableArray<FloatingSidePeriod> Periods { get; } = [];
+    private readonly ImmutableArray<FloatingObservationPlan> observations=[];
+    public ReferenceKey Currency=>IntervalDefinition is {} native?native.Currency:Quote.Currency;
+    public DateOnly DeliveryFrom=>IntervalDefinition is {} native?native.Delivery.From:Periods[0].DeliveryFrom;
+    public DateOnly DeliveryTo=>IntervalDefinition is {} native?native.Delivery.To:Periods[^1].DeliveryTo;
+    public DateTimeOffset FirstFixingAt=>Periods.Min(p=>p.FirstFixingAt);
+    public DateTimeOffset PaymentAt=>SinglePeriod.PaymentAt;
+    public PaymentRule? PaymentSchedule=>SinglePeriod.PaymentSchedule;
+    public FloatingAveraging Averaging=>SinglePeriod.Averaging;
+    public SwapObservationCalendar? Calendar=>SinglePeriod.Calendar;
+    public UnitPrice? Spread=>SinglePeriod.Spread;
+    public CustomCurveProjectionBinding? CustomProjection=>SinglePeriod.CustomProjection;
+    public ImmutableArray<IndexFixing> Fixings=>[..Periods.SelectMany(p=>p.Fixings)];
+    public ImmutableArray<SwapProjection> Projections=>[..Periods.SelectMany(p=>p.Projections)];
+    public CurveKey ProjectionCurve=>Projections[0].Market.Curve;
+    public ImmutableArray<FloatingObservation> ObservationSchedule=>[..Projections.Select(p=>new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity))];
+    public FloatingProjectionBinding PricingBinding=>new(Projections);
+    public override DefinitionIdentity PricingBindingIdentity=>IntervalDefinition is null?DefinitionIdentity.For(new MonthlyProjectionBindings([..Periods.Select(p=>new FloatingProjectionBinding(p.Projections))])):DefinitionIdentity.For(Price);
+    public ImmutableArray<OpenEtrm.Shared.Numerics.ExactRatio> Quantities=>[..Periods.Select(p=>p.Allocation)];
+    private FloatingSidePeriod SinglePeriod=>Periods.Length==1?Periods[0]:
+        throw new MarketDataException("side_payment_scope","Select an observation/payment period from this whole-term side.");
+    public override ImmutableArray<CurveRequest> Dependencies=>GenerateSchedule().Dependencies;
+    public override ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)=>GenerateSchedule().DependenciesAt(snapshot);
+
+    public FloatingSide(Guid id,PriceSettlementSelection settlement,QuoteSpecification quote,Quantity unitQuantity,ImmutableArray<FloatingSidePeriod> periods):base(id)
+    {
+        if(settlement is null)throw new MarketDataException("price_settlement_selection","A floating period side requires its explicit settlement selection.");
+        var index=settlement.SelectedIndex;
+        if(quote is null || unitQuantity is null || index.Revision!=quote.Key.Revision || quote.Kind!=QuoteKind.Outright ||
+            unitQuantity.Amount!=ExactDecimal.Parse("1") || unitQuantity.Specification!=quote.Quantity || periods.IsDefaultOrEmpty || periods.Any(p=>p is null))
+            throw new MarketDataException("swap_definition","A floating side requires exact index/quote/unit references and explicit whole-term periods.");
+        _=PriceUnit.FromQuote(quote);
+        SwapSidePeriods.Validate(periods.Select(p=>(p.DeliveryFrom,p.DeliveryTo,p.PaymentAt,p.Allocation,p.PaymentSchedule)).ToImmutableArray(),quote.Currency);
+        var plans=ImmutableArray.CreateBuilder<FloatingObservationPlan>();
+        foreach(var period in periods)
+        {
+            if(period.DeliveryTo.DayNumber-period.DeliveryFrom.DayNumber>MaximumDeliveryDays || !TradingInstant.IsSupported(period.FirstFixingAt) ||
+                period.FirstFixingAt>=period.PaymentAt || period.Projections.IsDefaultOrEmpty || period.Projections.Length>MaximumDeliveryDays ||
+                period.Projections.Any(p=>p is null || p.Contract is null) || period.Projections.Select(p=>p.Market).Distinct().Count()!=period.Projections.Length ||
+                period.Projections.Any(p=>p.Contract.Kind!=ContractKind.Forward || p.Contract.FuturesSeries is not null || p.Market.Contract!=p.Contract.Key ||
+                    p.Market.Curve.Revision!=p.Contract.Key.Revision || p.Contract.DeliveryFrom>=p.Contract.DeliveryTo) ||
+                period.Projections.Select(p=>p.Market.Curve).Distinct().Count()!=1)
+                throw new MarketDataException("swap_definition","Every period requires coherent fixing, payment and exact projection contracts.");
+            if(period.Spread is not null && period.Spread.Unit!=PriceUnit.FromQuote(quote))throw new MarketDataException("swap_spread","A floating spread requires the side's exact price unit.");
+            if(period.Averaging!=FloatingAveraging.QuantityWeighted && period.Projections.Any(p=>p.AveragingQuantity is not null))
+                throw new MarketDataException("swap_averaging","Only quantity-weighted observations accept explicit averaging quantities.");
+            var plan=FloatingObservationPlan.Generate(period.DeliveryFrom,period.DeliveryTo,period.Averaging,quote,period.Calendar,
+                period.Averaging==FloatingAveraging.QuantityWeighted?[..period.Projections.Select(p=>new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity))]:[]);
+            if(!period.Projections.Select(p=>new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity)).SequenceEqual(plan.Observations))
+                throw new MarketDataException("swap_averaging","Resolved projections must match the complete ordered observation plan.");
+            if(period.ObservationImplementation==IndexedImplementation)
+            {
+                if(period.Fixings.IsDefaultOrEmpty || period.Fixings.Length!=period.Projections.Length || period.Fixings.Any(f=>f is null) ||
+                    period.Fixings.Select(f=>f.Series).Distinct().Count()!=period.Fixings.Length || period.Fixings.Where((f,n)=>f.Index!=index || f.Quote!=quote.Key ||
+                        f.From!=period.Projections[n].Contract.DeliveryFrom || f.To!=period.Projections[n].Contract.DeliveryTo ||
+                        !TradingInstant.IsSupported(f.FixingAt) || f.FixingAt>=period.PaymentAt || f.Series.Revision!=period.Projections[n].Market.Curve.Revision ||
+                        f.Series.Id==Guid.Empty || f.Source.Revision!=index.Revision || string.IsNullOrWhiteSpace(f.Source.Code) || f.Implementation!=IndexFixing.SupportedImplementation).Any() ||
+                    period.FirstFixingAt!=period.Fixings.Min(f=>f.FixingAt))
+                    throw new MarketDataException("index_fixing_definition","Every exact observation requires its qualified index, quote, series, source and publication instant.");
+            }
+            else if(period.ObservationImplementation!=Implementation || !period.Fixings.IsEmpty)
+                throw new MarketDataException("index_fixing_definition","Select an explicit projection-only or published-fixing observation contract.");
+            if(settlement.Mode==PriceSettlementMode.Override && (period.Fixings.IsEmpty || period.CustomProjection is not null))
+                throw new MarketDataException("price_settlement_selection","An override requires every qualified fixing rule and forward_curve_no_basis_v1 without a custom projection.");
+            if(period.CustomProjection is {} binding)ValidateCustom(period,binding);
+            plans.Add(plan);
+        }
+        DateSettlement=settlement;DateQuote=quote;UnitQuantity=unitQuantity;Periods=periods;observations=plans.ToImmutable();
+    }
+    public FloatingSide(Guid id,PriceSettlementSelection settlement,QuoteSpecification quote,Quantity unitQuantity,DateOnly from,DateOnly to,
+        ImmutableArray<IndexFixing> fixings,DateTimeOffset paymentAt,FloatingAveraging averaging,ImmutableArray<SwapProjection> projections,
+        string implementation,SwapObservationCalendar? calendar=null,UnitPrice? spread=null)
+        :this(id,settlement,quote,unitQuantity,[new(from,to,FirstFixing(fixings),paymentAt,averaging,projections,fixings,calendar,spread,null,null,OpenEtrm.Shared.Numerics.ExactRatio.One,implementation)]) { }
+    public FloatingSide(Guid id,PriceSettlementSelection settlement,QuoteSpecification quote,Quantity unitQuantity,DateOnly from,DateOnly to,
+        ImmutableArray<IndexFixing> fixings,PaymentRule paymentSchedule,FloatingAveraging averaging,ImmutableArray<SwapProjection> projections,
+        string implementation,SwapObservationCalendar? calendar=null,UnitPrice? spread=null)
+        :this(id,settlement,quote,unitQuantity,[new(from,to,FirstFixing(fixings),FixedSide.PaymentBoundary(paymentSchedule,from,to),averaging,projections,fixings,calendar,spread,paymentSchedule,null,OpenEtrm.Shared.Numerics.ExactRatio.One,implementation)]) { }
+    public FloatingSide(Guid id,PriceSettlementSelection settlement,QuoteSpecification quote,Quantity unitQuantity,DateOnly from,DateOnly to,
+        DateTimeOffset firstFixingAt,DateTimeOffset paymentAt,FloatingAveraging averaging,ImmutableArray<SwapProjection> projections,
+        string implementation,SwapObservationCalendar? calendar=null,UnitPrice? spread=null)
+        :this(id,settlement,quote,unitQuantity,[new(from,to,firstFixingAt,paymentAt,averaging,projections,[],calendar,spread,null,null,OpenEtrm.Shared.Numerics.ExactRatio.One,implementation)]) { }
+    public FloatingSide(Guid id,PriceSettlementSelection settlement,QuoteSpecification quote,Quantity unitQuantity,DateOnly from,DateOnly to,
+        DateTimeOffset firstFixingAt,PaymentRule paymentSchedule,FloatingAveraging averaging,ImmutableArray<SwapProjection> projections,
+        string implementation,SwapObservationCalendar? calendar=null,UnitPrice? spread=null)
+        :this(id,settlement,quote,unitQuantity,[new(from,to,firstFixingAt,FixedSide.PaymentBoundary(paymentSchedule,from,to),averaging,projections,[],calendar,spread,paymentSchedule,null,OpenEtrm.Shared.Numerics.ExactRatio.One,implementation)]) { }
+    private static DateTimeOffset FirstFixing(ImmutableArray<IndexFixing> fixings)=>!fixings.IsDefaultOrEmpty && fixings.All(f=>f is not null)?fixings.Min(f=>f.FixingAt):
+        throw new MarketDataException("index_fixing_definition","Supply the complete explicit dated fixing schedule.");
+    private static void ValidateCustom(FloatingSidePeriod period,CustomCurveProjectionBinding binding)
+    {
+        if(period.Fixings.IsDefaultOrEmpty || (period.Averaging switch
+            {FloatingAveraging.MonthlyIndexPrice=>period.Projections.Length!=1 || binding.Selection!=CustomCurveProjectionBinding.SupportedSelection,
+             FloatingAveraging.CalendarDayArithmetic=>binding.Selection!=CustomCurveProjectionBinding.DeliverySelection,_=>true}))
+            throw new MarketDataException("custom_projection","Select one exact output for a monthly reset or exact delivery-interval mapping for daily indexed resets.");
+        foreach(var projection in period.Projections)_=binding.Request(projection.Market);
+    }
     public FloatingSide WithCustomProjection(CustomCurveProjectionBinding binding)
     {
-        if (binding is null || Fixings.IsDefaultOrEmpty || (Averaging switch
-            {FloatingAveraging.MonthlyIndexPrice=>Projections.Length!=1||binding.Selection!=CustomCurveProjectionBinding.SupportedSelection,
-             FloatingAveraging.CalendarDayArithmetic=>binding.Selection!=CustomCurveProjectionBinding.DeliverySelection,_=>true}))
-            throw new MarketDataException("custom_projection", "Select one exact output for a monthly reset, or exact delivery-interval mapping for daily indexed resets with explicit fixing rules.");
-        foreach(var projection in Projections)_ = binding.Request(projection.Market);
-        return this with { CustomProjection = binding };
+        if(binding is null)throw new MarketDataException("custom_projection","Supply the exact published projection binding.");
+        foreach(var period in Periods)ValidateCustom(period,binding);
+        return new(Id,Settlement,Quote,UnitQuantity,[..Periods.Select(p=>p with{CustomProjection=binding})]);
     }
-    [IdentityField]
-    public DateTimeOffset PaymentAt { get; }
-    [IdentityField]
-    public PaymentRule? PaymentSchedule { get; }
-    [IdentityField]
-    public FloatingAveraging Averaging { get; }
-    [IdentityField]
-    public CurveKey ProjectionCurve => Projections[0].Market.Curve;
-    [IdentityField]
-    public ImmutableArray<FloatingObservation> ObservationSchedule => Projections.Select(p =>
-        new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity)).ToImmutableArray();
-    public FloatingProjectionBinding PricingBinding { get; }
-    public override DefinitionIdentity PricingBindingIdentity => DefinitionIdentity.For(PricingBinding);
-    public ImmutableArray<SwapProjection> Projections => PricingBinding.Projections;
-    [IdentityField]
-    public SwapObservationCalendar? Calendar { get; }
-    [IdentityField]
-    public UnitPrice? Spread { get; }
-    private readonly FloatingObservationPlan observationPlan;
-    public override ImmutableArray<CurveRequest> Dependencies => Projections.Select(p => CustomProjection?.Request(p.Market) ?? p.Market).ToImmutableArray();
-    public override ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) =>
-        GenerateSchedule().DependenciesAt(snapshot);
-
-    public FloatingSide(Guid id, ReferenceKey index, QuoteSpecification quote, Quantity unitQuantity,
-        DateOnly deliveryFrom, DateOnly deliveryTo, ImmutableArray<IndexFixing> fixings,
-        DateTimeOffset paymentAt, FloatingAveraging averaging, ImmutableArray<SwapProjection> projections,
-        string implementation, SwapObservationCalendar? calendar = null,UnitPrice? spread=null)
-        : this(id, index, quote, unitQuantity, deliveryFrom, deliveryTo, fixings, paymentAt,
-            averaging, projections, implementation, calendar, false,spread) { }
-
-    private FloatingSide(Guid id, ReferenceKey index, QuoteSpecification quote, Quantity unitQuantity,
-        DateOnly deliveryFrom, DateOnly deliveryTo, ImmutableArray<IndexFixing> fixings,
-        DateTimeOffset paymentAt, FloatingAveraging averaging, ImmutableArray<SwapProjection> projections,
-        string implementation, SwapObservationCalendar? calendar, bool scheduled,UnitPrice? spread)
-        : this(id, index, quote, unitQuantity, deliveryFrom, deliveryTo,
-            FirstFixing(fixings), paymentAt, averaging, projections, Implementation, calendar, scheduled,spread)
+    public override SideSchedule GenerateSchedule()=>IntervalDefinition is null?GenerateDatedSchedule():new IntervalSideSchedule(this);
+    public SidePaymentSchedule GenerateDatedSchedule()
     {
-        if (implementation != IndexedImplementation)
-            throw new MarketDataException("index_fixing_definition", "Select the explicit indexed fixing implementation.");
-        if (fixings.Length != projections.Length || fixings.Select(f => f.Series).Distinct().Count() != fixings.Length ||
-            fixings.Where((f, n) => f.Index != index || f.Quote != quote.Key || f.From != projections[n].Contract.DeliveryFrom ||
-                f.To != projections[n].Contract.DeliveryTo || !TradingInstant.IsSupported(f.FixingAt) || f.FixingAt >= paymentAt ||
-                f.Series.Revision != projections[n].Market.Curve.Revision || f.Series.Id == Guid.Empty ||
-                f.Source.Revision != index.Revision || string.IsNullOrWhiteSpace(f.Source.Code) ||
-                f.Implementation != IndexFixing.SupportedImplementation).Any())
-            throw new MarketDataException("index_fixing_definition", "Every exact observation period requires its qualified index, quote, series, source and UTC publication instant.");
-        Fixings = fixings;
+        if(RetainedPlan is {} retained)return retained.DatedSchedule();
+        var payments=Periods.Select((period,n)=>
+        {
+            var plan=observations[n];
+            var primitive=new ScheduleRow(Id,period.DeliveryFrom,period.DeliveryTo,period.PaymentAt,Currency,UnitQuantity,
+                period.Fixings.IsEmpty?period.FirstFixingAt:null,period.Averaging,period.Calendar,
+                [..period.Projections.Select((p,i)=>new SchedulePriceTerm(plan.Weights[i],null,
+                    new(Settlement,Quote,p.Market,p.Contract,p.AveragingQuantity,period.Fixings.IsEmpty?null:period.Fixings[i],period.CustomProjection),period.Spread))],
+                period.ObservationImplementation,plan.Applications,plan.MappingRule,period.PaymentSchedule?.Generate(period.DeliveryFrom,period.DeliveryTo),period.PaymentSchedule);
+            return new ScheduleRow(primitive,Id,n,new(period.Allocation.Numerator,period.Allocation.Denominator,UnitQuantity.Specification));
+        }).ToImmutableArray();
+        return new(Id,Currency,UnitQuantity,Implementation,payments);
     }
-
-    public FloatingSide(Guid id, ReferenceKey index, QuoteSpecification quote, Quantity unitQuantity,
-        DateOnly deliveryFrom, DateOnly deliveryTo, ImmutableArray<IndexFixing> fixings,
-        PaymentRule paymentSchedule, FloatingAveraging averaging, ImmutableArray<SwapProjection> projections,
-        string implementation, SwapObservationCalendar? calendar = null,UnitPrice? spread=null)
-        : this(id, index, quote, unitQuantity, deliveryFrom, deliveryTo, fixings,
-            FixedSide.PaymentBoundary(paymentSchedule, deliveryFrom, deliveryTo), averaging, projections, implementation, calendar, true,spread)
-    {
-        if (paymentSchedule.Calendar is { } dates && dates.Key.Revision != quote.Currency.Revision)
-            throw new MarketDataException("payment_calendar", "The payment calendar must use the side's exact reference revision.");
-        PaymentSchedule = paymentSchedule;
-    }
-
-    private static DateTimeOffset FirstFixing(ImmutableArray<IndexFixing> fixings) =>
-        !fixings.IsDefaultOrEmpty && fixings.All(f => f is not null)
-            ? fixings.Min(f => f.FixingAt)
-            : throw new MarketDataException("index_fixing_definition", "Supply the complete explicit dated index fixing schedule.");
-
-    public FloatingSide(Guid id, ReferenceKey index, QuoteSpecification quote, Quantity unitQuantity,
-        DateOnly deliveryFrom, DateOnly deliveryTo, DateTimeOffset firstFixingAt, DateTimeOffset paymentAt,
-        FloatingAveraging averaging, ImmutableArray<SwapProjection> projections, string implementation,
-        SwapObservationCalendar? calendar = null,UnitPrice? spread=null)
-        : this(id,index,quote,unitQuantity,deliveryFrom,deliveryTo,firstFixingAt,paymentAt,averaging,projections,implementation,calendar,false,spread) { }
-    public FloatingSide(Guid id,ReferenceKey index,QuoteSpecification quote,Quantity unitQuantity,
-        DateOnly deliveryFrom,DateOnly deliveryTo,DateTimeOffset firstFixingAt,PaymentRule paymentSchedule,
-        FloatingAveraging averaging,ImmutableArray<SwapProjection> projections,string implementation,SwapObservationCalendar? calendar=null,UnitPrice? spread=null)
-        : this(id,index,quote,unitQuantity,deliveryFrom,deliveryTo,firstFixingAt,FixedSide.PaymentBoundary(paymentSchedule,deliveryFrom,deliveryTo),averaging,projections,implementation,calendar,true,spread)
-    {
-        if(paymentSchedule.Calendar is {} dates&&dates.Key.Revision!=quote.Currency.Revision)
-            throw new MarketDataException("payment_calendar","The payment calendar must use the side's exact reference revision.");
-        PaymentSchedule=paymentSchedule;
-    }
-    private FloatingSide(Guid id,ReferenceKey index,QuoteSpecification quote,Quantity unitQuantity,
-        DateOnly deliveryFrom,DateOnly deliveryTo,DateTimeOffset firstFixingAt,DateTimeOffset paymentAt,
-        FloatingAveraging averaging,ImmutableArray<SwapProjection> projections,string implementation,SwapObservationCalendar? calendar,bool scheduled,UnitPrice? spread) : base(id)
-    {
-        Money.RequireKey(index);
-        if (quote is null || unitQuantity is null || implementation != Implementation ||
-            index.Revision != quote.Key.Revision || quote.Kind != QuoteKind.Outright ||
-            unitQuantity.Amount != ExactDecimal.Parse("1") || unitQuantity.Specification != quote.Quantity ||
-            deliveryFrom >= deliveryTo || deliveryTo.DayNumber - deliveryFrom.DayNumber > MaximumDeliveryDays ||
-            !TradingInstant.IsSupported(firstFixingAt) || !TradingInstant.IsSupported(paymentAt) ||
-            firstFixingAt >= paymentAt || !scheduled && DateOnly.FromDateTime(paymentAt.UtcDateTime) < deliveryTo ||
-            projections.IsDefaultOrEmpty || projections.Length > MaximumDeliveryDays || projections.Any(p => p is null || p.Contract is null) ||
-            projections.Select(p => p.Market).Distinct().Count() != projections.Length ||
-            projections.Any(p => p.Contract.Kind != ContractKind.Forward || p.Contract.FuturesSeries is not null ||
-                p.Market.Contract != p.Contract.Key || p.Market.Curve.Revision != p.Contract.Key.Revision ||
-                p.Contract.DeliveryFrom >= p.Contract.DeliveryTo) ||
-            projections.Select(p => p.Market.Curve).Distinct().Count() != 1)
-            throw new MarketDataException("swap_definition", "A floating side requires explicit coherent index, quote, unit, delivery, fixing, payment and exact projection contracts.");
-        _ = PriceUnit.FromQuote(quote);
-        if(spread is not null&&spread.Unit!=PriceUnit.FromQuote(quote))throw new MarketDataException("swap_spread","A floating spread requires the side's exact price unit.");
-        Spread=spread;
-        if(averaging!=FloatingAveraging.QuantityWeighted&&projections.Any(p=>p.AveragingQuantity is not null))
-            throw new MarketDataException("swap_averaging","Only quantity-weighted observations accept explicit averaging quantities.");
-        observationPlan=FloatingObservationPlan.Generate(deliveryFrom,deliveryTo,averaging,quote,calendar,
-            averaging==FloatingAveraging.QuantityWeighted?projections.Select(p=>new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity)).ToImmutableArray():[]);
-        if(!projections.Select(p=>new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity)).SequenceEqual(observationPlan.Observations))
-            throw new MarketDataException("swap_averaging","Resolved projections must match the complete ordered observation plan.");
-        Index = index; Quote = quote; UnitQuantity = unitQuantity; DeliveryFrom = deliveryFrom;
-        DeliveryTo = deliveryTo; FirstFixingAt = firstFixingAt; PaymentAt = paymentAt;
-        Averaging = averaging; PricingBinding = new(projections); Calendar = calendar;
-    }
-
-    public override SidePaymentSchedule GenerateSchedule() => new(new(Id, DeliveryFrom, DeliveryTo, PaymentAt,
-        Quote.Currency, UnitQuantity, Fixings.IsEmpty ? FirstFixingAt : null, Averaging, Calendar,
-        Projections.Select((p, n) => new SchedulePriceTerm(observationPlan.Weights[n], null,
-            new(Index, Quote, p.Market, p.Contract, p.AveragingQuantity, Fixings.IsEmpty ? null : Fixings[n], CustomProjection),Spread)).ToImmutableArray(),
-        Fixings.IsEmpty ? Implementation : IndexedImplementation,observationPlan.Applications,observationPlan.MappingRule,PaymentSchedule?.Generate(DeliveryFrom,DeliveryTo),PaymentSchedule));
-    public override PaymentSideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
-
+    public override SideValuation PV(SideValuationContext context)=>GenerateSchedule().Evaluate(context);
 }
 
 [EconomicDefinition("FinancialSwapInstrument_v2")]
@@ -292,7 +308,7 @@ public sealed record FinancialSwapInstrument : SidedInstrument
     internal static InstrumentValuation RequireDiscounting(InstrumentValuation value, bool discounting)
     {
         if (value.Sides.SelectMany(s => ((PaymentSideValuation)s.Value).Payments).Any(p =>
-            discounting == (p.Discount.Source == DiscountFactorSource.Undiscounted)))
+            discounting == (p.PaymentDiscount.Source == DiscountFactorSource.Undiscounted)))
             throw new MarketDataException("swap_valuation", "Payment discounting must match the immutable instrument definition.");
         return value;
     }
@@ -308,7 +324,7 @@ public sealed record FinancialSwapInstrument : SidedInstrument
             Discounting != (valuationPolicy == Discounted) ||
             valuationPolicy == Undiscounted && paymentFactor != ExactDecimal.Parse("1"))
             throw new MarketDataException("swap_valuation", "Choose explicit discounted or undiscounted valuation with a positive payment factor; undiscounted requires one.");
-        if (valuationPolicy == Discounted && ((SidePaymentSchedule)First.GenerateSchedule()).Payments.Single().PaymentAt != Floating.PaymentAt)
+        if (valuationPolicy == Discounted && Sides.SelectMany(m=>m.Side.GenerateSchedule().Rows).Select(row=>row.PaymentAt).Distinct().Skip(1).Any())
             throw new MarketDataException("swap_valuation", "Independent payment dates require per-side payment discount factors.");
         var context = new SideValuationContext(market, new ExplicitDiscounting(paymentFactor,
             valuationPolicy == Undiscounted ? DiscountFactorSource.Undiscounted : DiscountFactorSource.Explicit));

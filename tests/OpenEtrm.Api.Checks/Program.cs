@@ -3,11 +3,14 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--position-facts"]){TradePositionFactsChecks.Run();return;}
 if(args is ["--swap-settlement-agent",var settlementAgentFixture]){await SwapSettlementAgentChecks.Run(settlementAgentFixture);return;}
 if(args is ["--reference-intake"]){await ReferenceCaptureChecks.Run();await ReferenceImportChecks.Run();return;}
 if(args is ["--reference-import-plan",var referenceOutput]){await ReferenceImportChecks.Run(referenceOutput);return;}
-if(args is ["--legacy-swap-editor"]){await LegacySwapEditorChecks.Run();return;}
 if(args is ["--swap-change-review"]){SwapChangeReviewChecks.Run();return;}
+if(args is ["--whole-term-swaps"]){WholeTermSwapAssemblyChecks.Run();return;}
+if(args is ["--retained-schedule-limits"]){RetainedScheduleLimitChecks.Run();return;}
+if(args is ["--trading-read-selection"]){TradingReadSelectionChecks.Run();return;}
 if(args is ["--side-observation-compatibility"]){SideObservationCompatibilityChecks.Run();return;}
 if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();return;}
 if(args is ["--connected-samples"]){ConnectedSampleChecks.Run();return;}
@@ -64,6 +67,10 @@ if (args is ["--schedules"])
     await TurnStreamChecks.Run();
     PowerImportChecks.Run();
     SwapChangeReviewChecks.Run();
+    WholeTermSwapAssemblyChecks.Run();
+    RetainedScheduleLimitChecks.Run();
+    TradingReadSelectionChecks.Run();
+    TradePositionFactsChecks.Run();
     SchedulePreviewChecks.Run();
     DateWorkspaceChecks.Run();
     SchedulePublicationChecks.Run();

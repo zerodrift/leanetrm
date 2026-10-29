@@ -13,14 +13,15 @@ internal static class PpaUiCatalog
         "accepted_settlement", "payment_recording", "runtime_templates", "historical_session_valuation"];
     internal static object References(PreviewData data)=>new {
         currencies=data.References["currencies"],quantitySpecs=data.References["quantity_specifications"],units=data.References["units"],
-        clocks=data.References["clock_rules"],calendars=data.References["calendars"],locations=data.References["locations"]};
+        clocks=data.References["clock_rules"],calendars=data.References["calendars"],locations=data.References["locations"],priceIndices=data.References["price_index_definitions"]};
     internal static object Definitions(PreviewData data)
     {
         var curves=data.Definitions["curves"];
         object Curve(JsonElement row,string code,string name,string kind)
         {
             var quote=data.References["quote_specifications"].Single(q=>q.Text("code")==row.Text("quote_code"));
-            return new{code,name,kind,quote,deliveryProfile=row.Text("profile_code"),location=row.OptionalText("location_code")};
+            var target=kind=="period"?data.References["settlement_targets"].Single(t=>t.Text("code")==row.Text("settlement_target_code")):default;
+            return new{code,name,kind,quote,deliveryProfile=row.Text("profile_code"),location=row.OptionalText("location_code"),settlementIndex=kind=="period"?target.Text("index_a_code"):null};
         }
         var intervals=data.Definitions["contract_intervals"].Select(c=>c.Id("contract_id")).ToHashSet();
         var marked=data.Definitions["curve_members"].GroupBy(m=>m.Text("curve_code")).Where(g=>g.All(m=>intervals.Contains(m.Id("contract_id")))).Select(g=>g.Key).ToHashSet();
@@ -42,7 +43,7 @@ internal static class PpaUiCatalog
         new{id="basis_cash",label="Basis cash",optionalMembers=Array.Empty<object>(),members=new[]{Member("indexed_payment",0,"indexed",["volume","profile"]),Member("indexed_payment",1,"indexed",["volume","profile"])}},
         new{id="capacity_agreement",label="Capacity agreement",optionalMembers=Array.Empty<object>(),members=new[]{Member("capacity_delivery",0,"capacity",["accredited"]),Member("capacity_payment",0,"fixed",["slots"],new PpaSlotInput("capacity_delivery",0))}}];
     internal static object Policies=>new {
-        instrumentImplementations=new[]{"ppa_instrument_v1"},quantityStages=new[]{"generated","delivered"},hourMemberships=new[]{"all","peak","off"},
+        instrumentImplementations=new[]{"ppa_instrument_v2"},quantityStages=new[]{"generated","delivered"},hourMemberships=new[]{"all","peak","off"},
         escalationBases=new[]{"anniversary_step_v1"},certificateEligibility=new[]{"asset_generation_at_stage_v1"},certificateHolding=new[]{"held_at_current_vintage_mark_v1"},
         certificateDisposition=new[]{"none_recorded_v1"},capacityRules=new[]{"mw_day_per_operating_day_v1"},discounting=new[]{false,true}};
 }

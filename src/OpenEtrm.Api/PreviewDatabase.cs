@@ -620,7 +620,7 @@ public sealed class PreviewData
         // Index only the rows captured by this authorized read. Grouping retains
         // duplicate keys so each consumer still applies its exact cardinality rule.
         referenceRows=IndexRows(References,[("quantity_specifications","code"),("quote_specifications","code"),
-            ("settlement_targets","code"),("futures_series","code"),("futures_products","code"),
+            ("settlement_targets","code"),("price_index_definitions","code"),("futures_series","code"),("futures_products","code"),
             ("futures_milestones","series_code"),("futures_product_terms","product_code"),
             ("futures_lot_resolutions","series_code"),("futures_basis_settlements","series_code"),
             ("units","code"),("currencies","code"),("commodities","code"),("exchanges","code"),("sources","code"),("interest_rate_definitions","code"),
@@ -817,14 +817,14 @@ public sealed class PreviewData
     static object RateSummary(ZeroRateBuild rates)
     {
         var first=rates.Values.OrderBy(p=>p.Maturity).FirstOrDefault();
-        return new{kind="rates",maturityCount=rates.Values.Length,firstMaturity=first?.Maturity.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),firstZeroRate=first?.RatePercent,dayCount=OpenEtrm.Rates.RateConventions.DayCountName};
+        return new{kind="rates",maturityCount=rates.Values.Length,firstMaturity=first?.Maturity.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),firstZeroRate=first?.RatePercent,dayCount=OpenEtrm.MarketData.RateConventions.DayCountName};
     }
     public object Result(InputFrame frame,string code)
     {
         if(IsRateCurve(code))
         {
             var rates=BuildRates(frame,code);
-            return new {kind="rates",snapshotId=frame.Id,frame.Name,at=frame.At,curve=code,referenceDate=rates.ReferenceDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),currency=rates.Currency.Code,numericalPolicy=rates.NumericalPolicy,convention=new {dayCount=OpenEtrm.Rates.RateConventions.DayCountName,compounding=OpenEtrm.Rates.RateConventions.CompoundingName},
+            return new {kind="rates",snapshotId=frame.Id,frame.Name,at=frame.At,curve=code,referenceDate=rates.ReferenceDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),currency=rates.Currency.Code,numericalPolicy=rates.NumericalPolicy,convention=new {dayCount=OpenEtrm.MarketData.RateConventions.DayCountName,compounding=OpenEtrm.MarketData.RateConventions.CompoundingName},
                 summary=RateSummary(rates),
                 points=rates.Values.Select(p=>new {seriesId=p.Series.Id,maturity=p.Maturity.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),annualRate=p.AnnualRate,value=p.RatePercent,discountFactor=p.DiscountFactor,displayDiscountFactor=p.DisplayDiscountFactor,actualDays=p.Days,lineage=new[]{p.Observation.Id}}).ToArray()};
         }

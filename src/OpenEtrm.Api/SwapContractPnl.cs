@@ -24,9 +24,9 @@ public sealed partial class SwapStore
             throw Error("settlement_contract_change","Party changes and instrument-family transformations are not supported by this bridge.");
         var closingData=data;var closingFrame=frame;
         (data,frame)=await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct);
-        var old=ResolveAny(data,terms,prior.Id("instrument_id"),prior.Id("fixed_side_id"),prior.Id("floating_side_id"));
+        var old=await ResolveRetained(connection,data,frame,terms,prior.Id("instrument_id"),prior.Id("fixed_side_id"),prior.Id("floating_side_id"),ct);
         var revisedData=(await ScheduledMarket(connection,closingData,closingFrame,revised.DefinitionRevisionId,ct)).Data;
-        var now=ResolveAny(revisedData,revised,current.Id("instrument_id"),current.Id("fixed_side_id"),current.Id("floating_side_id"));
+        var now=await ResolveRetained(connection,revisedData,closingFrame,revised,current.Id("instrument_id"),current.Id("fixed_side_id"),current.Id("floating_side_id"),ct);
         if(old.Instrument.Currency!=now.Instrument.Currency||old.Quantity.Specification!=now.Quantity.Specification)
             throw Error("settlement_contract_change","Contractual changes must retain exact currency and quantity basis.");
         var completions=await SettlementCompletions(connection,prior,old.Instrument,ct);
@@ -41,7 +41,7 @@ public sealed partial class SwapStore
             var previous=signatures.Single(s=>s.Slot==original.MembershipOrdinal&&s.Plan.DeliveryFrom==original.Plan.DeliveryFrom&&s.Plan.DeliveryTo==original.Plan.DeliveryTo);
             var membership=now.Instrument.Sides[previous.Slot];
             var replacement=((SidePaymentSchedule)membership.Side.GenerateSchedule()).Payments.SingleOrDefault(p=>p.DeliveryFrom==previous.Plan.DeliveryFrom&&p.DeliveryTo==previous.Plan.DeliveryTo);
-            if(replacement is null)throw Error("settlement_continuity","Determined contractual periods cannot be removed from the bridge.");
+            if(!replacement.IsValid)throw Error("settlement_continuity","Determined contractual periods cannot be removed from the bridge.");
             var completion=currentCompletions.Single(c=>c.MembershipOrdinal==previous.Slot&&c.DeliveryFrom==replacement.DeliveryFrom&&c.DeliveryTo==replacement.DeliveryTo);
             var hash=SettlementHash(new{cashContract=SwapPaymentCalculation.ContractIdentity(now.Instrument,membership,replacement,now.Quantity),completion,policy=SwapPeriodCompletion.Policy});
             if(hash!=previous.Hash)throw Error("settlement_continuity","Determined contractual periods cannot be rewritten in a contractual-change bridge.");
@@ -64,7 +64,7 @@ public sealed partial class SwapStore
     {
         var terms=Terms(data,row,frame.Id);
         (data,frame)=await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct);
-        var resolved=ResolveAny(data,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"));
+        var resolved=await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
         var completions=await SettlementCompletions(connection,row,resolved.Instrument,ct);
         var starts=terms.Scheduled is null?[]:await PreviewDatabase.Rows(connection,"""
          SELECT jsonb_build_object('slot',slot,'period',period_ordinal,'starts',min(starts_at))::text

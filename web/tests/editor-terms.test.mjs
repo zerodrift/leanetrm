@@ -106,7 +106,7 @@ test('a swap\'s terms are its booking facts, its structure and one section for e
  assert.deepEqual(rowsOf(sections,'Trade'),{Trade:'TR-000011 · IN-000004',Revision:'1 · Booked',Book:'Synthetic portfolio · Book B',Trader:'Synthetic trader',Effective:'Dec 15, 2020, 4:00 PM','Trade date · when booked':'2026-10-24','Legal entity':'Synthetic entity 1',Counterparty:'Synthetic party 1','Executed · when booked':'Oct 24, 2026, 5:53 AM',Memo:'None'});
  assert.deepEqual(rowsOf(sections,'Structure'),{Type:'Fixed for floating',Commodity:'Synthetic gas',Quantity:'q:100 MMBtu (IT)',Discounting:'Explicitly undiscounted'});
  assert.deepEqual(rowsOf(sections,'Fixed side · Pay'),{'Fixed price':'p:3 USD/MMBtu (IT)',Currency:'USD',Delivery:'Jan 2021','Payment frequency':'Monthly','Payment rule':'Day of the following month · day 18','Short months':'Reject a missing day',Adjustment:'Unadjusted'});
- assert.deepEqual(rowsOf(sections,'Floating side · Receive'),{Index:'Price','Projection curve':'Daily gas','Reset frequency':'Daily',Averaging:'Arithmetic',Spread:'0 USD/MMBtu (IT)','Projected prices':'Contractual projection curve',Currency:'USD',Delivery:'Jan 2021','Payment frequency':'Monthly','Payment rule':'Days after last delivery day · 46 days','Day basis':'Calendar days',Adjustment:'Unadjusted'});
+ assert.deepEqual(rowsOf(sections,'Floating side · Receive'),{'Curve target index':'Price','Price settlement':'Curve target index','Projection curve':'Daily gas','Reset frequency':'Daily',Averaging:'Arithmetic',Spread:'0 USD/MMBtu (IT)','Projected prices':'Contractual projection curve',Currency:'USD',Delivery:'Jan 2021','Payment frequency':'Monthly','Payment rule':'Days after last delivery day · 46 days','Day basis':'Calendar days',Adjustment:'Unadjusted'});
 });
 
 test('a swap with two floating sides shows each side with its own terms and direction',()=>{
@@ -286,7 +286,7 @@ test('a scheduled swap\'s terms are its booking facts, its structure by period, 
   'Jan 2021':'q:100 MMBtu (IT) · fixed p:3 USD/MMBtu (IT)','Feb 2021':'q:200 MMBtu (IT) · fixed p:3.2 USD/MMBtu (IT)',
   'Payment frequency':'Monthly','Payment rule':'Day of the following month · day 18','Short months':'Reject a missing day',Adjustment:'Unadjusted'});
  assert.deepEqual(rowsOf(sections,'Second side · Receive'),{'Quantity basis':'Explicit total for each period','Quantity unit':'MMBtu (IT)',Periods:'2 monthly · Jan 1, 2021 – Feb 28, 2021',
-  'Jan 2021':'q:150 MMBtu (IT) · Price · Daily gas','Feb 2021':'q:100 MMBtu (IT) · Price · Daily gas','Reset frequency':'Monthly',Averaging:'None',Spread:'0 USD/MMBtu (IT)',
+  'Jan 2021':'q:150 MMBtu (IT) · Price · Daily gas','Feb 2021':'q:100 MMBtu (IT) · Price · Daily gas','Price settlement':'Curve target index','Reset frequency':'Monthly',Averaging:'None',Spread:'0 USD/MMBtu (IT)',
   'Payment frequency':'Monthly','Payment rule':'Day of the following month · day 18','Short months':'Reject a missing day',Adjustment:'Unadjusted'});
 });
 
@@ -359,4 +359,12 @@ test('a retained factor swap states its factor units and derived quantities in t
  assert.equal(Object.fromEntries(second.rows)['Quantity basis'],'Derived from first-side quantity × factor');
  assert.ok(second.rows.some(([,value])=>value.includes('Derived quantity')));
  assert.ok(!second.rows.some(([,value])=>value.includes('q: ')), 'no blank entered quantity is shown for the derived side');
+});
+
+test('each swap family exposes the selected override index and unmodelled basis beside its projection curve',()=>{
+ const selection={mode:'override',index:'synthetic_override',projectionPolicy:'forward_curve_no_basis_v1'};
+ const ordinary=clone(details.swap);ordinary.state.terms.floating.settlement=selection;
+ assert.equal(rowsOf(swapTerms(ordinary,'UTC',formats),'Floating side · Receive')['Price settlement'],'Different index · Synthetic Override · forward curve projection, basis unmodelled');
+ const scheduled=clone(details.scheduledSwap);for(const period of scheduled.state.terms.scheduled.second.periods)period.floating.settlement=selection;
+ assert.equal(rowsOf(swapTerms(scheduled,'UTC',formats),'Second side · Receive')['Price settlement'],'Different index · Synthetic Override · forward curve projection, basis unmodelled');
 });

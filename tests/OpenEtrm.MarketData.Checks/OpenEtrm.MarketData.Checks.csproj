@@ -7,6 +7,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <None Include="../fixtures/d253-side-values.txt.gz" Link="fixtures/d253-side-values.txt.gz" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../fixtures/d253-side-values.txt.gz')" />
     <ProjectReference Include="../../src/OpenEtrm.MarketData/OpenEtrm.MarketData.csproj" />
     <ProjectReference Include="../../src/OpenEtrm.Shared/OpenEtrm.Shared.csproj" />
     <ProjectReference Include="../../src/OpenEtrm.Security/OpenEtrm.Security.csproj" />

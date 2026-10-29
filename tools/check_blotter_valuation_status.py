@@ -342,14 +342,14 @@ def run_scheduled_checks(session):
         return {'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': start, 'deliveryTo': end, 'paymentSchedule': payment(18)}, 'floating': None}
 
     def floating(start, end):
-        return {'fixed': None, 'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': start,
+        return {'fixed': None, 'floating': {'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': start,
                                             'deliveryTo': end, 'paymentSchedule': payment(46), 'resetFrequency': 'monthly', 'averagingMethod': 'none', 'spread': '0'}}
 
     booked = c.call('swaps/book', {**context, **trade_booking(), 'operationId': str(uuid5(OPERATIONS, 'valuation_status_v1:scheduled:base_forward')),
                                    'bookId': BOOKS[1], 'executedAt': None, 'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'],
                                    'swapType': 'scheduled_financial_swap', 'firstCoefficient': '-1', 'discounting': True,
                                    'quantity': None, 'fixedCoefficient': None, 'fixed': None, 'floating': None,
-                                   'scheduled': {'implementation': 'independent_scheduled_financial_swap_v1',
+                                   'scheduled': {'implementation': 'whole_term_scheduled_financial_swap_v1',
                                                  'first': side(('100', '200'), fixed), 'second': side(('150', '100'), floating)}})
     early, early_context = blotter(c, dec18)
     late, late_context = blotter(c, dec31)

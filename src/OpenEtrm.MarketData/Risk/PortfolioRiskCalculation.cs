@@ -25,11 +25,12 @@ public static partial class RiskEngine
         internal sealed class IntervalWorkCount
         {
             internal int Sides,Resolved,Reused,Calibrated,ReusedBlocks;
-            internal long Rows;
+            internal long Rows,GraphNodes,GraphReused;
             internal void Add(IntervalValuationSession? session)
             {
                 if(session is null)return;
                 Sides+=session.UniqueSideCalculations;Rows+=session.RowEvaluations;
+                GraphNodes+=session.GraphEvaluatedNodes;GraphReused+=session.GraphReusedReads;
                 Resolved+=session.Resolver.Resolved;Reused+=session.Resolver.ReusedMonths;
                 Calibrated+=session.Resolver.CalibratedBlocks;ReusedBlocks+=session.Resolver.ReusedBlocks;
             }

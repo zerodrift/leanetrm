@@ -38,7 +38,7 @@ internal static class SwapValuationChecks
         var instrument = new FinancialSwapInstrument(Guid.NewGuid(), [
             new(new FixedSide(Guid.NewGuid(), new UnitPrice(ExactDecimal.Parse("3"), quote), unit,
                 contract.DeliveryFrom, contract.DeliveryTo, payment, FixedSide.Implementation,quote), ExactDecimal.Parse("-1")),
-            new(new FloatingSide(Guid.NewGuid(), R("index"), quote, unit, contract.DeliveryFrom, contract.DeliveryTo,
+            new(new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(R("index")), quote, unit, contract.DeliveryFrom, contract.DeliveryTo,
                 At("2020-12-31T12:00:00Z"), payment, FloatingAveraging.MonthlyIndexPrice,
                 [new(new(curve.Key, contract.Key), contract)], FloatingSide.Implementation), ExactDecimal.Parse("1"))], FinancialSwapInstrument.Implementation, true);
         var mapping = new CurrencyDiscountCurve(Guid.NewGuid(), quote.Currency,
@@ -60,7 +60,7 @@ internal static class SwapValuationChecks
         Check("a connected custom monthly projection keeps rational schedule cash and discount evidence",()=>
         {
             var fix=new IndexFixing(R("index"),quote.Key,contract.DeliveryFrom,contract.DeliveryTo,At("2021-01-01T12:00:00Z"),commodity.Key,R("source"),IndexFixing.SupportedImplementation);
-            var custom=new FloatingSide(Guid.NewGuid(),R("index"),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,[fix],payment,
+            var custom=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(R("index")),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,[fix],payment,
                 FloatingAveraging.MonthlyIndexPrice,[new(new(curve.Key,contract.Key),contract)],FloatingSide.IndexedImplementation)
                 .WithCustomProjection(new(revision.CatalogId,Guid.NewGuid(),1,"mean",0,"single_output_position_v1","published_custom_curve_projection_v1"));
             var swap=new FinancialSwapInstrument(Guid.NewGuid(),[new(fixedSide,ExactDecimal.Parse("-1")),new(custom,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation,false);
@@ -142,13 +142,13 @@ internal static class SwapValuationChecks
                     discount.Pillars[0].Maturity != new DateOnly(2021, 1, 18) || discount.Pillars[0].AnnualRate != "0.1" ||
                     discount.Pillars[0].DiscountFactor != "0.991578375441456126" || discount.Pillars[1].Maturity != new DateOnly(2021, 3, 18) ||
                     discount.Pillars[1].DiscountFactor != "0.953002610966057441" ||
-                    discount.Factor.ToString() != "0.971118981067694871" || row.Cashflow.Discount.DiscountFactor != discount.Factor)
+                    discount.Factor.ToString() != "0.971118981067694871" || row.Cashflow.PaymentDiscount.DiscountFactor != discount.Factor)
                     throw new Exception("Side payment lost discount construction evidence");
             }
         });
         Check("independent payment dates use different DFs before instrument aggregation", () =>
         {
-            var laterFixed = new FixedSide(Guid.NewGuid(), fixedSide.Price, unit, contract.DeliveryFrom,
+            var laterFixed = new FixedSide(Guid.NewGuid(), ((FlatPrice)fixedSide.Price).Price, unit, contract.DeliveryFrom,
                 contract.DeliveryTo, At("2021-03-18T12:00:00Z"), FixedSide.Implementation,quote);
             var separate = new FinancialSwapInstrument(Guid.NewGuid(), [new(laterFixed, ExactDecimal.Parse("-1")),
                 new(floating, ExactDecimal.Parse("1"))], FinancialSwapInstrument.Implementation, true);
@@ -167,11 +167,11 @@ internal static class SwapValuationChecks
             var conflict = snapshot with { Selections = snapshot.Selections.SetItem(2, snapshot.Selections[2] with {
                 Observation = snapshot.Selections[2].Observation with { Key = snapshot.Selections[1].Observation.Key } }) };
             Reject("observation_conflict", () => new ZeroRateCurve(mapping.Definition).Build(conflict));
-            Reject("observation_conflict", () => new CurrencyDefaultDiscounting([fixedSide.GenerateSchedule()], conflict, true, mapping));
+            Reject("observation_conflict", () => new CurrencyDefaultDiscounting([fixedSide.GenerateDatedSchedule()], conflict, true, mapping));
         });
         Check("standalone fixed side needs rate inputs but no built commodity data", () =>
         {
-            var source = new CurrencyDefaultDiscounting([fixedSide.GenerateSchedule()], snapshot, true, mapping);
+            var source = new CurrencyDefaultDiscounting([fixedSide.GenerateDatedSchedule()], snapshot, true, mapping);
             var independent = fixedSide.PV(new SideValuationContext(snapshot, source));
             if (independent.PresentValue != value.Sides[0].Contribution.Value.PresentValue)
                 throw new Exception("Fixed side depended on an instrument or commodity market");
@@ -200,7 +200,7 @@ internal static class SwapValuationChecks
             var result = Price(noRates, false, null);
             if (result.PresentValue.Amount.ToString() != "10" || result.Sides.Any(s => s.Payments.Any(p =>
                 p.Discount.Enabled || p.Discount.MappingId is not null || p.Discount.Observations.Length != 0 ||
-                p.Cashflow.Discount.Source != DiscountFactorSource.Undiscounted)))
+                p.Cashflow.PaymentDiscount.Source != DiscountFactorSource.Undiscounted)))
                 throw new Exception("An undiscounted side unexpectedly consumed rate inputs");
         });
         Check("a due payment reports its lifecycle rejection before any currency-default discount lookup", () =>
@@ -216,24 +216,24 @@ internal static class SwapValuationChecks
             }
             Reject("side_payment_due", () => new CurrencyDefaultDiscounting(instrument.Sides.Select(m => m.Side.GenerateSchedule()), due, false, null));
             // A later side's missing discount curve cannot hide another side's due payment.
-            var later = new FixedSide(Guid.NewGuid(), fixedSide.Price, unit, contract.DeliveryFrom, contract.DeliveryTo,
+            var later = new FixedSide(Guid.NewGuid(), ((FlatPrice)fixedSide.Price).Price, unit, contract.DeliveryFrom, contract.DeliveryTo,
                 At("2021-03-18T12:00:00Z"), FixedSide.Implementation, quote);
-            Reject("side_payment_due", () => new CurrencyDefaultDiscounting([later.GenerateSchedule(), floating.GenerateSchedule()], due, true, null));
+            Reject("side_payment_due", () => new CurrencyDefaultDiscounting([later.GenerateDatedSchedule(), floating.GenerateDatedSchedule()], due, true, null));
         });
         Check("reusable payment inputs retain the supplied frozen context and each side's payment date", () =>
         {
             var frozen=snapshot with { Selections=snapshot.Selections.SetItem(0,snapshot.Selections[0] with {
                 Input=snapshot.Selections[0].Input with { Use=InputUse.FrozenFact } }) };
-            var laterFixed=new FixedSide(Guid.NewGuid(),fixedSide.Price,unit,contract.DeliveryFrom,
+            var laterFixed=new FixedSide(Guid.NewGuid(),((FlatPrice)fixedSide.Price).Price,unit,contract.DeliveryFrom,
                 contract.DeliveryTo,At("2021-03-18T12:00:00Z"),FixedSide.Implementation,quote);
             var separate=new FinancialSwapInstrument(Guid.NewGuid(),[new(laterFixed,ExactDecimal.Parse("-1")),
                 new(floating,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation,true);
             var factors=FinancialSwapValuation.CreateDiscounting(separate,frozen,mapping);
             if(!ReferenceEquals(factors.Snapshot,frozen)||factors.Inputs.Count!=2||
-                factors.Resolve(laterFixed.GenerateSchedule(),frozen).Single().DiscountFactor.ToString()!="0.953002610966057441"||
-                factors.Resolve(floating.GenerateSchedule(),frozen).Single().DiscountFactor.ToString()!="0.971118981067694871")
+                factors.Resolve(laterFixed.GenerateDatedSchedule(),frozen).Single().DiscountFactor.ToString()!="0.953002610966057441"||
+                factors.Resolve(floating.GenerateDatedSchedule(),frozen).Single().DiscountFactor.ToString()!="0.971118981067694871")
                 throw new Exception("Reusable discounting replaced the exact frozen context or shared independent payment factors");
-            Reject("discount_context",()=>factors.Resolve(floating.GenerateSchedule(),snapshot));
+            Reject("discount_context",()=>factors.Resolve(floating.GenerateDatedSchedule(),snapshot));
             var undiscounted=new FinancialSwapInstrument(Guid.NewGuid(),instrument.Sides,FinancialSwapInstrument.Implementation,false);
             var explicitInputs=FinancialSwapValuation.CreateDiscounting(undiscounted,frozen with { Selections=[frozen.Selections[0]] },null);
             if(explicitInputs.Inputs.Values.Any(p=>p.Enabled||p.Factor!=ExactDecimal.Parse("1")))
@@ -272,7 +272,7 @@ internal static class SwapValuationChecks
         Check("side discount contexts require schedules and a selected snapshot", () =>
         {
             Reject("discount_context", () => new CurrencyDefaultDiscounting(Array.Empty<SideSchedule>(), snapshot, false, null));
-            Reject("discount_context", () => new CurrencyDefaultDiscounting([fixedSide.GenerateSchedule()], null!, false, null));
+            Reject("discount_context", () => new CurrencyDefaultDiscounting([fixedSide.GenerateDatedSchedule()], null!, false, null));
         });
         Check("par fixed price uses the independent floating PV and fixed payment discount factor", () =>
         {
@@ -287,12 +287,12 @@ internal static class SwapValuationChecks
         });
         Check("two floating sides value independently with opposite membership directions", () =>
         {
-            var later = new FloatingSide(Guid.NewGuid(),R("index"),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,
+            var later = new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(R("index")),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,
                 At("2020-12-31T12:00:00Z"),At("2021-03-18T12:00:00Z"),FloatingAveraging.MonthlyIndexPrice,
                 [new(new(curve.Key,contract.Key),contract)],FloatingSide.Implementation,spread:new UnitPrice(ExactDecimal.Parse("0.2"),quote));
             var swap = new FinancialSwapInstrument(Guid.NewGuid(),[new(later,ExactDecimal.Parse("-1")),new(floating,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation,true);
             var result = FinancialSwapValuation.Evaluate(swap,model.Build(snapshot,swap.Dependencies),true,mapping);
-            if(result.Instrument.PresentValue != value.Sides[1].Contribution.Value.PresentValue.Subtract(later.PV(new SideValuationContext(model.Build(snapshot,swap.Dependencies),new CurrencyDefaultDiscounting([later.GenerateSchedule()],snapshot,true,mapping))).PresentValue))throw new Exception("Floating sides were netted before discounting");
+            if(result.Instrument.PresentValue != value.Sides[1].Contribution.Value.PresentValue.Subtract(later.PV(new SideValuationContext(model.Build(snapshot,swap.Dependencies),new CurrencyDefaultDiscounting([later.GenerateDatedSchedule()],snapshot,true,mapping))).PresentValue))throw new Exception("Floating sides were netted before discounting");
             Reject("swap_par_rate",()=>FinancialSwapValuation.ParRate(swap,model.Build(snapshot,swap.Dependencies),mapping,new AmountFormat(6,CashTieRule.ToEven,false,true)));
         });
         Check("identical reusable floating sides retain both memberships and offset exactly", () =>
@@ -300,7 +300,7 @@ internal static class SwapValuationChecks
             var swap=new FinancialSwapInstrument(Guid.NewGuid(),[new(floating,ExactDecimal.Parse("-1")),new(floating,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation,true);
             var result=FinancialSwapValuation.Evaluate(swap,model.Build(snapshot,swap.Dependencies),true,mapping);
             if(result.Sides.Length!=2||result.Instrument.PresentValue.ToMoney().Amount!=default)throw new Exception("Opposing memberships were lost");
-            var conflicting=new FloatingSide(floating.Id,R("index"),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,At("2020-12-31T12:00:00Z"),payment,FloatingAveraging.MonthlyIndexPrice,[new(new(curve.Key,contract.Key),contract)],FloatingSide.Implementation,spread:new UnitPrice(ExactDecimal.Parse("0.1"),quote));
+            var conflicting=new FloatingSide(floating.Id,PriceSettlementSelection.CurveTarget(R("index")),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,At("2020-12-31T12:00:00Z"),payment,FloatingAveraging.MonthlyIndexPrice,[new(new(curve.Key,contract.Key),contract)],FloatingSide.Implementation,spread:new UnitPrice(ExactDecimal.Parse("0.1"),quote));
             var invalid=new FinancialSwapInstrument(Guid.NewGuid(),[new(conflicting,ExactDecimal.Parse("-1")),new(floating,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation,true);
             Reject("side_definition",()=>FinancialSwapValuation.Evaluate(invalid,model.Build(snapshot,invalid.Dependencies),true,mapping));
         });

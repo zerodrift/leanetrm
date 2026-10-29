@@ -23,7 +23,7 @@ public readonly ref struct GraphInputs<T> where T:notnull
 // ReusedReads counts parent accesses, not distinct nodes. The affected counts
 // describe an overlay or advanced frame's reverse traversal. Memo-page hits are
 // already completed values and are not counted as parent reads.
-public readonly record struct GraphWork(long EvaluatedNodes,long ReusedReads,int AffectedNodes,long TraversedAffectedEdges);
+public readonly record struct GraphWork(long EvaluatedNodes,long ReusedReads,int AffectedNodes,long TraversedAffectedEdges,long EvaluatedWork=0);
 
 public sealed class GraphSession<T> where T:notnull
 {
@@ -40,18 +40,31 @@ public sealed class GraphSession<T> where T:notnull
     private readonly Dictionary<int,T>? changedValues;
     private readonly object gate=new();
     private long evaluated,reused;
+    private long evaluatedWork;
+    private readonly long[]? workWeights;
     private bool evaluating;
     public DependencyPlan Plan{get;}
     public int Depth=>layers.Length;
     public GraphWork Work
-    {get{lock(gate)return new(evaluated,reused,affected?.Count??0,traversedEdges);}}
+    {get{lock(gate)return new(evaluated,reused,affected?.Count??0,traversedEdges,evaluatedWork);}}
 
     // The owner binds deterministic operators, exact context and numerical policy.
     // Values must themselves be immutable; this container does not clone T.
-    public GraphSession(DependencyPlan plan,GraphEvaluator<T> evaluator,Func<T,T,T> add,Action<int,T>? validate=null)
+    public GraphSession(DependencyPlan plan,GraphEvaluator<T> evaluator,Func<T,T,T> add,Action<int,T>? validate=null,IReadOnlyList<long>? workWeights=null)
     {
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(evaluator);ArgumentNullException.ThrowIfNull(add);
         Plan=plan;this.evaluator=evaluator;this.add=add;this.validate=validate;offsets=[];layers=[];
+        if(workWeights is not null)
+        {
+            if(workWeights.Count!=plan.NodeCount)throw new CalculationException("graph_work","Supply one nonnegative work weight per node.");
+            this.workWeights=new long[plan.NodeCount];long total=0;
+            for(var node=0;node<plan.NodeCount;node++)
+            {
+                var weight=workWeights[node];
+                if(weight<0||weight>long.MaxValue-total)throw new CalculationException("graph_work","Node work weights must have a nonnegative bounded total.");
+                this.workWeights[node]=weight;total+=weight;
+            }
+        }
         pages=new MemoPage?[(plan.NodeCount+255L)/256];
     }
     // A new immutable input frame, never a scenario layer. The owner has admitted
@@ -63,7 +76,7 @@ public sealed class GraphSession<T> where T:notnull
         cancellation.ThrowIfCancellationRequested();
         if(Depth!=0)throw new CalculationException("graph_frame","Advance an admitted base frame, never a scenario overlay.");
         var (dirty,edges)=Affected(changed,cancellation);
-        var result=new GraphSession<T>(Plan,next,add,nextValidation??validate,dirty,edges);
+        var result=new GraphSession<T>(Plan,next,add,nextValidation??validate,dirty,edges,workWeights);
         while(!Monitor.TryEnter(gate,25))cancellation.ThrowIfCancellationRequested();
         try
         {
@@ -108,7 +121,8 @@ public sealed class GraphSession<T> where T:notnull
         foreach(var prior in previousNodes)
         {cancellation.ThrowIfCancellationRequested();Plan.RequireNode(prior);if(!seen.Add(prior))throw new CalculationException("graph_frame","Frame slots must correspond uniquely.");}
         var (dirty,edges)=Affected(nextPlan,changed,cancellation);
-        var result=new GraphSession<T>(nextPlan,next,add,nextValidation??validate,dirty,edges);
+        var mappedWeights=workWeights is null?null:previousNodes.Select(node=>workWeights[node]).ToArray();
+        var result=new GraphSession<T>(nextPlan,next,add,nextValidation??validate,dirty,edges,mappedWeights);
         while(!Monitor.TryEnter(gate,25))cancellation.ThrowIfCancellationRequested();
         try
         {
@@ -122,10 +136,11 @@ public sealed class GraphSession<T> where T:notnull
     {
         this.parent=parent;Plan=parent.Plan;evaluator=parent.evaluator;add=parent.add;validate=parent.validate;
         this.offsets=offsets;this.affected=affected;this.traversedEdges=traversedEdges;changedValues=[];
+        workWeights=parent.workWeights;
         layers=new GraphSession<T>[parent.Depth+1];parent.layers.CopyTo(layers,0);layers[^1]=this;
     }
-    private GraphSession(DependencyPlan plan,GraphEvaluator<T> next,Func<T,T,T> add,Action<int,T>? validate,HashSet<int> dirty,long edges)
-        :this(plan,next,add,validate){affected=dirty;traversedEdges=edges;}
+    private GraphSession(DependencyPlan plan,GraphEvaluator<T> next,Func<T,T,T> add,Action<int,T>? validate,HashSet<int> dirty,long edges,IReadOnlyList<long>? workWeights)
+        :this(plan,next,add,validate,workWeights){affected=dirty;traversedEdges=edges;}
     public GraphSession<T> WithOffsets(IReadOnlyDictionary<int,T> changes,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
@@ -186,6 +201,7 @@ public sealed class GraphSession<T> where T:notnull
                     if(pages is not null)Writable(frame.Node).Set(frame.Node&255,value);
                     else changedValues!.Add(frame.Node,value);
                     evaluated++;
+                    evaluatedWork+=workWeights?[frame.Node]??0;
                 }
                 finally{evaluating=false;}
                 stack.RemoveAt(stack.Count-1);

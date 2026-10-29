@@ -11,6 +11,7 @@ public static class CloseRiskAdmission
     internal static long FutureVolumeWork(ImmutableArray<PpaBinding> bindings,IntervalReferenceData reference,
         IReadOnlyDictionary<CurveKey,PreparedCurve> curves,
         IReadOnlyDictionary<(CurveKey Curve,Guid Binding),HashSet<DateOnly>> requested,
+        IReadOnlyDictionary<(CurveKey Curve,Guid Binding),HashSet<PriceSettlementSelection?>> settlements,
         CurveBuild market,ImmutableArray<QuoteFactor> factors)
     {
         // Refusal-only lower bound. Unproven scopes contribute zero; admitted
@@ -40,7 +41,9 @@ public static class CloseRiskAdmission
             }
             if(!instrument.Memberships.All(ConstantAssignments))continue;
             var dependencies=requested.Where(r=>r.Key.Binding==binding.BindingId)
-                .SelectMany(r=>r.Value.Where(months.Contains).SelectMany(m=>curves[r.Key.Curve].Dependencies(m))).Distinct();
+                .SelectMany(r=>r.Value.Where(months.Contains).SelectMany(m=>
+                    settlements.TryGetValue(r.Key,out var selected)?selected.SelectMany(s=>curves[r.Key.Curve].Dependencies(m,s)):
+                    throw new MarketDataException("price_settlement_selection","Every requested binding must retain its explicit period or interval price selections."))).Distinct();
             var lineage=dependencies.SelectMany(d=>values[d].Lineage).ToHashSet();
             var count=factors.Where(f=>lineage.Contains(f.Observation)).Select(f=>f.Input).Distinct().Count();
             var rows=PpaCompiler.Work([(instrument,coverage)],[],_=>clock);

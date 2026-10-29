@@ -71,7 +71,7 @@ def run_checks(url, query, manifest, client=None):
             'definitionRevisionId': index['definitionRevisionId'],
             'commodity': index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': False,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule},
-            'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
+            'floating': {'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
                          'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01',
                          'paymentSchedule': rule, 'resetFrequency': 'monthly', 'averagingMethod': 'none'}}
     plain = c.call('swaps/book', body)
@@ -82,8 +82,12 @@ def run_checks(url, query, manifest, client=None):
     for booked, expected in ((plain, False), (discounted, True)):
         state = c.call('swaps/editor', {'context': context, 'tradeId': booked['tradeId'], 'revision': None})['state']
         assert state['terms']['discounting'] is expected
-    columns = query("SELECT array_agg(a.attname ORDER BY k.n)::text FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY k(attnum,n) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum WHERE c.conrelid='trading.swap_floating_sides'::regclass AND c.conname='swap_floating_economic_key';")
-    assert columns == '{catalog_id,definition_revision_id,curve_code,reference_catalog_id,reference_revision_id,index_code,quote_code,delivery_from,delivery_to,first_fixing_at,payment_at,averaging,implementation,payment_rule_id,custom_projection_id,spread,observation_schedule_id}', f'Unexpected floating-side economic key: {columns}'
+        assert state['terms']['floating']['settlement'] == body['floating']['settlement'], 'The stored identity keeps its explicit settlement choice.'
+    keys = query("SELECT array_agg(a.attname ORDER BY k.n)::text FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY k(attnum,n) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum WHERE c.conrelid='trading.swap_floating_sides'::regclass AND c.contype='u' GROUP BY c.oid;").splitlines()
+    assert '{catalog_id,identity_hash}' in keys, f'Floating-side identity must be unique within its catalog: {keys}'
+    assert query("SELECT NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='trading.swap_floating_sides'::regclass AND conname='swap_floating_economic_key');") == 't', 'The old key omits the selected settlement index.'
+    floating = query("SELECT floating_side_id FROM trading.swap_instruments WHERE instrument_id='"+plain['instrumentId']+"';")
+    assert query(f"SELECT definition_version='FloatingSide_v8' AND octet_length(identity_hash)=32 AND settlement_mode='curve_target' AND settlement_index_code=index_code AND settlement_projection_policy IS NULL FROM trading.swap_floating_sides WHERE id='{floating}';") == 't'
     spread_body={**body,'operationId':str(uuid4()),'floating':{**body['floating'],'spread':'0.2'}}
     spread_trade=c.call('swaps/book',spread_body)
     assert spread_trade['instrumentId']!=plain['instrumentId'], 'A fixed floating spread distinguishes economic sides.'
@@ -91,7 +95,6 @@ def run_checks(url, query, manifest, client=None):
     assert same_spread['instrumentId']==spread_trade['instrumentId'], 'Equal exact spreads reuse the retained side across quantities.'
     explicit_zero=c.call('swaps/book',{**body,'operationId':str(uuid4()),'floating':{**body['floating'],'spread':'0'}})
     assert explicit_zero['instrumentId']==plain['instrumentId'], 'The explicit zero spread preserves the baseline economic lookup.'
-    floating = query("SELECT floating_side_id FROM trading.swap_instruments WHERE instrument_id='"+plain['instrumentId']+"';")
     query(f"ALTER TABLE trading.swap_reset_projections DISABLE TRIGGER immutable_record; UPDATE trading.swap_reset_projections SET ordinal=1 WHERE side_id='{floating}'; ALTER TABLE trading.swap_reset_projections ENABLE TRIGGER immutable_record;")
     try:
         error = c.call('swaps/book',{**body,'operationId':str(uuid4())},expected=422)

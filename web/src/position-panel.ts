@@ -180,7 +180,7 @@ type Detail={key:string}&({state:'loading'}|{state:'ready';read:DetailRead}|{sta
  * first shown, in the market context of the desk; a read made in another context, or of another position, is dropped. Amend
  * opens the position's amendment, whose form Terms shows in place of its read view for as long as it is open.
  */
-export function setupPositionPanel(shell:SidePanel,o:{
+export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal'|'focusForm'>,o:{
   zone:()=>string;busy:()=>boolean;canAmend:()=>boolean;
   /** Whether Curves & prices lists a market: a position in one it does not list has no curve to open. */
   curveListed:(curve:string)=>boolean;
@@ -302,11 +302,15 @@ export function setupPositionPanel(shell:SidePanel,o:{
     return active instanceof HTMLElement&&active.id&&controlParts().some(part=>part.contains(active))?active.id:undefined;
   }
   function refocus(){
-    if(held===undefined)return;
+    if(held===undefined||o.busy())return;
+    // An inline detail is detached while its grid row is rebuilt. Keep its
+    // control until the row is attached and the busy grid becomes interactive.
+    if(controlParts().some(part=>!part.isConnected))return;
     const control=document.getElementById(held);
     // A control that is disabled while the page is busy is waited for; one that is gone, or focus that has moved, ends the wait.
     if(control&&controlParts().some(part=>part.contains(control))&&focusLost()){
       if((control as HTMLButtonElement).disabled)return;
+      if(control.closest('[inert]'))return;
       control.focus({preventScroll:true});
     }
     held=undefined;
@@ -364,8 +368,8 @@ export function setupPositionPanel(shell:SidePanel,o:{
     if(reason===null)control.removeAttribute('aria-describedby');else control.setAttribute('aria-describedby',note.id);
   }
   return {
-    /** Shows a position the shell has just opened: on the tab it names, the Curve tab unless told otherwise, with nothing read of it yet. */
-    show(next:PositionInput,start:PositionTab='curve'){
+    /** Shows a position on its requested tab, or Terms when none is selected. */
+    show(next:PositionInput,start:PositionTab='terms'){
       input=next;tab=start;detail=undefined;held=undefined;generation++;
       tabs=setupTabs(shell.element('tabs'),positionTabs,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>{tab=id as PositionTab;paint();shell.element('body').scrollTop=0;}});
       paint();

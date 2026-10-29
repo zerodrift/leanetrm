@@ -63,8 +63,11 @@ public static partial class CustomCurves
         if(frame.ContextId!=exact.ContextId||snapshot.Id!=frame.Id||snapshot.ValuationAt!=frame.At||
             snapshot.Definitions!=data.DefinitionRevision)
             throw Invalid("Connected pricing requires the exact retained financial and market context.");
-        var custom=instruments.OfType<SidedInstrument>().SelectMany(i=>i.Sides.SelectMany(m=>SideComponents.Floating(m.Side)))
-            .Where(s=>s.CustomProjection is not null).SelectMany(s=>s.Projections.Select(p=>new{Binding=s.CustomProjection!,Original=p.Market}))
+        if(snapshot.Knowledge is not null)
+            snapshot=MarketSnapshotBinding.Bind(snapshot,exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt));
+        var custom=instruments.OfType<SidedInstrument>().SelectMany(i=>i.Sides.Select(m=>m.Side)).OfType<FloatingSide>()
+            .SelectMany(side=>side.Periods).Where(period=>period.CustomProjection is not null)
+            .SelectMany(period=>period.Projections.Select(p=>new{Binding=period.CustomProjection!,Original=p.Market}))
             .Distinct().ToArray();
         var aliases=custom.ToDictionary(p=>p.Binding.Request(p.Original),p=>p.Original);
         var needed=dependencies.ToHashSet();
@@ -155,7 +158,9 @@ public static partial class CustomCurves
                         .Select(o=>new ConnectedSampleObservation(o.Observation.Key.Id,o.Input.Series.Id,o.Input.Use.ToString())).ToImmutableArray())).ToImmutableArray());
         if(retained is not null&&JsonSerializer.Serialize(evidence,RiskJobs.Json)!=JsonSerializer.Serialize(retained,RiskJobs.Json))
             throw new MarketDataException("risk_graph_manifest","The rebuilt graph differs from its admitted recipe, sample or topology manifest.");
-        var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan,database.Calculations,ct),snapshot,samples.Select(s=>s.Snapshot).Distinct().ToImmutableArray(),ct);
+        var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan,database.Calculations,ct),snapshot,
+            samples.Select(s=>snapshot.Knowledge is null?s.Snapshot:
+                MarketSnapshotBinding.Bind(s.Snapshot,exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt))).Distinct().ToImmutableArray(),ct);
         return new(valuation,authority,bindings.ToImmutable(),evidence,new(sourceCompilations,declaredSourceNodes));
     }
     static CustomProjectionMapping ProjectionMapping(ConnectedRecipeGraph graph)

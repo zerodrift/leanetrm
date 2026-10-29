@@ -20,11 +20,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "(()=>{const cell=[...document.querySelectorAll('#desk-positions .desk-unvalued')].find(c=>c.textContent.includes('Contract expired · awaiting settlement')),row=cell?.closest('.tabulator-row');return !!cell&&cell.querySelector('.desk-chip').textContent==='Not valued'&&!cell.querySelector('.desk-figure')&&row.querySelector('[tabulator-field=c4]').textContent==='';})()");
   // The side panel says the same in place of a value, and has no mark minus price for a position with no mark.
   await click("#desk-positions .tabulator-row:not(.tabulator-group):has(.desk-unvalued)");
-  await wait("!document.querySelector('#side-panel').hidden");
+  await wait("document.querySelector('#position-details')?.hidden===false");
   await check('an unvalued position opens in the side panel with the same reason in place of its value, and no mark minus price',
-    "(()=>{const cell=document.querySelector('#desk-positions .open-row .desk-unvalued'),figure=document.querySelector('#side-panel .side-panel-figure');return !!cell&&figure.querySelector('.desk-chip').textContent==='Not valued'&&figure.querySelector('#side-panel .side-panel-reason').textContent===cell.querySelector('.desk-sub').textContent&&!figure.querySelector('.kpi-value')&&!document.querySelector('#side-panel .side-panel-delta');})()",
-    "document.querySelector('#side-panel-head').innerText");
-  await click('#side-panel-close');
+    "(()=>{const cell=document.querySelector('#desk-positions .open-row .desk-unvalued'),figure=document.querySelector('#position-details .side-panel-figure');return !!cell&&figure.querySelector('.desk-chip').textContent==='Not valued'&&figure.querySelector('#position-details .side-panel-reason').textContent===cell.querySelector('.desk-sub').textContent&&!figure.querySelector('.kpi-value')&&!document.querySelector('#position-details .side-panel-delta');})()",
+    "document.querySelector('#position-details-head').innerText");
+  await click('#position-details .position-close');
   // Each tile states the positions its own total leaves out, from its own backend group, never a sum of other counts.
   const own=type=>`${read}.summaries[0].groups.find(g=>g.instrumentType==='${type}').unvaluedPositions`;
   await check('each money tile notes the positions its own total leaves out, and the position count includes them, flagged',

@@ -177,13 +177,32 @@ class HttpFixture:
         body.update(changes)
         return self.client.call('ppa/preview',body,expected=expected)
 
-    def book(self, selected_terms, first, last, book=None, quantity='80'):
+    def booking_request(self, selected_terms, first, last, book=None, quantity='80'):
         if book is None:
             book='d1000000-0000-0000-0000-000000000002'
         body={'operationId':str(uuid4()),'snapshotId':self.frame,'tradeId':None,'expectedRevision':None,
               'bookId':book,'boundaryAt':None,'coverageFrom':first,'coverageTo':last,'quantity':quantity,
               'reason':'Synthetic durable PPA HTTP qualification','memo':'','booking':trade_booking(),'terms':selected_terms}
+        return body
+
+    def book(self, selected_terms, first, last, book=None, quantity='80'):
+        body=self.booking_request(selected_terms,first,last,book,quantity)
         return self.client.call('ppa/book',body), body
+
+    def book_resuming(self, selected_terms, first, last, book=None, quantity='80'):
+        """Integration recovery check, distinct from the single-request benchmark.
+
+        Each client attempt cancels before the server's unchanged20s deadline.
+        Retry only transport timeout, with the exact original operation/terms.
+        A structured refusal or any other server error remains a failed check.
+        """
+        body=self.booking_request(selected_terms,first,last,book,quantity)
+        for attempt in range(12):
+            try:
+                return self.client.call('ppa/book',body,timeout=15),body
+            except TimeoutError:
+                if attempt==11:raise
+                print(f'Resume immutable PPA booking after client cancellation: attempt {attempt+2} of12',flush=True)
 
 
 def check_http_reuse(fixture):
@@ -210,11 +229,30 @@ def check_http_reuse(fixture):
     return report
 
 
+def retained_storage(query):
+    """Application-visible content counts and allocated bytes, including TOAST/indexes."""
+    tables = ('side_schedules', 'side_schedule_rows', 'side_schedule_edges',
+              'side_schedule_bindings', 'side_schedule_roots', 'side_schedule_grids')
+    result = {}
+    for table in tables:
+        count, table_bytes, index_bytes = query(f"""SELECT count(*),
+            pg_table_size('trading.{table}'::regclass),
+            pg_indexes_size('trading.{table}'::regclass) FROM trading.{table};""").split('|')
+        result[table] = {'rows': int(count), 'tableAndToastBytes': int(table_bytes),
+                         'indexBytes': int(index_bytes)}
+    return result
+
+
+def storage_delta(before, after):
+    return {table: {metric: values[metric]-before[table][metric] for metric in values}
+            for table, values in after.items()}
+
+
 def run_benchmark(fixture, query, api_pid, dotnet):
     from benchmark_interval_series import environment
     metadata=environment(query,dotnet)
     metadata['apiArtifacts']=api_artifacts(api_pid)
-    report={'schema':'ppa_full_http_base_v1','environment':metadata,
+    report={'schema':'ppa_full_http_base_v2','environment':metadata,
             'measuredAtUtc':datetime.now(timezone.utc).isoformat(),
             'requestTimeoutSeconds':20,'protocol':'One measured full HTTP book preview per workload after the short qualification suite, audited input upload and durable booking. The service/JIT is therefore warm; each preview has fresh request-owned economic preparation. Includes current authorization, exact context admission, database reads, preparation, valuation, serialization, transfer and JSON parsing. No cross-request economic reuse.',
             'memory':'Server allocation delta is process-wide. A client daemon samples the owned API RSS every 100 ms during the preview, including boundary samples; its maximum is a sampled peak, not an OS high-water mark. The report includes target frequency, sample count and maximum observed gap. Completion RSS is a sample. A positive .NET peak working set is a process-lifetime high-water mark; zero is reported as unavailable.',
@@ -235,7 +273,15 @@ def run_benchmark(fixture, query, api_pid, dotnet):
             selected=terms(fixture.manifest,minutes,first,last)
             start,end=(instant(midnight(day,config['zone'])) for day in (first,last))
             result['stage']='durable_booking'
-            booked,body=fixture.book(selected,start,end,book=f'd1000000-0000-0000-0000-{3 if minutes == 60 else 4:012}')
+            before_storage=retained_storage(query)
+            booking_started=time.perf_counter()
+            try:
+                booked,body=fixture.book(selected,start,end,book=f'd1000000-0000-0000-0000-{3 if minutes == 60 else 4:012}')
+            finally:
+                result['durableBookingSeconds']=time.perf_counter()-booking_started
+            after_storage=retained_storage(query)
+            result['retainedStorageDelta']=storage_delta(before_storage,after_storage)
+            result['retainedStorageScope']='Changes in shared schedule content tables during this booking, including TOAST and indexes; excludes source series, trade/publication protocol tables and other process memory'
             known=fixture.cutoff()
             result['stage']='full_http_preview'
             sampler=ProcessRssSampler(api_pid)

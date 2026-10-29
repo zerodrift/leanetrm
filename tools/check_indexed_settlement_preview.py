@@ -22,7 +22,7 @@ def run_checks(client, query, manifest, runtime, encoded, payload, frame, grid, 
         side=next(s for s in envelope['sideIds'] if s['role']=='indexed_payment')
         return dict(bindingId=binding['bindingId'],originRevision=revision,instrumentId=binding['instrumentId'],sideId=side['sideId'],role='indexed_payment',ordinal=0)
     indexed=deepcopy(payload);payment=indexed['terms']['memberships'][1];payment['role']='indexed_payment'
-    payment['side'].update(kind='indexed',fixedPrice=None,indexPrice=dict(curve=config['curve'],quantity='test_power_quantity',multiplier='1',indexMultiplier='2',adder='3'))
+    payment['side'].update(kind='indexed',fixedPrice=None,indexPrice=dict(curve=config['curve'],quantity='test_power_quantity',multiplier='1',indexMultiplier='2',settlement=None,adder='3'))
     booked=save(indexed);origin=mapping(booked['bindings'][0],1)
     from check_settlement_preview import POLICIES
     policies={**POLICIES,'contract':'ppa_monthly_gross_indexed_v1'}

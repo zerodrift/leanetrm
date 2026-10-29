@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Power;
+using System.Diagnostics.CodeAnalysis;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -16,17 +17,49 @@ public sealed record PreparedQuantityRow(DeliveryInterval Interval,ExactQuantity
 { public ImmutableArray<CapacityDay> CapacityDays { get; init; }=[]; }
 public sealed record PriceComponent(ExactQuantity Quantity,ExactUnitPrice Price,RowPriceState State,CurveKey? Curve,
     IntervalPriceResolution? Resolution,ExactDecimal Multiplier,UnitPrice? Adder);
-public sealed record ScheduleRowValue(Guid SideId,SideSlot Slot,ComponentKind Kind,DeliveryInterval Interval,
+public sealed record ScheduleRowValue(Guid SideId,SideSlot? NativeSlot,ComponentKind Kind,DeliveryInterval? NativeInterval,
     ExactQuantity Quantity,VolumeState QuantityState,QuantityStage? Stage,ImmutableArray<AssetVolume> QuantityLineage,
     ImmutableArray<AssetVersionKey> CapacityVersions,ImmutableArray<PriceComponent> PriceComponents,ExactMoney Amount,
     ExactDecimal Coefficient,string DateRule,DateTimeOffset ValueAt,SidePaymentFactor? Discount,ExactMoney? PresentValue,
-    EconomicClass Class,PaymentLifecycle? Lifecycle,ValueCoverage Coverage,string? UnavailableReason)
+    EconomicClass? RowClass,PaymentLifecycle? Lifecycle,ValueCoverage Coverage,string? UnavailableReason)
 {
+    public required ScheduleRow Row { get; init; }
+    public SideSlot Slot=>NativeSlot??throw new MarketDataException("schedule_row_kind","A dated payment row has no interval composition slot.");
+    public DeliveryInterval Interval=>NativeInterval??throw new MarketDataException("schedule_row_kind","A dated row retains its explicit date delivery window.");
+    public EconomicClass Class=>RowClass??throw new MarketDataException("schedule_row_classification","This dated payment contract does not declare an interval lifecycle classification.");
+    private SidePaymentCash? observation;
+    public ScheduleRow Plan=>Row;
+    public ExactMoney CashAmount=>Amount;
+    public ImmutableArray<ResolvedSchedulePrice> Prices=>Observation.Prices;
+    public ImmutableArray<SideResetValue> Resets=>Observation.Resets;
+    public ImmutableArray<SideApplicationValue> Applications=>Observation.Applications;
+    public string ObservationWeightTotal=>Observation.ObservationWeightTotal;
+    private SidePaymentCash Observation=>observation??throw new MarketDataException("schedule_row_kind","This row retains interval price components rather than dated reset applications.");
+    public SidePaymentFactor PaymentDiscount=>Discount??throw new MarketDataException("side_payment_factors","This row has no discounted payment value.");
+    public ExactMoney RequirePresentValue()=>PresentValue??throw new MarketDataException("schedule_row_pv",UnavailableReason??"This row is outside the declared present-value measure.");
+
+    [SetsRequiredMembers]
+    internal ScheduleRowValue(ScheduleRow row,ImmutableArray<ResolvedSchedulePrice> prices,SidePaymentFactor discount)
+        :this(row,new SidePaymentCash(row,prices),discount){}
+    [SetsRequiredMembers]
+    private ScheduleRowValue(ScheduleRow row,SidePaymentCash cash,SidePaymentFactor discount)
+        :this(row.SideId,null,ComponentKind.Payment,null,row.AllocatedQuantity.Scale(row.UnitQuantity.Amount),VolumeState.Contractual,null,[],[],
+            Components(row,cash),cash.CashAmount,ExactDecimal.Parse("1"),row.PaymentConvention is null?row.Implementation:PaymentRule.Implementation,
+            row.PaymentAt,discount,cash.CashAmount.Scale(discount.DiscountFactor),null,null,ValueCoverage.Discounted,null)
+    {Row=row;observation=cash;}
+    private static ImmutableArray<PriceComponent> Components(ScheduleRow row,SidePaymentCash cash)
+    {
+        var total=cash.Prices.Aggregate(System.Numerics.BigInteger.Zero,(sum,price)=>sum+price.Term.Weight.ScaledValue);
+        return [..cash.Prices.Select(price=>new PriceComponent(row.AllocatedQuantity.Scale(row.UnitQuantity.Amount).ScaleFraction(price.Term.Weight.ScaledValue,total),
+            price.ExactPrice,price.State switch {SchedulePriceState.Fixed=>RowPriceState.Fixed,SchedulePriceState.Actual=>RowPriceState.Actual,_=>RowPriceState.Projected},
+            price.Term.Lookup?.ProjectionRequest.Curve,null,ExactDecimal.Parse("1"),price.Term.Spread))];
+    }
     public ImmutableArray<CapacityDay> CapacityDays { get; init; }=[];
     public ScheduleRowValue Scale(ExactDecimal coefficient,ExactDecimal mw)=>this with {
         Quantity=Quantity.Scale(mw),Amount=Amount.Scale(coefficient).Scale(mw),Coefficient=Coefficient*coefficient,
         PresentValue=PresentValue?.Scale(coefficient).Scale(mw),
-        PriceComponents=[..PriceComponents.Select(p=>p with {Quantity=p.Quantity.Scale(mw)})]};
+        PriceComponents=[..PriceComponents.Select(p=>p with {Quantity=p.Quantity.Scale(mw)})],
+        observation=observation?.Scale(coefficient*mw)};
 }
 
 public sealed record SidePeriodKey(Guid SideId,SideSlot Slot,DateOnly Month,ComponentKind Kind,VolumeState QuantityState,
@@ -93,18 +126,25 @@ internal sealed class MeasureAccumulator(ReferenceKey currency)
     private static void Sum(ref ExactMoney? total,ExactMoney amount)=>total=total is null?amount:total.Add(amount);
     internal void Add(ScheduleRowValue row,bool detail)
     {
-        Period(new(new(row.SideId,row.Slot,new(row.Interval.OperatingDate.Year,row.Interval.OperatingDate.Month,1),row.Kind,row.QuantityState,row.Class,row.Lifecycle,row.Coverage,row.ValueAt),1,row.Quantity,row.Amount,row.PresentValue));
-        Add(classes,row.Class,row.Amount);Add(coverages,row.Coverage,row.Amount);
-        if(row.Lifecycle is {} lifecycle)Add(lifecycles,lifecycle,row.Amount);
-        if(row.Coverage is ValueCoverage.Discounted or ValueCoverage.HoldingValue)Sum(ref value,row.PresentValue!);
-        if(row.Coverage==ValueCoverage.OverdueBalance){overdue=true;Sum(ref known,row.Amount);}
-        if(row.Coverage==ValueCoverage.OverdueEstimate){overdue=true;Sum(ref estimate,row.Amount);}
-        if(row.Class==EconomicClass.Realised && row.Kind==ComponentKind.Payment)Sum(ref realisedCash,row.Amount);
-        if(row.Class==EconomicClass.Realised && row.Kind==ComponentKind.Delivery)Sum(ref realisedDelivery,row.Amount);
-        if(row.Class==EconomicClass.Estimated && row.Coverage==ValueCoverage.HoldingValue)Sum(ref estimatedHolding,row.Amount);
-        if(row.PriceComponents.Any(p=>p.State==RowPriceState.Modeled))Sum(ref modeled,row.Amount);
+        AddGroup(new(new(row.SideId,row.Slot,new(row.Interval.OperatingDate.Year,row.Interval.OperatingDate.Month,1),row.Kind,row.QuantityState,row.Class,row.Lifecycle,row.Coverage,row.ValueAt),1,row.Quantity,row.Amount,row.PresentValue),
+            row.PriceComponents.Any(p=>p.State==RowPriceState.Modeled));
         if(detail)rows.Add(row);
     }
+    internal void AddGroup(SidePeriodSummary group,bool hasModeledPrice)
+    {
+        var key=group.Key;Period(group);
+        Add(classes,key.Class,group.Amount);Add(coverages,key.Coverage,group.Amount);
+        if(key.Lifecycle is {} lifecycle)Add(lifecycles,lifecycle,group.Amount);
+        if(key.Coverage is ValueCoverage.Discounted or ValueCoverage.HoldingValue)
+            Sum(ref value,group.PresentValue??throw new MarketDataException("ppa_coverage","Included schedule groups require their exact graph PV."));
+        if(key.Coverage==ValueCoverage.OverdueBalance){overdue=true;Sum(ref known,group.Amount);}
+        if(key.Coverage==ValueCoverage.OverdueEstimate){overdue=true;Sum(ref estimate,group.Amount);}
+        if(key.Class==EconomicClass.Realised && key.Kind==ComponentKind.Payment)Sum(ref realisedCash,group.Amount);
+        if(key.Class==EconomicClass.Realised && key.Kind==ComponentKind.Delivery)Sum(ref realisedDelivery,group.Amount);
+        if(key.Class==EconomicClass.Estimated && key.Coverage==ValueCoverage.HoldingValue)Sum(ref estimatedHolding,group.Amount);
+        if(hasModeledPrice)Sum(ref modeled,group.Amount);
+    }
+    internal void AddDetails(IEnumerable<ScheduleRowValue> detail)=>rows.AddRange(detail);
     internal void Add(ValueMeasureSet m)
     {
         if(m.Currency!=currency)throw new MarketDataException("ppa_currency","Measure aggregation requires an exact currency.");
@@ -131,7 +171,12 @@ public static class ValueMeasures
     }
 }
 public sealed record IntervalScopeReceipt(ValuationReceipt Inputs,DefinitionIdentity Instrument,Guid Side,SideSlot Slot,
-    DeliveryCoverage Coverage,Risk.QuoteShock? Shock,string Model,string NumericalPolicy,ImmutableArray<SidePaymentFactor> Factors);
+    DeliveryCoverage Coverage,Risk.QuoteShock? Shock,string Model,string NumericalPolicy,ImmutableArray<SidePaymentFactor> Factors)
+{
+    public required string ScheduleGraphManifest { get; init; }
+    public required string ScheduleScenario { get; init; }
+    public required string? RetainedScheduleManifest { get; init; }
+}
 
 public sealed record IntervalSideValuation:SideValuation
 {

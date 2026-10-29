@@ -66,7 +66,7 @@ def run_checks(url, manifest, query, run_worker):
         'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'], 'quantity': '10',
         'fixedCoefficient': '-1', 'discounting': False,
         'fixed': {'price': '0', 'currency': index['currencyCode'], **delivery, 'paymentSchedule': payment},
-        'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], **delivery,
+        'floating': {'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], **delivery,
          'paymentSchedule': payment, 'resetFrequency': 'monthly', 'averagingMethod': 'none', 'customProjection': choice['reference']}}
     booked = client.call('swaps/book', terms)
     assert client.call('swaps/book', terms) == booked

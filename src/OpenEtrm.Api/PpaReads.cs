@@ -39,8 +39,10 @@ internal sealed class PpaReads
             Number(v,"publication_order"),v.Instant("published_at")))];
     }
     internal async Task<PpaPrepared> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<PpaBinding> bindings,
-        DateTimeOffset known,Guid knowledgeContext,PendingActualsPolicy pending,ImmutableHashSet<DateOnly> detail,CancellationToken ct,bool closeRiskInputs=false)
+        DateTimeOffset known,MarketKnowledge resolvedKnowledge,IntervalKnowledgePolicy knowledgePolicy,PendingActualsPolicy pending,ImmutableHashSet<DateOnly> detail,CancellationToken ct,bool closeRiskInputs=false)
     {
+        if(resolvedKnowledge is null)throw PpaCompiler.Error("ppa_context","Supply the exact certified knowledge context.");
+        var knowledgeContext=resolvedKnowledge.ContextId;
         await RequireMarket(connection,data.DefinitionRevision.CatalogId,data.DefinitionRevision.RevisionId,
             data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId,frame,knowledgeContext,ct);
         var instruments=bindings.Select(b=>b.Instrument).DistinctBy(i=>i.Id).ToImmutableArray();
@@ -77,11 +79,15 @@ internal sealed class PpaReads
             }
         }
         var requested=new Dictionary<CurveKey,List<DeliveryCoverage>>();
+        var selections=new Dictionary<CurveKey,HashSet<PriceSettlementSelection?>>();
+        var bindingSelections=new Dictionary<(CurveKey Curve,Guid Binding),HashSet<PriceSettlementSelection?>>();
         var requestedMonths=new Dictionary<CurveKey,HashSet<DateOnly>>();
         var requestedBindings=new Dictionary<(CurveKey Curve,Guid Binding),HashSet<DateOnly>>();
-        void Need(CurveKey key,DeliveryCoverage span,PpaBinding binding)
+        void Need(CurveKey key,DeliveryCoverage span,PpaBinding binding,PriceSettlementSelection? selection=null)
         {
             if(!requested.TryGetValue(key,out var list))requested.Add(key,list=[]);list.Add(span);
+            if(!selections.TryGetValue(key,out var selected))selections.Add(key,selected=[]);selected.Add(selection);
+            if(!bindingSelections.TryGetValue((key,binding.BindingId),out var declared))bindingSelections.Add((key,binding.BindingId),declared=[]);declared.Add(selection);
             if(!requestedMonths.TryGetValue(key,out var months))requestedMonths.Add(key,months=[]);
             var delivery=binding.Instrument.Delivery;var clock=reference.Clocks[delivery.Clock];
             if(!requestedBindings.TryGetValue((key,binding.BindingId),out var bindingMonths))requestedBindings.Add((key,binding.BindingId),bindingMonths=[]);
@@ -91,14 +97,14 @@ internal sealed class PpaReads
         foreach(var binding in bindings)
             foreach(var member in binding.Instrument.Memberships)
             {
-                if(member.Side is PpaFloatingSide indexed)Need(indexed.Price.Curve,binding.Coverage,binding);
+                if(member.Side is FloatingSide indexed)Need(indexed.Price.Curve,binding.Coverage,binding,indexed.Price.Settlement);
                 var attribute=member.Side switch {PowerPhysicalSide=>ValuedAttribute.Energy,CertificateDeliverySide=>ValuedAttribute.Certificate,CapacityDeliverySide=>ValuedAttribute.Capacity,_=>(ValuedAttribute?)null};
                 if(attribute is null)continue;
                 var locations=binding.Instrument.NormalizationAssets.Select(a=>reference.Assets[a].Location).ToHashSet();
                 if(member.Side is PowerPhysicalSide physical && member.Side.Terms.Quantity is ProfileQuantity)locations.Add(physical.Location);
                 foreach(var assignment in assignments.Where(a=>a.Attribute==attribute && locations.Contains(a.Location) && a.From<binding.Coverage.To && a.To>binding.Coverage.From))Need(assignment.Curve,new(assignment.From>binding.Coverage.From?assignment.From:binding.Coverage.From,assignment.To<binding.Coverage.To?assignment.To:binding.Coverage.To),binding);
             }
-        var snapshot=data.Snapshot(frame);var tou=await Tou(connection,data,frame,knowledgeContext,[],ct);
+        var snapshot=data.Snapshot(frame).WithKnowledge(knowledgeContext,resolvedKnowledge.KnownAt);var tou=await Tou(connection,data,frame,knowledgeContext,[],ct);
         var curves=ImmutableDictionary.CreateBuilder<CurveKey,PreparedCurve>();
         var (frozen,frozenContext)=await IntervalCurvesStore.FrozenKnowledge(connection,data,snapshot,known,ct);
         if(frozenContext is {} fc)contexts.Add(fc);
@@ -115,7 +121,7 @@ internal sealed class PpaReads
             }
             else
             {
-                var period=IntervalCurveDefinitions.Period(data,key.Code);curve=period;
+                var period=IntervalCurveDefinitions.Period(data,key.Code,selections[key].OfType<PriceSettlementSelection>());curve=period;
                 // Retain the original whole contract/vintage containing each selected operating month.
                 var months=requestedMonths[key];
                 spans=Union(period.Contracts.Where(c=>months.Any(m=>c.DeliveryFrom<=m && m<c.DeliveryTo)).Select(c=>new DeliveryCoverage(Utc(c.DeliveryFrom),Utc(c.DeliveryTo))));
@@ -123,7 +129,8 @@ internal sealed class PpaReads
             var prepared=PreparedCurve.Prepare(curve,[..spans.Select(s=>(s.From,s.To))],shape,actuals,snapshot.ValuationAt,known);
             curves.Add(key,prepared);
         }
-        var dependencies=curves.Values.SelectMany(c=>c.Months.SelectMany(m=>c.Dependencies(m))).Distinct().ToImmutableArray();
+        IEnumerable<CurveRequest> Dependencies(CurveKey key,DateOnly month)=>selections[key].SelectMany(s=>curves[key].Dependencies(month,s)).Distinct();
+        var dependencies=curves.SelectMany(c=>c.Value.Months.SelectMany(m=>Dependencies(c.Key,m))).Distinct().ToImmutableArray();
         var missing=dependencies.Where(d=>!frame.CurveContracts.GetValueOrDefault(d.Curve.Code,[]).Contains(d.Contract.Id)).ToArray();
         if(missing.Length>0)
         {
@@ -132,7 +139,7 @@ internal sealed class PpaReads
                 // A shaped request declares its native block dependencies. Match
                 // the missing contract's operating month to the requesting binding.
                 var affected=bindings.Where(b=>requestedBindings.Any(r=>r.Key.Binding==b.BindingId &&
-                    missing.Any(d=>curves[r.Key.Curve].Months.Where(r.Value.Contains).Any(m=>curves[r.Key.Curve].Dependencies(m).Contains(d)))));
+                    missing.Any(d=>curves[r.Key.Curve].Months.Where(r.Value.Contains).Any(m=>bindingSelections[r.Key].SelectMany(s=>curves[r.Key.Curve].Dependencies(m,s)).Contains(d)))));
                 throw new CloseRiskInputsException("The existing close omits declared pricing inputs; no partial report was admitted.",
                     [..affected.Select(b=>new CloseRiskAffectedBinding(b.TradeId!.Value,b.BindingId,"missing_curve_view")).OrderBy(b=>b.TradeId).ThenBy(b=>b.BindingId)]);
             }
@@ -141,9 +148,9 @@ internal sealed class PpaReads
         var market=data.Model.Build(snapshot,dependencies);
         if(closeRiskInputs)
             CloseRiskAdmission.RequireRowScenarios(CloseRiskAdmission.FutureVolumeWork(bindings,reference,curves,
-                requestedBindings,market,data.Model.QuoteFactors(snapshot)),0);
+                requestedBindings,bindingSelections,market,data.Model.QuoteFactors(snapshot)),0);
         contexts.Add(knowledgeContext);
-        var inputs=IntervalValuationInputs.Prepare(reference,new(series.ToImmutable(),curves.ToImmutable()),instruments,market,known,knowledgeContext,pending,"ppa_coverage_v1",detail,coverage);
+        var inputs=IntervalValuationInputs.Prepare(reference,new(series.ToImmutable(),curves.ToImmutable()),instruments,market,known,knowledgeContext,knowledgePolicy,pending,"ppa_coverage_v1",detail,coverage);
         var discounts=ImmutableDictionary.CreateBuilder<Guid,ISideDiscounting>();
         foreach(var instrument in instruments)
         {

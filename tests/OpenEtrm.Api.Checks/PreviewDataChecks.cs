@@ -32,6 +32,23 @@ internal static class PreviewDataChecks
             Reject("history_conflict",()=>HistoryRevisionPolicy.OnePerInstant([Sample("1.5",early),Sample(null,early,"source_expired")]).ToArray());
         });
         var data=Data();
+        Check("mixed portfolio snapshots bind one explicit knowledge context without replacing any input",()=>
+        {
+            var source=data.Snapshot(fixture.Frame);var context=Guid.NewGuid();var known=fixture.Frame.At.AddDays(1);
+            var bound=MarketSnapshotBinding.Bind(source,context,known);
+            if(bound.Knowledge!=new MarketKnowledge(context,known)||!bound.HasSameInputs(source.WithKnowledge(context,known))||source.Knowledge is not null)
+                throw new Exception("Context binding must preserve every selected observation and the original immutable snapshot.");
+            Reject("market_knowledge_context",()=>MarketSnapshotBinding.Bind(bound,Guid.NewGuid(),known));
+            Reject("market_knowledge_context",()=>MarketSnapshotBinding.Bind(bound,context,known.AddTicks(10)));
+        });
+        Check("period settlement lookup retains exact index reference cardinality",()=>
+        {
+            var indexed=Data(references:new(fixture.References){["price_index_definitions"]=
+                [Row(new{code="synthetic_index"}),Row(new{code="synthetic_index"})]});
+            if(indexed.ReferenceRows("price_index_definitions","code","synthetic_index").Count()!=2 ||
+                indexed.ReferenceRows("price_index_definitions","code","absent_index").Any())
+                throw new Exception("Index admission must see missing and ambiguous exact definitions; it cannot substitute a curve target.");
+        });
         Check("all independently keyed futures retain their exact prices and input identities",()=>
         {
             var result=data.Build(fixture.Frame,"future");

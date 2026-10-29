@@ -14,6 +14,9 @@ public sealed record ConnectedRiskWork(int PositionCount,int UniqueValuations,in
 {
     public long UnitScenarioCandidates=>(long)UniqueValuations*ScenarioCount;
     public long ReusedUnitScenarioValues=>UnitScenarioCandidates-UnitPricerCalls;
+    public long RowEvaluations{get;init;}
+    public long ScheduleGraphEvaluatedNodes{get;init;}
+    public long ScheduleGraphReusedReads{get;init;}
 }
 public sealed record ConnectedScenarioWork(GraphWork Graph,int UnitPricerCalls,int ReusedUnitValues);
 // Completed factors retain replay evidence, not executable sessions or their
@@ -139,14 +142,16 @@ public static partial class RiskEngine
         {graph=AddGraphWork(graph,current.Scenario.Work);if(current.Parent is not null)preparation++;}
         var groups=portfolios.Select((portfolio,n)=>new ConnectedBookRiskRun(prepared.Valuation.Snapshot.Id,numericalPolicy,contracts[n],bases[n].Totals,
             factors[n].ToImmutable(),new(portfolio.Positions.Length,contracts[n].Length,contracts[n].SelectMany(c=>c.Dependencies).Select(r=>r.Contract).Distinct().Count(),
-                1+2*bumps.Length,calls[n],applications[n],preparation),prepared.Scenario)
+                1+2*bumps.Length,calls[n],applications[n],preparation)
+            {RowEvaluations=calculation.IntervalWork[n].Rows,ScheduleGraphEvaluatedNodes=calculation.IntervalWork[n].GraphNodes,ScheduleGraphReusedReads=calculation.IntervalWork[n].GraphReused},prepared.Scenario)
             {Detail=detail,BasePositions=BasePositions(portfolio,bases[n],detail),BaseMeasures=bases[n].BaseMeasures}).ToImmutableArray();
         cancellation.ThrowIfCancellationRequested();
         return new(prepared.Valuation.Snapshot.Id,groups,new(portfolios.Sum(p=>p.Positions.Length),contracts.Sum(c=>c.Length),
-            contracts.SelectMany(c=>c).SelectMany(c=>c.Dependencies).Select(r=>r.Contract).Distinct().Count(),1+2*bumps.Length,calls.Sum(),applications.Sum(),preparation),graph);
+            contracts.SelectMany(c=>c).SelectMany(c=>c.Dependencies).Select(r=>r.Contract).Distinct().Count(),1+2*bumps.Length,calls.Sum(),applications.Sum(),preparation)
+            {RowEvaluations=calculation.IntervalWork.Sum(w=>w.Rows),ScheduleGraphEvaluatedNodes=calculation.IntervalWork.Sum(w=>w.GraphNodes),ScheduleGraphReusedReads=calculation.IntervalWork.Sum(w=>w.GraphReused)},graph);
     }
     private static ConnectedScenarioReceipt Receipt(ConnectedScenario scenario)=>
         new(scenario.Id,scenario.ParentId,scenario.Depth,scenario.Plan.ManifestId,scenario.Shifts);
     private static GraphWork AddGraphWork(GraphWork left,GraphWork right)=>new(left.EvaluatedNodes+right.EvaluatedNodes,left.ReusedReads+right.ReusedReads,
-        checked(left.AffectedNodes+right.AffectedNodes),left.TraversedAffectedEdges+right.TraversedAffectedEdges);
+        checked(left.AffectedNodes+right.AffectedNodes),left.TraversedAffectedEdges+right.TraversedAffectedEdges,left.EvaluatedWork+right.EvaluatedWork);
 }

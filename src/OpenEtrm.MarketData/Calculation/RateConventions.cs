@@ -1,9 +1,8 @@
 using System.Globalization;
 using System.Numerics;
-using OpenEtrm.MarketData;
 using OpenEtrm.Shared.Numerics;
 
-namespace OpenEtrm.Rates;
+namespace OpenEtrm.MarketData;
 
 // Original bounded implementation: Actual/365 Fixed, simple compounding.
 // D = 1 / (1 + r * actualDays / 365). All intermediates are exact integers.

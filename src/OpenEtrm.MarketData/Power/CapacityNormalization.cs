@@ -47,6 +47,14 @@ public static class CapacityNormalization
         Validate(assets,context);
         var from=assets[0].OperatingClock.StartOfDay(operatingDay).ToUniversalTime();
         var to=assets[0].OperatingClock.StartOfDay(operatingDay.AddDays(1)).ToUniversalTime();
+        return AccreditedPerInterval(assets,new(from,to,operatingDay,0,0,1),context);
+    }
+    internal static NormalizedCapacity AccreditedPerInterval(ImmutableArray<GenerationAsset> assets,DeliveryInterval interval,VolumeContext context)
+    {
+        Validate(assets,context);
+        var from=interval.Start;var to=interval.End;var operatingDay=interval.OperatingDate;
+        if(from!=assets[0].OperatingClock.StartOfDay(operatingDay).ToUniversalTime()||to!=assets[0].OperatingClock.StartOfDay(operatingDay.AddDays(1)).ToUniversalTime())
+            throw Invalid("An accredited entitlement must retain one complete operating day under its exact asset clock.");
         var versions=assets.Select(a=>AssetDefinitions.At(a,from,to)).ToArray();
         if(versions.Any(v=>v.AccreditedCapacity is null))throw new MarketDataException("asset_version","Every declared asset needs explicit accreditation; missing is not zero.");
         var basis=Basis(assets,from,to);

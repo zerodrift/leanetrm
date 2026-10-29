@@ -20,7 +20,7 @@ internal static class TradingIdentityChecks
         FixedSide Fixed(string price, DateTimeOffset? payment = null) => new(Guid.NewGuid(), new(ExactDecimal.Parse(price), q),
             new(ExactDecimal.Parse("1"), q.Quantity), k.DeliveryFrom, k.DeliveryTo,
             payment ?? Fixture.Utc("2041-02-02T00:00:00Z"), FixedSide.Implementation,q);
-        FloatingSide Floating() => new(Guid.NewGuid(), f.R("index"), q, new(ExactDecimal.Parse("1"), q.Quantity),
+        FloatingSide Floating() => new(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R("index")), q, new(ExactDecimal.Parse("1"), q.Quantity),
             k.DeliveryFrom, k.DeliveryTo, Fixture.Utc("2040-12-19T00:00:00Z"), Fixture.Utc("2041-02-02T00:00:00Z"),
             FloatingAveraging.MonthlyIndexPrice, [new(new(f.C("base_forward"), k.Key), k)], FloatingSide.Implementation);
         FinancialSwapInstrument Swap(string price = "3", bool reverse = false, bool discounting = false) => new(Guid.NewGuid(),
@@ -49,9 +49,9 @@ internal static class TradingIdentityChecks
         Check("fixed-side quote reference is part of its persisted economic key", () =>
         {
             var a = Fixed("3");
-            var b = new FixedSide(Guid.NewGuid(),a.Price,a.UnitQuantity,a.DeliveryFrom,a.DeliveryTo,a.PaymentAt,FixedSide.Implementation,q with {Key=f.R("another_quote")});
+            var b = new FixedSide(Guid.NewGuid(),((FlatPrice)a.Price).Price,a.UnitQuantity,a.DeliveryFrom,a.DeliveryTo,a.PaymentAt,FixedSide.Implementation,q with {Key=f.R("another_quote")});
             Assert(DefinitionIdentity.For(a) != DefinitionIdentity.For(b));
-            Reject("swap_definition",()=>new FixedSide(Guid.NewGuid(),a.Price,a.UnitQuantity,a.DeliveryFrom,a.DeliveryTo,a.PaymentAt,
+            Reject("swap_definition",()=>new FixedSide(Guid.NewGuid(),((FlatPrice)a.Price).Price,a.UnitQuantity,a.DeliveryFrom,a.DeliveryTo,a.PaymentAt,
                 FixedSide.Implementation,q with {Quantity=f.R("wrong_quantity")}));
         });
         Check("a versioned golden encoding excludes unmarked labels and preserves null", () =>
@@ -91,14 +91,14 @@ internal static class TradingIdentityChecks
                 PaymentDayBasis.CalendarDays, null, DateRoll.Unadjusted, null, PaymentRule.Implementation);
             var day = new PaymentRule(PaymentFrequency.Monthly, PaymentDateRule.DayOfFollowingMonth, null, 18,
                 null, ShortMonth.Reject, DateRoll.Unadjusted, null, PaymentRule.Implementation);
-            FixedSide Scheduled(PaymentRule rule) => new(Guid.NewGuid(), Fixed("3").Price, new(ExactDecimal.Parse("1"), q.Quantity),
+            FixedSide Scheduled(PaymentRule rule) => new(Guid.NewGuid(), ((FlatPrice)Fixed("3").Price).Price, new(ExactDecimal.Parse("1"), q.Quantity),
                 k.DeliveryFrom, k.DeliveryTo, rule, FixedSide.Implementation,q);
             Assert(Scheduled(lag).PaymentAt == Scheduled(day).PaymentAt);
             Assert(DefinitionIdentity.For(Scheduled(lag)) != DefinitionIdentity.For(Scheduled(day)));
         });
         Check("floating index, exact projections, weighting and calendars participate", () =>
         {
-            FloatingSide Monthly(string index, string curve) => new(Guid.NewGuid(), f.R(index), q, new(ExactDecimal.Parse("1"), q.Quantity),
+            FloatingSide Monthly(string index, string curve) => new(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R(index)), q, new(ExactDecimal.Parse("1"), q.Quantity),
                 k.DeliveryFrom, k.DeliveryTo, Fixture.Utc("2040-12-19T00:00:00Z"), Fixture.Utc("2041-02-02T00:00:00Z"),
                 FloatingAveraging.MonthlyIndexPrice, [new(new(f.C(curve), k.Key), k)], FloatingSide.Implementation);
             Assert(DefinitionIdentity.For(Monthly("index", "base_forward")) != DefinitionIdentity.For(Monthly("other_index", "base_forward")));
@@ -107,7 +107,7 @@ internal static class TradingIdentityChecks
             var projections = dates.Select(date => { var contract = new MarketContract(new(f.Revision, Guid.NewGuid()),
                 ContractKind.Forward, date, date.AddDays(1), Fixture.Utc("2041-02-02T00:00:00Z"), null);
                 return new SwapProjection(new(f.C("daily"), contract.Key), contract); }).ToImmutableArray();
-            FloatingSide Daily(FloatingAveraging method, string calendarCode = "calendar", string weight = "1") => new(Guid.NewGuid(), f.R("index"), q,
+            FloatingSide Daily(FloatingAveraging method, string calendarCode = "calendar", string weight = "1") => new(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R("index")), q,
                 new(ExactDecimal.Parse("1"), q.Quantity), k.DeliveryFrom, k.DeliveryTo, Fixture.Utc("2040-12-19T00:00:00Z"), Fixture.Utc("2041-02-02T00:00:00Z"),
                 method, method == FloatingAveraging.QuantityWeighted ? projections.Select((p,n) => p with { AveragingQuantity = new(ExactDecimal.Parse(n == 0 ? weight : "1"), q.Quantity) }).ToImmutableArray() : projections,
                 FloatingSide.Implementation, method == FloatingAveraging.ObservationArithmetic ? new(f.R(calendarCode), DateSet.Create(k.DeliveryFrom,k.DeliveryTo,dates)) : null);
@@ -119,7 +119,7 @@ internal static class TradingIdentityChecks
         {
             var a = Floating();
             var alias = k with {Key = new(k.Key.Revision,Guid.NewGuid())};
-            var b = new FloatingSide(Guid.NewGuid(),a.Index,a.Quote,a.UnitQuantity,a.DeliveryFrom,a.DeliveryTo,
+            var b = new FloatingSide(Guid.NewGuid(),a.Settlement,a.Quote,a.UnitQuantity,a.DeliveryFrom,a.DeliveryTo,
                 a.FirstFixingAt,a.PaymentAt,a.Averaging,[new(new(a.Projections[0].Market.Curve,alias.Key),alias)],FloatingSide.Implementation);
             Assert(DefinitionIdentity.For(a) == DefinitionIdentity.For(b));
             Assert(DefinitionIdentity.For(a.PricingBinding) != DefinitionIdentity.For(b.PricingBinding));

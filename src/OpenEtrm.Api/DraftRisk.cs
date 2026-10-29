@@ -11,7 +11,7 @@ internal static class DraftRisk
         try{return value.ToMoney().Amount.ToString();}
         catch(MarketDataException e)when(e.Code is "precision_loss" or "numeric_range"){return value.Numerator+"/"+value.Denominator;}
     }
-    internal static object Result(PreviewData data,DealRiskRun risk,string measure)
+    internal static object Result(PreviewData data,DealRiskRun risk,string measure,ImmutableArray<ProjectionPolicyReceipt> projectionPolicies=default)
     {
         string Currency(ReferenceKey key)=>data.References["currencies"].Single(c=>c.Text("code")==key.Code).Text("display_code");
         string Unit(PriceUnit unit)
@@ -21,6 +21,7 @@ internal static class DraftRisk
             return $"{unit.Multiplier} {Currency(unit.Currency)} / {symbol}";
         }
         return new{unbooked=true,measure,bumpPolicy=DealRisk.BumpPolicy,numericalPolicy=DealRisk.NumericalPolicy,
+            projectionPolicies=projectionPolicies.IsDefault?ImmutableArray<ProjectionPolicyReceipt>.Empty:projectionPolicies,
             coverage="commodity_quote_factors_rates_held_fixed",risk.ScenarioCount,currency=Currency(risk.Base.Currency),
             factors=risk.Factors.Select(row=>new{factor=new{seriesId=row.Factor.Input.Series.Id,quote=row.Factor.Quote.Code,
                 curves=row.Factor.Curves.Select(c=>c.Code),unit=Unit(row.Factor.Unit),contract=row.Factor.Contract,

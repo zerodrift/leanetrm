@@ -25,7 +25,8 @@ public sealed class ConnectedValuation
         if(scenario is null||snapshot is null||snapshot.Id==Guid.Empty||snapshot.Definitions.CatalogId==Guid.Empty||
             snapshot.Definitions.RevisionId==Guid.Empty||!TradingInstant.IsSupported(snapshot.ValuationAt)||!TradingInstant.IsSupported(snapshot.MarketCutoff)||
             !snapshot.HasCoherentSelections()||snapshot.SelectionPolicy!=InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering||
-            snapshot.ValuationAt!=scenario.Plan.Context.ValuationAt||snapshot.MarketCutoff!=scenario.Plan.Context.MarketAsOf)
+            snapshot.ValuationAt!=scenario.Plan.Context.ValuationAt||snapshot.MarketCutoff!=scenario.Plan.Context.MarketAsOf||
+            snapshot.Knowledge is {} knowledge&&(knowledge.ContextId!=scenario.Plan.Context.ContextId||knowledge.KnownAt!=scenario.Plan.Context.KnownAt))
             throw new MarketDataException("instrument_context","Supply one pinned graph scenario, compatible snapshot and exact instrument pricing bindings.");
         if(sourceSnapshots.IsDefault)throw new MarketDataException("instrument_context","Supply the exact admitted source snapshot list, including an explicit empty list when unused.");
         var admitted=new Dictionary<(Guid,DefinitionRevision),(MarketSnapshot Metadata,Dictionary<InputKey,MarketObservation> Inputs)>();
@@ -44,7 +45,7 @@ public sealed class ConnectedValuation
             var key=(retained.Id,retained.Definitions);
             if(admitted.TryGetValue(key,out var existing))
             {
-                if(existing.Metadata.ValuationAt!=retained.ValuationAt||existing.Metadata.MarketCutoff!=retained.MarketCutoff||existing.Metadata.SelectionPolicy!=retained.SelectionPolicy)
+                if(existing.Metadata.ValuationAt!=retained.ValuationAt||existing.Metadata.MarketCutoff!=retained.MarketCutoff||existing.Metadata.SelectionPolicy!=retained.SelectionPolicy||existing.Metadata.Knowledge!=retained.Knowledge)
                     throw new MarketDataException("instrument_context","Partial selections of one exact frame must retain identical temporal coordinates.");
             }
             else admitted.Add(key,existing=(retained,new()));

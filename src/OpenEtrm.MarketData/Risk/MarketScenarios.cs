@@ -21,7 +21,7 @@ public sealed record QuoteShift(InputKey Input,ReferenceKey Quote,PriceUnit Unit
 
 public sealed class QuoteScenario
 {
-    public const string IdentityVersion="pinned_quote_scenario_v1";
+    public const string IdentityVersion="pinned_quote_scenario_v2";
     public string Id{get;}
     public string? ParentId{get;}
     public int Depth{get;}
@@ -44,7 +44,7 @@ public sealed class QuoteScenario
                 role=s.Observation.Role,state=s.Observation.State,at=s.Observation.ObservedAt,value=s.Observation.Value.ToString()
             });
         var id=Digest(new{version=IdentityVersion,snapshot=snapshot.Id,definitions=snapshot.Definitions,
-            valuationAt=snapshot.ValuationAt,cutoff=snapshot.MarketCutoff,selection=snapshot.SelectionPolicy,
+            valuationAt=snapshot.ValuationAt,cutoff=snapshot.MarketCutoff,selection=snapshot.SelectionPolicy,knowledge=snapshot.Knowledge,
             numericalPolicy=CurveModel.NumericalPolicy,observations});
         return new(id,null,0,[],ImmutableDictionary<InputKey,QuoteShift>.Empty);
     }

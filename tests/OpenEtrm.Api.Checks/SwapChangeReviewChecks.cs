@@ -7,12 +7,15 @@ static class SwapChangeReviewChecks
     {
         var original = new SwapWriteRequest(Guid.NewGuid(), SwapStore.Convention, "current", Guid.NewGuid(), Guid.NewGuid(),
             "2020-12-15T16:00:00Z", "100", "-1", false, new("3", "usd", "2021-01-01", "2021-02-01"),
-            new("daily_gas", "gas_index", "usd", "2021-01-01", "2021-02-01", ResetFrequency:"daily", AveragingMethod:"arithmetic", Spread:"0"),
+            new("daily_gas", "gas_index", "usd", "2021-01-01", "2021-02-01", ResetFrequency:"daily", AveragingMethod:"arithmetic", Spread:"0",Settlement:new("curve_target",null,null)),
             TradeId:Guid.NewGuid(), ExpectedRevision:1);
         var proposed = original with { Floating=original.Floating! with { AveragingMethod="observation_arithmetic" } };
         var review = SwapStore.ReviewChanges(original, proposed);
         if(review.Action!="amend_trade" || review.Changes.Length!=1 || review.Changes[0].Before!="calendar_day_arithmetic" || review.Changes[0].After!="observation_arithmetic")
             throw new Exception("An averaging change must explain the exact booked and proposed terms and require an amendment: "+System.Text.Json.JsonSerializer.Serialize(review));
+        var settlement=original with{Floating=original.Floating! with{Settlement=new("override","alternate_index","forward_curve_no_basis_v1")}};
+        if(!SwapStore.ReviewChanges(original,settlement).Changes.Any(change=>change.Field.Contains("settlement",StringComparison.OrdinalIgnoreCase)))
+            throw new Exception("Changing the selected fixing index and its projection policy is a contractual amendment.");
         var cosmeticNumbers = original with { Quantity="100.0", Fixed=original.Fixed! with { Price="3.00" }, Floating=original.Floating! with { Spread="0.0" } };
         if(SwapStore.ReviewChanges(original,cosmeticNumbers).Changes.Length!=0)
             throw new Exception("Equivalent decimal spellings are not trade changes.");
@@ -25,7 +28,7 @@ static class SwapChangeReviewChecks
             throw new Exception("Request/context coordinates are not amended trade terms.");
         var reference=new ReferenceKey(new ReferenceRevision(Guid.NewGuid(),Guid.NewGuid()),"synthetic_quantity");
         var side=new SwapScheduledSideInput("period_total",reference,null,null,"period_average_times_quantity_v1",null,[new("100",original.Fixed,null)]);
-        var scheduled=original with { Fixed=null,Floating=null,FixedCoefficient=null,FirstCoefficient="-1",Quantity="100",Scheduled=new("independent_scheduled_financial_swap_v1",side,side) };
+        var scheduled=original with { Fixed=null,Floating=null,FixedCoefficient=null,FirstCoefficient="-1",Quantity="100",Scheduled=new("whole_term_scheduled_financial_swap_v1",side,side) };
         var memoOnly=scheduled with { Quantity=null,Memo="Corrected memo" };
         var memoReview=SwapStore.ReviewChanges(scheduled,memoOnly);
         if(memoReview.Changes.Length!=1||memoReview.Changes[0].Category!="trade_details"||memoReview.Changes[0].After!="Corrected memo")

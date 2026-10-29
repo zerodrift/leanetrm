@@ -17,10 +17,14 @@ internal static class CloseRiskPreflightChecks
             [(f.C("synthetic_energy"),binding.BindingId)]=[f.Month],
             [(f.C("synthetic_certificate"),binding.BindingId)]=[f.Month]
         };
+        static Dictionary<(CurveKey,Guid),HashSet<PriceSettlementSelection?>> Selections(
+            Dictionary<(CurveKey,Guid),HashSet<DateOnly>> periods,PpaAcceptanceFixture fixture)=>periods.Keys.ToDictionary(key=>key,
+                key=>new HashSet<PriceSettlementSelection?>{key.Item1.Code=="synthetic_certificate"
+                    ?PriceSettlementSelection.CurveTarget(fixture.R("synthetic_certificate_index")):null});
         long Work(ImmutableArray<PpaBinding> bindings,PpaAcceptanceFixture.MarketInputs? selected=null)
         {
             var source=selected??market;
-            return CloseRiskAdmission.FutureVolumeWork(bindings,inputs.Reference,source.Curves,requested,source.Build,source.Model.QuoteFactors(source.Snapshot));
+            return CloseRiskAdmission.FutureVolumeWork(bindings,inputs.Reference,source.Curves,requested,Selections(requested,f),source.Build,source.Model.QuoteFactors(source.Snapshot));
         }
         void Equal(long actual,long expected){if(actual!=expected)throw new Exception($"Early risk work expected {expected}, got {actual}.");}
         // 721 native hours including the repeated DST hour, four sides, base plus
@@ -45,7 +49,7 @@ internal static class CloseRiskPreflightChecks
         Equal(Final([binding,pb],f.Prepare(market,[instrument,physical])),18_746);
         var transition=inputs.Reference with {Assignments=[..inputs.Reference.Assignments.SelectMany(a=>a.Attribute!=ValuedAttribute.Energy?[a]:
             new[]{a with {To=f.From.AddHours(1)},a with {Code=a.Code+"_later",From=f.From.AddHours(1)}})]};
-        Equal(CloseRiskAdmission.FutureVolumeWork([binding],transition,market.Curves,requested,market.Build,market.Model.QuoteFactors(market.Snapshot)),0);
+        Equal(CloseRiskAdmission.FutureVolumeWork([binding],transition,market.Curves,requested,Selections(requested,f),market.Build,market.Model.QuoteFactors(market.Snapshot)),0);
         // Valuation at the contractual date is overdue. A current certificate
         // holding may still carry risk, so the early lower bound skips the scope.
         var equality=f.Market(new(2031,12,10,0,0,0,TimeSpan.Zero),actuals:_=>"42");
@@ -57,7 +61,7 @@ internal static class CloseRiskPreflightChecks
         var quarter=new PpaAcceptanceFixture(15);var qm=quarter.Market(quarter.From.AddDays(-1));var qi=quarter.WithCertificate();var qinputs=quarter.Prepare(qm,[qi]);
         var qb=binding with {Instrument=qi,Coverage=new(quarter.From,quarter.To)};
         var qr=new Dictionary<(CurveKey,Guid),HashSet<DateOnly>> {[(quarter.C("synthetic_energy"),qb.BindingId)]=[quarter.Month],[(quarter.C("synthetic_certificate"),qb.BindingId)]=[quarter.Month]};
-        Equal(CloseRiskAdmission.FutureVolumeWork([qb],qinputs.Reference,qm.Curves,qr,qm.Build,qm.Model.QuoteFactors(qm.Snapshot)),57_680);
+        Equal(CloseRiskAdmission.FutureVolumeWork([qb],qinputs.Reference,qm.Curves,qr,Selections(qr,quarter),qm.Build,qm.Model.QuoteFactors(qm.Snapshot)),57_680);
         Console.WriteLine("PASS early risk refusal lower bound: native DST grids, reached factors, exact coverage reuse, zero MW and overdue/unproven scopes");
     }
 }

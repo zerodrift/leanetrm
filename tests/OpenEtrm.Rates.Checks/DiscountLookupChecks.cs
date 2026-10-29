@@ -33,7 +33,7 @@ internal static class DiscountLookupChecks
         SidePaymentSchedule Schedule(DateOnly date, QuoteSpecification? selectedQuote = null) =>
             new FixedSide(Guid.NewGuid(), new(ExactDecimal.Parse("3"), selectedQuote ?? quote),
                 new(ExactDecimal.Parse("1"), (selectedQuote ?? quote).Quantity), start, start.AddDays(1),
-                new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero), FixedSide.Implementation, selectedQuote ?? quote).GenerateSchedule();
+                new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero), FixedSide.Implementation, selectedQuote ?? quote).GenerateDatedSchedule();
         Check("first interior and last exact pillars retain independent rational factors and evidence", () =>
         {
             var plans = dates.Select(d => Schedule(d)).ToArray();

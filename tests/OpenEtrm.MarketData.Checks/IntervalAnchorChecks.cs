@@ -83,7 +83,7 @@ internal static class IntervalAnchorChecks
     private static void PeriodFixings()
     {
         var f=new IndexFixingChecks.FixingFixture(monthly:true);
-        var curve=new PeriodContractCurve(f.Curve.Key,PriceUnit.FromQuote(f.Quote),[..f.Projections.Select(p=>p.Contract)],f.Fixings);
+        var curve=new PeriodContractCurve(f.Curve.Key,PriceUnit.FromQuote(f.Quote),f.Base.R("index"),[..f.Projections.Select(p=>p.Contract)],f.Fixings);
         var from=new DateTimeOffset(f.From.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc));
         var to=new DateTimeOffset(f.To.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc));
         IntervalPriceResolution Resolve(MarketSnapshot snapshot,PeriodContractCurve? selected=null)

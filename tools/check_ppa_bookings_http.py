@@ -133,7 +133,7 @@ def valuation_checks(url, query, manifest, frame):
     check('80 MW plus 20 MW equals a single 100 MW holding',value(result)+value(fixture.preview(selected,start,end,quantity='20'))==value(fixture.preview(selected,start,end,quantity='100')))
     no_certificate=terms(manifest,five=False)
     indexed=deepcopy(no_certificate);indexed['memberships'][1].update(role='indexed_payment')
-    indexed['memberships'][1]['side'].update(kind='indexed',fixedPrice=None,indexPrice={'curve':config['shaped'],'quantity':'test_power_quantity','multiplier':'1','indexMultiplier':'0.95','adder':'2'})
+    indexed['memberships'][1]['side'].update(kind='indexed',fixedPrice=None,indexPrice={'curve':config['shaped'],'quantity':'test_power_quantity','multiplier':'1','indexMultiplier':'0.95', 'settlement': None,'adder':'2'})
     indexed_value=fixture.preview(indexed,start,end,detail=['2031-11-01'])
     check('index multiplier precedes adder and preserves both gross components',value(indexed_value)==0 and [fraction(s['measures']['valueExcludingOverdue']) for s in indexed_value['bindings'][0]['sides']]==[40000,-40000])
     indexed['memberships'][1]['side']['indexPrice'].update(indexMultiplier='1',adder='1')
@@ -194,7 +194,7 @@ def valuation_checks(url, query, manifest, frame):
     source_names=[f'{asset}_60' for asset in manifest['ppa']['assets']]
     q={'kind':'volume','sources':source_names,'stage':'generated','capacity':None,'energy':None,'hours':None,'slots':[],'assets':[]}
     multi['memberships'][0].update(role='indexed_payment')
-    multi['memberships'][0]['side'].update(kind='indexed',quantity=deepcopy(q),location=None,indexPrice={'curve':config['shaped'],'quantity':'test_power_quantity','multiplier':'1','indexMultiplier':'1','adder':'0'})
+    multi['memberships'][0]['side'].update(kind='indexed',quantity=deepcopy(q),location=None,indexPrice={'curve':config['shaped'],'quantity':'test_power_quantity','multiplier':'1','indexMultiplier':'1', 'settlement': None,'adder':'0'})
     multi['memberships'][1]['side']['quantity']=deepcopy(q)
     multi_first,multi_last='2031-11-15T04:00:00Z','2031-11-15T06:00:00Z'
     a_source,b_source=[manifest['ppa']['series'][name] for name in source_names]
@@ -265,10 +265,10 @@ def valuation_checks(url, query, manifest, frame):
     virtual=deepcopy(no_certificate)
     volume=deepcopy(virtual['memberships'][0]['side']['quantity'])
     virtual['memberships'][0].update(role='indexed_payment')
-    virtual['memberships'][0]['side'].update(kind='indexed',location=None,indexPrice={'curve':config['shaped'],'quantity':'test_power_quantity','multiplier':'1','indexMultiplier':'1','adder':'1'})
+    virtual['memberships'][0]['side'].update(kind='indexed',location=None,indexPrice={'curve':config['shaped'],'quantity':'test_power_quantity','multiplier':'1','indexMultiplier':'1', 'settlement': None,'adder':'1'})
     virtual['memberships'][1]['side']['quantity']=deepcopy(volume)
     basis=deepcopy(virtual);basis['memberships'][1].update(role='indexed_payment',ordinal=1)
-    basis['memberships'][1]['side'].update(kind='indexed',fixedPrice=None,indexPrice={'curve':manifest['intervalCurves']['shaped'],'quantity':'test_power_quantity','multiplier':'1','indexMultiplier':'1','adder':'0'})
+    basis['memberships'][1]['side'].update(kind='indexed',fixedPrice=None,indexPrice={'curve':manifest['intervalCurves']['shaped'],'quantity':'test_power_quantity','multiplier':'1','indexMultiplier':'1', 'settlement': None,'adder':'0'})
     for name,contract,first,last,expected in [('virtual_fixed_for_floating',virtual,start,end,1000),('basis_cash',basis,start,end,1000),('indexed_physical',indexed,start,end,-1000),('capacity_agreement',capacity,'2031-11-01T04:00:00Z','2031-12-01T05:00:00Z',7680)]:
         validation=fixture.client.call('ppa/validate',{'snapshotId':fixture.frame,'terms':contract,'quantity':'80','coverageFrom':first,'coverageTo':last})
         draft=fixture.preview(contract,first,last)

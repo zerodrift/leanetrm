@@ -67,7 +67,7 @@ def run_checks(url, manifest, query, run_worker):
     terms={**context,**trade_booking(),'operationId':str(uuid4()),'bookId':book,'definitionRevisionId':index['definitionRevisionId'],
         'commodity':index['commodity'],'quantity':'31','fixedCoefficient':'-1','discounting':False,
         'fixed':{'price':'0','currency':index['currencyCode'],**delivery,'paymentSchedule':payment},
-        'floating':{'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],**delivery,'paymentSchedule':payment,
+        'floating':{'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],**delivery,'paymentSchedule':payment,
                     'resetFrequency':'daily','averagingMethod':'arithmetic','customProjection':reference}}
     booked=client.call('swaps/book',terms)
     detail=client.call('swaps/editor',{'context':context,'tradeId':booked['tradeId'],'revision':None})

@@ -51,6 +51,7 @@ public sealed class UnitValuationContext
     private readonly PreparedValuationMarket? pricing;
     private readonly UnitPricingContract? declaration;
     private readonly CancellationToken cancellation;
+    internal CancellationToken Cancellation=>cancellation;
     private readonly SideValuationContexts sideContexts;
     internal SwapBindingValuation? Settlement{get;}
     internal int SideCalculations=>sideContexts.Calculations;
@@ -312,7 +313,7 @@ public sealed class ValuationPortfolio
                 throw Error("risk_contract","Each unit instrument requires a complete versioned dependency declaration, currency and normalized unit basis.");
             Money.RequireKey(c.Currency);Money.RequireKey(c.Quantity);
             if(c.Currency.Revision!=c.Quantity.Revision)throw Error("risk_contract","Currency and quantity require the same exact reference revision.");
-            return c;
+            return c with{ScheduleIdentity=instrument.RetainedScheduleIdentity,SettlementProjections=instrument.SettlementProjections};
         }).ToImmutableArray();
     }
     internal PortfolioValue PV(CurveBuild market,ImmutableArray<UnitPricingContract> declarations,CurveBuild? baseMarket=null,

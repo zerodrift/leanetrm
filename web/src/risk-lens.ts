@@ -1,3 +1,4 @@
+import {projectionPolicyLabels} from './projection-policy.js';
 // The risk lens of the Blotter desk (blotter-desk.md, Risk report inline; D222): what a run's results say of each position, of the run
 // as a whole and of its change chart, as the desk shows them beside the positions. Each factor's results are its own, so this picks and
 // labels the backend's exact strings and never adds, nets or scales them across factors, parts or positions.
@@ -213,7 +214,7 @@ export function runBar(run:RunView,o:{zone:string;knowledge:string|null;results:
     for(const part of run.parts){const state=part.unknown?'outcome unknown':part.job?part.job.state.replaceAll('_',' '):part.failure!==undefined?'not queued':part.unlisted?'missing from the job history':'not yet queued';states.set(state,(states.get(state)??0)+1);}
     when=states.size===1&&states.has('completed')?`${jobs}, completed ${finished?instant(finished):'at an unstated time'}`:`${jobs}: ${[...states].map(([state,n])=>`${n} ${state}`).join(', ')}`;
   }
-  const notes:RunNote[]=[];
+  const notes:RunNote[]=[...new Set(reports.flatMap(report=>projectionPolicyLabels(report.projectionPolicies)))].map(text=>({kind:'note',text}));
   const depth=reports[0]?.scenario.depth??0;
   if(depth>0)notes.push({kind:'note',text:`Around ${depth} nested ${depth===1?'stress':'stresses'}: the base, up and down values all include them.`});
   if((o.results.state==='shown'||o.results.state==='pivot')&&o.results.excluded.length){

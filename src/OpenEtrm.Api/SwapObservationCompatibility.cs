@@ -46,8 +46,14 @@ public static class SwapObservationCompatibility
     }
 
     public static ImmutableArray<SwapObservationMode> SupportedSamplings(PreviewData data, JsonElement curve)
+        =>SupportedSamplings(data,curve,PriceSettlementSelection.CurveTarget(References(data,curve).Index));
+
+    public static ImmutableArray<SwapObservationMode> SupportedSamplings(PreviewData data,JsonElement curve,PriceSettlementSelection settlement)
     {
-        var (index, quote) = References(data, curve);
+        var references=References(data,curve);
+        if(references.Index!=settlement.CurveTargetIndex)
+            throw Error("swap_definition","The settlement selection must retain the projection curve's exact target.");
+        var index=settlement.SelectedIndex;var quote=references.Quote;
         var periods = data.Definitions["index_fixing_observations"].Where(row => row.Text("index_code") == index.Code)
             .ToLookup(row => (DateWorkspace.Date(row.Text("observation_from")), DateWorkspace.Date(row.Text("observation_to"))));
         var projections = CurveContracts(data, curve).GroupBy(contract => (contract.DeliveryFrom, contract.DeliveryTo))
@@ -61,38 +67,45 @@ public static class SwapObservationCompatibility
         return SupportedSamplings(SwapStore.Fixings(data, index, quote, projections));
     }
 
-    public static CompatibleSideObservations Validate(PreviewData data, JsonElement curve, ReferenceKey index,
+    public static CompatibleSideObservations Validate(PreviewData data, JsonElement curve, PriceSettlementSelection settlement,
         QuoteSpecification quote, DateOnly from, DateOnly to, FloatingAveraging averaging,
         SwapObservationCalendar? calendar, ImmutableArray<FloatingObservation> quantities,
         CustomCurveProjectionBinding? custom = null)
     {
         var references = References(data, curve);
-        if (references.Index != index || references.Quote != quote)
+        if (references.Index != settlement.CurveTargetIndex || references.Quote != quote)
             throw Error("swap_definition", "The observation index, quote and projection must use the selected exact references.");
-        ValidateConvention(data, curve, averaging, calendar, custom);
+        ValidateConvention(data, curve, settlement,averaging, calendar, custom);
         var plan = FloatingObservationPlan.Generate(from, to, averaging, quote, calendar, quantities);
-        var referencesForPlan = Bind(data, curve, index, quote, plan.Observations);
+        var referencesForPlan = Bind(data, curve, settlement.SelectedIndex, quote, plan.Observations);
         return new(plan, referencesForPlan.Projections, referencesForPlan.Fixings, calendar);
     }
 
     public static PlannedSideObservationReferences PreviewReferences(PreviewData data, JsonElement curve,
         ReferenceKey index, QuoteSpecification quote, DateOnly from, DateOnly to, FloatingAveraging averaging,
         SwapObservationCalendar? calendar, CustomCurveProjectionBinding? custom = null)
+        =>PreviewReferences(data,curve,PriceSettlementSelection.CurveTarget(index),quote,from,to,averaging,calendar,custom);
+
+    public static PlannedSideObservationReferences PreviewReferences(PreviewData data,JsonElement curve,
+        PriceSettlementSelection settlement,QuoteSpecification quote,DateOnly from,DateOnly to,FloatingAveraging averaging,
+        SwapObservationCalendar? calendar,CustomCurveProjectionBinding? custom=null)
     {
         var references = References(data, curve);
-        if (references.Index != index || references.Quote != quote)
+        if (references.Index != settlement.CurveTargetIndex || references.Quote != quote)
             throw Error("swap_definition", "The observation index, quote and projection must use the selected exact references.");
-        ValidateConvention(data, curve, averaging, calendar, custom);
+        ValidateConvention(data, curve,settlement, averaging, calendar, custom);
         // These are required input coordinates, not a priced quantity-weighted plan.
         // No placeholder quantities or inferred financial weights are introduced.
         var observations = FloatingObservationPlan.RequiredObservations(from, to, averaging, quote, calendar);
-        return Bind(data, curve, index, quote, observations);
+        return Bind(data, curve, settlement.SelectedIndex, quote, observations);
     }
 
-    private static void ValidateConvention(PreviewData data, JsonElement curve, FloatingAveraging averaging,
+    private static void ValidateConvention(PreviewData data, JsonElement curve,PriceSettlementSelection settlement,FloatingAveraging averaging,
         SwapObservationCalendar? calendar, CustomCurveProjectionBinding? custom)
     {
         var mode = Mode(averaging);
+        if(settlement.Mode==PriceSettlementMode.Override&&custom is not null)
+            throw Error("price_settlement_selection","An override projects only from the declared curve's forward marks, with unmodelled basis.");
         if (custom is not null && averaging is not (FloatingAveraging.MonthlyIndexPrice or FloatingAveraging.CalendarDayArithmetic))
             throw Error("swap_custom_projection_averaging", "This observation convention has no qualified custom-curve projection mapping.");
         if (custom is not null && (custom.Implementation != CustomCurveProjectionBinding.SupportedImplementation ||
@@ -100,7 +113,7 @@ public static class SwapObservationCompatibility
             (averaging == FloatingAveraging.MonthlyIndexPrice ? custom.Selection != CustomCurveProjectionBinding.SupportedSelection || custom.Position is null :
                 custom.Selection != CustomCurveProjectionBinding.DeliverySelection || custom.Position is not null)))
             throw Error("custom_projection", "Select the qualified custom-curve mapping for this observation convention.");
-        if (!SupportedSamplings(data, curve).Any(candidate => candidate.Averaging == averaging))
+        if (!SupportedSamplings(data, curve,settlement).Any(candidate => candidate.Averaging == averaging))
             throw Error("index_fixing_cadence", "The selected index has no qualified published observations at the required period or cadence.");
         if (mode.RequiresObservationCalendar != (calendar is not null))
             throw Error("swap_observation_calendar", "Select an exact observation calendar only for a calendar-based observation convention.");

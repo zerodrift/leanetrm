@@ -18,34 +18,34 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);await wait(idle);
  const selected=await evaluate(`(async()=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;const post=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};const context={snapshotId:${JSON.stringify(frame)},convention:'independent_side_financial_swap_v2',knowledgeMode:'current'};const report=await post('trading/blotter',{context:{...context,convention:'trading_workspace_v1'},view:{mode:'trades',bookIds:[],portfolioIds:[],groupBy:[],measures:[],pivotConvention:null}});for(const h of report.holdings.filter(h=>h.instrumentType==='financial_swap'&&h.settlement==='Active')){const d=await post('swaps/settlement/inspect',{context,tradeId:h.tradeId,revision:null,duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1'});if(d.cashMovements.some(p=>p.reference==='Synthetic zero discharge reversal'))return {reference:h.tradeReference,otherReference:report.holdings.find(other=>other.instrumentType==='financial_swap'&&other.settlement==='Active'&&other.tradeId!==h.tradeId).tradeReference};}throw Error('Missing synthetic netting fixture');})()`);
  // The settlement view is in the panel's form part, open; it is opened from the Terms of the position's row.
- const open="(()=>{const view=document.querySelector('#swap-settlement'),form=document.querySelector('#side-panel-form');return !!view&&!view.hidden&&form.contains(view)&&!form.hidden;})()";
+ const open="(()=>{const view=document.querySelector('#swap-settlement'),form=document.querySelector('#position-details-form');return !!view&&!view.hidden&&form.contains(view)&&!form.hidden;})()";
  let deskWidth=0;
  async function openView(reference,measure=false){
-  if(await evaluate("!document.querySelector('#side-panel').hidden")){await click('#side-panel-close');await wait("document.querySelector('#side-panel').hidden&&"+idle);}
+  if(await evaluate("document.querySelector('#position-details')?.hidden===false")){await click('#position-details .position-close');await wait("(document.querySelector('#position-details')?.hidden!==false)&&"+idle);}
   await set('#blotter-filters .table-search',reference);await wait(idle);
   await wait(`(()=>{const rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length);return rows.length===1&&rows[0].textContent.includes(${JSON.stringify(reference)});})()`);
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#side-panel').dataset.mode==='position'&&"+idle);
-  await click('#side-panel-tabs-terms');await wait("!!document.querySelector('#side-panel-settlement')&&"+idle);
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details').getAttribute('aria-label')==='Position details'&&"+idle);
+  await click('#position-details-tabs-terms');await wait("!!document.querySelector('#side-panel-settlement')&&"+idle);
   if(measure)deskWidth=await evaluate("document.querySelector('#desk-positions').getBoundingClientRect().width");
   await click('#side-panel-settlement');await wait(open);await wait(idle);
  }
- const prompt="document.querySelector('#side-panel-prompt')",due="document.querySelector('#swap-settlement-correction-due')?.value",typed='2021-03-20T00:00:00Z';
+ const prompt="document.querySelector('#position-details-prompt')",due="document.querySelector('#swap-settlement-correction-due')?.value",typed='2021-03-20T00:00:00Z';
  const card=label=>`(()=>{const card=document.querySelector('#futures-pending');return !card.hidden&&card.getClientRects().length>0&&card.textContent.includes(${JSON.stringify(label)});})()`;
  // Each figure and action of a settlement table is read without scrolling sideways: it ends inside its table's scroll area.
  const figuresOutside=containers=>`(()=>{const out=[];for(const id of ${JSON.stringify(containers)})for(const scroll of document.querySelectorAll(id+' .regular-table-scroll')){const box=scroll.getBoundingClientRect(),edge=box.left+scroll.clientLeft+scroll.clientWidth;for(const n of scroll.querySelectorAll('td.numeric,button'))if(n.getClientRects().length&&n.getBoundingClientRect().right>edge+0.5)out.push(id+': '+n.textContent.trim().slice(0,24));}return out;})()`;
- // Settlement content opens the panel wide over the desk on a desktop; on a phone it is the sheet.
- const panelIs=state=>state==='wide'?"(()=>{const p=document.querySelector('#side-panel');return p.hasAttribute('data-wide')&&Math.abs(p.getBoundingClientRect().width-720)<=2;})()":"(()=>{const p=document.querySelector('#side-panel');return p.dataset.placement==='overlay'&&!p.hasAttribute('data-wide');})()";
+ // Settlement content opens the position detail over the desk on a desktop; on a phone it is the mobile detail.
+ const positionInline=()=>"(()=>{const p=document.querySelector('#position-details'),r=p?.closest('.tabulator-row');return !!r&&!p.hidden&&p.getBoundingClientRect().width<=r.getBoundingClientRect().width+1&&document.querySelector('#side-panel').hidden;})()";
  const tableWidths="[...document.querySelectorAll('#swap-settlement .regular-table-scroll')].map(s=>[s.parentElement.closest('[id]').id,s.scrollWidth,s.clientWidth])";
- const figuresShown=(containers,label)=>check(label,`${panelIs('wide')}&&${JSON.stringify(containers)}.every(id=>document.querySelector(id+' td.numeric'))&&!!document.querySelector('#swap-settlement-payments button')&&${figuresOutside(containers)}.length===0`,figuresOutside(containers));
- const tablesFit=label=>check(label,`${panelIs('wide')}&&[...document.querySelectorAll('#swap-settlement .regular-table-scroll')].every(s=>s.scrollWidth<=s.clientWidth+1)`,tableWidths);
+ const figuresShown=(containers,label)=>check(label,`${positionInline()}&&${JSON.stringify(containers)}.every(id=>document.querySelector(id+' td.numeric'))&&!!document.querySelector('#swap-settlement-payments button')&&${figuresOutside(containers)}.length===0`,figuresOutside(containers));
+ const tablesFit=label=>check(label,`${positionInline()}&&[...document.querySelectorAll('#swap-settlement .regular-table-scroll')].every(s=>s.scrollWidth<=s.clientWidth+1)`,tableWidths);
  // On a phone a table may scroll sideways, and each figure and action can be scrolled to in full.
  const unreachable="(()=>{const out=[];for(const scroll of document.querySelectorAll('#swap-settlement .regular-table-scroll')){for(const n of scroll.querySelectorAll('td.numeric,button')){if(!n.getClientRects().length)continue;n.scrollIntoView({block:'nearest',inline:'nearest'});const box=scroll.getBoundingClientRect(),edge=box.left+scroll.clientLeft+scroll.clientWidth,r=n.getBoundingClientRect();if(r.left<box.left+scroll.clientLeft-0.5||r.right>edge+0.5)out.push(scroll.parentElement.closest('[id]').id+': '+n.textContent.trim().slice(0,24));}scroll.scrollLeft=0;}return out;})()";
- const figuresReachable=label=>check(label,`${panelIs('sheet')}&&!!document.querySelector('#swap-settlement td.numeric')&&${unreachable}.length===0`,unreachable);
+ const figuresReachable=label=>check(label,`${positionInline()}&&!!document.querySelector('#swap-settlement td.numeric')&&${unreachable}.length===0`,unreachable);
  const unloadAsks="(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;})()";
  const candidates="[...document.querySelectorAll('#swap-net-selection tbody tr')].map(r=>[r.querySelector('input[type=checkbox]')?.checked,r.querySelector('input[type=text]')?.value])";
  async function correction(){await click('#swap-settlement button[data-membership="0"][data-payment="0"]');await wait("!!document.querySelector('#swap-settlement-correction-due')&&"+idle);await typeInto('#swap-settlement-correction-due',typed);}
  await openView(selected.reference,true);
- await check('the settlement view opens the panel wide over the desk, which is as it was beneath it',`${panelIs('wide')}&&Math.abs(document.querySelector('#desk-positions').getBoundingClientRect().width-${deskWidth})<=1`,"[document.querySelector('#side-panel').getBoundingClientRect().width,document.querySelector('#side-panel').hasAttribute('data-wide'),document.querySelector('#desk-positions').getBoundingClientRect().width]");
+ await check('the settlement view expands beneath its row without changing grid width',`${positionInline()}&&Math.abs(document.querySelector('#desk-positions').getBoundingClientRect().width-${deskWidth})<=1`,"[document.querySelector('#position-details').getBoundingClientRect().width,document.querySelector('#position-details').hasAttribute('data-wide'),document.querySelector('#desk-positions').getBoundingClientRect().width]");
  // A column that stacks several facts has no column filter; a column of one fact keeps its own.
  await check('the stacked columns have no column filter, and the figure columns keep theirs',"[['#swap-settlement-payments',0],['#swap-settlement-balances',0],['#swap-settlement-cash',0],['#swap-net-selection',1]].every(([id,i])=>{const cells=document.querySelectorAll(id+' .column-filter-row th');return !cells[i].querySelector('select')&&!!cells[i+1].querySelector('select');})");
  await check('net settlement offers explicit gross selection and signed allocation review',"!!document.querySelector('#swap-net-form')&&document.querySelectorAll('#swap-net-selection input[type=checkbox]').length===2");
@@ -62,13 +62,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#swap-pnl-contract-policy','');await click('#swap-settlement-reconcile');
  await check('a reconciliation refused for want of a contractual-change policy keeps it, and says why',`${due}===${JSON.stringify(typed)}&&document.querySelector('#swap-settlement [role=alert]').textContent.includes('contractual-change valuation policy')`,"[document.querySelector('#swap-settlement [role=alert]').textContent,"+due+"]");
  // What is typed into the net form is an edit: once the calculation is given up, the panel still asks before the view is closed.
- await click('#swap-settlement-refresh');await click('#side-panel-prompt button:not(.secondary)');await wait(`${prompt}.hidden&&`+idle);
+ await click('#swap-settlement-refresh');await click('#position-details-prompt button:not(.secondary)');await wait(`${prompt}.hidden&&`+idle);
  await click('#side-panel-amend');
  await check('a net entry typed in the settlement view makes the panel ask before the view is closed',`!document.querySelector('#swap-settlement-correction-due')&&!${prompt}.hidden&&${prompt}.textContent.includes('unsaved changes')`,`[${prompt}.hidden,${prompt}.textContent]`);
- await click('#side-panel-prompt button.secondary');
+ await click('#position-details-prompt button.secondary');
  await check('keeping it leaves the view open with the net entry as it was typed',`${open}&&${prompt}.hidden&&document.querySelector('#swap-net-amount').value==='5'`);
- await click('#side-panel-amend');await click('#side-panel-prompt button:not(.secondary)');await wait(`${prompt}.hidden&&!${open}&&!!document.querySelector('#side-panel-settlement')&&`+idle);
- await check('closed, the view gives the panel back its docked width',"(()=>{const p=document.querySelector('#side-panel');return !p.hasAttribute('data-wide')&&p.dataset.placement==='docked'&&Math.abs(p.getBoundingClientRect().width-340)<=2;})()","[document.querySelector('#side-panel').getBoundingClientRect().width,document.querySelector('#side-panel').dataset.placement]");
+ await click('#side-panel-amend');await click('#position-details-prompt button:not(.secondary)');await wait(`${prompt}.hidden&&!${open}&&!!document.querySelector('#side-panel-settlement')&&`+idle);
+ await check('closing settlement keeps the same position expanded',positionInline());
  await click('#side-panel-settlement');await wait(open);await wait(idle);
  await check('discarding it closes the view, which opens again with no net entry',`${open}&&document.querySelector('#swap-net-amount').value===''`);
  await evaluate("document.querySelectorAll('#swap-net-selection tr').forEach(row=>{const selected=row.querySelector('input[type=checkbox]'),amount=row.querySelector('input[type=text]');if(!selected)return;selected.checked=true;selected.dispatchEvent(new Event('change',{bubbles:true}));amount.value=row.textContent.includes('-200')?'-100':'120';amount.dispatchEvent(new Event('input',{bubbles:true}));})");
@@ -77,7 +77,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('reading the view again keeps the selected contributions and their typed allocations',"(()=>{const rows=[...document.querySelectorAll('#swap-net-selection tbody tr')];return rows.length===2&&rows.every(r=>r.querySelector('input[type=checkbox]').checked&&r.querySelector('input[type=text]').value===(r.textContent.includes('-200')?'-100':'120'));})()",candidates);
  await set('#swap-net-amount','20');await set('#swap-net-effective','2021-01-15T08:00:00Z');await set('#swap-net-reference','Synthetic browser net settlement');await submit('#swap-net-form');await wait(idle);
  await check('net preview shows backend gross and net amounts before recording',"document.querySelector('#swap-net-review').textContent.includes('-100')&&document.querySelector('#swap-net-review').textContent.includes('120')&&!!document.querySelector('#swap-net-record')");
- await figuresShown(['#swap-net-review','#swap-settlement-payments','#swap-settlement-balances'],'in the wide panel the net review\'s, the payments\' and the balances\' figures, and the payments\' actions, are read without scrolling sideways');
+ await figuresShown(['#swap-net-review','#swap-settlement-payments','#swap-settlement-balances'],'in the expanded position the net review\'s, the payments\' and the balances\' figures, and the payments\' actions, are read without scrolling sideways');
  await tablesFit('and no settlement table there scrolls sideways');
  // A filter of the candidates only reads what the table holds: it is no entry, and the prepared review stays.
  await typeInto('#swap-net-selection .table-search','Side');
@@ -86,25 +86,25 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const artifacts=await mkdtemp(join(tmpdir(),'openetrm-netting-visual-'));console.log('NETTING_VISUAL_ARTIFACTS='+artifacts);
  await evaluate("document.querySelector('#swap-settlement-payments').scrollIntoView({block:'start'})");await shot('netting-payments-desktop');await copyFile(join(dirname(process.argv[2]),'netting-payments-desktop.png'),join(artifacts,'payments-desktop.png'));
  await evaluate("document.querySelector('#swap-net-review').scrollIntoView({block:'center'})");await shot('netting-desktop');await copyFile(join(dirname(process.argv[2]),'netting-desktop.png'),join(artifacts,'desktop.png'));
- await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("document.querySelector('#side-panel').dataset.placement==='overlay'");
+ await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("!!document.querySelector('#desk-positions .open-row #position-details')");
  await evaluate("document.querySelector('#swap-net-review').scrollIntoView({block:'center'})");await shot('netting-narrow');await copyFile(join(dirname(process.argv[2]),'netting-narrow.png'),join(artifacts,'narrow.png'));
- await figuresReachable('in the panel\'s sheet each figure and action can be scrolled to in full');
- await check('net selection and review fit a narrow viewport in the panel\'s sheet',"document.querySelector('#swap-settlement').scrollWidth<=document.querySelector('#swap-settlement').clientWidth+1");
+ await figuresReachable('in the mobile position each figure and action can be scrolled to in full');
+ await check('net selection and review fit a narrow viewport in the mobile position',"document.querySelector('#swap-settlement').scrollWidth<=document.querySelector('#swap-settlement').clientWidth+1");
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await set('#swap-net-amount','21');await check('editing net amounts invalidates the prepared allocation review',"!document.querySelector('#swap-net-record')");await set('#swap-net-amount','20');await submit('#swap-net-form');await wait(idle);
  // Recording reads the view again, so over a typed correction due instant it asks first, and keeping it records nothing.
  await correction();await click('#swap-net-record');
  await check('recording a reviewed net settlement over a typed correction due instant asks first',`!${prompt}.hidden&&${prompt}.textContent.includes('correction due instant')`,`[${prompt}.hidden,${prompt}.textContent]`);
- await click('#side-panel-prompt button.secondary');
+ await click('#position-details-prompt button.secondary');
  await check('keeping it records nothing and leaves the review and the due instant',`${prompt}.hidden&&!!document.querySelector('#swap-net-record')&&${due}===${JSON.stringify(typed)}&&document.querySelector('#futures-pending').hidden&&!document.querySelector('#swap-settlement-cash').textContent.includes('Synthetic browser net settlement')`);
  // An entry changed while the question is open removes the review the record was asked from, so going on records nothing.
  await click('#swap-net-record');await set('#swap-net-amount','21');
  await check('a net entry changed while the question is open removes the review',`!${prompt}.hidden&&!document.querySelector('#swap-net-record')`);
- await click('#side-panel-prompt button:not(.secondary)');await wait(`${prompt}.hidden&&`+idle);
+ await click('#position-details-prompt button:not(.secondary)');await wait(`${prompt}.hidden&&`+idle);
  await check('going on records nothing, and asks for the review again',`document.querySelector('#swap-settlement [role=alert]').textContent.includes('preview again')&&document.querySelector('#futures-pending').hidden&&!document.querySelector('#swap-settlement-cash').textContent.includes('Synthetic browser net settlement')`,"[document.querySelector('#swap-settlement [role=alert]').textContent,document.querySelector('#swap-settlement-cash').textContent.slice(0,400)]");
  await set('#swap-net-amount','20');await submit('#swap-net-form');await wait(idle);await correction();
  await evaluate(`(()=>{const send=window.fetch;let once=true;window.fetch=async(input,init)=>{const response=await send(input,init);if(once&&String(input).endsWith('/api/swaps/settlement/net')&&response.ok){once=false;window.syntheticLostNetCommand=JSON.parse(init.body);throw new TypeError('Synthetic lost reply after committed settlement');}return response;};})()`);
- await click('#swap-net-record');await click('#side-panel-prompt button:not(.secondary)',60000);await wait(idle);
+ await click('#swap-net-record');await click('#position-details-prompt button:not(.secondary)',60000);await wait(idle);
  const retained=await evaluate("(()=>{const key=Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.futures.request.server_booking_utc_v1.'));return {key,value:sessionStorage.getItem(key),command:window.syntheticLostNetCommand};})()");
  await check('a lost net-settlement reply retains its exact operation and allocation payload, in the panel\'s card named for it',`${card('Net settlement of '+selected.reference)}&&!!window.syntheticLostNetCommand`,"document.querySelector('#futures-pending').textContent");
  const profile=await evaluate("document.querySelector('#profile-label')?.textContent");
@@ -148,15 +148,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const openingFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-15')).id;})()");
  await set('#swap-pnl-opening-snapshot',openingFrame);await click('#swap-pnl-capture-opening');await wait(idle);await set('#swap-pnl-contract-policy','closing_context_contract_changes_v1');await click('#swap-settlement-reconcile',60000);await wait(idle);
  await check('reporting captures an opening before booking and explicitly measures new-trade economics at closing',"!document.querySelector('#swap-settlement [role=alert]').textContent&&document.querySelector('#swap-settlement-bridge').textContent.includes('New-trade economics at closing')&&document.querySelector('#swap-settlement-bridge').textContent.includes('50')","document.querySelector('#swap-settlement').textContent.slice(-4000)");
- await figuresShown(['#swap-settlement-bridge','#swap-settlement-payments','#swap-settlement-balances'],'in the wide panel the bridge\'s amounts are read without scrolling sideways');
+ await figuresShown(['#swap-settlement-bridge','#swap-settlement-payments','#swap-settlement-balances'],'in the expanded position the bridge\'s amounts are read without scrolling sideways');
  await tablesFit('and no settlement table there scrolls sideways');
  await check('the period transitions\' stacked column has no column filter either, and their figure columns keep theirs',"(()=>{const cells=document.querySelectorAll('#swap-settlement-bridge .column-filter-row')[1]?.querySelectorAll('th');return !!cells&&!cells[0].querySelector('select')&&!!cells[1].querySelector('select');})()");
  await evaluate("document.querySelector('#swap-settlement-bridge').scrollIntoView({block:'start'})");await shot('contract-pnl-desktop');await copyFile(join(dirname(process.argv[2]),'contract-pnl-desktop.png'),join(artifacts,'pnl-desktop.png'));
- await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("document.querySelector('#side-panel').dataset.placement==='overlay'");
+ await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("!!document.querySelector('#desk-positions .open-row #position-details')");
  await evaluate("document.querySelector('#swap-settlement-bridge').scrollIntoView({block:'start'})");await shot('contract-pnl-narrow');await copyFile(join(dirname(process.argv[2]),'contract-pnl-narrow.png'),join(artifacts,'pnl-narrow.png'));
- await figuresReachable('in the panel\'s sheet each figure and action can be scrolled to in full');
+ await figuresReachable('in the mobile position each figure and action can be scrolled to in full');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
- // Real-sized figures: with 17-character amounts and an unbroken cash reference, the wide panel shows every settlement table without
+ // Real-sized figures: with 17-character amounts and an unbroken cash reference, the expanded position shows every settlement table without
  // sideways scroll at 1440 and at 1280 pixels, and on a phone each figure and action can be scrolled to in full.
  const big='-1234567890123.45',unbroken='Synthetic'+'X'.repeat(120);
  await evaluate(`(()=>{const send=window.fetch,big=${JSON.stringify(big)},unbroken=${JSON.stringify(unbroken)},swap=(o,keys)=>{for(const k of keys)if(o&&typeof o[k]==='string')o[k]=big;};window.__realSize=send;
@@ -171,15 +171,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#swap-settlement-reconcile',60000);await wait(idle);
  await check('the settlement view shows the real-sized amounts and the unbroken reference',`['#swap-settlement-payments','#swap-settlement-balances','#swap-net-review','#swap-settlement-bridge','#swap-settlement-cash'].every(id=>document.querySelector(id).textContent.includes(${JSON.stringify(big)}))&&document.querySelector('#swap-settlement-cash').textContent.includes(${JSON.stringify(unbroken)})`,"[...['#swap-settlement-payments','#swap-settlement-balances','#swap-net-review','#swap-settlement-bridge','#swap-settlement-cash'].map(id=>document.querySelector(id).textContent.slice(0,120)),document.querySelector('#swap-settlement [role=alert]').textContent]");
  for(const [width,height] of [[1440,900],[1280,800]]){
-  await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await wait(panelIs('wide')+'&&'+idle);
+  await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await wait(positionInline()+'&&'+idle);
   await tablesFit(`at ${width}×${height} real-sized amounts and an unbroken reference leave no settlement table scrolling sideways`);
   if(width===1440){await evaluate("document.querySelector('#swap-settlement-payments').scrollIntoView({block:'start'})");await shot('netting-real-size-desktop');await copyFile(join(dirname(process.argv[2]),'netting-real-size-desktop.png'),join(artifacts,'real-size-desktop.png'));}
   await figuresShown(['#swap-net-review','#swap-settlement-bridge','#swap-settlement-payments','#swap-settlement-balances','#swap-settlement-cash'],`and every figure and action there is read in place`);
  }
  // At about 800 pixels the drawer is as wide as the window beside the navigation allows, which stays in view and in reach.
- await command('Emulation.setDeviceMetricsOverride',{width:800,height:900,deviceScaleFactor:1,mobile:false});await wait("document.querySelector('#side-panel').hasAttribute('data-wide')&&"+idle);
- await check('at 800 pixels the wide drawer leaves the navigation uncovered',"(()=>{const panel=document.querySelector('#side-panel').getBoundingClientRect(),nav=document.querySelector('.sidebar').getBoundingClientRect();return nav.width>0&&nav.right<=panel.left+0.5&&panel.right>=document.documentElement.clientWidth-0.5;})()","[document.querySelector('#side-panel').getBoundingClientRect().left,document.querySelector('.sidebar').getBoundingClientRect().right,document.querySelector('#side-panel').getBoundingClientRect().right,document.documentElement.clientWidth]");
- await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait(panelIs('sheet'));
+ await command('Emulation.setDeviceMetricsOverride',{width:800,height:900,deviceScaleFactor:1,mobile:false});await wait("!!document.querySelector('#desk-positions .open-row #position-details')&&"+idle);
+ await check('at 800 pixels inline settlement leaves navigation available',`${positionInline()}&&document.querySelector('.sidebar').getBoundingClientRect().width>0&&document.querySelectorAll('[inert]').length===0`);
+ await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait(positionInline());
  await figuresReachable('on a phone each real-sized figure and action can be scrolled to in full');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await evaluate("window.fetch=window.__realSize");await click('#swap-settlement-refresh');await wait(idle);
@@ -189,21 +189,21 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await openView(selected.otherReference);
  await check('opening another trade clears net header terms, selections and review',"document.querySelector('#swap-net-amount').value===''&&document.querySelector('#swap-net-effective').value===''&&document.querySelector('#swap-net-reference').value===''&&!document.querySelector('#swap-net-record')&&[...document.querySelectorAll('#swap-net-selection input[type=checkbox]')].every(n=>!n.checked)");
  await check('and with no contractual-change policy or opening snapshot chosen',"document.querySelector('#swap-pnl-contract-policy').value===''&&document.querySelector('#swap-pnl-opening-snapshot').value===''","[document.querySelector('#swap-pnl-contract-policy').value,document.querySelector('#swap-pnl-opening-snapshot').value]");
- // The wide panel keeps the panel's keys: Escape closes it when it holds nothing unsaved.
- await check('the other trade\'s settlement view has the wide panel',panelIs('wide'));
- await evaluate("document.querySelector('#side-panel').focus()");
+ // The expanded position keeps the panel's keys: Escape closes it when it holds nothing unsaved.
+ await check('the other trade\'s settlement view has the expanded position',positionInline());
+ await evaluate("document.querySelector('#position-details').focus()");
  for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key:'Escape',code:'Escape',windowsVirtualKeyCode:27,nativeVirtualKeyCode:27});
  await wait(idle);
- await check('Escape closes the wide panel when it holds nothing unsaved',"document.querySelector('#side-panel').hidden","[document.querySelector('#side-panel').hidden,document.activeElement?.id]");
+ await check('Escape closes the expanded position when it holds nothing unsaved',"(document.querySelector('#position-details')?.hidden!==false)","[(document.querySelector('#position-details')?.hidden!==false),document.activeElement?.id]");
  // Leaving the settlement view another way, by another position's row or by New trade, gives the panel back its own width.
  const ownWidth="(()=>{const p=document.querySelector('#side-panel');return !p.hidden&&!p.hasAttribute('data-wide')&&p.dataset.placement==='docked'&&Math.abs(p.getBoundingClientRect().width-340)<=2;})()";
  const panelWidth="[document.querySelector('#side-panel').getBoundingClientRect().width,document.querySelector('#side-panel').hasAttribute('data-wide'),document.querySelector('#side-panel').dataset.mode]";
  await openView(selected.reference);
  await set('#blotter-filters .table-search',selected.otherReference);await wait(idle);
  await wait(`(()=>{const rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length);return rows.length===1&&rows[0].textContent.includes(${JSON.stringify(selected.otherReference)});})()`);
- await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait(`document.querySelector('#side-panel-head .side-panel-reference')?.textContent.includes(${JSON.stringify(selected.otherReference)})&&`+idle);
- await check('another position opened from the desk over the wide settlement view has the panel\'s own width',`${ownWidth}&&!${open}`,panelWidth);
- await click('#side-panel-tabs-terms');await wait("!!document.querySelector('#side-panel-settlement')&&"+idle);await click('#side-panel-settlement');await wait(open);await wait(idle);
+ await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait(`document.querySelector('#position-details-head .side-panel-reference')?.textContent.includes(${JSON.stringify(selected.otherReference)})&&`+idle);
+ await check('another position replaces settlement beneath its own row',`${positionInline()}&&!${open}`,panelWidth);
+ await click('#position-details-tabs-terms');await wait("!!document.querySelector('#side-panel-settlement')&&"+idle);await click('#side-panel-settlement');await wait(open);await wait(idle);
  await click('#futures-new');await wait("document.querySelector('#side-panel').dataset.mode==='new'&&!!document.querySelector('#new-trade-product')&&"+idle);
  await check('New trade over the wide settlement view opens its chooser at the panel\'s own width',ownWidth,panelWidth);
 }

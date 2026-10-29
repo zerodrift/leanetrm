@@ -127,7 +127,7 @@ internal static class SwapRiskHoldingChecks
                 var value=holding.Instrument.PV(new SideValuationContext(market,holding.Discounting)).PresentValue.Scale(holding.Quantity.Amount).ToMoney();
                 Check("stored projection/payment terms reproduce the separate editor PV for "+expectedRow.Text("label"),value.Amount.ToString()==expectedRow.Text("presentValue"));
                 var primitive=holding.Instrument as FinancialSwapInstrument??throw new Exception("This stored fixture requires ordinary swaps.");
-                var ids=primitive.Floating.GenerateSchedule().Payments.SelectMany(p=>p.Prices).Select(p=>p.Lookup!.Contract.Key.Id);
+                var ids=primitive.Floating.GenerateDatedSchedule().Payments.SelectMany(p=>p.Prices).Select(p=>p.Lookup!.Contract.Key.Id);
                 Check("exact dated projections match retained editor evidence for "+expectedRow.Text("label"),ids.SequenceEqual(expectedRow.GetProperty("projectionIds").EnumerateArray().Select(id=>id.GetGuid())));
             }
             var discounted=(CurrencyDefaultDiscounting)shared[0].Discounting;
@@ -191,7 +191,9 @@ internal static class SwapRiskHoldingChecks
                 result.Positions.Single(p=>p.TradeId==request.Id("amendedTradeId")).Revision==2&&
                 result.Positions.Any(p=>p.TradeId==request.Id("futureTradeId")&&p.Measure==PortfolioValuation.FuturesMeasure)&&
                 result.SnapshotId==frame.Id&&result.Context.ContextId==current.ContextId&&result.Policy==policy&&
-                result.DiscountInputs.Length==4&&result.DiscountInputs.All(d=>ReferenceEquals(d.Input.Snapshot,frozen)));
+                result.DiscountInputs.Length==4&&result.DiscountInputs.All(d=>
+                    d.Input.Snapshot.HasSameInputs(frozen.WithKnowledge(current.ContextId!.Value,SchedulePreview.ParseAt(current.KnownAt)))&&
+                    ReferenceEquals(d.Input.Snapshot,result.DiscountInputs[0].Input.Snapshot))&&frozen.Knowledge is null);
             Check("one shared factor set covers both labelled valuation measures",result.Factors.Length>0&&result.Risk.Any(r=>r.Measure==PortfolioValuation.SwapMeasure)&&
                 result.Risk.Any(r=>r.Measure==PortfolioValuation.FuturesMeasure)&&result.Work.ScenarioCount==1+2*result.Factors.Length);
             Check("small discounted positions retain exact rational scenario cash and zero linear gamma",result.Risk.All(r=>

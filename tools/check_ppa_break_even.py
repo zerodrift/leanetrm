@@ -39,7 +39,7 @@ def run_checks(url, query, manifest):
     check('catalog advertises existing operation deadline',client.call('ppa/catalog',{'snapshotId':frame})['breakEven']['limits']['deadlineSeconds']==20)
     virtual=deepcopy(terms);profile=deepcopy(virtual['memberships'][0]['side']['quantity'])
     virtual['memberships'][0].update(role='indexed_payment')
-    virtual['memberships'][0]['side'].update(kind='indexed',location=None,indexPrice=dict(curve=manifest['intervalCurves']['shaped'],quantity='test_power_quantity',multiplier='1',indexMultiplier='1',adder='1'))
+    virtual['memberships'][0]['side'].update(kind='indexed',location=None,indexPrice=dict(curve=manifest['intervalCurves']['shaped'],quantity='test_power_quantity',multiplier='1',indexMultiplier='1',settlement=None,adder='1'))
     virtual['memberships'][1]['side']['quantity']=profile
     v=solve(terms=virtual);check('virtual fixed-for-floating independent root',fraction(v['price'])==41 and fraction(v['inputValue'])==2000)
     inverse=deepcopy(virtual)

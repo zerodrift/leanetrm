@@ -36,10 +36,13 @@ def prepare(reference,market,security,manifest):
     market=market.replace(f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','2022-01-01');",f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','{current.year+2}-01-01');")
     market=market.replace('UPDATE market_data.revisions SET','\n'.join(definitions)+'\nUPDATE market_data.revisions SET',1)
     market=market.rsplit('COMMIT;',1)[0]+'\n'+'\n'.join(observations)+'\nCOMMIT;\n'
-    at=(now+timedelta(seconds=60)).isoformat()
+    # API booking now seals retained schedules in resumable transactions. Keep
+    # this synthetic close after setup so every deliberately supplied input can
+    # be certified before its unchanged valuation-instant cutoff.
+    at=(now+timedelta(minutes=5)).isoformat()
     template=manifest['frames'][0]
     live=deepcopy(template);live.update(name='Synthetic existing-close live PPA',at=at)
-    live['curveContracts']={key:values for key,values in template['curveContracts'].items() if key in ('test_ppa_long_60_peak','test_ppa_long_60_off')}
+    live['curveContracts']={key:values for key,values in template['curveContracts'].items() if key in ('test_ppa_long_60_peak','test_ppa_long_60_off','test_ppa_long_15_peak','test_ppa_long_15_off')}
     # Live long-term vintages, plus the retained prior-month vintage.
     live['curveContracts'][certificate]=template['curveContracts'][certificate][1:]+contracts[certificate]
     live['observationIds'].extend(pins)

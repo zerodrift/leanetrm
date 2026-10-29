@@ -51,7 +51,7 @@ public sealed record SwapQuantitySchedule
     }
     public static void ValidateAuthoring(ImmutableArray<QuantityPeriod> periods,ImmutableArray<ExactDecimal> amounts,SwapQuantityBasis basis,SwapQuantityAllocation? allocation)
     {
-        if(periods.IsDefaultOrEmpty||periods.Length>MonthlySwapSide.MaximumMonths||periods.Where((p,n)=>p is null||p.From.Day!=1||p.From.Year is <1901 or >2198||p.From.AddMonths(1)!=p.To||n>0&&periods[n-1].To!=p.From).Any()||
+        if(periods.IsDefaultOrEmpty||periods.Length>SwapSidePeriods.MaximumPeriods||periods.Where((p,n)=>p is null||p.From.Day!=1||p.From.Year is <1901 or >2198||p.From.AddMonths(1)!=p.To||n>0&&periods[n-1].To!=p.From).Any()||
             !Enum.IsDefined(basis)||amounts.IsDefaultOrEmpty||amounts.Any(a=>a.CompareTo(default)<=0)||
             (basis==SwapQuantityBasis.ContractTotal?(amounts.Length!=1||allocation is null||!Enum.IsDefined(allocation.Value)):(amounts.Length!=periods.Length||allocation is not null)))throw Invalid();
     }

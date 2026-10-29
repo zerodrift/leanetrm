@@ -1,8 +1,7 @@
 using System.Globalization;
 using System.Numerics;
-using OpenEtrm.MarketData;
 
-namespace OpenEtrm.Rates;
+namespace OpenEtrm.MarketData;
 
 public static class DiscountInterpolation
 {

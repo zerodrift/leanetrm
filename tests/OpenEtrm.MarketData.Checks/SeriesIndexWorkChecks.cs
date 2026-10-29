@@ -27,14 +27,17 @@ internal static class SeriesIndexWorkChecks
         {
             var delivery=new PpaDelivery(clock,60,shaped.First,shaped.First.AddMonths(2));
             var dates=new PaymentRule(PaymentFrequency.Monthly,PaymentDateRule.DayOfFollowingMonth,null,10,null,ShortMonth.Reject,DateRoll.Unadjusted,null,PaymentRule.Implementation);
-            PpaSideTerms Terms(PpaQuantity q)=>new(delivery,q,shaped.Unit.Currency,new(D("1"),capacity.Key),dates);
-            var physical=new PowerPhysicalSide(Guid.NewGuid(),Terms(new VolumeQuantity([source.Key],QuantityStage.Generated)),asset.Location);
-            var payment=new PpaFixedSide(Guid.NewGuid(),Terms(new SlotQuantity([new(PpaRole.EnergyDelivery)])),new FlatPrice(new(D(strike),shaped.Unit)));
-            return new(Guid.NewGuid(),f.Revision,f.Reference,[new(new(PpaRole.EnergyDelivery),physical,D("1")),new(new(PpaRole.StrikePayment),payment,D("-1"))],[asset.Key],false,PpaInstrument.Implementation);
+            var schedule=new IntervalScheduleParameters(delivery,shaped.Clock,IntervalScheduleCadence.NativeIntervals,new(BlockMembership.All,null,[]));
+            var normalization=new PpaNormalization([asset.Key],capacity.Key,PpaNormalizationPolicy.SumCapacityInForce);
+            PpaSideTerms Terms(PpaQuantity q)=>new(delivery,q,shaped.Unit.Currency,new(D("1"),capacity.Key),dates,schedule,energy.Key,normalization,
+                q is SlotQuantity linked?[..linked.Slots.Select(slot=>new ScheduleInputPort(slot,energy.Key,schedule))]:[]);
+            var physical=new PowerPhysicalSide(Guid.NewGuid(),Terms(new VolumeQuantity([source.Key],QuantityStage.Generated,energy.Key)),asset.Location);
+            var payment=new FixedSide(Guid.NewGuid(),Terms(new SlotQuantity([new(PpaRole.EnergyDelivery)])),new FlatPrice(new(D(strike),shaped.Unit)));
+            return new(Guid.NewGuid(),f.Revision,f.Reference,[new(new(PpaRole.EnergyDelivery),physical,D("1")),new(new(PpaRole.StrikePayment),payment,D("-1"))],false,PpaInstrument.Implementation);
         }
         var instruments=ImmutableArray.Create(Instrument("40"),Instrument("41"));
-        var market=shaped.Model.Build(shaped.Snapshot,shaped.Requests);
-        IntervalValuationInputs Prepare()=>IntervalValuationInputs.Prepare(reference,reads,instruments,market,shaped.At,Guid.NewGuid(),PendingActualsPolicy.RequireActuals,
+        var context=Guid.NewGuid();var market=shaped.Model.Build(shaped.Snapshot.WithKnowledge(context,shaped.At),shaped.Requests);
+        IntervalValuationInputs Prepare()=>IntervalValuationInputs.Prepare(reference,reads,instruments,market,shaped.At,context,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,
             "ppa_coverage_v1",[],instruments.ToImmutableDictionary(i=>i.Id,i=>ImmutableArray.Create(new DeliveryCoverage(from,to))));
         var first=Prepare();
         if(first.VolumeComputations!=2)throw new Exception($"Expected two raw source/month computations, got {first.VolumeComputations}.");

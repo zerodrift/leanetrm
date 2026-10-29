@@ -83,7 +83,7 @@ internal static class IntervalResolverReuseChecks
     {
         var fixture=new ResolverReuseFixture(2);
         var contracts=fixture.Curve.Definition.Blocks[0].Contracts;
-        var period=new PeriodContractCurve(fixture.Curve.Definition.Blocks[0].Curve,fixture.Unit,[contracts[0]],[]);
+        var period=new PeriodContractCurve(fixture.Curve.Definition.Blocks[0].Curve,fixture.Unit,fixture.F.R("index"),[contracts[0]],[]);
         var from=Fixture.Utc("2031-11-01T00:00:00Z");
         var end=Fixture.Utc("2032-01-01T00:00:00Z");
         // Asking for two months cannot successfully return only the one retained month.

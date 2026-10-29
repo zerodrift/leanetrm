@@ -5,7 +5,7 @@ import {mkdtemp,readFile,writeFile,stat} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 
-export const idle="document.body?.getAttribute('aria-busy')==='false'";
+export const idle="document.body?.getAttribute('aria-busy')==='false'&&(!document.querySelector('#futures-page:not([hidden])')||document.querySelector('#futures-page').dataset.pricingState!=='pending')";
 // Phone emulation widens window.innerWidth to fit overflowing content, so a page's width is
 // compared with the root element's clientWidth: the layout viewport the device width sets.
 export const fitsWidth='(document.documentElement.scrollWidth<=document.documentElement.clientWidth+1)';

@@ -24,7 +24,7 @@ internal static class PpaBlotter
     private const string MissingCurveView="missing_curve_view";
     internal const string ReferenceNotVisible="reference_not_visible_at_close";
     internal static async Task<ImmutableArray<JsonObject>> Read(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,
-        InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct)
+        InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null)
     {
         var books=await new FuturesStore(database.Manifest).Books(connection,ct);
         FuturesStore.ValidateScope(books,bookIds,portfolioIds);
@@ -33,11 +33,19 @@ internal static class PpaBlotter
         if(selected.IsEmpty)return [];
         var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId??throw new PreviewDeniedException(),ct)).Context;
         var scope=await PpaPortfolio.Scope(connection,data,frame,context,selected,ct);
+        if(position is not null)
+        {
+            scope=scope.Without(scope.Heads.Keys.Where(t=>t!=position.TradeId).ToHashSet());
+            position.Require(scope.Bindings);
+        }
         // A trade with any binding booked under other versions is listed whole, so no total holds part of a trade.
         var other=scope.Bindings.Where(b=>!PpaPortfolio.SameVersions(data,b)).Select(b=>b.Id("trade_id")).ToHashSet();
         var facts=await Facts(connection,database.Manifest.CatalogId,scope.Heads,ct);
         var priced=scope.Without(other);
         var unpriced=new HashSet<Guid>();var isolated=false;
+        // Retained definitions are immutable; the same operation's isolation attempts can share their content.
+        // Each load still admits the exact instrument under this request's current authority and historical context.
+        var retained=new RetainedScheduleStore(data.DefinitionRevision.CatalogId);
         ImmutableArray<JsonObject> valued;
         while(true)
         {
@@ -70,7 +78,7 @@ internal static class PpaBlotter
             ?refusal.AffectedBindings.Select(b=>b.TradeId).ToHashSet():new HashSet<Guid>();
         async Task<ImmutableArray<JsonObject>> Valued(PpaScope valuedScope)
         {
-            var prepared=await PpaPortfolio.Prepare(connection,data,frame,context,valuedScope,PendingActuals,SchedulePreview.ParseAt(context.KnownAt),ct);
+            var prepared=await PpaPortfolio.Prepare(connection,data,frame,context,valuedScope,PendingActuals,SchedulePreview.ParseAt(context.KnownAt),IntervalKnowledgePolicy.ResolvedCutoff,ct,retained);
             if(prepared is null)return [];
             var rows=ImmutableArray.CreateBuilder<JsonObject>();
             var session=prepared.Receipt.Instruments.IsEmpty?throw new PreviewDeniedException():prepared.Portfolio.Setup.Interval!.Session(prepared.Market);

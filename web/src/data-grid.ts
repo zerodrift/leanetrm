@@ -25,7 +25,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   const count=el('span');count.className='table-row-count';count.setAttribute('aria-live','polite');toolbar.append(search,toggle,clear,count);
   // The open row, when the filters hide it, is said so with the way to show it: the position a panel is opened on by a booking or by the assistant is
   // not one the person pressed in the rows, which they could not have pressed had its row been hidden.
-  const hiddenNote=el('p','The position open in the panel is hidden by this table’s row search or column filters. ');hiddenNote.className='table-open-note';hiddenNote.setAttribute('role','status');hiddenNote.hidden=true;
+  const hiddenNote=el('p','The selected position is hidden by this table’s row search or column filters. ');hiddenNote.className='table-open-note';hiddenNote.setAttribute('role','status');hiddenNote.hidden=true;
   const showHidden=el('button','Clear filters');showHidden.type='button';showHidden.className='text-button';hiddenNote.append(showHidden);
   const filterPanel=el('div');filterPanel.className='grid-column-filters';filterPanel.hidden=true;filterPanel.id='column-filters-'+key;toggle.setAttribute('aria-controls',filterPanel.id);
   const selects:(HTMLSelectElement|HTMLInputElement)[]=[];
@@ -86,12 +86,17 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   }
   // The room a table has changes with its container's width, which is not the window's: it is fitted again when that changes.
   let width=0;
-  const resizing=new ResizeObserver(()=>{if(!alive||container.clientWidth===width)return;width=container.clientWidth;fit();});
+  const resizing=new ResizeObserver(()=>{if(!alive||container.clientWidth===width)return;width=container.clientWidth;sizeDetail();fit();});
   resizing.observe(container);
   // The row the consumer has open, which it names by source index: marked whenever its element is drawn.
   let opened:number|null=null;
+  let detail:{index:number;body:HTMLElement}|undefined;
+  function sizeDetail(){const holder=container.querySelector<HTMLElement>('.tabulator-tableholder');if(detail&&holder)detail.body.style.maxWidth=holder.clientWidth+'px';}
   const sourceIndex=(row:GridRow)=>Number(row.getData().__sourceIndex);
-  function markOpen(row:GridRow){const target=row.getElement(),isOpen=sourceIndex(row)===opened;target.classList.toggle('open-row',isOpen);if(isOpen)target.setAttribute('aria-current','true');else target.removeAttribute('aria-current');}
+  function markOpen(row:GridRow){const target=row.getElement(),isOpen=sourceIndex(row)===opened;target.classList.toggle('open-row',isOpen);if(isOpen)target.setAttribute('aria-current','true');else target.removeAttribute('aria-current');
+    if(detail?.index===sourceIndex(row)&&detail.body.parentElement!==target)target.append(detail.body);
+    if(options.onRowOpen)target.setAttribute('aria-expanded',String(detail?.index===sourceIndex(row)));
+  }
   const table=new TabulatorFull(container,{
     // Grouped rows start in the order of their groups, which Tabulator keeps as it meets them; a group the filters empty disappears.
     data:values.map((row,index)=>({...Object.fromEntries(row.map((cell,i)=>[field(i),cell])),__sourceIndex:String(index)}))
@@ -116,10 +121,25 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     }}:{}),
     initialSort:options.layout.sort.filter(s=>options.keys.includes(s.key)).map(s=>({column:field(options.keys.indexOf(s.key)),dir:s.direction})),
   });
+  // A resize or sort detaches and reattaches the row, including its persistent
+  // detail. Preserve its focused control without taking focus from another one.
+  const focusedDetail=()=>{const active=document.activeElement;return active instanceof HTMLElement&&detail?.body.contains(active)?active:undefined;};
+  function restoreDetailFocus(held:HTMLElement|undefined){
+    const active=document.activeElement;
+    if(held?.isConnected&&detail?.body.contains(held)&&!detail.body.hidden&&
+      (active===null||active===document.body||active===document.documentElement))held.focus({preventScroll:true});
+  }
+  let detailFocus:HTMLElement|undefined;
+  table.on('renderStarted',()=>{detailFocus=focusedDetail()??detailFocus;});
+  table.on('renderComplete',()=>{const held=detailFocus;detailFocus=undefined;restoreDetailFocus(held);});
+  // Focusing a prompt or a field can scroll the virtual viewport too. Capture
+  // its focus before Tabulator handles that scroll and rebuilds the visible rows.
+  const keepDetailFocusOnScroll=()=>{const held=focusedDetail();if(held)requestAnimationFrame(()=>{if(alive)restoreDetailFocus(held);});};
+  container.addEventListener('scroll',keepDetailFocusOnScroll,true);
   function openRow(row:any){if(!current()||!options.onRowOpen)return;const index=Number(row.getData().__sourceIndex);if(Number.isInteger(index)&&index>=0&&index<rows.length)options.onRowOpen(index);}
   table.on('rowClick',(event:MouseEvent,row:any)=>{
     const selection=window.getSelection(),target=event.target as Element;
-    if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||target.closest('a,button,input,select,textarea,[contenteditable=true]')||
+    if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||target.closest('a,button,input,select,textarea,[contenteditable=true],.position-expansion')||
       selection&&!selection.isCollapsed&&container.contains(selection.anchorNode)||
       event.detail>0&&gesture&&(gesture.cancelled||gesture.row!==row.getElement()))return;
     openRow(row);
@@ -154,8 +174,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   function whenDrawn(index:number,use:(row:GridRow)=>void){
     if(!alive)return;
     void built.then(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))).then(()=>{
-      const row=alive&&ready?table.getRows().find(candidate=>sourceIndex(candidate)===index):undefined;
-      return row?.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive)use(row);});
+      const row=alive&&ready?table.getRows().find(candidate=>sourceIndex(candidate)===index):undefined,held=focusedDetail();
+      // scrollTo rebuilds virtual rows without the table's render events.
+      return row?.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive){use(row);restoreDetailFocus(held);}});
     });
   }
   return {
@@ -178,6 +199,13 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     },
     /** Marks the row of a source index as the open one (null: none), and keeps it marked as the grid draws its rows again; says so when the filters hide it. */
     selectRow(index:number|null){opened=index;update();if(ready&&alive)for(const row of table.getRows())markOpen(row);},
+    /** Retains the detail beneath its source row through sorting and virtual redraws. */
+    detailRow(index:number|null,body:HTMLElement){
+      if(index===null){detail?.body.remove();detail=undefined;}else{if(detail?.index!==index||detail?.body!==body)detail?.body.remove();detail={index,body};}
+      sizeDetail();
+      if(ready&&alive)for(const row of table.getRows()){markOpen(row);row.normalizeHeight();}
+    },
+    resizeDetail(){sizeDetail();if(ready&&alive)for(const row of table.getRows())if(sourceIndex(row)===detail?.index)row.normalizeHeight();},
     /**
      * Moves focus to the row of a source index, scrolling it into view first, once the grid has drawn again: a change of the
      * grid's width, such as a closing panel's, redraws its rows in the frame after it, which would take focus from a row focused sooner.
@@ -185,6 +213,6 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     focusRow(index:number){whenDrawn(index,row=>row.getElement().focus({preventScroll:true}));},
     /** Scrolls the row of a source index into view, in the grid and in the page, as far as it takes to show it, once the grid has drawn again. */
     revealRow(index:number){whenDrawn(index,row=>row.getElement().scrollIntoView({block:'nearest'}));},
-    destroy(){if(!alive)return;alive=false;resizing.disconnect();gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;resizing.disconnect();gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',keepDetailFocusOnScroll,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }

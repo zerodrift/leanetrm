@@ -37,8 +37,10 @@ public sealed partial class SwapStore
             var revisions=rows.Select(r=>r.Id("definition_revision_id")).Where(r=>r!=data.DefinitionRevision.RevisionId).ToHashSet();
             supplemental=revisions.Count==0?[]:await database.ReadSwapMarkets(connection,frame,ct,data,revisions);
         }
+        var knowledge=snapshot.Knowledge;
         var markets=new[]{(Data:data,Frame:frame,Snapshot:snapshot)}.Concat((supplemental.IsDefault?[]:supplemental)
-            .Select(m=>(m.Data,m.Frame,Snapshot:m.Data.Snapshot(m.Frame)))).ToArray();
+            .Select(m=>(m.Data,m.Frame,Snapshot:knowledge is null?m.Data.Snapshot(m.Frame):
+                MarketSnapshotBinding.Bind(m.Data.Snapshot(m.Frame),knowledge.ContextId,knowledge.KnownAt)))).ToArray();
         if(markets.Select(m=>m.Data.DefinitionRevision).Distinct().Count()!=markets.Length||markets.Any(m=>
             m.Frame.Id!=frame.Id||m.Frame.At!=frame.At||m.Frame.ContextId!=frame.ContextId||
             m.Data.DefinitionRevision.CatalogId!=data.DefinitionRevision.CatalogId))
@@ -53,11 +55,11 @@ public sealed partial class SwapStore
             if(selected.Length!=1)throw Error("swap_risk_model","Every held swap requires its exact explicitly retained market revision.");
             var market=selected[0];
             var terms=Terms(market.Data,row,market.Frame.Id);
-            var resolved=ResolveAny(market.Data,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"));
+            var resolved=await ResolveRetained(connection,market.Data,market.Frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
             var instrument=identities.Retain(resolved.Instrument);
             if(instrument.Id!=row.Id("instrument_id"))
                 throw Error("instrument_identity","Equivalent retained terms cannot replace an exact published instrument identity.");
-            if(instrument is FinancialSwapInstrument primitive)ValidateProjections(primitive.Floating.GenerateSchedule().Payments.SelectMany(payment=>payment.Prices),row);
+            if(instrument is FinancialSwapInstrument primitive)ValidateProjections(primitive.Floating.GenerateDatedSchedule().Payments.SelectMany(payment=>payment.Prices),row);
             if(instrument is FinancialSwapInstrument primitiveFirst&&row.OptionalId("first_floating_side_id") is not null)ValidateProjections(((SidePaymentSchedule)primitiveFirst.First.GenerateSchedule()).Payments.SelectMany(payment=>payment.Prices),row,"first_projection_contracts","first_projection_weights");
             var state=await SettlementState(connection,row.Id("trade_id"),ct);
             var settlement=state.GetProperty("occurrences").GetArrayLength()==0?null:SettlementInputs(row,resolved.Quantity,instrument.Currency,state,await SettlementCompletions(connection,row,instrument,ct));
@@ -70,9 +72,9 @@ public sealed partial class SwapStore
             }
             else if(!providers.TryGetValue(instrument.Id,out provider!))
             {
-                var enabled=instrument switch { FinancialSwapInstrument legacy=>legacy.Discounting,ScheduledFinancialSwap scheduled=>scheduled.Discounting,CrossCommodityScheduledSwap cross=>cross.Discounting,_=>throw Error("swap_definition","Unsupported swap version.") };
+                var enabled=instrument switch { FinancialSwapInstrument swap=>swap.Discounting,ScheduledFinancialSwap scheduled=>scheduled.Discounting,CrossCommodityScheduledSwap cross=>cross.Discounting,_=>throw Error("swap_definition","Unsupported swap version.") };
                 var mapping=enabled?await Discount(connection,market.Data,market.Frame,instrument.Currency,ct):null;
-                provider=instrument switch{FinancialSwapInstrument legacy=>FinancialSwapValuation.CreateDiscounting(legacy,market.Snapshot,mapping),ScheduledFinancialSwap scheduled=>FinancialSwapValuation.CreateDiscounting(scheduled,market.Snapshot,mapping),CrossCommodityScheduledSwap cross=>FinancialSwapValuation.CreateDiscounting(cross,market.Snapshot,mapping),_=>throw Error("swap_definition","Unsupported swap version.")};
+                provider=instrument switch{FinancialSwapInstrument swap=>FinancialSwapValuation.CreateDiscounting(swap,market.Snapshot,mapping),ScheduledFinancialSwap scheduled=>FinancialSwapValuation.CreateDiscounting(scheduled,market.Snapshot,mapping),CrossCommodityScheduledSwap cross=>FinancialSwapValuation.CreateDiscounting(cross,market.Snapshot,mapping),_=>throw Error("swap_definition","Unsupported swap version.")};
                 providers.Add(instrument.Id,provider);
             }
             result.Add(new(row,instrument,resolved.Quantity,provider,market.Data,market.Frame,market.Snapshot,settlement));

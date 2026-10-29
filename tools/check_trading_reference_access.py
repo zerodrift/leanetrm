@@ -2,10 +2,11 @@
 import json
 from uuid import uuid4
 from preview_fixture import trade_booking
+from preview_client import PreviewClient, initial_frame
 from swap_fixture import REVISION
 
 
-def run_checks(query,manifest):
+def run_checks(query,manifest,url,client=None):
     catalog,ref,revision,tenant,workspace=(manifest[k] for k in ('catalogId','referenceCatalogId','referenceRevisionId','tenantId','workspaceId'))
     contract=query(f"SELECT id FROM market_data.contracts WHERE catalog_id='{catalog}' AND revision_id='{manifest['revisionId']}' AND kind='future' ORDER BY delivery_from LIMIT 1;")
     book='d1000000-0000-0000-0000-000000000001'
@@ -19,15 +20,33 @@ def run_checks(query,manifest):
         terms=f"'{book}','{manifest['revisionId']}','future','{contract}','2020-12-18T16:00:00Z'"
         if trade is None:return f"security.book_futures_with_parties({common},{terms},NULL,1,3,'fixed_total_cash_execution_pnl_v1',NULL,NULL,NULL,'{booking}'::jsonb)"
         return f"security.amend_futures_with_parties({common},'{trade}',1,{terms},'2020-12-18T16:00:00Z',NULL,2,3,'Synthetic correction','fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{booking}'::jsonb)"
-    def swap(operation,trade=None):
-        def rule(days):return json.dumps(dict(frequency='monthly',rule='days_after_period_end',days=days,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1'))
-        identity='NULL,NULL' if trade is None else f"'{trade}',1"
-        return f"""security.save_indexed_swap_with_parties('{catalog}','{operation}',{identity},'{book}','{REVISION}','{ref}','{revision}',
-          'daily_gas','{index}','usd','usd','2021-01-01','2021-02-01','2021-02-18T00:00:00Z','2021-01-01','2021-02-01',
-          '2021-03-18T00:00:00Z','calendar_day_arithmetic',3,{100 if trade is None else 200},-1,false,'2020-12-18T16:00:00Z',NULL,'2020-12-18T16:00:00Z',
-          'Synthetic booking','independent_side_financial_swap_v2','{rule(18)}'::jsonb,'{rule(46)}'::jsonb,'test_gas',NULL,NULL,NULL,'{booking}'::jsonb,'{{}}'::uuid[])"""
     original_future=json.loads(runtime('SELECT '+future(future_op)+';'))
-    original_swap=json.loads(runtime('SELECT '+swap(swap_op)+';'))
+    # Current admission retains a complete schedule through the ordinary API.
+    # Raw probes below use its exact accepted command, independent of prior tests
+    # having warmed a matching side or omitted nullable command fields.
+    c=client or PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
+    frame=initial_frame(c.call('workspace'),'2020-12-18')
+    context={'snapshotId':frame['id'],'convention':'independent_side_financial_swap_v2','knowledgeMode':'current'}
+    def rule(days):return dict(frequency='monthly',rule='days_after_period_end',days=days,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1')
+    selection={'mode':'curve_target','index':None,'projectionPolicy':None}
+    original_swap=c.call('swaps/book',{**context,**trade_booking(),'operationId':swap_op,'bookId':book,'definitionRevisionId':REVISION,
+        'commodity':'test_gas','quantity':'100','fixedCoefficient':'-1','discounting':False,
+        'fixed':{'price':'3','currency':'usd','deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':rule(18)},
+        'floating':{'curve':'daily_gas','index':index,'currency':'usd','deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01',
+            'paymentSchedule':rule(46),'resetFrequency':'daily','averagingMethod':'arithmetic','spread':'0','settlement':selection}})
+    retained=json.loads(query(f"SELECT request::text FROM trading.swap_trade_revisions WHERE catalog_id='{catalog}' AND operation_id='{swap_op}';"))
+    assert retained['floating']['settlement']==selection
+    def literal(value):return 'NULL' if value is None else "'"+str(value).replace("'","''")+"'"
+    def json_argument(value):return 'NULL' if value is None else literal(json.dumps(value))+'::jsonb'
+    def swap(operation,trade=None):
+        args=[literal(catalog),literal(operation),literal(trade),'NULL' if trade is None else '1',literal(retained['book']),
+            literal(retained['definition']),literal(retained['referenceCatalog']),literal(retained['referenceRevision']),literal(retained['commodity']),
+            json_argument(retained['fixed']),json_argument(retained['firstFloating']),json_argument(retained['floating']),
+            str(retained['quantity'] if trade is None else 200),str(retained['coefficient']),str(retained['discounting']).lower(),
+            literal(retained['valuation']),literal(retained['effective']),literal(retained['reason'] if trade is None else 'Synthetic correction'),
+            literal(retained['implementation']),literal(retained['memo']),json_argument(retained['booking']),"'{}'::uuid[]"]
+        return 'security.save_composed_swap('+','.join(args)+')'
+    assert json.loads(runtime('SELECT '+swap(swap_op)+';'))['tradeId']==original_swap['tradeId']
     default=f"security.swap_discount_default('{catalog}','{ref}','{revision}','usd','{REVISION}','2020-12-18T16:00:00Z')"
     assert json.loads(runtime('SELECT '+default+';'))['reference_catalog_id']==ref
     context=runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);")

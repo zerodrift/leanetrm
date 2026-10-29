@@ -30,6 +30,12 @@ internal static class CloseRiskChecks
             throw new Exception("A receipt silently selected one of two incompatible model versions.");
         }
         catch(MarketDataException e)when(e.Code=="portfolio_model_receipt"){}
+        foreach(var inconsistent in new[]{second with{ScheduleIdentity="different_retained_manifest"},second with{SettlementProjections=
+            [new(Guid.NewGuid(),new(revision,"synthetic_curve"),OpenEtrm.MarketData.Trading.PriceSettlementSelection.CurveTarget(new(quantity.Revision,"synthetic_index")))]}})
+        {
+            try{PortfolioValuation.ModelContracts([first,inconsistent]);throw new Exception("A receipt discarded inconsistent retained schedule or settlement evidence.");}
+            catch(MarketDataException error)when(error.Code=="portfolio_model_receipt"){}
+        }
         Console.WriteLine("PASS portfolio receipt canonicalizes repeated binding declarations and refuses incompatible model lineage");
         CloseRiskAdmission.RequireRowScenarios(2_000_000_000,480);
         try

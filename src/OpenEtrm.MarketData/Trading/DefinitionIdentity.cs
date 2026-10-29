@@ -34,12 +34,14 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
         return new(ContractVersion(definition, contract), Convert.ToHexStringLower(SHA256.HashData(bytes)), Encoding.UTF8.GetString(bytes));
     }
 
-    // Legacy floating definitions retain their exact v3 encoding. The new
-    // indexed variant additionally names its complete immutable fixing rules.
-    private static string ContractVersion(object definition, EconomicDefinitionAttribute contract) =>
-        definition is FloatingSide { Spread: not null } ? "FloatingSide_v6" :
-        definition is FloatingSide { CustomProjection: not null } ? "FloatingSide_v5" :
-        definition is FloatingSide { Fixings.IsEmpty: false } ? "FloatingSide_v4" : contract.Version;
+    internal static string CanonicalTerm(object term)
+    {
+        using var stream=new MemoryStream();
+        using(var writer=new Utf8JsonWriter(stream))Write(writer,term);
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static string ContractVersion(object definition,EconomicDefinitionAttribute contract)=>contract.Version;
 
     private static void Write(Utf8JsonWriter writer, object? value)
     {
@@ -54,13 +56,8 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             foreach (var field in fields)
             {
                 var selected=field.GetValue(value);
-                if(value is FloatingSide&&field.Name==nameof(FloatingSide.Spread)&&selected is null)continue;
                 writer.WritePropertyName(field.Name);Write(writer,selected);
             }
-            if (value is FloatingSide { Fixings.IsEmpty: false } indexed)
-            { writer.WritePropertyName("IndexFixings"); Write(writer, indexed.Fixings); }
-            if (value is FloatingSide { CustomProjection: { } projection })
-            { writer.WritePropertyName("CustomProjection"); Write(writer, projection); }
             writer.WriteEndObject();
         }
         else if (value is SideMembership member)
@@ -135,7 +132,7 @@ public sealed class InstrumentIdentityMap
     public Guid TradingCatalogId { get; }
     private readonly Dictionary<DefinitionIdentity, Instrument> definitions = [];
     private readonly Dictionary<Guid, DefinitionIdentity> identities = [];
-    private readonly Dictionary<Guid, (DefinitionIdentity Economics,DefinitionIdentity? Binding)> sides = [];
+    private readonly Dictionary<Guid, (DefinitionIdentity Economics,DefinitionIdentity? Binding,string? Schedule)> sides = [];
     public int Count => definitions.Count;
     public InstrumentIdentityMap(Guid catalogId)
     {
@@ -149,13 +146,13 @@ public sealed class InstrumentIdentityMap
             throw new MarketDataException("instrument_identity", "An exact instrument identity cannot reinterpret its immutable economics.");
         if (instrument is FuturesContract future && definitions.TryGetValue(key, out var economic) && economic is FuturesContract retainedFuture && retainedFuture.Series != future.Series)
             throw new MarketDataException("instrument_identity", "An exact series key cannot reinterpret immutable contract terms.");
-        var members = (instrument is SidedInstrument composed ? composed.Sides : []).SelectMany(m => m.Side.IdentityComponents)
-            .Select(side => (side.Id, Identity: (Economics: DefinitionIdentity.For(side), Binding: side.PricingBindingIdentity))).ToArray();
+        var members = (instrument is SidedInstrument composed ? composed.Sides : []).Select(m => m.Side)
+            .Select(side => (side.Id, Identity: (Economics: DefinitionIdentity.For(side), Binding: side.PricingBindingIdentity,Schedule:side.RetainedSchedule?.Manifest))).ToArray();
         if (members.GroupBy(m => m.Id).Any(g => g.Select(m => m.Identity).Distinct().Count() != 1) ||
             members.Any(m => sides.TryGetValue(m.Id, out var retainedSide) && retainedSide != m.Identity))
             throw new MarketDataException("side_identity", "An exact side identity cannot reinterpret its immutable economics.");
         definitions.TryGetValue(key, out var retained);
-        if (retained is not null && retained.PricingBindingIdentity != instrument.PricingBindingIdentity)
+        if (retained is not null && (retained.PricingBindingIdentity != instrument.PricingBindingIdentity||retained.RetainedScheduleIdentity!=instrument.RetainedScheduleIdentity))
             throw new MarketDataException("valuation_binding", "Shared contractual terms cannot replace explicitly different pricing bindings.");
         foreach (var member in members) sides[member.Id] = member.Identity;
         identities[instrument.Id] = key;

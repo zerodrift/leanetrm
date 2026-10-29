@@ -2,7 +2,7 @@
 from copy import deepcopy
 from decimal import Decimal, localcontext, ROUND_HALF_EVEN
 from uuid import uuid4
-from preview_client import PreviewClient
+from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
 
 
@@ -16,7 +16,7 @@ def run_checks(url, query=None, manifest=None):
     daily=next(i for i in catalog['indices'] if i['curve']=='daily_gas')
     monthly=daily
     def side(i,spread,frequency):
-        return {'curve':i['curve'],'index':i['index'],'currency':i['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01',
+        return {'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':i['curve'],'index':i['index'],'currency':i['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01',
             'paymentSchedule':{'frequency':'monthly','rule':'days_after_period_end','days':18,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'},
             'resetFrequency':frequency,'averagingMethod':'arithmetic' if frequency=='daily' else 'none','spread':spread}
     right=side(daily,'0.2','daily');left=side(monthly,'0.1','daily')
@@ -56,7 +56,9 @@ def run_checks(url, query=None, manifest=None):
     c.call('swaps/price',{**par_draft,'parRatePolicy':None},expected=422)
     c.call('swaps/draft-risk',{'draft':par_draft,'bumpPolicy':par['bumpPolicy'],'numericalPolicy':par['numericalPolicy']},expected=422)
     print('PASS swap composition: blank fixed price solves par, explicit zero remains zero, risk requires fixed reviewed terms',flush=True)
-    risk=PreviewClient(url);risk.bootstrap();risk.call('profile',{'profile':'risk'});risk.call('swaps/book',{**body,'operationId':str(uuid4())},expected=403)
+    risk=PreviewClient(url);risk.bootstrap();risk.call('profile',{'profile':'risk'})
+    risk_frame=initial_frame(risk.call('workspace'),'2020-12-18')
+    risk.call('swaps/book',{**body,'snapshotId':risk_frame['id'],'operationId':str(uuid4())},expected=403)
     incompatible={**draft,'firstFloating':{**left,'currency':'unknown'}};c.call('swaps/price',incompatible,expected=422)
     print('PASS swap composition: write authority and exact side compatibility remain enforced',flush=True)
     # Both occurrences may reference one reusable side without losing either membership.
@@ -110,8 +112,8 @@ def run_checks(url, query=None, manifest=None):
         assert set(relationships.splitlines())=={
             'instrument_id:trading.instruments','fixed_side_id:trading.swap_fixed_sides',
             'floating_side_id:trading.swap_floating_sides','first_floating_side_id:trading.swap_floating_sides',
-            'publication_order:trading.publications','scheduled_first_id:trading.swap_scheduled_sides',
-            'scheduled_second_id:trading.swap_scheduled_sides','quantity_factor_id:trading.swap_quantity_factors'}
+            'publication_order:trading.publications','scheduled_first_id:trading.swap_whole_term_sides',
+            'scheduled_second_id:trading.swap_whole_term_sides','quantity_factor_id:trading.swap_quantity_factors'}
         print('PASS swap composition: private side-retention helper and exact-version side foreign keys',flush=True)
     if manifest is not None:check_custom_sides(c,context,query,manifest)
 
@@ -149,7 +151,7 @@ def check_custom_sides(c, context, query, manifest):
     index=next(i for i in catalog['indices'] if i['curve']=='base_forward' and i['definitionRevisionId']==manifest['revisionId'])
     def projection(version):return next(p['reference'] for p in index['customProjections'] if p['reference']['curveId']==version['curveId'])
     payment={'frequency':'monthly','rule':'days_after_period_end','days':18,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
-    side={'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment,'resetFrequency':'monthly','averagingMethod':'none','spread':'0.1','customProjection':projection(versions[0])}
+    side={'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment,'resetFrequency':'monthly','averagingMethod':'none','spread':'0.1','customProjection':projection(versions[0])}
     second={**side,'spread':'0.2','customProjection':projection({'curveId':combined['id']})}
     draft={'context':context,'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'quantity':{'value':'100','specification':index['quantityChoices'][0]['specification']},'swapType':'financial_floating_floating','firstCoefficient':'-1','firstFloating':side,'floating':second,'discounting':False}
     combined_price=(prices[0]+2*prices[1])/3

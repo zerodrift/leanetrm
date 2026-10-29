@@ -26,6 +26,7 @@ public sealed record IntervalPriceResolution(DeliveryInterval Interval,IntervalP
     public DateTimeOffset Start=>Interval.Start;
     public DateTimeOffset End=>Interval.End;
     public IntervalAnchor? Anchor { get; init; }
+    public Trading.PeriodPriceAdmission? PeriodSelection { get; init; }
     public ExactUnitPrice? Estimate { get; init; }
     public string Publication { get; init; } = "mark";
     public PriceUnavailable? Reason { get; init; }

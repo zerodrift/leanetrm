@@ -106,10 +106,12 @@ internal static class SeriesIndexAcceptanceChecks
         });
         Check("a reused series still checks the next consumer's exact header",()=>{
             var secondSource=f.Source with{Key=new(f.Definitions,"synthetic_quarter_source"),MeteredSeries=Guid.NewGuid(),IntervalMinutes=15};
-            var secondTerms=f.Terms(new VolumeQuantity([secondSource.Key],QuantityStage.Generated)) with{Delivery=f.Delivery with{IntervalMinutes=15}};
+            var secondDelivery=f.Delivery with{IntervalMinutes=15};
+            var secondTerms=f.Terms(new VolumeQuantity([secondSource.Key],QuantityStage.Generated,f.Energy.Key)) with{Delivery=secondDelivery,
+                Schedule=new(secondDelivery,f.Clock,IntervalScheduleCadence.NativeIntervals,new(BlockMembership.All,null,[]))};
             var physical=new PowerPhysicalSide(Guid.NewGuid(),secondTerms,f.Asset.Location);
-            var strike=new PpaFixedSide(Guid.NewGuid(),secondTerms with{Quantity=new SlotQuantity([new(PpaRole.EnergyDelivery)])},new FlatPrice(new(D("40"),f.EnergyPrice)));
-            var second=new PpaInstrument(Guid.NewGuid(),f.Definitions,f.Reference,[new(new(PpaRole.EnergyDelivery),physical,D("1")),new(new(PpaRole.StrikePayment),strike,D("-1"))],[f.Asset.Key],false,PpaInstrument.Implementation);
+            var strike=new FixedSide(Guid.NewGuid(),secondTerms with{Quantity=new SlotQuantity([new(PpaRole.EnergyDelivery)]),InputPorts=[new(new(PpaRole.EnergyDelivery),f.Energy.Key,secondTerms.Schedule)]},new FlatPrice(new(D("40"),f.EnergyPrice)));
+            var second=new PpaInstrument(Guid.NewGuid(),f.Definitions,f.Reference,[new(new(PpaRole.EnergyDelivery),physical,D("1")),new(new(PpaRole.StrikePayment),strike,D("-1"))],false,PpaInstrument.Implementation);
             var meter=new QuantitySeries(secondSource.MeteredSeries,"metered_energy",f.Source.Clock,15,f.Energy.Key,[]);
             // The first instrument populates the hourly forecast index. The second
             // declares15-minute delivery but points to that same60-minute series.

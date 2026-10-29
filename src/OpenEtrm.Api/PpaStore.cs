@@ -72,7 +72,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
             references=PpaUiCatalog.References(data),definitionsMetadata=PpaUiCatalog.Definitions(data),compositionTemplates=PpaUiCatalog.Compositions,authoringPolicies=PpaUiCatalog.Policies,
             unsupportedFeatures=PpaUiCatalog.UnsupportedFeatures,settlementPreview=SettlementPreview.Capabilities,breakEven=PpaBreakEvenStore.Capabilities,
             touVersions=(await products.Read(connection,ct)).Where(v=>v.State=="published" && v.Clock.CatalogId==data.ReferenceRevision.CatalogId && v.Clock.RevisionId==data.ReferenceRevision.RevisionId).ToArray(),
-            limits=new{members=PpaCompiler.MaximumMembers,slotOrdinalMax=PpaCapabilities.MaximumSlotOrdinal,assets=PpaCompiler.MaximumAssets,bindings=PpaCompiler.MaximumBindings,requestRows=PpaCompiler.MaximumRequestRows,preparationCells=PpaCompiler.MaximumPreparationCells,detailRows=PpaCompiler.MaximumDetailRows,responseBytes=PpaCompiler.MaximumResponseBytes,hourlyMonths=360,quarterHourMonths=120,deadlineSeconds=20},
+            limits=new{members=PpaCompiler.MaximumMembers,slotOrdinalMax=PpaCapabilities.MaximumSlotOrdinal,assets=PpaCompiler.MaximumAssets,bindings=PpaCompiler.MaximumBindings,requestRows=PpaCompiler.MaximumRequestRows,preparationCells=PpaCompiler.MaximumPreparationCells,detailRows=PpaCompiler.MaximumDetailRows,responseBytes=PpaCompiler.MaximumResponseBytes,retainedScheduleEntities=RetainedScheduleLimits.MaximumEntities,hourlyMonths=360,quarterHourMonths=120,deadlineSeconds=20},
             compositions=new[]{"fixed_physical","indexed_physical","virtual_fixed_for_floating","basis_cash","capacity_agreement"},
             roles=Enum.GetValues<PpaRole>().Select(PpaCompiler.Role).ToArray(),quantityKinds=new[]{"volume","profile","slots","accredited"},priceKinds=new[]{"flat","escalated","stepped","indexed"},cadences=new[]{15,60},
             policies=new{coverage="ppa_coverage_v1",amendment="segment_boundary_v1",normalization="contract_mw_of_capacity_in_force_v1",revision="exact_bundle_whole_operation_v1",pendingActuals=new[]{"require_actuals_v1","estimate_until_actual_v1"},primaryMeasure="ValueExcludingOverdue",capacityPricing="whole_operating_month_v1"},
@@ -83,26 +83,31 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     internal async Task<object> Validate(NpgsqlConnection connection,InputFrame frame,PpaValidateRequest request,CancellationToken ct)
     {
         PpaCompiler.PreflightWork([(request.Terms,request.CoverageFrom,request.CoverageTo,"draft")]);var data=await Definitions(connection,frame,false,ct);
-        var i=PpaCompiler.Compile(data,request.Terms,await products.Read(connection,ct));var mw=PpaCompiler.Mw(request.Quantity);await PpaCompiler.ValidateDefinitions(connection,data,i,ct);
+        var i=PpaCompiler.Compile(data,request.Terms,await products.Read(connection,ct),await PpaCompiler.ReadQuantityTypes(connection,data,request.Terms,ct));var mw=PpaCompiler.Mw(request.Quantity);await PpaCompiler.ValidateDefinitions(connection,data,i,ct);
         var coverage=PpaCompiler.Coverage(i,PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code),request.CoverageFrom,request.CoverageTo);
         PpaCompiler.Work([(i,coverage)],[],i=>PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code));await Authority(connection,[i.Reference.CatalogId],ct);
         return new{implementation=PpaCapabilities.Version,capability=i.Capability,identity=DefinitionIdentity.For(i).Digest,
             sideIdentities=i.Memberships.Select(m=>new{role=PpaCompiler.Role(m.Slot.Role),m.Slot.Ordinal,identity=DefinitionIdentity.For(m.Side).Digest}),definitions=i.Definitions,reference=i.Reference,quantity=mw.ToString(),coverage,terms=request.Terms};
+    }
+    internal async Task<RetainedScheduleTerms> PrepareScheduleTerms(NpgsqlConnection connection,InputFrame frame,PpaWriteRequest request,CancellationToken ct)
+    {
+        await RetainedScheduleStore.RequireOperationProduct(connection,Catalog,request.OperationId,true,ct);
+        var input=request.Terms??throw PpaCompiler.Error("ppa_term","Retaining a schedule requires complete immutable instrument terms.");
+        PpaCompiler.PreflightWork([(input,request.CoverageFrom??throw PpaCompiler.Error("ppa_coverage","Supply explicit booking coverage."),
+            request.CoverageTo??throw PpaCompiler.Error("ppa_coverage","Supply explicit booking coverage."),"booking")]);
+        var data=await Definitions(connection,frame,false,ct);
+        RetainedScheduleLimits.RequireFullPreparation(input,PpaQuantitiesStore.Clock(data,input.Delivery.Clock));
+        var instrument=PpaCompiler.Compile(data,input,await products.Read(connection,ct),await PpaCompiler.ReadQuantityTypes(connection,data,input,ct));
+        await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);
+        await Authority(connection,[data.ReferenceRevision.CatalogId],ct);
+        return new(data.DefinitionRevision,data.ReferenceRevision,instrument);
     }
     internal async Task<object> Save(NpgsqlConnection connection,InputFrame frame,PpaWriteRequest request,string action,CancellationToken ct)
     {
         if(action!="terminated")
         {
             if(request.Terms is null)throw PpaCompiler.Error("ppa_term","Booking and amendment require complete instrument terms.");
-            if(action=="amended" && request.TradeId is {} trade)
-            {
-                var current=await new KnowledgeStore(Catalog).Capture(connection,new(DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd"),null,"current"),ct);
-                var scope=await ReadScope(connection,"trades",[trade],current.Context.ContextId!.Value,frame,false,ct);
-                var bindings=Rows(scope,"bindings");var terms=request.Terms;
-                await Authority(connection,Rows(scope,"heads").Select(r=>r.Id("reference_catalog_id")).Append(terms.ReferenceCatalogId),ct);
-                var refusal=await RevisionRefusal(connection,bindings,terms.DefinitionRevisionId,terms.ReferenceCatalogId,terms.ReferenceRevisionId,new{scope="amendment",selectedIds=new[]{trade},explicitSubset=true},ct);
-                if(refusal is not null)return refusal;
-            }
+            if(action=="amended"&&await AmendmentRefusal(connection,frame,request,ct) is {} refusal)return refusal;
             await Validate(connection,frame,new(request.SnapshotId,request.Terms,request.Quantity??"",request.CoverageFrom??"",request.CoverageTo??""),ct);
         }
         else if(request.Terms is not null || request.Quantity is not null || request.CoverageFrom is not null || request.CoverageTo is not null)
@@ -111,6 +116,15 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
             request.CoverageFrom,request.CoverageTo,request.Quantity,request.Reason,request.Memo,request.Booking,request.Terms},Json);
         await using var command=ScheduleStore.Command(connection,"SELECT security.save_ppa_booking($1,$2,$3::jsonb)::text",Catalog,request.OperationId,payload);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
+    }
+    internal async Task<PpaRevisionRefusal?> AmendmentRefusal(NpgsqlConnection connection,InputFrame frame,PpaWriteRequest request,CancellationToken ct)
+    {
+        if(request.TradeId is not {} trade||request.Terms is not {} terms)return null;
+        var current=await new KnowledgeStore(Catalog).Capture(connection,new(DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd"),null,"current"),ct);
+        var scope=await ReadScope(connection,"trades",[trade],current.Context.ContextId!.Value,frame,false,ct);
+        await Authority(connection,Rows(scope,"heads").Select(r=>r.Id("reference_catalog_id")).Append(terms.ReferenceCatalogId),ct);
+        return await RevisionRefusal(connection,Rows(scope,"bindings"),terms.DefinitionRevisionId,terms.ReferenceCatalogId,terms.ReferenceRevisionId,
+            new{scope="amendment",selectedIds=new[]{trade},explicitSubset=true},ct);
     }
     internal async Task RecheckWrite(NpgsqlConnection connection,InputFrame frame,PpaWriteRequest request,CancellationToken ct)
     {
@@ -241,19 +255,22 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         var tou=await PpaReads.Tou(connection,data,frame,knowledge,request.Scope=="draft"?[request.Terms!]:envelopes.Values.Select(e=>e.GetProperty("terms").Deserialize<PpaTermsInput>(Json)!),ct);var bindings=ImmutableArray.CreateBuilder<PpaBinding>();
         if(request.Scope=="draft")
         {
-            var i=PpaCompiler.Compile(data,request.Terms!,tou);var coverage=PpaCompiler.Coverage(i,PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code),request.CoverageFrom,request.CoverageTo);
+            var i=PpaCompiler.Compile(data,request.Terms!,tou,await PpaCompiler.ReadQuantityTypes(connection,data,request.Terms!,ct));var coverage=PpaCompiler.Coverage(i,PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code),request.CoverageFrom,request.CoverageTo);
             bindings.Add(new(null,null,Guid.NewGuid(),i,coverage,PpaCompiler.Mw(request.Quantity)));
         }
         else
         {
             var instruments=new Dictionary<Guid,PpaInstrument>();
+            var retained=new RetainedScheduleStore(database);
             foreach(var row in stored)
             {
                 var id=row.Id("instrument_id");if(!instruments.TryGetValue(id,out var i))
                 {
                     var envelope=envelopes[id];var input=envelope.GetProperty("terms").Deserialize<PpaTermsInput>(Json)!;
                     var sides=envelope.GetProperty("sideIds").EnumerateArray().ToDictionary(s=>new SideSlot(PpaCompiler.Role(s.Text("role")),s.GetProperty("ordinal").GetInt32()),s=>s.Id("sideId"));
-                    i=PpaCompiler.Compile(data,input,tou,id,sides);instruments.Add(id,i);
+                    i=PpaCompiler.Compile(data,input,tou,await PpaCompiler.ReadQuantityTypes(connection,data,input,ct),id,sides);
+                    i=RetainedSideSchedules.Attach(i,await retained.Load(connection,id,knowledge,frame.At,ct));
+                    instruments.Add(id,i);
                 }
                 bindings.Add(new(row.Id("trade_id"),row.GetProperty("revision").GetInt32(),row.Id("binding_id"),i,new(row.Instant("coverage_from"),row.Instant("coverage_to")),row.Number("quantity")));
             }
@@ -263,11 +280,11 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         if(selected.Select(b=>b.Instrument.Currency).Distinct().Count()!=1)throw PpaCompiler.Error("ppa_currency","The bounded preview requires one exact currency.");
         data=new PreviewData(SelectedManifest(frame),data.Definitions,data.References,await PreviewDatabase.ReadObservationPins(connection,SelectedManifest(frame),frame.ObservationIds,ct)){CalendarDaysRead=true};
         var readsAt=watch.Elapsed.TotalSeconds;
-        var prepared=await new PpaReads().Prepare(connection,data,frame,selected,known,knowledge,pending,detail,ct);var preparedAt=watch.Elapsed.TotalSeconds;
+        var prepared=await new PpaReads().Prepare(connection,data,frame,selected,known,new(knowledge,known),IntervalKnowledgePolicy.ResolvedCutoff,pending,detail,ct);var preparedAt=watch.Elapsed.TotalSeconds;
         ct.ThrowIfCancellationRequested();var session=prepared.Inputs.Session(prepared.Market);var values=new List<object>();var totals=new List<ValueMeasureSet>();object? detailPage=null;
         foreach(var b in selected)
         {
-            ct.ThrowIfCancellationRequested();var value=session.Value(b.Instrument,b.Coverage,prepared.Discounting[b.Instrument.Id]);var measures=ValueMeasures.From(value).Scale(b.Mw);totals.Add(measures);
+            ct.ThrowIfCancellationRequested();var value=session.Value(b.Instrument,b.Coverage,prepared.Discounting[b.Instrument.Id],ct);var measures=ValueMeasures.From(value).Scale(b.Mw);totals.Add(measures);
             if(inspection is not null && b.BindingId==inspection.BindingId)
             {
                 var side=value.Sides.Single(s=>s.SideId==inspection.SideId);var rows=((IntervalSideValuation)side.Value).Measures.Scale(side.Coefficient,b.Mw).Rows;
@@ -288,7 +305,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
             classes=totals.SelectMany(m=>m.Classes).GroupBy(p=>p.Key).OrderBy(g=>g.Key).Select(g=>new{kind=g.Key.ToString(),amount=Sum(g.Select(p=>p.Value))}),
             coverages=totals.SelectMany(m=>m.Coverages).GroupBy(p=>p.Key).OrderBy(g=>g.Key).Select(g=>new{kind=g.Key.ToString(),amount=Sum(g.Select(p=>p.Value))}),detail=detailPage,
             receipt=InputReceipt(prepared,knowledge,request.PendingActuals),
-            work=new{session.RowEvaluations,session.UniqueSideCalculations,session.UnitValuations,session.ReusedUnitValues,prepared.Inputs.SeriesValidations,prepared.Inputs.SeriesSelections},
+            work=new{session.RowEvaluations,session.GraphEvaluatedNodes,session.GraphReusedReads,session.UniqueSideCalculations,session.UnitValuations,session.ReusedUnitValues,prepared.Inputs.SeriesValidations,prepared.Inputs.SeriesSelections},
             measurement=new{admissionAndDefinitionReadsSeconds=readsAt,readsAndPreparationSeconds=preparedAt-readsAt,valuationAndConstructionSeconds=valuedAt-preparedAt,throughResultConstructionSeconds=watch.Elapsed.TotalSeconds,allocatedBytes=GC.GetTotalAllocatedBytes(false)-allocated,peakWorkingSetBytes=process.PeakWorkingSet64}};
     }
     internal static object InputReceipt(PpaPrepared prepared,Guid knowledge,string pendingActuals)
@@ -296,7 +313,9 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         var receipt=prepared.Inputs.Receipt;
         return new{receipt.Definitions,receipt.Reference,receipt.Snapshot,receipt.ValuationAt,receipt.KnownAt,receipt.KnowledgeContext,tradingKnowledgeContext=knowledge,readContexts=prepared.ReadContexts,pendingActuals=pendingActuals,receipt.Coverage,receipt.Implementations,
                 quantityRevisions=receipt.QuantityRevisions.Select(q=>new{series=q.Series,revision=q.Revision,knownAt=q.KnownAt,context=q.Context}),actuals=receipt.Actuals.Select(a=>new{batch=a.Batch,revision=a.Revision,knownAt=a.KnownAt}),receipt.Shapes,receipt.AssetVersions,
-                observations=receipt.MarketInputs.Selections.Select(o=>new{input=o.Input,observation=o.Observation.Key}),clockRules=receipt.ReferenceInputs.Clocks.Select(p=>new{clock=p.Key,p.Value.Fingerprint,p.Value.Rules})};
+                observations=receipt.MarketInputs.Selections.Select(o=>new{input=o.Input,observation=o.Observation.Key}),
+                schedules=receipt.Instruments.SelectMany(i=>i.Sides).Select(m=>m.Side).DistinctBy(s=>s.Id).Select(s=>new{side=s.Id,manifest=s.RetainedSchedule?.Manifest,generator=s.RetainedSchedule?.GeneratorVersion}),
+                clockRules=receipt.ReferenceInputs.Clocks.Select(p=>new{clock=p.Key,p.Value.Fingerprint,p.Value.Rules})};
     }
     private static object PriceUnit(PriceUnit unit)=>new{unit.Currency,unit.Quantity,multiplier=unit.Multiplier.ToString()};
     private static object Price(OpenEtrm.MarketData.CustomCurves.ExactUnitPrice price)=>new{price.Numerator,price.Denominator,unit=PriceUnit(price.Unit)};
@@ -312,7 +331,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         quantityLineage=r.QuantityLineage.Select(q=>new{quantityScope="absolute_asset_energy_before_contract_normalization",q.Asset,q.Source,q.AssetVersion,q.Series,q.Revision,q.KnownAt,q.ContextId,q.MeterDueAt,stage=q.Stage.ToString(),sourceStage=q.SourceStage.ToString(),state=q.State.ToString(),energy=Exact(q.Energy),quantitySpecification=q.Energy.Specification}),
         r.CapacityVersions,capacityDays=r.CapacityDays.Select(d=>new{quantityScope="per_contract_mw",d.OperatingDay,d.Version,d.Location,perUnit=Exact(d.PerUnit),quantitySpecification=d.PerUnit.Specification})};
     private static object Sum(IEnumerable<ExactMoney> values)=>Exact(values.Aggregate((a,b)=>a.Add(b)));
-    private static object ScopeReceipt(IntervalScopeReceipt receipt)=>new{receipt.Instrument,receipt.Side,receipt.Slot,receipt.Coverage,receipt.Model,receipt.NumericalPolicy,factors=receipt.Factors.Select(f=>new{f.Payment,factor=f.DiscountFactor.ToString(),f.Source})};
+    private static object ScopeReceipt(IntervalScopeReceipt receipt)=>new{receipt.Instrument,receipt.Side,receipt.Slot,receipt.Coverage,receipt.Model,receipt.NumericalPolicy,receipt.ScheduleGraphManifest,receipt.ScheduleScenario,receipt.RetainedScheduleManifest,factors=receipt.Factors.Select(f=>new{f.Payment,factor=f.DiscountFactor.ToString(),f.Source})};
     private static object Measures(ValueMeasureSet m,bool detail=true,bool rows=true)=>new{valueExcludingOverdue=Exact(m.ValueExcludingOverdue),completePv=m.CompletePv is {} pv?Exact(pv):null,m.UnavailableReason,m.HasOverdue,overdueKnownBalance=Exact(m.OverdueKnownBalance),overdueEstimated=Exact(m.OverdueEstimated),realisedCash=Exact(m.RealisedCash),realisedDeliveryValue=Exact(m.RealisedDeliveryValue),estimatedHoldingValue=Exact(m.EstimatedHoldingValue),modeledFromFrozenAnchor=Exact(m.ModeledFromFrozenAnchor),
         classes=m.Classes.Select(p=>new{kind=p.Key.ToString(),amount=Exact(p.Value)}),coverages=m.Coverages.Select(p=>new{kind=p.Key.ToString(),amount=Exact(p.Value)}),
         periods=(detail?m.Periods:[]).Select(p=>new{p.Key,p.Rows,month=p.Key.Month,kind=p.Key.Kind.ToString(),quantityState=p.Key.QuantityState.ToString(),economicClass=p.Key.Class.ToString(),lifecycle=p.Key.Lifecycle?.ToString(),coverage=p.Key.Coverage.ToString(),p.Key.ValueAt,quantitySpecification=p.Quantity.Specification,quantity=Exact(p.Quantity),amount=Exact(p.Amount),presentValue=p.PresentValue is {} pv?Exact(pv):null}),

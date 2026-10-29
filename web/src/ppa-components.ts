@@ -1,9 +1,19 @@
 import {componentQuantity} from './ppa-view.js';
 import {friendly} from './market-view.js';
-import type {Catalog,Member,Quantity,Side,Template,DataRow} from './ppa-contract.js';
+import type {Catalog,Member,Quantity,Side,Template,DataRow,PriceSettlement} from './ppa-contract.js';
 import type {PaymentInput} from './swap-contract.js';
 export const code=(r:DataRow,key='code')=>String(r[key]??'');
 export const choices=(rows:DataRow[])=>rows.map(r=>({value:code(r),label:code(r,'name')||friendly(code(r))}));
+export function readSettlementChoice(curveKind:string,mode:string,index:string):PriceSettlement|null{
+ if(curveKind==='interval'||curveKind==='shaped')return null;
+ if(curveKind!=='period')throw Error('Choose a supported price curve.');
+ if(mode==='curve_target')return{mode,index:null,projectionPolicy:null};
+ if(mode==='override'){
+  if(!index)throw Error('Choose the override settlement index.');
+  return{mode,index,projectionPolicy:'forward_curve_no_basis_v1'};
+ }
+ throw Error('Choose the period price settlement rule.');
+}
 export function selectChoices(node:HTMLSelectElement,rows:{value:string;label:string}[],value=''){
  node.replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(r.label,r.value)));node.value=value;
 }
@@ -24,6 +34,8 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  <label data-section="escalated">Compounding convention<select data-field="basis"></select></label>
  <label data-section="stepped">Price steps · one operating date,price per line<textarea data-field="steps" rows="3" placeholder="2031-11-01,40"></textarea></label>
  <label data-section="indexed">Price curve<select data-field="curve"></select></label>
+ <label data-section="period-settlement">Settlement index rule<select data-field="settlement-mode"><option value="">Choose…</option><option value="curve_target">Curve target index</option><option value="override">Different index · project without basis</option></select></label>
+ <label data-section="override-settlement">Override settlement index<select data-field="settlement-index"></select><span class="field-help">Projection uses the curve's forward marks. Basis to the selected index is unmodelled.</span></label>
  <label data-section="indexed">Index multiplier<input data-field="index-multiplier" inputmode="decimal"></label>
  <label data-section="indexed">Index adder<input data-field="adder" inputmode="decimal"></label>
  <label data-section="attribute">Attribute quantity specification<select data-field="attribute-quantity"></select></label>
@@ -50,6 +62,8 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  enums('quantity-choice',['retained','selected']);field('quantity-choice').value=initial?'retained':'selected';if(initial&&!template.linkedSlots.length){host.querySelector<HTMLElement>('.ppa-retained-quantity')!.hidden=false;host.querySelector('.ppa-retained-quantity pre')!.textContent=JSON.stringify(initial.side.quantity,null,2);}
  enums('side-kind',template.sideKinds);field('side-kind').value=initial?.side.kind??(template.sideKinds.length===1?template.sideKinds[0]:'');
  enums('price-kind',catalog.priceKinds.filter(k=>k!=='indexed'));pick('curve',choices(catalog.definitionsMetadata.priceCurves));
+ pick('settlement-index',choices(catalog.references.priceIndices));
+ const selectedCurve=()=>catalog.definitionsMetadata.priceCurves.find(c=>code(c)===field('curve').value);
  const policies=catalog.authoringPolicies;
  for(const [name,values] of [['basis',policies.escalationBases],['eligibility',policies.certificateEligibility],['holding',policies.certificateHolding],['disposition',policies.certificateDisposition],['capacity-rule',policies.capacityRules]] as const)enums(name,values);
  const pay=catalog.paymentOptions;
@@ -58,6 +72,8 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  function sync(busy=false){
   const kind=field('side-kind').value,price=field('price-kind').value,rule=field('payment-rule').value;
   const active:Record<string,boolean>={'quantity-choice':!!initial&&!template.linkedSlots.length,location:kind==='energy',fixed:kind==='fixed',priced:kind==='fixed'||kind==='indexed',flat:kind==='fixed'&&price==='flat',escalated:kind==='fixed'&&price==='escalated',stepped:kind==='fixed'&&price==='stepped',indexed:kind==='indexed',attribute:kind==='certificate'||kind==='capacity',certificate:kind==='certificate',capacity:kind==='capacity',lag:rule==='days_after_period_end',next:rule==='day_of_following_month',calendar:!!field('adjustment').value&&(field('adjustment').value!=='unadjusted'||rule==='days_after_period_end'&&field('day-basis').value==='business_days')};
+  active['period-settlement']=kind==='indexed'&&selectedCurve()?.kind==='period';
+  active['override-settlement']=active['period-settlement']&&field('settlement-mode').value==='override';
   for(const label of host.querySelectorAll<HTMLElement>('[data-section]')){label.hidden=!active[label.dataset.section!];label.querySelectorAll<HTMLInputElement>('input,select,textarea').forEach(n=>n.disabled=busy||!!label.hidden);}
  }
  function read(quantity:Quantity):Member{
@@ -67,7 +83,7 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
   if(kind==='fixed'){
    const mode=value('price-kind');side.fixedPrice={kind:mode,quantity:value('price-quantity'),multiplier:value('multiplier'),price:mode==='stepped'?null:value(mode==='escalated'?'initial-price':'price'),rate:mode==='escalated'?value('rate'):null,baseDate:mode==='escalated'?value('base-date'):null,basis:mode==='escalated'?value('basis'):null,steps:mode==='stepped'?value('steps').split('\n').filter(Boolean).map(line=>{const parts=line.split(',');if(parts.length!==2)throw Error('Write each price step as operating date,price.');return{from:parts[0].trim(),price:parts[1].trim()};}):[]};
   }
-  if(kind==='indexed')side.indexPrice={curve:value('curve'),quantity:value('price-quantity'),multiplier:value('multiplier'),indexMultiplier:value('index-multiplier'),adder:value('adder')};
+  if(kind==='indexed')side.indexPrice={curve:value('curve'),quantity:value('price-quantity'),multiplier:value('multiplier'),indexMultiplier:value('index-multiplier'),adder:value('adder'),settlement:readSettlementChoice(String(selectedCurve()?.kind??''),field('settlement-mode').value,field('settlement-index').value)};
   if(kind==='certificate'||kind==='capacity')side.attribute={quantity:value('attribute-quantity'),conversion:kind==='certificate'?value('conversion'):null,eligibility:kind==='certificate'?value('eligibility'):null,holding:kind==='certificate'?value('holding'):null,disposition:kind==='certificate'?value('disposition'):null,rule:kind==='capacity'?value('capacity-rule'):null};
   return{role:template.role,ordinal:template.ordinal,coefficient:value('coefficient'),side};
  }
@@ -75,7 +91,9 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
   const s=initial.side,p=s.paymentRule,f=s.fixedPrice,i=s.indexPrice,a=s.attribute;
   const values:Record<string,unknown>={coefficient:initial.coefficient,location:s.location,'price-kind':f?.kind,'price-quantity':f?.quantity??i?.quantity,multiplier:f?.multiplier??i?.multiplier,price:f?.price,'initial-price':f?.price,rate:f?.rate,'base-date':f?.baseDate,basis:f?.basis,steps:f?.steps.map(p=>p.from+','+p.price).join('\n'),curve:i?.curve,'index-multiplier':i?.indexMultiplier,adder:i?.adder,'attribute-quantity':a?.quantity,conversion:a?.conversion,eligibility:a?.eligibility,holding:a?.holding,disposition:a?.disposition,'capacity-rule':a?.rule,frequency:p.frequency,'payment-rule':p.rule,'payment-number':p.days??p.dayOfMonth,'day-basis':p.dayBasis,'short-month':p.shortMonth,adjustment:p.adjustment,'payment-calendar':p.calendar};
   for(const [name,v] of Object.entries(values))field(name).value=v==null?'':String(v);
+  field('settlement-mode').value=i?.settlement?.mode??'';field('settlement-index').value=i?.settlement?.index??'';
  }
+ field('curve').addEventListener('change',()=>{field('settlement-mode').value='';field('settlement-index').value='';});
  host.addEventListener('input',()=>{changed();sync();});host.addEventListener('change',()=>{changed();sync();});sync();
  return{read,sync,template};
 }

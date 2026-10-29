@@ -71,7 +71,7 @@ public static class IntervalCurveDefinitions
             .Select(s=>new ContractKey(data.DefinitionRevision,s.Id("contract_id"))).ToImmutableHashSet()};
     }
 
-    public static PeriodContractCurve Period(PreviewData data,string code)
+    public static PeriodContractCurve Period(PreviewData data,string code,IEnumerable<PriceSettlementSelection>? selections=null)
     {
         var row=Curve(data,code);var contracts=Members(data,code);
         if(contracts.IsEmpty || contracts.Any(c=>c.Interval is not null))
@@ -80,17 +80,10 @@ public static class IntervalCurveDefinitions
         if(target.Text("kind")!="index")throw new MarketDataException("index_fixing_definition","Period prices require an explicit single-index target.");
         var index=new ReferenceKey(data.ReferenceRevision,target.Text("index_a_code"));
         var quote=data.QuoteRows(row.Text("quote_code")).Single();
-        var fixings=data.Definitions["index_fixing_observations"].Where(f=>f.Text("index_code")==index.Code &&
-            contracts.Any(c=>c.DeliveryFrom==DateOnly.ParseExact(f.Text("observation_from"),"yyyy-MM-dd",CultureInfo.InvariantCulture) &&
-                c.DeliveryTo==DateOnly.ParseExact(f.Text("observation_to"),"yyyy-MM-dd",CultureInfo.InvariantCulture))).Select(f=>
-        {
-            if(f.Id("reference_catalog_id")!=index.Revision.CatalogId || f.Id("reference_revision_id")!=index.Revision.RevisionId || f.Text("quote_code")!=quote.Key.Code)
-                throw new MarketDataException("index_fixing_definition","The fixing schedule must match the exact period curve index and quote version.");
-            return new IndexFixing(index,quote.Key,DateOnly.ParseExact(f.Text("observation_from"),"yyyy-MM-dd",CultureInfo.InvariantCulture),
-                DateOnly.ParseExact(f.Text("observation_to"),"yyyy-MM-dd",CultureInfo.InvariantCulture),f.Instant("fixing_at"),
-                new(data.DefinitionRevision,f.Id("series_id")),new(data.ReferenceRevision,f.Text("source_code")),f.Text("implementation"));
-        }).ToImmutableArray();
-        return new(new(data.DefinitionRevision,code),PriceUnit.FromQuote(quote),contracts,fixings);
+        var selected=(selections??[]).Append(PriceSettlementSelection.CurveTarget(index)).Distinct().ToArray();
+        if(selected.Any(s=>s.CurveTargetIndex!=index))throw new MarketDataException("price_settlement_selection","Every selected index must retain this exact curve target.");
+        var fixings=selected.SelectMany(s=>PriceSettlementInputs.Fixings(data,s,quote,contracts)).Distinct().ToImmutableArray();
+        return new(new(data.DefinitionRevision,code),PriceUnit.FromQuote(quote),index,contracts,fixings);
     }
 
     private static (IntervalBlockDefinition Definition,ShapedCurveBlock Summary) Block(PreviewData data,string code,IReadOnlyCollection<TouProductVersion> tou)

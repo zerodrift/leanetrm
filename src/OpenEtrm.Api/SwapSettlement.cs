@@ -70,7 +70,7 @@ public sealed partial class SwapStore
             throw Error("swap_revision_conflict", "Reload the selected trade head before calculating settlement.");
         var terms = Terms(data, row, frame.Id);
         (data, frame) = await ScheduledMarket(connection, data, frame, terms.DefinitionRevisionId, ct);
-        var resolved = ResolveAny(data, terms, row.Id("instrument_id"), row.Id("fixed_side_id"), row.Id("floating_side_id"));
+        var resolved = await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
         if (request.MembershipOrdinal < 0 || request.MembershipOrdinal >= resolved.Instrument.Sides.Length ||
             resolved.Instrument.Sides[request.MembershipOrdinal].Side.GenerateSchedule() is not SidePaymentSchedule schedule ||
             request.PaymentOrdinal < 0 || request.PaymentOrdinal >= schedule.Payments.Length)
@@ -235,7 +235,7 @@ public sealed partial class SwapStore
         SwapWriteRequest terms,JsonElement state,CancellationToken ct)
     {
         (data,frame) = await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct);
-        var resolved = ResolveAny(data,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"));
+        var resolved = await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
         var inputs = SettlementInputs(row,resolved.Quantity,resolved.Instrument.Currency,state,await SettlementCompletions(connection,row,resolved.Instrument,ct));
         var snapshot = data.Snapshot(frame);
         var enabled = terms.Discounting ?? throw Error("settlement_policy","Select the explicit swap discount policy.");

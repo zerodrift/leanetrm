@@ -24,8 +24,12 @@ def run_checks(url):
         return {'frequency':'monthly','rule':'days_after_period_end','days':days,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
     body = {**context, 'operationId': str(uuid4()), **trade_booking(), 'bookId': catalog['books'][0]['id'], 'definitionRevisionId': index['definitionRevisionId'], 'commodity':index['commodity'], 'quantity': '100', 'fixedCoefficient': '-1', 'discounting': True,
             'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': contract['deliveryFrom'], 'deliveryTo': contract['deliveryTo'], 'paymentSchedule':rule(18)},
-            'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': contract['deliveryFrom'], 'deliveryTo': contract['deliveryTo'],
+            'floating': {'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': contract['deliveryFrom'], 'deliveryTo': contract['deliveryTo'],
                          'paymentSchedule':rule(46), 'resetFrequency':'monthly','averagingMethod':'none'}}
+    unselected = {**body['floating']}; del unselected['settlement']
+    check('a floating side requires an explicit settlement selection',
+          c.call('swaps/preview', {**body, 'floating': unselected}, expected=400)['code'] == 'request_format'
+          and c.call('swaps/preview', {**body, 'floating': {**body['floating'], 'settlement': None}}, expected=422)['code'] == 'price_settlement_selection')
     preview = c.call('swaps/preview', body)
     check('published fixing conventions generate schedules without a manual fixing boundary',
           index['fixingConvention'] == 'published_index_observations_v1' and
@@ -37,6 +41,7 @@ def run_checks(url):
     check('booking retries return the same trade instrument and initial event', result == retry and result['revision'] == 1)
     detail = c.call('swaps/editor', {'context': context, 'tradeId': result['tradeId'], 'revision': None})
     value = detail['valuation']
+    check('the selected curve-target policy survives booking unchanged', detail['state']['terms']['floating']['settlement'] == body['floating']['settlement'])
     check('retained side schedules reconcile exactly to managed preview PV', value['presentValue'] == preview['valuation']['presentValue'] and len(value['sides']) == 2)
     check('independent payment dates and DFs survive booking', value['sides'][0]['payments'][0]['paymentAt'] != value['sides'][1]['payments'][0]['paymentAt'] and value['sides'][0]['payments'][0]['discountFactor'] != value['sides'][1]['payments'][0]['discountFactor'])
     check('side cash amounts are normalized before signed PV and trade scaling', value['sides'][0]['payments'][0]['cashAmount'] == '3' and Decimal(value['sides'][1]['payments'][0]['cashAmount']) > 3)

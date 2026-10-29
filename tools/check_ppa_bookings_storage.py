@@ -64,7 +64,7 @@ def run_checks(query, manifest):
              'referenceRevisionId': ref_revision, 'delivery': {'clock': 'synthetic_eastern',
              'intervalMinutes': 60, 'from': '2031-01-01', 'to': '2032-01-01'},
              'currency': 'usd', 'unitQuantity': 'test_capacity_quantity', 'discounting': False,
-             'implementation': 'ppa_instrument_v1', 'normalizationAssets': [], 'memberships': [
+             'implementation': 'ppa_instrument_v2', 'normalizationAssets': [], 'memberships': [
                  {'role': 'energy_delivery', 'ordinal': 0, 'coefficient': '1', 'side': delivery_side},
                  {'role': 'strike_payment', 'ordinal': 0, 'coefficient': '-1', 'side': payment_side}]}
     book = str(uuid4())
@@ -89,6 +89,8 @@ def run_checks(query, manifest):
     retained = json.loads(query('BEGIN;' + runtime(document_sql) + 'ROLLBACK;'))
     check('typed storage reconstructs the independently authored exact terms', retained['terms'] == terms and
           {(x['role'], x['ordinal']) for x in retained['sideIds']} == {('energy_delivery', 0), ('strike_payment', 0)})
+    from check_ppa_side_schedule_schema import run_storage_checks as check_schedule_retention
+    check_schedule_retention(query, request, save, catalog, instrument)
     before_amendment = query('BEGIN;' + runtime(f"SELECT security.capture_date_context('{catalog}','2020-12-15',NULL);") + 'COMMIT;')
 
     def historical(context, sql):
@@ -161,7 +163,7 @@ def run_checks(query, manifest):
         side = variant['memberships'][1]['side']
         variant['memberships'][1]['role'] = 'indexed_payment'
         side.update(kind='indexed', fixedPrice=None, indexPrice={'curve': curve, 'quantity': 'test_power_quantity',
-                    'multiplier': '1', 'indexMultiplier': '0.95', 'adder': '-1.25'})
+                    'multiplier': '1', 'indexMultiplier': '0.95', 'settlement': None, 'adder': '-1.25'})
         roundtrip('explicit index curve ' + curve, variant)
     with_certificate = deepcopy(terms)
     with_certificate['normalizationAssets'] = list(manifest['ppa']['assets'])
@@ -173,6 +175,17 @@ def run_checks(query, manifest):
                    'holding': 'held_at_current_vintage_mark_v1', 'disposition': 'none_recorded_v1', 'rule': None}}
     with_certificate['memberships'].append({'role': 'certificate_delivery', 'ordinal': 0, 'coefficient': '1', 'side': certificate})
     roundtrip('certificate holdings and generated source-stage policies', with_certificate)
+    normalized_operation=str(uuid4())
+    normalization_probe=(command({**request,'terms':with_certificate},normalized_operation)+'RESET SESSION AUTHORIZATION;'+
+        "SELECT bool_and(s.normalization_policy='sum_capacity_in_force_v1' AND s.normalization_basis_code='test_capacity_quantity' "
+        f"AND s.id<>(SELECT m.side_id FROM trading.ppa_memberships m WHERE(m.catalog_id,m.instrument_id,m.role)=('{catalog}','{instrument}','strike_payment')) "
+        f"AND (SELECT count(*) FROM trading.ppa_side_normalization_assets n WHERE(n.catalog_id,n.side_id)=(s.catalog_id,s.id))={len(with_certificate['normalizationAssets'])}) "
+        "FROM trading.ppa_trade_revisions r JOIN trading.ppa_revision_bindings b ON(b.catalog_id,b.trade_id,b.revision)=(r.catalog_id,r.trade_id,r.revision) "
+        "JOIN trading.ppa_memberships m ON(m.catalog_id,m.instrument_id)=(b.catalog_id,b.instrument_id) "
+        "JOIN trading.ppa_sides s ON(s.catalog_id,s.id)=(m.catalog_id,m.side_id) "
+        f"WHERE r.operation_id='{normalized_operation}' AND m.role='strike_payment';")
+    check('a slot payment owns its complete normalizer and cannot reuse a differently normalized side',
+          query('BEGIN;'+runtime(normalization_probe)+'ROLLBACK;').splitlines()[-1]=='t')
     capacity = deepcopy(terms)
     capacity['normalizationAssets'] = list(manifest['ppa']['assets'])
     capacity['memberships'][0].update(role='capacity_delivery')
@@ -194,7 +207,7 @@ def run_checks(query, manifest):
     malformed['terms']['memberships'][1]['role'] = 'indexed_payment'
     malformed['terms']['memberships'][1]['side'].update(kind='indexed', fixedPrice=None,
         indexPrice={'curve': manifest['intervalCurves']['marked'], 'quantity': 'test_power_quantity',
-                    'multiplier': '1', 'indexMultiplier': '1', 'adder': None})
+                    'multiplier': '1', 'indexMultiplier': '1', 'settlement': None, 'adder': None})
     reject('BEGIN;' + runtime(command(malformed)) + 'ROLLBACK;', 'ppa_price_rule')
     malformed = deepcopy(request)
     two_strikes = [deepcopy(terms['memberships'][1]), deepcopy(terms['memberships'][1])]

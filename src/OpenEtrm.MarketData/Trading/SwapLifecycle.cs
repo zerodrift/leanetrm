@@ -9,7 +9,7 @@ public sealed record SettlementContribution(Guid Id, int MembershipOrdinal, Date
     public SidePaymentKey DiscountKey => new(Id, 0, DueAt, Amount.Currency);
 }
 
-public sealed record SwapLifecyclePayment(int MembershipOrdinal, SidePaymentPlan Plan, string State,
+public sealed record SwapLifecyclePayment(int MembershipOrdinal, ScheduleRow Plan, string State,
     ExactMoney ContractualAmount, ExactMoney RemainingValue, bool Final, bool Realized,DateTimeOffset CompletionAt);
 public sealed record SwapPeriodCompletion(int MembershipOrdinal,DateOnly DeliveryFrom,DateOnly DeliveryTo,DateTimeOffset At,string Source)
 {
@@ -63,7 +63,7 @@ public sealed class SwapSettlementInputs
         Completions=completions;
     }
 
-    private IEnumerable<(int Membership, SidePaymentPlan Plan)> Plans(SidedInstrument instrument)
+    private IEnumerable<(int Membership, ScheduleRow Plan)> Plans(SidedInstrument instrument)
     {
         if (instrument is not (FinancialSwapInstrument or MonthlyFinancialSwap or ScheduledFinancialSwap or CrossCommodityScheduledSwap) ||
             instrument.Currency != NetCash.Currency || instrument.UnitQuantity.Specification != Quantity.Specification)
@@ -76,7 +76,7 @@ public sealed class SwapSettlementInputs
             throw Error("settlement_continuity", "Every determined contribution must retain exact current occurrence coverage.");
         return plans;
     }
-    private static bool Covers(SettlementContribution c,int membership,SidePaymentPlan plan) =>
+    private static bool Covers(SettlementContribution c,int membership,ScheduleRow plan) =>
         c.MembershipOrdinal == membership && c.DeliveryFrom == plan.DeliveryFrom && c.DeliveryTo == plan.DeliveryTo;
     public ImmutableArray<SidePaymentKey> DiscountKeys(SidedInstrument instrument, MarketSnapshot snapshot) =>
         Plans(instrument).Where(p => !Contributions.Any(c => Covers(c,p.Membership,p.Plan)) && p.Plan.PaymentAt > snapshot.ValuationAt)

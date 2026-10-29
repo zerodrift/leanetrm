@@ -1,5 +1,5 @@
 export type GridColumn={getField():string;getWidth():number};
-export type GridRow={getData():Record<string,string>;getElement():HTMLElement;getCell(field:string):{setValue(value:string):void}|false;scrollTo(position?:'top'|'center'|'bottom'|'nearest',ifVisible?:boolean):Promise<void>};
+export type GridRow={getData():Record<string,string>;getElement():HTMLElement;getCell(field:string):{setValue(value:string):void}|false;scrollTo(position?:'top'|'center'|'bottom'|'nearest',ifVisible?:boolean):Promise<void>;normalizeHeight():void};
 export type GridGroup={getKey():string;getElement():HTMLElement|false;isVisible():boolean;toggle():void};
 export class TabulatorFull {
  constructor(host:HTMLElement,options:Record<string,unknown>);
