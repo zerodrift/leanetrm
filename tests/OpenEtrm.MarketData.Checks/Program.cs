@@ -3,6 +3,8 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--schedule-input-batch"]){await ScheduleInputBatchChecks.Run();return;}
+
 if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
 if(args is ["--compact-retained"]){CompactRetainedChecks.Run();return;}
 if(args is ["--side-block-export",var blockOutput]){SideBlockExperiment.Export(blockOutput,12);return;}
@@ -82,6 +84,7 @@ if (args.Length > 0)
     return;
 }
 
+await ScheduleInputBatchChecks.Run();
 SideModelOracleChecks.Run();
 WholeTermPaymentChecks.Run();
 RetainedScheduleChecks.Run();
