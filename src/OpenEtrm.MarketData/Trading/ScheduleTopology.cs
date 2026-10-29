@@ -8,29 +8,14 @@ internal static class ScheduleTopology
 {
     internal static void Require(ScheduleDefinition definition)
     {
+        RequirePorts(definition.Ports);
         var edges=definition.Edges.GroupBy(e=>e.Target).ToDictionary(g=>g.Key,g=>g.ToArray());
         var bindings=definition.Bindings.GroupBy(b=>b.Row).ToDictionary(g=>g.Key,g=>g.ToArray());
         foreach(var row in definition.Rows)
         {
             var selected=edges.GetValueOrDefault(row.Ordinal)??[];
             var sources=bindings.GetValueOrDefault(row.Ordinal)??[];
-            var shape=row.Operation switch
-            {
-                "constant_price" or "price_lookup" => ("price", ""),
-                "quantity_input" or "quantity_literal" or "asset_capacity" or "profile_quantity" => ("quantity", ""),
-                "quantity_normalize" => ("quantity", "input,basis"),
-                "quantity_add" => ("quantity", "input+"),
-                "quantity_scale" or "quantity_transform" or "quantity_sum_cells" => ("quantity", "input"),
-                "price_add" or "weighted_price" => ("price", "input+"),
-                "price_scale" or "price_application" => ("price", "input"),
-                "amount" => ("money", "quantity,price"),
-                "discount" => ("factor", ""),
-                "pv" => ("money", "amount,discount"),
-                "sum" => ("money", "input+"),
-                "sum_cells" => ("money", "input"),
-                "output_guard" => ("money", "amount,discounted"),
-                _ => throw ScheduleDefinition.Error("Unsupported schedule operation.")
-            };
+            var shape=Shape(row.Operation);
             if(row.OutputKind!=shape.Item1)throw ScheduleDefinition.Error("An operation has the wrong output type.");
             var ports=shape.Item2.Length==0?[]:shape.Item2.Split(',');
             if(selected.Any(e=>!ports.Contains(e.Port)&&!ports.Contains(e.Port+"+")||
@@ -45,33 +30,7 @@ internal static class ScheduleTopology
             if(row.Operation=="price_add"&&selected.Length!=2)
                 throw ScheduleDefinition.Error("The supported affine price addition requires exactly two explicit inputs.");
             foreach(var edge in selected)
-            {
-                var source=definition.Rows[edge.Source];
-                var expected=row.Operation switch
-                {
-                    "amount" when edge.Port=="price" => "price",
-                    "amount" => "quantity",
-                    "pv" when edge.Port=="discount" => "factor",
-                    "pv" or "sum" or "sum_cells" or "output_guard" => "money",
-                    _ => row.OutputKind
-                };
-                if(source.OutputKind!=expected)throw ScheduleDefinition.Error("An input port references a row with an incompatible value type.");
-                if(row.Operation is "sum_cells" or "quantity_sum_cells")
-                {
-                    if(source.Grid is null||row.Operation=="sum_cells"&&row.Grid is not null||
-                        row.Operation=="quantity_sum_cells"&&(row.Grid is not {} targetGrid||definition.Grids[targetGrid].CellCount!=1))
-                        throw ScheduleDefinition.Error("A cell reduction requires an explicit vector input and a scalar or one-cell output.");
-                }
-                else if(source.Grid!=row.Grid&&source.Grid is not null)
-                    throw ScheduleDefinition.Error("Vector inputs must share the exact retained grid unless the operator explicitly reduces cells.");
-                if(expected==row.OutputKind&&source.Currency!=row.Currency)
-                    throw ScheduleDefinition.Error("Arithmetic input currencies must match exactly.");
-                if(expected==row.OutputKind&&row.Operation is not("quantity_normalize" or "quantity_transform")&&
-                    (source.Unit!=row.Unit||source.QuoteMultiplier!=row.QuoteMultiplier))
-                    throw ScheduleDefinition.Error("Arithmetic input units and quote scales must match exactly.");
-                if(row.Operation=="amount"&&edge.Port=="price"&&source.Currency!=row.Currency)
-                    throw ScheduleDefinition.Error("A cash amount must retain its price currency.");
-            }
+                RequireOperand(row,definition.Rows[edge.Source],edge.Port,definition.Grids);
             if(row.Operation=="amount")
             {
                 var quantity=definition.Rows[selected.Single(e=>e.Port=="quantity").Source];
@@ -80,9 +39,6 @@ internal static class ScheduleTopology
             }
             RequireSources(row,sources,definition.Ports);
         }
-        foreach(var port in definition.Ports)
-            if(port.Slot is not{} slot||!Enum.IsDefined(slot.Role)||slot.Ordinal<0||port.Kind!="quantity"||string.IsNullOrWhiteSpace(port.Name)||string.IsNullOrWhiteSpace(port.ShapeIdentity))
-                throw ScheduleDefinition.Error("A sibling input port requires an exact slot, unit and retained structural shape.");
         var seen=new HashSet<int>();var pending=new Stack<int>(definition.Roots.Select(r=>r.Row));
         while(pending.Count>0)
         {
@@ -93,7 +49,60 @@ internal static class ScheduleTopology
         if(definition.Roots.Count(r=>r.Name=="pv"&&r.Measure=="pv"&&definition.Rows[r.Row].OutputKind=="money")!=1)
             throw ScheduleDefinition.Error("A Side must declare one monetary PV root.");
     }
-    private static void RequireSources(ScheduleDefinitionRow row,ScheduleDefinitionBinding[] sources,IReadOnlyList<ScheduleDefinitionPort> ports)
+    internal static void RequirePorts(IReadOnlyList<ScheduleDefinitionPort> ports)
+    {
+        if(ports.Select(port=>port.Name).Distinct(StringComparer.Ordinal).Count()!=ports.Count)
+            throw ScheduleDefinition.Error("External ports require distinct names.");
+        foreach(var port in ports)
+            if(port.Slot is not{} slot||!Enum.IsDefined(slot.Role)||slot.Ordinal<0||port.Kind!="quantity"||string.IsNullOrWhiteSpace(port.Name)||string.IsNullOrWhiteSpace(port.ShapeIdentity))
+                throw ScheduleDefinition.Error("A sibling input port requires an exact slot, unit and retained structural shape.");
+    }
+    internal static void RequireOperand(ScheduleDefinitionRow row,ScheduleDefinitionRow source,string port,
+        IReadOnlyList<ScheduleDefinitionGrid> grids)
+    {
+        var expected=row.Operation switch
+        {
+            "amount" when port=="price" => "price",
+            "amount" => "quantity",
+            "pv" when port=="discount" => "factor",
+            "pv" or "sum" or "sum_cells" or "output_guard" => "money",
+            _ => row.OutputKind
+        };
+        if(source.OutputKind!=expected)throw ScheduleDefinition.Error("An input port references a row with an incompatible value type.");
+        if(row.Operation is "sum_cells" or "quantity_sum_cells")
+        {
+            if(source.Grid is null||row.Operation=="sum_cells"&&row.Grid is not null||
+                row.Operation=="quantity_sum_cells"&&(row.Grid is not {} targetGrid||grids[targetGrid].CellCount!=1))
+                throw ScheduleDefinition.Error("A cell reduction requires an explicit vector input and a scalar or one-cell output.");
+        }
+        else if(source.Grid!=row.Grid&&source.Grid is not null)
+            throw ScheduleDefinition.Error("Vector inputs must share the exact retained grid unless the operator explicitly reduces cells.");
+        if(expected==row.OutputKind&&source.Currency!=row.Currency)
+            throw ScheduleDefinition.Error("Arithmetic input currencies must match exactly.");
+        if(expected==row.OutputKind&&row.Operation is not("quantity_normalize" or "quantity_transform")&&
+            (source.Unit!=row.Unit||source.QuoteMultiplier!=row.QuoteMultiplier))
+            throw ScheduleDefinition.Error("Arithmetic input units and quote scales must match exactly.");
+        if(row.Operation=="amount"&&port=="price"&&source.Currency!=row.Currency)
+            throw ScheduleDefinition.Error("A cash amount must retain its price currency.");
+    }
+    internal static (string Kind,string Ports) Shape(string operation)=>operation switch
+    {
+        "constant_price" or "price_lookup" => ("price", ""),
+        "quantity_input" or "quantity_literal" or "asset_capacity" or "profile_quantity" => ("quantity", ""),
+        "quantity_normalize" => ("quantity", "input,basis"),
+        "quantity_add" => ("quantity", "input+"),
+        "quantity_scale" or "quantity_transform" or "quantity_sum_cells" => ("quantity", "input"),
+        "price_add" or "weighted_price" => ("price", "input+"),
+        "price_scale" or "price_application" => ("price", "input"),
+        "amount" => ("money", "quantity,price"),
+        "discount" => ("factor", ""),
+        "pv" => ("money", "amount,discount"),
+        "sum" => ("money", "input+"),
+        "sum_cells" => ("money", "input"),
+        "output_guard" => ("money", "amount,discounted"),
+        _ => throw ScheduleDefinition.Error("Unsupported schedule operation.")
+    };
+    internal static void RequireSources(ScheduleDefinitionRow row,ScheduleDefinitionBinding[] sources,IReadOnlyList<ScheduleDefinitionPort> ports)
     {
         switch(row.Operation)
         {
