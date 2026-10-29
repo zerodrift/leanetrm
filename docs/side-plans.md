@@ -307,6 +307,20 @@ resolved sibling ports, requested coverage and the complete context/scenario.
   ([schedules](schedules-and-contract-sequences.md#shared-immutable-data-composition-and-the-fast-path)).
 - This record adds no table beyond D258's.
 
+The first executable-format slice has a booking-time compiler, a closed byte
+format and an in-place reader. Checks cover dated whole-term payments and native
+physical, linked payment, certificate and capacity schedules. Publication
+admission compares the complete program to the supplied typed definition;
+changing a contractual price cannot be certified merely by replacing its byte
+digest or claiming the same source manifest.
+
+This is format qualification only. The compiler and publication check require an
+already admitted financial definition. They do not establish source eligibility,
+current authority or database publication. Policy identifiers are retained
+exactly; their supported source adapters and interpreter must refuse unknown
+financial semantics. Database seal enforcement, authorized loading and live
+valuation through this format remain separate integration work.
+
 ## Checks
 
 Behavior checks precede each implementation step and stay independent of the

@@ -54,8 +54,11 @@ internal static class ScheduleTopology
         if(ports.Select(port=>port.Name).Distinct(StringComparer.Ordinal).Count()!=ports.Count)
             throw ScheduleDefinition.Error("External ports require distinct names.");
         foreach(var port in ports)
+        {
             if(port.Slot is not{} slot||!Enum.IsDefined(slot.Role)||slot.Ordinal<0||port.Kind!="quantity"||string.IsNullOrWhiteSpace(port.Name)||string.IsNullOrWhiteSpace(port.ShapeIdentity))
                 throw ScheduleDefinition.Error("A sibling input port requires an exact slot, unit and retained structural shape.");
+            Money.RequireKey(port.Unit);
+        }
     }
     internal static void RequireOperand(ScheduleDefinitionRow row,ScheduleDefinitionRow source,string port,
         IReadOnlyList<ScheduleDefinitionGrid> grids)
@@ -152,6 +155,13 @@ internal static class ScheduleTopology
         }
         foreach(var binding in sources)
         {
+            static bool Invalid(DefinitionRevision revision)=>revision.CatalogId==Guid.Empty||revision.RevisionId==Guid.Empty;
+            if(binding.Reference is {} reference)Money.RequireKey(reference);
+            if(binding.Definitions is {} definitions&&Invalid(definitions)||
+                binding.Series is {} series&&(Invalid(series.Revision)||series.Id==Guid.Empty)||
+                binding.Market is {} market&&(Invalid(market.Curve.Revision)||Invalid(market.Contract.Revision)||
+                    string.IsNullOrWhiteSpace(market.Curve.Code)||market.Contract.Id==Guid.Empty))
+                throw ScheduleDefinition.Error("A source binding requires complete exact definition keys.");
             var empty=new ScheduleDefinitionBinding(binding.Row,binding.Port,binding.Kind,null,null,null,null,null,null,null);
             var shape=binding.Kind switch
             {

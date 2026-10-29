@@ -4,6 +4,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 if(args is ["--schedule-input-batch"]){await ScheduleInputBatchChecks.Run();return;}
+if(args is ["--booked-side-program"]){BookedSideProgramChecks.Run();return;}
 
 if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
 if(args is ["--compact-retained"]){CompactRetainedChecks.Run();return;}
@@ -85,6 +86,7 @@ if (args.Length > 0)
 }
 
 await ScheduleInputBatchChecks.Run();
+BookedSideProgramChecks.Run();
 SideModelOracleChecks.Run();
 WholeTermPaymentChecks.Run();
 RetainedScheduleChecks.Run();

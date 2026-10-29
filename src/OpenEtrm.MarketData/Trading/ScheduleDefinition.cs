@@ -96,6 +96,14 @@ public sealed class ScheduleDefinition
         ScheduleOperations.Require(row);
         if(row.Grid is {} grid&&(grid<0||grid>=gridCount||row.Interval is not null||row.DeliveryFrom is not null||row.DeliveryTo is not null))
             throw Error("A vector operation must bind one exact retained grid, independently of scalar windows.");
+        if((row.DeliveryFrom is null)!=(row.DeliveryTo is null)||row.DeliveryFrom>=row.DeliveryTo||
+            (row.ObservationFrom is null)!=(row.ObservationTo is null)||row.ObservationFrom>=row.ObservationTo||row.PaymentOrdinal<0)
+            throw Error("Scalar delivery and observation windows require paired increasing bounds and nonnegative payment ordinals.");
+        if(row.Interval is {} interval&&(row.DeliveryFrom is not null||interval.Start>=interval.End||
+            !TradingInstant.IsSupported(interval.Start)||!TradingInstant.IsSupported(interval.End)||
+            interval.HourBeginning is <0 or >23||interval.Minute is <0 or >59||interval.Occurrence is not(1 or 2)))
+            throw Error("A scalar interval requires ordered UTC instants and explicit valid local labels, independently of dated windows.");
+        if(row.ValueAt is {} at&&!TradingInstant.IsSupported(at))throw Error("A value date requires an exact supported UTC instant.");
         if((row.OutputKind is "price" or "quantity")!=(row.Unit is not null)||
             (row.OutputKind is "price" or "money")!=(row.Currency is not null)||
             (row.OutputKind=="price")!=(row.QuoteMultiplier is not null))
@@ -146,7 +154,8 @@ public static class ScheduleOperations
         "rate_curve","sibling_quantity","quantity_unit","currency","location","index","quote");
     public static void Require(ScheduleDefinitionRow row)
     {
-        if(!Parameters.TryGetValue(row.Operation,out var keys)||!row.Parameters.Keys.Order(StringComparer.Ordinal).SequenceEqual(keys.Order(StringComparer.Ordinal)))
+        if(row.Operation is null||row.Parameters is null||!Parameters.TryGetValue(row.Operation,out var keys)||
+            !row.Parameters.Keys.Order(StringComparer.Ordinal).SequenceEqual(keys.Order(StringComparer.Ordinal))||row.Parameters.Values.Any(value=>value is null))
             throw ScheduleDefinition.Error("A row has an unsupported operation or a missing/unknown parameter.");
         if(row.Parameters.TryGetValue("numerator",out var numerator))
         {
