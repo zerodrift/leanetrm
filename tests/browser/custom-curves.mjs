@@ -43,7 +43,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('#custom-curve-property-leftBoundary','0');await set('#custom-curve-property-rightBoundary','0');await set('#custom-curve-property-implementation','0');await set('#custom-curve-property-output','0');
  await set('select[data-input-port=values]','sample');await set('select[data-input-port=dates]','dates');
  await check('lookup settings and connections are editable through backend metadata',"document.querySelector('#custom-curve-property-maxGapDays').value==='31'&&document.querySelector('.custom-curve-node[data-node-id=lookup_1]').textContent.includes('Linear price')&&document.querySelectorAll('.custom-curve-wires path').length>=5");
- await pickTemplate('ng_prompt');
+ await pickTemplate('ng_prompt');await click('#custom-curves-dock-graph');
 
  await check('the saved-curve rail has an accessible collapse control',"(()=>{const control=document.querySelector('#custom-curves-toggle-rail'),rail=document.querySelector('#custom-curves-rail-body');return control.getAttribute('aria-controls')===rail.id&&control.getAttribute('aria-expanded')==='true'&&!rail.hidden;})()");
  await evaluate("window.customGraphWidth=document.querySelector('#custom-curves-graph').getBoundingClientRect().width;window.customGraphNodes=document.querySelectorAll('.custom-curve-node').length");
@@ -77,6 +77,16 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('choosing a group moves the tab into it and shows it there',`JSON.stringify(${groups})==='[["Outputs","Configuration","Versions"],["Graph","Lineage"]]'&&${tab('lineage')}.getAttribute('aria-selected')==='true'&&!${body('lineage')}.hidden&&!${body('outputs')}.hidden`,groups);
  await evaluate("document.querySelector('#custom-curves-dock .dock-divider').focus()");await press('ArrowDown');
  await check('a divider resizes its split from the keyboard',"document.querySelector('#custom-curves-dock .dock-divider').getAttribute('aria-valuenow')==='55'&&JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).ratio===0.55");
+ // A divider dragged with the pointer keeps the share where it is let go; a cancelled drag keeps the arrangement as it was.
+ const divider="document.querySelector('#custom-curves-dock .dock-divider')",stored="JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).ratio";
+ const grab=async dy=>{const a=await evaluate(`(()=>{const r=${divider}.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};})()`);
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...a});await command('Input.dispatchMouseEvent',{type:'mousePressed',...a,button:'left',buttons:1,clickCount:1});
+  for(let step=1;step<=6;step++)await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:a.x,y:a.y+dy*step/6,button:'left',buttons:1});return {x:a.x,y:a.y+dy};};
+ let at=await grab(120);await command('Input.dispatchMouseEvent',{type:'mouseReleased',...at,button:'left',buttons:0,clickCount:1});await wait(idle);
+ await check('dragging a divider with the pointer keeps the share where it is let go',`${stored}>0.55&&${stored}<=0.8&&${divider}.getAttribute('aria-valuenow')===String(Math.round(${stored}*100))`,`[${stored},${divider}.getAttribute('aria-valuenow')]`);
+ await evaluate(`window.dockRatio=${stored}`);
+ at=await grab(-150);await evaluate(`${divider}.dispatchEvent(new PointerEvent('pointercancel',{bubbles:true,pointerId:1,clientX:0,clientY:0}))`);await command('Input.dispatchMouseEvent',{type:'mouseReleased',...at,button:'left',buttons:0,clickCount:1});await wait(idle);
+ await check('a cancelled divider drag keeps the arrangement as it was',`${stored}===window.dockRatio&&${divider}.getAttribute('aria-valuenow')===String(Math.round(window.dockRatio*100))`,`[${stored},window.dockRatio,${divider}.getAttribute('aria-valuenow')]`);
  await click('#custom-curves-reset-layout');await click('.custom-curve-node[data-node-id=select] p');
  await check('templates open a configurable operation rather than only output wiring',"document.querySelector('#custom-curves-properties input:not([type=checkbox]),#custom-curves-properties select:not([data-input-port])')&&!document.querySelector('#custom-curves-properties input:not([type=checkbox]),#custom-curves-properties select:not([data-input-port])').disabled");
  await click('.custom-curve-node[data-node-id=select] p');
@@ -87,7 +97,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('native numeric editing and Tab preserve focus on the next inspector field',"document.activeElement?.id==='custom-curve-property-count'&&document.querySelector('#custom-curve-property-first').value==='2'");
  await set('#custom-curve-property-first','1');await click('#custom-curves-dock-outputs');
  await evaluate(`window.customCurveRequests=[];{const previous=window.fetch;window.fetch=async(...args)=>{const response=await previous(...args);if(String(args[0]).includes('/custom-curves/')){const payload=await response.clone().json().catch(()=>null);window.customCurveRequests.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null,status:response.status,payload});if(String(args[0]).endsWith('/custom-curves/save')&&window.dropCustomSave){window.dropCustomSave=false;throw Error('Synthetic lost response');}if(String(args[0]).endsWith('/custom-curves/publish')&&window.dropCustomPublish){window.dropCustomPublish=false;throw Error('Synthetic lost publication response');}}return response;};}`);
- await click('#custom-curves-outputs-preview');
+ await evaluate("document.querySelector('#custom-curves-outputs-preview').focus()");await click('#custom-curves-outputs-preview');
+ await check('a preview run from the call to action keeps focus on its result',"document.activeElement===document.querySelector('#custom-curves-result')");
  await check('fresh-navigation custom authoring previews without hydrating the pricing workspace',"window.customAuthoringReads.includes('/api/custom-curves')&&window.customAuthoringReads.includes('/api/custom-curves/preview')&&!window.customAuthoringReads.includes('/api/workspace/catalog')&&!window.customAuthoringReads.includes('/api/evaluate')&&!document.querySelector('#custom-curves-result').hidden&&document.querySelector('#error').hidden");
  await check('preview sends the graph and displays backend-returned prices',"window.customCurveRequests.some(r=>r.path.endsWith('/custom-curves/preview')&&r.body.definition.code==='ng_prompt'&&r.body.snapshotId&&r.status===200)&&!document.querySelector('#custom-curves-result').hidden&&document.querySelectorAll('#custom-curves-values tbody tr').length>0&&document.querySelector('#error').hidden");
  await evaluate("window.customPromptPreview=window.customCurveRequests.find(r=>r.path.endsWith('/custom-curves/preview')).payload");
@@ -115,6 +126,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('a concurrent draft change rejects stale editing',"!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-pending').hidden");
  await click('#custom-curves-reload');await discardAsked();await set('#custom-curves-name','Synthetic browser prompt');await click('#custom-curves-save');
  await check('Reload library refreshes the selected draft generation before the next save',"(()=>{const request=window.customCurveRequests.filter(request=>request.path.endsWith('/custom-curves/save')).at(-1);return request.status===200&&request.body.generation===window.concurrentCurve.generation&&document.querySelector('#error').hidden;})()");
+ // Opening a curve shows Outputs in whichever group holds it, whatever tab was chosen before; the arrangement is kept.
+ await click('#custom-curves-dock-configuration');await click('#custom-curves-library [data-recipe]:not([aria-current])');await discardAsked();
+ await check('opening another curve shows Outputs with its Preview call to action',`${tab('outputs')}.getAttribute('aria-selected')==='true'&&!${body('outputs')}.hidden&&${body('configuration')}.hidden&&!document.querySelector('#custom-curves-outputs-empty').hidden`);
  await persona('approver');await click('#example');await click('#nav-custom-curves');
  await evaluate("{const choice=[...document.querySelectorAll('#custom-curves-library [data-recipe]')].find(item=>item.textContent.includes('Synthetic browser prompt'));if(!choice)throw Error('Saved draft is missing');choice.click();}");await wait(idle);
  await evaluate('window.dropCustomPublish=true');await click('#custom-curves-publish');
@@ -301,6 +315,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  const split=`JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage"],["Configuration"]]'`;
  await check('a split arrangement is saved before the page narrows',split,groups);
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait(`document.querySelectorAll('#custom-curves-dock .dock-group').length===1&&${idle}`);
+ await menuOn('outputs');
+ await check('at phone width a tab’s menu says why it offers no moves',`JSON.stringify(${dockMenu})==='["Arrange groups on a wider page"]'&&!!document.querySelector('.dock-menu [aria-disabled]')`,dockMenu);
+ await press('Escape');
  await check('at phone width the split shows as one group with every tab',`JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage","Configuration"]]'&&!document.querySelector('#custom-curves-dock .dock-divider')`,groups);
  for(const id of ['outputs','graph','versions','lineage','configuration']){await click('#custom-curves-dock-'+id);await check(`at phone width the ${id} tab is reachable`,`!${body(id)}.hidden&&${body(id)}.getBoundingClientRect().width>0`);}
  await check('choosing tabs at phone width leaves the saved arrangement unchanged',`JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).kind==='split'`);
@@ -323,6 +340,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('an unsaved edit registers the browser’s unload question',unloadAsks);
  await click('#nav-market');
  await check('a sidebar page asks before the unsaved edits are given up, and stays on the curve',`${onCurves}&&${asking}`);
+ await click('#custom-curves-new');
+ await check('a second request while the question is open shows the question again',`${asking}&&document.activeElement===document.querySelector('#custom-curves-page-prompt button.secondary')`);
  await keep();
  await check('keeping them leaves the edit exactly as it was',`${onCurves}&&${question}.hidden&&document.querySelector('#custom-curves-name').value==='Unsaved edit'&&${unloadAsks}`);
  await click('#nav-market');await discard();await wait(idle);
@@ -377,6 +396,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('#custom-curves-library [data-recipe]');
  await check('opening a library entry asks first',asking);await keep();
  await check('keeping the edits keeps the graph and its focus on the entry',`${question}.hidden&&document.querySelector('#custom-curves-name').value==='Replaced by a template'`);
+ await click('#custom-curves-dock-configuration');await evaluate("document.querySelector('#custom-curves-template').focus()");await set('#custom-curves-template','ng_average');await discard();
+ await check('discarding opens the template on Outputs, and focus moves from the control that asked, now put away, to the tab shown',`${question}.hidden&&document.activeElement===${tab('outputs')}&&document.querySelector('#custom-curves-template').value==='ng_average'`,"document.activeElement?.id||document.activeElement?.localName");
  await click('#custom-curves-new');await discard();
  await check('discarding New curve opens an empty draft',`${question}.hidden&&document.querySelectorAll('.custom-curve-node').length===0`);
  await persona('viewer');await click('#nav-custom-curves');

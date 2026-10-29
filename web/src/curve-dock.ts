@@ -75,7 +75,10 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
     divider.onpointerdown=event=>{
       if(event.button!==0)return;event.preventDefault();divider.setPointerCapture(event.pointerId);
       divider.onpointermove=moved=>apply(resize(shown,at,ratioAt(moved)),false);
-      divider.onpointerup=divider.onpointercancel=ended=>{divider.onpointermove=divider.onpointerup=divider.onpointercancel=null;apply(resize(saved,at,ratioAt(ended)));};
+      const end=()=>{divider.onpointermove=divider.onpointerup=divider.onpointercancel=null;};
+      divider.onpointerup=ended=>{end();apply(resize(saved,at,ratioAt(ended)));};
+      // A cancelled drag carries no position to keep: the arrangement returns to what it was.
+      divider.onpointercancel=()=>{end();apply(saved,false);};
     };
     divider.onkeydown=event=>{
       const step=({ArrowLeft:-.05,ArrowUp:-.05,ArrowRight:.05,ArrowDown:.05} as Record<string,number>)[event.key];
@@ -109,10 +112,22 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   }
   /** Shows `next`, which is also kept as the arrangement unless the page is narrow or `keep` is false (a divider being dragged). */
   function apply(next:DockLayout,keep=true){
-    const same=JSON.stringify(shape(next))===JSON.stringify(shape(shown));
+    const same=JSON.stringify(shape(next))===JSON.stringify(shape(shown)),away=o.tabs.find(t=>t.id===focusedIn);
     shown=next;if(!narrow&&keep){saved=next;store();}
-    if(!same){render();return;}
-    groupsOf(shown).forEach(mark);proportion();announce();
+    if(!same)render();else{groupsOf(shown).forEach(mark);proportion();announce();}
+    // Focus in a body that is put away, or lost from it (a control there disabled while it works), moves to the tab its group now
+    // shows, so that it is not lost.
+    const lost=document.activeElement===null||document.activeElement===document.body||away?.body.contains(document.activeElement);
+    if(away&&away.body.hidden&&lost){const group=groupsOf(shown).find(g=>g.tabs.includes(away.id));if(group)focusWhenEnabled(buttons.get(group.active)!);}
+  }
+  /** Focuses a tab now, or, while the page has disabled its controls for work in progress, once they are enabled again, if focus is still lost. */
+  function focusWhenEnabled(button:HTMLButtonElement){
+    if(!button.disabled){button.focus({preventScroll:true});return;}
+    const watch=new MutationObserver(()=>{
+      if(button.disabled)return;watch.disconnect();
+      if(document.activeElement===null||document.activeElement===document.body)button.focus({preventScroll:true});
+    });
+    watch.observe(button,{attributes:true,attributeFilter:['disabled']});
   }
   function move(tab:string,target:{group:number;edge:DropEdge}){
     if(narrow)return;
@@ -121,8 +136,10 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   }
 
   function openMenu(tab:string,at:{x:number;y:number}){
-    if(narrow)return;
-    const groups=groupsOf(saved),from=groups.findIndex(g=>g.tabs.includes(tab)),button=buttons.get(tab)!,back=()=>button.focus({preventScroll:true});
+    const button=buttons.get(tab)!,back=()=>button.focus({preventScroll:true});
+    // A narrow page shows one group, so its menu says why it offers no moves.
+    if(narrow){menu.open(`${label.get(tab)} tab`,[{label:'Arrange groups on a wider page'}],at,back,button);return;}
+    const groups=groupsOf(saved),from=groups.findIndex(g=>g.tabs.includes(tab));
     const offer=(text:string,target:{group:number;edge:DropEdge}):MenuItem=>moveTab(saved,tab,target)===saved?{label:text}:{label:text,run:()=>move(tab,target)};
     const others=groups.map((g,index)=>({g,index})).filter(({index})=>index!==from);
     const choose=()=>menu.open('Move to group',others.map(({g,index})=>offer(`Group ${index+1} · ${g.tabs.map(id=>label.get(id)).join(', ')}`,{group:index,edge:'centre'})),at,back,button);
@@ -146,6 +163,10 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
     const now=o.narrow();if(now===narrow)return;
     narrow=now;shown=narrow?collapse(saved):saved;render();
   }
+  // The body that last held focus, kept when focus is lost from it rather than moved elsewhere.
+  let focusedIn:string|undefined;
+  host.addEventListener('focusin',event=>{focusedIn=o.tabs.find(t=>t.body.contains(event.target as Node))?.id;});
+  document.addEventListener('focusin',event=>{if(!host.contains(event.target as Node))focusedIn=undefined;});
   host.classList.add('tab-dock');render();
   return {show,reset,relayout};
 }

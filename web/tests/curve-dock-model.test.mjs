@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {collapse,defaultLayout,moveTab,resize,restore,select} from '../dist/curve-dock-model.js';
+import {collapse,defaultLayout,moveTab,resize,restore,select,splitsOf} from '../dist/curve-dock-model.js';
 
 const tabs=['outputs','graph','configuration','versions','lineage'];
 const group=(list,active=list[0])=>({kind:'group',tabs:list,active});
@@ -130,4 +130,13 @@ test('resize sets one split ratio, numbered depth first, within 0.2 and 0.8',()=
  assert.equal(resize(l,0,NaN),l);
  assert.equal(resize(l,5,0.4),l);
  assert.equal(l.ratio,0.5,'the layout it was given is unchanged');
+});
+
+test('splitsOf numbers splits depth first, each before its children',()=>{
+ const inner=split('column',group(['graph']),group(['versions'])),outer=split('row',group(['outputs','configuration','lineage']),inner);
+ assert.deepEqual(splitsOf(outer),[outer,inner]);
+ const left=split('column',group(['outputs']),group(['graph'])),right=split('column',group(['configuration']),group(['versions','lineage']));
+ const both=split('row',left,right);
+ assert.deepEqual(splitsOf(both),[both,left,right]);
+ assert.deepEqual(splitsOf(group(tabs)),[]);
 });

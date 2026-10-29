@@ -1,4 +1,4 @@
-// The tab dock on Custom curves (custom-curves-workspace design, Workspace layout): the page's views are tabs in groups, and a group can
+// The tab dock on Curve builder (custom-curves-workspace design, Workspace layout): the page's views are tabs in groups, and a group can
 // be split beside or above another to a depth of two. This module is only the arrangement: which tabs sit in which group, how groups
 // split, and how a drop, a saved layout or a narrow screen changes it. Drawing and storage belong to the caller.
 

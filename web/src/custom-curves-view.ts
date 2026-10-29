@@ -78,7 +78,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  const retryButton=button('Retry original request','custom-curves-retry',()=>void o.act(async()=>{if(pending.command)await sendMutation(pending.command);}));
  const discardButton=button('Discard checked request','custom-curves-discard',()=>{if(o.busy())return;pending.clear();storePending();pendingPanel.hidden=true;sync();});discardButton.className='secondary';pendingPanel.append(retryButton,discardButton);
  // The question asked before unsaved edits are given up (askInPanel), above the curve's views.
- const prompt=el('div');prompt.id=host.id+'-prompt';prompt.className='side-panel-prompt custom-curve-prompt';prompt.setAttribute('role','alertdialog');prompt.setAttribute('aria-label','Unsaved changes');prompt.hidden=true;
+ host.tabIndex=-1;const prompt=el('div');prompt.id=host.id+'-prompt';prompt.className='side-panel-prompt custom-curve-prompt';prompt.setAttribute('role','alertdialog');prompt.setAttribute('aria-label','Unsaved changes');prompt.hidden=true;
 
  // Left rail: asking the assistant, and the saved curves with their kind, version and state. The rail collapses to its toggle, giving its
  // width to the views.
@@ -175,9 +175,10 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  // Outputs: the preview's tiles, chart and table, or the way to run one. Lineage: its dependencies, observations and trace.
  const outputs=el('section');outputs.id='custom-curves-tab-outputs';outputs.className='custom-curve-outputs';
  const outputsEmpty=el('div');outputsEmpty.id='custom-curves-outputs-empty';outputsEmpty.className='custom-curve-outputs-empty';
- const outputsPreview=button('Preview','custom-curves-outputs-preview',()=>void o.act(preview));
+ // The call to action is put away by the preview it runs, so focus moves to the result it shows.
+ const outputsPreview=button('Preview','custom-curves-outputs-preview',()=>void o.act(async()=>{await preview();if(!result.hidden)result.focus({preventScroll:true});}));
  outputsEmpty.append(el('p','No preview yet. Preview calculates this curve’s prices from the selected market context.'),outputsPreview);
- const result=el('div');result.id='custom-curves-result';result.className='custom-curve-preview';const receipt=el('p');receipt.id='custom-curves-receipt';receipt.className='field-help';
+ const result=el('div');result.id='custom-curves-result';result.className='custom-curve-preview';result.tabIndex=-1;const receipt=el('p');receipt.id='custom-curves-receipt';receipt.className='field-help';
  const summaryTiles=el('div');summaryTiles.id='custom-curves-summary';summaryTiles.className='desk-tiles custom-curve-tiles';
  const chart=el('div');chart.id='custom-curves-chart';chart.className='chart';const table=el('div');table.id='custom-curves-values';table.className='table-wrap';result.append(receipt,summaryTiles,chart,table);result.hidden=true;
  outputs.append(outputsEmpty,result);
@@ -241,10 +242,11 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  // The formula shows only the graph it was formatted from: an earlier one is cleared first, so a graph the backend cannot format shows none.
  async function formatFormula(){if(!catalog?.formulaSupported||formulaDirty)return;formula.value='';const request=guard();const result=await o.api<{formula:string}>('custom-curves/format',{definition});if(!current(request))return;formula.value=result.formula;formulaDirty=false;sync();}
  function setMode(value:string){if(o.busy())return;mode=value;board.hidden=value!=='visual';expression.hidden=value!=='formula';graphTools.hidden=value!=='visual';if(value==='visual'){if(estimated.size)renderGraph();else{sizeCanvas();positionCanvas();}}for(const b of [visualButton,formulaButton]){const active=b.id.endsWith(value);b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));}sync();}
- function openDefinition(next:CurveDefinition,positions:CurveLayout={},recipe?:Recipe,show?:'graph'|'configuration'){opened=true;generation++;clearGraphModes();effectiveCurve=undefined;clearActivation();mode='visual';definition=clone(next);layout={...positions};estimated.clear();selected=recipe;selectedNode=definition.nodes.find(node=>(catalog?.operators.find(operator=>operator.kind===node.kind)?.fields.length??0)>0)?.id||definition.output||definition.nodes[0]?.id||'';dirty=false;formulaDirty=false;formula.value='';templateHelp.textContent='';code.value=definition.code;name.value=definition.name;clearPreview();render();notifyMarketScope();if(show)dock.show(show);}
- function openRecipe(recipe:Recipe){if(catalog){catalog.recipes=[...catalog.recipes.filter(r=>r.id!==recipe.id||r.version!==recipe.version),recipe];renderLibrary();}openDefinition(recipe.definition,recipe.layout,recipe);setTemplate('');}
+ function openDefinition(next:CurveDefinition,positions:CurveLayout={},recipe?:Recipe,show?:'outputs'|'graph'|'configuration'){opened=true;generation++;clearGraphModes();effectiveCurve=undefined;clearActivation();mode='visual';definition=clone(next);layout={...positions};estimated.clear();selected=recipe;selectedNode=definition.nodes.find(node=>(catalog?.operators.find(operator=>operator.kind===node.kind)?.fields.length??0)>0)?.id||definition.output||definition.nodes[0]?.id||'';dirty=false;formulaDirty=false;formula.value='';templateHelp.textContent='';code.value=definition.code;name.value=definition.name;clearPreview();render();notifyMarketScope();if(show)dock.show(show);}
+ /** Opens a saved version; `show` names the tab to show, as a curve the person opens shows Outputs (a save or reload shows what it showed). */
+ function openRecipe(recipe:Recipe,show?:'outputs'){if(catalog){catalog.recipes=[...catalog.recipes.filter(r=>r.id!==recipe.id||r.version!==recipe.version),recipe];renderLibrary();}openDefinition(recipe.definition,recipe.layout,recipe,show);setTemplate('');}
  function renderLibrary(){const recipes=catalog?.recipes??[];
-  const entry=(recipe:Recipe)=>{const item=el('li'),entry=button('','',()=>replacing(()=>openRecipe(recipe))),title=el('span',recipe.definition.name);entry.className='custom-curve-entry';entry.dataset.recipe=recipe.id+'|'+recipe.version;title.className='custom-curve-entry-name';entry.setAttribute('aria-label',`${recipe.definition.name}, ${kindLabel(recipe.kind)}, ${recipeStateLabel(recipe.state)}, ${recipe.definition.code} version ${recipe.version}`);entry.append(kindBadge(recipe.kind),title,chip(recipeStateLabel(recipe.state),recipe.state),el('small',`${recipe.definition.code} · v${recipe.version}`));item.append(entry);return item;};
+  const entry=(recipe:Recipe)=>{const item=el('li'),entry=button('','',()=>replacing(()=>openRecipe(recipe,'outputs'))),title=el('span',recipe.definition.name);entry.className='custom-curve-entry';entry.dataset.recipe=recipe.id+'|'+recipe.version;title.className='custom-curve-entry-name';entry.setAttribute('aria-label',`${recipe.definition.name}, ${kindLabel(recipe.kind)}, ${recipeStateLabel(recipe.state)}, ${recipe.definition.code} version ${recipe.version}`);entry.append(kindBadge(recipe.kind),title,chip(recipeStateLabel(recipe.state),recipe.state),el('small',`${recipe.definition.code} · v${recipe.version}`));item.append(entry);return item;};
   // Saved curves are grouped by kind, in the kinds' order; each group keeps the library's order. Every entry is drawn first, so that an
   // unknown kind fails rather than drops its curve.
   const entries=recipes.map(recipe=>({kind:recipe.kind,item:entry(recipe)}));
@@ -263,7 +265,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  async function reloadSelected(){const request=guard(),id=selected?.id,version=selected?.version;await load();if(!current(request)||!id)return;const fresh=catalog?.recipes.find(recipe=>recipe.id===id&&recipe.version===version);if(fresh)openRecipe(fresh);}
  let shownTemplate='';
  function setTemplate(code:string){templates.value=code;shownTemplate=code;}
- function openTemplate(template:Template){openDefinition(template.definition);setTemplate(template.code);templateHelp.textContent=template.description??template.unavailableReason??'';dirty=true;renderStatus();}
+ function openTemplate(template:Template){openDefinition(template.definition,{},undefined,'outputs');setTemplate(template.code);templateHelp.textContent=template.description??template.unavailableReason??'';dirty=true;renderStatus();}
  templates.onchange=()=>{
   if(o.busy()||!editAllowed())return;
   const template=catalog?.templates.find(t=>t.code===templates.value);if(!template)return;
@@ -601,14 +603,16 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  const questions={edits:'This curve has unsaved edits. Leaving discards them.',timeline:'The effective-version timeline has unpublished edits. Changing the close discards them.'};
  /** The open leave question, which a reset of the page abandons; only one is asked at a time. */
  let question:AbortController|undefined;
- /** Asks above the curve's views whether to give up what `scope` holds: false means the person kept it, and focus returns to the control that asked. */
+ /** Asks above the curve's views whether to give up what `scope` holds: false means the person kept it. Either way focus returns to the
+  * control that asked, or, when it is gone, to the page. */
  async function leave(scope:'edits'|'timeline'='edits'){
   if(!holds(scope))return true;
-  if(question)return false;
+  // A question already open is shown again, with focus on its answer that keeps, so that the second request is not lost in silence.
+  if(question){prompt.querySelector<HTMLElement>('button.secondary')?.focus();return false;}
   const trigger=document.activeElement as HTMLElement|null,asking=question=new AbortController();
   let going=false;
   try{going=await askInPanel(host,{text:questions[scope],keep:'Keep editing',go:'Discard edits'})(asking.signal);}finally{if(question===asking)question=undefined;}
-  if(!going&&trigger&&trigger!==document.body&&trigger.isConnected)trigger.focus({preventScroll:true});
+  if(trigger&&trigger!==document.body&&trigger.isConnected)trigger.focus({preventScroll:true});
   return going&&!asking.signal.aborted;
  }
  /** Drops the curve's edits for a move that leaves the page or changes the context; the page is read again when it is next shown. */
@@ -626,7 +630,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  function openPrepared(prepared:{definition:CurveDefinition;origin:{effectiveOn:string;knownAt:string}},request:ReturnType<typeof guard>){
   if(!current(request)||!catalog)throw Error('The editor or account changed. Review the proposed curve again.');
   if(pending.command)throw Error('Reconcile the unconfirmed curve request before opening a proposed draft.');
-  openDefinition(prepared.definition);dirty=true;blend.reset();
+  openDefinition(prepared.definition,{},undefined,'outputs');dirty=true;blend.reset();
   templateHelp.textContent=`Proposed for ${prepared.origin.effectiveOn}, as known at ${displayInstant(prepared.origin.knownAt,o.zone(),true)}. This is an unpriced draft. Preview calculates under the selected header context.`;
   renderStatus();
  }
