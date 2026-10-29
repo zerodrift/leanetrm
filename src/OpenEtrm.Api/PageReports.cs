@@ -26,7 +26,7 @@ static class PageReports
         ["reference_data"]=new("read_reference_data",["reference_data.table_v1"],"Reference data"),
         ["parties"]=new("read_trade_parties",["trade_parties.versions_v1"],"Entities & counterparties"),
         ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1"],"Blotter"),
-        ["custom_curves"]=new("read_custom_curves",["custom_curves.catalog_v1","custom_curves.prepare_v1"],"Custom curves"),
+        ["custom_curves"]=new("read_custom_curves",["custom_curves.catalog_v1","custom_curves.prepare_v1"],"Curve builder"),
         ["jobs"]=new("read_jobs",["jobs.list_v1","jobs.history_v1"],"Jobs & Infrastructure"),
         // The inspected PPA is the Blotter's trade view of it; its target opens it in the Blotter.
         ["ppa"]=new("read_trades",["trades.trade_v1","trades.ppa_book_v1"],"PPA bookings",false),

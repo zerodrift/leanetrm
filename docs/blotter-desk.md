@@ -90,7 +90,7 @@ Sidebar groups, in order. Visibility follows today's permissions.
 | Group | Pages |
 | --- | --- |
 | Trading | Blotter, PPA bookings |
-| Markets | Curves & prices, Custom curves, Delivery prices, Interval series, Interval curves |
+| Markets | Curves & prices, Curve builder, Delivery prices, Interval series, Interval curves |
 | Operations | Jobs & infrastructure |
 | Settings | Contract definitions, Schedules, Power TOUs, Reference data, Entities & counterparties |
 | Admin | Users & access, AI |

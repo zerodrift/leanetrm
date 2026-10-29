@@ -3100,9 +3100,13 @@ time chart and its pricing graph. Overlays (simple and exponential moving
 averages, rolling range) are computed by the backend under
 `exact_rational_half_even_18_v1`, require explicit windows, leave gaps where a
 window is incomplete, and are drawn only from the series the read states as
-`chart`. Drawings are unsaved presentation state. Custom curves is a header bar,
-library, graph and a side panel with Details, Effective versions and Combine
-curves, with a backend preview summary and a question before unsaved edits are
+`chart`. Drawings are unsaved presentation state. Curve builder (formerly
+Custom curves) is a header bar, a library that offers the page assistant, and
+the curve's views as tabs in a dock: Outputs (opened first, with the backend
+preview summary), Graph, Configuration (with Combine curves), Versions and
+Lineage. Tabs move between groups by drag and drop or a tab's menu, splits
+nest two levels deep, the arrangement is kept per viewer in `localStorage`, and
+a narrow page shows one group. A question is asked before unsaved edits are
 discarded. Delivery prices has a filter bar, opens on the catalog's
 `newest_available_delivery_day_v1` selection with a badge, and shows backend
 statistics, the interval chart with overlays and the collection history.

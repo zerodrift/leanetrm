@@ -69,7 +69,7 @@ The redesign fails, even if it renders, if any of these happen:
   changes.
 - D162 and D219: closes are never substituted. Delivery prices keeps its own
   cutoff and market clock and does not join the As of dock.
-- D188: live corrections refresh Curves & prices and Custom curves through the
+- D188: live corrections refresh Curves & prices and Curve builder through the
   existing refresh path, including any open panel.
 - D190 and D191: assistant reports state exactly what the page shows.
 - The page benchmark keeps each page under one second from navigation to usable
@@ -154,10 +154,11 @@ ordered series of `(instant, exact value or missing)`. Definitions, versioned:
 
 ### Side panel and tiles
 
-Both pages reuse `side-panel.ts` (docked on wide screens, overlay drawer
+Curves & prices reuses `side-panel.ts` (docked on wide screens, overlay drawer
 otherwise or while the assistant is open, one question at a time, focus
 restored) and the desk tile styles. The tile helpers become shared exports
-instead of Blotter-private ones.
+instead of Blotter-private ones. Curve builder's views were first the same
+side panel's modes; they are now tabs in its dock (Curve builder, above).
 
 ## Curves & prices
 
@@ -206,31 +207,60 @@ spans stay its text.
 A live correction refreshes the open panel with the page. Changing the close,
 context or curve closes the panel.
 
-## Custom curves
+## Curve builder
+
+The page is named **Curve builder** wherever a person or the assistant sees it;
+its identifiers (`custom-curves`, `custom_curves`, the `custom_curves.*_v1`
+operations) are unchanged.
 
 ```
-┌ Custom curves · NG prompt ● Draft v3 ─────── [Preview] [Save draft] [Publish] [⋯] ┐
-│ library ┐┌ ops ┐┌ calculation graph (Visual | Formula) ────────┐┌ side panel ──────┐ │
-│ NG prom…││ Src ││                                              ││ Selected         │ │
-│ NG balm…││ Sel ││   cards and wires                            ││ operation        │ │
-│ + New   ││ Avg ││                                              ││ · Details        │ │
-│         ││     │└──────────────────────────────────────────────┘│ · Effective vers.│ │
-│         ││     │┌ Points ┐┌ First period ┐┌ Last period ┐┌ Unit ┐│ · Combine curves │ │
-│         ││     │ preview chart (ECharts) and table               └──────────────────┘ │
+┌ Custom curve · NG prompt ● Draft v3 ── [Reset layout] [Preview] [Save draft] [Publish] ┐
+│ library               │ ┌ Outputs │ Graph │ Configuration │ Versions │ Lineage ──────┐ │
+│ [✦ Ask the assistant] │ │ ┌ Points ┐┌ First period ┐┌ Last period ┐┌ Unit ┐          │ │
+│ [New curve] Reload    │ │ preview chart (ECharts)                                  │ │
+│ CUSTOM GRAPH          │ │ table                                                    │ │
+│  [~] NG prompt  v3    │ └──────────────────────────────────────────────────────────┘ │
 ```
 
 - **Header bar.** The curve's name, its state chip (Draft, Published, Unsaved
-  changes) and version, and the actions on one line. Code, name and template
-  move into the panel's **Details** mode.
-- **Library.** Saved curves as a list with state chips, replacing the select,
+  changes) and version, and the actions on one line, with **Reset layout**.
+- **Library.** **Ask the assistant to set up a curve** opens the page assistant
+  with a question to start from. Saved curves are listed with state chips,
   grouped under their kind (D259) with its badge on each entry. **New curve**
-  starts from a blank graph or a template. The catalog read returns the state,
-  version and kind shown. The header shows the open saved version's kind badge;
-  an unsaved edit has none until it is saved. A source card shows the kind of
-  the curve or published curve it reads.
-- **Graph.** The workbench keeps its palette, board, formula mode and
-  behavior. It becomes the main area, styled with tokens instead of literal
-  colors.
+  starts from a blank graph. The catalog read returns the state, version and
+  kind shown. The header shows the open saved version's kind badge; an unsaved
+  edit has none until it is saved. A source card shows the kind of the curve or
+  published curve it reads.
+- **Nothing open.** With no curve open, the main area offers **Ask the
+  assistant to set up a curve**, **New curve** and the templates.
+- **Views as tabs in a dock** (`curve-dock.ts`, `curve-dock-model.ts`). The
+  views open as one tab group on **Outputs**:
+  - **Outputs:** the preview's tiles, chart, table and receipt, or a Preview
+    button while there is none. Preview runs only when asked, and shows
+    Outputs.
+  - **Graph:** the Visual or Formula board, with **Add an operation** and the
+    selected operation's inspector beside it (below it where the group is
+    narrow). **Hide operations** folds them away to give the board their
+    width; selecting a card shows Graph and its inspector again.
+  - **Configuration:** code, name, the saved version's kind, template, the
+    ingredients the graph reads with their kind badges, and Combine curves.
+    New curve opens Configuration.
+  - **Versions:** the effective versions timeline.
+  - **Lineage:** the preview's dependencies, source observations and trace.
+
+  Dragging a tab shows drop zones on every group: its centre joins that group
+  and an edge splits the group with the tab on that side. A tab's menu
+  (right-click, the context-menu key or Shift+F10) offers Move to new group
+  right, Move to new group below and Move to group…; the arrow keys move
+  between a group's tabs. Dividers resize a split by pointer or arrow key.
+  Splits nest two levels deep and an emptied group closes. The arrangement is
+  this viewer's presentation state in `localStorage`
+  (`openetrm.custom-curves.layout.v1`); an unreadable or outdated arrangement
+  opens the default, and **Reset layout** returns to it. Below a 960 px main
+  area every tab is shown in one group and the saved arrangement returns when
+  the page is wide again.
+- **Graph.** The workbench keeps its board, formula mode and behavior, styled
+  with tokens instead of literal colors.
 - **Graph objects.** Each card shows its input ports and an output dot. A
   weighted contract mapping lists each explicit contract connection as its own
   row, labelled "Fixed contract · <catalog label>" with its weight exactly as
@@ -259,20 +289,17 @@ context or curve closes the panel.
 - **Rolling selections.** A Select contracts card states its relative
   positions as its definition does. The preview does not yet state which
   contracts each selection resolved, so the card shows no resolved contracts.
-- **Side panel modes:** Selected operation (today's inspector), Details,
-  Effective versions (today's accordion) and Combine curves (today's
-  accordion). Selecting a card opens Selected operation.
 - **Preview.** Tiles from a new backend `summary` on the preview (point count,
   first and last delivery period, output unit, unavailable points), then the
-  chart and table as today. Dependencies, observations and trace stay under the
-  table.
-- **Leaving with unsaved edits asks first**, through the same `leaving()` path
-  and `beforeunload` guard as the Blotter, and only on moves that discard the
-  edits: another page, a changed historical context or return to working data,
-  an account switch or sign-out, another example, and, in the page, opening
-  another library entry, New curve, a template, or Reload library on a selected
-  curve. A change of close keeps the graph (D162), so it asks only when an
-  effective-version timeline is unpublished, and Discard drops that draft alone.
+  chart and table. Dependencies, observations and trace are in Lineage.
+- **Leaving with unsaved edits asks first**, above the views, through the
+  same `leaving()` path and `beforeunload` guard as the Blotter, and only on
+  moves that discard the edits: another page, a changed historical context or
+  return to working data, an account switch or sign-out, another example, and,
+  in the page, opening another library entry, New curve, a template, or Reload
+  library on a selected curve. A change of close keeps the graph (D162), so it
+  asks only when an effective-version timeline is unpublished, and Discard drops
+  that draft alone.
   Saving preferences and following live keep the edits and never ask. Keeping
   returns focus to the control that asked. A request whose outcome is
   unconfirmed is not an unsaved edit: it is retained across a move, so it

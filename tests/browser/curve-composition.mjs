@@ -2,8 +2,8 @@ import {sideSession} from './side-session.mjs';
 
 // Guided controls transport explicit choices; the managed graph supplies every price.
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url,fitsWidth,shot}){
- // A view of the curve panel, opening the panel first where the page had no room to open it by itself.
- const openView=async view=>{await evaluate("document.querySelector('#custom-curves-panel').hidden&&document.querySelector('#custom-curves-toggle-panel').click()");await click('#custom-curves-panel-tabs-'+view);};
+ // A tab of the curve's dock; Combine curves is in Configuration.
+ const openView=view=>click('#custom-curves-dock-'+view);
  const actor=await sideSession(url,'editor'),directory=await actor.call('workspace/navigation');
  const frame=directory.frames.find(f=>f.at.startsWith('2020-12-18T16:00'));
  const template=(await actor.call('custom-curves')).templates.find(t=>t.code==='ng_prompt').definition;
@@ -19,23 +19,23 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await command('Runtime.enable');await command('Page.enable');
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.blendReads=[];{const send=window.fetch;window.fetch=async(...args)=>{const response=await send(...args);if(String(args[0]).includes('/custom-curves'))window.blendReads.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null,status:response.status,data:await response.clone().json()});return response;};}`});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
- await persona('editor');const selectedClose=await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.textContent.includes('Dec 18')&&o.textContent.includes('4:00')).value");await set('#snapshot',selectedClose);await wait(idle);await click('#nav-custom-curves');await openView('combine');
- await check('Combine curves opens as a mode of the curve panel',"(()=>{const panel=document.querySelector('#custom-curves-panel'),blend=document.querySelector('#curve-blend');return !panel.hidden&&panel.contains(blend)&&!blend.hidden&&blend.localName!=='details'&&document.querySelector('#custom-curves-panel-tabs-combine').getAttribute('aria-selected')==='true';})()");
+ await persona('editor');const selectedClose=await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.textContent.includes('Dec 18')&&o.textContent.includes('4:00')).value");await set('#snapshot',selectedClose);await wait(idle);await click('#nav-custom-curves');await click('#custom-curves-start-new');await openView('configuration');
+ await check('Combine curves is part of the Configuration tab',"(()=>{const tab=document.querySelector('#custom-curves-tab-configuration'),blend=document.querySelector('#curve-blend');return !tab.hidden&&tab.contains(blend)&&!blend.hidden&&blend.localName!=='details'&&document.querySelector('#custom-curves-dock-configuration').getAttribute('aria-selected')==='true';})()");
  await check('a guided curve combination starts with explicit blank policy and ingredient choices',
   "document.querySelector('#curve-blend-aggregation').value===''&&document.querySelector('#curve-blend-alignment').value===''&&document.querySelector('.curve-blend-source').value===''&&document.querySelector('.curve-blend-weight').value===''");
  await set('#custom-curves-code','browser_combined');await set('#custom-curves-name','Synthetic combined curve');
  const choose=async(index,code)=>{const selector=`.curve-blend-row:nth-child(${index}) .curve-blend-source`;const value=await evaluate(`[...document.querySelector(${JSON.stringify(selector)}).options].find(o=>o.textContent.includes(${JSON.stringify(code)})).value`);await set(selector,value);};
  await choose(1,first.definition.code);await set('.curve-blend-weight','7');await click('#curve-blend-add');await choose(2,second.definition.code);await set('.curve-blend-row:nth-child(2) .curve-blend-weight','3');
  await set('#curve-blend-aggregation','normalized_weighted_mean_v1');await set('#curve-blend-alignment','exact_delivery_intervals_v1');await click('#curve-blend-build');
- await check('building installs backend graph, exact references and a readable explanation',"document.querySelectorAll('.custom-curve-node').length===4&&document.querySelector('#custom-curves-template-help').textContent.includes('7 × Synthetic browser_blend_base')&&document.querySelector('#curve-blend').hidden&&document.querySelector('#custom-curves-panel-tabs-operation').getAttribute('aria-selected')==='true'","({reads:window.blendReads.filter(r=>r.path.endsWith('/compose')).map(r=>({status:r.status,data:r.data})),error:document.querySelector('#error').textContent,help:document.querySelector('#custom-curves-template-help').textContent,nodes:document.querySelectorAll('.custom-curve-node').length,open:!document.querySelector('#curve-blend').hidden})");
+ await check('building installs backend graph, exact references and a readable explanation',"document.querySelectorAll('.custom-curve-node').length===4&&document.querySelector('#custom-curves-template-help').textContent.includes('7 × Synthetic browser_blend_base')&&document.querySelector('#custom-curves-tab-configuration').hidden&&document.querySelector('#custom-curves-dock-graph').getAttribute('aria-selected')==='true'","({reads:window.blendReads.filter(r=>r.path.endsWith('/compose')).map(r=>({status:r.status,data:r.data})),error:document.querySelector('#error').textContent,help:document.querySelector('#custom-curves-template-help').textContent,nodes:document.querySelectorAll('.custom-curve-node').length,open:!document.querySelector('#curve-blend').hidden})");
  await click('#custom-curves-preview');
  await check('the computed combination displays the backend price and connected primitive evidence',`(()=>{const r=window.blendReads.filter(r=>r.path.endsWith('/preview')).at(-1),p=r.data.points?.[0]?.price;return r.status===200&&BigInt(p.numerator)*${denominator}n===${numerator}n*BigInt(p.denominator)&&r.data.dependencies.length>0&&!document.querySelector('#custom-curves-result').hidden;})()`,"(()=>{const r=window.blendReads.filter(r=>r.path.endsWith('/preview')).at(-1);return {status:r?.status,data:r?.data,error:document.querySelector('#error').textContent};})()");
- await openView('combine');await set('.curve-blend-weight','6');
+ await openView('configuration');await set('.curve-blend-weight','6');
  await check('editing proposed ingredients clears the old preview and generated description',"document.querySelector('#custom-curves-result').hidden&&document.querySelector('#custom-curves-template-help').textContent===''&&document.querySelector('#custom-curves-save').disabled&&document.querySelector('#custom-curves-preview').disabled");
- await click('#custom-curves-panel-tabs-details');
- await check('unbuilt ingredient changes name the way back to Combine curves from another view',"document.querySelector('#curve-blend').hidden&&document.querySelector('#custom-curves-state #custom-curves-open-combine')?.localName==='button'");
+ await openView('graph');
+ await check('unbuilt ingredient changes name the way back to Combine curves from another view',"document.querySelector('#custom-curves-tab-configuration').hidden&&document.querySelector('#custom-curves-state #custom-curves-open-combine')?.localName==='button'");
  await click('#custom-curves-open-combine');
- await check('the status opens the panel on Combine curves',"!document.querySelector('#custom-curves-panel').hidden&&!document.querySelector('#curve-blend').hidden&&document.querySelector('#custom-curves-panel-tabs-combine').getAttribute('aria-selected')==='true'");
+ await check('the status shows Combine curves in Configuration',"!document.querySelector('#custom-curves-tab-configuration').hidden&&!document.querySelector('#curve-blend').hidden&&document.querySelector('#custom-curves-dock-configuration').getAttribute('aria-selected')==='true'&&document.querySelector('#curve-blend').contains(document.activeElement)");
  await set('.curve-blend-weight','7');await click('#curve-blend-build');await click('#custom-curves-save');
  await check('the ordinary save retains typed graph weights',"(()=>{const r=window.blendReads.filter(r=>r.path.endsWith('/save')).at(-1);return r.status===200&&r.data.definition.nodes.find(n=>n.kind==='weighted_panels').panelWeights.map(w=>w.weight).join()==='7,3';})()");
  // The backend names the saved blend's kind and its ingredients' (D259); each badge carries its label as its accessible name.
@@ -47,18 +47,18 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   "cards.every(card=>{const node=ingredients.find(n=>n.id===card.dataset.nodeId),kind=catalog.publishedSources.find(s=>JSON.stringify(s.reference)===JSON.stringify(node.publishedSource)).kind,shown=card.querySelector('.custom-curve-node-handle .curve-kind');return shown?.dataset.kind===kind&&shown.getAttribute('aria-label').length>0;});})()",
   "(()=>{const entry=document.querySelector('#custom-curves-library [aria-current=true]');return {entry:entry?.getAttribute('aria-label'),head:document.querySelector('#custom-curves-kind .curve-kind')?.getAttribute('aria-label'),cards:[...document.querySelectorAll('.custom-curve-node[data-kind=published_source] .curve-kind')].map(b=>b.dataset.kind)};})()");
  const saved=await evaluate("window.blendReads.filter(r=>r.path.endsWith('/save')).at(-1).data");
- await openView('combine');await set('.curve-blend-weight','8');await click('#curve-blend-build');await click('#custom-curves-save');
+ await openView('configuration');await set('.curve-blend-weight','8');await click('#curve-blend-build');await click('#custom-curves-save');
  await check('replacing a selected graph preserves the saved identity and advances its generation',`(()=>{const r=window.blendReads.filter(r=>r.path.endsWith('/save')).at(-1);return r.status===200&&r.body.id===${JSON.stringify(saved.id)}&&r.data.generation===${saved.generation+1};})()`);
  await click('.custom-curve-node[data-node-id=curve_2] p');await click('#custom-curve-remove-node');await click('#custom-curves-preview');
  await check('removing a source prunes its hidden weight and leaves a valid one-input combination',`(()=>{const r=window.blendReads.filter(r=>r.path.endsWith('/preview')).at(-1);return r.status===200&&r.body.definition.nodes.find(n=>n.kind==='weighted_panels').panelWeights.length===1&&r.data.rows[0][1]===${JSON.stringify(parentPrices[0].rows[0][1])};})()`);
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await check('guided composition fits a narrow viewport',fitsWidth);await shot('curve-composition');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
- await openView('combine');await set('.curve-blend-weight','9');
+ await openView('configuration');await set('.curve-blend-weight','9');
  await evaluate(`{const send=window.fetch;window.fetch=async(...args)=>{const response=await send(...args);if(String(args[0])!=='/api/custom-curves'||!window.withoutCombination)return response;const data=await response.clone().json();data.operators=data.operators.filter(op=>op.kind!=='weighted_panels');return new Response(JSON.stringify(data),{status:response.status,headers:response.headers});};window.withoutCombination=true;}`);
  await click('#custom-curves-reload');
- await check('reloading the library asks before the unbuilt ingredients are given up',"!document.querySelector('#custom-curves-panel-prompt').hidden");
- await click('#custom-curves-panel-prompt button:not(.secondary)');
- await check('a catalog without combining drops the unbuilt ingredients and the Combine view',"document.querySelector('#custom-curves-panel-tabs-combine').hidden&&document.querySelector('#curve-blend').hidden&&document.querySelector('.curve-blend-weight').value===''&&!document.querySelector('#custom-curves-open-combine')&&!document.querySelector('#custom-curves-preview').disabled");
+ await check('reloading the library asks before the unbuilt ingredients are given up',"!document.querySelector('#custom-curves-page-prompt').hidden");
+ await click('#custom-curves-page-prompt button:not(.secondary)');
+ await check('a catalog without combining drops the unbuilt ingredients and Combine curves',"document.querySelector('#curve-blend').hidden&&document.querySelector('.curve-blend-weight').value===''&&!document.querySelector('#custom-curves-open-combine')&&!document.querySelector('#custom-curves-preview').disabled");
  await evaluate('window.withoutCombination=false');
  await persona('viewer');await click('#nav-custom-curves');
  await check('identity changes clear ingredient choices and keep authoring controls read-only',"document.querySelectorAll('.curve-blend-row').length===1&&document.querySelector('.curve-blend-weight').value===''&&document.querySelector('#curve-blend-build').disabled");

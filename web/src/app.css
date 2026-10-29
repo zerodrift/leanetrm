@@ -962,13 +962,14 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 #dates-form>div:has(>button[type=submit]){margin:0 -20px;border-radius:0}
 #admin-form-title{margin-bottom:16px}#admin-form>#admin-name{margin-bottom:16px}
 
-/* Custom curves as a desk (markets-desk.md, Custom curves): a header with the curve's state and actions, the saved-curve library, the
-   operations beside the calculation graph with the preview beneath, and the side panel's views. Every color is a token. */
-:root{--curve-panel-width:340px;--curve-rail-width:212px}
+/* Curve builder as a desk (markets-desk.md, Curve builder): a header with the curve's state and actions, the saved-curve library, and the
+   curve's views as tabs in a dock. Every color is a token. */
+:root{--curve-rail-width:212px}
 .custom-curve-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px 24px;flex-wrap:wrap;margin:2px 0 16px}
 .custom-curve-titles{min-width:0}
 .custom-curve-titles .eyebrow{margin:0 0 2px}
 .custom-curve-titles h2{font-size:22px;letter-spacing:-.4px;overflow-wrap:anywhere}
+#custom-curves-kind:empty{display:none}
 .custom-curve-status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin:6px 0 0;font-size:12.5px;color:var(--text-2)}
 .custom-curve-actions{display:flex;flex-wrap:wrap;gap:8px}
 .curve-state-chip{display:inline-flex;align-items:center;padding:0 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface-3);font-size:11px;font-weight:650;line-height:18px;color:var(--text-2);white-space:nowrap}
@@ -978,8 +979,6 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .custom-curve-pending{flex-wrap:wrap;align-items:center}.custom-curve-pending p{flex:1 1 100%;margin:0}
 .custom-curve-desk{--rail:var(--curve-rail-width);display:grid;grid-template-columns:var(--rail) minmax(0,1fr);gap:16px;align-items:start}
 .custom-curve-desk.rail-collapsed{--rail:44px}
-/* A panel docks only where the main area is wide enough (side-panel.ts); the page's width decides the columns even before it is placed again. */
-@media(min-width:1180px){.custom-curve-desk:has(>.custom-curve-panel[data-placement=docked]:not([hidden])){grid-template-columns:var(--rail) minmax(0,1fr) var(--curve-panel-width)}}
 .custom-curve-rail{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;padding:8px 10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
 .custom-curve-rail-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:4px 6px;margin-bottom:6px;border:0;background:transparent;color:var(--text-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
 .custom-curve-rail-toggle:hover{background:var(--surface-3);border-color:transparent}
@@ -990,8 +989,8 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .custom-curve-library-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px}
 .custom-curve-library-actions .secondary{flex:1;padding:6px 10px;font-size:12.5px}
 .custom-curve-library-actions .text-button{font-size:12px;padding:2px 2px}
-.custom-curve-palette h3{margin:0 0 8px;padding:12px 6px 0;border-top:1px solid var(--border);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--text-3)}
-.custom-curve-palette{margin-top:12px}
+.custom-curve-ask{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin:0 0 10px;padding:7px 10px;font-size:12.5px;line-height:1.3;white-space:normal}
+.custom-curve-ask::before,#custom-curves-start-ask::before{content:'✦';font-size:13px}
 .custom-curve-list{display:grid;gap:2px;margin:0;padding:0;list-style:none}
 .custom-curve-kind-name{display:block;padding:8px 10px 2px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;color:var(--text-3)}
 .custom-curve-entry{display:grid;grid-template-columns:20px minmax(0,1fr) auto;grid-template-areas:"kind name name" "kind meta chip";align-items:center;gap:2px 8px;width:100%;padding:7px 8px 7px 10px;text-align:left;white-space:normal;background:none;border:1px solid transparent;border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-weight:500}
@@ -1002,20 +1001,58 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .custom-curve-entry .curve-state-chip{grid-area:chip}
 .custom-curve-entry small{grid-area:meta;min-width:0;font-size:11.5px;font-weight:400;color:var(--text-3);overflow-wrap:anywhere}
 .custom-curve-empty{padding:8px 10px;font-size:12.5px;color:var(--text-3)}
-.custom-curve-main{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start;min-width:0}
-.custom-curve-main>.card{margin:0;padding:14px 16px}
-.custom-curve-palette #custom-curves-operators{display:flex;flex-direction:column;gap:4px}
-.custom-curve-palette button{width:100%;padding:5px 9px;text-align:left;white-space:normal;line-height:1.35;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500}
+.custom-curve-main{min-width:0}
+/* With no curve open: the assistant, New curve and the templates. */
+.custom-curve-start{max-width:760px;margin:0;padding:28px 28px 24px}
+.custom-curve-start h3{margin:0 0 6px;font-size:18px}
+.custom-curve-start>p{max-width:62ch;margin:0}
+.custom-curve-start-actions{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 22px}
+.custom-curve-start h4{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--text-2)}
+.custom-curve-start-templates{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.custom-curve-start-templates button{padding:5px 12px;font-size:12.5px}
+/* The tab dock (curve-dock.ts): groups of tabs side by side or above one another, at the height of a workspace. */
+.tab-dock{display:flex;height:max(560px,calc(100vh - 236px));min-width:0}
+.tab-dock>:not(.dock-menu){flex:1 1 0;min-width:0;min-height:0}
+.dock-split{display:flex;min-width:0;min-height:0}
+.dock-split[data-direction=column]{flex-direction:column}
+.dock-group{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);overflow:hidden}
+.dock-tabs{display:flex;flex:none;gap:2px;padding:0 8px;overflow-x:auto;background:var(--surface-2);border-bottom:1px solid var(--border)}
+.dock-tab{flex:none;margin-bottom:-1px;padding:10px 12px 8px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--text-2);font-size:13px;font-weight:550;cursor:grab}
+.dock-tab:hover{background:transparent;border-color:transparent;border-bottom-color:var(--border-strong);color:var(--text)}
+.dock-tab[aria-selected=true]{background:var(--surface);color:var(--accent-text);border-bottom-color:var(--accent)}
+.dock-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+.dock-panels{flex:1 1 auto;min-height:0;overflow:auto;padding:14px 16px;container-type:inline-size}
+.dock-divider{position:relative;flex:none;touch-action:none}
+.dock-split[data-direction=row]>.dock-divider{width:10px;cursor:col-resize}
+.dock-split[data-direction=column]>.dock-divider{height:10px;cursor:row-resize}
+.dock-divider::after{content:'';position:absolute;inset:0;margin:auto;border-radius:2px;background:var(--border-strong);opacity:0;transition:opacity .12s}
+.dock-split[data-direction=row]>.dock-divider::after{width:3px;height:40px}
+.dock-split[data-direction=column]>.dock-divider::after{width:40px;height:3px}
+.dock-divider:hover::after,.dock-divider:focus-visible::after{opacity:1}
+.dock-divider:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:var(--radius-sm)}
+/* While a tab is dragged, each group shows where it can go: its centre joins the group, an edge splits it. */
+.dock-zones{position:absolute;inset:40px 0 0;z-index:5;display:none;grid-template:"top top top" 26% "left centre right" 1fr "bottom bottom bottom" 26%/26% 1fr 26%;gap:4px;padding:6px}
+.tab-dock[data-dragging] .dock-zones{display:grid}
+.dock-zone{border:2px dashed var(--accent-border);border-radius:var(--radius);background:color-mix(in srgb,var(--accent-soft) 55%,transparent)}
+.dock-zone[data-edge=top]{grid-area:top}.dock-zone[data-edge=left]{grid-area:left}.dock-zone[data-edge=centre]{grid-area:centre}.dock-zone[data-edge=right]{grid-area:right}.dock-zone[data-edge=bottom]{grid-area:bottom}
+.dock-zone.over{border-style:solid;border-color:var(--accent);background:color-mix(in srgb,var(--accent) 20%,transparent)}
+/* Graph: the board, and beside it the operations to add and the selected operation; one column where the group is narrow. */
+.custom-curve-graph-tab{display:grid;grid-template-columns:minmax(0,1fr) 288px;grid-template-rows:minmax(0,1fr);gap:16px;height:100%}
+.custom-curve-graph-tab:has(>.custom-curve-side[hidden]){grid-template-columns:minmax(0,1fr)}
+.custom-curve-centre{display:flex;flex-direction:column;min-width:0;min-height:0}
+.custom-curve-side{display:grid;gap:14px;align-content:start;min-width:0;min-height:0;overflow:auto;padding-right:2px}
+@container (max-width:720px){.custom-curve-graph-tab{grid-template-columns:minmax(0,1fr);grid-template-rows:none;height:auto}.custom-curve-centre{min-height:480px}.custom-curve-side{overflow:visible}}
+.custom-curve-palette #custom-curves-operators{display:flex;flex-wrap:wrap;gap:4px}
+.custom-curve-inspector{padding-top:12px;border-top:1px solid var(--border)}
+.custom-curve-palette button{padding:4px 9px;text-align:left;white-space:normal;line-height:1.35;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font-size:12px;font-weight:500}
 .custom-curve-palette button:hover:not(:disabled){background:var(--accent-soft);border-color:var(--accent-border);color:var(--accent-text)}
 .custom-curve-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-bottom:12px}
 .custom-curve-toolbar .custom-curve-mode{margin:0}
 .custom-curve-toolbar .custom-curve-mode button{min-height:28px;padding:4px 14px;font-size:12.5px}
-.custom-curve-graph-tools,.custom-curve-panel-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
-.custom-curve-panel-tools{margin-left:auto}
-.custom-curve-graph-tools{order:1;flex-basis:100%}
+.custom-curve-graph-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-left:auto}
 .custom-curve-toolbar .secondary{padding:5px 10px;font-size:12px}
 .custom-curve-zoom{min-width:3.5em;font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums;text-align:right}
-.custom-curve-board{position:relative;height:470px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background-color:var(--surface-2);background-image:radial-gradient(var(--border-strong) 1px,transparent 1px);background-size:18px 18px}
+.custom-curve-board{position:relative;flex:1 1 360px;min-height:320px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background-color:var(--surface-2);background-image:radial-gradient(var(--border-strong) 1px,transparent 1px);background-size:18px 18px}
 .custom-curve-scene{position:relative}
 .custom-curve-canvas{position:absolute;left:0;top:0;transform-origin:0 0;min-width:100%;min-height:100%}
 .custom-curve-canvas>p{max-width:40ch;padding:24px;color:var(--text-3)}
@@ -1038,10 +1075,9 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .custom-curve-node.selected{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .custom-curve-node[data-kind=weighted_contracts]{border-top-color:var(--spread)}
 .custom-curve-node.output{border-top-color:var(--accent)}
-.custom-curve-node-handle{display:block;width:100%;padding:9px 12px;border:0;border-radius:0;text-align:left;background:var(--surface-3);color:var(--text);cursor:grab;touch-action:none;user-select:none;font-weight:650}
+.custom-curve-node-handle{display:flex;align-items:center;gap:7px;width:100%;padding:9px 12px;border:0;border-radius:0;text-align:left;background:var(--surface-3);color:var(--text);cursor:grab;touch-action:none;user-select:none;font-weight:650}
 .custom-curve-node-handle:hover{background:var(--surface-3);border-color:transparent}
 .custom-curve-node-handle:active{cursor:grabbing}
-.custom-curve-node-handle .curve-kind{margin-right:7px;vertical-align:-5px}
 .custom-curve-node[data-kind=weighted_contracts] .custom-curve-node-handle{background:color-mix(in srgb,var(--spread) 12%,var(--surface))}
 .custom-curve-node.output .custom-curve-node-handle{background:var(--accent-soft);color:var(--accent-text)}
 .custom-curve-node>span,.custom-curve-node>p,.custom-curve-node>small{display:block;margin:5px 12px;font-size:11px;overflow-wrap:anywhere}
@@ -1089,24 +1125,30 @@ button.custom-curve-dot.connectable:hover,button.custom-curve-dot.connectable:fo
 .custom-curve-connect{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 10px;padding:7px 10px 7px 12px;border:1px solid var(--accent-border);border-radius:var(--radius);background:var(--accent-soft);color:var(--accent-text);font-size:12.5px}
 .custom-curve-connect[hidden]{display:none}
 .custom-curve-connect span{flex:1}.custom-curve-connect .secondary{padding:4px 10px;font-size:12px}
-.custom-curve-menu{position:fixed;z-index:40;display:grid;min-width:188px;max-width:min(320px,calc(100vw - 16px));max-height:min(360px,calc(100vh - 16px));overflow:auto;padding:4px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);box-shadow:0 10px 30px rgb(0 0 0/.18)}
-.custom-curve-menu[hidden]{display:none}
-.custom-curve-menu [role=menuitem]{min-height:0;padding:6px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text);font-size:12.5px;font-weight:500;text-align:left;white-space:normal}
-.custom-curve-menu [role=menuitem]:hover:not([aria-disabled]),.custom-curve-menu [role=menuitem]:focus{background:var(--accent-soft);color:var(--accent-text);outline:none}
-.custom-curve-menu [role=menuitem][aria-disabled]{color:var(--text-3);cursor:default}
+.custom-curve-menu,.dock-menu{position:fixed;z-index:40;display:grid;min-width:188px;max-width:min(320px,calc(100vw - 16px));max-height:min(360px,calc(100vh - 16px));overflow:auto;padding:4px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);box-shadow:0 10px 30px rgb(0 0 0/.18)}
+.custom-curve-menu[hidden],.dock-menu[hidden]{display:none}
+.custom-curve-menu [role=menuitem],.dock-menu [role=menuitem]{min-height:0;padding:6px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text);font-size:12.5px;font-weight:500;text-align:left;white-space:normal}
+.custom-curve-menu [role=menuitem]:hover:not([aria-disabled]),.custom-curve-menu [role=menuitem]:focus,.dock-menu [role=menuitem]:hover:not([aria-disabled]),.dock-menu [role=menuitem]:focus{background:var(--accent-soft);color:var(--accent-text);outline:none}
+.custom-curve-menu [role=menuitem][aria-disabled],.dock-menu [role=menuitem][aria-disabled]{color:var(--text-3);cursor:default}
 .custom-curve-hint{margin:10px 0 0;font-size:12px;color:var(--text-3)}
 #custom-curves-expression textarea{display:block;width:100%;margin:8px 0 12px;font-family:var(--mono);resize:vertical}
-.custom-curve-preview{grid-column:1/-1}
-.custom-curve-preview-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 16px}
-.custom-curve-preview-head h3{margin:0}.custom-curve-preview-head .field-help{margin:0}
-.custom-curve-tiles{margin:12px 0 14px}
+.custom-curve-outputs-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:220px;padding:32px 16px;text-align:center;border:1px dashed var(--border-strong);border-radius:var(--radius-lg);color:var(--text-2);font-size:13px}
+.custom-curve-outputs-empty p{max-width:52ch;margin:0}
+#custom-curves-receipt{margin:0}
+.custom-curve-tiles{margin:10px 0 14px}
 .custom-curve-tiles .desk-tile{flex-basis:108px;padding:10px 12px}
 #custom-curves-lineage pre{max-height:300px;overflow:auto;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
-/* The panel: docked beside the graph as a card of its own, an overlay drawer, or on a phone a sheet. Each view is one column. */
-.custom-curve-panel[data-placement=docked]{align-self:stretch;border-left:0;background:transparent}
-.custom-curve-panel[data-placement=docked] .side-panel-frame{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);overflow:hidden}
-.custom-curve-panel .side-panel-tabs{gap:14px;padding-right:44px}
+/* The leave question above the views, and the views' forms. Configuration sets its parts side by side where there is room. */
+.custom-curve-prompt{margin:0 0 12px;padding-right:16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
 .custom-curve-view h3{margin:2px 0 10px;font-size:14px}
+.custom-curve-side h3{margin:0 0 8px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:var(--text-3)}
+.custom-curve-config{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:8px 32px;align-items:start}
+.custom-curve-config>div>h4:first-child,#custom-curves-details>h4{margin-top:0}
+.custom-curve-config-kind{display:flex;align-items:center;gap:8px;margin:0 0 14px}
+.custom-curve-ingredients{display:grid;gap:4px;margin:0 0 18px;padding:0;list-style:none}
+.custom-curve-ingredients li{display:flex;align-items:center;gap:8px;min-width:0;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2);font-size:12.5px}
+.custom-curve-ingredients li>span{min-width:0;overflow-wrap:anywhere}
+.custom-curve-view .custom-curve-ingredients small{display:inline;margin:0 0 0 auto;font-family:var(--mono);color:var(--text-3)}
 .custom-curve-view h4{margin:16px 0 8px;font-size:12.5px}
 .custom-curve-view label{display:block;margin:0 0 12px;font-size:12.5px}
 .custom-curve-view input:not([type=checkbox]),.custom-curve-view select,.custom-curve-view textarea{display:block;width:100%;margin-top:5px}
@@ -1131,7 +1173,7 @@ button.custom-curve-dot.connectable:hover,button.custom-curve-dot.connectable:fo
 .curve-contract-mapping>button{width:100%;margin-top:4px}
 @media(max-width:1200px){:root{--curve-rail-width:192px}}
 @media(max-width:960px){.custom-curve-desk,.custom-curve-desk.rail-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-rail{position:static;max-height:none}.custom-curve-list{max-height:220px;overflow:auto}.rail-collapsed .custom-curve-rail-title{display:inline}.rail-collapsed .custom-curve-rail-chevron{margin:0 0 0 auto}}
-@media(max-width:760px){.custom-curve-palette #custom-curves-operators{flex-direction:row;flex-wrap:wrap}.custom-curve-palette button{width:auto}.custom-curve-board{height:360px}.custom-curve-actions{width:100%}.custom-curve-actions button{flex:1}.custom-curve-panel-tools{margin-left:0}}
+@media(max-width:760px){.custom-curve-actions{width:100%}.custom-curve-actions button{flex:1}.custom-curve-graph-tools{margin-left:0}.dock-panels{padding:12px}}
 /* The side panel's risk report: a choice of report, its sizes or the scenario lab, and the run's jobs and the work it did. */
 .risk-report fieldset{border:0;padding:0;margin:0;min-width:0}
 .risk-report input,.risk-report select{max-width:100%;box-sizing:border-box}
@@ -1332,7 +1374,6 @@ body{--dock-center:calc((var(--sidebar-width) + 100vw - var(--launcher-right) - 
 body.assistant-open{--launcher-right:calc(var(--assistant-width) + 16px)}
 body:has(#futures-page:not([hidden]) .side-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--panel-width) + 49px)}
 body:has(#market-page:not([hidden]) .contract-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--contract-panel-width) + 49px)}
-body:has(#custom-curves-page:not([hidden]) .custom-curve-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--curve-panel-width) + 49px)}
 main{padding-bottom:calc(var(--dock-band) + 16px)}
 html{scroll-padding-bottom:var(--dock-band)}
 .floating-context{position:fixed;bottom:16px;left:var(--dock-center);transform:translateX(-50%);z-index:35;font-size:12px;max-width:calc(100vw - 160px)}

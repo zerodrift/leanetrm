@@ -2,9 +2,9 @@ import {sideSession} from './side-session.mjs';
 
 export async function run({command,evaluate,wait,click,persona,set,check,idle,url}){
  // Opening a curve in place of unpublished timeline edits asks first; these steps give them up.
- const openCurve=async selector=>{await click(selector);if(await evaluate("!document.querySelector('#custom-curves-panel-prompt').hidden"))await click('#custom-curves-panel-prompt button:not(.secondary)');};
- // A view of the curve panel, opening the panel first where the page had no room to open it by itself.
- const openView=async view=>{await evaluate("document.querySelector('#custom-curves-panel').hidden&&document.querySelector('#custom-curves-toggle-panel').click()");await click('#custom-curves-panel-tabs-'+view);};
+ const openCurve=async selector=>{await click(selector);if(await evaluate("!document.querySelector('#custom-curves-page-prompt').hidden"))await click('#custom-curves-page-prompt button:not(.secondary)');};
+ // A tab of the curve's dock.
+ const openView=view=>click('#custom-curves-dock-'+view);
  const actor=await sideSession(url,'editor'),directory=await actor.call('workspace/navigation');
  const frame=directory.frames.find(f=>f.at.startsWith('2020-12-18'));
  const template=(await actor.call('custom-curves')).templates.find(t=>t.code==='ng_prompt').definition;
@@ -19,7 +19,7 @@ export async function run({command,evaluate,wait,click,persona,set,check,idle,ur
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.activationReads=[];{const fetch=window.fetch;window.fetch=async(path,init)=>{const response=await fetch(path,init);if(response.headers.get('content-type')?.includes('application/json'))window.activationReads.push({path:String(path),body:init?.body,data:await response.clone().json()});if(window.dropActivation&&String(path)==='/api/custom-curves/activation'&&init?.method==='POST'){window.dropActivation=false;throw Error('Synthetic lost activation response');}return response;};}`});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  await persona('approver');await click('#example');await click('#nav-custom-curves');await openCurve(`#custom-curves-library [data-recipe="${a.id}|1"]`);await openView('versions');
- await check('Effective versions opens as a mode of the curve panel',"(()=>{const panel=document.querySelector('#custom-curves-panel'),versions=document.querySelector('#curve-activation');return !panel.hidden&&panel.contains(versions)&&!versions.hidden&&versions.localName!=='details'&&document.querySelector('#custom-curves-panel-tabs-versions').getAttribute('aria-selected')==='true'&&document.querySelector('#custom-curves-inspector').hidden&&versions.contains(document.querySelector('#custom-curves-effective'));})()");
+ await check('Effective versions is the Versions tab',"(()=>{const versions=document.querySelector('#curve-activation');return !versions.hidden&&versions.localName!=='details'&&document.querySelector('#custom-curves-dock-versions').getAttribute('aria-selected')==='true'&&document.querySelector('#custom-curves-inspector').checkVisibility()===false&&versions.contains(document.querySelector('#custom-curves-effective'));})()");
  await click('#curve-activation-load');
  await click('#curve-activation-add');await set('.activation-from','2020-12-01');await set('.activation-to','2021-01-01');await set('.activation-version','1');await set('#curve-activation-reason','Synthetic initial timeline');
  await check('effective preview preserves an unpublished timeline by requiring explicit publish or reload',"document.querySelector('#custom-curves-effective').disabled&&document.querySelector('.activation-from').value==='2020-12-01'");
@@ -51,13 +51,13 @@ export async function run({command,evaluate,wait,click,persona,set,check,idle,ur
  await click('#custom-curves-retry');
  await check('retrying another curve’s accepted timeline cannot install it into the selected curve',`document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(b.id+'|1')}&&document.querySelector('#curve-activation-rows').children.length===0&&document.querySelector('#curve-activation-state').textContent.includes('original curve')`);
  await click('#curve-activation-load');await click('#curve-activation-add');await set('#curve-activation-reason','Synthetic unpublished draft');
- const prompt="document.querySelector('#custom-curves-panel-prompt')",shownClose=await evaluate("document.querySelector('#snapshot').value"),otherClose=await evaluate("[...document.querySelector('#snapshot').options].find(option=>option.value&&option.value!==document.querySelector('#snapshot').value).value");
+ const prompt="document.querySelector('#custom-curves-page-prompt')",shownClose=await evaluate("document.querySelector('#snapshot').value"),otherClose=await evaluate("[...document.querySelector('#snapshot').options].find(option=>option.value&&option.value!==document.querySelector('#snapshot').value).value");
  const selectedCurve=`document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(b.id+'|1')}`;
  await set('#snapshot',otherClose);
  await check('changing the close asks before an unpublished timeline draft is given up, and leaves the close as it was',`!${prompt}.hidden&&${prompt}.textContent.includes('timeline')&&document.querySelector('#snapshot').value===${JSON.stringify(shownClose)}`);
- await click('#custom-curves-panel-prompt button.secondary');
+ await click('#custom-curves-page-prompt button.secondary');
  await check('keeping the draft keeps the timeline rows, the reason and the close',`${prompt}.hidden&&document.querySelector('#curve-activation-reason').value==='Synthetic unpublished draft'&&document.querySelector('#snapshot').value===${JSON.stringify(shownClose)}`);
- await set('#snapshot',otherClose);await click('#custom-curves-panel-prompt button:not(.secondary)');
+ await set('#snapshot',otherClose);await click('#custom-curves-page-prompt button:not(.secondary)');
  await check('discarding drops the timeline draft only: the close changes and the selected curve stays',`document.querySelector('#snapshot').value===${JSON.stringify(otherClose)}&&document.querySelector('#curve-activation-reason').value===''&&${selectedCurve}`);
  await click('#curve-activation-load');
  await check('a loaded timeline shows its rows before the account changes',"document.querySelector('#curve-activation-rows').children.length>0&&document.querySelector('#curve-activation-state').textContent!==''");

@@ -477,6 +477,13 @@ export function setupAssistant(options:PanelOptions){
   get('assistant-reload').onclick=()=>location.reload();
 
   return {sync,
+    /** Opens the panel with `text` in the composer to start from, unless it already holds a question. */
+    draft(text:string){
+      if(!options.available())return;
+      show(true,false);
+      if(!question.value&&!asking.command)question.value=publicText(text);
+      sync();question.focus();
+    },
     // An identity starts with nothing of the last one: its own agents, and the conversation and open panel this tab kept.
     reset(){
       identity++;conversationGeneration++;closeStream();

@@ -645,7 +645,7 @@ The tool set is fixed; each tool is switched on per agent version.
 | Reference data | Read reference data | `ReadMarketData` | Pinned |
 | Entities & counterparties | Read trade parties | `ReadTradeParties`, `ReadMarketData` | Pinned |
 | Blotter rows and holdings | Read trades | `ReadTrades`, `ReadMarketData` | Pinned |
-| Custom curves | Read custom curves | `ReadMarketData` | Pinned saved library; unsaved edits are not sent |
+| Curve builder | Read custom curves | `ReadMarketData` | Pinned saved library; unsaved edits are not sent |
 | Jobs & Infrastructure | Read jobs | `ReadJobs` | Current operational records; refused under a historical view |
 | PPA bookings: the inspected PPA, or the listed book's PPA trades (D250) | Read trades | `ReadTrades`, `ReadMarketData` | Pinned, not the page's own market inputs and cutoff; not a Navigate page |
 | The Blotter's Risk report and its trade rows under the Risk lens, a new trade entered in the Blotter's panel, Delivery prices, Interval series, Users & access, Settings › AI | none | | Not supported |
@@ -1471,7 +1471,7 @@ accesses join the turn's replay checks, including calendars of exact older
 schedule versions. Dependency evidence identifies work, not PV exposure.
 
 Navigate may follow a preparation's issued handle to a `proposal` target on
-Custom curves. Its selection contains only the turn ID and successful step
+Curve builder. Its selection contains only the turn ID and successful step
 ordinal; SQL validates both against the same turn's preparation record. It never
 auto-opens. **Review proposed curve** protects unsaved edits, then the owner
 operation revalidates the original engine, inputs/context and current source
@@ -1484,5 +1484,5 @@ human's sign-in session. A fresh authorized sign-in may review an earlier
 completed proposal; a stale application session cannot.
 Unknown/other-owner/non-preparation steps reject. Reopening no longer readable
 sources rejects. No agent write tool, agent-run portfolio risk or new conversation
-artifact table is introduced. Custom curves' Looking at describes the saved
+artifact table is introduced. Curve builder's Looking at describes the saved
 library and ingredients; unsaved graph/formula edits stay in the editor.

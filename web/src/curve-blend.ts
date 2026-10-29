@@ -4,7 +4,7 @@ type Choice={value:unknown;label:string};
 type Source={label:string;reference:PublishedSourceReference};
 type Request={aggregation:string;alignment:string;inputs:{source:PublishedSourceReference;weight:string}[]};
 
-/** Presentation of explicit server choices, shown as the Combine curves view of the custom-curve panel. Alignment, normalization and
+/** Presentation of explicit server choices, shown as Combine curves in Curve builder's Configuration tab. Alignment, normalization and
  * executable graph construction are performed only by the managed backend. */
 export function setupCurveBlend(build:(request:Request)=>void,edited:()=>void){
  const section=document.createElement('section');section.id='curve-blend';section.className='custom-curve-view';

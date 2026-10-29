@@ -671,7 +671,7 @@ static class AgentToolChecks
             "numbered across the turn, each a page report its page reads, labeled with the page and what it shows");
 
         var names=new Dictionary<string,string>{["curves"]="Curves & prices",["contract_definitions"]="Contract definitions",["schedules"]="Schedules",
-            ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter",["custom_curves"]="Custom curves",
+            ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter",["custom_curves"]="Curve builder",
             ["jobs"]="Jobs & Infrastructure"};
         Require(PageReports.Navigable.Order().SequenceEqual(names.Keys.Order())
             &&names.All(n=>NavigationTargets.Page(n.Key) is {Kind:"page",Selection:null} target&&target.Page==n.Key&&target.Label==n.Value),

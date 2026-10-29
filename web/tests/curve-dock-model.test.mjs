@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {collapse,defaultLayout,moveTab,restore} from '../dist/curve-dock-model.js';
+import {collapse,defaultLayout,moveTab,resize,restore,select} from '../dist/curve-dock-model.js';
 
 const tabs=['outputs','graph','configuration','versions','lineage'];
 const group=(list,active=list[0])=>({kind:'group',tabs:list,active});
@@ -109,4 +109,25 @@ test('collapse keeps every tab once in order and the active tab',()=>{
  assert.deepEqual(one.tabs,allTabs(l));
  assert.equal(one.active,'outputs');
  assert.deepEqual(collapse(defaultLayout(tabs)),defaultLayout(tabs));
+});
+
+test('select shows a tab in the group that holds it and leaves the other groups as they were',()=>{
+ const two=moveTab(defaultLayout(tabs),'graph',{group:0,edge:'right'});
+ const l=select(two,'versions');
+ assert.deepEqual(l,split('row',group(['outputs','configuration','versions','lineage'],'versions'),group(['graph'])));
+ assert.deepEqual(two.children[0].active,'outputs','the layout it was given is unchanged');
+ assert.equal(select(two,'retired'),two);
+});
+
+test('resize sets one split ratio, numbered depth first, within 0.2 and 0.8',()=>{
+ let l=moveTab(defaultLayout(tabs),'graph',{group:0,edge:'right'});
+ l=moveTab(l,'versions',{group:1,edge:'bottom'});
+ const inner=resize(l,1,0.7);
+ assert.equal(inner.ratio,0.5);
+ assert.equal(inner.children[1].ratio,0.7);
+ assert.equal(resize(l,0,0.05).ratio,0.2);
+ assert.equal(resize(l,0,0.95).ratio,0.8);
+ assert.equal(resize(l,0,NaN),l);
+ assert.equal(resize(l,5,0.4),l);
+ assert.equal(l.ratio,0.5,'the layout it was given is unchanged');
 });
