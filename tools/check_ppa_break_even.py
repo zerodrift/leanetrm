@@ -3,13 +3,13 @@ from copy import deepcopy
 from fractions import Fraction as F
 from uuid import uuid4
 from exact_values import fraction
-from preview_client import PreviewClient
+from preview_client import PreviewClient, initial_frame
 from check_ppa_bookings_http import profile_terms
 
 
 def run_checks(url, query, manifest):
     client=PreviewClient(url);client.bootstrap();client.call('profile',{'profile':'trader'});client.bootstrap()
-    frame=next(f for f in client.call('ppa/frames') if not f.get('ppaBundle'))['id']
+    frame=initial_frame(client.call('workspace'),'2020-12-15')['id']
     terms=profile_terms(manifest)
     editor=PreviewClient(url);editor.bootstrap();editor.call('profile',{'profile':'editor'});editor.bootstrap()
     series=manifest['intervalCurves']['shapeSeries']['additive']

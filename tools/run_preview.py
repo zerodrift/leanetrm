@@ -391,6 +391,8 @@ def main():
             check_ppa_raw_admission(query,psql,env,ROOT,
                 [reference,market,swap_market,security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)
         if args.ppa_check:
+            from check_settlement_preview import prepare as prepare_settlement_preview
+            manifest=prepare_settlement_preview(manifest)
             from check_ppa_storage import run_checks as check_ppa_storage
             check_ppa_storage(query,manifest)
             from check_meter_finality import run_checks as check_meter_finality

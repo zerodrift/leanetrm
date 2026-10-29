@@ -5,6 +5,19 @@ def run_checks(query):
     for part in ('grids','rows','edges','bindings','roots','ports'):
         assert query(f"SELECT to_regprocedure('security.read_side_schedule_{part}(uuid,uuid,uuid,uuid,uuid,timestamp with time zone,integer,integer)') IS NOT NULL;")=='t', \
             f'Complete retained schedules require bounded typed {part} reads'
+    signatures=(
+        'append_side_schedule_rows(uuid,uuid,uuid,jsonb)',
+        'append_side_schedule_edges(uuid,uuid,uuid,jsonb)',
+        'append_side_schedule_aux(uuid,uuid,uuid,text,jsonb)',
+        'append_side_schedule_outputs(uuid,uuid,uuid,text,jsonb)',
+        'seal_side_schedule(uuid,uuid,uuid,text)',
+        'seal_side_schedule_request(uuid,uuid,jsonb)',
+    )
+    functions=','.join("'security."+signature+"'::regprocedure" for signature in signatures)
+    assert query(f"""
+        SELECT count(*) FROM pg_proc WHERE oid IN({functions})
+         AND proconfig @> ARRAY['enable_nestloop=off','jit=off'];
+    """)=='6', 'Bounded retained-schedule booking guards must disable LLVM compilation locally, including on cold first use'
     for table in ('sides', 'side_schedules', 'side_schedule_grids', 'side_schedule_rows', 'side_schedule_edges',
                   'side_schedule_bindings', 'side_schedule_seals', 'side_schedule_publications'):
         assert query(f"SELECT to_regclass('trading.{table}') IS NOT NULL;") == 't', \

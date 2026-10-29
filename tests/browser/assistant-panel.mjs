@@ -13,11 +13,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const script=async(...answers)=>{if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('The fake provider refused a scripted answer.');};
   const release=async name=>{await fetch(new URL('/release/'+name,control),{method:'POST'});};
   // Each tab records its requests and how many agents each agents read listed, can lose its next ask or price read before it
-  // is sent or hold its next ask until released, and keeps every stream it opens, across reloads.
+  // is sent or hold its next ask or workspace response until released, and keeps every stream it opens, across reloads.
   const recorder='window.__requests=[];window.__streams=[];{const send=window.fetch;window.__fetch=send;window.fetch=async(...args)=>{const path=String(args[0]),'
     +"entry={path,body:args[1]?.body?JSON.parse(args[1].body):null};window.__requests.push(entry);if(path.endsWith('/assistant/turns/ask')){if(window.__drop){window.__drop=false;"
     +"throw TypeError('Synthetic lost connection');}if(window.__held)await window.__held;}if(window.__failEvaluate&&path.endsWith('/evaluate')){window.__failEvaluate=false;"
     +"throw TypeError('Synthetic lost connection');}const response=await send(...args);if(path.endsWith('/assistant/agents')&&response.ok)entry.agents=(await response.clone().json()).agents.length;"
+    +"if(window.__holdWorkspace&&path.endsWith('/trading/workspace')){window.__holdWorkspace=false;window.__heldWorkspaceRequest=entry.body;await new Promise(resolve=>{window.__releaseWorkspace=resolve;});}"
     +'return response;};const Native=window.EventSource;window.EventSource=class extends Native{constructor(...args){super(...args);window.__streams.push(this);}};}';
 
   // This run's agents: a guide that reads market data and navigates, and a second that reads only the page.
@@ -240,10 +241,16 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a Display choice that has not been applied does not allow a trade: the pivot is the view, the trade is refused, and the control stays as it was set',
     `!${q('#error')}.hidden&&${q('#error')}.textContent.includes('Individual trades')&&${q('#blotter-mode')}.value==='trades'&&(${q('#position-details')}?.hidden!==false)&&${q('#blotter-table-title')}.textContent==='Pivot summary'`,`[${q('#error')}.textContent,${q('#blotter-mode')}.value,${q('#blotter-table-title')}.textContent]`);
   await click('#blotter-apply');await wait(`${q('#blotter-table-title')}.textContent.startsWith('Positions')&&${idle}`);
-  await set('#blotter-mode','pivot');
+  await set('#blotter-mode','pivot');await evaluate('window.__holdWorkspace=true');
   await script({tools:[['toolu_panel_17','read_trades',trade14]]},{tools:[['toolu_panel_18','navigate',{page:null,target:'n1'}]]},{text:'That is the trade, again.'});
   await ask('Open that trade, though Display shows a pivot that is not applied.');await wait(finished);
-  await pause(300);
+  await wait("typeof window.__releaseWorkspace==='function'");
+  await check('an answer can finish while its trade navigation still waits for the applied trade view, without claiming the trade was shown',
+    `${q('#error')}.hidden&&window.__heldWorkspaceRequest.view.mode==='trades'&&${q('#futures-page')}.dataset.pricingState==='pending'&&${notice}&&!${notice}.textContent.startsWith('Took you to')&&(${q('#position-details')}?.hidden!==false)`);
+  // Usage ends the answer, not the navigation it requested. Read completion,
+  // including the trade's Terms, is what permits the target to claim success.
+  await evaluate('window.__releaseWorkspace();delete window.__releaseWorkspace');
+  await wait(`${notice}?.textContent.startsWith('Took you to')&&${idle}`);
   await check('and one that has not been applied does not refuse it: the trade rows are the view, and the trade opens',
     `${q('#error')}.hidden&&${q('#position-details')}?.hidden===false&&${q('#position-details-head .side-panel-reference')}.textContent===${JSON.stringify(trade)}`,`[${q('#error')}.textContent,(${q('#position-details')}?.hidden!==false),${q('#position-details-head .side-panel-reference')}?.textContent]`);
   await click('#position-details .position-close');await set('#blotter-mode','trades');

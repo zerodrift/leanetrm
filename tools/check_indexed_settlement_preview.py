@@ -3,27 +3,24 @@ from copy import deepcopy
 from fractions import Fraction as F
 import json
 import time
-from uuid import uuid4
 from exact_values import fraction
 from power_collection_fixture import Collector
 
 
-def run_checks(client, query, manifest, runtime, encoded, payload, frame, grid, cutoff, revise, publish, cadence):
+def run_checks(client, query, manifest, runtime, payload, frame, grid, cutoff, revise, publish, cadence, save):
     catalog=manifest['catalogId'];config=manifest['ppa']['paymentIndexes'][str(cadence)]
     count=0
     def check(name,condition=True):
         nonlocal count
         assert condition,name
         count+=1;print('PASS indexed settlement HTTP: '+name,flush=True)
-    def save(body):
-        return json.loads(runtime(f"SELECT security.save_ppa_booking('{catalog}','{uuid4()}',{encoded(body)});"))
     def mapping(binding,revision):
         envelope=json.loads(runtime(f"SELECT security.read_ppa_terms('{catalog}','{binding['instrumentId']}');"))
         side=next(s for s in envelope['sideIds'] if s['role']=='indexed_payment')
         return dict(bindingId=binding['bindingId'],originRevision=revision,instrumentId=binding['instrumentId'],sideId=side['sideId'],role='indexed_payment',ordinal=0)
     indexed=deepcopy(payload);payment=indexed['terms']['memberships'][1];payment['role']='indexed_payment'
     payment['side'].update(kind='indexed',fixedPrice=None,indexPrice=dict(curve=config['curve'],quantity='test_power_quantity',multiplier='1',indexMultiplier='2',settlement=None,adder='3'))
-    booked=save(indexed);origin=mapping(booked['bindings'][0],1)
+    booked=save('book',indexed);origin=mapping(booked['bindings'][0],1)
     from check_settlement_preview import POLICIES
     policies={**POLICIES,'contract':'ppa_monthly_gross_indexed_v1'}
     body=dict(snapshotId=frame,tradeId=booked['tradeId'],expectedRevision=1,original=origin,mappings=[origin],policies=policies)
@@ -72,9 +69,9 @@ def run_checks(client, query, manifest, runtime, encoded, payload, frame, grid, 
     changed=preview()
     check('later-known single-interval price correction changes only its weighted cash',fraction(changed['exactCash'])==expected-quantities[1]*2*(11-F(prices[1])) and changed['components'][1]['index']['actual']['batchId']==correction['batchId'])
     check('certified old cutoff replays original prices and meter heads',fraction(preview(known=old)['exactCash'])==expected)
-    amendment=deepcopy(indexed);amendment.update(action='amended',tradeId=booked['tradeId'],expectedRevision=1,boundaryAt=grid[2][0].isoformat(),coverageFrom=grid[2][0].isoformat(),quantity='60')
+    amendment=deepcopy(indexed);amendment.update(tradeId=booked['tradeId'],expectedRevision=1,boundaryAt=grid[2][0].isoformat(),coverageFrom=grid[2][0].isoformat(),quantity='60')
     amendment['terms']['memberships'][1]['side']['indexPrice'].update(indexMultiplier='0.5',adder='-1')
-    amended=save(amendment);tail=next(b for b in amended['bindings'] if b['bindingId']!=origin['bindingId'])
+    amended=save('amend',amendment);tail=next(b for b in amended['bindings'] if b['bindingId']!=origin['bindingId'])
     check('unmapped indexed amendment refuses partial cash',preview(expected=422,revision=2)['code']=='settlement_manifest')
     client.call('settlement/payment-lineages/plan',{**body,'expectedRevision':2,'mappings':[origin,mapping(tail,2)]})
     actual_prices=list(prices);actual_prices[1]='11'
@@ -82,8 +79,8 @@ def run_checks(client, query, manifest, runtime, encoded, payload, frame, grid, 
     current=preview(revision=2)
     check('amended coverage preserves original MW, multiplier, adder and due date',fraction(current['exactCash'])==amended_expected and current['due']==base['due'] and current['occurrence']==base['occurrence'])
     check('prior trade head remains reproducible at original cutoff',fraction(preview(known=old)['exactCash'])==expected)
-    termination={**amendment,'action':'terminated','expectedRevision':2,'boundaryAt':grid[4][0].isoformat(),'coverageFrom':None,'coverageTo':None,'quantity':None,'terms':None}
-    save(termination);ended=preview(revision=3)
+    termination={**amendment,'expectedRevision':2,'boundaryAt':grid[4][0].isoformat(),'coverageFrom':None,'coverageTo':None,'quantity':None,'terms':None}
+    save('terminate',termination);ended=preview(revision=3)
     end_expected=sum(-q*(2*F(p)+3) if i<2 else -q*F(3,4)*(F(p)/2-1) for i,(q,p) in enumerate(zip(quantities[:4],actual_prices[:4])))
     check('termination retains exact native prefix without missing-price fallback',fraction(ended['exactCash'])==end_expected and len(ended['components'])==4 and ended['occurrence']==base['occurrence'])
     # Return the shared meter fixture to its exact original quantities for fixed checks.
