@@ -238,7 +238,12 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await click('#side-panel-amend');await wait(`!${prompt}.hidden`);
   await check('so does Close editor, which is how a person gives an amendment up',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-lots').value==='8'`);
   await answer(1);
-  await check('and discarding closes the form and keeps the panel on its position',`document.querySelector('#trade-editing').hidden&&!${panel}.hidden&&${panelReference}===${JSON.stringify(refB)}&&document.querySelector('#side-panel-amend').textContent==='Amend'`);
+  // Closing the confirmation resolves the choice; closing the editor and its
+  // final control refresh are a separate asynchronous operation.
+  const editorClosed=`document.querySelector('#trade-editing').hidden&&!${panel}.hidden&&${panelReference}===${JSON.stringify(refB)}&&document.querySelector('#side-panel-amend').textContent==='Amend'`;
+  await wait(editorClosed);
+  await check('and discarding closes the form and keeps the panel on its position',editorClosed,
+    `({editingHidden:document.querySelector('#trade-editing').hidden,panelHidden:${panel}.hidden,reference:${panelReference},expected:${JSON.stringify(refB)},amend:document.querySelector('#side-panel-amend').textContent,promptHidden:${prompt}.hidden,busy:document.body.getAttribute('aria-busy'),error:document.querySelector('#error').textContent})`);
   await amend(refB);await typeInto('#trade-lots','7');
   await click('#futures-new');await wait(`!${prompt}.hidden`);
   await check('New trade over a form with unsaved edits asks first, before the page is busy, and keeping them leaves the form and the panel as they are',
