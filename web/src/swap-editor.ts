@@ -215,9 +215,27 @@ const unitOf=(i:Pick<Priced,'currency'|'unit'>|undefined)=>`${i?.currency??''}/$
 export function valuationLine(value:Valuation,index:Pick<Priced,'currency'|'unit'>|undefined,text:AmountText){
  return `Trade PV: ${text(value.presentValue,'money')} ${index?.currency??''} · notional: ${text(value.quantity,'quantity')} ${index?.unit??''} total for each side’s delivery period.`;
 }
-/** The line above one side's schedule: its present value per normalized unit and what it contributes. */
-export function sideLine(side:Valuation['sides'][number],index:Pick<Priced,'currency'|'unit'>|undefined,text:AmountText){
- return `Side unit PV: ${text(side.presentValue,'money',side.kind)} ${unitOf(index)}; signed contribution: ${text(side.contribution,'money',side.kind)} ${unitOf(index)}.`;
+/** A labelled figure of the read view, in the caller's format, with its unit kept apart. */
+export type ValuationFact={label:string;text:string;unit:string};
+/** The read view's figures above a swap's schedules: what `valuationLine` says, one figure at a time. */
+export function valuationFacts(value:Valuation,index:Pick<Priced,'currency'|'unit'>|undefined,text:AmountText):ValuationFact[]{
+ return [{label:'Trade PV',text:text(value.presentValue,'money'),unit:index?.currency??''},
+  {label:'Notional · each side’s delivery period',text:text(value.quantity,'quantity'),unit:index?.unit??''}];
+}
+/** The figures of one side's normalized unit calculations: its present value per normalized unit and what it contributes. */
+export function sideFacts(side:Valuation['sides'][number],index:Pick<Priced,'currency'|'unit'>|undefined,text:AmountText):ValuationFact[]{
+ return [{label:'Side unit PV',text:text(side.presentValue,'money',side.kind),unit:unitOf(index)},
+  {label:'Signed contribution',text:text(side.contribution,'money',side.kind),unit:unitOf(index)}];
+}
+/** A definition list of figures, as the position view's other facts are drawn. */
+function factList(facts:readonly ValuationFact[]){
+ const list=document.createElement('dl');list.className='side-panel-facts valuation-facts';
+ for(const fact of facts){
+  const item=document.createElement('div'),label=document.createElement('dt'),value=document.createElement('dd'),figure=document.createElement('b'),unit=document.createElement('small');
+  item.className='side-panel-fact';label.textContent=publicText(fact.label);figure.textContent=publicText(fact.text);unit.textContent=publicText(fact.unit);
+  value.append(figure,' ',unit);item.append(label,value);list.append(item);
+ }
+ return list;
 }
 /**
  * Draws each side's schedule of a valuation into `host`: its trade payments, with each payment's resolved quantity, signed cash and
@@ -230,7 +248,7 @@ function renderSchedules(host:HTMLElement,value:Valuation,c:ScheduleContext){
  for(const side of value.sides){
   const section=document.createElement('section');section.className='swap-schedule';const title=document.createElement('h3');title.textContent=sideTitle(side,c.pair);section.append(title);
   renderSwapTradePayments(section,'swap',side,i,c.busy,(amount,kind,role)=>c.text(amount,kind,role));
-  const sum=document.createElement('p');sum.className='field-help';sum.textContent=sideLine(side,i,c.text);
+  const sum=factList(sideFacts(side,i,c.text));
   const payments=document.createElement('div');payments.className='table-wrap';
   const normalized=document.createElement('details'),normalLabel=document.createElement('summary');normalized.className='swap-normalized';normalLabel.textContent='Normalized unit calculations';normalized.append(normalLabel,sum,payments);section.append(normalized);
   const chart=document.createElement('div');normalized.insertBefore(chart,payments);host.append(section);
@@ -257,9 +275,9 @@ function renderSchedules(host:HTMLElement,value:Valuation,c:ScheduleContext){
 function renderValuation(host:HTMLElement,detail:Detail,valuation:Valuation,deal:DealFormats,zone:string,busy:()=>boolean):()=>void{
  const terms=detail.state.terms,catalog=detail.catalog,pair=terms.swapType==='financial_floating_floating',index=retainedIndex(catalog,terms,terms.floating);
  const c:ScheduleContext={pair,index,sourceOf:side=>side.kind==='floating'&&pair&&side.slot===0?retainedIndex(catalog,terms,terms.firstFloating!):index,text:deal.text,zone,busy};
- const section=document.createElement('section'),heading=document.createElement('h3'),line=document.createElement('p'),schedules=document.createElement('div');
- section.className='side-panel-section';heading.textContent='Valuation & schedules';line.className='field-help';line.textContent=publicText(valuationLine(valuation,index,c.text));
- section.append(heading,line,schedules);host.append(section);
+ const section=document.createElement('section'),heading=document.createElement('h3'),schedules=document.createElement('div');
+ section.className='side-panel-section swap-valuation';heading.textContent='Valuation & schedules';schedules.className='swap-side-schedules';
+ section.append(heading,factList(valuationFacts(valuation,index,c.text)),schedules);host.append(section);
  const widgets=renderSchedules(schedules,valuation,c);
  return()=>{for(const widget of widgets)widget.dispose();};
 }
