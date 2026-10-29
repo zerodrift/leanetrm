@@ -76,6 +76,9 @@ internal static class RetainedScheduleChecks
         var definitions=instrument.Sides.ToDictionary(m=>m.Side.Id,m=>ScheduleDefinitionCompiler.Generate(m.Side));
         var retained=RetainedSideSchedules.Attach(instrument,definitions);
         var payment=definitions[instrument.Memberships[1].Side.Id];var changed=payment.Rows.ToArray();
+        var missingSlot=payment.Ports[0] with{Slot=null};
+        Reject(()=>new ScheduleDefinition(payment.SideId,payment.Family,payment.EconomicIdentity,payment.PricingBindingIdentity,
+            payment.SchemaVersion,payment.GeneratorVersion,payment.Rows,payment.Edges,payment.Bindings,payment.Roots,[missingSlot,missingSlot],payment.Grids));
         var literal=Array.FindIndex(changed,row=>row.Operation=="constant_price");
         changed[literal]=changed[literal] with{Parameters=changed[literal].Parameters.SetItem("numerator","41")};
         var revised=new ScheduleDefinition(payment.SideId,payment.Family,payment.EconomicIdentity,payment.PricingBindingIdentity,

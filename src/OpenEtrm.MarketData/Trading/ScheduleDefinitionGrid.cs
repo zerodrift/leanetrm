@@ -12,6 +12,7 @@ public sealed record ScheduleDefinitionGrid(int Ordinal,string Key,ReferenceKey 
     ImmutableArray<int> LocalMinutes,ImmutableArray<int> Occurrences)
 {
     [System.Text.Json.Serialization.JsonIgnore] public int CellCount=>Selection.Length;
+    internal long EndTicks(int cell)=>Origin.Ticks+((long)Selection[cell]+Lengths[cell])*StepTicks;
     public DeliveryInterval Interval(int cell)
     {
         if((uint)cell>=(uint)CellCount)throw ScheduleDefinition.Error("A retained interval cell must belong to its exact grid.");

@@ -20,9 +20,11 @@ public sealed record ExactQuantity
   if(denominator<=0)throw new MarketDataException("numeric_division","An exact quantity requires a positive denominator.");
   var gcd=BigInteger.GreatestCommonDivisor(BigInteger.Abs(numerator),denominator);
   numerator/=gcd;denominator/=gcd;
-  if(numerator.GetBitLength()>4096 || denominator.GetBitLength()>4096)throw new MarketDataException("numeric_range","The exact quantity exceeds its supported bound.");
+  RequireRange(numerator,denominator);
   this.numerator=numerator;this.denominator=denominator;Specification=specification;
  }
+ internal static void RequireRange(BigInteger numerator,BigInteger denominator)
+ {if(numerator.GetBitLength()>4096||denominator.GetBitLength()>4096)throw new MarketDataException("numeric_range","The exact quantity exceeds its supported bound.");}
  public static ExactQuantity FromQuantity(Quantity value)=>new(value.Amount.ScaledValue,ExactDecimal.WorkingScale,value.Specification);
  public ExactQuantity Scale(OpenEtrm.Shared.Numerics.ExactRatio ratio)=>new(numerator*ratio.Numerator,denominator*ratio.Denominator,Specification);
  public ExactQuantity Scale(ExactDecimal factor)=>ScaleFraction(factor.ScaledValue,ExactDecimal.WorkingScale);

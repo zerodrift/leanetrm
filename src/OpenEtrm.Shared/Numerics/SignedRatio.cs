@@ -10,6 +10,8 @@ namespace OpenEtrm.Shared.Numerics;
 public readonly partial record struct SignedRatio : IComparable<SignedRatio>
 {
     private readonly BigInteger numerator, denominator;
+    public BigInteger Numerator=>numerator;
+    public BigInteger Denominator=>denominator;
 
     public SignedRatio(BigInteger numerator, BigInteger denominator)
     {

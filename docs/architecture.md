@@ -789,6 +789,18 @@ rather than regenerated. [Side schedule evaluation](side-plans.md) describes the
 local trial contract; [whole-term side schedules](side-schedules.md) records
 qualified implementation and limits.
 
+The 2026-10-29 D258 amendment requires every booked Side family to retain its
+complete executable schedule at booking. This is the next execution contract,
+not a claim that the current loading path already satisfies it. Booked valuation
+must read stored operation order, operands, grids, roots and sibling mappings
+directly, without regenerating a schedule or compiling another execution graph.
+Independent dynamic inputs resolve concurrently under one committed financial
+context and immutable scenario, with explicit source cutoffs and current
+authorization. Evaluated price, delivery, expiry and payment states remain
+distinct; settlement state belongs to the trade binding and obligation occurrence,
+not the reusable Side. [Side schedule evaluation](side-plans.md) records the
+contract and qualification work still required.
+
 Payment factors match exact side/payment occurrence, instant, currency and full
 snapshot. Missing, duplicate, extra or nonpositive factors fail. Standalone
 contexts also reject conflicting contents under one observation identity. Rate-based
