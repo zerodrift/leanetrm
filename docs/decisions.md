@@ -1255,6 +1255,18 @@ an obsolete definition executable. Private one-time rebooking tools are not part
 of the application or public repository. Historical migrations remain the
 immutable schema record.
 
+An archive-and-rebook release preserves the original database and records a
+certified trading-history boundary in the replacement database. The boundary
+references an exact knowledge context containing the complete rebooked trading
+publication prefix. Earlier trading knowledge, or an incomplete prefix at the
+same knowledge time, refuses as `trading_history_archived`; it must not present
+only surviving product families as a complete historical book. This applies to
+individual trades and explicit PPA scopes as well as the Blotter and risk.
+Market and reference history remain available at their original cutoffs. Only
+the schema-release operator can record the immutable boundary; an identical
+operation is a no-op, and a conflicting boundary refuses. Archived display
+reference numbers remain reserved when obsolete active records are removed.
+
 ## D256 — A turn's pinned As of frame may hold up to 256 KiB
 
 A page-assistant turn asked over an As of frame stores the frame's exact pins (§7.2).
@@ -1459,8 +1471,10 @@ survives an amendment of later periods. A retained schedule serves both.
   embedded graph, executable script or evaluated value is stored.
 - **Reads.** Valuation finds a schedule only through the trade revision and its
   binding visible at the context's knowledge cutoff, never as the latest schedule
-  of a side. A cutoff before a booking or rebooking sees the earlier schedule or
-  none. Schedule rows are read only through an authorized trade or position read,
+  of a side. Within retained trading-history coverage, a cutoff before a booking
+  or rebooking sees the earlier schedule or none. A cutoff outside an explicit
+  archive-and-rebook boundary refuses as `trading_history_archived`. Schedule
+  rows are read only through an authorized trade or position read,
   so the Blotter detail, valuation and agents use the same operations, and loading
   re-checks current authority.
 - **Reuse.** An identical retained schedule is reused within one catalog after full
@@ -1545,8 +1559,9 @@ survives an amendment of later periods. A retained schedule serves both.
   trades sharing a schedule keep separate settlement state.
 - Booking is atomic and idempotent: a retry or an identical definition adds no row,
   staged rows are invisible, and cancellation publishes no partial schedule.
-- A historical read before a booking sees no schedule; a read before a rebooking
-  sees the earlier one.
+- Within retained trading-history coverage, a historical read before a booking
+  sees no schedule; a read before a rebooking sees the earlier one. An archived
+  cutoff refuses rather than returning an incomplete historical book.
 - A missing or inconsistent retained structure refuses rather than regenerates;
   unauthorized references and withdrawn grants refuse.
 - Storage measured at the largest supported workload: logical rows and edges,

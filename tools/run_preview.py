@@ -893,6 +893,12 @@ def main():
                 check_reference_authority(query,manifest,url)
                 from check_economic_lookups import run_checks as check_identities
                 check_identities(url,query,manifest)
+                from check_trading_reference_allocation import run_checks as check_reference_allocation, run_http_checks as check_reference_allocation_http
+                check_reference_allocation(query,manifest,psql,env)
+                check_reference_allocation_http(url,query)
+                from check_trading_history_boundary import run_checks as check_trading_history, run_http_checks as check_trading_history_http
+                check_trading_history(query,manifest)
+                check_trading_history_http(query,manifest,url,temporary)
             elif args.example=='mixed-gas':
                 from check_mixed_preview import run_checks
                 run_checks(url,json.loads(export.read_text()))
@@ -969,6 +975,12 @@ def main():
                 check_reference_authority(query,manifest,url,session)
                 from check_economic_lookups import run_checks as check_identities
                 check_identities(url,query,manifest,session)
+                from check_trading_reference_allocation import run_checks as check_reference_allocation, run_http_checks as check_reference_allocation_http
+                check_reference_allocation(query,manifest,psql,env)
+                check_reference_allocation_http(url,query,session)
+                from check_trading_history_boundary import run_checks as check_trading_history, run_http_checks as check_trading_history_http
+                check_trading_history(query,manifest)
+                check_trading_history_http(query,manifest,url,temporary,session)
                 from check_pre_retention_storage import ordinary_swaps as check_swaps_storage
                 check_swaps_storage(query,psql,env,ROOT,
                     [reference,market,swap_market,security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)

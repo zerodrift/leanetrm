@@ -188,6 +188,7 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="23514" && p.MessageText=="interval_curve_definition"
                 => (422,p.MessageText,"Interval contracts must be forwards on their operating date, alone in their curve and as long as its delivery profile's interval."),
             PostgresException p when p.SqlState=="23505" => (409,"revision_conflict","This observation has already been revised. Inspect its history and explicitly select the intended revision."),
+            PostgresException p when p.SqlState=="P0001" && p.MessageText=="trading_history_archived" => (422,p.MessageText,"Trading history at this knowledge cutoff is archived. Select a context at or after the rebooking cutover; market and reference history remain available."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "knowledge_coverage" or "knowledge_clock" or "knowledge_tracking" or "knowledge_retention" or "knowledge_limit" or "knowledge_timeline" => (422,p.MessageText,"The requested knowledge cutoff cannot be certified. Check retained coverage, clock health and commit tracking."),
             PostgresException p when p.SqlState=="42501" => (403,"access_denied","Database permissions rejected this operation."),
             PostgresException p when p.SqlState is "23514" or "55000" => (422,"definition_rejected","The value or operation violates an explicit database specification."),

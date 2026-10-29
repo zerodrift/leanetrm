@@ -11,8 +11,14 @@ reuse. [Side schedules](side-schedules.md) records the exact oracle, bounds and
 rebooking boundary. D258 retains every logical pricing row, edge, typed binding and named root in
 PostgreSQL; loading and atomic staging/publication are under local qualification.
 [Evaluation](side-plans.md) defines the accepted trial contract. Migrations
-0123–0125 require a schema release; a private
+0123–0127 require a schema release; a private
 from-zero pilot seed and PPA entry in New trade remain separate work.
+
+An archive-and-rebook cutover retains a certified trading-history boundary and
+the display-reference high-water marks. Earlier trading contexts refuse
+explicitly; market and reference history are unaffected. Qualification includes
+exact boundary retries, current-authority checks and historical incomplete-prefix
+refusals before a release can use this boundary.
 
 The D252 report amendment lists missing or unsupported retained PPA schedules as
 **Needs rebooking**, retains healthy position values and leaves affected complete
