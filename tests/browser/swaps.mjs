@@ -11,6 +11,18 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  const answer=async index=>{await evaluate(`${prompt}.querySelectorAll('button')[${index}]?.click()`);await wait(`${prompt}.hidden&&`+idle);};
  const eventually=expression=>evaluate(`new Promise(resolve=>{const start=Date.now(),poll=()=>{let ok=false;try{ok=!!(${expression});}catch{}if(ok||Date.now()-start>4000)resolve();else setTimeout(poll,50);};poll();})`);
  const typeInto=async(selector,text)=>{await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);await command('Input.insertText',{text});};
+ // Leaving a tall editor for History is a real pointer action: DOM.click()
+ // leaves focus on its now-hidden field and skips the tab's native scroll.
+ async function openHistory(){
+  const selector='#position-details-tabs-history',frames='new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))';
+  await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'nearest'})`);await evaluate(frames);
+  const point=await evaluate(`(()=>{const tab=document.querySelector(${JSON.stringify(selector)}),r=tab.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;if(!r.width||!r.height||!tab.contains(document.elementFromPoint(x,y)))throw Error('History tab is not visible for a pointer click.');return {x,y};})()`);
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...point});
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
+  await wait(`document.querySelector(${JSON.stringify(selector)})?.getAttribute('aria-selected')==='true'&&${idle}`);await evaluate(frames);
+  await check('the native History selection keeps its focused tab attached through the editor height change',`document.activeElement===document.querySelector(${JSON.stringify(selector)})&&document.activeElement?.getAttribute('aria-selected')==='true'`);
+ }
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);
  await setupTradingReplies(evaluate);
@@ -175,7 +187,7 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  await submit('#swap-form');await click('#swap-confirm');await click('#swap-submit');await reopen();
  await check('booking and amendment requests omit legacy fixing boundaries',"window.__swaps.filter(r=>['/api/swaps/preview','/api/swaps/book','/api/swaps/amend'].includes(r.path)).every(r=>r.body.floating&&!('firstFixingAt' in r.body.floating))&&!window.__swaps.some(r=>r.path==='/api/time/inspect')");
  await check('swap amendments retain the event chain and scaled PV',"document.querySelector('#swap-revision').value==='2'&&document.querySelector('#swap-quantity').value==='200'&&document.querySelector('#swap-pv').textContent.includes('32')");
- await click('#position-details-tabs-history');await wait("!!document.querySelector('#position-details-view .side-panel-section')&&"+idle);
+ await openHistory();await wait("!!document.querySelector('#position-details-view .side-panel-section')&&"+idle);
  await check('and the panel lists its events and revisions in the History tab, each with its reason',"(()=>{const view=document.querySelector('#position-details-view');return [...view.querySelectorAll('h3')].map(n=>n.textContent).join()==='Revision 1 · Booked,Revision 2 · Amended'&&view.textContent.includes('Synthetic swap quantity correction')&&!view.querySelector('table');})()");
  await click('#position-details-tabs-terms');
  await set('#swap-revision','1');await wait(idle);await check('old swap revisions remain inspectable and read only',"document.querySelector('#swap-fields').disabled&&document.querySelector('#swap-date-lookup-resolve').disabled&&document.querySelector('#swap-quantity').value==='100'");await click('#swap-latest');
@@ -264,7 +276,7 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  await answer(0);
  await set('#swap-revision','1');await asks();await answer(1);await wait(idle);
  await check('the first revision, of another instrument, is read as it is and names its instrument, and this position\'s form cannot amend it',`(()=>{const read=window.__swaps.filter(r=>r.path==='/api/swaps/editor').at(-1).data;return read.state.revision===1&&document.querySelector('#error').hidden&&!document.querySelector('#swap-editing').hidden&&document.querySelector('#swap-revision').value==='1'&&document.querySelector('#swap-fields').disabled&&document.querySelector('#swap-reference').textContent.includes(read.state.instrumentReference);})()`,"[document.querySelector('#error').textContent,document.querySelector('#swap-error').textContent,document.querySelector('#swap-revision').value,document.querySelector('#swap-reference').textContent]");
- await click('#position-details-tabs-history');await eventually("document.querySelectorAll('#position-details-view .side-panel-section').length===4");
+ await openHistory();await eventually("document.querySelectorAll('#position-details-view .side-panel-section').length===4");
  await check('and its History lists the four revisions, each naming the instrument it was of',"(()=>{const sections=[...document.querySelectorAll('#position-details-view .side-panel-section')],instruments=sections.map(section=>[...section.querySelectorAll('.side-term')].find(row=>row.children[0].textContent==='Instrument')?.children[1].textContent);return sections.map(section=>section.querySelector('h3').textContent).join()==='Revision 1 · Booked,Revision 2 · Amended,Revision 3 · Amended,Revision 4 · Amended'&&instruments.every(Boolean)&&instruments[0]!==instruments[3]&&instruments[0]===instruments[1]&&instruments[1]===instruments[2];})()","[...document.querySelectorAll('#position-details-view .side-panel-section')].map(s=>s.innerText)");
  await click('#position-details .position-close');await wait("(document.querySelector('#position-details')?.hidden!==false)");
 
