@@ -232,10 +232,10 @@ public sealed partial class SwapStore
     private sealed record LifecycleEvaluation(SidedInstrument Instrument,Quantity Quantity,SwapSettlementInputs Inputs,
         SwapLifecycleValue Value,JsonElement State);
     private async Task<LifecycleEvaluation> EvaluateLifecycle(NpgsqlConnection connection,PreviewData data,InputFrame frame,JsonElement row,
-        SwapWriteRequest terms,JsonElement state,CancellationToken ct)
+        SwapWriteRequest terms,JsonElement state,CancellationToken ct,RetainedScheduleStore? schedules=null)
     {
         (data,frame) = await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct);
-        var resolved = await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
+        var resolved = await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules);
         var inputs = SettlementInputs(row,resolved.Quantity,resolved.Instrument.Currency,state,await SettlementCompletions(connection,row,resolved.Instrument,ct));
         var snapshot = data.Snapshot(frame);
         var enabled = terms.Discounting ?? throw Error("settlement_policy","Select the explicit swap discount policy.");

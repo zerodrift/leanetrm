@@ -230,16 +230,33 @@ internal sealed class RetainedScheduleStore
         await query.ExecuteNonQueryAsync(ct);
     }
     internal async Task<ImmutableDictionary<Guid,ScheduleDefinition>> Load(NpgsqlConnection connection,Guid instrument,
-        Guid? context,DateTimeOffset? asOf,CancellationToken cancellation)
+        Guid? context,DateTimeOffset? asOf,CancellationToken cancellation,bool recoverMissing=false)
     {
         if(!ReferenceEquals(readConnection,connection)||readContext!=context||readAt!=asOf)
         {readSchedules.Clear();readConnection=connection;readContext=context;readAt=asOf;}
         var cacheable=context is not null&&asOf is not null;
         // Membership visibility and every current source authority are checked
         // on every instrument read, including when its immutable content is shared.
-        var metadata=await ReadRows(connection,"SELECT security.read_instrument_side_schedule_headers($1,$2,$3,$4)::text",
-            [Catalog,instrument,(object?)context??DBNull.Value,(object?)asOf??DBNull.Value],cancellation);
-        if(metadata.IsEmpty)throw Error("The booked instrument has no retained schedule.");
+        // A report may continue with other instruments after this exact missing-artifact
+        // refusal. PostgreSQL exceptions abort the transaction, so restore only this
+        // read's savepoint; permission, cancellation and integrity failures still escape.
+        const string savepoint="retained_schedule_admission";
+        async Task Savepoint(string sql)
+        {await using var command=ScheduleStore.Command(connection,sql);await command.ExecuteNonQueryAsync(cancellation);}
+        if(recoverMissing)await Savepoint("SAVEPOINT "+savepoint);
+        ImmutableArray<JsonElement> metadata;
+        try
+        {
+            metadata=await ReadRows(connection,"SELECT security.read_instrument_side_schedule_headers($1,$2,$3,$4)::text",
+                [Catalog,instrument,(object?)context??DBNull.Value,(object?)asOf??DBNull.Value],cancellation);
+        }
+        catch(PostgresException error)when(error.SqlState=="P0001"&&error.MessageText=="side_schedule_missing")
+        {
+            if(recoverMissing){await Savepoint("ROLLBACK TO SAVEPOINT "+savepoint);await Savepoint("RELEASE SAVEPOINT "+savepoint);}
+            throw new MarketDataException("side_schedule_missing","The booked instrument has no complete retained schedule and must be rebooked.");
+        }
+        if(recoverMissing)await Savepoint("RELEASE SAVEPOINT "+savepoint);
+        if(metadata.IsEmpty)throw new MarketDataException("side_schedule_missing","The booked instrument has no retained schedule and must be rebooked.");
         var result=ImmutableDictionary.CreateBuilder<Guid,ScheduleDefinition>();
         var retainedIds=new Dictionary<Guid,Guid>();
         Task Current(Func<NpgsqlConnection,CancellationToken,Task> work)=>work(connection,cancellation);
@@ -314,9 +331,10 @@ internal sealed class RetainedScheduleStore
         var headers=await WithRead(authorized,(connection,ct)=>ReadRows(connection,
             "SELECT security.read_side_schedule_header($1,$2,$3,$4,$5,$6)::text",
             [Catalog,schedule,(object?)request??DBNull.Value,(object?)instrument??DBNull.Value,(object?)context??DBNull.Value,(object?)asOf??DBNull.Value],ct));
-        if(headers.Length!=1)throw Error("The retained schedule header is missing or ambiguous.");var h=headers[0];
+        if(headers.Length==0)throw new MarketDataException("side_schedule_missing","The retained schedule header is missing and must be rebooked.");
+        if(headers.Length!=1)throw Error("The retained schedule header is ambiguous.");var h=headers[0];
         if(h.Text("schema_version")!=ScheduleDefinition.CurrentSchema||h.Text("generator_version")!=ScheduleDefinition.CurrentGenerator)
-            throw Error("The stored schedule uses an unsupported definition and must be rebooked under the current contract.");
+            throw new MarketDataException("side_schedule_unsupported","The stored schedule uses an unsupported definition and must be rebooked under the current contract.");
         async Task<List<T>> Part<T>(string part,int count,Func<ScheduleFields,T> parse)
         {
             var result=new List<T>(count);

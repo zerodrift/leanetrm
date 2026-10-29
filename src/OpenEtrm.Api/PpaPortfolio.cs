@@ -51,9 +51,12 @@ internal static class PpaPortfolio
     // Whether a binding was booked under exactly the definition and reference versions the selected market data uses.
     internal static bool SameVersions(PreviewData data,JsonElement binding)=>binding.Id("definition_revision_id")==data.DefinitionRevision.RevisionId&&
         binding.Id("reference_catalog_id")==data.ReferenceRevision.CatalogId&&binding.Id("reference_revision_id")==data.ReferenceRevision.RevisionId;
-    // Values every binding of the scope or none: one booked under other versions refuses the whole scope.
+    internal static void RequirePreparationWork(IEnumerable<JsonElement> rows,IReadOnlyDictionary<Guid,PpaTermsInput> terms,PpaBlotterAdmission? admission=null)
+        =>PpaCompiler.PreflightWork(rows.Where(r=>admission is null||admission.Includes(r.Id("trade_id"))).Select(r=>(terms[r.Id("instrument_id")],r.Text("coverage_from"),r.Text("coverage_to"),r.Id("instrument_id").ToString())));
+    // Strict consumers value every binding or none. Only the Blotter supplies the
+    // explicit report admission policy, which excludes whole trades before preparation.
     internal static async Task<PpaPortfolioInput?> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,
-        ScheduleContext context,PpaScope scope,string? pending,DateTimeOffset known,IntervalKnowledgePolicy knowledgePolicy,CancellationToken ct,RetainedScheduleStore? retained=null)
+        ScheduleContext context,PpaScope scope,string? pending,DateTimeOffset known,IntervalKnowledgePolicy knowledgePolicy,CancellationToken ct,RetainedScheduleStore? retained=null,PpaBlotterAdmission? admission=null)
     {
         var heads=scope.Heads;var rows=scope.Bindings.ToArray();
         if(rows.Length==0)return null;
@@ -68,25 +71,53 @@ internal static class PpaPortfolio
             envelopes.Add(id,JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!));
         }
         var terms=envelopes.ToDictionary(p=>p.Key,p=>p.Value.GetProperty("terms").Deserialize<PpaTermsInput>(PpaStore.Json)!);
-        PpaCompiler.PreflightWork(rows.Select(r=>(terms[r.Id("instrument_id")],r.Text("coverage_from"),r.Text("coverage_to"),r.Id("instrument_id").ToString())));
+        if(admission is null)RequirePreparationWork(rows,terms);
         var tou=await PpaReads.Tou(connection,data,frame,context.ContextId!.Value,terms.Values,ct);
         var instruments=new Dictionary<Guid,PpaInstrument>();
         retained??=new RetainedScheduleStore(data.DefinitionRevision.CatalogId);
-        foreach(var pair in envelopes)
+        async Task ReadInstrument(Guid id)
         {
+            var envelope=envelopes[id];
             try
             {
-                var instrument=PpaCompiler.Compile(data,terms[pair.Key],tou,await PpaCompiler.ReadQuantityTypes(connection,data,terms[pair.Key],ct),pair.Key,
-                    pair.Value.GetProperty("sideIds").EnumerateArray().ToDictionary(s=>new SideSlot(PpaCompiler.Role(s.Text("role")),s.GetProperty("ordinal").GetInt32()),s=>s.Id("sideId")));
-                instrument=RetainedSideSchedules.Attach(instrument,await retained.Load(connection,pair.Key,context.ContextId,frame.At,ct));
-                await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);instruments.Add(pair.Key,instrument);
+                var schedules=await retained.Load(connection,id,context.ContextId,frame.At,ct,recoverMissing:admission is not null);
+                // Report exclusions do not waive an admitted instrument's own bound.
+                if(admission is not null)RequirePreparationWork(rows.Where(r=>r.Id("instrument_id")==id),terms);
+                var instrument=PpaCompiler.Compile(data,terms[id],tou,await PpaCompiler.ReadQuantityTypes(connection,data,terms[id],ct),id,
+                    envelope.GetProperty("sideIds").EnumerateArray().ToDictionary(s=>new SideSlot(PpaCompiler.Role(s.Text("role")),s.GetProperty("ordinal").GetInt32()),s=>s.Id("sideId")));
+                instrument=RetainedSideSchedules.Attach(instrument,schedules);
+                await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);instruments.Add(id,instrument);
             }
-            catch(MarketDataException error){throw CloseRiskInputsException.For(rows.Where(r=>r.Id("instrument_id")==pair.Key),error.Code);}
+            catch(MarketDataException error)when(admission is null||!PpaBlotterAdmission.NeedsRebooking(error.Code))
+            {throw CloseRiskInputsException.For(rows.Where(r=>r.Id("instrument_id")==id),error.Code);}
+        }
+        if(admission is null)foreach(var id in envelopes.Keys)await ReadInstrument(id);
+        else
+        {
+            await admission.Definitions([..rows],ReadInstrument);
+            rows=[..rows.Where(r=>admission.Includes(r.Id("trade_id")))];
+            if(rows.Length==0)return null;
         }
         var bindings=rows.Select(r=>new PpaBinding(r.Id("trade_id"),r.GetProperty("revision").GetInt32(),r.Id("binding_id"),instruments[r.Id("instrument_id")],
             new(r.Instant("coverage_from"),r.Instant("coverage_to")),r.Number("quantity"))).ToImmutableArray();
-        var work=PpaCompiler.Work(bindings.Select(b=>(b.Instrument,b.Coverage)),[],i=>PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code));
-        var prepared=await new PpaReads().Prepare(connection,data,frame,bindings,known,new(context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt)),knowledgePolicy,PpaQuantitiesStore.Policy(pending),[],ct,closeRiskInputs:true);
+        long work=0;
+        void RequireWork(ImmutableArray<PpaBinding> selected)
+        {
+            RequirePreparationWork(rows,terms,admission);
+            work=PpaCompiler.Work(selected.Select(b=>(b.Instrument,b.Coverage)),[],i=>PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code));
+        }
+        if(admission is null)RequireWork(bindings);
+        var knowledge=new MarketKnowledge(context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt));
+        var reads=new PpaReads();
+        var prepared=admission is null
+            ?await reads.Prepare(connection,data,frame,bindings,known,knowledge,knowledgePolicy,PpaQuantitiesStore.Policy(pending),[],ct,closeRiskInputs:true)
+            :await reads.PrepareAvailable(connection,data,frame,bindings,known,knowledge,knowledgePolicy,PpaQuantitiesStore.Policy(pending),[],ct,admission,RequireWork);
+        if(prepared is null)return null;
+        if(admission is not null)bindings=[..bindings.Where(b=>admission.Includes(b.TradeId!.Value))];
+        var acceptedTrades=bindings.Select(b=>b.TradeId!.Value).ToHashSet();
+        var acceptedInstruments=bindings.Select(b=>b.Instrument.Id).ToHashSet();
+        heads=heads.Where(p=>acceptedTrades.Contains(p.Key)).ToImmutableDictionary();
+        instruments=instruments.Where(p=>acceptedInstruments.Contains(p.Key)).ToDictionary();
         var trades=bindings.GroupBy(b=>b.TradeId!.Value).Select(g=>new Trade(g.Key,heads[g.Key].Id("book_id"),
             [..g.Select(b=>new TradeInstrument(b.BindingId,b.Instrument,new(b.Mw,b.Instrument.UnitQuantity.Specification),coverage:b.Coverage))])).ToImmutableArray();
         var portfolio=ValuationPortfolio.FromTrades(trades,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)

@@ -23,6 +23,41 @@ test('a close with nothing valued says so instead of showing zero',()=>{
  assert.equal(tiles.find(t=>t.key==='swapPv').rows[0].total,null);
  assert.equal(tiles.find(t=>t.key==='swapPv').note,'No valued positions · 12 excluded');
 });
+test('a total needing rebooking says unavailable even while healthy position values remain visible',()=>{
+ const summaries=clone(fixture.summaries);
+ for(const index of [0,1,3])for(const group of summaries[index].groups){
+  if(group.instrumentType!=='financial_swap')continue;
+  group.instrumentType='ppa';
+  if(group.currency==='USD'&&(index===0||index===1&&group.book==='Book A'||index===3)){
+   group.presentValue=null;group.unvaluedPositions=1;group.valuationUnavailableReason='needs_rebooking';
+  }
+ }
+ const tile=summaryTiles(summaries).find(t=>t.key==='ppaValue');
+ const usd=tile.rows.find(r=>r.currency==='USD');
+ assert.equal(usd.total,null);assert.equal(usd.note,'Total unavailable · Needs rebooking');
+ assert.equal(usd.byBook.find(b=>b.book==='Book B').value,'230');
+ const ppaChart=pvChartPanels(summaries,commodityColors(summaries),format).find(p=>p.unit==='USD'&&p.series[0].name.startsWith('PPAs'));
+ assert.equal(ppaChart.subtitle,'Total unavailable · Needs rebooking');
+});
+test('an unavailable total cannot silently become a partial number or another product status',()=>{
+ const altered=change=>changed(fixture.summaries,0,groups=>groups.map(g=>g.instrumentType==='financial_swap'?change(g):g));
+ assert.throws(()=>summaryTiles(altered(g=>({...g,valuationUnavailableReason:'needs_rebooking'}))),
+  {message:'The Blotter returned an inconsistent unavailable total.'});
+ assert.throws(()=>summaryTiles(altered(g=>({...g,presentValue:null,unvaluedPositions:1,valuationUnavailableReason:'needs_rebooking'}))),
+  {message:'The Blotter returned an unknown valuation status.'});
+ assert.throws(()=>summaryTiles(altered(g=>({...g,instrumentType:'ppa',presentValue:null,unvaluedPositions:1,valuationUnavailableReason:'invented'}))),
+  {message:'The Blotter returned an inconsistent unavailable total.'});
+});
+test('book splits and market bars validate their own unavailable-total status even when the currency total looks valid',()=>{
+ for(const index of [1,3])for(const reason of ['needs_rebooking','unknown']){
+  const summaries=clone(fixture.summaries);
+  for(const summary of summaries)for(const group of summary.groups)if(group.instrumentType==='financial_swap')group.instrumentType='ppa';
+  const group=summaries[index].groups.find(g=>g.instrumentType==='ppa'&&g.currency==='USD');
+  group.valuationUnavailableReason=reason;group.unvaluedPositions=1;
+  const render=index===1?()=>summaryTiles(summaries):()=>pvChartPanels(summaries,commodityColors(summaries),format);
+  assert.throws(render,{message:'The Blotter returned an inconsistent unavailable total.'});
+ }
+});
 test('rows carry direction, measure and unavailable reasons from the backend',()=>{
  const [swap,future,expired,multi]=positionRows(fixture.holdings);
  assert.equal(swap.side,'Pay fixed');assert.equal(swap.measure,'PV');

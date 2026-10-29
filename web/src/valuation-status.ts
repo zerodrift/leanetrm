@@ -1,6 +1,6 @@
 // Plain words for the positions a close cannot value (D220). The backend decides which positions
 // those are and why; a status it has not defined is refused rather than shown as a value.
-export type ValuationReason='source_expired'|'missing_observation'|'other_definition_versions'|'unpriced_delivery';
+export type ValuationReason='source_expired'|'missing_observation'|'other_definition_versions'|'unpriced_delivery'|'needs_rebooking';
 // An expired source is a future's own contract, awaiting settlement, but for a swap an input of the
 // composite or custom curve it is projected from. A PPA booked under other reference or definition
 // versions than the close is not valued at it (D246), nor is one whose delivery the close has no price for (D252).
@@ -8,7 +8,7 @@ const reasons:Readonly<Record<string,Readonly<Partial<Record<ValuationReason,str
   future:{source_expired:'Contract expired · awaiting settlement',missing_observation:'Missing price at this close'},
   financial_swap:{source_expired:'Past marking cutoff',missing_observation:'Missing price at this close'},
   heat_rate:{source_expired:'Past marking cutoff',missing_observation:'Missing price at this close'},
-  ppa:{other_definition_versions:'Booked under other reference data versions',unpriced_delivery:'No price for part of its delivery at this close'},
+  ppa:{other_definition_versions:'Booked under other reference data versions',unpriced_delivery:'No price for part of its delivery at this close',needs_rebooking:'Needs rebooking'},
 };
 
 export function valuationReason(code:ValuationReason,instrumentType:string):string{

@@ -140,8 +140,12 @@ remain the immutable schema record, and an operator's rollback backup does not
 enable an old format in the application.
 
 Booked schedules are loaded through the visible instrument/trade revision. A
-missing row, unsupported operation, missing typed binding or manifest mismatch
-refuses valuation; it never regenerates a booked schedule. Transient drafts use
+missing artifact or unsupported schema/generator refuses direct valuation. Under
+D252's report-only policy, the Blotter lists the affected whole trade as **Needs
+rebooking**, prices healthy trades and leaves affected complete group totals
+unavailable. Corrupt rows, unsupported operations within a supported definition,
+missing typed bindings and manifest mismatches remain hard errors. It never
+regenerates a booked schedule. Transient drafts use
 the same generator and pricing contracts without storing a schedule.
 
 Unpublished chunks are immutable and bound to the actor, command, expected head

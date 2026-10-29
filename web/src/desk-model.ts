@@ -114,10 +114,18 @@ const marketName=(group:PivotGroup)=>typeof group.marketLabel==='string'?group.m
 const marketLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[marketKey(text(g,'market'),text(g,'definitionRevisionId')),{label:marketName(g),code:text(g,'market'),revision:text(g,'definitionRevisionId')}])),'definition');
 
 /** What a total leaves out: nothing, some positions, or every position, when it has no value at all. */
-function totalNote(total:string|null,excluded:number):string|null{
+function totalNote(total:string|null,excluded:number,reason:unknown,instrumentType:string):string|null{
+  if(reason!==undefined){
+    if(reason!=='needs_rebooking'||total!==null||excluded===0)throw Error('The Blotter returned an inconsistent unavailable total.');
+    return `Total unavailable · ${valuationReason(reason,instrumentType)}`;
+  }
   if(total!==null)return valuationNote(excluded);
   if(!excluded)throw Error('The Blotter returned a total without a value or a reason.');
   return `No valued positions · ${excluded} excluded`;
+}
+function statedTotal(group:PivotGroup,measure:string){
+  const value=amount(group,measure),excluded=excludedPositions(group.unvaluedPositions);
+  return {value,excluded,note:totalNote(value,excluded,group.valuationUnavailableReason,text(group,'instrumentType'))};
 }
 
 export type TileRow={currencyKey:string;currency:string;total:string|null;trades:number;excluded:number;note:string|null;byBook:{bookId:string;book:string;value:string|null;excluded:number}[]};
@@ -132,12 +140,12 @@ export function summaryTiles(summaries:readonly Summary[]):Tile[]{
     const type=({swapPv:'financial_swap',futuresPnl:'future',heatRatePv:'heat_rate',ppaValue:'ppa'} as const)[key],{measure,plural}=instrument(type);
     const own=types.filter(g=>instrument(g.instrumentType)===instrument(type));
     const rows=own.map(group=>{
-      const currencyKey=referenceKey(group.currencyReference),total=amount(group,measure),excluded=excludedPositions(group.unvaluedPositions);
+      const currencyKey=referenceKey(group.currencyReference),{value:total,excluded,note}=statedTotal(group,measure);
       const byBookRows=books.filter(b=>instrument(b.instrumentType)===instrument(type)&&referenceKey(b.currencyReference)===currencyKey)
-        .map(b=>({bookId:text(b,'bookId'),book:text(b,'book'),value:amount(b,measure),excluded:excludedPositions(b.unvaluedPositions)}))
+        .map(b=>{const {value,excluded}=statedTotal(b,measure);return {bookId:text(b,'bookId'),book:text(b,'book'),value,excluded};})
         .sort((a,b)=>a.book.localeCompare(b.book)||byText(a.bookId,b.bookId));
       if(new Set(byBookRows.map(b=>b.bookId)).size!==byBookRows.length)throw Error(inconsistent);
-      return {currencyKey,currency:labels.get(currencyKey)!,total,trades:count(group,'tradeCount'),excluded,note:totalNote(total,excluded),byBook:byBookRows};
+      return {currencyKey,currency:labels.get(currencyKey)!,total,trades:count(group,'tradeCount'),excluded,note,byBook:byBookRows};
     }).sort((a,b)=>a.currency.localeCompare(b.currency)||byText(a.currencyKey,b.currencyKey));
     if(new Set(rows.map(r=>r.currencyKey)).size!==rows.length)throw Error(inconsistent);
     return {key,rows,note:!rows.length?`No ${plural.toLowerCase()} in the selected books`:rows.length===1?rows[0].note:null};
@@ -181,13 +189,13 @@ export function deskGroups(rowGroup:RowGroup,summaries:readonly Summary[],holdin
   const labelOf=(g:PivotGroup)=>rowGroup==='book'?text(g,'book'):rowGroup==='market'?markets!.get(keyOf(g))!:instrument(g.instrumentType).plural;
   const headers=new Map<string,GroupHeader>();
   for(const group of groups){
-    const key=keyOf(group),{measure,label}=instrument(group.instrumentType),total=amount(group,measure),excluded=excludedPositions(group.unvaluedPositions);
+    const key=keyOf(group),{measure,label}=instrument(group.instrumentType),{value:total,excluded,note}=statedTotal(group,measure);
     const header=headers.get(key)??{key,label:labelOf(group),positions:0,subtotals:[]};
     // The market summary keeps quantity specifications and currencies apart (D98), so a measure of a market that appears twice is
     // one instrument type held in more than one of them, and the header would state that measure twice. That is refused, as the
     // charts refuse a market they would draw as two bars of one name. A market's futures and swaps are two measures and may differ in both.
     if(rowGroup==='market'&&header.subtotals.some(s=>s.measure===label))throw Error(inconsistent);
-    header.subtotals.push({measure:label,amount:total,currency:currencies.get(referenceKey(group.currencyReference))!,excluded,note:totalNote(total,excluded)});headers.set(key,header);
+    header.subtotals.push({measure:label,amount:total,currency:currencies.get(referenceKey(group.currencyReference))!,excluded,note});headers.set(key,header);
   }
   const keys=holdings.map(h=>rowGroup==='book'?h.bookId:rowGroup==='market'?marketOf(h):h.instrumentType);
   if(keys.some(key=>!headers.has(key)))throw Error(missingSummaries);
@@ -234,7 +242,7 @@ function pvPanelsFor(summaries:readonly Summary[],colors:ReadonlyMap<string,stri
   const partition=(g:PivotGroup)=>JSON.stringify([marketKey(text(g,'market'),text(g,'definitionRevisionId')),referenceKey(g.currencyReference)]);
   for(const group of swaps){const key=partition(group);counts.set(key,(counts.get(key)??0)+1);}
   for(const group of swaps){
-    const key=marketKey(text(group,'market'),text(group,'definitionRevisionId')),value=amount(group,'presentValue'),currency=referenceKey(group.currencyReference);
+    const key=marketKey(text(group,'market'),text(group,'definitionRevisionId')),{value}=statedTotal(group,'presentValue'),currency=referenceKey(group.currencyReference);
     const split=counts.get(partition(group))!>1,quantity=referenceKey(group.quantitySpecification);
     const pointKey=split?JSON.stringify([key,quantity]):key,label=labels.get(key)!+(split?` · ${units.get(quantity)}`:'');
     panels.set(currency,[...(panels.get(currency)??[]),{x:pointKey,label,y:value,marker:colors.get(commodityOf(group).code),...(value===null?{}:{text:signedText(value,format)})}]);
@@ -243,7 +251,7 @@ function pvPanelsFor(summaries:readonly Summary[],colors:ReadonlyMap<string,stri
     const total=totals.filter(g=>instrument(g.instrumentType)===instruments[type]&&referenceKey(g.currencyReference)===currency);
     if(total.length!==1)throw Error(missingSummaries);
     if(new Set(points.map(p=>p.x)).size!==points.length)throw Error(inconsistent);
-    const note=totalNote(amount(total[0],'presentValue'),excludedPositions(total[0].unvaluedPositions)),unit=currencies.get(currency)!;
+    const {note}=statedTotal(total[0],'presentValue'),unit=currencies.get(currency)!;
     points.sort((a,b)=>a.y===null?(b.y===null?a.label!.localeCompare(b.label!):1):b.y===null?-1:compareDecimalStrings(b.y,a.y)||a.label!.localeCompare(b.label!));
     return {unit,spec:{title:`${unit} · bar right = gain`,...(note?{subtitle:note}:{}),axis:'category',categoryTitle:'Market',unit,kind:'bar',orientation:'horizontal',colorBySign:true,
       series:[{name:type==='financial_swap'?'Swap PV':`${instruments[type].plural} · ${instruments[type].label}`,points}]} satisfies ChartSpec};

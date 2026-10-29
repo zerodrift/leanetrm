@@ -248,7 +248,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D249 | Each agent version sets its history window | Decided by the owner (2026-10-27). A turn sends at most its version's latest `historyTurns` earlier turns, 0 to 1,000, enforced by the API and the database, and records those it sends; withholding applies within the window. Versions saved earlier take 1,000 (migration 0121), which a conversation already longer refuses. The input-token limit still applies |
 | D250 | The page assistant reads PPA bookings through Read trades; PPA bookings is not a Navigate page | Decided under the owner's delegation (2026-10-27). Refines D184, D190 and D191. An inspected PPA is reported as Read trades' trade view of it (`trades.trade_v1`, instrument type `ppa`); a listed book as the new `ppa_book` view of exactly one book (`trades.ppa_book_v1`), the page's own directory read of the whole book at the turn's pin, rechecking the book's scope, refused `result_too_large` above 64 trades, listing the page's columns. Both capture no context, run under the Blotter's accesses and permissions and bind the pinned context, cutoff and frame, not the page's own market inputs and cutoff, which Looking at says. PPA bookings and the targets its reads issue are not opened by Navigate (`tool_arguments_invalid`), since the database's navigation targets do not list it. No migration, runtime-set or permission change |
 | D251 | Saved Blotter views can be listed in the sidebar; PPA bookings has no sidebar entry | Decided by the owner (2026-10-28). Saved views are layout version 5, which adds `sidebar` (true or false), set by Show in the sidebar when a view is saved; earlier layouts are not migrated. The sidebar lists a person's flagged views under the Blotter and opens one as choosing it in the Blotter does. PPA bookings stays a Trading page opened from New trade; a person who wants a PPA list saves a Blotter view of PPAs and lists it. No migration or permission change |
-| D252 | The Blotter lists a PPA the selected market data cannot price as not valued; one such PPA no longer refuses the whole read | Decided under the owner's delegation (2026-10-28). Refines D246. When the PPAs of a Blotter read cannot be priced together because the market data has no price for part of some delivery (`interval_block_coverage`, `interval_curve_coverage`, `interval_actual_missing`, or a frame without a needed projection), the trades concerned are listed whole as not valued with `unpriced_delivery` and the rest are priced together as before. Any other refusal, or one no single trade explains, still refuses the read. An interval no period block covers is now `interval_block_coverage`, apart from overlapping blocks (`interval_block_partition`). Whole-book consumers keep refusing. No migration or permission change |
+| D252 | The Blotter lists a PPA the selected market data cannot price as not valued; one such PPA no longer refuses the whole read | Decided under the owner's delegation (2026-10-28). Refines D246. When the PPAs of a Blotter read cannot be priced together because the market data has no price for part of some delivery (`interval_block_coverage`, `interval_curve_coverage`, `interval_actual_missing`, or a frame without a needed projection), the trades concerned are listed whole as not valued with `unpriced_delivery` and the rest are priced together as before. The owner amendment of 2026-10-29 also lists missing or unsupported retained schedules as `needs_rebooking`, keeping affected complete totals unavailable. Corrupt content and authority failures still refuse the read. An interval no period block covers is now `interval_block_coverage`, apart from overlapping blocks (`interval_block_partition`). Whole-book consumers keep refusing. No migration or permission change |
 | D253 | One side model: a Side is its parameters for the whole term, generates a schedule of rows, and reads row values from the calculation graph | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. No side is made of other sides; `FixedSide` and `FloatingSide` price payments for swaps and PPAs alike, with PPA-only price sides removed; physical delivery sides stay their own family. `Side.GenerateSchedule()` builds one `ScheduleRow` per period or interval for the whole term, holding graph references, not values; a shock to the graph changes exactly the rows that read it. `Side.PV` sums its evaluated rows and `Instrument.PV` sums coefficient × side PV. Amended the same day: every `SidedInstrument` follows the model (futures stay leaf instruments, D110), and a position's detail opens under its Blotter row, showing each side's evaluated schedule. Amended by D258: rows are its logical rows, and PV and the Blotter sum named roots and contributions only. Refines D04 and D84 |
 | D256 | A turn's pinned As of frame may hold up to 256 KiB | Decided by the owner (2026-10-27). Migration 0122 raises `assistant.pin_turn`'s bound on a frame's pin JSON from 64 KiB to 256 KiB (262,144 bytes); nothing else changes. It applies over 0072's definition or one already identical to its own, as the hosted pilot's has been since its hotfix. |
 | D257 | A period-contract price node returns the selected settlement index's published fixing once due, and a side may override its curve's settlement index | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. For date-only period-contract observations (swaps and PPA period curves; interval curves are unchanged), each `FloatingSide` index price term (D253) states its settlement selection: the curve's declared single-index target, or a different named override index, never defaulted. The price node returns the bound projection before the selected index's fixing instant and that index's published final fixing, selected under the market cutoff, at or after it; between expiry and the fixing instant it is refused as today. Node dependencies follow the resolved context, so a due node depends only on its fixing. An override projects from the curve's forward marks as the recorded no-basis choice `forward_curve_no_basis_v1`, labelled in receipts and risk. The swap spread becomes the price term's adder. Refines D165 and D253; consistent with D32 and D37 |
@@ -1062,24 +1062,43 @@ Blotter's.
   `missing_curve_view`). An interval two period blocks cover is an ambiguous
   definition, so it keeps `interval_block_partition` and is not one of them, nor is a
   shape or quantity series integrity error (`interval_shape_coverage`).
-- A refusal naming its trades lists those trades. Otherwise each trade of the read is
-  priced on its own, once, to find which are refused. Those are listed whole, as
+- A refusal naming its trades lists those trades. Price-source admission attributes
+  other supported market refusals to their declared coverage. Those are listed whole, as
   D246 lists other-version trades, with `unavailableReason` `unpriced_delivery`,
   shown as **Not valued** with "No price for part of its delivery at this close". The
   rest are then priced together as before, so their values are those of a read
   without the refused trades. Pricing a trade depends only on its own spans, so a
   trade refused alone is refused in any read that holds it.
-- Any other refusal, or one that appears only when trades are priced together, still
-  refuses the read. Nothing is priced from a default.
-- Valuation totals leave the listed trades out and count them in
+- The owner amendment of 2026-10-29 adds two retained-artifact refusals:
+  `side_schedule_missing` and `side_schedule_unsupported` (an unsupported retained
+  schema or generator). Every binding of an affected trade is listed with
+  `unavailableReason` `needs_rebooking`, shown as **Needs rebooking**, and distinct
+  exact `unavailableCodes`. Its monetary values remain null. No booked schedule
+  is regenerated or loaded through a compatibility path.
+- An affected group's complete valuation total remains null with
+  `valuationUnavailableReason` `needs_rebooking`, even when healthy positions in
+  that group have exact values. Healthy position values, unaffected groups and
+  booked counts remain available. Existing explicitly excluded market-coverage
+  subtotals retain their D246/D252 policy.
+- Any other refusal, including corrupt manifests/content, ambiguous geometry,
+  missing authority or cancellation, or a market refusal that appears only when
+  trades are priced together, still refuses the read. Nothing is priced from a default.
+- Existing other-version and market-coverage subtotals leave those trades out and count them in
   `unvaluedPositions`, as D246 does. Like an other-version trade, each listed trade is
   its own market, `ppa_instrument:<instrument id>`, with no curves, so a pivot by
   market does not group it with its curve. Whole-book consumers (close risk, portfolio
   risk runs and the PPA page's book valuation) keep refusing such a scope.
-- Finding the refused trades costs one preparation per trade of the read, only after a
-  refused read and within the request's deadline. Attributing the refusal to its
-  bindings in one preparation, as `missing_curve_view` already is, would remove that
-  cost and is left as follow-up work.
+- Report admission collects artifact refusals once per unique instrument and
+  attributes market refusals using price sources, before quantity history and the
+  valuation graph are prepared. Identical declared price windows share a probe
+  within the same pinned operation; native source reads may be reused only under
+  that exact curve, context and coverage. The remaining whole trades share one
+  quantity/valuation preparation and valuation pass. There is no retry which fully
+  prepares and prices every trade on its own.
+- These exclusions belong only to the Blotter report. Direct PPA valuation,
+  portfolio/close risk and their full-scope admission remain strict under D197.
+  Current authority is rechecked when immutable schedule content is reused;
+  report recovery from a missing artifact does not recover permission or integrity errors.
 
 ## D253 — One side model: parameters, a whole-term schedule, rows read from the graph
 
@@ -1362,6 +1381,10 @@ columnar storage extension is introduced. The [payment-block
 experiment](side-block-experiment.md) supplies bounded arithmetic and storage
 evidence; application integration and its release qualification remain in progress.
 The cutover rebooks definitions and introduces no backward-compatibility loader.
+The 2026-10-29 D252 reporting amendment permits the Blotter to list a trade
+whose retained artifact is missing or unsupported as needing rebooking. Direct
+valuation remains refused, corrupt content remains a hard error, and the report
+never repairs or regenerates the stored artifact.
 
 ### Why
 

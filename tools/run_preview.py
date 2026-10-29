@@ -643,7 +643,11 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--side-observations'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=240):raise RuntimeError('Owned side observation browser checks failed')
+                    # This combines 26 observation checks and the 169 swap checks
+                    # whose standalone suite has a 300s budget. Linux reached
+                    # 194/195 with continuous progress before the former 240s
+                    # cutoff. Individual action and application deadlines stay unchanged.
+                    if browser_process.wait(timeout=360):raise RuntimeError('Owned side observation browser checks failed')
             elif args.swap_risk_holdings_check:
                 from check_swap_risk_holdings import run_checks as check_swap_risk_holdings
                 check_swap_risk_holdings(url,query,manifest,dotnet,temporary,app_env,psql)

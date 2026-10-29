@@ -55,6 +55,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   document.addEventListener('pointermove',pointerMove,true);
   document.addEventListener('pointercancel',cancelGesture,true);
   document.addEventListener('scroll',cancelGesture,true);
+  // Deferred row positioning must yield to a later focus move, including one inside the detail.
+  let focusVersion=0;const focusChanged=()=>{focusVersion++;};
+  document.addEventListener('focusin',focusChanged,true);
   const field=(i:number)=>'c'+i;
   const ordered=[...options.layout.order.filter(k=>options.keys.includes(k)),...options.keys.filter(k=>!options.layout.order.includes(k))];
   // The columns the grid gives up in this order while they do not fit it, and those it has given up now.
@@ -171,12 +174,13 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   update();
   const visibleIndices=()=>table.getColumns().map(c=>Number(c.getField().slice(1))).filter(i=>options.visible?.[i]!==false);
   // Once the grid has drawn, which a grid that has only just been made has not when it is asked, the row of a source index is scrolled to within the grid and then `use`d.
-  function whenDrawn(index:number,use:(row:GridRow)=>void){
+  function whenDrawn(index:number,use:(row:GridRow)=>void,stillCurrent=()=>true){
     if(!alive)return;
     void built.then(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))).then(()=>{
+      if(!stillCurrent())return;
       const row=alive&&ready?table.getRows().find(candidate=>sourceIndex(candidate)===index):undefined,held=focusedDetail();
       // scrollTo rebuilds virtual rows without the table's render events.
-      return row?.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive){use(row);restoreDetailFocus(held);}});
+      return row?.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive&&stillCurrent()){use(row);restoreDetailFocus(held);}});
     });
   }
   return {
@@ -201,11 +205,23 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     selectRow(index:number|null){opened=index;update();if(ready&&alive)for(const row of table.getRows())markOpen(row);},
     /** Retains the detail beneath its source row through sorting and virtual redraws. */
     detailRow(index:number|null,body:HTMLElement){
-      if(index===null){detail?.body.remove();detail=undefined;}else{if(detail?.index!==index||detail?.body!==body)detail?.body.remove();detail={index,body};}
+      if(index===null){detail?.body.remove();detail=undefined;}else if(detail?.index!==index||detail?.body!==body){detail?.body.remove();detail={index,body};}
       sizeDetail();
       if(ready&&alive)for(const row of table.getRows()){markOpen(row);row.normalizeHeight();}
     },
-    resizeDetail(){sizeDetail();if(ready&&alive)for(const row of table.getRows())if(sourceIndex(row)===detail?.index)row.normalizeHeight();},
+    resizeDetail(keepVisible=false){
+      sizeDetail();if(!ready||!alive)return;
+      const selected=detail,held=focusedDetail()??(keepVisible?selected?.body:undefined),focusAt=focusVersion;
+      for(const row of table.getRows())if(sourceIndex(row)===selected?.index)row.normalizeHeight();
+      // Returning from a tall editor can leave its source row outside the
+      // virtual viewport. Restore only that still-current position, without
+      // taking focus from a control the person has moved to in the meantime.
+      if(keepVisible&&selected){
+        const stillSelected=()=>{const active=document.activeElement;return detail===selected&&!selected.body.hidden&&focusVersion===focusAt&&
+          (selected.body.contains(active)||active===null||active===document.body||active===document.documentElement);};
+        whenDrawn(selected.index,()=>restoreDetailFocus(held),stillSelected);
+      }
+    },
     /**
      * Moves focus to the row of a source index, scrolling it into view first, once the grid has drawn again: a change of the
      * grid's width, such as a closing panel's, redraws its rows in the frame after it, which would take focus from a row focused sooner.
@@ -213,6 +229,6 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     focusRow(index:number){whenDrawn(index,row=>row.getElement().focus({preventScroll:true}));},
     /** Scrolls the row of a source index into view, in the grid and in the page, as far as it takes to show it, once the grid has drawn again. */
     revealRow(index:number){whenDrawn(index,row=>row.getElement().scrollIntoView({block:'nearest'}));},
-    destroy(){if(!alive)return;alive=false;resizing.disconnect();gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',keepDetailFocusOnScroll,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;resizing.disconnect();gesture=undefined;container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',keepDetailFocusOnScroll,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);document.removeEventListener('focusin',focusChanged,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }

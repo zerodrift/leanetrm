@@ -39,4 +39,43 @@ export async function run({command,evaluate,wait,check,shot,idle,url}){
  await evaluate("document.querySelector('#resize-grid').style.width='885px'");await evaluate(frames);
  await check('a resized column keeps its width when the grid redraws at another width',`(()=>{const w=Math.round(document.querySelector('#resize-grid [role=columnheader][tabulator-field=c0]').getBoundingClientRect().width);return w===${handle.width+50}&&window.__grid.layout().widths.book===w;})()`,"({header:Math.round(document.querySelector('#resize-grid [role=columnheader][tabulator-field=c0]').getBoundingClientRect().width),layout:window.__grid.layout().widths})");
  await evaluate("window.__grid.destroy();document.querySelector('#resize-grid').remove()");
+ await detailShrink({command,evaluate,wait,check,idle,url});
+}
+
+export async function detailShrink({command,evaluate,wait,check,idle,url}){
+ const frames='new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))';
+ await command('Runtime.enable');await command('Page.enable');
+ await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1800,deviceScaleFactor:1,mobile:false});
+ await command('Page.navigate',{url});await wait(idle);
+ await evaluate(`(async()=>{
+  const [{renderDataGrid,emptyGridLayout},{setupPositionExpansion}]=await Promise.all([import('/data-grid.js'),import('/position-expansion.js')]);
+  const host=document.createElement('section');host.id='detail-shrink-grid';host.className='table-workspace';host.style='position:fixed;inset:24px;z-index:100;background:white;padding:16px';document.body.append(host);
+  const side={current:()=>null,show:async()=>true,reset(){},leave:async()=>true,ask:ask=>ask(new AbortController().signal),element(){throw Error('No side-panel mode belongs to this position fixture.');},form(){},reveal(){},focusForm(){},place(){}};
+  let grid;const expansion=setupPositionExpansion(side,{unsaved:()=>true,busy:()=>false,changed(){},closed(){},resized:keepVisible=>grid?.resizeDetail(keepVisible)});
+  const head=expansion.position.element('head');head.textContent='Synthetic position 1';head.style.height='180px';
+  const form=expansion.position.element('form'),read=expansion.position.element('view');
+  read.textContent='Retained terms of synthetic position 1';read.style.height='100px';
+  for(let i=0;i<80;i++){const label=document.createElement('label'),input=document.createElement('input');label.textContent='Synthetic editor field '+i;label.style.display='block';label.append(input);form.append(label);}
+  window.__shrink={expansion,host};
+  grid=renderDataGrid(host,'detail-shrink','synthetic',['Position'],Array.from({length:100},(_,i)=>['Synthetic position '+i]),[],()=>false,
+   {keys:['position'],layout:emptyGridLayout(),onLayout(){},onRowOpen:async index=>{await expansion.shell.show({kind:'position',tradeId:'synthetic-'+index,bindingId:'binding-'+index,revision:1});grid.selectRow(index);grid.detailRow(index,expansion.host);expansion.position.form(true);}});
+  window.__shrink.grid=grid;
+ })()`);
+ await wait('window.__shrink.grid.ready()');
+ await evaluate("document.querySelectorAll('#detail-shrink-grid .tabulator-row')[1].click()");
+ await wait("document.querySelector('#position-details')?.isConnected&&document.querySelector('#position-details-form').hidden===false");
+ await evaluate("void window.__shrink.expansion.ask({text:'The synthetic editor has unsaved changes.',keep:'Keep editing',go:'Discard changes'}).then(discard=>{if(discard)window.__shrink.expansion.position.form(false);})");
+ await wait("document.querySelector('#position-details-prompt')?.hidden===false");
+ await check('the unsaved-edit answer is visible after the virtual grid scrolls below the position cells',"(()=>{const h=document.querySelector('#detail-shrink-grid .tabulator-tableholder'),p=document.querySelector('#position-details-prompt'),r=h.getBoundingClientRect(),b=p.querySelector('button').getBoundingClientRect();return h.scrollTop>500&&b.top>=r.top&&b.bottom<=r.bottom;})()","({scroll:document.querySelector('#detail-shrink-grid .tabulator-tableholder').scrollTop,detail:document.querySelector('#position-details')?.getBoundingClientRect().toJSON(),prompt:document.querySelector('#position-details-prompt')?.getBoundingClientRect().toJSON()})");
+ await evaluate("document.querySelector('#position-details-prompt button:last-child').click()");
+ await evaluate(frames);
+ await wait("document.querySelector('#position-details')?.isConnected&&document.querySelector('#position-details-form').hidden&&document.querySelector('#position-details-view').getClientRects().length>0");
+ await check('discarding a scrolled editor keeps its same expanded position and short retained read visible',"(()=>{const p=document.querySelector('#position-details'),r=p.closest('.tabulator-row'),h=document.querySelector('#detail-shrink-grid .tabulator-tableholder').getBoundingClientRect(),b=p.getBoundingClientRect();return r.querySelector('[tabulator-field=c0]').textContent==='Synthetic position 1'&&r.getAttribute('aria-expanded')==='true'&&document.querySelectorAll('#detail-shrink-grid .open-row').length===1&&b.top<h.bottom&&b.bottom>h.top&&p.textContent.includes('Retained terms of synthetic position 1');})()");
+ // A close in the next action must cancel the queued positioning work.
+ await evaluate("window.__shrink.expansion.position.form(true);window.__shrink.expansion.host.focus()");await evaluate(frames);
+ await evaluate("(()=>{const s=window.__shrink;s.expansion.position.form(false);s.expansion.shell.reset();s.grid.detailRow(null,s.expansion.host);document.querySelector('#detail-shrink-grid .table-search').focus();document.querySelector('#detail-shrink-grid .tabulator-tableholder').scrollTop=1700;})()");
+ await evaluate(frames);
+ await check('a closed position cannot reclaim focus or scroll the later viewport back to its old row',
+  "!document.querySelector('#position-details')&&document.activeElement===document.querySelector('#detail-shrink-grid .table-search')&&document.querySelector('#detail-shrink-grid .tabulator-tableholder').scrollTop>=1600");
+ await evaluate("window.__shrink.grid.destroy();window.__shrink.host.remove();delete window.__shrink");
 }

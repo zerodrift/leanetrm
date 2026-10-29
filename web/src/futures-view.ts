@@ -189,7 +189,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // A swap's settlement figures need more room than a docked panel has: off a phone, the panel lies over the desk at a wider width.
     wide,
     changed:()=>{table?.fitColumns(dockedGiveUp());ladderTable?.fitColumns([]);modeChanged();placeRetained();},closed:()=>deskPanel.closed()});
-  const expansion=setupPositionExpansion(sidePanel,{unsaved:editing,busy,changed:()=>{modeChanged();placeRetained();},closed:()=>deskPanel.closed(),resized:()=>table?.resizeDetail()});
+  const expansion=setupPositionExpansion(sidePanel,{unsaved:editing,busy,changed:()=>{modeChanged();placeRetained();},closed:()=>deskPanel.closed(),resized:keepVisible=>table?.resizeDetail(keepVisible)});
   const panel=expansion.shell;
   // A request whose outcome is not known is kept with its Check status and Retry in a card, which is in the panel while the panel is open,
   // whatever it shows, and on the page when it is not, so that nothing leaves the person with no way to find out what became of it.

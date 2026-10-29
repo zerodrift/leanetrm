@@ -107,7 +107,8 @@ internal static class SwapRiskHoldingChecks
             var snapshot=data.Snapshot(frame);
             var final=data.Snapshot(frame with {ObservationIds=[request.Id("frozenObservationId")]}).Selections.Single();
             var frozen=snapshot with { Selections=snapshot.Selections.Add(final with {Input=final.Input with {Use=InputUse.FrozenFact}}) };
-            var holdings=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct,frozen);
+            var pinned=frame with{ContextId=current.ContextId};
+            var holdings=await store.ReadRiskHoldings(connection,data,pinned,[request.Id("bookId")],excluded:[],ct,frozen);
             var expected=request.GetProperty("holdings").EnumerateArray().ToArray();
             Check("actual persisted latest revisions retain their external quantities and exact references",holdings.Length==3&&holdings.All(holding=>
             {
@@ -118,6 +119,14 @@ internal static class SwapRiskHoldingChecks
             }));
             var shared=holdings.Where(h=>h.Instrument.Id==request.Id("sharedInstrumentId")).ToArray();
             Check("two stored trades reuse the same unit instrument and run-local payment provider",shared.Length==2&&ReferenceEquals(shared[0].Instrument,shared[1].Instrument)&&ReferenceEquals(shared[0].Discounting,shared[1].Discounting));
+            var sideGroups=holdings.SelectMany(h=>h.Instrument.Sides.Select(m=>(Instrument:h.Instrument.Id,m.Side)))
+                .GroupBy(m=>m.Side.Id).Where(g=>g.Select(m=>m.Instrument).Distinct().Count()>1).ToArray();
+            Check("different retained instruments load each shared immutable side schedule once per read",sideGroups.Length==2&&sideGroups.All(g=>
+                g.First().Side.RetainedSchedule is not null&&g.All(m=>ReferenceEquals(m.Side.RetainedSchedule,g.First().Side.RetainedSchedule))));
+            var anotherRead=await store.ReadRiskHoldings(connection,data,pinned,[request.Id("bookId")],excluded:[],ct,frozen);
+            Check("retained side content does not leak into another read on the same connection and context",anotherRead.All(h=>
+                h.Instrument.Sides.All(m=>!ReferenceEquals(m.Side.RetainedSchedule,holdings.First(p=>p.Instrument.Id==h.Instrument.Id)
+                    .Instrument.Sides.First(p=>p.Side.Id==m.Side.Id).Side.RetainedSchedule))));
             Check("the supplied frozen snapshot reaches every independently dated payment unchanged",holdings.All(h=>h.Discounting is CurrencyDefaultDiscounting provider&&
                 ReferenceEquals(provider.Snapshot,frozen)&&provider.Inputs.Values.All(input=>ReferenceEquals(input.Snapshot,frozen))));
             foreach(var holding in holdings)

@@ -1,9 +1,9 @@
 import {askLeave,askInPanel,sameMode,type PanelMode,type SidePanel} from './side-panel.js';
 
 /** Positions use a persistent row expansion; other desk modes use the side panel. */
-export function setupPositionExpansion(side:SidePanel,o:{unsaved:()=>boolean;busy:()=>boolean;changed:()=>void;closed:()=>void;resized:()=>void}){
+export function setupPositionExpansion(side:SidePanel,o:{unsaved:()=>boolean;busy:()=>boolean;changed:()=>void;closed:()=>void;resized:(keepVisible?:boolean)=>void}){
  const host=document.createElement('section');host.id='position-details';host.className='position-expansion';host.tabIndex=-1;host.hidden=true;host.setAttribute('aria-label','Position details');
- const close=document.createElement('button');close.type='button';close.className='secondary position-close';close.textContent='Close position';
+ const close=document.createElement('button');close.type='button';close.className='secondary position-close';close.textContent='Close position view';
  const part=(name:string)=>{const el=document.createElement('div');el.id=`${host.id}-${name}`;return el;};
  const parts={head:part('head'),tabs:part('tabs'),body:part('body'),view:part('view'),form:part('form'),prompt:part('prompt')};
  parts.prompt.className='side-panel-prompt';parts.prompt.setAttribute('role','alertdialog');parts.prompt.setAttribute('aria-label','Unsaved changes');
@@ -36,7 +36,12 @@ export function setupPositionExpansion(side:SidePanel,o:{unsaved:()=>boolean;bus
  function reset(){mode=null;abandonQuestion();host.hidden=true;side.reset();}
  const position={
   element:(name:'head'|'tabs'|'body'|'view'|'form')=>parts[name],
-  form(on:boolean){parts.view.hidden=on;parts.form.hidden=!on;},
+  form(on:boolean){
+   const active=document.activeElement,closing=!on&&!parts.form.hidden;
+   const keepVisible=closing&&mode!==null&&(!active||host.contains(active)||active===document.body||active===document.documentElement);
+   parts.view.hidden=on;parts.form.hidden=!on;
+   if(keepVisible)o.resized(true);
+  },
   reveal:()=>host.scrollIntoView({block:'nearest'}),
   focusForm(){
    const opening=mode,focus=()=>Array.from(parts.form.querySelectorAll<HTMLElement>('select:enabled,input:enabled:not([type=hidden]),textarea:enabled'))

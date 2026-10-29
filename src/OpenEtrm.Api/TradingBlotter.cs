@@ -124,6 +124,9 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   foreach(var partition in partitions)
   {
    var first=partition.First();var group=new JsonObject();
+   // A healthy subtotal cannot be the complete value of a group whose retained
+   // schedules need rebooking. Its individual healthy positions remain valued.
+   var needsRebooking=partition.Any(row=>Text(row,"unavailableReason")==PpaBlotter.NeedsRebooking);
    foreach(var d in view.GroupBy)
    {
     var field=dimensions[d];group[field=="curve"?"market":field]=(field=="curve"?first["marketKey"]??first[field]:first[field])?.DeepClone();
@@ -138,6 +141,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
    foreach(var measure in view.Measures)
    {
     if(measure=="tradeCount"){group[measure]=partition.Select(r=>Text(r,"tradeId")).Distinct().Count();continue;}
+    if(needsRebooking&&Valuation(measure)){group[measure]=null;continue;}
     var counted=Valuation(measure)?partition.Where(Valued).ToArray():partition.ToArray();
     if(PriceMeasures.TryGetValue(measure,out var price))
     {
@@ -152,6 +156,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
     else group[measure]=counted.Select(r=>ExactDecimal.Parse(Text(r,measure)!)).Aggregate((a,b)=>a+b).ToString();
    }
    group["unvaluedPositions"]=Unvalued(partition);
+   if(needsRebooking)group["valuationUnavailableReason"]=PpaBlotter.NeedsRebooking;
    groups.Add(group);
   }
   return groups;

@@ -159,10 +159,10 @@ public sealed partial class SwapStore
         var dated=Resolve(data,body,instrument,first,second);return(dated.Instrument,dated.Quantity);
     }
     private async Task<(SidedInstrument Instrument,Quantity Quantity)> ResolveRetained(NpgsqlConnection connection,PreviewData data,InputFrame frame,
-        SwapWriteRequest body,Guid instrument,Guid? first,Guid? second,CancellationToken ct)
+        SwapWriteRequest body,Guid instrument,Guid? first,Guid? second,CancellationToken ct,RetainedScheduleStore? schedules=null)
     {
         var resolved=ResolveAny(data,body,instrument,first,second);
-        return(RetainedSideSchedules.Attach(resolved.Instrument,await new RetainedScheduleStore(database).Load(connection,instrument,frame.ContextId,frame.ContextId is null?null:frame.At,ct)),resolved.Quantity);
+        return(RetainedSideSchedules.Attach(resolved.Instrument,await (schedules??new RetainedScheduleStore(database)).Load(connection,instrument,frame.ContextId,frame.ContextId is null?null:frame.At,ct)),resolved.Quantity);
     }
     private async Task<(PreviewData Data,InputFrame Frame)> ScheduledMarket(NpgsqlConnection connection,PreviewData data,InputFrame frame,Guid revision,CancellationToken ct)
     {
@@ -171,12 +171,12 @@ public sealed partial class SwapStore
     }
     private async Task<FinancialSwapValue> ScheduledPrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrument,CancellationToken ct)=>
         (await ScheduledPriceDetail(connection,data,frame,body,instrument,ct)).Value;
-    private async Task<(FinancialSwapValue Value,ScheduledResolution Resolved)> ScheduledPriceDetail(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrument,CancellationToken ct)
+    private async Task<(FinancialSwapValue Value,ScheduledResolution Resolved)> ScheduledPriceDetail(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrument,CancellationToken ct,RetainedScheduleStore? schedules=null)
     {
         (data,frame)=await ScheduledMarket(connection,data,frame,body.DefinitionRevisionId,ct);
         var resolved=ResolveScheduled(data,body,instrument);var snapshot=data.Snapshot(frame);
         if(instrument is {} retainedId)resolved=resolved with{Instrument=RetainedSideSchedules.Attach(resolved.Instrument,
-            await new RetainedScheduleStore(database).Load(connection,retainedId,frame.ContextId,frame.ContextId is null?null:frame.At,ct))};
+            await (schedules??new RetainedScheduleStore(database)).Load(connection,retainedId,frame.ContextId,frame.ContextId is null?null:frame.At,ct))};
         var mapping=body.Discounting==true?await Discount(connection,data,frame,resolved.Instrument.Currency,ct):null;
         if(frame.ContextId is not {} contextId)throw Error("swap_context","Pricing requires the exact retained context.");
         var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;

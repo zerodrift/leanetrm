@@ -9,17 +9,21 @@ class Element{
  focus(){if(this.isConnected)this.focused=true;}scrollIntoView(){}click(){this.onclick?.();}
  querySelector(selector){const all=this.children.flatMap(c=>[c,...c.descendants()]);return all.find(c=>selector===`#${c.id}`);}
  descendants(){return this.children.flatMap(c=>[c,...c.descendants()]);}
+ contains(node){return node===this||this.descendants().includes(node);}
 }
 function fixture(){
  const frames=[];globalThis.requestAnimationFrame=callback=>frames.push(callback);
  globalThis.document={createElement:()=>new Element()};globalThis.ResizeObserver=class{observe(){}};
- let mode=null,unsaved=false,busy=false;const sideParts={},closed=[];
+ let mode=null,unsaved=false,busy=false;const sideParts={},closed=[],resized=[];
  const side={current:()=>mode,show:async next=>{mode=next;return true;},reset:()=>{mode=null;},leave:async()=>true,ask:ask=>ask(new AbortController().signal),
   element:name=>sideParts[name]??=new Element(),form(){},reveal(){},focusForm(){},place(){}};
- const expansion=setupPositionExpansion(side,{unsaved:()=>unsaved,busy:()=>busy,changed(){},closed:()=>closed.push(true),resized(){}});
- return{...expansion,side,closed,paint:()=>frames.splice(0).forEach(callback=>callback()),edit:()=>{unsaved=true;},busy:value=>{busy=value;}};
+ const expansion=setupPositionExpansion(side,{unsaved:()=>unsaved,busy:()=>busy,changed(){},closed:()=>closed.push(true),resized:keepVisible=>resized.push(keepVisible)});
+ return{...expansion,side,closed,resized,paint:()=>frames.splice(0).forEach(callback=>callback()),edit:()=>{unsaved=true;},busy:value=>{busy=value;}};
 }
 const position={kind:'position',tradeId:'trade',bindingId:'binding',revision:2};
+test('the inline close control names only the position view it closes',()=>{
+ const f=fixture();assert.equal(f.host.children[0].textContent,'Close position view');
+});
 test('opening a position uses a row expansion and leaves the side panel available to New trade and Risk',async()=>{
  const f=fixture();await f.shell.show(position);
  assert.equal(f.host.hidden,false);assert.equal(f.side.current(),null);assert.deepEqual(f.shell.current(),position);
@@ -80,4 +84,14 @@ test('a close control detached during a refresh is enabled again when the page b
  assert.equal(close.disabled,false,'document-wide control updates cannot reach a detached detail');
  close.click();await new Promise(resolve=>setImmediate(resolve));
  assert.equal(f.host.hidden,true);assert.equal(f.closed.length,1);
+});
+
+test('returning a focused editor to its read keeps the current position visible, without moving another focus or a reset position',async()=>{
+ const f=fixture();await f.shell.show(position);f.position.form(true);document.activeElement=f.host;
+ f.position.form(false);assert.deepEqual(f.resized,[true]);
+ f.resized.length=0;f.position.form(false);assert.deepEqual(f.resized,[],'drawing the existing read must not keep scrolling it back');
+ f.position.form(true);document.activeElement=new Element();f.position.form(false);
+ assert.deepEqual(f.resized,[],'another control now owns focus');
+ f.position.form(true);f.shell.reset();document.activeElement=f.host;f.position.form(false);
+ assert.deepEqual(f.resized,[],'a reset must not bring back its old position');
 });

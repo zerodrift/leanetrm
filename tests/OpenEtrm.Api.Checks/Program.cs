@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--ppa-blotter-admission"]){await PpaBlotterAdmissionChecks.Run();return;}
 if(args is ["--position-facts"]){TradePositionFactsChecks.Run();return;}
 if(args is ["--swap-settlement-agent",var settlementAgentFixture]){await SwapSettlementAgentChecks.Run(settlementAgentFixture);return;}
 if(args is ["--reference-intake"]){await ReferenceCaptureChecks.Run();await ReferenceImportChecks.Run();return;}
@@ -86,6 +87,7 @@ AmountJsonChecks.Run();
 PilotReportChecks.Run();
 TableViewChecks.Run();
 TradingBlotterChecks.Run();
+await PpaBlotterAdmissionChecks.Run();
 RiskExclusionChecks.Run();
 RiskJobRunChecks.Run();
 PpaLimitChecks.Run();

@@ -46,6 +46,7 @@ public sealed partial class SwapStore
             m.Data.DefinitionRevision.CatalogId!=data.DefinitionRevision.CatalogId))
             throw Error("swap_context","Supplemental markets require unique exact revisions and the same retained context and instant, each with its exact pinned references.");
         var identities=new InstrumentIdentityMap(manifest.CatalogId);
+        var schedules=new RetainedScheduleStore(database);
         var providers=new Dictionary<Guid,ISideDiscounting>();
         var result=ImmutableArray.CreateBuilder<ResolvedSwapHolding>(rows.Length);
         foreach(var row in rows)
@@ -55,7 +56,7 @@ public sealed partial class SwapStore
             if(selected.Length!=1)throw Error("swap_risk_model","Every held swap requires its exact explicitly retained market revision.");
             var market=selected[0];
             var terms=Terms(market.Data,row,market.Frame.Id);
-            var resolved=await ResolveRetained(connection,market.Data,market.Frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
+            var resolved=await ResolveRetained(connection,market.Data,market.Frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules);
             var instrument=identities.Retain(resolved.Instrument);
             if(instrument.Id!=row.Id("instrument_id"))
                 throw Error("instrument_identity","Equivalent retained terms cannot replace an exact published instrument identity.");

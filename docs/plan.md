@@ -14,6 +14,11 @@ PostgreSQL; loading and atomic staging/publication are under local qualification
 0123–0125 require a schema release; a private
 from-zero pilot seed and PPA entry in New trade remain separate work.
 
+The D252 report amendment lists missing or unsupported retained PPA schedules as
+**Needs rebooking**, retains healthy position values and leaves affected complete
+totals unavailable. Admission removes the former per-trade full-preparation retry;
+direct valuation/risk, corruption and current-authority failures remain strict.
+
 The compact D258 trial retains native calculations as typed vector operations
 over exact grids in stock PostgreSQL, rather than expanded cell-operation rows.
 The [standalone experiment](side-block-experiment.md) qualifies bounded arithmetic
