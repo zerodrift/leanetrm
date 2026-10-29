@@ -18,6 +18,8 @@ public sealed record StopRequest(Guid TurnId);
 public sealed record MarkReadRequest(Guid ConversationId,long? Through);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CurveProposalRequest([property:JsonRequired] Guid TurnId,[property:JsonRequired] int Step);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record CurveDraftRequest([property:JsonRequired] Guid TurnId,[property:JsonRequired] int Step);
 
 // Turns over HTTP (docs/ai-assistant.md §7.2, §7.4, §8), in one scope: an ask admits the turn in the person's own
 // context, pins its context in a short transaction of its own and hands the turn's token to the worker with the
@@ -41,6 +43,17 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
         _=await CustomCurves.PreviewRead(connection,database,page,new(definition,pin.RequireFrame().Id),ct);
         _=await Recorded();
         return new{definition,origin=context,frameId=pin.RequireFrame().Id,engine=arguments.Engine,status="unpriced_draft"};
+    }
+    // The draft a draft target opens (D260): the curve and version a save step of the turn wrote, as the person's own context
+    // reads its saver, so only a draft they may read; the answer names the curve alone, never the turn or step it was saved in.
+    public async Task<object> CurveDraft(NpgsqlConnection connection,CurveDraftRequest body,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,
+            "SELECT curve_id,version FROM market_data.custom_curve_generation_savers WHERE catalog_id=$1 AND saved_by='assistant' AND turn_id=$2 AND step=$3",
+            database.Manifest.CatalogId,body.TurnId,body.Step);
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        if(!await reader.ReadAsync(ct))throw new OpenEtrm.MarketData.MarketDataException("custom_curve_draft_unavailable","This saved draft is not one you can open.");
+        return new{id=reader.GetGuid(0),version=reader.GetInt32(1)};
     }
     // A repeat answers with its turn as it stands: only the request that admitted a turn holds its token. However the
     // record write fails, the turn fails in a scope of its own (§7.2), and its ending is the answer once that lands.

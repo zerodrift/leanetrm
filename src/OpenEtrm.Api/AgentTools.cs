@@ -33,6 +33,8 @@ sealed record ToolCall(ToolOperation Operation,ToolArguments Arguments);
 abstract record ToolArguments;
 sealed record NoArguments:ToolArguments;
 sealed record PrepareCurveArguments(string Code,string Name,string Formula,string Engine):ToolArguments;
+// Save curve draft's request: the curve as it was prepared, and the assistant's own draft it revises, or none for a new curve.
+sealed record SaveCurveArguments(PrepareCurveArguments Curve,Guid? CurveId):ToolArguments;
 sealed record CurveArguments(string Curve):ToolArguments;
 sealed record ReferenceArguments(string Table,string Search):ToolArguments;
 sealed record PartyArguments(string Kind):ToolArguments;
@@ -73,7 +75,31 @@ public sealed record ToolStep(string Tool,string? Operation,JsonElement? Input,s
 {
     public NavigationTarget? Target {get;init;}
     public ImmutableArray<IssuedTarget> Issued {get;init;}=[];
+    // The record_tool_step answer of a step recorded in its own write's transaction (D260), which the worker publishes as
+    // it is; none for a step the worker records.
+    public JsonElement? Recorded {get;init;}
     public override string ToString()=>nameof(ToolStep);
+}
+
+// What a turn's steps write as the turn (§7.3, D260): each step's record, and the claim of a curve draft a save makes, both
+// with the turn's fencing token, which nothing else reads and no result, record, log or exception text carries.
+public sealed class TurnWrites
+{
+    readonly Guid turn;
+    readonly byte[] token;
+    public TurnWrites(Guid turn,byte[] token)=>(this.turn,this.token)=(turn,token.ToArray());
+
+    internal CurveDraftSaver Saver(int step)=>CurveDraftSaver.Assistant(turn,step,token);
+
+    // Records a step on `connection`, in whatever transaction it holds: its read's operation, instant and accesses, and a
+    // Navigate step's target with the turn's pinned context.
+    internal Task<JsonElement> Record(NpgsqlConnection connection,ToolStep step,TurnPin pin,CancellationToken ct)=>ModelProviders.Read(connection,
+        "SELECT assistant.record_tool_step($1,$2,$3,$4::text,$5::jsonb,$6::text,$7::timestamptz,$8::jsonb,$9::jsonb)::text",
+        [turn,token,step.Tool,(object?)step.Operation??DBNull.Value,step.Input is {} input?input.GetRawText():DBNull.Value,(object?)step.Code??DBNull.Value,
+            (object?)step.ReadAt??DBNull.Value,step.ReadAt is null?DBNull.Value:JsonSerializer.Serialize(step.Access,JsonSerializerOptions.Web),
+            step.Target is {} target?NavigationTargets.Json(target,pin).ToJsonString():DBNull.Value],ct);
+
+    public override string ToString()=>nameof(TurnWrites);
 }
 
 // The fixed tools (§7.3, §12 step 2): reads over the session-independent page reads, so pages and tools share each read
@@ -191,6 +217,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new("reference_data.table_v1","read_reference_data",ToolNeeds.View,MarketAccess,[]),
         new("custom_curves.catalog_v1","read_custom_curves",ToolNeeds.View,MarketAccess,[]),
         new("custom_curves.prepare_v1","prepare_custom_curve",ToolNeeds.Frame,MarketAccess,[]),
+        new("custom_curves.save_draft_v1","save_custom_curve_draft",ToolNeeds.CurrentOnlyFrame,MarketAccess,[]),
         new("jobs.list_v1","read_jobs",ToolNeeds.Operational,JobAccess,[]),
         new("jobs.history_v1","read_jobs",ToolNeeds.Operational,JobAccess,["job_not_found"])
     }.ToImmutableDictionary(o=>o.Id);
@@ -214,10 +241,10 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             case "read_custom_curves":members.Exactly();return new(Operations["custom_curves.catalog_v1"],new NoArguments());
             case "prepare_custom_curve":
                 members.Exactly("code","name","engine","formula");
-                var serialized=input.GetRawText();
-                if(Encoding.UTF8.GetByteCount(serialized)+serialized.Count(c=>c is ',' or ':')>8192)throw ToolInput.Invalid();
-                return new(Operations["custom_curves.prepare_v1"],new PrepareCurveArguments(members.Text("code",1,32,CustomCode()),
-                    members.Text("name",1,80),members.Formula("formula"),members.Choice("engine",OpenEtrm.MarketData.CustomCurves.RecipeEngine.Version)));
+                return new(Operations["custom_curves.prepare_v1"],PreparedCurve(members,input));
+            case "save_custom_curve_draft":
+                members.Exactly("code","name","engine","formula","curveId");
+                return new(Operations["custom_curves.save_draft_v1"],new SaveCurveArguments(PreparedCurve(members,input),members.Has("curveId")?members.Id("curveId"):null));
             case "read_jobs":return ParseJobs(members);
             case "read_market_data":
                 members.Exactly("view","curve");
@@ -270,6 +297,15 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         }
     }
 
+    // A curve as preparation takes it, within what a step's stored input keeps.
+    static PrepareCurveArguments PreparedCurve(ToolInput members,JsonElement input)
+    {
+        var serialized=input.GetRawText();
+        if(Encoding.UTF8.GetByteCount(serialized)+serialized.Count(c=>c is ',' or ':')>8192)throw ToolInput.Invalid();
+        return new(members.Text("code",1,32,CustomCode()),members.Text("name",1,80),members.Formula("formula"),
+            members.Choice("engine",OpenEtrm.MarketData.CustomCurves.RecipeEngine.Version));
+    }
+
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9_.-]*\z")] private static partial Regex CurveCode();
     [GeneratedRegex(@"^[a-z][a-z0-9_]{0,31}\z")] private static partial Regex CustomCode();
     [GeneratedRegex(@"^n[1-9][0-9]{0,8}\z")] private static partial Regex Handle();
@@ -316,7 +352,17 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         ["knowledge_timeline"]="The pinned knowledge cutoff cannot be certified for this read.",
         ["precision_loss"]="An exact result needs more precision than this read keeps.",
         ["jobs_current_only"]="Jobs are current operational records, which a historical view does not read.",
-        ["job_not_found"]="No job of the user's with this id exists. The assistant reads only the user's own jobs."
+        ["job_not_found"]="No job of the user's with this id exists. The assistant reads only the user's own jobs.",
+        ["historical_read_only"]="A historical view is read-only: curve drafts are saved only over working data. Nothing was saved.",
+        ["custom_curve_open_unsaved"]="The user has this curve open with unsaved edits. Ask them to save or discard their edits first. Nothing was saved.",
+        ["custom_curve_agent_scope"]="The assistant saves only a new curve, or a draft it saved in this conversation that no one has saved since; never a "+
+            "published curve or a person's draft. Nothing was saved.",
+        ["custom_curve_agent_claimed"]="The assistant saves one curve draft per step. Nothing was saved.",
+        ["custom_curve_catalog_limit"]="This catalog already holds 64 custom curves, the most it can. Nothing was saved.",
+        ["custom_curve_conflict"]="The curve or the exact references it was prepared with changed, or its code is already used. Nothing was saved: "+
+            "prepare it again, or choose another code.",
+        ["delegation_denied"]="The assistant saves a curve draft only while the user may author market data and the grant allows saving drafts. Nothing was saved.",
+        ["agent_runtime_unavailable"]="The assistant's turn is no longer running here. Nothing was saved."
     }.ToImmutableDictionary();
     internal const string GenericText="The read refused this request; its code states why.";
     internal static string Text(string code)=>Texts.GetValueOrDefault(code,GenericText);
@@ -350,8 +396,9 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     // Runs one request as a step (§7.3): checks its arguments and what it needs of the pin before any read, then reads in
     // the agent's request context, issuing the result's targets from the turn's next handle. A read that bound its context
     // joins the source set with every access it runs under, even when it is then denied or fails; a refusal before that
-    // adds none. Navigate resolves its target before its check, refusing an unissued handle with the input kept.
-    public async Task<ToolStep> Run(TurnReads turn,TurnTargets targets,ModelToolRequest request,CancellationToken ct)
+    // adds none. Navigate resolves its target before its check, refusing an unissued handle with the input kept. Save curve
+    // draft writes, and records its successful step itself, in the one transaction its write commits in (D260).
+    public async Task<ToolStep> Run(TurnReads turn,TurnTargets targets,ModelToolRequest request,TurnWrites writes,CancellationToken ct)
     {
         var (tool,input)=(request.Name,(JsonElement?)request.Input);
         ToolStep Before(string code,JsonElement? kept)=>new(tool,null,kept,code,null,[],Refusal(code),ToolStepEnd.Refusal);
@@ -360,6 +407,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         try
         {
             (call,dispatched)=Requested(turn,request);
+            if(call.Arguments is SaveCurveArguments draft&&DraftRefusal(turn,draft) is {} refusal)throw new ToolRefusal(refusal);
             Require(turn.Pin,call.Operation.Needs);
         }
         catch(ToolRefusal refused){return Before(refused.Code,refused.Code=="tool_arguments_invalid"?null:input);}
@@ -371,6 +419,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             if(!turn.Pin.Working&&PageReports.Operations(target.Page).Any(o=>Operations[o].Needs==ToolNeeds.Operational))return Before("jobs_current_only",input);
             return await Navigate(turn,tool,input!.Value,target,ct);
         }
+        if(call.Arguments is SaveCurveArguments save)return await SaveStep(turn,targets,tool,input!.Value,call,save,writes,ct);
         var operation=call.Operation;
         var access=operation.Access(database.Manifest);
         DateTimeOffset? readAt=null;
@@ -590,6 +639,7 @@ sealed class ToolInput
         return value.Length is >0 and <=6144&&Plain(value.Replace("\n","").Replace("\r","").Replace("\t",""))?value:throw Invalid();
     }
     public Guid Id(string name)=>Canonical(Member(name,JsonValueKind.String));
+    public bool Flag(string name)=>members.TryGetValue(name,out var value)&&value.ValueKind is JsonValueKind.True or JsonValueKind.False?value.GetBoolean():throw Invalid();
 
     public ImmutableArray<Guid> Ids(string name)
     {

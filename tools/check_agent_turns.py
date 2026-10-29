@@ -3,12 +3,14 @@ pinned-context record and the reserve, the worker's writes under the turn's toke
 tool steps, the source set and its rechecks, earlier turns' inclusion, cancellation and the sources that request it,
 recovery at a worker start, the owner's reads and the Providers directory's tests; in SQL, playing the asking request
 and the worker; owned synthetic preview only."""
+import base64
 import hashlib
 import json
 from pathlib import Path
 import re
 import secrets
 import subprocess
+import tempfile
 import threading
 import time
 from uuid import UUID, uuid4
@@ -16,7 +18,7 @@ from assistant_context import ISSUER, WINDOW, Contexts, check_guard, expect, hol
 from assistant_fixture import AGENTS, MODELS, Fixture
 from check_model_versions import command as model_command
 from check_provider_tests import Worker, bytea, usage
-from preview_client import PreviewClient
+from preview_client import PreviewClient, initial_frame
 
 ROOT = Path(__file__).resolve().parents[1]
 GRANTS = 'assistant/grants'
@@ -161,6 +163,437 @@ def check_job_reads_upgrade(query, migration):
         ('ALTER TABLE assistant.tool_read_access RENAME CONSTRAINT tool_read_access_check TO tool_read_access_renamed;', 'assistant.tool_read_access_check')))
 
 
+def check_curve_drafts_upgrade(query, migration):
+    """Before 0128 applies: it refuses a changed definition or privilege of the helpers it replaces."""
+    helpers = ('assistant.agent_tools()', 'assistant.is_navigation_target(assistant.turns,jsonb)', 'security.custom_curve_visible(uuid,uuid,integer)')
+    check_guard(query, migration, '0128', 'curve_drafts', (
+        *((f"ALTER FUNCTION {helper} SET work_mem='64kB';", helper) for helper in helpers),
+        *((f'GRANT EXECUTE ON FUNCTION {helper} TO PUBLIC;', helper) for helper in helpers)))
+
+
+def check_curve_drafts(query, check, catalog, first, follow, other):
+    """The assistant's draft-save scope (D260), playing saved drafts in SQL: `first` and `follow` are turns of one
+    conversation, `other` a turn of another conversation that has recorded tool steps under one model call."""
+    def writable(curve, version, turn):
+        return query(f"SELECT security.custom_curve_agent_writable('{catalog}',{curve},{version},{turn});")
+
+    def curve(name, *generations, published=False):
+        """A curve with version 1 at the last of `generations`, each a saver: None for none, 'person', or a turn id."""
+        identity = uuid4()
+        rows = [f"INSERT INTO market_data.custom_curves VALUES('{catalog}','{identity}','{name}');",
+                f"INSERT INTO market_data.custom_curve_versions VALUES('{catalog}','{identity}',1,1,'draft','Synthetic {name}','out',"
+                "'custom_curve_recipe_v2','{}');",
+                f"INSERT INTO market_data.custom_curve_nodes VALUES('{catalog}','{identity}',1,'out','output','{{}}');"]
+        for generation, saver in enumerate(generations, 1):
+            if generation > 1:
+                rows.append(f"UPDATE market_data.custom_curve_versions SET generation={generation} WHERE(catalog_id,curve_id)=('{catalog}','{identity}');")
+            if saver == 'person':
+                rows.append(f"INSERT INTO market_data.custom_curve_generation_savers SELECT '{catalog}','{identity}',1,{generation},'person',owner_id,NULL,NULL "
+                            f"FROM assistant.turns WHERE id='{first}';")
+            elif saver:
+                # The step's record is a deferred reference, which these rolled-back transactions never reach.
+                rows.append(f"INSERT INTO market_data.custom_curve_generation_savers SELECT '{catalog}','{identity}',1,{generation},'assistant',a.principal_id,"
+                            f"t.id,1 FROM assistant.turns t JOIN assistant.agents a ON a.id=t.agent_id WHERE t.id='{saver}';")
+        if published:
+            rows.append(f"UPDATE market_data.custom_curve_versions SET state='published',publication_order=(SELECT coalesce(max(publication_order),0)+1 "
+                        f"FROM market_data.custom_curve_versions WHERE catalog_id='{catalog}'),published_at=clock_timestamp(),publication_xid=pg_current_xact_id() "
+                        f"WHERE(catalog_id,curve_id)=('{catalog}','{identity}');")
+        return identity, ''.join(rows)
+
+    fresh = f"'{uuid4()}'"
+    person, by_person = curve('synthetic_person_draft', 'person')
+    assistant, by_assistant = curve('synthetic_assistant_draft', other)
+    taken, taken_over = curve('synthetic_taken_draft', other, 'person')
+    legacy, unrecorded = curve('synthetic_legacy_draft', None)
+    sealed, by_sealed = curve('synthetic_sealed_curve', other, published=True)
+    same_conversation = curve('synthetic_same_conversation', first)
+    answers = query('BEGIN;' + by_person + by_assistant + taken_over + unrecorded + by_sealed + same_conversation[1] + ';'.join((
+        f"SELECT security.custom_curve_agent_writable('{catalog}',{fresh},1,'{first}')",
+        f"SELECT security.custom_curve_agent_writable('{catalog}','{person}',1,'{first}')",
+        f"SELECT security.custom_curve_agent_writable('{catalog}','{same_conversation[0]}',1,'{follow}')",
+        f"SELECT security.custom_curve_agent_writable('{catalog}','{same_conversation[0]}',1,'{other}')",
+        f"SELECT security.custom_curve_agent_writable('{catalog}','{assistant}',1,'{other}')",
+        f"SELECT security.custom_curve_agent_writable('{catalog}','{taken}',1,'{other}')",
+        f"SELECT security.custom_curve_agent_writable('{catalog}','{legacy}',1,'{other}')",
+        f"SELECT security.custom_curve_agent_writable('{catalog}','{sealed}',1,'{other}')",
+        f"SELECT security.custom_curve_agent_writable('{catalog}','{assistant}',2,'{other}')",
+        f"SELECT security.custom_curve_agent_writable('{catalog}',{fresh},1,'{uuid4()}')",
+        f"SELECT security.custom_curve_agent_writable('{catalog}',{fresh},1,NULL)",
+        f"SELECT security.custom_curve_agent_writable(NULL,{fresh},1,'{first}')")) + ';ROLLBACK;').split()
+    check("the assistant may save a new curve's first draft, or a new generation of a draft whose latest generation it saved in the same "
+          "conversation; never a person's latest generation, one no saver was recorded for, a published version, or for an unknown turn",
+          answers == ['t', 'f', 't', 'f', 't', 'f', 'f', 'f', 'f', 'f', 'f', 'f'], answers)
+
+    # A draft target names a successful save step of its own turn; a refusal, another tool's step or another turn's is no target.
+    call = query(f"SELECT call_id FROM assistant.tool_steps WHERE turn_id='{other}' ORDER BY ordinal LIMIT 1;")
+    steps = (f"INSERT INTO assistant.tool_steps VALUES('{other}',90,'{call}','save_custom_curve_draft','custom_curves.save_draft_v1','{{}}',NULL,"
+             "clock_timestamp(),clock_timestamp()),"
+             f"('{other}',91,'{call}','save_custom_curve_draft',NULL,'{{}}','custom_curve_agent_scope',NULL,clock_timestamp()),"
+             f"('{other}',92,'{call}','prepare_custom_curve','custom_curves.prepare_v1','{{}}',NULL,clock_timestamp(),clock_timestamp()),"
+             f"('{other}',93,'{call}','save_custom_curve_draft','custom_curves.save_draft_v1','{{}}',NULL,clock_timestamp(),clock_timestamp());")
+    # Step 90 saved a draft and recorded the assistant as its saver; step 93 succeeded as an identical save, which records none.
+    target_draft, target_rows = curve('synthetic_target_draft')
+    steps += target_rows + (f"INSERT INTO market_data.custom_curve_generation_savers SELECT '{catalog}','{target_draft}',1,1,'assistant',a.principal_id,"
+                            f"t.id,90 FROM assistant.turns t JOIN assistant.agents a ON a.id=t.agent_id WHERE t.id='{other}';")
+    pinned = query("SELECT json_build_object('mode',knowledge_mode,'contextId',context_id,'frameId',frame_id)::text "
+                   f"FROM assistant.turns WHERE id='{other}';")
+
+    def target(step=90, turn=other, page='custom_curves', kind='draft', **extra):
+        selection = json.dumps({'turnId': turn, 'step': step, **extra})
+        return (f"SELECT assistant.is_navigation_target(t,jsonb_build_object('page','{page}','kind','{kind}','selection','{selection}'::jsonb,"
+                f"'context','{pinned}'::jsonb,'label','Curve builder: synthetic draft')) FROM assistant.turns t WHERE t.id='{other}'")
+    answers = query('BEGIN;' + steps + ';'.join((target(), target(91), target(92), target(1), target(turn=first), target(page='curves'),
+                                                target(note='x'), target(kind='proposal'), target(92, kind='proposal'), target(93))) + ';ROLLBACK;').split()
+    check("a draft target opens Curve builder at a successful save step of its own turn that recorded the assistant as a saver, with exactly "
+          "its turn and step; a refused save, an identical save that saved nothing, another tool's step, another turn, another page or another "
+          "selection is no target, and a proposal still names a preparation",
+          answers == ['t', 'f', 'f', 'f', 'f', 'f', 'f', 'f', 't', 'f'], answers)
+    # The risk worker reads who saved a generation, as it reads curve versions, and nothing more.
+    privileges = query("SELECT string_agg(has_column_privilege('openetrm_risk_worker','market_data.custom_curve_generation_savers',c,'SELECT')::text,',' "
+                       "ORDER BY o) FROM unnest(ARRAY['saved_by','generation','actor_id','turn_id','step']) WITH ORDINALITY u(c,o);")
+    inserts = query("SELECT has_table_privilege('openetrm_risk_worker','market_data.custom_curve_generation_savers','INSERT');")
+    check("the risk worker reads who saved a generation and never its actor, turn or step, and never records a saver",
+          privileges == 'true,true,false,false,false' and inserts == 'f', (privileges, inserts))
+
+
+def check_agent_curve_writes(query, psql, environment, check, contexts, catalog, turn, token, call, elsewhere):
+    """D260 in SQL under the agent's own request context: `turn` runs a published version that switches on Save curve draft,
+    asked by a market data editor under a covering grant, with fencing `token`; `call` is one of its model calls, and
+    `elsewhere` is another person's turn in another conversation. The agent writes a draft only for the curve version it
+    claimed, with the turn's token, for one successful save step of that turn, while it holds DraftCustomCurves and its
+    delegator holds WriteMarketDefinitions at every write and at commit; each claim saves exactly one new generation, recorded
+    as that step's, and the agent never publishes, activates or writes anything else."""
+    principal, delegation = query("SELECT a.principal_id||' '||t.delegation_id FROM assistant.turns t JOIN assistant.agents a ON a.id=t.agent_id "
+                                  f"WHERE t.id='{turn}';").split()
+    agent_role = "(SELECT id FROM security.roles WHERE code='agent_reader')"
+    editor_role = "(SELECT id FROM security.roles WHERE code='market_data_editor')"
+    drop_draft = f"DELETE FROM security.role_permissions WHERE(role_id,permission)=({agent_role},'DraftCustomCurves');"
+    drop_write = f"DELETE FROM security.role_permissions WHERE(role_id,permission)=({editor_role},'WriteMarketDefinitions');"
+    revoke = f"UPDATE security.agent_delegations SET revoked=true WHERE id='{delegation}';"
+    expire = f"UPDATE security.agent_delegations SET granted_to=clock_timestamp() WHERE id='{delegation}';"
+    cancel = f"SELECT assistant.request_cancel('{turn}','session_ended');"
+
+    def step(ordinal, code=None):
+        done = "'custom_curves.save_draft_v1','{}',NULL,clock_timestamp(),clock_timestamp()" if code is None else f"NULL,'{{}}','{code}',NULL,clock_timestamp()"
+        return f"INSERT INTO assistant.tool_steps VALUES('{turn}',{ordinal},'{call}','save_custom_curve_draft',{done});"
+
+    def issued(subject=principal, kind='agent_credential', delegated=f"'{delegation}'"):
+        return query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
+                     f"'{ISSUER}','{subject}','{kind}','{contexts.tenant}','{contexts.workspace}',{delegated},'preview_runtime',60);")
+
+    def bound(**subject):
+        return f"SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{issued(**subject)}');"
+
+    def run(setup, statement, ending='ROLLBACK', **subject):
+        return query(f"BEGIN;{setup}{bound(**subject)}{statement}{ending};")
+
+    def refused_at_commit(setup, statement, code):
+        try:
+            run(setup, statement, 'COMMIT')
+        except RuntimeError as error:
+            assert code in str(error), error
+        else:
+            raise AssertionError(f'An agent draft committed that {code} should refuse')
+
+    def denied(sql, code='42501'):
+        return f"DO $$BEGIN {sql};RAISE EXCEPTION 'Expected a refusal' USING ERRCODE='XX000';EXCEPTION WHEN SQLSTATE '{code}' THEN NULL;END$$;"
+
+    def unavailable(sql):
+        return (f"DO $$BEGIN {sql};RAISE EXCEPTION 'Expected a refusal' USING ERRCODE='XX000';"
+                "EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'agent_runtime_unavailable' THEN RAISE;END IF;END$$;")
+
+    def as_owner(sql):
+        return f"RESET SESSION AUTHORIZATION;{sql}SET LOCAL SESSION AUTHORIZATION preview_runtime;"
+
+    def claim(curve, version=1, ordinal=72, with_turn=turn, with_token=token, at=catalog):
+        return f"PERFORM security.claim_custom_curve_draft('{at}','{curve}',{version},'{with_turn}',{bytea(with_token)},{ordinal})"
+
+    def claimed(curve, **arguments):
+        return f"DO $$BEGIN {claim(curve, **arguments)};END$$;"
+
+    def draft(curve, code):
+        return (f"INSERT INTO market_data.custom_curves VALUES('{catalog}','{curve}','{code}');"
+                "INSERT INTO market_data.custom_curve_versions(catalog_id,curve_id,version,generation,state,name,output_node,engine_version,layout) "
+                f"VALUES('{catalog}','{curve}',1,1,'draft','Synthetic agent draft','out','custom_curve_recipe_v2','{{}}');"
+                f"INSERT INTO market_data.custom_curve_nodes VALUES('{catalog}','{curve}',1,'out','output','{{}}');")
+
+    def bump(curve, generation):
+        return (f"UPDATE market_data.custom_curve_versions SET generation={generation},name='Synthetic agent draft {generation}' "
+                f"WHERE(catalog_id,curve_id,version)=('{catalog}','{curve}',1);")
+
+    def saver(curve, generation, saved_by='assistant', ordinal=72, by_turn=turn):
+        actor = 'NULL,NULL' if saved_by == 'person' else f"'{by_turn}',{ordinal}"
+        return f"INSERT INTO market_data.custom_curve_generation_savers VALUES('{catalog}','{curve}',1,{generation},'{saved_by}','{principal}',{actor});"
+
+    mine, other = uuid4(), uuid4()
+    # Committed, through the real commit-time check: a new curve's first draft, then its revision under a second claim.
+    run(step(70), claimed(mine, ordinal=70) + draft(mine, 'synthetic_agent_draft') + saver(mine, 1, ordinal=70), 'COMMIT')
+    run(step(71), claimed(mine, ordinal=71) + bump(mine, 2) + saver(mine, 2, ordinal=71)
+        + f"DO $$BEGIN IF NOT security.custom_curve_visible('{catalog}','{mine}',1) THEN RAISE EXCEPTION 'The agent cannot read its own draft';END IF;END$$;",
+        'COMMIT')
+    check("under its own context the agent commits a new curve's first draft and then a revision, each claimed with its turn's token for one "
+          "successful save step and recorded as that step's (D260)",
+          query("SELECT string_agg(generation||':'||saved_by||':'||step,',' ORDER BY generation) FROM market_data.custom_curve_generation_savers "
+                f"WHERE(catalog_id,curve_id)=('{catalog}','{mine}');") == '1:assistant:70,2:assistant:71')
+    run(step(72), claimed(mine) + bump(mine, 3) + saver(mine, 3)
+        + denied(f"PERFORM security.publish_custom_curve('{catalog}','{mine}',1,3)")
+        + denied(f"PERFORM security.publish_custom_curve_activation('{catalog}','{mine}',gen_random_uuid(),0,'{{}}'::jsonb)")
+        + denied(f"UPDATE market_data.custom_curve_versions SET state='published' WHERE(catalog_id,curve_id)=('{catalog}','{mine}')")
+        + denied("INSERT INTO market_data.custom_curve_versions(catalog_id,curve_id,version,generation,state,name,output_node,engine_version,layout,"
+                 f"publication_order,published_at,publication_xid) VALUES('{catalog}','{mine}',2,1,'published','Synthetic sealed','out',"
+                 "'custom_curve_recipe_v2','{}',999,clock_timestamp(),pg_current_xact_id())")
+        + denied("INSERT INTO market_data.custom_curve_versions(catalog_id,curve_id,version,generation,state,name,output_node,engine_version,layout) "
+                 f"VALUES('{catalog}','{mine}',2,1,'draft','Synthetic second version','out','custom_curve_recipe_v2','{{}}')")
+        + denied(f"INSERT INTO market_data.custom_curves VALUES('{catalog}','{other}','synthetic_unclaimed')")
+        + denied(f"INSERT INTO market_data.date_schedules(catalog_id,id,symbol) VALUES('{catalog}','{uuid4()}','synthetic_agent_schedule')")
+        + denied(saver(mine, 3, 'person').rstrip(';')) + denied(saver(mine, 3, ordinal=71).rstrip(';'))
+        + denied(claim(mine), 'P0001'))
+    check('the agent never publishes, activates, seals or adds a version, writes an unclaimed curve or any other market definition, records '
+          "a save as a person's or another step's, or claims twice in one context")
+    for setup, statement, code in (
+            (step(72), claimed(mine) + bump(mine, 3), 'custom_curve_agent_saver'),
+            (step(72), claimed(mine) + bump(mine, 3) + saver(mine, 3) + 'SET CONSTRAINTS ALL IMMEDIATE;' + bump(mine, 4), 'custom_curve_agent_saver'),
+            (step(72), claimed(mine) + f"INSERT INTO market_data.custom_curve_nodes VALUES('{catalog}','{mine}',1,'extra','output','{{}}');",
+             'custom_curve_agent_saver'),
+            (step(72), claimed(mine) + bump(mine, 3) + saver(mine, 3) + bump(mine, 4) + saver(mine, 4), 'custom_curve_agent_saver'),
+            (step(72), claimed(other) + f"INSERT INTO market_data.custom_curves VALUES('{catalog}','{other}','synthetic_orphan');", 'custom_curve_agent_saver'),
+            (step(72, 'custom_curve_agent_scope'), claimed(mine) + bump(mine, 3) + saver(mine, 3), 'custom_curve_agent_saver'),
+            (step(72), claimed(mine) + bump(mine, 3) + saver(mine, 3) + as_owner(revoke), 'delegation_denied'),
+            (step(72), claimed(mine) + bump(mine, 3) + saver(mine, 3) + as_owner(drop_write), 'delegation_denied'),
+            (step(72), claimed(mine) + bump(mine, 3) + saver(mine, 3) + as_owner(cancel), 'delegation_denied')):
+        refused_at_commit(setup, statement, code)
+    check('a claim commits exactly one new generation recorded as its successful save step, checked on every agent write so setting constraints '
+          'immediate checks each later write; a missing saver, a write without a new generation, two generations, an orphan curve or a refused '
+          "step is refused, and so is a revocation, cancellation or loss of the person's authoring before commit")
+    # A claim holds the version row and the turn until it commits: a person's save and a cancel wait for it.
+    holder = (f"{step(72)}{bound()}SELECT 1 FROM (SELECT security.claim_custom_curve_draft('{catalog}','{mine}',1,'{turn}',{bytea(token)},72))x")
+
+    def waits():
+        for statement in (f"UPDATE market_data.custom_curve_versions SET name='Synthetic person save' WHERE(catalog_id,curve_id)=('{catalog}','{mine}');",
+                          cancel):
+            try:
+                query(f"SET lock_timeout='300ms';{statement}")
+            except RuntimeError as error:
+                assert 'lock timeout' in str(error), error
+            else:
+                raise AssertionError('A claim did not hold its version and turn')
+    holding(psql, environment, holder, waits)
+    check("a claim holds its version and turn until it commits, so a person's save and a cancel wait for the agent's save")
+    person_draft, theirs = uuid4(), uuid4()
+    held = (f"{draft(person_draft, 'synthetic_person_held')}{saver(person_draft, 1, 'person')}"
+            f"{draft(theirs, 'synthetic_other_conversation')}{saver(theirs, 1, by_turn=elsewhere, ordinal=1)}")
+    run(held, denied(claim(person_draft), 'P0001') + denied(claim(theirs), 'P0001') + denied(claim(uuid4(), version=2), 'P0001')
+        + f"DO $$BEGIN UPDATE market_data.custom_curve_versions SET name='Synthetic taken' WHERE(catalog_id,curve_id)=('{catalog}','{person_draft}');"
+        "IF FOUND THEN RAISE EXCEPTION 'The agent changed a person''s draft';END IF;END$$;")
+    run('', denied(f"INSERT INTO market_data.custom_curves VALUES('{catalog}','{uuid4()}','synthetic_agent_unclaimed')"))
+    for setup in (drop_draft, drop_write, revoke, expire, cancel):
+        run(setup, denied(claim(uuid4())))
+    run('', unavailable(claim(uuid4(), with_token=b'\x01' * 32)) + denied(claim(uuid4(), at=uuid4()))
+        + unavailable(claim(uuid4(), with_turn=elsewhere)) + denied(claim(uuid4(), ordinal=0)))
+    run('UPDATE assistant.worker_generation SET generation=generation+1;', unavailable(claim(uuid4())))
+    run('', denied(claim(uuid4())), subject='editor', kind='human_interactive', delegated='NULL')
+    check("a claim is refused for a person's draft, another conversation's draft, a new curve's later version, without DraftCustomCurves on "
+          "the agent or WriteMarketDefinitions on its delegator, under a revoked or expired grant, for a cancelled turn, without the turn's "
+          "token, in another catalog, for another person's turn, from a worker of an earlier generation, or outside an agent context; nothing "
+          "is written without one")
+    # A catalog holds at most 64 curves, counted across the catalog: people's drafts the agent cannot see count too.
+    held = int(query(f"SELECT count(*) FROM market_data.custom_curves WHERE catalog_id='{catalog}';"))
+    assert held < 63, held
+    fill = ''.join(draft(identity, f'synthetic_person_limit_{n}') + saver(identity, 1, 'person')
+                   for n, identity in enumerate(uuid4() for _ in range(63 - held)))
+    def hidden(curves):
+        return (f"DO $$BEGIN IF(SELECT count(*) FROM market_data.custom_curve_versions WHERE catalog_id='{catalog}')>={curves}"
+                " THEN RAISE EXCEPTION 'The agent sees the people''s drafts';END IF;END$$;")
+    at_limit = (f"DO $$BEGIN {claim(uuid4())};RAISE EXCEPTION 'Expected a refusal' USING ERRCODE='XX000';"
+                "EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'custom_curve_catalog_limit' THEN RAISE;END IF;END$$;")
+    run(step(72) + fill, hidden(63) + claimed(uuid4()))
+    run(step(72) + fill + draft(uuid4(), 'synthetic_person_limit_last'), hidden(64) + at_limit)
+    check("a new curve's claim is refused custom_curve_catalog_limit once the catalog holds 64 curves, counting people's drafts the "
+          "agent cannot see, and is taken below that")
+    # An identical definition is a save that writes nothing (D260): its claim alone commits, and a retry does the same.
+    for _ in range(2):
+        run(step(73) if _ == 0 else '', claimed(mine, ordinal=73), 'COMMIT')
+    check('a claim that writes nothing, as an identical save does, commits unchanged, and so does its retry',
+          query("SELECT generation FROM market_data.custom_curve_versions "
+                f"WHERE(catalog_id,curve_id,version)=('{catalog}','{mine}',1);") == '2')
+    for revoked in (drop_draft, drop_write):
+        run(step(72), claimed(uuid4()) + as_owner(revoked)
+            + denied(f"INSERT INTO market_data.custom_curves VALUES('{catalog}','{uuid4()}','synthetic_agent_draft')"))
+    check("each draft write rechecks the agent's DraftCustomCurves and its delegator's current WriteMarketDefinitions")
+    check('the runtime cannot probe the assistant scope directly',
+          query("SELECT has_function_privilege('openetrm_runtime','security.custom_curve_agent_writable(uuid,uuid,integer,uuid)','EXECUTE');") == 'f')
+
+
+def check_assistant_curve_saves(query, check, dotnet, environment, catalog, turn, token, call):
+    """D260 through the managed store (CustomCurvesStore.Save) under the agent's own context, as the Save curve draft tool
+    will run it: `turn` is a running turn of a drafting agent with fencing `token` and `call` one of its model calls. Each
+    generation the store writes records who saved it; the assistant's identical save writes nothing; a refused claim
+    writes nothing, unless the exact references it resolves to have moved; and no read or receipt carries the turn's token."""
+    principal, delegation = query("SELECT a.principal_id||' '||t.delegation_id FROM assistant.turns t JOIN assistant.agents a ON a.id=t.agent_id "
+                                  f"WHERE t.id='{turn}';").split()
+    steps = list(range(80, 87))
+    # The tool records its successful step in the save's own transaction; here each is recorded first.
+    query(''.join(f"INSERT INTO assistant.tool_steps VALUES('{turn}',{ordinal},'{call}','save_custom_curve_draft',"
+                  "'custom_curves.save_draft_v1','{}',NULL,clock_timestamp(),clock_timestamp());" for ordinal in steps))
+    definition = {'code': f'synthetic_saved_{uuid4().hex[:8]}', 'name': 'Synthetic assistant draft', 'output': 'out', 'nodes': [
+        {'id': 'source', 'kind': 'source', 'parameters': {'curve': 'future'}, 'inputs': {}},
+        {'id': 'select', 'kind': 'select', 'parameters': {'mode': 'positions', 'first': '1', 'count': '1', 'binding': 'context'}, 'inputs': {'source': 'source'}},
+        {'id': 'dates', 'kind': 'dates', 'parameters': {'mode': 'context', 'sampling': 'context_utc_time', 'corrections': 'exact_context_frame_history_latest_visible'}, 'inputs': {}},
+        {'id': 'sample', 'kind': 'sample', 'parameters': {}, 'inputs': {'selection': 'select', 'dates': 'dates'}},
+        {'id': 'out', 'kind': 'output', 'parameters': {}, 'inputs': {'values': 'sample'}}]}
+
+    def stored(**moved):
+        """Runs the store's checks under the agent's context; returns the identities they report."""
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / 'curve-savers.json'
+            fixture.write_text(json.dumps({'principal': principal, 'delegation': delegation, 'turn': turn, 'token': token.hex(), 'steps': steps,
+                                           'definition': definition, **moved}))
+            ran = subprocess.run([str(dotnet), 'run', '--project', 'tests/OpenEtrm.Api.Checks', '--', '--custom-curve-savers', str(fixture)],
+                                 cwd=ROOT, env=environment, capture_output=True, text=True, timeout=180)
+        assert ran.returncode == 0, ran.stdout + ran.stderr
+        lines = [line for line in ran.stdout.splitlines() if line.strip()]
+        for line in lines[:-1]:
+            print(line, flush=True)
+        return json.loads(lines[-1])
+    saved = stored()
+    curve = saved['curve']
+    check('through the store, each generation records its saver: the assistant with its turn and step, then a person',
+          query("SELECT string_agg(generation||':'||saved_by||':'||coalesce(step::text,'-')||':'||coalesce(turn_id::text,'-'),',' ORDER BY generation) "
+                f"FROM market_data.custom_curve_generation_savers WHERE(catalog_id,curve_id,version)=('{catalog}','{curve}',1);")
+          == f'1:assistant:80:{turn},2:assistant:81:{turn},3:person:-:-')
+    receipts = query("SELECT string_agg(request_id||':'||(actor_id='"+principal+"'),',' ORDER BY request_id) FROM market_data.custom_curve_requests "
+                     f"WHERE catalog_id='{catalog}' AND request_id IN({','.join(repr(r) for r in saved['requests'])});")
+    check("the assistant's saves keep their receipts under its own principal, a person's under theirs, and the assistant's identical save "
+          'and every refused save write none',
+          sorted((receipts or '').split(',')) == sorted([f'{r}:true' for r in saved['receipted']] + [f'{r}:false' for r in saved['personal']]),
+          receipts)
+    check('a refused save leaves no curve, version or saver behind',
+          query(f"SELECT count(*) FROM market_data.custom_curves WHERE catalog_id='{catalog}' AND code IN({','.join(repr(c) for c in saved['refusedCodes'])});") == '0'
+          and query(f"SELECT count(*) FROM market_data.custom_curve_generation_savers WHERE turn_id='{turn}' AND step IN(82,83,84);") == '0')
+    # The second draft's source now names an earlier exact bundle, as a draft saved before a release would: a synthetic
+    # sealed copy of the selected definition revision holding the same source curve. The owner rewrites the pin directly,
+    # with triggers off, since no save may pin a bundle other than the selected one.
+    moving = saved['moving']
+    selected = query(f"SELECT source_revision_id FROM market_data.custom_curve_node_sources WHERE(catalog_id,curve_id,version)=('{catalog}','{moving}',1);")
+    earlier = uuid4()
+    query(f"""BEGIN;SET LOCAL session_replication_role=replica;
+        INSERT INTO market_data.revisions SELECT (jsonb_populate_record(r,jsonb_build_object('id','{earlier}'))).* FROM market_data.revisions r
+         WHERE(catalog_id,id)=('{catalog}','{selected}');
+        INSERT INTO market_data.curves SELECT (jsonb_populate_record(c,jsonb_build_object('revision_id','{earlier}'))).* FROM market_data.curves c
+         WHERE(catalog_id,revision_id,code)=('{catalog}','{selected}','future');
+        UPDATE market_data.custom_curve_node_sources SET source_revision_id='{earlier}' WHERE(catalog_id,curve_id,version)=('{catalog}','{moving}',1);
+        COMMIT;""")
+    resaved = stored(moved=moving)
+    check("the assistant's identical graph whose exact references moved is a new generation, recorded as its step's and pinned to the "
+          'selected bundle, with its receipt',
+          query("SELECT string_agg(generation||':'||saved_by||':'||step,',' ORDER BY generation) FROM market_data.custom_curve_generation_savers "
+                f"WHERE(catalog_id,curve_id,version)=('{catalog}','{moving}',1);") == '1:assistant:85,2:assistant:86'
+          and query(f"SELECT string_agg(DISTINCT source_revision_id::text,',') FROM market_data.custom_curve_node_sources "
+                    f"WHERE(catalog_id,curve_id,version)=('{catalog}','{moving}',1);") == selected
+          and query(f"SELECT count(*) FROM market_data.custom_curve_requests WHERE request_id='{resaved['request']}' AND actor_id='{principal}';") == '1')
+    hidden = (token.hex(), base64.b64encode(token).decode())
+    check("no receipt or saver read carries the turn's token",
+          query("SELECT count(*) FROM market_data.custom_curve_requests WHERE "
+                + ' OR '.join(f"strpos(response::text||payload::text,'{value}')>0" for value in hidden) + ';') == '0')
+
+
+def check_curve_draft_tool(query, check, dotnet, environment, catalog, stamp, tool_turn, editor, approver, worker, end_turn):
+    """Save curve draft as the worker runs it (D260): AgentTools.Run, on running turns of a drafting agent a market data editor
+    granted, records each successful save step in the save's own transaction and leaves every refused one to the worker's
+    ordinary record. `tool_turn` gives a turn of that agent asked from Curve builder, pinned to a working frame, whose call
+    stopped for tools; `editor` saves and `approver` publishes as a person; `worker` holds the agent-worker lock."""
+    definition = {'code': f'synthetic_tool_{stamp}', 'name': 'Synthetic tool draft', 'output': 'out', 'nodes': [
+        {'id': 'source', 'kind': 'source', 'parameters': {'curve': 'future'}, 'inputs': {}},
+        {'id': 'select', 'kind': 'select', 'parameters': {'mode': 'positions', 'first': '1', 'count': '1', 'binding': 'context'}, 'inputs': {'source': 'source'}},
+        {'id': 'dates', 'kind': 'dates', 'parameters': {'mode': 'context', 'sampling': 'context_utc_time', 'corrections': 'exact_context_frame_history_latest_visible'}, 'inputs': {}},
+        {'id': 'sample', 'kind': 'sample', 'parameters': {}, 'inputs': {'selection': 'select', 'dates': 'dates'}},
+        {'id': 'out', 'kind': 'output', 'parameters': {}, 'inputs': {'values': 'sample'}}]}
+
+    def run(phase, turn, started, **extra):
+        """Runs one phase of CustomCurveToolChecks; returns the identities it reports."""
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / 'curve-tool.json'
+            fixture.write_text(json.dumps({'phase': phase, 'turn': started['turn'], 'started': started['started'], 'token': turn.token.hex(),
+                                           'definition': definition, **extra}))
+            ran = subprocess.run([str(dotnet), 'run', '--project', 'tests/OpenEtrm.Api.Checks', '--', '--custom-curve-tool', str(fixture)],
+                                 cwd=ROOT, env=environment, capture_output=True, text=True, timeout=180)
+        assert ran.returncode == 0, ran.stdout + ran.stderr
+        lines = [line for line in ran.stdout.splitlines() if line.strip()]
+        for line in lines[:-1]:
+            print(line, flush=True)
+        return json.loads(lines[-1])
+
+    def rows(sql):
+        return query(f"SELECT coalesce(string_agg(x,',' ORDER BY x),'') FROM({sql})r(x);")
+
+    def steps(turn):
+        return query(f"SELECT string_agg(ordinal||':'||coalesce(operation,'-')||':'||coalesce(code,'-'),',' ORDER BY ordinal) FROM assistant.tool_steps "
+                     f"WHERE turn_id='{turn.id}';") or ''
+
+    # A curve a person published and a draft a person saved, which the agent cannot see.
+    frame = editor.frame()
+    def person_save(code):
+        return editor.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame, 'layout': {},
+                                                  'definition': {**definition, 'code': code, 'name': 'Synthetic person curve'}})
+    published_code, hidden_code = f'synthetic_sealed_{stamp}', f'synthetic_hidden_{stamp}'
+    sealed = person_save(published_code)
+    approver.call('custom-curves/publish', {'requestId': str(uuid4()), **{k: sealed[k] for k in ('id', 'version', 'generation')}})
+    hidden = person_save(hidden_code)
+
+    main, started = tool_turn()
+    saved = run('main', main, started, published=sealed['id'], publishedCode=published_code, hidden=hidden['id'], hiddenCode=hidden_code)
+    curve = saved['curve']
+    principal = query(f"SELECT a.principal_id FROM assistant.turns t JOIN assistant.agents a ON a.id=t.agent_id WHERE t.id='{main.id}';")
+    check("each successful save step is recorded in its draft's own transaction, as the assistant's saver of exactly the generation it wrote, "
+          "and every refused step by the worker's ordinary record, with nothing written",
+          steps(main) == ('1:custom_curves.save_draft_v1:-,2:custom_curves.save_draft_v1:-,3:custom_curves.save_draft_v1:-,4:-:custom_curve_open_unsaved,'
+                          '5:-:historical_read_only,6:custom_curves.save_draft_v1:custom_curve_agent_scope,7:custom_curves.save_draft_v1:custom_curve_conflict')
+          and rows(f"SELECT generation||':'||saved_by||':'||step FROM market_data.custom_curve_generation_savers WHERE turn_id='{main.id}'")
+          == f'1:assistant:1,2:assistant:2'
+          and query(f"SELECT count(DISTINCT curve_id) FROM market_data.custom_curve_generation_savers WHERE turn_id='{main.id}';") == '1'
+          and query(f"SELECT curve_id FROM market_data.custom_curve_generation_savers WHERE turn_id='{main.id}' LIMIT 1;") == curve
+          and query(f"SELECT count(*) FROM market_data.custom_curve_requests WHERE actor_id='{principal}' AND curve_id='{curve}';") == '2'
+          and query(f"SELECT count(*) FROM market_data.custom_curves WHERE id='{saved['hiddenRefused']}' OR code='{definition['code']}_h';") == '0'
+          and query(f"SELECT count(*) FROM market_data.custom_curves WHERE code='{hidden_code}';") == '1',
+          (steps(main), saved))
+    pinned = query("SELECT json_build_object('mode',knowledge_mode,'contextId',context_id,'frameId',frame_id)::text "
+                   f"FROM assistant.turns WHERE id='{main.id}';")
+    targets = query(';'.join(f"SELECT assistant.is_navigation_target(t,jsonb_build_object('page','custom_curves','kind','draft','selection',"
+                             f"jsonb_build_object('turnId','{main.id}','step',{step}),'context','{pinned}'::jsonb,'label','Saved curve draft: x')) "
+                             f"FROM assistant.turns t WHERE t.id='{main.id}'" for step in (1, 2, 6)) + ';').split()
+    check('the draft targets the saves issue are targets the database accepts for their steps, and a refused step is none', targets == ['t', 't', 'f'], targets)
+    end_turn(main)
+
+    # Losing the person's authoring between preparing and saving refuses delegation_denied and writes nothing.
+    editor_role = "(SELECT id FROM security.roles WHERE code='market_data_editor')"
+    kept = query(f"SELECT coalesce(json_agg(p),'[]')::text FROM security.role_permissions p WHERE(role_id,permission)=({editor_role},'WriteMarketDefinitions');")
+    revoked, started = tool_turn()
+    query(f"DELETE FROM security.role_permissions WHERE(role_id,permission)=({editor_role},'WriteMarketDefinitions');")
+    try:
+        refused_curve = run('revoked', revoked, started)['curve']
+    finally:
+        query("INSERT INTO security.role_permissions SELECT * FROM json_populate_recordset(NULL::security.role_permissions,'" + kept.replace("'", "''") + "'::json);")
+    end_turn(revoked)
+    check("revoked authoring refuses save: the person's loss of market-data authoring before the save refuses it delegation_denied, writing nothing",
+          query(f"SELECT count(*) FROM market_data.custom_curves WHERE id='{refused_curve}';") == '0'
+          and query(f"SELECT count(*) FROM market_data.custom_curve_generation_savers WHERE turn_id='{revoked.id}';") == '0')
+    # A cancelled turn leaves no draft: its save is refused, and so is the step retried.
+    cancelled, started = tool_turn()
+    query(f"SELECT assistant.request_cancel('{cancelled.id}','session_ended');")
+    refused_curve = run('cancelled', cancelled, started)['curve']
+    check('cancelled turn leaves no draft: a save step of a turn whose cancel was requested, and its retry, are refused and write nothing',
+          query(f"SELECT count(*) FROM market_data.custom_curves WHERE id='{refused_curve}';") == '0'
+          and query(f"SELECT count(*) FROM market_data.custom_curve_generation_savers WHERE turn_id='{cancelled.id}';") == '0'
+          and steps(cancelled) == '')
+    end_turn(cancelled)
+    # A worker of an earlier generation claims nothing.
+    stale, started = tool_turn()
+    worker.generation = int(worker.run('SELECT assistant.start_worker();'))
+    refused_curve = run('stale', stale, started)['curve']
+    check("a stale worker is refused: a save step whose worker's generation has ended is refused agent_runtime_unavailable and writes nothing",
+          query(f"SELECT count(*) FROM market_data.custom_curves WHERE id='{refused_curve}';") == '0' and steps(stale) == '')
+
+
 PIN = 'assistant.pin_turn(uuid,bytea,date,jsonb,integer)'
 
 
@@ -205,7 +638,7 @@ class Turn:
         self.id = None
 
 
-def run_checks(url, query, psql, manifest, environment):
+def run_checks(url, query, psql, manifest, environment, dotnet):
     contexts = Contexts(query, manifest)
     passed = 0
 
@@ -1319,6 +1752,42 @@ def run_checks(url, query, psql, manifest, environment):
           and len(unreadable) == 2 and all(payloads(read, 'navigation') == [{'hidden': 'access_changed'}] * 2
                                           and payloads(read, 'step') == payloads(readable, 'step') for read in unreadable)
           and state(navigating) == 'completed:-', (readable, unreadable))
+    check_curve_drafts(query, check, catalog, first.id, follow.id, navigating.id)
+    drafter = agent('drafter', tools=('read_custom_curves', 'prepare_custom_curve', 'save_custom_curve_draft'), roles=('market_data_editor',))
+    grant(curator, drafter)
+    drafting = Turn()
+    ran(drafting, login('curator'), agent_id=drafter['id'])
+    opened = open_call(drafting)['opened']
+    check_agent_curve_writes(query, psql, environment, check, contexts, catalog, drafting.id, drafting.token, opened['call'], first.id)
+    check_assistant_curve_saves(query, check, dotnet, environment, catalog, drafting.id, drafting.token, opened['call'])
+    close_call(drafting, opened)
+    end(drafting)
+
+    class CurveEditor(Person):
+        def frame(self):
+            people.call('profile', {'profile': self.profile})
+            return initial_frame(people.call('workspace/navigation'), '2020-12-18')['id']
+    tool_frame = str(uuid4())
+    tool_pins = {'at': '2020-12-18T16:00:00Z', 'curveContracts': {}, 'frameId': tool_frame, 'frozenObservationIds': [], 'name': 'Synthetic working inputs',
+                 'observationIds': [], 'resolvesLatestCorrection': False, 'swapMarketSelections': None}
+
+    def tool_turn():
+        """A turn of the drafting agent asked from Curve builder with no curve open, pinned to a working frame, whose first call stopped for tools."""
+        turn = Turn()
+        asked = ask(turn, login('curator'), agent_id=drafter['id'], frame=tool_frame,
+                    report={'page': 'custom_curves', 'selection': {'curve': None, 'unsaved': False}})
+        assert 'turn' in asked, asked
+        pin(turn, login('curator'), pins=tool_pins)
+        started = start(turn)
+        assert 'started' in started, started
+        close_call(turn, open_call(turn)['opened'], stop='tool_use', requests=8)
+        return turn, started
+
+    def end_turn(turn):
+        end(turn, 'failed', 'request_cancelled')
+    check_curve_draft_tool(query, check, dotnet, environment, catalog, stamp, tool_turn, CurveEditor('editor'), Person('approver'), worker, end_turn)
+    # A market data editor may use no agent once these checks are done, as the browser checks expect.
+    admin.call(f'{AGENTS}/retire', {'operationId': str(uuid4()), 'agentId': drafter['id'], 'expectedVersion': drafter['version']})
 
     # A close names how a call that completed stopped, and only such a call (§7.4); one stopped at its output limit
     # neither completes its turn nor is followed.

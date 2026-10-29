@@ -66,6 +66,7 @@ test("a version's rows state every field it was saved with, by name",()=>{
   // A role that no longer uses agents is still named as saved; an unknown tool or vendor cannot be shown.
   assert.equal(versionRows(version({allowedRoles:['viewer','trader']}),directory,instant)[6][1],'viewer (no longer uses agents), Trader');
   assert.equal(versionRows(version({tools:['read_current_page','read_jobs']}),directory,instant)[5][1],'Read current page, Read jobs');
+  assert.equal(versionRows(version({tools:['prepare_custom_curve','save_custom_curve_draft']}),directory,instant)[5][1],'Prepare proposed curve, Save curve draft');
   for(const changes of [{tools:['read_everything']},{model:{...version().model,vendor:'unknown'}}])
     assert.throws(()=>versionRows(version(changes),directory,instant),/inconsistent/);
 });

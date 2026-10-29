@@ -5,6 +5,57 @@ from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
 
 
+def check_generation_savers(query,catalog,curve,generation,token):
+    """Each draft generation names who saved it (D260): a person, or the assistant with the turn and step that saved it.
+    `curve` has a published version 1 and a draft version 2 at `generation`, each generation saved by the editor through the
+    API; `token(profile)` issues a request context."""
+    def refused(sql,errcode,profile=None):
+        bind=f"SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token(profile)}');" if profile else ''
+        query(f"""BEGIN;{bump}{bind}DO $$BEGIN {sql};
+            RAISE EXCEPTION 'Expected a refused saver record' USING ERRCODE='XX000';
+          EXCEPTION WHEN SQLSTATE '{errcode}' THEN NULL;END$$;ROLLBACK;""")
+    editor,approver=(query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='{subject}';") for subject in ('editor','approver'))
+    def row(version,generation,saved_by,turn='NULL',step='NULL',actor=editor):
+        return (f"INSERT INTO market_data.custom_curve_generation_savers VALUES('{catalog}','{curve}',{version},{generation},'{saved_by}',"
+                f"'{actor}',{turn},{step})")
+    references=query("SELECT string_agg(confrelid::regclass||':'||condeferrable,',' ORDER BY confrelid::regclass::text) FROM pg_constraint "
+                     "WHERE conrelid='market_data.custom_curve_generation_savers'::regclass AND contype='f';")
+    assert references=='assistant.tool_steps:true,assistant.turns:false,market_data.custom_curve_versions:false,security.principals:false',references
+    assert query("SELECT string_agg(a.attname,',' ORDER BY k.n) FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY k(attnum,n) "
+                 "JOIN pg_attribute a ON(a.attrelid,a.attnum)=(c.conrelid,k.attnum) "
+                 "WHERE c.conrelid='market_data.custom_curve_generation_savers'::regclass AND c.contype='p';")=='catalog_id,curve_id,version,generation'
+    turn=f"'{uuid4()}'"
+    # Every generation the editor saved through the API, published or draft, is recorded as a person's.
+    savers=query("SELECT string_agg(version||':'||generation||':'||saved_by||':'||(actor_id='"+editor+"')||':'||coalesce(turn_id::text||step,'-'),',' "
+                 f"ORDER BY version,generation) FROM market_data.custom_curve_generation_savers WHERE(catalog_id,curve_id)=('{catalog}','{curve}');")
+    assert savers==','.join([f'1:{g}:person:true:-' for g in (1,2)]+[f'2:{g}:person:true:-' for g in range(1,generation+1)]),savers
+    # The checks below record a new generation, which no save has recorded yet.
+    bump=f"UPDATE market_data.custom_curve_versions SET generation={generation+1} WHERE(catalog_id,curve_id,version)=('{catalog}','{curve}',2);"
+    generation+=1
+    # Only a person or the assistant saves, and the assistant's record alone names a turn and step.
+    refused(row(2,generation,'robot'),'23514')
+    refused(row(2,generation,'assistant'),'23514')
+    refused(row(2,generation,'assistant',turn),'23514')
+    refused(row(2,generation,'person',turn,'1'),'23514')
+    # A record names the current generation of a draft, and never changes.
+    refused(row(2,generation+1,'person'),'40001')
+    refused(row(1,2,'person'),'55000')
+    query(f"""BEGIN;{bump}{row(2,generation,'person')};DO $$BEGIN
+        UPDATE market_data.custom_curve_generation_savers SET saved_by='person' WHERE(catalog_id,curve_id,version)=('{catalog}','{curve}',2);
+        RAISE EXCEPTION 'Expected an immutable saver record' USING ERRCODE='XX000';
+      EXCEPTION WHEN SQLSTATE '55000' THEN NULL;END$$;ROLLBACK;""")
+    # Under a request context: an author records their own save as a person's; a reader, another actor or an assistant
+    # record outside its turn's own agent context is refused.
+    query(f"""BEGIN;{bump}SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token('editor')}');{row(2,generation,'person')};
+        DO $$BEGIN IF NOT EXISTS(SELECT 1 FROM market_data.custom_curve_generation_savers WHERE(catalog_id,curve_id,version,generation,saved_by)
+         =('{catalog}','{curve}',2,{generation},'person')) THEN RAISE EXCEPTION 'An author could not record their own save';END IF;END$$;ROLLBACK;""")
+    refused(row(2,generation,'person'),'42501','viewer')
+    refused(row(2,generation,'person',actor=approver),'42501','editor')
+    refused(row(2,generation,'assistant',turn,'1'),'42501','editor')
+    print('PASS custom-curve generation savers: a person or the assistant with its turn and step, the current draft generation only, '
+          'immutable, exact foreign keys, and only an author recording their own save',flush=True)
+
+
 def run_checks(url, query=None, manifest=None):
     client=PreviewClient(url)
     boot=client.bootstrap()
@@ -84,6 +135,8 @@ def run_checks(url, query=None, manifest=None):
     assert catalog['canEdit'] and not catalog['canPublish']
     saved=client.call('custom-curves/save',body)
     assert saved['state']=='draft' and saved['version']==1 and saved['generation']==1
+    # A person's save is recorded as theirs (D260); only the assistant's names a turn and step.
+    assert saved['saver']=={'savedBy':'person'},saved['saver']
     replay=client.call('custom-curves/save',body)
     assert (replay['id'],replay['version'],replay['generation'])==(saved['id'],1,1)
     altered=deepcopy(body);altered['definition']['name']='Changed replay payload'
@@ -91,7 +144,7 @@ def run_checks(url, query=None, manifest=None):
     changed={**body,'requestId':str(uuid4()),'id':saved['id'],'version':1,'generation':1,'expectedState':'draft'}
     changed['definition']={**body['definition'],'name':'Synthetic prompt definition'}
     updated=client.call('custom-curves/save',changed)
-    assert updated['generation']==2
+    assert updated['generation']==2 and updated['saver']=={'savedBy':'person'},updated
     client.call('custom-curves/save',{**changed,'requestId':str(uuid4())},expected=409)
     publish={'requestId':str(uuid4()),'id':saved['id'],'version':1,'generation':2}
     client.call('custom-curves/publish',publish,expected=403)
@@ -138,7 +191,10 @@ def run_checks(url, query=None, manifest=None):
     client.call('market/current',{})
     client.call('profile',{'profile':'editor'})
     fork=client.call('custom-curves/save',{**body,'requestId':str(uuid4()),'id':saved['id'],'version':1,'generation':2,'expectedState':'published','definition':published['definition']})
-    assert fork['version']==2 and fork['state']=='draft'
+    assert fork['version']==2 and fork['state']=='draft' and fork['saver']=={'savedBy':'person'}
+    # A person's save of an unchanged definition is still a new generation; only the assistant's writes nothing.
+    again=client.call('custom-curves/save',{**body,'requestId':str(uuid4()),'id':saved['id'],'version':2,'generation':1,'expectedState':'draft','definition':published['definition']})
+    assert (again['version'],again['generation'],again['saver'])==(2,2,{'savedBy':'person'}),again
     if query and manifest:
         cat=manifest['catalogId']
         assert query(f"SELECT count(*) FROM market_data.custom_curve_node_sources WHERE catalog_id='{cat}' AND curve_id='{saved['id']}' AND version=1;")=='1'
@@ -159,7 +215,29 @@ def run_checks(url, query=None, manifest=None):
             SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token('viewer')}');
             DO $$BEGIN IF EXISTS(SELECT 1 FROM market_data.custom_curve_versions WHERE catalog_id='{cat}') THEN
               RAISE EXCEPTION 'Saved graph leaked after current source scope revocation';END IF;END$$;ROLLBACK;""")
-        assert query(f"SELECT count(*) FROM pg_tables WHERE schemaname='market_data' AND tablename LIKE 'custom_curve%' AND rowsecurity;")=='15'
+        check_generation_savers(query,cat,saved['id'],again['generation'],token)
+        # A draft saved before savers were recorded reads as saved by no one known, never as a person's. The editor saves it
+        # as a save did then, a copy of the published graph without a saver record; versions are never deleted, so this
+        # valid draft stays in the preview.
+        legacy=uuid4()
+        children=['nodes','edges','node_sources','node_calendars','node_schedules','node_published_sources','contract_weights','panel_weights']
+        def copied(table):
+            columns=query(f"SELECT string_agg(column_name,',' ORDER BY ordinal_position) FROM information_schema.columns "
+                          f"WHERE table_schema='market_data' AND table_name='custom_curve_{table}';").split(',')
+            chosen=[f"'{legacy}'::uuid" if c=='curve_id' else c for c in columns]
+            return (f"INSERT INTO market_data.custom_curve_{table}({','.join(columns)}) SELECT {','.join(chosen)} "
+                    f"FROM market_data.custom_curve_{table} WHERE(catalog_id,curve_id,version)=('{cat}','{saved['id']}',1);")
+        query(f"""BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token()}');
+            INSERT INTO market_data.custom_curves VALUES('{cat}','{legacy}','synthetic_unrecorded');
+            INSERT INTO market_data.custom_curve_versions(catalog_id,curve_id,version,generation,state,name,output_node,engine_version,layout)
+             SELECT catalog_id,'{legacy}',1,1,'draft','Synthetic unrecorded saver',output_node,engine_version,layout
+             FROM market_data.custom_curve_versions WHERE(catalog_id,curve_id,version)=('{cat}','{saved['id']}',1);
+            {''.join(copied(table) for table in children)}COMMIT;""")
+        recipes={r['id']:r for r in client.call('custom-curves')['recipes']}
+        assert recipes[str(legacy)]['saver']=={'savedBy':None} and recipes[str(legacy)]['kind']=='prompt_contract',recipes[str(legacy)]
+        # Reads say only who saved a generation (D260).
+        assert recipes[saved['id']]['saver']=={'savedBy':'person'},recipes[saved['id']]
+        assert query(f"SELECT count(*) FROM pg_tables WHERE schemaname='market_data' AND tablename LIKE 'custom_curve%' AND rowsecurity;")=='16'
     # A later correction can restate a working historical window, but never a retained earlier knowledge view.
     client.call('profile',{'profile':'editor'})
     observed=next(row for row in average['inputs'] if row['date']=='2020-12-01' and row['contract']['id']=='e0000000-0000-0000-0000-000000000102')

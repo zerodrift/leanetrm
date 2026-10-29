@@ -338,7 +338,8 @@ Check("raw history enforces scoped identity and finite UTC event times", () =>
 Check("common roles grant exact capabilities without implicit administration", () =>
 {
     Equal(CommonRoles.Templates.Length, 7);
-    Equal(string.Join(",", CommonRoles.Templates.Single(r => r.Code == "agent_reader").Permissions.Order()), "ReadMarketData,ReadTrades,ReadTradeParties,ReadJobs");
+    Equal(string.Join(",", CommonRoles.Templates.Single(r => r.Code == "agent_reader").Permissions.Order()), "ReadMarketData,ReadTrades,ReadTradeParties,ReadJobs,DraftCustomCurves");
+    Equal(string.Join(",", CommonRoles.Templates.Where(r => r.Permissions.Contains(Permission.DraftCustomCurves)).Select(r => r.Code)), "agent_reader");
     Equal(string.Join(",", CommonRoles.Templates.Where(r => r.Permissions.Contains(Permission.ReadJobs)).Select(r => r.Code)),
         string.Join(",", CommonRoles.Templates.Where(r => r.Permissions.Contains(Permission.RunJobs)).Select(r => r.Code).Append("agent_reader")));
     Equal(string.Join(",", CommonRoles.Templates.Where(r => r.Permissions.Contains(Permission.UseAgents)).Select(r => r.Code)), "trader,risk_analyst,market_data_editor");

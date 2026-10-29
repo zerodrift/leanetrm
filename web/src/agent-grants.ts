@@ -15,12 +15,26 @@ export type GrantRecord=Model&{operationId:string;at:string;outcome:string;deleg
 export type WorkspaceGrants={current:GrantInForce[];history:GrantRecord[];vendors:Vendor[]};
 
 const inconsistent=()=>Error('The agent grants are inconsistent. Refresh them.');
-// What a grant lets its agent read, named by the permission each read needs, in a fixed order.
+// What a grant lets its agent read, named by the permission each read needs, in a fixed order; and the one thing a grant
+// may let it write, saving curve drafts under the person's own market-definition authoring (D260).
 const reads:[string,string][]=[['ReadTrades','trades'],['ReadTradeParties','trade parties'],['ReadMarketData','market data'],['ReadJobs','your jobs']];
+const draftsPermission='WriteMarketDefinitions',drafts='save curve drafts you could save yourself',saves='saves curve drafts you could save yourself';
+function writesDrafts(permissions:string[]){
+  if(new Set(permissions).size!==permissions.length||!permissions.every(p=>p===draftsPermission||reads.some(([code])=>code===p)))throw inconsistent();
+  return permissions.includes(draftsPermission);
+}
 export function readsPhrase(permissions:string[]){
-  if(new Set(permissions).size!==permissions.length||!permissions.every(p=>reads.some(([code])=>code===p)))throw inconsistent();
+  writesDrafts(permissions);
   const named=reads.filter(([code])=>permissions.includes(code)).map(([,name])=>name);
   return named.length>1?`${named.slice(0,-1).join(', ')} and ${named.at(-1)}`:named[0]??'no workspace data';
+}
+// Everything a grant lets its agent do, as the consent asks it: "read market data and save curve drafts you could save yourself".
+export function grantPhrase(permissions:string[]){
+  return `read ${readsPhrase(permissions)}${writesDrafts(permissions)?` and ${drafts}`:''}`;
+}
+// What a grant allows, as its rows show it: its reads, then any drafts it saves.
+function allowsPhrase(permissions:string[],separator:string){
+  return `${readsPhrase(permissions)}${writesDrafts(permissions)?`${separator}${saves}`:''}`;
 }
 const outcomes:Record<string,string>={granted:'Granted',replaced:'Replaced by a newer grant',revoked:'Revoked',retired:'Ended by Retire'};
 export function grantOutcome(outcome:string){if(!Object.hasOwn(outcomes,outcome))throw inconsistent();return outcomes[outcome];}
@@ -28,14 +42,14 @@ export function grantOutcome(outcome:string){if(!Object.hasOwn(outcomes,outcome)
 function model(vendors:Vendor[],m:Model){if(!vendors.some(v=>v.code===m.vendor))throw inconsistent();return modelLabel({vendors},m);}
 const agent=(g:{agentName:string;version:number})=>`${g.agentName} · version ${g.version}`;
 export function grantItem(grant:Grant,vendors:Vendor[],instant:(at:string)=>string){
-  return {title:agent(grant),model:model(vendors,grant),reads:`Reads ${readsPhrase(grant.permissions)}`,
+  return {title:agent(grant),model:model(vendors,grant),reads:`Reads ${allowsPhrase(grant.permissions,' and ')}`,
     term:`Allowed ${instant(grant.grantedAt)} · until ${instant(grant.expiresAt)}`,revoke:`Revoke ${grant.agentName}`};
 }
 export function inForceRow(g:GrantInForce,vendors:Vendor[],instant:(at:string)=>string){
-  return [g.delegator,agent(g),model(vendors,g),readsPhrase(g.permissions),instant(g.grantedAt),instant(g.expiresAt)];
+  return [g.delegator,agent(g),model(vendors,g),allowsPhrase(g.permissions,'; '),instant(g.grantedAt),instant(g.expiresAt)];
 }
 export function historyRow(r:GrantRecord,vendors:Vendor[],instant:(at:string)=>string){
-  return [instant(r.at),r.delegator,agent(r),model(vendors,r),readsPhrase(r.permissions),instant(r.expiresAt),grantOutcome(r.outcome),r.actor];
+  return [instant(r.at),r.delegator,agent(r),model(vendors,r),allowsPhrase(r.permissions,'; '),instant(r.expiresAt),grantOutcome(r.outcome),r.actor];
 }
 // Refusals that prove a first Revoke wrote nothing, so its kept request can be released.
 const rejections=['grant_input','grant_unknown','grant_conflict','access_denied','request_format','request_too_large','request_token'];

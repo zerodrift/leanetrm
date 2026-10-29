@@ -64,7 +64,7 @@ public static partial class CustomCurves
         api.MapPost("/custom-curves/save",(HttpContext c,CustomCurveSaveRequest body)=>operation(c,"WriteMarketDefinitions",body.SnapshotId,async(connection,pin,ct)=>
         {
             var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
-            return Results.Ok(await store.Save(connection,body,data,ct));
+            return Results.Ok(await store.Save(connection,body,data,CurveDraftSaver.Person,ct));
         }));
         api.MapPost("/custom-curves/publish",(HttpContext c,CustomCurvePublishRequest body)=>operation(c,"SealMarketDefinitions",null,async(connection,pin,ct)=>
             Results.Ok(await store.Publish(connection,body,ct))));

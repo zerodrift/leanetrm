@@ -31,6 +31,8 @@ const changesView='Go changes the knowledge or As of date the page shows.',leave
 const backLeavesEdits='Back would leave unsaved changes on this page.';
 const unconfirmedAsk='We could not confirm that your question was received. Retry sends the same question; Discard forgets it.';
 
+// A target the person reviews under the page's own header, never moved to by itself: a proposed curve, or a draft the assistant saved (D260).
+const reviewed=(target:Target)=>target.kind==='proposal'||target.kind==='draft';
 export function setupAssistant(options:PanelOptions){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const text=(id:string,value:string)=>{get(id).textContent=publicText(value);};
@@ -129,7 +131,8 @@ export function setupAssistant(options:PanelOptions){
     const notice=notices.get(item.sequence)??{moved:false},box=el('div','assistant-target'),label=publicText(item.target.label);
     box.append(el('span','',notice.moved?`Took you to ${label}`:label));
     if(notice.reason)box.append(el('span','assistant-target-reason',notice.reason));
-    if(!notice.moved)box.append(notice.confirm?.action==='go'?button('Go anyway',`Leave unsaved changes and go to ${label}`,()=>go(item)):button(item.target.kind==='proposal'?'Review proposed curve':'Go',`Go to ${label}`,()=>go(item)));
+    if(!notice.moved)box.append(notice.confirm?.action==='go'?button('Go anyway',`Leave unsaved changes and go to ${label}`,()=>go(item))
+      :button(item.target.kind==='proposal'?'Review proposed curve':item.target.kind==='draft'?'Open saved draft':'Go',`Go to ${label}`,()=>go(item)));
     // A move that failed once it had changed the page keeps its Back too.
     if(notice.key&&history.origin(notice.key))box.append(notice.confirm?.action==='back'?button('Back anyway',`Leave unsaved changes and go back from ${label}`,()=>back(item))
       :button('Back',`Back from ${label}`,()=>back(item)));
@@ -172,9 +175,9 @@ export function setupAssistant(options:PanelOptions){
     moving=moving.then(async()=>{
       if(started!==conversationGeneration||notices.has(item.sequence))return;
       try{
-        const place=options.place(),context=item.target.kind!=='proposal'&&changesContext(item.target.context,place.context),unsaved=options.unsaved();
+        const place=options.place(),review=reviewed(item.target),context=!review&&changesContext(item.target.context,place.context),unsaved=options.unsaved();
         const shown=opened&&!options.pageBusy()&&!document.querySelector('dialog[open]');
-        if(targetAction({live:shown,changesContext:context,unsaved,proposal:item.target.kind==='proposal'})==='go')
+        if(targetAction({live:shown,changesContext:context,unsaved,review})==='go')
           notices.set(item.sequence,{moved:false,reason:context?changesView:unsaved?leavesEdits:undefined,confirm:!context&&unsaved?{action:'go',page:place.page}:undefined});
         else await moveFrom(item,()=>options.open(item.target));
       }catch{notices.set(item.sequence,{moved:false});}

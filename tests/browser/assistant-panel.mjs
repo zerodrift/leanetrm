@@ -471,6 +471,30 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
    `${shown('#custom-curves-result')}&&window.__requests.some(r=>r.path==='/api/custom-curves/preview'&&r.body.snapshotId===${JSON.stringify(workingFrame)})`);
   await click('#custom-curves-save');await check('saving the reviewed draft uses the person’s ordinary authoring operation',`${q('#custom-curves-state')}.textContent.includes('Draft')&&${q('#error')}.hidden`);
 
+  // Save curve draft (D260): asked from Curve builder, the assistant prepares and saves a draft; its target waits for Open saved
+  // draft, which opens the draft marked as the assistant's, and the person's own Save makes it theirs.
+  const drafter=await publish(await create('Browser curve drafter '+stamp),['read_custom_curves','prepare_custom_curve','save_custom_curve_draft','navigate'],['market_data_editor']);
+  // Opening the panel again reads the agents this person may use, the new one among them.
+  await click('#assistant-close');await click('#assistant-launcher');
+  await wait(`[...${q('#assistant-agent')}.options].some(o=>o.value===${JSON.stringify(drafter.id+':1')})`);await set('#assistant-agent',drafter.id+':1');
+  const drafted={...definition,code:'browser_agent_draft',name:'Synthetic agent draft'},draftFormula=(await side.call('custom-curves/format',{definition:drafted})).formula;
+  const curveInput={code:drafted.code,name:drafted.name,engine:'custom_curve_recipe_v2',formula:draftFormula};
+  await ask('Set up the synthetic agent draft.');await wait(shown('#assistant-consent'));
+  await script({text:'Preparing and saving. ',tools:[['toolu_draft_panel_01','prepare_custom_curve',curveInput],['toolu_draft_panel_02','save_custom_curve_draft',{...curveInput,curveId:null}]]},
+   {tools:[['toolu_draft_panel_03','navigate',{page:null,target:'n2'}]]},{text:'The draft is saved. Open it to review.'});
+  await click('#assistant-allow');await wait(`${finished}&&${buttons}==='Open saved draft'`);
+  await check('asking from Curve builder reports the saved curve it has open and that it holds no unsaved edits, and the saved draft waits to be opened',
+   `(()=>{const r=${asks}.at(-1).body.pageReport;return r.page==='custom_curves'&&Object.keys(r.selection).join()==='curve,unsaved'&&typeof r.selection.curve==='string'&&r.selection.unsaved===false;})()`
+   +`&&${q('#custom-curves-code')}.value==='browser_agent_proposal'&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join('|')==='Prepare proposed curve|Save curve draft|Navigate'`,
+   `${asks}.at(-1).body.pageReport`);
+  await press('Open saved draft');await wait(`${q('#custom-curves-code')}.value==='browser_agent_draft'&&${idle}`);
+  await check('Open saved draft opens the assistant’s saved draft, marked as saved by the assistant',
+   `${q('#custom-curves-state')}.textContent.includes('Saved by assistant')&&${q('#custom-curves-state')}.textContent.includes('Draft')&&${q('#error')}.hidden`,`${q('#custom-curves-state')}.textContent`);
+  await set('#custom-curves-name','Synthetic agent draft, reviewed');await click('#custom-curves-save');
+  await wait(`!${q('#custom-curves-state')}.textContent.includes('Unsaved changes')&&${idle}`);
+  await check('the person’s own Save of the draft makes it theirs and clears the mark',
+   `!${q('#custom-curves-state')}.textContent.includes('Saved by assistant')&&${q('#custom-curves-state')}.textContent.includes('Draft')&&${q('#error')}.hidden`,`${q('#custom-curves-state')}.textContent`);
+
   // A job's history target, arriving live, opens that job's details on Jobs & Infrastructure (docs/devops-assistant.md §3).
   const jobsAgent=await publish(await create('Browser jobs guide '+stamp),['read_jobs','navigate']);
   const owner=await sideSession(url,'trader'),now=Date.now();

@@ -244,7 +244,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
         await Session();
         var result = await operation(connection, ct);
         await Session();
-        await transaction.CommitAsync(ct);
+        // A bounded transaction's commit is not cancelled: one cancelled in flight may still have been applied, and an agent's
+        // save could not say whether its draft and step landed. Its statement bound still limits the commit.
+        await transaction.CommitAsync(held is null?ct:CancellationToken.None);
         return result;
     }
 

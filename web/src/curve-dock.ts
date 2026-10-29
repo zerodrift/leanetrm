@@ -1,4 +1,4 @@
-// The tab dock on Curve builder (custom-curves-workspace design, Workspace layout): draws a layout of curve-dock-model.ts as tab groups
+// The tab dock on Curve builder (markets-desk.md, Curve builder): draws a layout of curve-dock-model.ts as tab groups
 // side by side or above one another. A tab moves by dragging it onto a group's centre or edge, or from its menu (right-click, the
 // context-menu key or Shift+F10); a divider resizes a split. The arrangement is this viewer's presentation state in this browser only.
 // A narrow page shows every tab in one group and leaves the saved arrangement for when the page is wide again.
@@ -105,7 +105,7 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   /** Draws `shown` again, keeping focus on what had it. */
   function render(){
     const focused=host.contains(document.activeElement)?document.activeElement as HTMLElement:undefined;
-    drawnSplits=[];menu.close();
+    drawnSplits=[];menu.close();stopWaiting();
     host.replaceChildren(draw(shown,0,{groups:0,splits:0}),menu.element);proportion();
     if(focused?.isConnected&&document.activeElement!==focused)focused.focus({preventScroll:true});
     announce();
@@ -120,11 +120,15 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
     const lost=document.activeElement===null||document.activeElement===document.body||away?.body.contains(document.activeElement);
     if(away&&away.body.hidden&&lost){const group=groupsOf(shown).find(g=>g.tabs.includes(away.id));if(group)focusWhenEnabled(buttons.get(group.active)!);}
   }
+  // The one tab waiting to take focus once the page enables its controls again; a later wait replaces it.
+  let waiting:MutationObserver|undefined;
+  function stopWaiting(){waiting?.disconnect();waiting=undefined;}
   /** Focuses a tab now, or, while the page has disabled its controls for work in progress, once they are enabled again, if focus is still lost. */
   function focusWhenEnabled(button:HTMLButtonElement){
+    stopWaiting();
     if(!button.disabled){button.focus({preventScroll:true});return;}
-    const watch=new MutationObserver(()=>{
-      if(button.disabled)return;watch.disconnect();
+    const watch=waiting=new MutationObserver(()=>{
+      if(button.disabled)return;if(waiting===watch)stopWaiting();
       if(document.activeElement===null||document.activeElement===document.body)button.focus({preventScroll:true});
     });
     watch.observe(button,{attributes:true,attributeFilter:['disabled']});

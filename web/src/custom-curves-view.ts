@@ -14,7 +14,8 @@ type Choice={value:unknown;label:string};
 type Field={key:string;label:string;type:string;required?:boolean;options?:Choice[];help?:string;when?:{key:string;values:string[]}};
 type Operator={kind:string;label:string;description?:string;inputPorts:{name:string;label?:string;type:string;required?:boolean}[];outputType:string;fields:Field[];dynamicInputs?:{type:string;label:string;prefix:string}};
 type Template={code:string;name:string;description?:string;available?:boolean;unavailableReason?:string;definition:CurveDefinition;layout?:CurveLayout};
-type Recipe={id:string;version:number;generation:number;state:string;kind:CurveKind;definition:CurveDefinition;layout?:CurveLayout;publishedAt?:string};
+/** `saver` says who saved the version's generation (D260): a person, the assistant, or null when no saver was recorded. */
+type Recipe={id:string;version:number;generation:number;state:string;kind:CurveKind;definition:CurveDefinition;layout?:CurveLayout;publishedAt?:string;saver?:{savedBy:'person'|'assistant'|null}};
 type ActivationSegment={effectiveFrom:string;effectiveTo:string;version:number;outputNode:string};
 type ActivationPlan={curveId:string;revision:number;policy:string;reason:string;segments:ActivationSegment[];knownFrom?:string|null};
 type Source={code:string;name:string;catalogId?:string;revisionId?:string;contracts?:{id:string;label:string;deliveryFrom:string;deliveryTo:string}[]};
@@ -31,7 +32,7 @@ type Options={api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boole
 const clone=<T>(value:T):T=>structuredClone(value);
 const empty=():CurveDefinition=>({code:'',name:'',nodes:[],output:''});
 const pretty=(value:unknown)=>typeof value==='string'?value:JSON.stringify(value,null,2);
-const assistantStart='Help me set up a new curve in the Curve builder.';
+const assistantStart='Help me set up a new curve in the Curve builder: prepare it and show me its key values, then save it as a draft.';
 
 /** Editable graph presentation, laid out as a desk (markets-desk.md, Curve builder): a header with the curve's state and actions, the
  * saved-curve library, and the curve's views as tabs in a dock. All date selection, type validation, lineage, aggregation, values and
@@ -206,6 +207,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   renderIngredients();
   const parts:HTMLElement[]=[];
   if(selected)parts.push(chip(recipeStateLabel(selected.state),selected.state),el('span','Version '+selected.version));
+  // The assistant saved the open version's generation; a person's save of it clears this (D260).
+  if(selected?.saver?.savedBy==='assistant')parts.push(chip('Saved by assistant','assistant'));
   if(dirty)parts.push(chip('Unsaved changes','unsaved'),...(selected?[]:[el('span','Not saved yet')]));
   if(selected?.publishedAt)parts.push(el('span','Published '+displayInstant(selected.publishedAt,o.zone())));
   if(!opened)parts.push(el('span','Choose a saved curve, ask the assistant, or start a new curve.'));
@@ -627,6 +630,16 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  }
  function refresh(){renderStatus();if(lastPreview)showPreview(lastPreview.values,lastPreview.source);}
  async function liveRefresh(){generation++;drag=undefined;if(!activationDirty)clearActivation();else activationLoaded=false;renderStatus();if(lastPreview){if(effectiveCurve)await previewEffective(true);else await preview(true);}}
+ /** Opens the saved draft an assistant's draft target names, once the library holding it is read. */
+ function openSaved(draft:{id:string;version:number},request:ReturnType<typeof guard>){
+  if(!current(request)||!catalog)throw Error('The editor or account changed. Open the saved draft again.');
+  if(pending.command)throw Error('Reconcile the unconfirmed curve request before opening a saved draft.');
+  const recipe=catalog.recipes.find(r=>r.id===draft.id&&r.version===draft.version);
+  if(!recipe)throw Error('That saved draft is not in your curve library.');
+  blend.reset();openRecipe(recipe,'outputs');
+ }
+ /** What the assistant is told is open: the saved curve, if any, and whether it holds unsaved edits. */
+ function report(){return {curve:selected?.id??null,unsaved:editing()};}
  function openPrepared(prepared:{definition:CurveDefinition;origin:{effectiveOn:string;knownAt:string}},request:ReturnType<typeof guard>){
   if(!current(request)||!catalog)throw Error('The editor or account changed. Review the proposed curve again.');
   if(pending.command)throw Error('Reconcile the unconfirmed curve request before opening a proposed draft.');
@@ -634,5 +647,5 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   templateHelp.textContent=`Proposed for ${prepared.origin.effectiveOn}, as known at ${displayInstant(prepared.origin.knownAt,o.zone(),true)}. This is an unpriced draft. Preview calculates under the selected header context.`;
   renderStatus();
  }
- reset();initialized=true;return {load,reset,place,refresh,snapshotChanged,contextChanged,liveRefresh,sync,dateDefinition,openPrepared,guard,holds,leave,discard,recover,editing,unconfirmed:()=>!!pending.command||editing()};
+ reset();initialized=true;return {load,reset,place,refresh,snapshotChanged,contextChanged,liveRefresh,sync,dateDefinition,openPrepared,openSaved,report,guard,holds,leave,discard,recover,editing,unconfirmed:()=>!!pending.command||editing()};
 }

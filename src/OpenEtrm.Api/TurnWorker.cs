@@ -156,6 +156,7 @@ public sealed class TurnWorker:IAsyncDisposable
         }
         var offered=AgentTools.Offered(reads.Tools);
         var targets=new TurnTargets();
+        var writes=new TurnWrites(turn,r.Token);
         ImmutableArray<ModelMessage> messages=[new ModelUserText(Message(version.GetProperty("earlier"),state.GetProperty("question").GetString()!))];
         var (steps,failures)=(0,0);
         string? failed=null;
@@ -188,7 +189,7 @@ public sealed class TurnWorker:IAsyncDisposable
                 var results=ImmutableArray.CreateBuilder<ModelToolResult>(requests.Length);
                 foreach(var request in requests)
                 {
-                    if(await Answer(turn,r,reads,targets,request,deadline) is not {} result)return;
+                    if(await Answer(turn,r,reads,targets,writes,request,deadline) is not {} result)return;
                     results.Add(result);
                 }
                 steps+=requests.Length;
@@ -235,9 +236,10 @@ public sealed class TurnWorker:IAsyncDisposable
     // recorded once and never retried, since a step that may have landed cannot be told from a new one. A read that
     // returns once the turn is to stop is no step, whatever it returned (Settled); a step the database recorded and
     // published reaches the model, its result's targets then named by their handles, and any other answer ends the turn.
-    // A Navigate step's target is recorded with it, with the turn's pinned context. The result the model receives, or
-    // none once the turn has ended or is left to the next start.
-    async Task<ModelToolResult?> Answer(Guid turn,Running r,TurnReads reads,TurnTargets targets,ModelToolRequest request,DateTimeOffset deadline)
+    // A Navigate step's target is recorded with it, with the turn's pinned context. A step its tool recorded in its own
+    // write's transaction (D260) has committed, so it is published as it is, whatever stopped since. The result the model
+    // receives, or none once the turn has ended or is left to the next start.
+    async Task<ModelToolResult?> Answer(Guid turn,Running r,TurnReads reads,TurnTargets targets,TurnWrites writes,ModelToolRequest request,DateTimeOffset deadline)
     {
         if(await Halted(turn,r,deadline))return null;
         ToolStep read;
@@ -246,33 +248,37 @@ public sealed class TurnWorker:IAsyncDisposable
         using(var bound=CancellationTokenSource.CreateLinkedTokenSource(r.Cancel.Token))
         {
             bound.CancelAfter(after);
-            read=await r.Tools.Run(reads,targets,request,bound.Token);
+            read=await r.Tools.Run(reads,targets,request,writes,bound.Token);
             fired=bound.IsCancellationRequested;
         }
-        // The database ends a turn whose cancel was requested cancelled.
-        if(Settled(read,r.Cancel.IsCancellationRequested||Abandoned(r),fired,byDeadline) is not {} step)
+        ToolStep step;
+        JsonElement recorded;
+        if(read.Recorded is {} landed)(step,recorded)=(read,landed);
+        else
         {
-            if(!Abandoned(r))await End(turn,r,"failed","request_cancelled");
-            return null;
-        }
-        // A read its bound stopped is logged by that bound, its tool and operation, never its input, so a slow read is visible
-        // to an operator (D245).
-        if(step.Code is "limit_elapsed" or "limit_tool_read")
-        {
-            if(byDeadline)logger.LogWarning("A tool read was stopped at its turn's deadline: {Tool} {Operation}",step.Tool,step.Operation??"none");
-            else logger.LogWarning("A tool read was stopped at its agent's time per read of {Seconds} seconds: {Tool} {Operation}",
-                reads.ReadLimit.TotalSeconds,step.Tool,step.Operation??"none");
-        }
-        var recorded=await Write("SELECT assistant.record_tool_step($1,$2,$3,$4::text,$5::jsonb,$6::text,$7::timestamptz,$8::jsonb,$9::jsonb)::text",turn,r.Token,
-            step.Tool,(object?)step.Operation??DBNull.Value,step.Input is {} input?input.GetRawText():DBNull.Value,(object?)step.Code??DBNull.Value,
-            (object?)step.ReadAt??DBNull.Value,step.ReadAt is null?DBNull.Value:JsonSerializer.Serialize(step.Access,JsonSerializerOptions.Web),
-            step.Target is {} target?NavigationTargets.Json(target,reads.Pin).ToJsonString():DBNull.Value);
-        // The database refused the step's publication, which ends the turn access_changed, or the turn's cancel was
-        // requested, which ends it cancelled, whatever the code.
-        if(!recorded.TryGetProperty("step",out _))
-        {
-            await End(turn,r,"failed",recorded.TryGetProperty("refused",out var refused)?refused.GetString():"request_cancelled");
-            return null;
+            // The database ends a turn whose cancel was requested cancelled.
+            if(Settled(read,r.Cancel.IsCancellationRequested||Abandoned(r),fired,byDeadline) is not {} settled)
+            {
+                if(!Abandoned(r))await End(turn,r,"failed","request_cancelled");
+                return null;
+            }
+            step=settled;
+            // A read its bound stopped is logged by that bound, its tool and operation, never its input, so a slow read is visible
+            // to an operator (D245).
+            if(step.Code is "limit_elapsed" or "limit_tool_read")
+            {
+                if(byDeadline)logger.LogWarning("A tool read was stopped at its turn's deadline: {Tool} {Operation}",step.Tool,step.Operation??"none");
+                else logger.LogWarning("A tool read was stopped at its agent's time per read of {Seconds} seconds: {Tool} {Operation}",
+                    reads.ReadLimit.TotalSeconds,step.Tool,step.Operation??"none");
+            }
+            recorded=await worker.Write((connection,ct)=>writes.Record(connection,step,reads.Pin,ct));
+            // The database refused the step's publication, which ends the turn access_changed, or the turn's cancel was
+            // requested, which ends it cancelled, whatever the code.
+            if(!recorded.TryGetProperty("step",out _))
+            {
+                await End(turn,r,"failed",recorded.TryGetProperty("refused",out var refused)?refused.GetString():"request_cancelled");
+                return null;
+            }
         }
         // The step's events have committed, a Navigate step's target after its step; the turn's streams read them (§8).
         streams.Published(turn,recorded.GetProperty("sequence").GetInt64(),null);

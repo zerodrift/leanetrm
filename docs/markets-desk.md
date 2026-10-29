@@ -223,9 +223,16 @@ operations) are unchanged.
 ```
 
 - **Header bar.** The curve's name, its state chip (Draft, Published, Unsaved
-  changes) and version, and the actions on one line, with **Reset layout**.
+  changes) and version, and the actions on one line, with **Reset layout**. A
+  **Saved by assistant** chip shows while the open version's generation was saved
+  by the page assistant (`saver.savedBy`, D260); a person's Save clears it, and a
+  generation with no recorded saver shows none.
 - **Library.** **Ask the assistant to set up a curve** opens the page assistant
-  with a question to start from. Saved curves are listed with state chips,
+  with a question to start from, which asks it to prepare the curve, show its key
+  values and then save it as a draft. The assistant's saved draft opens from its
+  **Open saved draft** notice, never by itself, behind the leave question below.
+  Each ask reports the saved curve open, if any, and whether it has unsaved edits;
+  the assistant refuses to save that curve while it does. Saved curves are listed with state chips,
   grouped under their kind (D259) with its badge on each entry. **New curve**
   starts from a blank graph. The catalog read returns the state, version and
   kind shown. The header shows the open saved version's kind badge; an unsaved

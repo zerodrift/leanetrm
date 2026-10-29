@@ -36,7 +36,7 @@ import {validateMarketNavigation,navigationGroups,navigationCategories,navigatio
 import {navigationGroups as sidebarGroups,pageGroup,pageAvailable,firstPage} from './navigation-groups.js';
 import {setupAssistant} from './assistant-panel.js';
 import {pageReport,webPage,type PageState,type PageContext,type Place} from './assistant-pages.js';
-import {readPages,type TargetContext} from './assistant-events.js';
+import {readPages,type Target,type TargetContext} from './assistant-events.js';
 import {readCurveShapes} from './curve-shapes.js';
 import type {CurveShape} from './desk-model.js';
 import {commodityDot,librarySparkline,marketBoard,renderBoard,shapeReads} from './market-board.js';
@@ -928,7 +928,8 @@ function pageState():PageState{
     case 'futures':return {page,...futures.report()};
     case 'jobs':return {page,job:jobs.shown()};
     case 'ppa':return {page,...ppa.shown()};
-    case 'configuration':case 'schedules':case 'delivery':case 'custom-curves':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':return {page};
+    case 'custom-curves':return {page,...customCurves.report()};
+    case 'configuration':case 'schedules':case 'delivery':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':return {page};
     default:throw Error('This page could not load. Please refresh.');
   }
 }
@@ -957,16 +958,24 @@ function unsaved(){
   }
 }
 // Opens a target's page with what it selects: the curve directory, a curve or its inputs, a reference table, a party
-// kind, a Blotter view or a trade. A page target, and a view the page shows by itself, open as navigation opens them.
-async function showTarget(report:string,selection:Record<string,unknown>|null){
+// kind, a Blotter view or a trade, or on Curve builder a proposed curve or a draft the assistant saved. A page target, and a
+// view the page shows by itself, Curve builder's report among them, open as navigation opens them.
+async function showTarget(report:string,selection:Record<string,unknown>|null,kind?:Target['kind']){
   const next=webPage(report);
   if(!selection)return showPage(next);
   // What a target names is checked before the page changes, so a target the page cannot show leaves it as it was.
   switch(report){
     case 'custom_curves':{
-      if(!Object.keys(selection).length)return showPage('custom-curves');
+      if(kind!=='proposal'&&kind!=='draft')return showPage('custom-curves');
       const scope=()=>JSON.stringify([marketSelection(),historicalContext()?.contextId]);
       const requested=scope(),editor=customCurves.guard();
+      if(kind==='draft'){
+        const draft=await api<{id:string;version:number}>('assistant/curve-draft',selection);
+        if(requested!==scope())throw Error('The account or financial context changed. Open the saved draft again.');
+        await setPage('custom-curves');await customCurves.load();
+        if(requested!==scope())throw Error('The account or financial context changed. Open the saved draft again.');
+        customCurves.openSaved(draft,editor);return;
+      }
       const proposal=await api<Parameters<typeof customCurves.openPrepared>[0]>('assistant/curve-proposal',selection);
       if(requested!==scope())throw Error('The account or financial context changed. Review the proposed curve again.');
       await setPage('custom-curves');await customCurves.load();
@@ -1049,8 +1058,9 @@ function tableName(code:string){
 $('assistant-hide').onclick=()=>{prefs.assistantHidden=true;persist();assistant.sync();};
 const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,api,root:apiRoot,identity:()=>administrationScope+':'+currentProfile,zone:()=>prefs.timeZone,
   available:()=>can('UseAgents'),pageBusy:()=>busy,act,place,names:()=>({curve:curveName,table:tableName}),
-  trade:()=>futures.report().trade?.reference,unsaved,open:target=>showTarget(target.page,target.selection),
-  go:async target=>{if(target.kind!=='proposal')await selectContext(target.context);await showTarget(target.page,target.selection);},restore:restorePlace});
+  trade:()=>futures.report().trade?.reference,unsaved,open:target=>showTarget(target.page,target.selection,target.kind),
+  // A proposed curve or a saved draft opens under the header the page shows (D260).
+  go:async target=>{if(target.kind!=='proposal'&&target.kind!=='draft')await selectContext(target.context);await showTarget(target.page,target.selection,target.kind);},restore:restorePlace});
 // Coming back to the window asks whether a newer close arrived while it was away.
 window.addEventListener('focus',()=>void recheckNewestClose());
 // A reload, closing the tab and going back leave the page without the panel's own question, so the browser asks while the panel holds an

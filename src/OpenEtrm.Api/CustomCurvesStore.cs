@@ -21,10 +21,29 @@ public sealed record CustomCurveFormatRequest(RecipeDefinition Definition);
 public sealed record CustomCurvePreviewRequest(RecipeDefinition Definition,Guid SnapshotId,Guid? Id=null,int? Version=null);
 public sealed record CurveSourceReference(Guid CatalogId,Guid RevisionId,string Code);
 public sealed record CurveScheduleReference(Guid CatalogId,Guid Id,int Version);
+// Who saved a generation, as reads show it (D260): `person`, `assistant`, or null for a generation saved before
+// savers were recorded, never a person's by default. The assistant's turn and step stay stored and are not read here.
+public sealed record CurveSaver(string? SavedBy)
+{
+    public static readonly CurveSaver Person=new("person");
+}
+// Who saves through the store: a person, or the assistant for one step of its running turn, holding that turn's fencing
+// token, which only the draft claim reads. None of it is part of a read, receipt or log.
+public sealed class CurveDraftSaver
+{
+    public static readonly CurveDraftSaver Person=new("person",null,null,null);
+    public static CurveDraftSaver Assistant(Guid turn,int step,byte[] token)=>new("assistant",turn,step,token.ToArray());
+    CurveDraftSaver(string savedBy,Guid? turn,int? step,byte[]? token){SavedBy=savedBy;Turn=turn;Step=step;Token=token;}
+    internal string SavedBy{get;}
+    internal Guid? Turn{get;}
+    internal int? Step{get;}
+    internal byte[]? Token{get;}
+    internal bool IsAssistant=>Token is not null;
+}
 public sealed record CustomCurveVersion(Guid Id,int Version,int Generation,string State,RecipeDefinition Definition,
     ImmutableDictionary<string,CurveNodePosition> Layout,int? PublicationOrder,DateTimeOffset? PublishedAt,
     ImmutableDictionary<string,CurveSourceReference> Sources,ImmutableDictionary<string,CalendarReference> Calendars,
-    ImmutableDictionary<string,CurveScheduleReference> Schedules,string EngineVersion="custom_curve_recipe_v2")
+    ImmutableDictionary<string,CurveScheduleReference> Schedules,CurveSaver Saver,string EngineVersion="custom_curve_recipe_v2")
 {
     // Named from the exact saved definition at read time, never stored.
     public string Kind=>CurveKinds.Of(Definition);
@@ -52,8 +71,10 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
  FROM market_data.custom_curve_nodes n WHERE(n.catalog_id,n.curve_id,n.version)=(v.catalog_id,v.curve_id,v.version)),'[]'::jsonb)::text,
  coalesce((SELECT jsonb_object_agg(s.node_id,jsonb_build_object('catalogId',s.source_catalog_id,'revisionId',s.source_revision_id,'code',s.source_curve_code)) FROM market_data.custom_curve_node_sources s WHERE(s.catalog_id,s.curve_id,s.version)=(v.catalog_id,v.curve_id,v.version)),'{}'::jsonb)::text,
  coalesce((SELECT jsonb_object_agg(s.node_id,jsonb_build_object('catalogId',s.reference_catalog_id,'revisionId',s.reference_revision_id,'code',s.calendar_code)) FROM market_data.custom_curve_node_calendars s WHERE(s.catalog_id,s.curve_id,s.version)=(v.catalog_id,v.curve_id,v.version)),'{}'::jsonb)::text,
- coalesce((SELECT jsonb_object_agg(s.node_id,jsonb_build_object('catalogId',s.schedule_catalog_id,'id',s.schedule_id,'version',s.schedule_version)) FROM market_data.custom_curve_node_schedules s WHERE(s.catalog_id,s.curve_id,s.version)=(v.catalog_id,v.curve_id,v.version)),'{}'::jsonb)::text
+ coalesce((SELECT jsonb_object_agg(s.node_id,jsonb_build_object('catalogId',s.schedule_catalog_id,'id',s.schedule_id,'version',s.schedule_version)) FROM market_data.custom_curve_node_schedules s WHERE(s.catalog_id,s.curve_id,s.version)=(v.catalog_id,v.curve_id,v.version)),'{}'::jsonb)::text,
+ g.saved_by
  FROM market_data.custom_curve_versions v JOIN market_data.custom_curves c ON(c.catalog_id,c.id)=(v.catalog_id,v.curve_id)
+ LEFT JOIN market_data.custom_curve_generation_savers g ON(g.catalog_id,g.curve_id,g.version,g.generation)=(v.catalog_id,v.curve_id,v.version,v.generation)
  WHERE v.catalog_id=$1 ORDER BY c.code,v.version
 """,Catalog);
         var result=ImmutableArray.CreateBuilder<CustomCurveVersion>();
@@ -63,7 +84,9 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
             JsonSerializer.Deserialize<ImmutableDictionary<string,CurveNodePosition>>(reader.GetString(7),Json)!,reader.IsDBNull(8)?null:reader.GetInt32(8),reader.IsDBNull(9)?null:reader.GetFieldValue<DateTimeOffset>(9),
             JsonSerializer.Deserialize<ImmutableDictionary<string,CurveSourceReference>>(reader.GetString(12),Json)!,
             JsonSerializer.Deserialize<ImmutableDictionary<string,CalendarReference>>(reader.GetString(13),Json)!,
-            JsonSerializer.Deserialize<ImmutableDictionary<string,CurveScheduleReference>>(reader.GetString(14),Json)!,reader.GetString(10)));
+            JsonSerializer.Deserialize<ImmutableDictionary<string,CurveScheduleReference>>(reader.GetString(14),Json)!,
+            new(reader.IsDBNull(15)?null:reader.GetString(15)),
+            reader.GetString(10)));
         return result.ToImmutable();
     }
     async Task Lock(NpgsqlConnection connection,CancellationToken ct)
@@ -98,19 +121,33 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
 """,Catalog,requestId,operation,payload,JsonSerializer.Serialize(result,Json),permission,database.Manifest.RevisionId,result.Id,result.Version);
         await command.ExecuteNonQueryAsync(ct);
     }
-    public async Task<CustomCurveVersion> Save(NpgsqlConnection connection,CustomCurveSaveRequest body,PreviewData data,CancellationToken ct)
+    // A save by `saver`. The assistant first claims the one curve version its step saves (D260), so it reads and writes
+    // only that draft, and its receipt names its own principal, who holds ReadMarketData and never WriteMarketDefinitions.
+    // The assistant names the identity its new curve takes (`created`), which its step's key fixes, and the exact references
+    // it previewed at its turn's pin (`pinned`), which must still be the ones the save resolves to.
+    public async Task<CustomCurveVersion> Save(NpgsqlConnection connection,CustomCurveSaveRequest body,PreviewData data,CurveDraftSaver saver,CancellationToken ct,
+        Guid? created=null,(ImmutableDictionary<string,CurveSourceReference> Sources,ImmutableDictionary<string,CalendarReference> Calendars,
+            ImmutableDictionary<string,CurveScheduleReference> Schedules)? pinned=null)
     {
         await Lock(connection,ct);
         var payload=JsonSerializer.Serialize(body,Json);
-        if(await Replay(connection,body.RequestId,"save",payload,"WriteMarketDefinitions",ct) is {} replay)return replay;
+        var receipt=saver.IsAssistant?"ReadMarketData":"WriteMarketDefinitions";
+        // A new curve names no version, generation or state; a revision names its version. Checked before the claim, so a
+        // malformed request is the same conflict whoever saves it.
+        if(body.Id is null?body.Version is not null||body.Generation is not null||body.ExpectedState is not null:body.Version is null)throw Conflict();
+        if(created is not null&&(!saver.IsAssistant||body.Id is not null))throw Conflict();
+        var target=body.Id??created??Guid.NewGuid();
+        if(saver.IsAssistant)await Claim(connection,target,body.Version??1,saver,ct);
+        if(await Replay(connection,body.RequestId,"save",payload,receipt,ct) is {} replay)return replay;
         CustomCurves.Validate(body.Definition);
         ValidateLayout(body.Definition,body.Layout);
         var references=await References(connection,body.Definition,data,ct);
+        if(pinned is {} previewed&&!SameReferences(previewed,references))throw Conflict();
         var all=await Read(connection,ct);Guid id;int version,generation;
         if(body.Id is null)
         {
-            if(body.Version is not null||body.Generation is not null||body.ExpectedState is not null||all.Select(v=>v.Id).Distinct().Count()>=64)throw Conflict();
-            id=Guid.NewGuid();version=1;generation=1;
+            if(all.Select(v=>v.Id).Distinct().Count()>=64)throw Conflict();
+            id=target;version=1;generation=1;
             await using var create=ScheduleStore.Command(connection,"INSERT INTO market_data.custom_curves VALUES($1,$2,$3)",Catalog,id,body.Definition.Code);
             await create.ExecuteNonQueryAsync(ct);
         }
@@ -118,7 +155,14 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
         {
             id=body.Id.Value;
             var old=all.SingleOrDefault(v=>v.Id==id&&v.Version==body.Version);
-            if(old is null||old.Generation!=body.Generation||old.State!=body.ExpectedState||old.Definition.Code!=body.Definition.Code)throw Conflict();
+            // The assistant revises the draft its claim holds, at the generation the claim locked, so its request may leave
+            // the generation and state to the claim; a person names both.
+            var claimed=saver.IsAssistant&&body.Generation is null&&body.ExpectedState is null;
+            if(old is null||old.Generation!=(claimed?old.Generation:body.Generation)||old.State!=(claimed?old.State:body.ExpectedState)
+                ||old.Definition.Code!=body.Definition.Code)throw Conflict();
+            // The assistant saving the graph its draft already holds, pinned to the same exact references, writes nothing at
+            // all (D260); a person's save is always a new generation.
+            if(saver.IsAssistant&&old.State=="draft"&&Unchanged(old,body.Definition,references))return old;
             if(old.State=="published")
             {
                 if(all.Any(v=>v.Id==id&&v.State=="draft"))throw Conflict();
@@ -199,10 +243,43 @@ INSERT INTO market_data.custom_curve_panel_weights(catalog_id,curve_id,version,n
         }
         await using(var visible=ScheduleStore.Command(connection,"SELECT security.custom_curve_visible($1,$2,$3)",Catalog,id,version))
             if(!Equals(await visible.ExecuteScalarAsync(ct),true))throw Invalid("The saved dependency chain is unavailable, cyclic or exceeds its explicit bounds.");
+        await using(var record=ScheduleStore.Command(connection,"""
+INSERT INTO market_data.custom_curve_generation_savers(catalog_id,curve_id,version,generation,saved_by,actor_id,turn_id,step)
+ VALUES($1,$2,$3,$4,$5,security.custom_curve_saver($1,$2,$3,$5,$6::uuid,$7::integer),$6::uuid,$7::integer)
+""",Catalog,id,version,generation,saver.SavedBy,(object?)saver.Turn??DBNull.Value,(object?)saver.Step??DBNull.Value))
+            await record.ExecuteNonQueryAsync(ct);
         var saved=(await Read(connection,ct)).Single(v=>v.Id==id&&v.Version==version);
-        await Record(connection,body.RequestId,"save",payload,saved,"WriteMarketDefinitions",ct);
+        await Record(connection,body.RequestId,"save",payload,saved,receipt,ct);
         return saved;
     }
+    // The assistant's claim of the one curve version its step saves, fenced by its turn's token. The database's refusals
+    // become structured ones, and the transaction they abort rolls back with nothing written.
+    async Task Claim(NpgsqlConnection connection,Guid curve,int version,CurveDraftSaver saver,CancellationToken ct)
+    {
+        await using var claim=ScheduleStore.Command(connection,"SELECT security.claim_custom_curve_draft($1,$2,$3,$4,$5,$6)",
+            Catalog,curve,version,saver.Turn!.Value,saver.Token!,saver.Step!.Value);
+        try{await claim.ExecuteNonQueryAsync(ct);}
+        catch(PostgresException e)when(e.SqlState is "42501" or "P0001"&&ClaimRefusals.TryGetValue(e.MessageText,out var message))
+        {throw new MarketDataException(e.MessageText,message);}
+    }
+    // Whether a saved version already holds this graph pinned to these exact sources, calendars and schedules.
+    internal static bool Unchanged(CustomCurveVersion saved,RecipeDefinition definition,
+        (ImmutableDictionary<string,CurveSourceReference> Sources,ImmutableDictionary<string,CalendarReference> Calendars,ImmutableDictionary<string,CurveScheduleReference> Schedules) references)=>
+        saved.Definition.SameGraph(definition)&&SameReferences((saved.Sources,saved.Calendars,saved.Schedules),references);
+    static bool SameReferences(
+        (ImmutableDictionary<string,CurveSourceReference> Sources,ImmutableDictionary<string,CalendarReference> Calendars,ImmutableDictionary<string,CurveScheduleReference> Schedules) a,
+        (ImmutableDictionary<string,CurveSourceReference> Sources,ImmutableDictionary<string,CalendarReference> Calendars,ImmutableDictionary<string,CurveScheduleReference> Schedules) b)=>
+        Same(a.Sources,b.Sources)&&Same(a.Calendars,b.Calendars)&&Same(a.Schedules,b.Schedules);
+    static bool Same<T>(ImmutableDictionary<string,T> a,ImmutableDictionary<string,T> b)=>
+        a.Count==b.Count&&a.All(p=>b.TryGetValue(p.Key,out var other)&&EqualityComparer<T>.Default.Equals(p.Value,other));
+    static readonly ImmutableDictionary<string,string> ClaimRefusals=new Dictionary<string,string>
+    {
+        ["delegation_denied"]="The assistant may save a curve draft only while you may and its grant allows it.",
+        ["custom_curve_agent_scope"]="The assistant saves only a new curve or a draft it saved in this conversation.",
+        ["custom_curve_agent_claimed"]="The assistant saves one curve draft per step.",
+        ["custom_curve_catalog_limit"]="This catalog already holds 64 custom curves, the most it can.",
+        ["agent_runtime_unavailable"]="The assistant's turn is no longer running here."
+    }.ToImmutableDictionary();
     public async Task<CustomCurveVersion> Publish(NpgsqlConnection connection,CustomCurvePublishRequest body,CancellationToken ct)
     {
         await Lock(connection,ct);

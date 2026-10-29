@@ -82,6 +82,11 @@ exact versions reject. D193 adds signed/normalized weighted combinations of thes
 exact-delivery alignment. A guided composer builds the same graph as the advanced
 visual/formula editor. Agent catalog/preparation tools use shared backend reads and
 hand an unpriced proposal to the ordinary editor only on explicit Review.
+D260 adds one agent write, a custom-curve draft saved through the ordinary Save
+under the person's authoring permission, within a new curve or the assistant's own
+draft in the same conversation; migration 0128 is its database groundwork, and the
+tool ships in runtime set `turns_v9` (after `turns_v8`, reserved for P42), recording
+its successful step in the draft's own transaction.
 Historical resampling, interpolation and conversion remain work.
 
 The managed [connected calculation engine](connected-calculation.md) (D182–183, D186)

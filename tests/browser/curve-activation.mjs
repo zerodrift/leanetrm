@@ -1,6 +1,8 @@
 import {sideSession} from './side-session.mjs';
 
 export async function run({command,evaluate,wait,click,persona,set,check,idle,url}){
+ // The focus check needs focus events to reach the page, as in a focused window.
+ await command('Emulation.setFocusEmulationEnabled',{enabled:true});
  // Opening a curve in place of unpublished timeline edits asks first; these steps give them up.
  const openCurve=async selector=>{await click(selector);if(await evaluate("!document.querySelector('#custom-curves-page-prompt').hidden"))await click('#custom-curves-page-prompt button:not(.secondary)');};
  // A tab of the curve's dock.
@@ -23,8 +25,10 @@ export async function run({command,evaluate,wait,click,persona,set,check,idle,ur
  await click('#curve-activation-load');
  await click('#curve-activation-add');await set('.activation-from','2020-12-01');await set('.activation-to','2021-01-01');await set('.activation-version','1');await set('#curve-activation-reason','Synthetic initial timeline');
  await check('effective preview preserves an unpublished timeline by requiring explicit publish or reload',"document.querySelector('#custom-curves-effective').disabled&&document.querySelector('.activation-from').value==='2020-12-01'");
- await click('#curve-activation-publish');await click('#custom-curves-effective');
+ await click('#curve-activation-publish');await evaluate("document.querySelector('#custom-curves-effective').focus()");await click('#custom-curves-effective');
  await check('published activation resolves the exact version through the existing backend preview',"document.querySelector('#curve-activation-state').textContent.includes('revision 1')&&!document.querySelector('#custom-curves-result').hidden&&window.activationReads.filter(r=>r.path==='/api/custom-curves/effective-preview').at(-1).data.recipe.version===1");
+ // The preview puts Versions away for Outputs while its button is disabled, so focus moves to the tab its group shows.
+ await check('focus on Preview effective version, put away while it works, moves once to the Outputs tab',"document.activeElement===document.querySelector('#custom-curves-dock-outputs')","[document.activeElement?.id,document.activeElement?.tagName]");
  await click('#follow-live');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
  const a2=await save('browser_activation_a','Synthetic effective curve A',2,a);await activate(1,2);
  await wait("window.activationReads.filter(r=>r.path==='/api/custom-curves/effective-preview').at(-1)?.data.recipe?.version===2&&document.querySelector('#live-status').dataset.state==='live'&&"+idle);

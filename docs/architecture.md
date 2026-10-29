@@ -1084,6 +1084,14 @@ objects once. The guided composer, advanced editor and agent preparation all use
 these managed contracts. Agents prepare read-only proposals at their turn's pin;
 explicit owner Review revalidates it and opens an unpriced human draft, retaining
 the current header. No agent write or portfolio-risk authority is added.
+D260 permits exactly one agent write: a custom-curve draft, saved through the
+ordinary Save under the agent's own `DraftCustomCurves` and the person's current
+`WriteMarketDefinitions`, for a new curve or a draft whose latest generation the
+assistant saved in the same conversation. Each draft generation records its saver;
+publishing and activation stay human operations. Save curve draft
+(`custom_curves.save_draft_v1`, runtime set `turns_v9`) claims, saves and records
+its successful step in one transaction under the agent's context, so a draft never
+commits without its step and any refusal rolls both back.
 
 The saved managed recipe adapter supplies an explicit projected price to the
 existing monthly indexed floating side. A booking pins a published custom curve

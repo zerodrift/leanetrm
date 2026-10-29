@@ -1,8 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-test('a proposed curve waits for explicit review on an idle unchanged page',async()=>{
+test('a proposed curve and a saved draft wait for explicit review on an idle unchanged page',async()=>{
  const {targetAction}=await import('../dist/assistant-pages.js');
- assert.equal(targetAction({live:true,changesContext:false,unsaved:false,proposal:true}),'go');
+ assert.equal(targetAction({live:true,changesContext:false,unsaved:false,review:true}),'go');
 });
 import {pageReport,lookingAt,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,startsOver,usageLine,consentText,grantExpiry,webPage,agentChoice,preselect,conversationChoice,panelMessage,keptAsk} from '../dist/assistant-pages.js';
 
@@ -35,7 +35,7 @@ test('every other page reports the view it shows in its read tool input form, an
   assert.deepEqual(pageReport({page:'futures',risk:false,trade:{tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'},entry:null,view:blotter}),
     {page:'blotter',selection:{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:trade,instrumentType:'future',revision:2}});
   assert.deepEqual(pageReport({page:'futures',risk:true,trade:null,entry:null,view:blotter}),{page:'blotter_risk',selection:{}});
-  for(const [page,id] of [['delivery','delivery_prices'],['custom-curves','custom_curves'],['interval-series','interval_series'],['interval-curves','interval_curves'],
+  for(const [page,id] of [['delivery','delivery_prices'],['interval-series','interval_series'],['interval-curves','interval_curves'],
     ['admin','users_access'],['ai','settings_ai']])assert.deepEqual(pageReport({page}),{page:id,selection:{}});
 });
 
@@ -53,8 +53,11 @@ test('Jobs & Infrastructure reports the list of your jobs, or the history of the
 });
 
 test('custom curves describes the saved library as a supported page without sending unsaved edits',()=>{
- const report=pageReport({page:'custom-curves'});
- assert.deepEqual(report,{page:'custom_curves',selection:{}});
+ const report=pageReport({page:'custom-curves',curve:null,unsaved:false});
+ assert.deepEqual(report,{page:'custom_curves',selection:{curve:null,unsaved:false}});
+ const open='c7000000-0000-4000-8000-000000000005';
+ assert.deepEqual(pageReport({page:'custom-curves',curve:open,unsaved:true}),{page:'custom_curves',selection:{curve:open,unsaved:true}},
+  'the report names the curve open and whether it holds unsaved edits, which the assistant will not save over (D260)');
  const view=lookingAt(report,{mode:'current',frameId:frame,frameLabel:'18 Dec 2020'}, {curve:String,table:String});
  assert.equal(view.supported,true);assert.equal(view.askable,true);
  assert.equal(view.shows,'Published curve ingredients and saved curve library. Unsaved edits are not sent.');
@@ -203,6 +206,9 @@ test('consent names the agent, provider, model, reads and the date its grant wou
     +'Anthropic (Model one) through the vendor account your administrators configured, whose owner may be able to see them, to read trades, trade '
     +'parties and market data on your behalf until 2026-11-17?');
   assert.throws(()=>consentText({...agent,model:{...agent.model,vendor:'unknown'}},vendors,'2026-11-17'),/page is inconsistent/);
+  assert.equal(consentText({...agent,permissions:['ReadMarketData','WriteMarketDefinitions']},vendors,'2026-11-17'),'Allow Page guide, which sends your '
+    +'questions and the data it reads to Anthropic (Model one) through the vendor account your administrators configured, whose owner may be able to see '
+    +'them, to read market data and save curve drafts you could save yourself on your behalf until 2026-11-17?');
   // A grant runs its days from the instant it is given, so the date is that instant's in the zone, not today's date plus days:
   // from 23:30 the evening before the spring change, 28 days later is already the next local day.
   assert.equal(grantExpiry(new Date('2026-10-20T12:00:00Z'),28,'UTC'),'2026-11-17');
@@ -302,4 +308,12 @@ test('what the panel holds is reported ahead of the lens: its risk report, a tra
   assert.equal(pageReport({page:'futures',risk:true,trade:null,entry:null,lens:'risk',view:blotter}).page,'blotter_risk');
   assert.equal(pageReport({page:'futures',risk:false,trade:null,entry:{product:'swaps'},lens:'risk',view:blotter}).page,'blotter_new_swap');
   assert.deepEqual(pageReport({page:'futures',risk:false,trade:shown,entry:null,lens:'risk',view:blotter}),pageReport({page:'futures',risk:false,trade:shown,entry:null,lens:'values',view:blotter}));
+});
+
+test('Save curve draft is named in plain words, with each of its refusals',()=>{
+  assert.equal(stepLine({ordinal:2,tool:'save_custom_curve_draft',code:null}),'Save curve draft');
+  for(const [code,reason] of [['custom_curve_open_unsaved','the curve is open with unsaved edits'],['historical_read_only','a historical view is read-only'],
+    ['custom_curve_agent_scope','the assistant saves only new curves and its own drafts'],['custom_curve_conflict','the curve, its code or its inputs changed'],
+    ['delegation_denied','your authoring or the agent’s grant does not allow it']])
+    assert.equal(stepLine({ordinal:2,tool:'save_custom_curve_draft',code}),`Save curve draft · ${reason}`);
 });

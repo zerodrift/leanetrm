@@ -16,7 +16,8 @@ export function setupMenu(className:string){
       if(item.run)entry.onclick=()=>{close(false);item.run!();};else entry.setAttribute('aria-disabled','true');return entry;}));
     menu.hidden=false;const box=menu.getBoundingClientRect();
     menu.style.left=Math.max(8,Math.min(at.x,innerWidth-box.width-8))+'px';menu.style.top=Math.max(8,Math.min(at.y,innerHeight-box.height-8))+'px';
-    menu.querySelector<HTMLElement>('[role=menuitem]:not([aria-disabled])')?.focus();
+    // Focus the first item offered, or the first item when none is, so that Escape always closes the menu from the keyboard.
+    (menu.querySelector<HTMLElement>('[role=menuitem]:not([aria-disabled])')??menu.querySelector<HTMLElement>('[role=menuitem]'))?.focus();
   }
   function close(refocus=false){
     if(menu.hidden)return;menu.hidden=true;expanded?.setAttribute('aria-expanded','false');expanded=undefined;menu.replaceChildren();

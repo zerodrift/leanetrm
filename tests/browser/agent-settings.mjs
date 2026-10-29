@@ -74,7 +74,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +"return o[0].value===''&&o.length===d.models.length+1&&d.models.every((m,i)=>o[i+1].value===m.id&&o[i+1].textContent.endsWith('capability version '+m.version))"
     +`&&o.some(x=>x.value===${JSON.stringify(added.id)}&&x.textContent==='Browser agent model · ${identifier} (Anthropic) · capability version 1')`
     +"&&JSON.stringify([...document.querySelectorAll('#ai-agent-roles input')].map(b=>b.value))==='[\"market_data_editor\",\"risk_analyst\",\"trader\"]'"
-    +"&&document.querySelectorAll('#ai-agent-tools input').length===10&&document.querySelector('#ai-agent-caching').value==='';})()");
+    +"&&document.querySelectorAll('#ai-agent-tools input').length===11&&document.querySelector('#ai-agent-caching').value==='';})()");
   await check('the form states the limits the API passes',"document.querySelector('#ai-agent-instructions-help').textContent==='Up to 6,000 characters, in lines.'&&document.querySelector('#ai-agent-grant-help').textContent==='Up to 90 days.'");
   await fill({caching:''});
   const before=await evaluate(`${sent('save')}.length`);

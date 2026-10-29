@@ -58,12 +58,13 @@ class Fixture:
     def create(self, name):
         return self.admin.call(f'{AGENTS}/create', {'operationId': str(uuid4()), 'name': f'Synthetic {name} {self.stamp}'})
 
-    def save(self, agent_state, model_id, tools=('read_current_page', 'read_market_data', 'read_trades'), days=28, **limits):
+    def save(self, agent_state, model_id, tools=('read_current_page', 'read_market_data', 'read_trades'), days=28, roles=('trader', 'risk_analyst'),
+             **limits):
         return self.admin.call(f'{AGENTS}/save', {
             'operationId': str(uuid4()), 'agentId': agent_state['id'], 'expectedVersion': agent_state['version'],
             'description': 'Answers questions about the page it is opened on.', 'instructions': 'Quote only values you read.',
             'modelId': model_id, 'modelVersion': self.version_of(model_id), 'reasoning': 'low', 'caching': False, 'tools': list(tools),
-            'allowedRoles': ['trader', 'risk_analyst'],
+            'allowedRoles': list(roles),
             'limits': {'toolSteps': 8, 'inputTokens': 200000, 'outputTokens': 2048, 'elapsedSeconds': 120, 'readSeconds': 15, 'retries': 2, 'historyTurns': 20, **limits}, 'grantDays': days})
 
     def publish(self, agent_state):

@@ -1,7 +1,7 @@
 // The pages as the assistant panel sees them (docs/ai-assistant.md §7.3, §8, §10.1, D191): the report an ask sends for
 // what a page shows, Looking at, which says exactly that, the context an ask pins, when a navigation target moves the
 // page, the places a move left for Back, and the plain lines the conversation shows. None of them names an identifier.
-import {readsPhrase,type Vendor} from './agent-grants.js';
+import {grantPhrase,type Vendor} from './agent-grants.js';
 import {readPages,type Step,type Ending,type Usage,type TargetContext} from './assistant-events.js';
 
 export type PageReport={page:string;selection:Record<string,unknown>};
@@ -16,7 +16,8 @@ export type PageState=
   {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |{page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}
-  |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'delivery'|'custom-curves'|'interval-series'|'interval-curves'|'admin'|'ai'};
+  |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
+  |{page:'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null}
@@ -40,7 +41,8 @@ export function pageReport(state:PageState):PageReport{
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
     case 'power':return {page:'power_tous',selection:{view:state.frame?'power_hours':'tou_products'}};
     case 'configuration':return {page:'contract_definitions',selection:{view:'contract_definitions',curve:null}};
-    case 'custom-curves':return {page:'custom_curves',selection:{}};
+    // Curve builder names the saved curve it has open, if any, and whether it holds unsaved edits, which the assistant does not save over (D260).
+    case 'custom-curves':return {page:'custom_curves',selection:{curve:state.curve,unsaved:state.unsaved}};
     case 'schedules':return {page:'schedules',selection:{view:'library'}};
     case 'reference':return {page:'reference_data',selection:{table:state.table,search:state.search}};
     case 'parties':return {page:'parties',selection:{kind:state.kind}};
@@ -129,8 +131,9 @@ export function changesContext(target:TargetContext,page:PageContext){
   return target.mode==='current'?page.mode!=='current'||page.frameId!==target.frameId
     :page.mode!=='retained'||page.contextId!==target.contextId||page.frameId!==target.frameId;
 }
-// Only a target that arrives live, keeps the context and leaves nothing unsaved moves the page; any other waits for Go.
-export const targetAction=(target:{live:boolean;changesContext:boolean;unsaved:boolean;proposal?:boolean})=>target.live&&!target.changesContext&&!target.unsaved&&!target.proposal?'move':'go';
+// Only a target that arrives live, keeps the context and leaves nothing unsaved moves the page; any other waits for Go, and so does one
+// the person reviews: a proposed curve or a saved draft (D260).
+export const targetAction=(target:{live:boolean;changesContext:boolean;unsaved:boolean;review?:boolean})=>target.live&&!target.changesContext&&!target.unsaved&&!target.review?'move':'go';
 
 const webPages:Record<string,string>={curves:'market',contract_definitions:'configuration',schedules:'schedules',power_tous:'power',reference_data:'reference',
   parties:'parties',blotter:'futures',custom_curves:'custom-curves',jobs:'jobs'};
@@ -149,7 +152,7 @@ export class NavigationHistory{
 }
 
 const toolNames:Record<string,string>={read_current_page:'Read the page',read_market_data:'Read market data',read_trades:'Read trades',
-  read_trade_parties:'Read trade parties',read_schedules:'Read schedules',read_reference_data:'Read reference data',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',read_jobs:'Read your jobs',navigate:'Navigate'};
+  read_trade_parties:'Read trade parties',read_schedules:'Read schedules',read_reference_data:'Read reference data',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',save_custom_curve_draft:'Save curve draft',read_jobs:'Read your jobs',navigate:'Navigate'};
 const reasons:Record<string,string>={tool_arguments_invalid:'the request was not one this tool accepts',result_too_large:'the result was larger than one read returns',
   page_not_supported:'the assistant does not read the page you asked from',tool_not_enabled:'this agent does not read the page you asked from',
   page_selection_unavailable:'what the page showed is not available in the pinned context',snapshot_missing:'it needs an As of date, and none was chosen',
@@ -157,7 +160,9 @@ const reasons:Record<string,string>={tool_arguments_invalid:'the request was not
   missing_curve:'that curve is not in the pinned market data',missing_observation:'market data it needs is missing',blotter_view:'that Blotter view is not available',
   futures_trade:'that trade is not available in the pinned context',swap_trade:'that trade is not available in the pinned context',
   job_not_found:'that job is not one of yours',jobs_current_only:'a historical view does not read current jobs',tool_failed:'the read failed',
-  limit_tool_read:'the read took longer than this agent’s time per read'};
+  limit_tool_read:'the read took longer than this agent’s time per read',historical_read_only:'a historical view is read-only',
+  custom_curve_open_unsaved:'the curve is open with unsaved edits',custom_curve_agent_scope:'the assistant saves only new curves and its own drafts',
+  custom_curve_conflict:'the curve, its code or its inputs changed',delegation_denied:'your authoring or the agent’s grant does not allow it'};
 // A step: the tool's name and, for a refusal or failure, why in plain words; a withheld earlier turn has a line of its own.
 export function stepLine(step:Step){
   if('withheld' in step)return 'An earlier answer was left out: what it read can no longer be read for you';
@@ -267,5 +272,5 @@ export function grantExpiry(now:Date,days:number,zone:string){
 // The consent §7.1 asks for, naming only the reads the version's switched-on tools need.
 export function consentText(agent:Pick<UsableAgent,'name'|'model'|'permissions'>,vendors:Vendor[],until:string){
   return `Allow ${agent.name}, which sends your questions and the data it reads to ${vendorName(vendors,agent.model.vendor)} (${agent.model.displayName}) through `
-    +`the vendor account your administrators configured, whose owner may be able to see them, to read ${readsPhrase(agent.permissions)} on your behalf until ${until}?`;
+    +`the vendor account your administrators configured, whose owner may be able to see them, to ${grantPhrase(agent.permissions)} on your behalf until ${until}?`;
 }

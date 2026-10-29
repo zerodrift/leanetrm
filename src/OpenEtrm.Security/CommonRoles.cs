@@ -18,7 +18,7 @@ public static class CommonRoles
             Permission.ApproveMarketData, Permission.PublishMarketData, Permission.RunJobs, Permission.ReadJobs),
         Template("access_administrator", Permission.ManageIdentities, Permission.ManageAccess, Permission.CreateDelegations, Permission.RunJobs, Permission.ReadJobs, Permission.ManageJobs, Permission.ManageModelProviders,
             Permission.ManageAgents),
-        // Held only by agent principals (docs/ai-assistant.md §5.4).
-        Template("agent_reader", Permission.ReadMarketData, Permission.ReadTrades, Permission.ReadTradeParties, Permission.ReadJobs)
+        // Held only by agent principals (docs/ai-assistant.md §5.4); DraftCustomCurves is its own draft authority (D260).
+        Template("agent_reader", Permission.ReadMarketData, Permission.ReadTrades, Permission.ReadTradeParties, Permission.ReadJobs, Permission.DraftCustomCurves)
     ];
 }

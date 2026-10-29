@@ -26,7 +26,7 @@ static class PageReports
         ["reference_data"]=new("read_reference_data",["reference_data.table_v1"],"Reference data"),
         ["parties"]=new("read_trade_parties",["trade_parties.versions_v1"],"Entities & counterparties"),
         ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1"],"Blotter"),
-        ["custom_curves"]=new("read_custom_curves",["custom_curves.catalog_v1","custom_curves.prepare_v1"],"Curve builder"),
+        ["custom_curves"]=new("read_custom_curves",["custom_curves.catalog_v1","custom_curves.prepare_v1","custom_curves.save_draft_v1"],"Curve builder"),
         ["jobs"]=new("read_jobs",["jobs.list_v1","jobs.history_v1"],"Jobs & Infrastructure"),
         // The inspected PPA is the Blotter's trade view of it; its target opens it in the Blotter.
         ["ppa"]=new("read_trades",["trades.trade_v1","trades.ppa_book_v1"],"PPA bookings",false),
@@ -75,11 +75,27 @@ static class PageReports
         if(page.Tool is null)return selection.ValueKind==JsonValueKind.Object&&!selection.EnumerateObject().Any()?new(id,null):null;
         try
         {
+            // Curve builder reports the curve it has open, if any, and whether it holds unsaved edits, and reads its catalog (D260).
+            if(id=="custom_curves"){_=OpenCurve(selection);return new(id,AgentTools.Parse(page.Tool,NoInput));}
             var call=AgentTools.Parse(page.Tool,selection);
             return new(id,page.Operations.Contains(call.Operation.Id)&&Shows(id,call)?call:null);
         }
         catch(ToolRefusal){return new(id,null);}
     }
+
+    static readonly JsonElement NoInput=JsonDocument.Parse("{}").RootElement.Clone();
+
+    // Curve builder's selection: exactly the curve it has open, or null, and whether it holds unsaved edits.
+    static (Guid? Curve,bool Unsaved) OpenCurve(JsonElement selection)
+    {
+        var members=new ToolInput(selection);
+        members.Exactly("curve","unsaved");
+        return(members.Has("curve")?members.Id("curve"):null,members.Flag("unsaved"));
+    }
+
+    // Whether a stored report shows this curve open in Curve builder with unsaved edits (D260).
+    internal static bool HoldsUnsaved(JsonElement report,Guid curve)=>
+        Read(report) is {Page:"custom_curves",Call:not null}&&OpenCurve(report.GetProperty("selection")) is {Unsaved:true} open&&open.Curve==curve;
 
     // PPA bookings shows only PPAs, each at the revision it inspected.
     static bool Shows(string page,ToolCall call)=>page!="ppa"||call.Arguments is not TradeArguments{InstrumentType:not "ppa"} and not TradeArguments{Revision:null};

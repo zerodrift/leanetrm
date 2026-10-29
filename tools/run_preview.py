@@ -275,6 +275,9 @@ def main():
             if args.assistant_check and migration.name=='0122_pin_turn_bound.sql':
                 from check_agent_turns import check_pin_bound_upgrade
                 check_pin_bound_upgrade(query,migration.read_text())
+            if args.assistant_check and migration.name=='0128_agent_curve_drafts.sql':
+                from check_agent_turns import check_curve_drafts_upgrade
+                check_curve_drafts_upgrade(query,migration.read_text())
             if args.check and migration.name=='0116_remove_unused_cash_rounding.sql':
                 from check_cash_rounding_retirement import run_checks as check_cash_retirement
                 check_cash_retirement(query,migration.read_text())
@@ -849,7 +852,7 @@ def main():
                 from check_agent_grants import run_checks as check_agent_grants
                 check_agent_grants(url,query,psql,manifest,app_env,admin,viewer)
                 from check_agent_turns import run_checks as check_agent_turns
-                check_agent_turns(url,query,psql,manifest,app_env)
+                check_agent_turns(url,query,psql,manifest,app_env,dotnet)
                 from check_agent_turn_http import run_checks as check_agent_turn_http
                 sessions=check_agent_turn_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
                 from check_agent_tool_http import run_checks as check_agent_tool_http
