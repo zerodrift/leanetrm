@@ -2,6 +2,8 @@ import {sideSession} from './side-session.mjs';
 
 /** Browser behavior over the same authorized custom-curve operations used by agents. */
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,fitsWidth,url}){
+ // The focus checks need focus events to reach the page, as in a focused window.
+ await command('Emulation.setFocusEmulationEnabled',{enabled:true});
  const discardAsked=async()=>{if(await evaluate("!document.querySelector('#custom-curves-page-prompt').hidden"))await click('#custom-curves-page-prompt button:not(.secondary)');};
  // The curve's views are tabs in a dock (curve-dock.ts): `tab` reads one of them, `groups` the tabs each group shows, in order.
  const tab=id=>`document.querySelector('#custom-curves-dock-${id}')`,body=id=>`document.querySelector('#${id==='versions'?'curve-activation':'custom-curves-tab-'+id}')`;
