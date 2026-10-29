@@ -237,7 +237,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     /** Retains the detail beneath its source row through sorting and virtual redraws. */
     detailRow(index:number|null,body:HTMLElement){
       const changed=index===null?detail!==undefined:detail?.index!==index||detail?.body!==body;
-      if(index===null){detail?.body.remove();detail=undefined;}else if(changed){detail?.body.remove();detail={index,body};}
+      if(index===null){detail?.body.remove();detail=undefined;table.options.renderVerticalBuffer=0;}else if(changed){detail?.body.remove();detail={index,body};}
       sizeDetail();
       if(ready&&alive){
         for(const row of table.getRows()){markOpen(row);row.normalizeHeight();}
@@ -250,7 +250,15 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     resizeDetail(keepVisible=false){
       sizeDetail();if(!ready||!alive)return;
       const selected=detail,held=focusedDetail()??(keepVisible?selected?.body:undefined),focusAt=focusVersion;
-      for(const row of table.getRows())if(sourceIndex(row)===selected?.index)row.normalizeHeight();
+      const row=table.getRows().find(row=>sourceIndex(row)===selected?.index);row?.normalizeHeight();
+      if(selected?.body.isConnected){
+        const height=selected.body.offsetHeight,holder=container.querySelector<HTMLElement>('.tabulator-tableholder');
+        // A native focus jump inside a tall detail must still land in that
+        // row. Tabulator 6.6.1 resets its learned buffer on resize. Retain the
+        // measured extent in its configured buffer, then reset it on collapse.
+        const buffer=holder&&height>holder.clientHeight?height:0;
+        if(table.options.renderVerticalBuffer!==buffer){table.options.renderVerticalBuffer=buffer;table.redraw(true);row?.normalizeHeight();}
+      }
       // Returning from a tall editor can leave its source row outside the
       // virtual viewport. Restore only that still-current position, without
       // taking focus from a control the person has moved to in the meantime.

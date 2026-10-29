@@ -15,7 +15,10 @@ export function setupPositionExpansion(side:SidePanel,o:{unsaved:()=>boolean;bus
   if(!mode)return side.ask(asker);if(question)return false;const asking=question=new AbortController();
   try{return await asker(asking.signal)&&!asking.signal.aborted;}finally{if(question===asking)question=undefined;}
  }
- const leave=()=>!mode?side.leave():o.unsaved()?ask(askLeave(host)):Promise.resolve(!question);
+ // Focusing the new question can scroll to the bottom of a tall virtual row.
+ // Its added height must be measured before that scroll, while it is attached.
+ const questionLayout=()=>{if(mode)o.resized(false);};
+ const leave=()=>!mode?side.leave():o.unsaved()?ask(askLeave(host,questionLayout)):Promise.resolve(!question);
  async function show(next:PanelMode){
   if(question)return false;
   if(sameMode(current(),next)){if(mode)host.focus({preventScroll:true});return true;}
@@ -70,5 +73,5 @@ export function setupPositionExpansion(side:SidePanel,o:{unsaved:()=>boolean;bus
  });
  // Detail reads and forms change height after the grid first places the row.
  let height=0;new ResizeObserver(()=>{const next=host.offsetHeight;if(next!==height){height=next;o.resized();}}).observe(host);
- return{host,shell,position,ask:(question:{text:string;keep:string;go:string})=>ask(askInPanel(mode?host:document.getElementById('side-panel')!,question))};
+ return{host,shell,position,ask:(question:{text:string;keep:string;go:string})=>ask(askInPanel(mode?host:document.getElementById('side-panel')!,question,mode?questionLayout:undefined))};
 }

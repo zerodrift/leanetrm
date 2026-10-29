@@ -91,6 +91,24 @@ test('opening an editor reports its new row height before a following prompt can
  f.position.form(true);assert.deepEqual(f.resized,[false]);
 });
 
+test('an inline question reports its added height before its answer takes focus',async()=>{
+ const original=Element.prototype.focus;
+ try{
+  for(const path of ['leave','question']){
+   const f=fixture();await f.shell.show(position);f.edit();let focused=false;
+   Element.prototype.focus=function(){
+    if(this.textContent==='Keep editing'){
+     assert.deepEqual(f.resized,[false],'the new question must be measured before focus can scroll the virtual row');
+     assert.equal(f.host.querySelector('#position-details-prompt').hidden,false);focused=true;
+    }
+   };
+   const answer=path==='leave'?f.shell.show({kind:'risk'}):f.ask({text:'Synthetic unsaved edits',keep:'Keep editing',go:'Discard changes'});
+   await Promise.resolve();assert.equal(focused,true);
+   f.host.querySelector('#position-details-prompt').children[1].children[0].click();assert.equal(await answer,false);
+  }
+ }finally{Element.prototype.focus=original;}
+});
+
 test('returning a focused editor to its read keeps the current position visible, without moving another focus or a reset position',async()=>{
  const f=fixture();await f.shell.show(position);f.position.form(true);f.resized.length=0;document.activeElement=f.host;
  f.position.form(false);assert.deepEqual(f.resized,[true]);
