@@ -63,10 +63,11 @@ public sealed record ExactUnitPrice
     internal ExactUnitPrice ScaleFraction(BigInteger factor,BigInteger divisor)
     {
         var result=new ExactUnitPrice(numerator*factor,denominator*divisor,Unit);
-        if(result.numerator.GetBitLength()>4096 || result.denominator.GetBitLength()>4096)
-            throw new MarketDataException("numeric_range","The compounded exact price exceeds the supported 4096-bit bound.");
+        RequireFractionRange(result.numerator,result.denominator);
         return result;
     }
+    internal static void RequireFractionRange(BigInteger numerator,BigInteger denominator)
+    {if(numerator.GetBitLength()>4096||denominator.GetBitLength()>4096)throw new MarketDataException("numeric_range","The compounded exact price exceeds the supported 4096-bit bound.");}
     public ExactUnitPrice Add(ExactUnitPrice other)
     {
         if(Unit!=other.Unit)throw new MarketDataException("unit_mismatch","Curve aggregation requires identical price units.");

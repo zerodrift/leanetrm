@@ -31,6 +31,15 @@ The [standalone experiment](side-block-experiment.md) qualifies bounded arithmet
 and storage workloads. Application parity, complete HTTP workload measurements
 and the development cutover remain in progress; no columnar extension is used.
 
+The 2026-10-29 D258 amendment requires booking to retain the complete executable
+schedule for all Side families. The next common execution path loads it directly,
+resolves dynamic inputs concurrently under one committed context and immutable
+scenario, and exposes context-based row states. No booked read regenerates a
+schedule or compiles a replacement execution graph. This remains implementation
+work, delivered in small reviewable commits; the existing qualification records
+do not establish completion of this amendment. See [the execution contract and
+checks](side-plans.md).
+
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.
 Heat-rate examples use the existing typed factor contract and independent

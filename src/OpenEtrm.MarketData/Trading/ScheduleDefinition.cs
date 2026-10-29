@@ -69,20 +69,8 @@ public sealed class ScheduleDefinition
         for(var n=0;n<Rows.Count;n++)
         {
             var row=Rows[n];
-            if(row.Ordinal!=n||string.IsNullOrEmpty(row.Key)||!keys.Add(row.Key)||row.Version!=1||
-                row.Role is not("source" or "intermediate" or "contribution" or "root")||
-                row.OutputKind is not("price" or "quantity" or "money" or "factor" or "scalar")||row.Parameters is null)
-                throw Error("Rows require contiguous stable identities, roles, types and supported operation versions.");
-            ScheduleOperations.Require(row);
-            if(row.Grid is {} grid&&(grid<0||grid>=Grids.Count||row.Interval is not null||row.DeliveryFrom is not null||row.DeliveryTo is not null))
-                throw Error("A vector operation must bind one exact retained grid, independently of scalar windows.");
-            if((row.OutputKind is "price" or "quantity")!=(row.Unit is not null)||
-                (row.OutputKind is "price" or "money")!=(row.Currency is not null)||
-                (row.OutputKind=="price")!=(row.QuoteMultiplier is not null))
-                throw Error("Each row must retain the exact quantity, currency and quote scale required by its output type.");
-            if(row.Unit is {} unit)Money.RequireKey(unit);if(row.Currency is {} currency)Money.RequireKey(currency);
-            if(row.QuoteMultiplier is {} multiplier&&ExactDecimal.Parse(multiplier).CompareTo(default)<=0)throw Error("Price quote multipliers must be positive.");
-            if((row.OccurrenceKey is null)!=(row.TermsDigest is null))throw Error("Obligation identity requires both its key and own-terms digest.");
+            RequireRow(row,n,Grids.Count);
+            if(!keys.Add(row.Key))throw Error("Rows require distinct stable identities.");
         }
         foreach(var edge in Edges)
             if(edge.Source<0||edge.Target>=Rows.Count||edge.Source>=edge.Target||string.IsNullOrEmpty(edge.Port)||edge.Ordinal<0||
@@ -97,8 +85,32 @@ public sealed class ScheduleDefinition
         if(Bindings.Select(b=>(b.Row,b.Port)).Distinct().Count()!=Bindings.Count)throw Error("Source binding ports must be unique.");
         if(Roots.Select(r=>r.Name).Distinct(StringComparer.Ordinal).Count()!=Roots.Count||Roots.Any(r=>r.Row<0||r.Row>=Rows.Count||string.IsNullOrEmpty(r.Name)||string.IsNullOrEmpty(r.Measure)))
             throw Error("Output roots must select retained rows by distinct explicit names and measures.");
-        if(Ports.Select(p=>p.Name).Distinct(StringComparer.Ordinal).Count()!=Ports.Count)throw Error("External ports require distinct names.");
         ScheduleTopology.Require(this);
+    }
+    internal static void RequireRow(ScheduleDefinitionRow row,int ordinal,int gridCount)
+    {
+        if(row.Ordinal!=ordinal||string.IsNullOrEmpty(row.Key)||row.Version!=1||
+            row.Role is not("source" or "intermediate" or "contribution" or "root")||
+            row.OutputKind is not("price" or "quantity" or "money" or "factor" or "scalar")||row.Parameters is null)
+            throw Error("Rows require contiguous stable identities, roles, types and supported operation versions.");
+        ScheduleOperations.Require(row);
+        if(row.Grid is {} grid&&(grid<0||grid>=gridCount||row.Interval is not null||row.DeliveryFrom is not null||row.DeliveryTo is not null))
+            throw Error("A vector operation must bind one exact retained grid, independently of scalar windows.");
+        if((row.DeliveryFrom is null)!=(row.DeliveryTo is null)||row.DeliveryFrom>=row.DeliveryTo||
+            (row.ObservationFrom is null)!=(row.ObservationTo is null)||row.ObservationFrom>=row.ObservationTo||row.PaymentOrdinal<0)
+            throw Error("Scalar delivery and observation windows require paired increasing bounds and nonnegative payment ordinals.");
+        if(row.Interval is {} interval&&(row.DeliveryFrom is not null||interval.Start>=interval.End||
+            !TradingInstant.IsSupported(interval.Start)||!TradingInstant.IsSupported(interval.End)||
+            interval.HourBeginning is <0 or >23||interval.Minute is <0 or >59||interval.Occurrence is not(1 or 2)))
+            throw Error("A scalar interval requires ordered UTC instants and explicit valid local labels, independently of dated windows.");
+        if(row.ValueAt is {} at&&!TradingInstant.IsSupported(at))throw Error("A value date requires an exact supported UTC instant.");
+        if((row.OutputKind is "price" or "quantity")!=(row.Unit is not null)||
+            (row.OutputKind is "price" or "money")!=(row.Currency is not null)||
+            (row.OutputKind=="price")!=(row.QuoteMultiplier is not null))
+            throw Error("Each row must retain the exact quantity, currency and quote scale required by its output type.");
+        if(row.Unit is {} unit)Money.RequireKey(unit);if(row.Currency is {} currency)Money.RequireKey(currency);
+        if(row.QuoteMultiplier is {} multiplier&&ExactDecimal.Parse(multiplier).CompareTo(default)<=0)throw Error("Price quote multipliers must be positive.");
+        if((row.OccurrenceKey is null)!=(row.TermsDigest is null))throw Error("Obligation identity requires both its key and own-terms digest.");
     }
     private string Hash()
     {
@@ -142,7 +154,8 @@ public static class ScheduleOperations
         "rate_curve","sibling_quantity","quantity_unit","currency","location","index","quote");
     public static void Require(ScheduleDefinitionRow row)
     {
-        if(!Parameters.TryGetValue(row.Operation,out var keys)||!row.Parameters.Keys.Order(StringComparer.Ordinal).SequenceEqual(keys.Order(StringComparer.Ordinal)))
+        if(row.Operation is null||row.Parameters is null||!Parameters.TryGetValue(row.Operation,out var keys)||
+            !row.Parameters.Keys.Order(StringComparer.Ordinal).SequenceEqual(keys.Order(StringComparer.Ordinal))||row.Parameters.Values.Any(value=>value is null))
             throw ScheduleDefinition.Error("A row has an unsupported operation or a missing/unknown parameter.");
         if(row.Parameters.TryGetValue("numerator",out var numerator))
         {
