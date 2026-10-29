@@ -33,9 +33,11 @@ def archive(path, entries):
                 output.addfile(item)
 
 
-def release_entries():
+def release_entries(migration_count=1):
     files = {'compose.yaml': b'name: synthetic\n', 'LICENSE': b'Synthetic fixture\n',
-             'image.tar': b'owned synthetic image', 'migrations/0001_baseline.sql': b'BEGIN; COMMIT;\n'}
+             'image.tar': b'owned synthetic image'}
+    files.update({f'migrations/{number:04d}_baseline.sql': b'BEGIN; COMMIT;\n'
+                  for number in range(1, migration_count + 1)})
     manifest = {'version': 1, 'repository': REPOSITORY, 'commit': COMMIT, 'runId': 17,
                 'runAttempt': 1, 'imageTag': 'openetrm-release:' + COMMIT,
                 'imageConfigSha256': 'b' * 64,
@@ -61,6 +63,22 @@ class BundleChecks(unittest.TestCase):
         manifest = self.unpack(release_entries())
         self.assertEqual(manifest['commit'], COMMIT)
         self.assertEqual((self.destination / 'image.tar').read_bytes(), b'owned synthetic image')
+
+    def test_bundle_with_127_migrations_and_four_release_files_is_admitted(self):
+        entries = release_entries(migration_count=127)
+        self.assertEqual(len(entries), 131)
+        manifest = self.unpack(entries)
+        self.assertEqual(len(manifest['files']), 130)
+        for name, value in entries:
+            self.assertEqual((self.destination / name).read_bytes(), value)
+
+    def test_132nd_regular_file_is_refused_before_its_body_is_written(self):
+        entries = release_entries(migration_count=128)
+        self.assertEqual(len(entries), 132)
+        with self.assertRaisesRegex(bundle.ReleaseError, 'expansion limit'):
+            self.unpack(entries)
+        self.assertFalse((self.destination / entries[-1][0]).exists())
+        self.assertEqual(sum(path.is_file() for path in self.destination.rglob('*')), 131)
 
     def test_rejects_traversal_links_duplicates_and_unlisted_files(self):
         for extra in [('../escape', b'x'), ('/escape', b'x'), ('image.tar', b'x'),
