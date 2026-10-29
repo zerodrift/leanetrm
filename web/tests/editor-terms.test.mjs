@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {tradeTerms,tradeHistory,tradeDetailView,tradeAmendState,readTradeView,holdsBinding,tradeAtPosition} from '../dist/trade-editor.js';
 import {futuresDraftMarkets} from '../dist/futures-booking.js';
-import {swapTerms,swapHistory,swapDetailView,swapAmendState,readSwapView,retainedIndex,sideTitle,holdsInstrument,swapAtPosition,valuationLine,sideLine,swapDraftMarkets} from '../dist/swap-editor.js';
+import {swapTerms,swapHistory,swapDetailView,swapAmendState,readSwapView,retainedIndex,sideTitle,holdsInstrument,swapAtPosition,valuationLine,valuationFacts,sideFacts,swapDraftMarkets} from '../dist/swap-editor.js';
 import {setCurveNames} from '../dist/market-view.js';
 const details=JSON.parse(readFileSync(new URL('./fixtures/trade-details.json',import.meta.url),'utf8'));
 setCurveNames([{code:'future',name:'Gas future'},{code:'daily_gas',name:'Daily gas'},{code:'daily_power',name:'Daily power'}]);
@@ -233,11 +233,20 @@ test('a swap\'s own revision must hold the position\'s instrument, and an earlie
 });
 
 // The words above a swap's schedules are the same wherever they are drawn, in the form of an amendment and in the read view of its terms.
-test('a swap\'s valuation line states its PV and its notional, applied once to each side\'s delivery period, and each side\'s line its unit amounts, as the caller formats them in the currency and unit of the index they are priced from',()=>{
+test('a swap\'s valuation line states its PV and its notional, applied once to each side\'s delivery period, as the caller formats them in the currency and unit of the index they are priced from',()=>{
  const text=(value,kind,role)=>`${role??'trade'}.${kind}:${value}`,index={currency:'USD',unit:'MWh'},value=details.swap.valuation;
  assert.equal(valuationLine(value,index,text),`Trade PV: trade.money:${value.presentValue} USD · notional: trade.quantity:${value.quantity} MWh total for each side’s delivery period.`);
- const side=value.sides[0];
- assert.equal(sideLine(side,index,text),`Side unit PV: ${side.kind}.money:${side.presentValue} USD/MWh; signed contribution: ${side.kind}.money:${side.contribution} USD/MWh.`);
+});
+
+// The read view lists the same amounts as figures beside their labels and units, never adding them up.
+test('a swap\'s valuation facts state its PV and per-side notional, and each side\'s facts its unit PV and contribution, as the caller formats them',()=>{
+ const text=(value,kind,role)=>`${role??'trade'}.${kind}:${value}`,index={currency:'USD',unit:'MWh'},value=details.swap.valuation,side=value.sides[0];
+ assert.deepEqual(valuationFacts(value,index,text),[
+  {label:'Trade PV',text:`trade.money:${value.presentValue}`,unit:'USD'},
+  {label:'Notional · each side’s delivery period',text:`trade.quantity:${value.quantity}`,unit:'MWh'}]);
+ assert.deepEqual(sideFacts(side,index,text),[
+  {label:'Side unit PV',text:`${side.kind}.money:${side.presentValue}`,unit:'USD/MWh'},
+  {label:'Signed contribution',text:`${side.kind}.money:${side.contribution}`,unit:'USD/MWh'}]);
 });
 
 // Price before booking marks the delivery of each market the draft is for on that market's curve.
