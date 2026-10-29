@@ -24,10 +24,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#risk-factor',await evaluate("[...document.querySelector('#risk-factor').options].find(o=>o.value).value"));await set('#risk-bump','0.1');await submit('#risk-form');
  await wait("!document.querySelector('#desk-run').hidden&&"+idle);
  // The settlement view is in the panel's form part, open; it is opened from the Terms of the position's row.
- const open="(()=>{const view=document.querySelector('#swap-settlement'),form=document.querySelector('#position-details-form');return !!view&&!view.hidden&&form.contains(view)&&!form.hidden;})()";
+ const open="(()=>{const view=document.querySelector('#swap-settlement'),form=document.querySelector('#position-details-form');return !!view&&!!form&&!view.hidden&&form.contains(view)&&!form.hidden;})()";
  async function openView(){
   await set('#blotter-filters .table-search',selected.reference);await wait("[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length).length===1");
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details').getAttribute('aria-label')==='Position details'&&"+idle);
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait(`document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&document.querySelector('#position-details')?.hidden===false&&document.querySelector('#position-details-head .side-panel-reference')?.textContent===${JSON.stringify(selected.reference)}&&${idle}`);
   await click('#position-details-tabs-terms');await wait("!!document.querySelector('#side-panel-settlement')&&"+idle);
   await click('#side-panel-settlement');await wait(open);await wait(idle);
  }
