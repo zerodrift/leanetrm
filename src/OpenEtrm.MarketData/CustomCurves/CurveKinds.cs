@@ -5,6 +5,8 @@ namespace OpenEtrm.MarketData.CustomCurves;
 public static class CurveKinds
 {
     public const string Version="curve_kinds_v1";
+    // A stored interest-rate curve is not built from a rule or a graph; its market type names it.
+    public const string InterestRate="interest_rate";
     public static string Of(RecipeDefinition definition)
     {
         RecipeNode? Node(string? id)=>id is null?null:definition.Nodes.FirstOrDefault(n=>n.Id==id);
@@ -31,6 +33,7 @@ public static class CurveKinds
     {
         CurveRule.Direct when directRole==ObservationRole.DailySettlement=>"market_settlement",
         CurveRule.Direct when directRole==ObservationRole.TraderMark=>"trader_mark",
+        // Unreachable for stored curves: db/migrations/0002_market_data.sql limits direct_role to trader_mark/daily_settlement and requires one for direct.
         CurveRule.Direct=>throw new MarketDataException("curve_kind_undefined","A direct curve needs a daily-settlement or trader-mark role to have a kind."),
         CurveRule.Add=>"basis_spread",
         CurveRule.ScaleAdd=>"scaled",

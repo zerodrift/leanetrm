@@ -19,7 +19,7 @@ def run_checks(url, query=None, manifest=None):
     assert navigation['kindsVersion']=='curve_kinds_v1'
     navigation_kinds={row['code']:row['kind'] for row in navigation['curves']}
     assert all(navigation_kinds[code]==kind for code,kind in source_kinds.items()),navigation_kinds
-    assert set(navigation_kinds.values())<={'market_settlement','trader_mark','basis_spread','scaled','custom'},navigation_kinds
+    assert set(navigation_kinds.values())<={'market_settlement','trader_mark','basis_spread','scaled','interest_rate'},navigation_kinds
     templates={row['code']:row for row in catalog['templates']}
     assert {'ng_prompt','ng_balmo','ng_average'} <= templates.keys()
     frame=next(frame for frame in boot['frames'] if frame['at'].startswith('2020-12-18T16:00:00'))

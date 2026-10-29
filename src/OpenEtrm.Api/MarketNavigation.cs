@@ -56,7 +56,7 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
         }
         await using(var command=ScheduleStore.Command(connection,"SELECT code,name FROM market_data.rate_curves WHERE catalog_id=$1 AND revision_id=$2 ORDER BY code",manifest.CatalogId,manifest.RevisionId))
         await using(var reader=await command.ExecuteReaderAsync(ct))
-            while(await reader.ReadAsync(ct))curves.Add(new(reader.GetString(0),reader.GetString(1),"rates",null,"custom"));
+            while(await reader.ReadAsync(ct))curves.Add(new(reader.GetString(0),reader.GetString(1),"rates",null,CurveKinds.InterestRate));
         if(curves.Any(c=>string.IsNullOrWhiteSpace(c.Name)||c.Category is {} category&&string.IsNullOrWhiteSpace(category.Name))||curves.Select(c=>c.Code).Distinct().Count()!=curves.Count)
             throw Invalid();
         return curves.ToImmutable();

@@ -30,6 +30,7 @@ internal static class CurveKindChecks
         Equal("Source passthrough",CurveKinds.Of(Graph(Source(),Out("source"))),"custom");
         Equal("Published passthrough",CurveKinds.Of(Graph(Node("pub","published_source"),Out("pub"))),"custom");
         Equal("Unconnected output",CurveKinds.Of(Graph(Node("out","output"))),"custom");
+        Equal("Interest rate code",CurveKinds.InterestRate,"interest_rate");
         Equal("Settlement",CurveKinds.Of(CurveRule.Direct,ObservationRole.DailySettlement),"market_settlement");
         Equal("Trader mark",CurveKinds.Of(CurveRule.Direct,ObservationRole.TraderMark),"trader_mark");
         Equal("Add",CurveKinds.Of(CurveRule.Add,null),"basis_spread");
