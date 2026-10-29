@@ -111,6 +111,20 @@ public sealed record MarketObservation(
 public readonly record struct InputKey(SeriesKey Series, InputUse Use);
 public sealed record SelectedObservation(InputKey Input, MarketObservation Observation);
 
+// A certified knowledge selection is separate from the quote observation cutoff.
+// Exact quote pins keep their original meaning when corrected quantities are read.
+public sealed record MarketKnowledge
+{
+    public Guid ContextId { get; }
+    public DateTimeOffset KnownAt { get; }
+    public MarketKnowledge(Guid contextId,DateTimeOffset knownAt)
+    {
+        if(contextId==Guid.Empty||!Trading.TradingInstant.IsSupported(knownAt))
+            throw new MarketDataException("market_knowledge_context","Supply a resolved knowledge identity and exact UTC cutoff.");
+        ContextId=contextId;KnownAt=knownAt;
+    }
+}
+
 // These are explicitly selected inputs, not a "latest" or wall-clock historical
 // resolver. Snapshot identities supplied here have no authorization meaning.
 public sealed record MarketSnapshot(
@@ -118,6 +132,9 @@ public sealed record MarketSnapshot(
     DateTimeOffset MarketCutoff, InputSelectionPolicy SelectionPolicy,
     ImmutableArray<SelectedObservation> Selections)
 {
+    [System.Text.Json.Serialization.JsonInclude]
+    public MarketKnowledge? Knowledge { get; private init; }
+    public MarketSnapshot WithKnowledge(Guid contextId,DateTimeOffset knownAt)=>this with{Knowledge=new(contextId,knownAt)};
     public bool HasCoherentSelections() => !Selections.IsDefault &&
         Selections.All(s => s is not null && s.Observation is not null) &&
         Selections.Select(s => s.Input).Distinct().Count() == Selections.Length &&
@@ -125,7 +142,7 @@ public sealed record MarketSnapshot(
 
     public bool HasSameInputs(MarketSnapshot? other) => other is not null &&
         Id == other.Id && Definitions == other.Definitions && ValuationAt == other.ValuationAt && MarketCutoff == other.MarketCutoff &&
-        SelectionPolicy == other.SelectionPolicy && !Selections.IsDefault && !other.Selections.IsDefault &&
+        SelectionPolicy == other.SelectionPolicy && Knowledge==other.Knowledge && !Selections.IsDefault && !other.Selections.IsDefault &&
         Selections.Length == other.Selections.Length && (ReferenceEquals(this, other) || Selections.ToHashSet().SetEquals(other.Selections));
 }
 
@@ -163,8 +180,11 @@ public sealed record CurveBuild
     internal Calculation.ConnectedCurveExport Compiled { get; }
     internal ImmutableArray<CurveRequest> Requests { get; }
     private readonly Lazy<Calculation.ConnectedValuation> valuation;
+    private readonly Lazy<ImmutableDictionary<CurveRequest,Calculation.CurvePointKey>> pricingBindings;
     private readonly Lazy<Trading.PreparedValuationMarket> pricing;
     internal Trading.PreparedValuationMarket Pricing=>pricing.Value;
+    internal Calculation.ConnectedValuation Connected=>valuation.Value;
+    internal ImmutableDictionary<CurveRequest,Calculation.CurvePointKey> PricingBindings=>pricingBindings.Value;
     // Native interval consumers see prices from the same shared graph as ordinary
     // sides. No quote overlay is reconstructed and no new market inputs are read.
     internal CurveBuild BindConnected(Calculation.ConnectedValuation connected,
@@ -197,7 +217,8 @@ public sealed record CurveBuild
         ReusedConstituents=reusedConstituents; Shock=shock; Scenario=scenario??Risk.QuoteScenario.Base(snapshot);
         Graph=graph;Compiled=compiled;Requests=requests;
         valuation=new(()=>connected??(parent is null?Calculation.ConnectedValuation.Prepare(Graph,Snapshot):parent.valuation.Value.WithScenario(Graph)));
-        pricing=new(()=>parent is null?valuation.Value.Market(connectedBindings??requests.ToImmutableDictionary(r=>r,r=>compiled.Points[(r,InputUse.Variable)]),this,default,this):
+        pricingBindings=new(()=>parent?.PricingBindings??connectedBindings??requests.ToImmutableDictionary(r=>r,r=>compiled.Points[(r,InputUse.Variable)]));
+        pricing=new(()=>parent is null?valuation.Value.Market(PricingBindings,this,default,this):
             Calculation.ConnectedValuation.WithScenario(parent.Pricing,valuation.Value,this));
     }
 }

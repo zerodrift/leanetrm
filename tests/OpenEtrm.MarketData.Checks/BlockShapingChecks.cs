@@ -160,7 +160,10 @@ internal static class BlockShapingChecks
             var (first,last)=BlockShaping.ShapeWindow(additive,Fixture.Utc("2031-11-10T05:00:00Z"),Fixture.Utc("2031-11-12T05:00:00Z"));
             Equal((first,last),(november,december));Equal((first.Offset,last.Offset),(TimeSpan.Zero,TimeSpan.Zero));
             Equal(BlockShaping.ShapeWindow(additive,Fixture.Utc("2031-11-20T05:00:00Z"),Fixture.Utc("2031-12-03T05:00:00Z")),(november,january));
-            Reject("interval_block_partition",()=>BlockShaping.ShapeWindow(additive,Fixture.Utc("2031-02-01T05:00:00Z"),Fixture.Utc("2031-02-02T05:00:00Z")));});
+        });
+        Check("a missing native price block is coverage failure before reading shape data, not an ambiguous partition",()=>{
+            Reject("interval_block_coverage",()=>BlockShaping.ShapeWindow(additive,Fixture.Utc("2031-02-01T05:00:00Z"),Fixture.Utc("2031-02-02T05:00:00Z")));
+            Reject("interval_shape",()=>BlockShaping.ShapeWindow(additive with{Blocks=[]},november,december));});
         Check("a missing or duplicate shape interval inside a block refuses that block",()=>{
             var gap=offsets.RemoveAt(offsets.IndexOf(offsets.First(c=>c.Start==Fixture.Utc("2031-11-29T05:00:00Z"))));
             Reject("interval_shape_coverage",()=>Evaluate(additive,built,gap,Fixture.Utc("2031-11-10T05:00:00Z"),Fixture.Utc("2031-11-11T05:00:00Z")));

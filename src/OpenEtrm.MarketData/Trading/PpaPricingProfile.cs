@@ -18,7 +18,7 @@ public sealed record PpaPricingProfile(ImmutableArray<PpaPricingPeriod> Periods,
     // operating month, quantity state, economic class, coverage and payment date.
     public static PpaPricingProfile Create(PpaBreakEvenPlan plan,PpaBreakEvenResult result)
     {
-        var selected=(PpaFixedSide)plan.Original.Memberships.Single(m=>m.Slot==plan.SelectedSide).Side;
+        var selected=(FixedSide)plan.Original.Memberships.Single(m=>m.Slot==plan.SelectedSide).Side;
         var entered=((FlatPrice)selected.Price).Price;
         var one=result.OneMeasures.Periods.ToDictionary(p=>p.Key);
         var periods=result.ZeroMeasures.Periods.Select(z=>{

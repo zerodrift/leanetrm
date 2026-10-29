@@ -10,7 +10,8 @@ namespace OpenEtrm.Api;
 public sealed record SwapObservationOptionsRequest(FuturesReadRequest Context, Guid? DefinitionRevisionId = null,
     string? Commodity = null, string? Index = null, string? Curve = null, string? ResetFrequency = null,
     string? AveragingMethod = null, string? DeliveryFrom = null, string? DeliveryTo = null,
-    CustomCurveProjectionInput? CustomProjection = null, ReferenceKey? ObservationCalendar = null);
+    CustomCurveProjectionInput? CustomProjection = null, ReferenceKey? ObservationCalendar = null,
+    PriceSettlementInput? Settlement = null);
 
 public sealed record SideObservationUnavailable(string Code, string Message);
 public sealed record SideDeliveryPeriod(string ResetFrequency,string AveragingMethod,string DeliveryFrom,string DeliveryTo);
@@ -19,7 +20,7 @@ public sealed record SideObservationChoice(Guid DefinitionRevisionId, string Cur
 
 public sealed partial class SwapStore
 {
-    private static void RequireObservationInputs(PreviewData data,InputFrame frame,PlannedSideObservationReferences references,bool custom,CancellationToken ct)
+    private static void RequireObservationInputs(PreviewData data,InputFrame frame,PlannedSideObservationReferences references,PriceSettlementSelection settlement,bool custom,CancellationToken ct)
     {
         var snapshot=data.Snapshot(frame);
         var requests=references.Projections.Where((_,ordinal)=>!custom&&snapshot.ValuationAt<references.Fixings[ordinal].FixingAt)
@@ -30,7 +31,7 @@ public sealed partial class SwapStore
             ct.ThrowIfCancellationRequested();
             var projection=references.Projections[ordinal];var fixing=references.Fixings[ordinal];
             var quote=data.QuoteRows(fixing.Quote.Code).Single();
-            _=IndexFixingPricing.Resolve(market,new(fixing.Index,quote,projection.Market,projection.Contract,null,fixing));
+            _=PeriodPriceSelector.Admit(market,new(settlement,quote,projection.Market,projection.Contract,null,fixing));
         }
     }
 
@@ -70,18 +71,29 @@ public sealed partial class SwapStore
                 if (targets.Length != 1 || targets[0].Text("kind") != "index" || quotes.Length != 1 || quotes[0].Kind != QuoteKind.Outright) continue;
                 var index = targets[0].Text("index_a_code");
                 candidates.Add((bundle, market.Frame, curve, index, quotes[0]));
-                var supported = SwapObservationCompatibility.SupportedSamplings(bundle, curve);
+                PriceSettlementSelection? selection=null;
+                SideObservationUnavailable? selectionError=null;
+                try
+                {
+                    selection=input.Curve==curve.Text("code")&&input.Settlement is not null?
+                        PriceSettlementInputs.Resolve(bundle,curve,quotes[0],input.Settlement):
+                        PriceSettlementSelection.CurveTarget(new(bundle.ReferenceRevision,index));
+                }
+                catch(MarketDataException error){selectionError=new(error.Code,error.Message);}
+                var supported = selection is null?ImmutableArray<SwapObservationMode>.Empty:
+                    SwapObservationCompatibility.SupportedSamplings(bundle,curve,selection);
                 foreach (var mode in SwapObservationCompatibility.Modes)
                 {
                     var reasons = ImmutableArray<SideObservationUnavailable>.Empty;
                     try
                     {
+                        if(selectionError is {} invalid)throw Error(invalid.Code,invalid.Message);
                         if (!supported.Any(sampling => sampling.Averaging == mode.Averaging))
                             throw Error("index_fixing_cadence", "The selected index has no qualified published observations at the required period or cadence.");
                         if (from is {} f && to is {} t && (!mode.RequiresObservationCalendar || input.ObservationCalendar is not null))
                         {
                             var calendar = mode.RequiresObservationCalendar ? ObservationCalendar(bundle, input.ObservationCalendar!.Value) : null;
-                            _ = SwapObservationCompatibility.PreviewReferences(bundle, curve, new(bundle.ReferenceRevision, index), quotes[0], f, t, mode.Averaging, calendar);
+                            _ = SwapObservationCompatibility.PreviewReferences(bundle,curve,selection!,quotes[0],f,t,mode.Averaging,calendar);
                         }
                     }
                     catch (MarketDataException error) { reasons = [new(error.Code, error.Message)]; }
@@ -106,6 +118,7 @@ public sealed partial class SwapStore
         object? observations = null;
         SideObservationUnavailable? unavailable = null;
         string? customUnavailable = null;
+        if(input.Settlement?.Mode=="override")customUnavailable="An override projects from the selected forward curve; its basis is unmodelled. A custom projection is unsupported.";
         if (selectedMode is not null && selectedMode is not (FloatingAveraging.MonthlyIndexPrice or FloatingAveraging.CalendarDayArithmetic))
             customUnavailable = "This observation convention has no qualified custom-curve projection mapping.";
         var selectedCandidates = candidates.Where(candidate => (input.Curve is null || candidate.Curve.Text("code") == input.Curve) &&
@@ -115,6 +128,7 @@ public sealed partial class SwapStore
         // The same observation planner qualifies calendar guards and exact fixings;
         // a calendar-based mode has no selectable dates before its calendar is chosen.
         if (input.Curve is not null && selectedCandidates.Length == 1 && selectedMode is {} periodMode &&
+            input.Settlement is not null&&
             (!SwapObservationCompatibility.Mode(periodMode).RequiresObservationCalendar || input.ObservationCalendar is not null))
         {
             var candidate = selectedCandidates[0];
@@ -131,20 +145,21 @@ public sealed partial class SwapStore
                 try
                 {
                     var calendar = input.ObservationCalendar is {} key ? ObservationCalendar(candidate.Data,key) : null;
+                    var settlement=PriceSettlementInputs.Resolve(candidate.Data,candidate.Curve,candidate.Quote,input.Settlement);
                     var custom = input.CustomProjection is {} c ? new CustomCurveProjectionBinding(c.CatalogId,c.CurveId,c.Version,c.OutputNode,c.Position,c.Selection,c.Implementation) : null;
                     var references = SwapObservationCompatibility.PreviewReferences(candidate.Data,candidate.Curve,
-                        new(candidate.Data.ReferenceRevision,candidate.Index),candidate.Quote,month,month.AddMonths(1),periodMode,calendar,custom);
+                        settlement,candidate.Quote,month,month.AddMonths(1),periodMode,calendar,custom);
                     if (input.CustomProjection is {} projection && !published.Any(choice => choice.Reference == projection &&
                         choice.Unit == PriceUnit.FromQuote(candidate.Quote) && (projection.Selection == CustomCurveProjectionBinding.SupportedSelection ||
                         references.Observations.All(observation => choice.Deliveries.Contains(new(observation.From,observation.To)))))) continue;
-                    RequireObservationInputs(candidate.Data,candidate.Frame,references,custom is not null,ct);
+                    RequireObservationInputs(candidate.Data,candidate.Frame,references,settlement,custom is not null,ct);
                     var mode = SwapObservationCompatibility.Mode(periodMode);
                     deliveryPeriods.Add(new(mode.ResetFrequency,mode.AveragingMethod,Date(month),Date(month.AddMonths(1))));
                 }
                 catch (MarketDataException error) when (error.Code is "swap_averaging" or "swap_projection_coverage" or
                     "index_fixing_convention_missing" or "index_fixing_definition" or "index_fixing_cadence" or
                     "swap_observation_calendar" or "swap_custom_projection_averaging" or "custom_projection" or
-                    "missing_observation" or "index_fixing_missing" or "source_expired") { }
+                    "missing_observation" or "index_fixing_missing" or "source_expired" or "price_settlement_selection") { }
             }
         }
         if (input.Curve is not null && selectedCandidates.Length == 0)
@@ -155,9 +170,10 @@ public sealed partial class SwapStore
             try
             {
                 var calendar = input.ObservationCalendar is {} key ? ObservationCalendar(candidate.Data, key) : null;
+                var settlement=PriceSettlementInputs.Resolve(candidate.Data,candidate.Curve,candidate.Quote,input.Settlement);
                 CustomCurveProjectionBinding? custom = input.CustomProjection is {} c ? new(c.CatalogId, c.CurveId, c.Version, c.OutputNode, c.Position, c.Selection, c.Implementation) : null;
                 var references = SwapObservationCompatibility.PreviewReferences(candidate.Data, candidate.Curve,
-                    new(candidate.Data.ReferenceRevision, candidate.Index), candidate.Quote, deliveryFrom, deliveryTo, averaging, calendar, custom);
+                    settlement,candidate.Quote,deliveryFrom,deliveryTo,averaging,calendar,custom);
                 if (input.CustomProjection is {} selectedProjection)
                 {
                     var published = await CustomCurves.ProjectionChoices(connection, database, candidate.Data, candidate.Frame, ct);

@@ -11,8 +11,8 @@ internal static class CustomProjectionChecks
     {
         var passed = 0;
         void Check(string name, Action run) { run(); passed++; Console.WriteLine("PASS custom projection: " + name); }
-        void Reject(Action run)
-        { try { run(); } catch (MarketDataException error) when (error.Code == "custom_projection") { return; } throw new Exception("Expected custom_projection"); }
+        void Reject(Action run,string code="custom_projection")
+        { try { run(); } catch (MarketDataException error) when (error.Code == code) { return; } throw new Exception("Expected "+code); }
         var fixture = new IndexFixingChecks.FixingFixture(monthly: true);
         var original = fixture.Floating();
         var binding = new CustomCurveProjectionBinding(fixture.Base.Revision.CatalogId, Guid.NewGuid(), 1,
@@ -22,11 +22,11 @@ internal static class CustomProjectionChecks
             var first = original.WithCustomProjection(binding);
             var next = original.WithCustomProjection(binding with { Version = 2 });
             var coordinate = original.WithCustomProjection(binding with { Position = 1 });
-            if (DefinitionIdentity.For(original).Version != "FloatingSide_v4" || DefinitionIdentity.For(first).Version != "FloatingSide_v5" ||
+            if (DefinitionIdentity.For(original).Version != "FloatingSide_v8" || DefinitionIdentity.For(first).Version != "FloatingSide_v8" ||
                 DefinitionIdentity.For(first) == DefinitionIdentity.For(next) || DefinitionIdentity.For(first) == DefinitionIdentity.For(coordinate) ||
                 DefinitionIdentity.For(original) == DefinitionIdentity.For(first)) throw new Exception("Custom projection identity was lost.");
-            if (original.CustomProjection is not null || first.CustomProjection != binding || first.Fixings != original.Fixings ||
-                first.GenerateSchedule().Payments.Single().Prices.Single().Lookup!.CustomProjection != binding)
+            if (original.CustomProjection is not null || first.CustomProjection != binding || !first.Fixings.SequenceEqual(original.Fixings) ||
+                first.GenerateDatedSchedule().Payments.Single().Prices.Single().Lookup!.CustomProjection != binding)
                 throw new Exception("A projected binding changed its contractual actual fixing rules or was lost from the schedule.");
         });
         Check("equivalent independently retained descriptors have the same canonical economics", () =>
@@ -60,7 +60,7 @@ internal static class CustomProjectionChecks
             var daily=new IndexFixingChecks.FixingFixture();
             var mapped=binding with{CatalogId=daily.Base.Revision.CatalogId,Position=null,Selection="exact_delivery_interval_v1"};
             var side=daily.Floating().WithCustomProjection(mapped);
-            if(side.Dependencies.Length!=3||side.GenerateSchedule().Payments.Single().Prices.Any(p=>p.Lookup?.CustomProjection!=mapped)||side.Fixings!=daily.Fixings)
+            if(side.Dependencies.Length!=3||side.GenerateDatedSchedule().Payments.Single().Prices.Any(p=>p.Lookup?.CustomProjection!=mapped)||!side.Fixings.SequenceEqual(daily.Fixings))
                 throw new Exception("Daily mapped projections lost their exact per-reset dependencies or fixing rules.");
             Reject(()=>daily.Floating().WithCustomProjection(mapped with{Position=0}));
             Reject(()=>original.WithCustomProjection(mapped));
@@ -72,7 +72,7 @@ internal static class CustomProjectionChecks
             var snapshot = fixture.Snapshot(fixture.Fixings[0].FixingAt, actuals: 1);
             if (!side.DependenciesAt(snapshot).IsEmpty) throw new Exception("A fixed reset retained a projected dependency.");
             var market = fixture.Model.Build(snapshot, []);
-            var value = side.PV(new(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
+            var value = (PaymentSideValuation)side.PV(new(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
             if (value.PresentValue.Numerator != "10" || value.PresentValue.Denominator != "1" ||
                 value.Payments.Single().Prices.Single().State != SchedulePriceState.Actual)
                 throw new Exception("A custom forecast replaced its exact published actual.");
@@ -86,7 +86,7 @@ internal static class CustomProjectionChecks
             var snapshot = fixture.Snapshot(fixture.Fixings[0].FixingAt.AddDays(-2));
             var market = fixture.Model.Build(snapshot, original.Dependencies);
             Reject(() => original.WithCustomProjection(binding).PV(new(market,
-                new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))));
+                new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))),"risk_dependency");
         });
         Check("partly fixed daily panels prepare only unresolved forecasts while retaining full averaging weights",()=>
         {

@@ -17,6 +17,14 @@ internal static class IndexFixingChecks
         var at = daily.Fixings[1].FixingAt;
         var snapshot = daily.Snapshot(at, actuals: 2);
         var swap = daily.Swap();
+        Check("a raw row selector validates the complete fixing definition before consuming a selected value", () =>
+        {
+            var market = daily.Model.Build(snapshot, swap.DependenciesAt(snapshot));
+            var context = new SideValuationContext(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted));
+            var term = ((SidePaymentSchedule)swap.Floating.GenerateSchedule()).Payments[0].Prices[0];
+            var invalid = term.Lookup! with { Fixing = term.Lookup!.Fixing! with { Implementation = "unsupported" } };
+            Reject("index_fixing_definition", () => context.Resolve(new SchedulePriceTerm(ExactDecimal.Parse("1"), null, invalid)));
+        });
         InstrumentValuation Value(FixingFixture f, MarketSnapshot s, FinancialSwapInstrument? instrument = null)
         {
             instrument ??= f.Swap();
@@ -173,17 +181,16 @@ internal static class IndexFixingChecks
             Equal(actual.Lineage.Single(), snapshot.Selections.Single(s => s.Input == new InputKey(daily.Series[0].Key, InputUse.FrozenFact)).Observation.Key);
             Reject("risk_factor", () => daily.Model.Scenarios(build, [bump with { Input = new(daily.Series[0].Key, InputUse.FrozenFact) }]).ToArray());
         });
-        Check("due payments retain the lifecycle rejection and legacy manual boundaries retain their old contract", () =>
+        Check("due payments retain lifecycle rejection and a target without fixing metadata refuses its expired mark", () =>
         {
             Reject("side_payment_due", () => Value(daily, daily.Snapshot(daily.Payment, 3), swap));
-            var legacy = new FloatingSide(Guid.NewGuid(), daily.Base.R("index"), daily.Quote, new(ExactDecimal.Parse("1"), daily.Quote.Quantity),
+            var legacy = new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(daily.Base.R("index")), daily.Quote, new(ExactDecimal.Parse("1"), daily.Quote.Quantity),
                 daily.From, daily.To, daily.Fixings[0].FixingAt, daily.Payment, FloatingAveraging.CalendarDayArithmetic,
                 daily.Projections, FloatingSide.Implementation);
-            Reject("swap_fixing_required", () => legacy.PV(new SideValuationContext(snapshot,
-                new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted))));
-            Equal(DefinitionIdentity.For(legacy).Version, "FloatingSide_v3");
-            if (DefinitionIdentity.For(legacy).Canonical.Contains("IndexFixings")) throw new Exception("Legacy identity changed.");
-            Equal(DefinitionIdentity.For(swap.Floating).Version, "FloatingSide_v4");
+            Reject("source_expired", () => legacy.DependenciesAt(snapshot));
+            Equal(DefinitionIdentity.For(legacy).Version, "FloatingSide_v8");
+            if (!legacy.Periods.Single().Fixings.IsEmpty || legacy.Periods.Single().ObservationImplementation!=FloatingSide.Implementation) throw new Exception("A projection-only schedule acquired fixing terms.");
+            Equal(DefinitionIdentity.For(swap.Floating).Version, "FloatingSide_v8");
         });
         Check("new indexed economic identity includes the qualified schedule but excludes selected actual values", () =>
         {
@@ -193,6 +200,57 @@ internal static class IndexFixingChecks
             if (DefinitionIdentity.For(daily.Floating(daily.Fixings.SetItem(1, daily.Fixings[1] with { FixingAt = at.AddHours(1) }))) == original)
                 throw new Exception("An independently dated fixing was omitted from identity.");
             Equal(DefinitionIdentity.For(swap.Floating), original);
+        });
+        Check("one period selector preserves explicit target and override prices across live, expiry and fixing states", () =>
+        {
+            var f = new FixingFixture(monthly:true,delayedMonthlyPublication:true);
+            var contract = f.Projections[0].Contract;
+            var target = PriceSettlementSelection.CurveTarget(f.Base.R("index"));
+            var alternate = new PriceSettlementSelection(PriceSettlementMode.Override,target.SelectedIndex,f.Base.R("alternate_index"),PriceSettlementSelection.ForwardCurveNoBasis);
+            var alternateContract = contract with { Key=new(f.Base.Revision,Guid.NewGuid()) };
+            var alternateSeries = new MarketSeries(new(f.Base.Revision,Guid.NewGuid()),alternateContract.Key,f.Quote.Key,null);
+            var alternateFixing = f.Fixings[0] with { Index=alternate.SelectedIndex,Series=alternateSeries.Key };
+            var model = new CurveModel(f.Base.Revision,f.Base.Reference,f.Base.Quantities,[f.Quote],[contract,alternateContract],[f.Curve],[],[],f.Series.Add(alternateSeries));
+            IndexPriceLookup Lookup(PriceSettlementSelection selection) => new(selection,f.Quote,f.Projections[0].Market,contract,null,
+                selection.Mode==PriceSettlementMode.Override?alternateFixing:f.Fixings[0]);
+            var forwardSnapshot = f.Snapshot(contract.Expiry.AddTicks(-10));
+            var forward = model.Build(forwardSnapshot,[f.Projections[0].Market]);
+            var live = PeriodPriceSelector.Admit(forward,Lookup(alternate));
+            Equal(live.Projection,f.Projections[0].Market);Equal(live.FixingPrice,null);
+            var graph=new ScheduleGraphBuilder(forward.Graph,forwardSnapshot,new(64,128,128,1024));
+            var source=graph.Price(forward.Graph.Plan.Points.Values.Single(p=>p.Key.Curve==f.Curve.Key).Key);
+            var selectorNode=graph.PeriodPrice(source,live);var selectorBase=graph.Compile().Base();
+            Equal(selectorBase.Price(selectorNode).ToExactString(),"11");
+            var shifted=selectorBase.WithMarketShifts([new(OpenEtrm.MarketData.Calculation.CurveShockCoordinate.MarketQuote,
+                new OpenEtrm.MarketData.Calculation.ParallelCurveTarget(f.Curve.Key),PriceUnit.FromQuote(f.Quote),ExactDecimal.Parse("2"),OpenEtrm.MarketData.Calculation.CurveShift.ParentAdditive)]);
+            Equal(shifted.Price(selectorNode).ToExactString(),"13");Equal(selectorBase.Price(selectorNode).ToExactString(),"11");
+            var context = new SideValuationContext(forward,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted));
+            Equal(context.Resolve(new SchedulePriceTerm(ExactDecimal.Parse("1"),null,Lookup(alternate))).Price.Value.ToString(),"11");
+            Reject("source_expired",()=>PeriodPriceSelector.ProjectionAt(Lookup(alternate),f.Snapshot(contract.Expiry)));
+            Reject("price_settlement_selection",()=>PeriodPriceSelector.ProjectionAt(Lookup(alternate) with { Fixing=null },forwardSnapshot));
+            Reject("price_settlement_selection",()=>new PriceSettlementSelection(PriceSettlementMode.Override,target.SelectedIndex,target.SelectedIndex,PriceSettlementSelection.ForwardCurveNoBasis));
+            var due = f.Snapshot(alternateFixing.FixingAt,1);
+            due = due with { Selections=due.Selections.Add(new(new(alternateSeries.Key,InputUse.FrozenFact),
+                new(new(f.Base.Revision.CatalogId,Guid.NewGuid()),alternateSeries.Key,alternateFixing.Source,ObservationRole.IndexFixing,PublicationState.Final,alternateFixing.FixingAt,ExactDecimal.Parse("17")))) };
+            var fixedMarket = model.Build(due,[]);
+            Equal(PeriodPriceSelector.Admit(fixedMarket,Lookup(target)).FixingPrice!.ToExactString(),"10");
+            var alternateActual = PeriodPriceSelector.Admit(fixedMarket,Lookup(alternate));
+            Equal(alternateActual.FixingPrice!.ToExactString(),"17");Equal(alternateActual.Projection,null);
+            var period = new OpenEtrm.MarketData.Power.PeriodContractCurve(f.Curve.Key,PriceUnit.FromQuote(f.Quote),target.SelectedIndex,[contract],[f.Fixings[0],alternateFixing]);
+            var prepared = OpenEtrm.MarketData.Power.PreparedCurve.Prepare(period,[(Fixture.Utc("2041-01-01T00:00:00Z"),Fixture.Utc("2041-02-01T00:00:00Z"))],[],[],due.ValuationAt,due.MarketCutoff);
+            var resolver = new OpenEtrm.MarketData.Power.IntervalPriceResolver(fixedMarket,new Dictionary<CurveKey,OpenEtrm.MarketData.Power.PreparedCurve>{{period.Key,prepared}});
+            Equal(resolver.Prices(period.Key,new(2041,1,1),target).Single().Price!.ToExactString(),"10");
+            Equal(resolver.Prices(period.Key,new(2041,1,1),alternate).Single().Price!.ToExactString(),"17");
+            Equal(resolver.Prices(period.Key,new(2041,1,1),alternate).Single().PeriodSelection!.Settlement,alternate);
+            Equal(prepared.Dependencies(new(2041,1,1),alternate).Length,0);
+            var laterTarget=period with { Fixings=[f.Fixings[0] with { FixingAt=due.ValuationAt.AddDays(1) },alternateFixing] };
+            var overridePrepared=OpenEtrm.MarketData.Power.PreparedCurve.Prepare(laterTarget,
+                [(Fixture.Utc("2041-01-01T00:00:00Z"),Fixture.Utc("2041-02-01T00:00:00Z"))],[],[],due.ValuationAt,due.MarketCutoff);
+            Equal(overridePrepared.Dependencies(new(2041,1,1),alternate).Length,0);
+            var overrideResolver=new OpenEtrm.MarketData.Power.IntervalPriceResolver(fixedMarket,
+                new Dictionary<CurveKey,OpenEtrm.MarketData.Power.PreparedCurve>{{period.Key,overridePrepared}});
+            Equal(overrideResolver.Prices(period.Key,new(2041,1,1),alternate).Single().Price!.ToExactString(),"17");
+            Reject("source_expired",()=>overridePrepared.Dependencies(new(2041,1,1),target));
         });
         return count;
     }
@@ -236,7 +294,7 @@ internal static class IndexFixingChecks
                     new(new(Base.Revision.CatalogId, Guid.NewGuid()), s.Key, Base.R("actual_source"), ObservationRole.IndexFixing,
                         PublicationState.Final, Fixings[n].FixingAt, ExactDecimal.Parse(((n + 1) * 10).ToString()))))).ToImmutableArray()
         };
-        public FloatingSide Floating(ImmutableArray<IndexFixing>? fixings = null, QuoteSpecification? quote = null) => new(Guid.NewGuid(), Base.R("index"), quote ?? Quote,
+        public FloatingSide Floating(ImmutableArray<IndexFixing>? fixings = null, QuoteSpecification? quote = null) => new(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(Base.R("index")), quote ?? Quote,
             new(ExactDecimal.Parse("1"), Quote.Quantity), From, To, fixings ?? Fixings, Payment,
             Projections.Length == 1 ? FloatingAveraging.MonthlyIndexPrice : FloatingAveraging.CalendarDayArithmetic,
             Projections, FloatingSide.IndexedImplementation);

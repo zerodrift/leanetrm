@@ -70,7 +70,7 @@ internal sealed class BasisRiskFixture
             var contract=contracts[n];var quote=Out(n%9);var unit=new Quantity(one,quote.Quantity);
             var payment=new DateTimeOffset(contract.DeliveryTo.AddDays(3).ToDateTime(TimeOnly.MinValue),TimeSpan.Zero);
             var fixedSide=new FixedSide(Id(40000+2*n),new UnitPrice(ExactDecimal.Parse("2"),quote),unit,contract.DeliveryFrom,contract.DeliveryTo,payment,FixedSide.Implementation,quote);
-            var floating=new FloatingSide(Id(40001+2*n),R(Names[n%9]+"_index"),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,at.AddDays(1),payment,
+            var floating=new FloatingSide(Id(40001+2*n),PriceSettlementSelection.CurveTarget(R(Names[n%9]+"_index")),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,at.AddDays(1),payment,
                 FloatingAveraging.MonthlyIndexPrice,[new(request,contract)],FloatingSide.Implementation);
             return (Instrument)new FinancialSwapInstrument(Id(50000+n),[new(fixedSide,ExactDecimal.Parse("-1")),new(floating,one)],FinancialSwapInstrument.Implementation,false);
         }).ToImmutableArray();

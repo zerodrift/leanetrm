@@ -68,45 +68,45 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  // A swap's Terms are read in the live context too, with its valuation and schedules, as a form of its amendment would be read in working data.
  const swapReference=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>h.instrumentType==='financial_swap').tradeReference");
  await set('#blotter-filters .table-search',swapReference);await click('#desk-positions .tabulator-row:not(.tabulator-group)');
- await click('#side-panel-tabs-terms');await wait("!!document.querySelector('#side-panel-view .side-panel-section')&&"+idle);
+ await click('#position-details-tabs-terms');await wait("!!document.querySelector('#position-details-view .side-panel-section')&&"+idle);
  await check('a swap\'s Terms are read in a live context: its structure, each side, and its valuation and schedules, with no error',
-  `(()=>{const titles=[...document.querySelectorAll('#side-panel-view .side-panel-section>h3')].map(n=>n.textContent);return titles[0]==='Trade'&&titles[1]==='Structure'&&titles.includes('Valuation & schedules')&&document.querySelectorAll('#side-panel-view .swap-schedule').length>=1&&!document.querySelector('#side-panel-view .side-panel-error')&&document.querySelector('#error').hidden;})()`,
-  "[document.querySelector('#side-panel-view').innerText.slice(0,300),document.querySelector('#error').textContent]");
- await click('#side-panel-close');await set('#blotter-filters .table-search','');
+  `(()=>{const titles=[...document.querySelectorAll('#position-details-view .side-panel-section>h3')].map(n=>n.textContent);return titles[0]==='Trade'&&titles[1]==='Structure'&&titles.includes('Valuation & schedules')&&document.querySelectorAll('#position-details-view .swap-schedule').length>=1&&!document.querySelector('#position-details-view .side-panel-error')&&document.querySelector('#error').hidden;})()`,
+  "[document.querySelector('#position-details-view').innerText.slice(0,300),document.querySelector('#error').textContent]");
+ await click('#position-details .position-close');await set('#blotter-filters .table-search','');
  // A position in a market Curves & prices lists, so that its Open curve is available to hold focus below.
  const reference=await evaluate("(async()=>{const listed=new Set((await(await fetch('/api/workspace/navigation')).json()).curves.map(c=>c.code));return window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>listed.has(h.curve)).tradeReference;})()");
  await set('#blotter-filters .table-search',reference);await click('#desk-positions .tabulator-row:not(.tabulator-group)');
  // A risk analyst cannot amend: the panel offers no Amend and says why, in words, where Amend would be.
  await check('an account that cannot amend is not offered Amend, and the panel says in words why',
   "(()=>{const amend=document.querySelector('#side-panel-amend'),note=document.querySelector('#side-panel-amend-note');return amend.hidden&&amend.getClientRects().length===0&&!note.hidden&&note.getClientRects().length>0&&note.textContent==='This account cannot amend trades in this market context.';})()",
-  "document.querySelector('#side-panel-head').innerText");
+  "document.querySelector('#position-details-head').innerText");
  // The panel's Terms are read once, in the live context, and a live correction reads them again with the rest of the desk.
- await click('#side-panel-tabs-terms');await wait("!!document.querySelector('#side-panel-view .side-panel-section')&&"+idle);
+ await click('#position-details-tabs-terms');await wait("!!document.querySelector('#position-details-view .side-panel-section')&&"+idle);
  const editorReads="window.liveRequests.filter(p=>['/api/swaps/editor','/api/futures/editor'].includes(p)).length",readsAtOpen=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length"),termsRead=await evaluate(editorReads);
  await correct('base','3.39');
  await wait(`window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsAtOpen}&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);
- await check('a live correction reads the panel\'s terms again, with the desk, since the person has no edits in it',`${editorReads}===${termsRead}+1&&!!document.querySelector('#side-panel-view .side-panel-section')&&!document.querySelector('#side-panel-view .side-panel-error')&&document.querySelector('#notice').hidden`,`[${editorReads},${termsRead},document.querySelector('#notice').textContent]`);
+ await check('a live correction reads the panel\'s terms again, with the desk, since the person has no edits in it',`${editorReads}===${termsRead}+1&&!!document.querySelector('#position-details-view .side-panel-section')&&!document.querySelector('#position-details-view .side-panel-error')&&document.querySelector('#notice').hidden`,`[${editorReads},${termsRead},document.querySelector('#notice').textContent]`);
  await evaluate('window.failLiveEditor=true');await correct('base','3.4');
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
- await check('a refresh whose read of the panel\'s terms fails leaves the page stale, and the panel says what failed, with Retry',"!!document.querySelector('#side-panel-view .side-panel-error')&&!!document.querySelector('#side-panel-retry')&&!document.querySelector('#live-retry').hidden");
+ await check('a refresh whose read of the panel\'s terms fails leaves the page stale, and the panel says what failed, with Retry',"!!document.querySelector('#position-details-view .side-panel-error')&&!!document.querySelector('#side-panel-retry')&&!document.querySelector('#live-retry').hidden");
  await click('#live-retry');
  await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
- await check('Retry reads the panel\'s terms again before reporting Live',`${editorReads}===${termsRead}+3&&!!document.querySelector('#side-panel-view .side-panel-section')&&!document.querySelector('#side-panel-view .side-panel-error')`,`[${editorReads},${termsRead}]`);
+ await check('Retry reads the panel\'s terms again before reporting Live',`${editorReads}===${termsRead}+3&&!!document.querySelector('#position-details-view .side-panel-section')&&!document.querySelector('#position-details-view .side-panel-error')`,`[${editorReads},${termsRead}]`);
  // The side panel follows the live refresh: it shows its position from the newest read of the desk.
- await check('the side panel is drawn again from the newest read when a live correction refreshes the desk',`(()=>{const reads=window.liveResponses.filter(r=>r.path==='/api/trading/workspace'),h=reads.at(-1).data.blotter.holdings.find(h=>h.tradeReference===${JSON.stringify(reference)});return reads.length>${readsAtOpen}&&!document.querySelector('#side-panel').hidden&&document.querySelector('#side-panel-head .side-panel-reference').textContent===${JSON.stringify(reference)}&&document.querySelector('#side-panel .side-panel-value .kpi-value').title===(h.instrumentType==='financial_swap'?h.presentValue:h.executionPnl)+' '+h.currency;})()`);
+ await check('the side panel is drawn again from the newest read when a live correction refreshes the desk',`(()=>{const reads=window.liveResponses.filter(r=>r.path==='/api/trading/workspace'),h=reads.at(-1).data.blotter.holdings.find(h=>h.tradeReference===${JSON.stringify(reference)});return reads.length>${readsAtOpen}&&document.querySelector('#position-details')?.hidden===false&&document.querySelector('#position-details-head .side-panel-reference').textContent===${JSON.stringify(reference)}&&document.querySelector('#position-details .side-panel-value .kpi-value').title===(h.instrumentType==='financial_swap'?h.presentValue:h.executionPnl)+' '+h.currency;})()`);
  // A live refresh holds the page busy, which disables the panel's controls while it is drawn again: focus on one comes back with it.
  // The profile dialog of the persona switches may still be open, and it is modal: the panel can take focus once it is closed.
  if(await evaluate("document.querySelector('#profile-dialog').open"))await click('#profile-close');
  // Each correction below is one more refresh of the desk, waited for from the reads there were before it.
  const workspaceReads="window.liveResponses.filter(r=>r.path==='/api/trading/workspace').length";
  const refreshedBy=async value=>{const before=await evaluate(workspaceReads);await correct('base',value);await wait(`${workspaceReads}>${before}&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);};
- await evaluate("document.querySelector('#side-panel-tabs-terms').focus()");
+ await evaluate("document.querySelector('#position-details-tabs-terms').focus()");
  await refreshedBy('3.41');
  await check('keyboard focus on a tab of the panel survives a live refresh, which disables it while the page is busy and draws the panel again',
-  "document.activeElement.id==='side-panel-tabs-terms'",
+  "document.activeElement.id==='position-details-tabs-terms'",
   "[document.activeElement.id,document.activeElement.tagName]");
  // Open curve is the head's own button, enabled for this market, and keeps focus the same way.
- await check('Open curve is available for the position, so that focus can be held on a button of the panel\'s head',"!document.querySelector('#side-panel-open-curve').disabled","document.querySelector('#side-panel-head').innerText");
+ await check('Open curve is available for the position, so that focus can be held on a button of the panel\'s head',"!document.querySelector('#side-panel-open-curve').disabled","document.querySelector('#position-details-head').innerText");
  await evaluate("document.querySelector('#side-panel-open-curve').focus()");
  await refreshedBy('3.415');
  await check('and so does keyboard focus on a button of the panel\'s head',"document.activeElement.id==='side-panel-open-curve'&&!document.querySelector('#side-panel-open-curve').disabled","[document.activeElement.id,document.activeElement.tagName]");
@@ -190,9 +190,18 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  if(await evaluate("!document.querySelector('#follow-live').hidden"))await click('#follow-live');
  await wait("document.querySelector('#live-status').dataset.state==='live'&&!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&"+idle);
  await check('a trader in a live view is not offered New trade, and is told in words under the toolbar that the view is live',"document.querySelector('#workspace-mode-label').textContent.includes('Live corrections')&&document.querySelector('#futures-new').disabled&&!document.querySelector('#new-trade-availability').hidden&&document.querySelector('#new-trade-availability').getClientRects().length>0&&document.querySelector('#new-trade-availability').textContent==='Live view is read-only. Return to working data, then select an As of date.'&&document.querySelector('#futures-new').getAttribute('aria-describedby')==='new-trade-availability'&&!document.querySelector('#futures-new').title&&document.querySelector('#side-panel').hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#swap-editing').hidden","[document.querySelector('#workspace-mode-label').textContent,document.querySelector('#new-trade-availability').textContent,document.querySelector('#futures-new').disabled]");
- // Before the page has read a catalog, in a view it has just lost the Blotter of, what it says is the view's own: this one is live.
+ // Refresh reads the cheap directory and facts before valuation. A failed valuation keeps that backend's live refusal,
+ // rather than substituting the fallback used before any catalog has been read.
+ const directoryReads="window.liveResponses.filter(r=>r.path==='/api/trading/directory')";
+ const factReads="window.liveResponses.filter(r=>r.path==='/api/trading/positions')";
+ const directoriesBefore=await evaluate(directoryReads+'.length');
+ const factsBefore=await evaluate(factReads+'.length');
+ const liveBookingReason=await evaluate("window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.catalog.bookingUnavailableReason");
  await evaluate('window.failLiveWorkspace=true');await click('#futures-refresh');
- await check('with no catalog read, the page still says that the view is live, and why it cannot book',"!document.querySelector('#error').hidden&&document.querySelector('#futures-new').disabled&&document.querySelector('#new-trade-availability').textContent==='Live view is read-only. Return to working data to book or amend.'&&document.querySelector('#desk-positions').children.length===0","[document.querySelector('#error').textContent,document.querySelector('#new-trade-availability').textContent,document.querySelector('#desk-positions').children.length]");
+ await wait(`${directoryReads}.length>${directoriesBefore}&&${factReads}.length>${factsBefore}&&document.querySelector('#futures-page').dataset.pricingState==='failed'&&`+idle);
+ await check('a failed valuation keeps same-context live facts, the backend booking refusal, and unavailable totals without an edit form',
+  `(()=>{const directory=${directoryReads}.at(-1).data,facts=${factReads}.at(-1).data,note=document.querySelector('#new-trade-availability'),rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')];return directory.kind==='directory'&&directory.canBook===false&&directory.canAmendTrades===false&&directory.bookingUnavailableReason===${JSON.stringify(liveBookingReason)}&&note.textContent===directory.bookingUnavailableReason&&!note.hidden&&facts.context.contextId===directory.context.contextId&&facts.context.knownAt===directory.context.knownAt&&facts.asOf===directory.asOf&&facts.positions.length>0&&facts.positions.every(position=>rows.some(row=>row.querySelector('[tabulator-field="c0"]')?.textContent===position.tradeReference))&&document.querySelector('#futures-page').dataset.pricingContext===directory.context.contextId&&!document.querySelector('#error').hidden&&document.querySelector('#futures-new').disabled&&document.querySelector('#futures-new').getAttribute('aria-describedby')==='new-trade-availability'&&document.querySelector('#desk-tile-swapPv').textContent.includes('Unavailable')&&document.querySelector('#side-panel').hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#swap-editing').hidden;})()`,
+  `[${directoryReads}.at(-1).data,${factReads}.at(-1).data,document.querySelector('#error').textContent,document.querySelector('#new-trade-availability').textContent,document.querySelector('#futures-page').dataset.pricingContext]`);
  await click('#futures-refresh');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&"+idle);
  console.log('LIVE browser synthetic workload:',JSON.stringify(await evaluate("({requests:window.liveRequests.length,longTasks:window.liveTasks.length,maxLongTaskMilliseconds:Math.max(0,...window.liveTasks),heapBytes:performance.memory?.usedJSHeapSize})")));
 }

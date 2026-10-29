@@ -36,10 +36,12 @@ public sealed class ConnectedScenario
     public int Depth=>session.Depth;
     public GraphWork Work=>session.Work;
     public ImmutableArray<ResolvedCurveShift> Shifts{get;}
+    internal ImmutableArray<ImmutableArray<ResolvedCurveShift>> Layers{get;}
+    internal TargetIndex Targets=>targets;
 
     private ConnectedScenario(ConnectedCurvePlan plan,GraphSession<ExactUnitPrice> session,TargetIndex targets,
-        string id,string? parent,ImmutableArray<ResolvedCurveShift> shifts)
-    {Plan=plan;this.session=session;this.targets=targets;Id=id;ParentId=parent;Shifts=shifts;}
+        string id,string? parent,ImmutableArray<ResolvedCurveShift> shifts,ImmutableArray<ImmutableArray<ResolvedCurveShift>> layers)
+    {Plan=plan;this.session=session;this.targets=targets;Id=id;ParentId=parent;Shifts=shifts;Layers=layers;}
 
     public static ConnectedScenario Base(ConnectedCurvePlan plan,ConnectedCalculationCache? cache=null,CancellationToken cancellation=default)
     {
@@ -47,7 +49,7 @@ public sealed class ConnectedScenario
         cancellation.ThrowIfCancellationRequested();
         var id=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
         {version=IdentityVersion,plan=plan.ManifestId,context=plan.Context,policy=ConnectedCurves.NumericalPolicy})));
-        try{return new(plan,cache?.Bind(plan,cancellation)??plan.CreateSession(),new(plan),id,null,[]);}
+        try{return new(plan,cache?.Bind(plan,cancellation)??plan.CreateSession(),new(plan),id,null,[],[]);}
         catch(CalculationException error){throw new MarketDataException(error.Code,error.Message);}
     }
 
@@ -58,6 +60,8 @@ public sealed class ConnectedScenario
     }
 
     public ImmutableArray<ConnectedCurvePoint> ResolveTarget(CurveShockCoordinate coordinate,CurveShockTarget target,CancellationToken cancellation=default)
+        =>ResolveTarget(targets,coordinate,target,cancellation);
+    private static ImmutableArray<ConnectedCurvePoint> ResolveTarget(TargetIndex targets,CurveShockCoordinate coordinate,CurveShockTarget target,CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
         if(!Enum.IsDefined(coordinate))throw Error("scenario_coordinate","Select a supported price-input or computed-output coordinate.");
@@ -76,30 +80,7 @@ public sealed class ConnectedScenario
 
     public ConnectedScenario WithShifts(ImmutableArray<CurveShift> shifts,CancellationToken cancellation=default)
     {
-        cancellation.ThrowIfCancellationRequested();
-        if(shifts.IsDefaultOrEmpty||shifts.Any(s=>s is null||s.Target is null||s.Unit is null||s.Size==default||s.Convention!=CurveShift.ParentAdditive))
-            throw Error("scenario_shift","Supply nonzero signed absolute shifts with explicit targets, units and the parent-additive convention.");
-        var resolved=new Dictionary<int,ResolvedCurveShift>();
-        foreach(var shift in shifts)
-        {
-            var selected=ResolveTarget(shift.Coordinate,shift.Target,cancellation);var aliases=new HashSet<int>();
-            foreach(var point in selected)
-            {
-                cancellation.ThrowIfCancellationRequested();var node=Plan.IndexOf(point.Key);
-                if(!aliases.Add(node))continue; // Exact aliases of one input receive one shared shift.
-                if(resolved.ContainsKey(node))throw Error("scenario_target","A layer cannot shift the same resolved coordinate twice; use an explicit nested layer.");
-                if(point.Unit!=shift.Unit)throw Error("unit_mismatch","A shift must retain its target's exact price unit and quote multiplier.");
-                var source=point.Expression as ConnectedSource;
-                if(shift.Coordinate==CurveShockCoordinate.MarketQuote)
-                {
-                    var moved=Price(point.Key,cancellation).Add(ExactUnitPrice.FromPrice(new(shift.Size,shift.Unit))).ToUnitPriceExact();
-                    if(moved.Value.CompareTo(source!.Quote.Minimum)<0||moved.Value.CompareTo(source!.Quote.Maximum)>0)
-                        throw Error("price_domain","The shifted quote is outside its explicitly selected domain.");
-                }
-                resolved.Add(node,new(shift.Coordinate,point.Key,node,shift.Unit,shift.Size,source?.Input,source?.Observation.Key));
-            }
-        }
-        var ordered=resolved.Values.OrderBy(s=>s.Node).ToImmutableArray();
+        var ordered=ResolveShifts(shifts,point=>Price(point,cancellation),cancellation);
         var offsets=ordered.ToDictionary(s=>s.Node,s=>ExactUnitPrice.FromPrice(new(s.Size,s.Unit)));
         GraphSession<ExactUnitPrice> child;
         try{child=session.WithOffsets(offsets,cancellation);}
@@ -113,10 +94,41 @@ public sealed class ConnectedScenario
                 size=shift.Size.ToString(),currency=shift.Unit.Currency,quantity=shift.Unit.Quantity,
                 multiplier=shift.Unit.Multiplier.ToString(),input=shift.Input,observation=shift.Observation}));
         }
-        return new(Plan,child,targets,Convert.ToHexStringLower(hash.GetHashAndReset()),Id,ordered);
+        return new(Plan,child,targets,Convert.ToHexStringLower(hash.GetHashAndReset()),Id,ordered,Layers.Add(ordered));
     }
 
-    private sealed class TargetIndex
+    internal ImmutableArray<ResolvedCurveShift> ResolveShifts(ImmutableArray<CurveShift> shifts,Func<CurvePointKey,ExactUnitPrice> price,CancellationToken cancellation)
+        =>ResolveShifts(Plan,targets,shifts,price,cancellation);
+    internal static ImmutableArray<ResolvedCurveShift> ResolveShifts(ConnectedCurvePlan plan,TargetIndex targets,
+        ImmutableArray<CurveShift> shifts,Func<CurvePointKey,ExactUnitPrice> price,CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if(shifts.IsDefaultOrEmpty||shifts.Any(s=>s is null||s.Target is null||s.Unit is null||s.Size==default||s.Convention!=CurveShift.ParentAdditive))
+            throw Error("scenario_shift","Supply nonzero signed absolute shifts with explicit targets, units and the parent-additive convention.");
+        var resolved=new Dictionary<int,ResolvedCurveShift>();
+        foreach(var shift in shifts)
+        {
+            var selected=ResolveTarget(targets,shift.Coordinate,shift.Target,cancellation);var aliases=new HashSet<int>();
+            foreach(var point in selected)
+            {
+                cancellation.ThrowIfCancellationRequested();var node=plan.IndexOf(point.Key);
+                if(!aliases.Add(node))continue; // Exact aliases of one input receive one shared shift.
+                if(resolved.ContainsKey(node))throw Error("scenario_target","A layer cannot shift the same resolved coordinate twice; use an explicit nested layer.");
+                if(point.Unit!=shift.Unit)throw Error("unit_mismatch","A shift must retain its target's exact price unit and quote multiplier.");
+                var source=point.Expression as ConnectedSource;
+                if(shift.Coordinate==CurveShockCoordinate.MarketQuote)
+                {
+                    var moved=price(point.Key).Add(ExactUnitPrice.FromPrice(new(shift.Size,shift.Unit))).ToUnitPriceExact();
+                    if(moved.Value.CompareTo(source!.Quote.Minimum)<0||moved.Value.CompareTo(source!.Quote.Maximum)>0)
+                        throw Error("price_domain","The shifted quote is outside its explicitly selected domain.");
+                }
+                resolved.Add(node,new(shift.Coordinate,point.Key,node,shift.Unit,shift.Size,source?.Input,source?.Observation.Key));
+            }
+        }
+        return resolved.Values.OrderBy(s=>s.Node).ToImmutableArray();
+    }
+
+    internal sealed class TargetIndex
     {
         private sealed class CurvePoints
         {

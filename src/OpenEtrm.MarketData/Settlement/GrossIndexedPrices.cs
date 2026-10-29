@@ -13,11 +13,11 @@ public sealed class GrossIndexedPrices
     private readonly ImmutableDictionary<(CurveKey,DateTimeOffset),IntervalPriceResolution> cells;
     private GrossIndexedPrices(MonthlyGrossPlan plan,DateTimeOffset knownAt,ImmutableDictionary<(CurveKey,DateTimeOffset),IntervalPriceResolution> cells)
     {Plan=plan;KnownAt=knownAt;this.cells=cells;}
-    internal IntervalPriceResolution At(PlannedPaymentContribution row)=>cells[(((PpaFloatingSide)MonthlyGrossPreview.Member(row.Binding).Side).Price.Curve,row.Interval.Start)];
+    internal IntervalPriceResolution At(PlannedPaymentContribution row)=>cells[(((FloatingSide)MonthlyGrossPreview.Member(row.Binding).Side).Price.Curve,row.Interval.Start)];
 
     public static GrossIndexedPrices Resolve(MonthlyGrossPlan plan,IReadOnlyDictionary<CurveKey,PreparedCurve> curves,CurveBuild market,DateTimeOffset knownAt)
     {
-        var groups=plan.Contributions.GroupBy(r=>((MonthlyGrossPreview.Member(r.Binding).Side as PpaFloatingSide)
+        var groups=plan.Contributions.GroupBy(r=>((MonthlyGrossPreview.Member(r.Binding).Side as FloatingSide)
             ??throw Invalid("Only indexed physical payment plans accept index evidence.")).Price.Curve).ToArray();
         if(curves.Count!=groups.Length || market.Snapshot.ValuationAt!=plan.ValuationAt ||
             curves.Values.Any(c=>c.KnownAt!=knownAt || c.Curve is not (MarkedIntervalCurve or ShapedIntervalCurve)))
@@ -32,7 +32,7 @@ public sealed class GrossIndexedPrices
             if(!required.SetEquals(resolved.Keys))throw Invalid("The native index coverage must match its complete contractual contribution coverage.");
             foreach(var row in group)
             {
-                var price=resolved[row.Interval.Start];var term=((PpaFloatingSide)MonthlyGrossPreview.Member(row.Binding).Side).Price;
+                var price=resolved[row.Interval.Start];var term=((FloatingSide)MonthlyGrossPreview.Member(row.Binding).Side).Price;
                 if(price.Interval!=row.Interval.Delivery || price.State!=IntervalPriceState.Actual || price.Price is null || price.Actual is null ||
                     price.Publication!="collected" || curve.Unit!=term.Adder.Unit)
                     throw Invalid("Every ended native interval needs a compatible eligible collected index price; estimates and missing prices refuse the occurrence.");

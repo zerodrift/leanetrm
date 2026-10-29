@@ -27,9 +27,9 @@ bounds and structured errors stay in their owning modules.
 
 ## Managed monthly strips
 
-`MonthlySwapSide` composes existing fixed or floating monthly side definitions.
-Their index sampling, actual-fixing selection, payment rules, calendars, price
-lookups and quote scaling are reused. Supported strips contain one to 1,200
+Whole-term `FixedSide` and `FloatingSide` own their monthly period parameters
+directly (D253). Their index sampling, actual-fixing selection, payment rules,
+calendars, price lookups and quote scaling are reused. Supported managed strips contain one to 1,200
 ordered, contiguous complete months within the existing supported date domain.
 `MonthlyFinancialSwap` pairs fixed and floating legs with the same delivery and
 quantity-allocation scope, opposite unit coefficients and explicit discounting.
@@ -49,11 +49,12 @@ apply to completed side PVs; the external trade quantity scales the instrument
 once. No payment or per-unit rounding is introduced. These total-quantity choices
 do not authorize a flow-rate, MW-to-MWh or hourly-profile conversion.
 
-Old single-payment side identities and projection-only definitions retain their
-meaning. Due payments require explicit lifecycle state and remain unsupported;
-neither a matured payment nor missing actual becomes zero. The booking/editor and
-database write contracts still support one month. This managed pricing capability
-does not create persisted multi-year bookings, settlement or payment processing.
+The single-period editor and recurring scheduled editor use the same whole-term
+side definitions. Earlier economic definitions require explicit rebooking under
+the new schema; there is no old-format valuation path. Due payments require
+explicit lifecycle state; neither a matured payment nor a missing actual becomes
+zero. See [side schedules](side-schedules.md) for retained-booking limits and
+[swap settlement](swap-settlement.md) for the separately qualified lifecycle.
 
 ## Shared quote scenarios
 

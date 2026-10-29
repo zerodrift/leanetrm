@@ -4,6 +4,33 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D253 unifies dated and interval payments on whole-term FixedSide/FloatingSide,
+with parameter-only schedules and one structural/evaluated row contract. PPA
+references compile to bounded monthly graph columns for affected-only scenario
+reuse. [Side schedules](side-schedules.md) records the exact oracle, bounds and
+rebooking boundary. D258 retains every logical pricing row, edge, typed binding and named root in
+PostgreSQL; loading and atomic staging/publication are under local qualification.
+[Evaluation](side-plans.md) defines the accepted trial contract. Migrations
+0123–0127 require a schema release; a private
+from-zero pilot seed and PPA entry in New trade remain separate work.
+
+An archive-and-rebook cutover retains a certified trading-history boundary and
+the display-reference high-water marks. Earlier trading contexts refuse
+explicitly; market and reference history are unaffected. Qualification includes
+exact boundary retries, current-authority checks and historical incomplete-prefix
+refusals before a release can use this boundary.
+
+The D252 report amendment lists missing or unsupported retained PPA schedules as
+**Needs rebooking**, retains healthy position values and leaves affected complete
+totals unavailable. Admission removes the former per-trade full-preparation retry;
+direct valuation/risk, corruption and current-authority failures remain strict.
+
+The compact D258 trial retains native calculations as typed vector operations
+over exact grids in stock PostgreSQL, rather than expanded cell-operation rows.
+The [standalone experiment](side-block-experiment.md) qualifies bounded arithmetic
+and storage workloads. Application parity, complete HTTP workload measurements
+and the development cutover remain in progress; no columnar extension is used.
+
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.
 Heat-rate examples use the existing typed factor contract and independent
@@ -254,12 +281,13 @@ new snapshot or a certified cutoff (D172). Public fixtures are synthetic. Real
 publisher schedules, peak-product observations, licensed actual data ingestion and
 fixing/payment lifecycle operations require separate qualification.
 
-Managed multi-year monthly pricing now composes existing fixed/floating monthly
-sides, preserving exact per-payment lookups and DFs. Per-month quantity, an
+Managed multi-year monthly pricing uses whole-term fixed/floating sides with
+explicit monthly periods, preserving exact per-payment lookups and DFs. Per-month quantity, an
 equal-month allocation of total quantity and a calendar-day-weighted allocation
 are explicit versioned choices; rational allocation precedes external trade
 scaling. Independent 10/30-year price, discount and shared-trade shock checks
-qualify this managed consumer (D170). Persistent multi-year booking remains work.
+qualify this managed consumer (D170). Retained recurring booking has its own
+quantity-schedule and storage bounds.
 Interactive and generated-close operations retain mixed-product reports through
 the common portfolio path (D169, D181). See [pricing lookups](pricing-lookups.md).
 
@@ -291,7 +319,8 @@ outside-month guards. Quantity weighting retains a positive typed quantity for
 each daily observation. Shared compatibility and schedule generation serve
 authoring and submitted terms; original target applications are the rows valued
 and inspected. Migration 0102 supplies normalized immutable authoring and shared
-atomic booking. The bounded version still has one payment per Side.
+atomic booking. D253 replaces that earlier one-payment side shape with
+whole-term parameters, including the single-period case.
 Independent pricing windows, explicit zero weights, delivery blocks/events and
 contract-relative or paired observations require separately qualified versions.
 Fixing lifecycle events remain work. D214 adds explicitly versioned recurring
@@ -301,8 +330,8 @@ Bounded physical and virtual PPA capabilities are documented below.
 Draft swap quote risk supports unresolved
 observations; final index fixings remain frozen inputs.
 FixedSide and FloatingSide now independently generate and value their own
-schedules through Side.PV. Each constituent monthly side has one payment;
-payment/delivery dates and DFs can differ. Side results retain normalized unit
+schedules through Side.PV. Each side owns all its periods directly;
+payment/delivery dates and DFs can differ by period. Side results retain normalized unit
 quantities, lookup terms/weights, prices/lineage, exact cash/PV and discount
 construction evidence.
 Instrument.PV only sums membership-signed side PVs under one full context; trade

@@ -70,8 +70,8 @@ internal static class MonthlySwapRateChecks
         var nominal=new CurrencyDefaultDiscounting([intraday],two.Snapshot,false,null);
         Equal(nominal.Inputs[intraday].Factor,1m);passed++;
         var scheduled=new ScheduledFinancialSwap(Guid.NewGuid(),[
-            new(new ScheduledSwapSide(Guid.NewGuid(),original.Fixed.Periods,[new(1,3),new(2,3)],ScheduledSwapSide.Implementation),D(-1),ExactRatio.One),
-            new(new ScheduledSwapSide(Guid.NewGuid(),original.Floating.Periods,[new(3,5),new(2,5)],ScheduledSwapSide.Implementation),D(1),new(5,6))],true,ScheduledFinancialSwap.Implementation);
+            new(new FixedSide(Guid.NewGuid(),original.Fixed.Price,two.Quote,original.UnitQuantity,[original.Fixed.Periods[0] with{Allocation=new(1,3)},original.Fixed.Periods[1] with{Allocation=new(2,3)}]),D(-1),ExactRatio.One),
+            new(new FloatingSide(Guid.NewGuid(),original.Floating.Settlement,two.Quote,original.UnitQuantity,[original.Floating.Periods[0] with{Allocation=new(3,5)},original.Floating.Periods[1] with{Allocation=new(2,5)}]),D(1),new(5,6))],true,ScheduledFinancialSwap.Implementation);
         var priced=FinancialSwapValuation.Evaluate(scheduled,two.Model.Build(two.Snapshot,scheduled.Dependencies),true,two.Mapping);
         var par=FinancialSwapValuation.ParRate(scheduled,priced.Sides,new AmountFormat(6,CashTieRule.ToEven,false,true));
         var expectedPar=decimal.Round((3.01m*0.6m*two.Factors[0]+3.02m*0.4m*two.Factors[1])*(5m/6m)/(two.Factors[0]/3m+two.Factors[1]*2m/3m),6,MidpointRounding.ToEven);
@@ -145,10 +145,12 @@ internal static class MonthlySwapRateChecks
         public CurveModel Model { get; }
         public MarketSnapshot Snapshot { get; }
         public CurrencyDiscountCurve Mapping { get; }
+        private readonly ReferenceKey index;
         public ImmutableArray<SeriesKey> CommoditySeries { get; }
         public int[] Days { get; }
         public decimal[] Factors { get; }
-        private readonly ImmutableArray<Side> fixedPeriods, floatingPeriods;
+        private readonly ImmutableArray<FixedSidePeriod> fixedPeriods;
+        private readonly ImmutableArray<FloatingSidePeriod> floatingPeriods;
 
         public Fixture(int months)
         {
@@ -159,7 +161,7 @@ internal static class MonthlySwapRateChecks
             var referenceDate = DateOnly.FromDateTime(valuation.UtcDateTime);
             Quote = new(R("outright"), QuoteKind.Outright, R("currency"), R("quantity"), D(1),
                 ExactDecimal.Parse("0.01"), ExactDecimal.Parse("0.01"), D(-1000), D(1000));
-            var curve = new CurveKey(definitions, "monthly_index");
+            var curve = new CurveKey(definitions, "monthly_index");index=R("index");
             var contracts = Enumerable.Range(0, months).Select(n =>
             {
                 var from = new DateOnly(2035, 1, 1).AddMonths(n);
@@ -171,13 +173,11 @@ internal static class MonthlySwapRateChecks
             var rule = new PaymentRule(PaymentFrequency.Monthly, PaymentDateRule.DayOfFollowingMonth, null, 15,
                 null, ShortMonth.Reject, DateRoll.Unadjusted, null, PaymentRule.Implementation);
             var unit = new Quantity(D(1), Quote.Quantity);
-            fixedPeriods = contracts.Select(c => (Side)new FixedSide(Guid.NewGuid(), new UnitPrice(D(3), Quote), unit,
-                c.DeliveryFrom, c.DeliveryTo, rule, FixedSide.Implementation, Quote)).ToImmutableArray();
-            floatingPeriods = contracts.Select(c => (Side)new FloatingSide(Guid.NewGuid(), R("index"), Quote, unit,
-                c.DeliveryFrom, c.DeliveryTo, At(c.DeliveryFrom.AddDays(-1)), rule, FloatingAveraging.MonthlyIndexPrice,
-                [new(new(curve, c.Key), c)], FloatingSide.Implementation)).ToImmutableArray();
+            fixedPeriods = contracts.Select(c => new FixedSidePeriod(c.DeliveryFrom,c.DeliveryTo,At(rule.Generate(c.DeliveryFrom,c.DeliveryTo).Date),ExactRatio.One,rule)).ToImmutableArray();
+            floatingPeriods = contracts.Select(c => new FloatingSidePeriod(c.DeliveryFrom,c.DeliveryTo,At(c.DeliveryFrom.AddDays(-1)),At(rule.Generate(c.DeliveryFrom,c.DeliveryTo).Date),FloatingAveraging.MonthlyIndexPrice,
+                [new(new(curve,c.Key),c)],[],null,null,rule,null,ExactRatio.One,FloatingSide.Implementation)).ToImmutableArray();
             Days = contracts.Select(c => c.DeliveryTo.DayNumber - c.DeliveryFrom.DayNumber).ToArray();
-            var payments = fixedPeriods.Select(p => ((SidePaymentSchedule)p.GenerateSchedule()).Payments[0].PaymentDate).ToArray();
+            var payments = fixedPeriods.Select(p => DateOnly.FromDateTime(p.PaymentAt.UtcDateTime)).ToArray();
             Factors = payments.Select(p => decimal.Round(365m / (365m + 0.05m * (p.DayNumber - referenceDate.DayNumber)), 18, MidpointRounding.ToEven)).ToArray();
             Mapping = new(Guid.NewGuid(), Quote.Currency, new(new(definitions, "yield"), R("rates"), Quote.Currency,
                 "actual_365_fixed", "simple", RateConventions.Implementation, "valuation_utc_date", R("source"),
@@ -196,10 +196,14 @@ internal static class MonthlySwapRateChecks
                 CommoditySeries.Select((s, n) => Select(s, (3m + (n + 1) / 100m).ToString(CultureInfo.InvariantCulture), ObservationRole.TraderMark))
                     .Concat(rateSeries.Select(s => Select(s, "0.05", ObservationRole.Parameter))).ToImmutableArray());
         }
-        public MonthlyFinancialSwap Swap(MonthlyQuantityBasis basis) => new(Guid.NewGuid(),
-            [new(new MonthlySwapSide(Guid.NewGuid(), fixedPeriods, basis, MonthlySwapSide.Implementation), D(-1)),
-             new(new MonthlySwapSide(Guid.NewGuid(), floatingPeriods, basis, MonthlySwapSide.Implementation), D(1))],
-            MonthlyFinancialSwap.Implementation, true);
+        public MonthlyFinancialSwap Swap(MonthlyQuantityBasis basis)
+        {
+            var quantities=SwapSidePeriods.MonthlyAllocations([..fixedPeriods.Select(p=>new QuantityPeriod(p.DeliveryFrom,p.DeliveryTo))],basis);
+            var unit=new Quantity(D(1),Quote.Quantity);
+            var fixedSide=new FixedSide(Guid.NewGuid(),new FlatPrice(new(D(3),Quote)),Quote,unit,[..fixedPeriods.Select((p,n)=>p with{Allocation=quantities[n]})]);
+            var floating=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(index),Quote,unit,[..floatingPeriods.Select((p,n)=>p with{Allocation=quantities[n]})]);
+            return new(Guid.NewGuid(),[new(fixedSide,D(-1)),new(floating,D(1))],MonthlyFinancialSwap.Implementation,true);
+        }
         private static DateTimeOffset At(DateOnly date) => new(date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
     }
 }

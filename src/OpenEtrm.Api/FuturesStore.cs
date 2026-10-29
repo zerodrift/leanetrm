@@ -22,7 +22,7 @@ public sealed record FuturesBlotterView(string? Mode,ImmutableArray<Guid> BookId
 public sealed record FuturesBlotterRequest(FuturesReadRequest Context,FuturesBlotterView View);
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record TradingWorkspaceRequest(FuturesReadRequest Context,FuturesBlotterView View,string? BookingCatalog=null,ImmutableArray<FuturesBlotterView> Summaries=default);
+public sealed record TradingWorkspaceRequest(FuturesReadRequest Context,FuturesBlotterView View,string? BookingCatalog=null,ImmutableArray<FuturesBlotterView> Summaries=default,bool Progressive=false);
 
 public sealed partial class FuturesStore(PreviewManifest manifest)
 {
@@ -107,7 +107,9 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
         =>await Holdings(connection,data,frame,null,ct);
     public Task<object> Blotter(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBlotterView view,CancellationToken ct)
         =>Holdings(connection,data,frame,view??throw Error("blotter_view","Supply an explicit blotter view."),ct);
-    private async Task<object> Holdings(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBlotterView? view,CancellationToken ct)
+    internal Task<object> Position(NpgsqlConnection connection,PreviewData data,InputFrame frame,TradePositionSelection selected,CancellationToken ct)
+        =>Holdings(connection,data,frame,null,ct,selected);
+    private async Task<object> Holdings(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBlotterView? view,CancellationToken ct,TradePositionSelection? selected=null)
     {
         var books=await Books(connection,ct);
         var dimensions=ImmutableArray<BlotterDimension>.Empty;var measures=ImmutableArray<BlotterMeasure>.Empty;
@@ -122,7 +124,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
             if(view.Mode=="pivot")FuturesBlotter.Validate(dimensions,measures,view.PivotConvention??"");
             else if(dimensions.Length!=0 || measures.Length!=0 || view.PivotConvention is not null)throw Error("blotter_view","Trade rows do not select pivot rules.");
         }
-        var resolved=await ReadTrades(connection,data,books,view?.BookIds??[],view?.PortfolioIds??[],ct);
+        var resolved=await ReadTrades(connection,data,books,view?.BookIds??[],view?.PortfolioIds??[],ct,selected);
         var rows=resolved.Rows;var trades=resolved.Trades;
         var snapshot=data.Snapshot(frame);
         var (build,unvalued)=ValuationStatus.BuildValued(held=>data.Model.Build(snapshot,held),trades.SelectMany(t=>t.Instruments.Select(p=>FuturesExecution.Require(p).MarketBinding.Market)).Distinct().ToImmutableArray());
@@ -176,13 +178,14 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
     }
     internal sealed record ResolvedTrades(ImmutableArray<JsonElement> Rows,Dictionary<Guid,FuturesMarketBinding> MarketBindings,ImmutableArray<Trade> Trades);
     internal async Task<ResolvedTrades> ReadTrades(NpgsqlConnection connection,PreviewData data,ImmutableArray<JsonElement> books,
-        ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct)
+        ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
     {
         ValidateScope(books,bookIds,portfolioIds);
-        var rows=await RevisionRows(connection,null,false,ct);
+        var rows=await RevisionRows(connection,selected?.TradeId,false,ct);
         rows=rows.Where(r=>
             (bookIds.Length==0||bookIds.Contains(r.Id("book_id")))&&
             (portfolioIds.Length==0||portfolioIds.Contains(books.Single(b=>b.Id("id")==r.Id("book_id")).Id("portfolio_id")))).ToImmutableArray();
+        selected?.Require(rows);
         var sides=new Dictionary<Guid,FuturesMarketBinding>();
         foreach(var row in rows)
         {

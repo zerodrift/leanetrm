@@ -14,11 +14,11 @@ def run(c,context,manifest):
     def body(index,frequency,method,schedule):
         quantity=next(q['specification'] for q in index['quantityChoices'] if q['unit']=='MMBtu (IT)')
         fixed=dict(price='3',currency=index['currencyCode'],deliveryFrom='2021-01-01',deliveryTo='2021-02-01',paymentSchedule=rule)
-        floating=dict(curve=index['curve'],index=index['index'],currency=index['currencyCode'],deliveryFrom='2021-01-01',deliveryTo='2021-02-01',paymentSchedule=rule,resetFrequency=frequency,averagingMethod=method,spread='0',observationSchedule=schedule)
+        floating=dict(settlement=dict(mode='curve_target',index=None,projectionPolicy=None),curve=index['curve'],index=index['index'],currency=index['currencyCode'],deliveryFrom='2021-01-01',deliveryTo='2021-02-01',paymentSchedule=rule,resetFrequency=frequency,averagingMethod=method,spread='0',observationSchedule=schedule)
         def side(fixed_side):return dict(basis='period_total',quantity=quantity,amount=None,allocation=None,power=None,priceApplication='period_average_times_quantity_v1',periods=[dict(amount='100',fixed=fixed if fixed_side else None,floating=None if fixed_side else floating)])
         return {**context,**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'executedAt':None,'quantity':None,'fixedCoefficient':None,'discounting':False,'fixed':None,'floating':None,
           'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'swapType':'scheduled_financial_swap','firstCoefficient':'-1',
-          'scheduled':dict(implementation='independent_scheduled_financial_swap_v1',first=side(True),second=side(False))}
+          'scheduled':dict(implementation='whole_term_scheduled_financial_swap_v1',first=side(True),second=side(False))}
     calendar=dict(revision=dict(catalogId=manifest['referenceCatalogId'],revisionId=manifest['referenceRevisionId']),code='test_business')
     quantities=[dict(from_=str(date(2021,1,n)),to=str(date(2021,1,n)+timedelta(days=1)),quantity=dict(value=str(n),specification=next(q['specification'] for q in daily['quantityChoices'] if q['unit']=='MMBtu (IT)'))) for n in range(1,32)]
     quantities=[{('from' if k=='from_' else k):v for k,v in row.items()} for row in quantities]

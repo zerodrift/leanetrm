@@ -99,23 +99,34 @@ public static class AssetVolumes
                 state=delivered?VolumeState.Estimated:VolumeState.Forecast;inputStage=source.ForecastStage;series=source.ForecastSeries;
                 quantity=ExactQuantity.FromQuantity(new(cell.Value,energy.Key)).Scale(version.CapacityBasis)
                     .ScaleFraction((interval.End-interval.Start).Ticks,TimeSpan.TicksPerHour);
-                if(!source.Availability.ReflectedInForecast)quantity=quantity.Scale(source.Availability.Factor!.Value);
-                if(!source.Curtailment.ReflectedInForecast)quantity=quantity.Scale(One-source.Curtailment.Factor!.Value);
-                if(source.Degradation is {} adjustment)
-                {
-                    var (n,d)=(One-adjustment.Rate).Power(ContractYears.Exponent(adjustment.BaseDate,interval.OperatingDate,adjustment.Basis));
-                    quantity=quantity.ScaleFraction(n,d);
-                }
             }
             if(cell.End!=interval.End)throw new MarketDataException("volume_grid","A quantity observation must match its entire native interval.");
-            if(inputStage!=stage)
-            {
-                var remaining=One-source.Loss;
-                quantity=inputStage==QuantityStage.Generated?quantity.Scale(remaining):quantity.ScaleFraction(ExactDecimal.WorkingScale,remaining.ScaledValue);
-            }
+            quantity=ApplyAdjustments(quantity,source,state,inputStage,stage,interval.OperatingDate);
             return new AssetVolume(interval.Delivery,quantity,state,asset.Key,source.Key,new(asset.Key,version.From),stage,inputStage,
                 series,cell.Revision,cell.KnownAt,cell.ContextId,delivered?due:null,context);
         })];
+    }
+    // Shared by eager source qualification and the connected schedule operator.
+    // Preserve the exact operation order and each existing arithmetic bound.
+    internal static ExactQuantity ApplyAdjustments(ExactQuantity quantity,VolumeSourceDefinition source,VolumeState state,
+        QuantityStage inputStage,QuantityStage stage,DateOnly operatingDate)
+    {
+        if(state!=VolumeState.Metered)
+        {
+            if(!source.Availability.ReflectedInForecast)quantity=quantity.Scale(source.Availability.Factor!.Value);
+            if(!source.Curtailment.ReflectedInForecast)quantity=quantity.Scale(One-source.Curtailment.Factor!.Value);
+            if(source.Degradation is {} adjustment)
+            {
+                var (n,d)=(One-adjustment.Rate).Power(ContractYears.Exponent(adjustment.BaseDate,operatingDate,adjustment.Basis));
+                quantity=quantity.ScaleFraction(n,d);
+            }
+        }
+        if(inputStage!=stage)
+        {
+            var remaining=One-source.Loss;
+            quantity=inputStage==QuantityStage.Generated?quantity.Scale(remaining):quantity.ScaleFraction(ExactDecimal.WorkingScale,remaining.ScaledValue);
+        }
+        return quantity;
     }
     private static void ValidateAdjustment(ForecastAdjustment value)
     {

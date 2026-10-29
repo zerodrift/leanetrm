@@ -60,6 +60,7 @@ def run_checks(c, check, query):
         check('required milestone checks do not replace the retained context or financial result',
               c.call('trading/workspace', request) == expected)
     c.call('profile', {'profile': 'admin'})
-    c.call('trading/workspace', request, expected=403)
+    for progressive in (False, True):
+        c.call('trading/workspace', {**request, 'progressive': progressive}, expected=403)
     check('the scoped read cannot substitute administrative rights for trading authority')
     c.call('profile', {'profile': 'viewer'})

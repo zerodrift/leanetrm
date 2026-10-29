@@ -818,7 +818,7 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .side-panel table{font-size:12px}.side-panel th{font-size:10.5px;padding:8px 10px}.side-panel td{padding:8px 10px;white-space:nowrap}
 /* In the panel the settlement view's tables wrap their labels and keep each figure on one line, so that in the wide panel every figure,
    and each payment's action, is read without scrolling sideways (D221); a phone's sheet may scroll a table sideways. */
-.side-panel .swap-settlement-editing th,.side-panel .swap-settlement-editing td:not(.numeric){white-space:normal}
+.swap-settlement-editing th,.swap-settlement-editing td:not(.numeric){white-space:normal}
 .swap-settlement-stack{display:grid;gap:4px;justify-items:start;overflow-wrap:anywhere}.swap-settlement-stack button{white-space:normal;text-align:left}
 /* The form of an amendment, or of a new swap, takes the tab panel in place of the tab's view, and its fields the panel's one column. */
 .side-panel-tabs:empty{display:none}
@@ -1443,3 +1443,16 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .delivery-jobs{margin:0 0 12px;font-size:13px;color:var(--text-2)}
 @media(max-width:760px){.delivery-filter-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.delivery-filter-fields>button{grid-column:span 2}.delivery-head{flex-direction:row;flex-wrap:wrap;gap:8px 16px}.delivery-chart .time-chart-canvas{height:280px}.delivery-chart .time-chart-latest{flex:1 1 100%}}
 .table-menu-check{display:flex;align-items:center;gap:8px;font-size:13px}
+:root .position-expansion{box-sizing:border-box;white-space:normal;width:min(100%,1100px);padding:18px 22px;background:var(--surface,#fff);border-top:1px solid var(--border,#dce0e5);cursor:default;color:var(--text,#202830);}
+.position-expansion .position-close{float:right;margin:0 0 8px 12px;}
+.position-expansion #position-details-head{clear:both;}
+.position-expansion #position-details-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border,#dce0e5);}
+.position-expansion #position-details-body{max-height:65vh;overflow:auto;padding-top:12px;}
+.position-expansion .side-panel-value{display:flex;gap:28px;}
+.position-expansion .side-panel-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));}
+.position-expansion .table-wrap{max-width:100%;overflow:auto;}
+.position-expansion .table-wrap:has(> .regular-table-scroll){overflow:visible;}
+.position-expansion table{border-collapse:collapse;width:100%;font-size:.85rem;}
+.position-expansion th,.position-expansion td{text-align:left;vertical-align:top;padding:7px 9px;border-bottom:1px solid var(--border,#dce0e5);}
+.position-expansion .schedule-fields{margin:12px 0;}
+@media(max-width:760px){:root .position-expansion{padding:12px;width:100%;}.position-expansion .side-panel-value{display:block;}}

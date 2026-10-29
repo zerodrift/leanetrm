@@ -1,0 +1,10 @@
+.position-window main{max-width:1280px;margin:0 auto;padding:24px;min-width:0}
+.position-window-toolbar{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;margin-bottom:12px}
+.position-window #position-window-detail{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.position-window .side-panel-body{overflow:visible;max-height:none}
+.position-window .side-panel-value{display:flex;gap:28px;flex-wrap:wrap}
+.position-window .table-wrap{max-width:100%;overflow:auto}
+.position-window .table-wrap:has(> .regular-table-scroll){overflow:visible}
+.position-window .side-panel-tabs{padding-top:8px}
+.position-window-error{padding:14px;border:1px solid var(--danger-border);border-radius:var(--radius);background:var(--danger-soft);color:var(--danger)}
+@media(max-width:760px){.position-window main{padding:12px}.position-window-toolbar{align-items:start}.position-window .side-panel-head,.position-window .side-panel-body{padding:12px}}

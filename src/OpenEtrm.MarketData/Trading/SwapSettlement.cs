@@ -59,8 +59,8 @@ public sealed record SwapPaymentCalculation
     public ExactMoney ExactAmount { get; }
     public Money Amount { get; }
     public ExactMoney RoundingEffect => ExactMoney.FromMoney(Amount).Subtract(ExactAmount);
-    public const string EvidenceIdentityVersion = "swap_payment_evidence_identity_v1";
-    public const string FactorEvidenceIdentityVersion = "factor_swap_payment_evidence_identity_v1";
+    public const string EvidenceIdentityVersion = "swap_payment_evidence_identity_v2";
+    public const string FactorEvidenceIdentityVersion = "factor_swap_payment_evidence_identity_v2";
     public string ContractHash { get; }
     public string InputHash { get; }
     internal SwapPaymentCalculation(PaymentOccurrenceKey occurrence, SidedInstrument instrument, SideMembership membership,
@@ -80,23 +80,38 @@ public sealed record SwapPaymentCalculation
                 lineage = p.Lineage.OrderBy(k => k.CatalogId).ThenBy(k => k.Id) })
         });
     }
-    public static string ContractIdentity(SidedInstrument instrument,SideMembership membership,SidePaymentPlan plan,Quantity quantity)
+    public static string ContractIdentity(SidedInstrument instrument,SideMembership membership,ScheduleRow plan,Quantity quantity)
     {
-        if(instrument is null||membership is null||plan is null||quantity is null||quantity.Specification!=instrument.UnitQuantity.Specification)
+        if(instrument is null||membership is null||!plan.IsValid||quantity is null||quantity.Specification!=instrument.UnitQuantity.Specification)
             throw new MarketDataException("settlement_continuity","Supply exact supported contractual payment terms and booked quantity.");
         static object? Price(UnitPrice? price) => price is null ? null : new { value = price.Value.ToString(), unit = Unit(price.Unit) };
-        var legacy=Hash(new
+        var totalWeight=plan.Prices.Aggregate(System.Numerics.BigInteger.Zero,(sum,p)=>sum+p.Weight.ScaledValue);
+        object Weight(ExactDecimal weight)
+        {
+            var divisor=System.Numerics.BigInteger.GreatestCommonDivisor(weight.ScaledValue,totalWeight);
+            return new{numerator=(weight.ScaledValue/divisor).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                denominator=(totalWeight/divisor).ToString(System.Globalization.CultureInfo.InvariantCulture)};
+        }
+        static object? FixedPrice(SchedulePriceTerm term)
+        {
+            if(term.FixedPrice is null)return null;
+            var at=term.FixedPriceDate??(term.FixedPrice is FlatPrice?DateOnly.MinValue:
+                throw new MarketDataException("settlement_continuity","A dated fixed term requires its exact contractual operating date."));
+            var price=term.FixedPrice.At(at);
+            return new {price.Numerator,price.Denominator,unit=Unit(price.Unit)};
+        }
+        var contractual=Hash(new
         {
             version = EvidenceIdentityVersion, plan.DeliveryFrom, plan.DeliveryTo, plan.PaymentAt,
             plan.PaymentConvention, plan.Currency, quantity = plan.AllocatedQuantity.Scale(membership.QuantityRatio ?? ExactRatio.One).Scale(quantity.Amount),
             coefficient = membership.Coefficient.ToString(),
-            prices = plan.Prices.Select(p => new { fixedPrice = Price(p.FixedPrice), spread = Price(p.Spread), weight = p.Weight.ToString(),
+            prices = plan.Prices.Select(p => new { fixedPrice = FixedPrice(p), spread = Price(p.Spread), weight = Weight(p.Weight),
                 index = p.Lookup?.Index, quote = p.Lookup?.Quote.Key, fixing = p.Lookup?.Fixing,
                 unit = p.Lookup is {} lookup ? Unit(PriceUnit.FromQuote(lookup.Quote)) : null }),
-            applications = plan.Applications.Select(a => new { a.TargetFrom,a.TargetTo,a.PriceOrdinal,a.MappingRule,weight = a.Weight.ToString() })
+            applications = plan.Applications.Select(a => new { a.TargetFrom,a.TargetTo,a.PriceOrdinal,a.MappingRule,weight = Weight(a.Weight) })
         });
-        return instrument is CrossCommodityScheduledSwap cross ? Hash(new{version=FactorEvidenceIdentityVersion,legacy,
-            factor=new{value=cross.Factor.Value.ToString(),cross.Factor.NumeratorQuantity,cross.Factor.DenominatorQuantity,cross.Factor.Version},cross.UnitConversionImplementation}) : legacy;
+        return instrument is CrossCommodityScheduledSwap cross ? Hash(new{version=FactorEvidenceIdentityVersion,contractual,
+            factor=new{value=cross.Factor.Value.ToString(),cross.Factor.NumeratorQuantity,cross.Factor.DenominatorQuantity,cross.Factor.Version},cross.UnitConversionImplementation}) : contractual;
     }
     private static object Unit(PriceUnit unit) => new { unit.Currency, unit.Quantity, multiplier = unit.Multiplier.ToString() };
     private static string Hash(object value) => Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value)));

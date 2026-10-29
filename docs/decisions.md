@@ -129,7 +129,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D107 | Mark economic identity fields and version their canonical encoding | Executable instruments/sides declare EconomicDefinition versions and IdentityField properties. Ordered side economics and membership coefficients determine instrument identity; booked quantities/parties/metadata do not. Explicit value encodings, exact reference versions and normalized decimals avoid convenience-property or numeric-format drift. Canonical payload equality protects digest lookup. Operation-local reuse preserves exact retained UUIDs; database unique economic terms and serialized publication retain atomic cross-booking reuse independently of supplied hashes |
 | D108 | Bind exact LegalEntity and Counterparty versions to each retained trade revision | The booking legal entity and counterparty are separate scoped immutable domain models with code/name and exact catalog/ID/revision keys. New booking/amendment paths require both parties and include them in idempotency. D129 assigns read-only TradeDate server-side. Validate effective/knowledge visibility and current authority. Preserve legacy NULL facts without inferring parties from book, trader or instrument; explicit amendments supply missing party facts. V2 booking events retain the expanded payload; original V1 events and certificates remain readable |
 | D109 | Superseded in part by D110–D112: normalize unit quantities and retain product conversion and discount choices in instrument identity | Instrument/side unit amounts are one and excluded from keys; exact quantity bases remain marked. FuturesInstrument owns typed LotSize, resolved from the exact immutable series and applied once alongside external booked lots without intermediate rounding. FinancialSwapInstrument marks Discounting; a different choice creates a different instrument while sharing sides. Specialized and common pricing reject policy conflicts. Existing indexed typed-term database lookups remain; persisted canonical-digest lookup is unfinished |
-| D110 | Let a simple futures contract be the instrument | Supersedes D87 and the futures-wrapper portion of D109. FuturesContract is a leaf Instrument keyed by the exact futures-series primary key, independent of curve recipe/version and trade quantity. LotSize and settlement method resolve from immutable reference terms. SidedInstrument retains real composition. Explicit pricing bindings hold curve/member and quote policy; typed migration aliases preserve historical UUIDs/events |
+| D110 | Let a simple futures contract be the instrument | Supersedes D87 and the futures-wrapper portion of D109. FuturesContract is a leaf Instrument keyed by the exact futures-series primary key, independent of curve recipe/version and trade quantity. LotSize and settlement method resolve from immutable reference terms. SidedInstrument retains real composition. Explicit pricing bindings hold curve/member and quote policy; typed migration aliases preserve historical UUIDs/events. |
 | D111 | Separate shared factors, contractual equivalence and bound valuation work | Floating sides identify the selected curve and contractual observation/averaging/payment configuration; resolved projection aliases have a separate binding identity. Reuse includes complete bindings/context. Different payment dates can distinguish contracts without duplicating commodity factors. Exact market series remain selected factor identities; VaR/covariance and cross-revision forward normalization remain work |
 | D112 | Align economic lookup with typed primary/candidate keys | Futures SeriesKey expands to ref_data.futures_series(catalog_id,revision_id,code); primary-key lookup precedes alias retention and verifies full keys on UUID collisions. Fixed-side exact quote reference participates in managed identity as in SQL uniqueness. D112/0020 excludes generated monthly contract aliases from floating economic uniqueness and verifies complete retained projection bindings before reuse. Payment/side/instrument candidate-key lookups remain atomic under publication fencing; hashes cannot bypass exact relationships or authority |
 | D113 | Observable derivatives retain their own identity and underlying reference | Options may have market quotes and also reference a future/forward or explicit index/basket as underlying. Contract terms include strike/right/expiry/exercise/settlement/premium style. Measure/numeraire and market-input mode belong to valuation context. An outright option mark implies no inferred underlying exposure. Executable options and their lifecycle remain unimplemented |
@@ -248,8 +248,11 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D249 | Each agent version sets its history window | Decided by the owner (2026-10-27). A turn sends at most its version's latest `historyTurns` earlier turns, 0 to 1,000, enforced by the API and the database, and records those it sends; withholding applies within the window. Versions saved earlier take 1,000 (migration 0121), which a conversation already longer refuses. The input-token limit still applies |
 | D250 | The page assistant reads PPA bookings through Read trades; PPA bookings is not a Navigate page | Decided under the owner's delegation (2026-10-27). Refines D184, D190 and D191. An inspected PPA is reported as Read trades' trade view of it (`trades.trade_v1`, instrument type `ppa`); a listed book as the new `ppa_book` view of exactly one book (`trades.ppa_book_v1`), the page's own directory read of the whole book at the turn's pin, rechecking the book's scope, refused `result_too_large` above 64 trades, listing the page's columns. Both capture no context, run under the Blotter's accesses and permissions and bind the pinned context, cutoff and frame, not the page's own market inputs and cutoff, which Looking at says. PPA bookings and the targets its reads issue are not opened by Navigate (`tool_arguments_invalid`), since the database's navigation targets do not list it. No migration, runtime-set or permission change |
 | D251 | Saved Blotter views can be listed in the sidebar; PPA bookings has no sidebar entry | Decided by the owner (2026-10-28). Saved views are layout version 5, which adds `sidebar` (true or false), set by Show in the sidebar when a view is saved; earlier layouts are not migrated. The sidebar lists a person's flagged views under the Blotter and opens one as choosing it in the Blotter does. PPA bookings stays a Trading page opened from New trade; a person who wants a PPA list saves a Blotter view of PPAs and lists it. No migration or permission change |
-| D252 | The Blotter lists a PPA the selected market data cannot price as not valued; one such PPA no longer refuses the whole read | Decided under the owner's delegation (2026-10-28). Refines D246. When the PPAs of a Blotter read cannot be priced together because the market data has no price for part of some delivery (`interval_block_coverage`, `interval_curve_coverage`, `interval_actual_missing`, or a frame without a needed projection), the trades concerned are listed whole as not valued with `unpriced_delivery` and the rest are priced together as before. Any other refusal, or one no single trade explains, still refuses the read. An interval no period block covers is now `interval_block_coverage`, apart from overlapping blocks (`interval_block_partition`). Whole-book consumers keep refusing. No migration or permission change |
+| D252 | The Blotter lists a PPA the selected market data cannot price as not valued; one such PPA no longer refuses the whole read | Decided under the owner's delegation (2026-10-28). Refines D246. When the PPAs of a Blotter read cannot be priced together because the market data has no price for part of some delivery (`interval_block_coverage`, `interval_curve_coverage`, `interval_actual_missing`, or a frame without a needed projection), the trades concerned are listed whole as not valued with `unpriced_delivery` and the rest are priced together as before. The owner amendment of 2026-10-29 also lists missing or unsupported retained schedules as `needs_rebooking`, keeping affected complete totals unavailable. Corrupt content and authority failures still refuse the read. An interval no period block covers is now `interval_block_coverage`, apart from overlapping blocks (`interval_block_partition`). Whole-book consumers keep refusing. No migration or permission change |
+| D253 | One side model: a Side is its parameters for the whole term, generates a schedule of rows, and reads row values from the calculation graph | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. No side is made of other sides; `FixedSide` and `FloatingSide` price payments for swaps and PPAs alike, with PPA-only price sides removed; physical delivery sides stay their own family. `Side.GenerateSchedule()` builds one `ScheduleRow` per period or interval for the whole term, holding graph references, not values; a shock to the graph changes exactly the rows that read it. `Side.PV` sums its evaluated rows and `Instrument.PV` sums coefficient × side PV. Amended the same day: every `SidedInstrument` follows the model (futures stay leaf instruments, D110), and a position's detail opens under its Blotter row, showing each side's evaluated schedule. Amended by D258: rows are its logical rows, and PV and the Blotter sum named roots and contributions only. Refines D04 and D84 |
 | D256 | A turn's pinned As of frame may hold up to 256 KiB | Decided by the owner (2026-10-27). Migration 0122 raises `assistant.pin_turn`'s bound on a frame's pin JSON from 64 KiB to 256 KiB (262,144 bytes); nothing else changes. It applies over 0072's definition or one already identical to its own, as the hosted pilot's has been since its hotfix. |
+| D257 | A period-contract price node returns the selected settlement index's published fixing once due, and a side may override its curve's settlement index | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. For date-only period-contract observations (swaps and PPA period curves; interval curves are unchanged), each `FloatingSide` index price term (D253) states its settlement selection: the curve's declared single-index target, or a different named override index, never defaulted. The price node returns the bound projection before the selected index's fixing instant and that index's published final fixing, selected under the market cutoff, at or after it; between expiry and the fixing instant it is refused as today. Node dependencies follow the resolved context, so a due node depends only on its fixing. An override projects from the curve's forward marks as the recorded no-basis choice `forward_curve_no_basis_v1`, labelled in receipts and risk. The swap spread becomes the price term's adder. Refines D165 and D253; consistent with D32 and D37 |
+| D258 | Persist each booked side's complete schedule and load it for valuation | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. Refines D253 and D195. Booking retains every logical row of a side's pricing (observations, applications, averages, quantity steps, amounts, discount and valuation steps) with explicit roles and named output roots, ordered named edges and typed exact-version bindings. The tables are immutable, published and readable only under `temporal_read`, and valuation finds a schedule through the trade revision visible at its cutoff. Rows define how values are obtained; evaluated values are valuation results. Large schedules stage unpublished and publish in one short fenced, idempotent transaction (D238). Obligation rows keep occurrence keys and digests across amendments of later periods. Normalization becomes a shared specification on the side, and cross-side inputs are typed ports. Valuation refuses rather than regenerates; drafts are transient. Amended for the local trial: stock PostgreSQL retains native calculations as compact vector operations with exact grids and cell identities, rather than separate arithmetic records per interval; scalar dated operations share the contract. Physical layout follows measurement |
 
 ## Proposed implementation choices
 
@@ -299,6 +302,7 @@ through the evidence and acceptance criteria in the plan.
 | P40 | Deliver linear PPAs through audited interval series, shaped interval curves and reusable physical/financial sides | [PPA design](ppa-design.md): physical sides value commodity received or delivered at the location's effective-dated valuation curve; financial sides price the contractual payment; rows stay gross. `PpaInstrument` has open side memberships and a 1 MW contract-capacity unit; a virtual PPA has no physical side. Shaping calibrates stored additive or multiplicative shapes to a non-overlapping block partition. Pending actuals require an explicit fail or estimate policy; a virtual PPA may declare one net payment group of its own sides. Option-like terms are rejected. Phase C conventions and bounded consumers were subsequently accepted and implemented under D194–D201; the current catalog admits five explicit compositions, not arbitrary memberships. Net grouping and settlement remain proposals following P39 |
 | P41 | Refines D215 and D220: when settlement starts, a swap's Blotter row changes only `presentValue` (the remaining value), `mark` (none, and so no mark minus price), `settlement` and `lifecycle`. Its fixed price (the common one for a scheduled swap), delivery (floating dates for a single-period swap, the envelope for a scheduled one), market key, label and curves, side-2 quote multiplier, quantity, commodity and direction stay as the Projection row stated them | D220 keeps a position's booked facts whatever the close values; a lifecycle changes what values a position, not what was booked, and nulls would drop fixed-price statistics and move a single-period swap's delivery and market grouping when settlement starts. `--scheduled-swap-check` compares each swap's row before and after its first determination. Awaiting the owner's confirmation |
 | P42 | Move operational limits out of code into explicit, versioned configuration | [operational-limits.md](operational-limits.md): each limit keeps a fixed ceiling in code and the database, and its operating value moves to the agent version, installation settings (revisioned, under `ManageAgents` or `ManageAccess`) or hosted configuration, by owner. No value is filled in by code; a missing or out-of-range value is refused. Every operation records the revision or configuration digest it applied. Contract constants, calculation limits and pre-authorization guards stay fixed. Proposed 2026-10-27 after D251; awaiting the owner's review |
+| P43 | Evaluate D253 schedules by compiling rows once per calculation and reading node values under one resolved context | [side-plans.md](side-plans.md): answers D253's row-node question for D258's retained schedules. Rows are retained relationally but are not calculation-graph nodes; valuation compiles a loaded schedule into node, payment, term and row-map columns, reads price, quantity and discount node values under one resolved context that records each role's cutoff without changing D174, and sums by payment and live price node, with fixed prices, actuals and published fixings (D257) as constants. The schedule depends only on the side's parameters and revisions; time lives in the nodes and the partition. Scenarios recompute only the terms whose nodes are in the scenario graph's affected closure and report no per-node amount. No table beyond D258's and no cross-calculation cache. Accepted for the local implementation trial on 2026-10-28; revised after independent design review and recast under D253. Implementation qualification remains pending |
 
 ## Clarifications that must survive implementation
 
@@ -1058,24 +1062,210 @@ Blotter's.
   `missing_curve_view`). An interval two period blocks cover is an ambiguous
   definition, so it keeps `interval_block_partition` and is not one of them, nor is a
   shape or quantity series integrity error (`interval_shape_coverage`).
-- A refusal naming its trades lists those trades. Otherwise each trade of the read is
-  priced on its own, once, to find which are refused. Those are listed whole, as
+- A refusal naming its trades lists those trades. Price-source admission attributes
+  other supported market refusals to their declared coverage. Those are listed whole, as
   D246 lists other-version trades, with `unavailableReason` `unpriced_delivery`,
   shown as **Not valued** with "No price for part of its delivery at this close". The
   rest are then priced together as before, so their values are those of a read
   without the refused trades. Pricing a trade depends only on its own spans, so a
   trade refused alone is refused in any read that holds it.
-- Any other refusal, or one that appears only when trades are priced together, still
-  refuses the read. Nothing is priced from a default.
-- Valuation totals leave the listed trades out and count them in
+- The owner amendment of 2026-10-29 adds two retained-artifact refusals:
+  `side_schedule_missing` and `side_schedule_unsupported` (an unsupported retained
+  schema or generator). Every binding of an affected trade is listed with
+  `unavailableReason` `needs_rebooking`, shown as **Needs rebooking**, and distinct
+  exact `unavailableCodes`. Its monetary values remain null. No booked schedule
+  is regenerated or loaded through a compatibility path.
+- An affected group's complete valuation total remains null with
+  `valuationUnavailableReason` `needs_rebooking`, even when healthy positions in
+  that group have exact values. Healthy position values, unaffected groups and
+  booked counts remain available. Existing explicitly excluded market-coverage
+  subtotals retain their D246/D252 policy.
+- Any other refusal, including corrupt manifests/content, ambiguous geometry,
+  missing authority or cancellation, or a market refusal that appears only when
+  trades are priced together, still refuses the read. Nothing is priced from a default.
+- Existing other-version and market-coverage subtotals leave those trades out and count them in
   `unvaluedPositions`, as D246 does. Like an other-version trade, each listed trade is
   its own market, `ppa_instrument:<instrument id>`, with no curves, so a pivot by
   market does not group it with its curve. Whole-book consumers (close risk, portfolio
   risk runs and the PPA page's book valuation) keep refusing such a scope.
-- Finding the refused trades costs one preparation per trade of the read, only after a
-  refused read and within the request's deadline. Attributing the refusal to its
-  bindings in one preparation, as `missing_curve_view` already is, would remove that
-  cost and is left as follow-up work.
+- Report admission collects artifact refusals once per unique instrument and
+  attributes market refusals using price sources, before quantity history and the
+  valuation graph are prepared. Identical declared price windows share a probe
+  within the same pinned operation; native source reads may be reused only under
+  that exact curve, context and coverage. The remaining whole trades share one
+  quantity/valuation preparation and valuation pass. There is no retry which fully
+  prepares and prices every trade on its own.
+- These exclusions belong only to the Blotter report. Direct PPA valuation,
+  portfolio/close risk and their full-scope admission remain strict under D197.
+  Current authority is rechecked when immutable schedule content is reused;
+  report recovery from a missing artifact does not recover permission or integrity errors.
+
+## D253 — One side model: parameters, a whole-term schedule, rows read from the graph
+
+Status: decided by the owner (2026-10-28) as the target model; not implemented. This
+record states the contract the implementation must meet and the evidence that
+qualifies it. Until then the current side families below remain the implemented
+behaviour.
+
+### Why
+
+A PPA is a sided instrument like a swap, but today it is priced through a separate
+side family. `PpaFixedSide` and `PpaFloatingSide` restate what `FixedSide` and
+`FloatingSide` express, with their own price terms and an interval schedule that
+holds no rows. Swaps, for their part, keep one delivery period and one payment per
+`FixedSide` or `FloatingSide`, and express a multi-period swap as a side made of
+other sides (`MonthlySwapSide`, `ScheduledSwapSide`). Two row types,
+`SidePaymentPlan` and the PPA's prepared interval rows, describe the same thing.
+This keeps PPA booking apart from New trade and makes one side editor impossible.
+D84 already asks for small, behaviour-based side families; this record says what a
+side of each family is.
+
+### The model
+
+- **A Side is its parameters for the whole term of the trade.** It holds:
+  - delivery terms: the term's start and end, a granularity (month, day or
+    interval) and the clock or calendar that granularity is counted on;
+  - a quantity rule: a fixed quantity per period, an explicit quantity per period,
+    metered volume, a profile, or accredited capacity, each with its unit;
+  - a price term: fixed (flat, escalated or stepped) or index (curve, multiplier
+    and adder);
+  - for an index price, an observation rule: the monthly index, equal or weighted
+    daily fixings, or the curve's price for each delivery interval;
+  - a payment rule, as today's payment conventions express it.
+- **No side is made of other sides.** `MonthlySwapSide` and `ScheduledSwapSide`
+  are removed: a monthly swap is one side with monthly granularity, and an
+  explicitly scheduled swap is one side whose quantity rule lists a quantity per
+  period.
+- **The side families are the D84 families.** `FixedSide` and `FloatingSide` price
+  payments for swaps and PPAs alike. Physical delivery stays its own family
+  (`PowerPhysicalSide`, `CertificateDeliverySide`, `CapacityDeliverySide`), as a
+  delivery is not a payment; those sides follow the same parameters, schedule and
+  rows pattern. `PpaFixedSide`, `PpaFloatingSide` and the PPA-only price term
+  types are removed; escalated and stepped prices become price terms of
+  `FixedSide`, available to swaps too.
+- **`Side.GenerateSchedule()` builds the schedule for the whole term from the
+  side's parameters alone**, deterministically. A schedule is a list of
+  `ScheduleRow`s, one per delivery period or interval. A row holds:
+  - its delivery window, and for an index price its observation window;
+  - its payment date, from the payment rule;
+  - references to the graph nodes it reads: the price point or points it
+    observes, the source of its quantity when the quantity is data (metered or
+    profile), and the discount factor of its payment date.
+  A row holds no market value. `SidePaymentPlan` and the PPA's prepared rows are
+  replaced by `ScheduleRow`.
+- **Values are graph lookups.** A row's price, quantity, amount and PV are read
+  from the calculation graph (`GraphSession`) of one market scenario. A shock is
+  applied to the graph, never to a row, a side or a trade; the session recomputes
+  only the nodes downstream of it, and each row re-reads its nodes. The schedule
+  shown for a scenario is therefore the schedule evaluated under that scenario,
+  and its rows change exactly where the shocked inputs reach.
+- **PV.** `Side.PV(context)` evaluates its rows under the context's scenario and
+  sums them: price × quantity, discounted to the row's payment date.
+  `Instrument.PV` sums coefficient × `Side.PV` over its memberships, and the trade
+  scales by its booked quantity once, as §3.2 already requires. The multiplication
+  belongs to the side, which owns the price term and quantity rule; the schedule is
+  the shared description of the term that settlement, dependency declaration, the
+  Blotter's detail rows and risk all read, so they never disagree about the rows.
+- **Risk** stays base, up and down PVs of the same instruments under shared
+  scenarios. A side declares its dependencies from its rows' graph references, so
+  a scenario that touches none of them reuses the side's value.
+
+### Every sided instrument, and every schedule shown
+
+Amended by the owner (2026-10-28).
+
+- **Every sided instrument follows this pattern.** Every instrument that is a
+  `SidedInstrument` (forwards, financial swaps, monthly and scheduled swaps,
+  cross-commodity swaps such as heat rates, and PPAs) is made of sides that each
+  generate their schedule; none keeps a pricing path of its own. A futures
+  contract stays a leaf instrument with no sides, as D110 decides.
+- **A sided position shows the schedule of each of its sides.** The position's detail
+  lists its instrument's sides, and each side's schedule as rows evaluated under
+  the selected close or scenario: the delivery window, the observed price, the
+  quantity, the amount, the discount factor and the PV. Each side's rows sum to
+  its side PV, and the sides with their coefficients sum to the instrument's PV
+  as the Blotter reports it. It reads the same schedule the valuation reads, from
+  the backend; the page does no pricing. How a long schedule (a PPA's tens of
+  thousands of intervals) is shown, for example by month with a month's rows on
+  request, is open with the row-node question above.
+- **The detail opens under the position's row.** Choosing any position, a future's
+  included, expands its
+  detail beneath that row in the Blotter, in place of the docked side panel's
+  Position mode. New trade, Risk report and the assistant keep the side panel.
+
+Amended by the owner (2026-10-29): the inline control says **Close position
+view**. Double-clicking an individual trade row opens a separate, read-only
+window for its Terms, History and schedules. That window retains the selected
+snapshot, resolved knowledge context, trade binding and revision; every backend
+read still checks current authority. It does not advance the parent workspace's
+context or expose booking, amendment or settlement actions. A missing context or
+denied read clears the detail rather than substituting current data.
+
+### Bounds and choices still open
+
+- Whether each row is itself a graph node (its amount depending on its price,
+  quantity and discount nodes), or the side reads node values and sums. Row nodes
+  give drill-down and recomputation directly from the session; a PPA has tens of
+  thousands of interval rows, so this needs a bound on graph size or month-level
+  row aggregation, and a benchmark that names rows, nodes, scenarios and memory.
+- How existing trades move to the new definitions. The economic identities of the
+  sides change, so stored swaps and PPAs are rebooked under new definition versions
+  (no migration shims, per the repository's no-backwards-compatibility rule). On the
+  hosted pilot this is a reseed.
+- Futures are unchanged: `FuturesContract` stays a leaf instrument (D110), and
+  `ForwardContract` composes the new sides.
+
+### Qualification
+
+- Every current swap and PPA valuation check gives the same exact PV under the new
+  model, row by row where rows are comparable, before any old type is removed.
+- Schedule generation is checked from parameters alone, independently of
+  valuation; valuation is checked row by row.
+- A shock check shows that only the rows reading the shocked nodes change, and
+  that the side and instrument totals change by the sum of those rows.
+- Each sided position's detail shows every side's rows, whose amounts sum to the side
+  PV and, with the coefficients, to the PV the Blotter reports.
+- Independent adversarial review, as the change touches numerical correctness and
+  scenario reuse.
+
+### What follows
+
+New trade offers a PPA as a third product, with one side editor for swaps and PPAs
+(D251's follow-up), and amend and terminate move into the PPA's detail under its
+row. That work
+starts after this model is implemented and qualified.
+
+### Rows and roots
+
+Amended by the owner (2026-10-28, D258). A schedule's rows are D258's logical rows:
+observations, applications, averages, quantity steps, amounts and discount and
+valuation steps, joined by edges, rather than one row per period. Each delivery
+period or interval has one contribution. `Side.PV` sums the side's PV contributions
+and roots only, and the Blotter's detail shows contribution rows, whose amounts sum
+to the side PV. The schedule is retained when the side is booked and loaded for
+valuation.
+
+### Cutover without legacy paths
+
+Amended by the owner (2026-10-28). Implement the new whole-term side and retained
+schedule contracts directly. Remove compatibility wrappers, dual-format readers,
+old-definition fallbacks and legacy booking routes. Existing definitions are
+explicitly rebooked or retired; missing financial terms are not invented to keep
+an obsolete definition executable. Private one-time rebooking tools are not part
+of the application or public repository. Historical migrations remain the
+immutable schema record.
+
+An archive-and-rebook release preserves the original database and records a
+certified trading-history boundary in the replacement database. The boundary
+references an exact knowledge context containing the complete rebooked trading
+publication prefix. Earlier trading knowledge, or an incomplete prefix at the
+same knowledge time, refuses as `trading_history_archived`; it must not present
+only surviving product families as a complete historical book. This applies to
+individual trades and explicit PPA scopes as well as the Blotter and risk.
+Market and reference history remain available at their original cutoffs. Only
+the schema-release operator can record the immutable boundary; an identical
+operation is a no-op, and a conflicting boundary refuses. Archived display
+reference numbers remain reserved when obsolete active records are removed.
 
 ## D256 — A turn's pinned As of frame may hold up to 256 KiB
 
@@ -1091,3 +1281,291 @@ Migration 0122 makes that the reviewed definition: 0072's, with the bound raised
 database at 0121 and to the pilot after its hotfix. A frame's pins between 64 KiB and
 256 KiB are now kept as given; larger ones are still refused `turn_input`. The bound
 stays a fixed value in the function.
+
+
+## D257 — Settlement selection and the price node
+
+Status: decided by the owner (2026-10-28). Local implementation and qualification
+are in progress. Refines D165 and D253,
+and supersedes D165's retention of projection-only legacy sides, since sides are
+rebooked under D253.
+
+### Why
+
+Every curve declares a settlement target (`market_data.curves.settlement_target_code`),
+and fixings are stored per index and observation period
+(`market_data.index_fixing_observations`). PPA period curves already return a
+contract's published fixing from the curve lookup once it is due. Swaps do not: a
+floating side stores its own index, which booking and valuation require to equal the
+curve's (`SwapStore.ResolveFloating`, `CurveModel.RequireIndexProjection`), holds the
+fixing schedule itself (`FloatingSide.Fixings`) and passes one `IndexFixing` to each
+lookup, and decides between projection and fixing in `SideValuationContext.Resolve`
+with a subset of the checks in `IndexFixingPricing.Resolve`. The same decision is
+made in two places, and a side cannot settle against a different index from its
+curve.
+
+### Scope
+
+This decision covers observations of date-only period contracts: swap observations
+(monthly or daily) and period-curve observations of PPA sides. Interval-curve
+observations (marked or shaped) are unchanged: their nodes return collected
+actuals, marks, frozen anchors or estimates under D174 and their actual rules, and
+they take no settlement selection.
+
+### The decision
+
+- **Settlement selection.** Each `FloatingSide` index price term (D253) observing
+  period contracts states one of:
+  - `curve_target`: the curve's declared settlement target, which must be a single
+    index;
+  - `override`: a named price index from the pinned reference revision, different
+    from the curve's target.
+
+  There is no default. A target of kind `index_difference` or `future_series` is
+  refused. The selection, and for an override `forward_curve_no_basis_v1`, are
+  identity fields of the side's economic definition.
+- **The price node.** A row's price reference is the curve, the contract and the
+  settlement selection. Its node is a derived selector downstream of the curve's
+  mark points, never a shock coordinate. For the selected index's observation
+  period it returns:
+  - before the fixing instant: the side's bound projection, which is the curve's
+    forward mark or the bound custom projection output;
+  - at or after the fixing instant: that index's published final fixing, selected
+    under the context's market cutoff. It is a constant: its node depends only on
+    the fixing observation, contributes cash and carries no quote risk;
+  - between the contract's expiry and the fixing instant: no value, refused with
+    `source_expired` at valuation and `swap_projection` at booking, under every
+    pending-actuals policy, as today. The last mark is never used;
+  - for a due fixing that is not selected: a structured error.
+
+  Node dependencies are built per resolved context: a live node depends on its
+  projection, a due one only on its fixing observation, so an expired mark is never
+  requested.
+- **Fixing schedules.** For `curve_target`, today's rule is kept: a period with no
+  fixing row is priced from its projection until expiry and refused after it. For
+  `override`, the override index must have a fixing observation for every observed
+  period, with the side's quote, unit and currency and a series the model can pin;
+  otherwise the side is refused when booked and the valuation fails. For daily
+  observations the curve must also have one contract per observation day. The
+  schedule's identity comes from the side's pinned definition and reference
+  revisions; a later revision does not change a booked side's valuation without a
+  rebooking.
+- **Override projection.** An override projects its unfixed observations from the
+  curve's forward marks, as the recorded choice `forward_curve_no_basis_v1`. The
+  side records both the curve's target and the override index. Any difference
+  between the two indexes is not modelled; its exposure is to the curve's marks.
+  Valuation receipts and risk lineage carry the choice, and the Risk report labels
+  the exposure as curve risk with an unmodelled basis to the override index. An
+  override with a custom projection is refused until it is decided separately.
+  Another projection, such as a curve that settles to the override index or a
+  declared basis input, needs its own decision.
+- **The spread.** Today's swap spread, added to the fixing or the projection inside
+  the side, becomes the price term's adder (D253); the node returns the raw index
+  price.
+- **One node.** Swaps and period curves use the same price node and
+  `IndexFixingPricing`'s eligibility. The side's own projection-or-fixing decision
+  is removed.
+
+### Qualification
+
+- For the synthetic swaps and PPA period-curve sides settling to their curve's
+  target, PV, cash and risk equal today's at valuation instants before, at and after
+  each fixing instant; between expiry and the fixing instant both refuse as today.
+  Swaps that the full `IndexFixingPricing` checks newly refuse are listed. Booking
+  evidence selects fixings observed at or before valuation and valuation at or before
+  the market cutoff; which rule both share is open and decided before step 1 of its
+  plan.
+- An override side settles to the override index's fixings, projects from the
+  curve's marks before them, records `forward_curve_no_basis_v1` in its definition,
+  receipts and risk lineage, and is refused when the override index lacks a
+  matching fixing schedule, equals the curve's target, or carries a custom
+  projection.
+- A settled observation's node is unchanged by every scenario shift, and a shift
+  that targets a price node is refused.
+- Independent adversarial review, as the change touches temporal and numerical
+  behaviour.
+
+## D258 — Persist each booked side's complete schedule
+
+Status: decided by the owner (2026-10-28). Local implementation and qualification
+are in progress. Refines D253, whose
+rows become this record's logical rows, and D195, whose normalization moves to the
+side. The schedule `Side.GenerateSchedule()` builds is retained in PostgreSQL when
+the side is booked, and valuation loads it rather than regenerating it.
+
+Amended for the local implementation trial on 2026-10-28: retain native-interval
+calculations as compact, versioned vector operations grouped by payment period,
+with exact grids and typed columns. A logical calculation is retained without a
+separate SQL record for each cell's arithmetic. PostgreSQL remains stock; no
+columnar storage extension is introduced. The [payment-block
+experiment](side-block-experiment.md) supplies bounded arithmetic and storage
+evidence; application integration and its release qualification remain in progress.
+The cutover rebooks definitions and introduces no backward-compatibility loader.
+The 2026-10-29 D252 reporting amendment permits the Blotter to list a trade
+whose retained artifact is missing or unsupported as needing rebooking. Direct
+valuation remains refused, corrupt content remains a hard error, and the report
+never repairs or regenerates the stored artifact.
+
+### Why
+
+D253's schedule is the shared description of a side's term that valuation,
+settlement, dependency declaration, the Blotter's detail rows and risk all read.
+Regenerating it from current code at each valuation cannot reproduce a historical
+result exactly (context §7), and settlement needs obligations whose identity
+survives an amendment of later periods. A retained schedule serves both.
+
+### The decision
+
+- **Everything logical is retained.** A schedule holds every logical row of the
+  side's pricing: observations, observation applications to their target periods,
+  averages and weights, quantity calculations and normalization, amounts, discount
+  and valuation steps. Rows have explicit roles (source, intermediate,
+  contribution, root), and named roots identify the cashflows, quantities, PV and
+  other supported measures. `Side.PV` and the Blotter's detail read only the roots
+  and contribution rows their valuation contract selects, never every row, so an
+  intermediate is never summed with a result.
+  Native operations act on aligned columns: a monthly quantity input,
+  normalization, price application or sum is one versioned operation over its
+  grid and explicit selection. Scalar dated operations use the same typed
+  contract. Full observation, normalization and shaping scopes remain explicit;
+  selecting part of a payment cannot redefine those scopes.
+- **Definitions, not values.** A row states how its value is obtained: a
+  contractual literal, an exact contract, a typed binding or a versioned backend
+  operation with explicit arguments. A fixed price is a row bound to its literal; a
+  settled observation is a row bound to its fixing definition, whose value the price
+  node resolves under each context (D257). Prices, quantities, discount factors and
+  PVs evaluated under a context or scenario are valuation results, retained with
+  their receipts where a consumer needs them, never written into the schedule. Rows
+  stay in the schedule after their periods pass.
+- **Tables.** One common structure for every side family:
+
+  | Table | Contents |
+  | --- | --- |
+  | `trading.side_schedules` | The exact side foreign key, generator/schema versions, content counts and canonical manifest; the parent `trading.sides` holds the exact definition/reference revision foreign keys |
+  | `trading.side_schedule_rows` | Every scalar or vector operation: stable local identity, role, operation and version, output type with its exact unit or currency, delivery, observation and value dates, closed parameters, and its exact grid where applicable |
+  | `trading.side_schedule_edges` | Ordered, named inputs between rows; a repeated use of one observation is several edges |
+  | `trading.side_schedule_grids` | Exact UTC geometry and selections, a typed clock foreign key, and packed local date/time/occurrence metadata; contractual literals live in closed operation parameters, and dynamic samples remain context inputs |
+  | `trading.side_schedule_bindings` | Typed exact-version references from operations to supported contracts/curve members, computed outputs, fixing definitions/series, quantity sources, assets and declared sibling inputs |
+  | `trading.side_schedule_roots` | Named output operations and their valuation measures |
+
+  Operation rows carry their unit/currency foreign keys. Separate typed port,
+  output-set and composition tables bind cross-side quantities. Calendar
+  provenance remains in the exact immutable side terms. Payment discount inputs
+  resolve under the selected valuation context and retain rate construction in
+  the receipt; the retained binding table does not claim a rate-curve foreign key.
+
+  The immutable content tables carry `catalog_id` and inherit publication and
+  effective coordinates from their append-only publication header. Their restrictive
+  `temporal_read` policy follows that header; unpublished staged content is invisible.
+  Final publication appends the small header and instrument mappings, without
+  stamping or copying the child rows. This refines the original per-child metadata
+  layout for the authorized local implementation trial. Physical layout (partitioning, index choice,
+  compact interval storage) is chosen from measurements at the largest supported
+  workload, without changing the logical contract or these policies.
+- **Parameters are typed.** Core relationships use exact-version foreign keys;
+  edges reference their endpoints. A row's parameters are a closed key set per
+  operation version, with exact numbers as canonical reduced rational numerator/denominator strings
+  (positive denominator), or exact decimal strings where a source contract requires
+  representability. The database validates the key set and literal types. Any
+  reference goes through a binding table, never a name in the parameters. No
+  embedded graph, executable script or evaluated value is stored.
+- **Reads.** Valuation finds a schedule only through the trade revision and its
+  binding visible at the context's knowledge cutoff, never as the latest schedule
+  of a side. Within retained trading-history coverage, a cutoff before a booking
+  or rebooking sees the earlier schedule or none. A cutoff outside an explicit
+  archive-and-rebook boundary refuses as `trading_history_archived`. Schedule
+  rows are read only through an authorized trade or position read,
+  so the Blotter detail, valuation and agents use the same operations, and loading
+  re-checks current authority.
+- **Reuse.** An identical retained schedule is reused within one catalog after full
+  canonical comparison, not a hash alone; changed terms create a new immutable
+  definition. Sharing a schedule shares no settlement state: settlement is held per
+  trade binding and membership.
+- **Occurrence identity.** Only obligation rows (roots and contributions) carry an
+  occurrence key. It is built from the obligation's own contractual coordinates
+  (its role, payment rule and value date, and its delivery window or interval on its
+  grid), never from the side's identity, together with a digest of that
+  obligation's own terms. An amendment of later periods creates a new side and
+  schedule; an unchanged earlier obligation has the same key and digest, so its
+  settlement continues. An amendment of an earlier obligation changes its digest,
+  and the lifecycle decides how that obligation's settlement proceeds.
+  A vector contribution exposes the same identity separately for every obligation
+  cell. Neither a block ordinal nor its complete manifest enters the cell's own
+  key or terms digest, so a later-period amendment cannot change an unchanged
+  earlier obligation.
+- **Side completeness.** A side's parameters hold every economic input its schedule
+  needs. Normalization assets and basis (D195), held on the PPA instrument today,
+  become a shared immutable normalization specification that each side references;
+  the sides of one instrument must reference the same specification, so the
+  instrument still divides once by one denominator. A row that consumes another
+  side's output declares a typed input port (quantity type, unit and structural
+  schedule); the instrument binds the port to an exact membership and output root by
+  foreign key. No binding or cadence is inferred from a slot name, and the
+  instrument's combined graph is checked for missing bindings, incompatible geometry
+  and cycles.
+- **Dates per lookup.** Each binding declares which date selects its terms: a
+  service date, an observation window or a payment date. No one date predicate is
+  applied to every table.
+- **Booking.** The managed backend generates the schedule from the side's terms;
+  booking never accepts rows from a client, and request bodies stay within their
+  existing limits. Booking authorizes, generates in bounded batches, validates,
+  publishes the schedule with the trade binding and returns an idempotent receipt
+  (D238). A schedule larger than one short transaction is written first as unpublished
+  staged rows keyed by the request id, invisible to every read. One short fenced
+  transaction then validates and publishes the staged schedule with the binding. The stage and immutable seal bind the current actor, catalog, exact command,
+  expected head, compiler versions and complete content manifest. Changed chunks
+  conflict. Final publication rechecks current authority and expected versions in
+  the same transaction as the trade binding and idempotent receipt. A retry with
+  the same request id resumes the exact stage or returns the first outcome;
+  abandoned unpublished stages remain outside historical business reads. No booking commits without its
+  schedule, and nothing raises the command deadline. The earlier expanded-format
+  701,280-interval write exceeded the 5 s command timeout (D173); that historical
+  result does not measure the compact layout.
+- **Validation.** The database checks foreign keys, ownership, allowed operation
+  and schema versions, parameter key sets and literal types, required ports and
+  roots, edge endpoints and ordering, uniqueness, publication and authorization. The
+  managed compiler checks that the rows faithfully express the side's terms;
+  independent behavioural checks qualify it. The manifest digest, computed by the
+  backend, proves integrity, not fidelity.
+- **Loading.** Valuation loads a booked side's rows, edges and bindings for its
+  dependency closure in batches. A missing row or binding, an unsupported version or
+  an inconsistent manifest is a structured refusal; a booked schedule is never
+  regenerated from current code or reference data at valuation. Drafts use the same
+  generator and evaluator on a transient schedule and persist nothing.
+- **Retention.** Retained rows are never updated or deleted while any trade
+  revision, receipt or settlement references them. Rebooking adds a schedule and
+  never replaces one. The current swap schedule tables
+  (`swap_observation_schedules`, `swap_scheduled_periods`,
+  `swap_power_quantity_intervals` and related rows) are superseded by rebooking under
+  D253's definitions, with no compatibility path.
+- **Execution.** PostgreSQL stores; the managed backend evaluates. Loaded rows
+  compile into compact execution columns with a row map from each stored row to the
+  execution terms it contributes to, so lineage reaches every stored row (P43).
+  Loading does not reconstruct the superseded scalar-operation DAG. Bounded
+  interval detail is a view over the retained vector operations and exact cells.
+  Grid alignment, units and source dependencies are reusable column contracts;
+  each financial or physical operation retains its own supported version and
+  semantics. This does not authorize a generic scripting or matrix-expression
+  language.
+
+### Qualification
+
+- Today's valuation checks for every supported swap and PPA give the same exact
+  values under loaded schedules, and a loaded schedule evaluates identically to
+  the freshly generated one it was booked from.
+- Intermediate applications, weights and averages are checked independently;
+  every root reconciles to its measure, and summing all rows is never a result.
+- An amendment of later periods keeps earlier occurrence keys and digests; two
+  trades sharing a schedule keep separate settlement state.
+- Booking is atomic and idempotent: a retry or an identical definition adds no row,
+  staged rows are invisible, and cancellation publishes no partial schedule.
+- Within retained trading-history coverage, a historical read before a booking
+  sees no schedule; a read before a rebooking sees the earlier one. An archived
+  cutoff refuses rather than returning an incomplete historical book.
+- A missing or inconsistent retained structure refuses rather than regenerates;
+  unauthorized references and withdrawn grants refuse.
+- Storage measured at the largest supported workload: logical rows and edges,
+  table and index size, staging and publication duration, cold load, compilation,
+  and base and scenario evaluation.
+- Independent adversarial review, as the change touches persistence,
+  authorization, temporal behaviour and numerical correctness.

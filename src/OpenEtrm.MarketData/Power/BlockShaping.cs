@@ -105,8 +105,10 @@ public static class BlockShaping
     // The span a shape read must cover: the whole delivery period of every block constituent the window overlaps.
     public static (DateTimeOffset From,DateTimeOffset To) ShapeWindow(ShapedCurveDefinition definition,DateTimeOffset from,DateTimeOffset to)
     {
+        Validate(definition);
         var periods=Overlapping(definition,from,to).Select(b=>Period(definition,b.Contract)).ToArray();
-        return periods.Length==0?throw Unpartitioned():(periods.Min(p=>p.From),periods.Max(p=>p.To));
+        if(periods.Length==0)throw new MarketDataException("interval_block_coverage","No period block of the curve covers the requested window.");
+        return (periods.Min(p=>p.From),periods.Max(p=>p.To));
     }
 
     // Every interval in [from, to) must belong to exactly one block, and every interval of a block the window

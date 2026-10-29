@@ -49,7 +49,8 @@ def prepare(reference, market, manifest):
     for at in ['2021-01-31T12:00:00Z','2021-02-01T08:00:00Z','2021-04-15T00:00:00Z']:
         frame(at,'2021-01-31T08:00:00Z',add=[FEBRUARY_GAS])
     frame('2021-02-01T09:00:00Z','2021-01-31T08:00:00Z',[JANUARY_GAS],[FEBRUARY_GAS])
-    return reference,market,manifest
+    from check_swap_settlement_selection import prepare_primary
+    return reference,prepare_primary(market,manifest),manifest
 
 
 def written(query):
@@ -72,7 +73,7 @@ def draft(frame, index, curve, strike, period=JANUARY, quantity='100'):
             'quantity':{'value':quantity,'specification':index['quantityChoices'][0]['specification']},
             'fixedCoefficient':'-1','discounting':False,
             'fixed':{'price':strike,'currency':index['currencyCode'],'deliveryFrom':period[0],'deliveryTo':period[1],'paymentSchedule':RULE},
-            'floating':{'curve':curve,'index':index['index'],'currency':index['currencyCode'],
+            'floating':{'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':curve,'index':index['index'],'currency':index['currencyCode'],
                         'deliveryFrom':period[0],'deliveryTo':period[1],'paymentSchedule':RULE,
                         'resetFrequency':'daily' if daily else 'monthly','averagingMethod':'arithmetic' if daily else 'none'}}
 
@@ -102,11 +103,14 @@ def reject(sql, message):
 
 def writer(at, pins):
     """The authorized booking function called directly for the January monthly gas swap."""
-    rule=json.dumps(RULE);pinned=','.join(f"'{p}'" for p in pins)
-    return (f"SELECT security.save_indexed_swap_with_parties('{CAT}','{uuid4()}',NULL,NULL,'{BOOK}','{REV}','{RCAT}','{RREV}',"
-            f"'base_forward','test_price','usd','usd','2021-01-01','2021-02-01','2021-03-18T00:00:00Z','2021-01-01','2021-02-01',"
-            f"'2021-03-18T00:00:00Z','monthly_index_price',3,100,-1,false,'{at}Z',NULL,'{at}Z','Initial booking','{CONVENTION}',"
-            f"'{rule}'::jsonb,'{rule}'::jsonb,'test_gas',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb,ARRAY[{pinned}]::uuid[])::text;")
+    fixed={'price':'3','currency':'usd','deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':RULE}
+    floating={'curve':'base_forward','index':'test_price','currency':'usd','deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01',
+              'paymentSchedule':RULE,'resetFrequency':'monthly','averagingMethod':'none','spread':'0',
+              'settlement':{'mode':'curve_target','index':None,'projectionPolicy':None}}
+    pinned=','.join(f"'{p}'" for p in pins)
+    return (f"SELECT security.save_composed_swap('{CAT}','{uuid4()}',NULL,NULL,'{BOOK}','{REV}','{RCAT}','{RREV}',"
+            f"'test_gas','{json.dumps(fixed)}'::jsonb,NULL,'{json.dumps(floating)}'::jsonb,100,-1,false,'{at}Z','{at}Z',"
+            f"'Initial booking','{CONVENTION}',NULL,'{json.dumps(trade_booking())}'::jsonb,ARRAY[{pinned}]::uuid[])::text;")
 
 
 def run_checks(url, query, manifest):
@@ -114,6 +118,8 @@ def run_checks(url, query, manifest):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
     workspace=c.call('workspace')
     frames={f['at'][:19]:f for f in workspace['frames'] if f['id'] in set(workspace['initialFrameIds'])}
+    from check_swap_settlement_selection import run_checks as check_selection
+    check_selection(c,query,manifest,frames)
     before=written(query)
 
     for day,actual_count in [('01',1),('15',15),('31',31)]:
@@ -129,7 +135,7 @@ def run_checks(url, query, manifest):
         assert risk['factors']==[] and risk['scenarioCount']==1
         for curve,strike,pv_per_actual,base_pv in [('daily_gas','3',1,16),('daily_power','40',10,160)]:
             body=draft(frame,swap_index(c,frame,curve)[0],curve,strike)
-            choices=c.call('swaps/observation-options',{'context':body['context'],'definitionRevisionId':body['definitionRevisionId'],
+            choices=c.call('swaps/observation-options',{'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'context':body['context'],'definitionRevisionId':body['definitionRevisionId'],
                 'commodity':body['commodity'],'curve':body['floating']['curve'],'index':body['floating']['index'],
                 'resetFrequency':body['floating']['resetFrequency'],'averagingMethod':body['floating']['averagingMethod']})
             assert any(period['deliveryFrom']=='2021-01-01' for period in choices['deliveryPeriods']), 'An actual-backed month lost its available dates when native projections expired.'
@@ -316,7 +322,9 @@ def run_correction_checks(query, manifest, c, frames):
     # stored trade values at each snapshot from that snapshot's own pins.
     placed=booking({**terms['daily'],'context':{**terms['daily']['context'],'snapshotId':daily['frame']['id']}},book)
     trade=c.call('swaps/book',placed)['tradeId']
-    inputs=json.loads(query(f"SELECT (request->'fixingInputs')::text FROM trading.swap_trade_revisions WHERE operation_id='{placed['operationId']}';"))
+    (side,)=json.loads(query(f"SELECT (request->'sideFixings')::text FROM trading.swap_trade_revisions WHERE operation_id='{placed['operationId']}';"))
+    assert side['slot']==1
+    inputs=side['evidence']['inputs']
     assert len(inputs)==15 and daily['observationId'] in inputs and DAILY_DAY_1 not in inputs,inputs
     for frame,pv in [(daily['frame'],32),(seed,31)]:
         editor=c.call('swaps/editor',{'context':{**terms['daily']['context'],'snapshotId':frame['id']},'tradeId':trade,'revision':None})

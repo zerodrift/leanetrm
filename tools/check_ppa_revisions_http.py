@@ -41,7 +41,7 @@ def run_checks(url,query,manifest,fixture):
     swaps=client.call('swaps/catalog',swap_context)
     index=next(i for i in swaps['indices'] if i['curve']=='base_forward' and i['definitionRevisionId']==manifest['revisionId'])
     payment={'frequency':'monthly','rule':'days_after_period_end','days':18,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
-    floating={'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment,'resetFrequency':'monthly','averagingMethod':'none','spread':'0'}
+    floating={'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment,'resetFrequency':'monthly','averagingMethod':'none','spread':'0'}
     collision=client.call('swaps/book',{**swap_context,**trade_booking(),'operationId':amended['operationId'],'bookId':books[0],
         'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'quantity':'10','firstCoefficient':'-1','swapType':'financial_floating_floating','firstFloating':floating,'floating':floating,'discounting':False},expected=409)
     check('composed swap refuses an operation ID retained by a PPA amendment',collision['code']=='swap_conflict')

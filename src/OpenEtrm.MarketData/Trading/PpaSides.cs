@@ -3,42 +3,23 @@ using OpenEtrm.MarketData.Power;
 
 namespace OpenEtrm.MarketData.Trading;
 
-public abstract record PpaSide : Side
+public abstract record IntervalPhysicalSide : Side
 {
-    [IdentityField]public PpaSideTerms Terms { get; }
-    protected PpaSide(Guid id,PpaSideTerms terms):base(id)
+    [IdentityField]public override PpaSideTerms Terms { get; }
+    protected IntervalPhysicalSide(Guid id,PpaSideTerms terms):base(id)
     {Terms=terms??throw PpaErrors.Error("ppa_side","side","Explicit side terms are required.");}
     public override ImmutableArray<CurveRequest> Dependencies=>throw PpaErrors.Error("ppa_context","dependencies","Prepare the exact interval inputs before declaring dependencies.");
     public override IntervalSideSchedule GenerateSchedule()=>new(this);
-    public override IntervalSideValuation PV(SideValuationContext context)=>context.Interval is {} interval?
-        interval.Session.Evaluate(this,interval.Instrument,interval.Coverage,context):throw PpaErrors.Error("ppa_context","side","Use this instrument's prepared interval scope.");
+    public override IntervalSideValuation PV(SideValuationContext context)=>GenerateSchedule().Evaluate(context);
 }
-[EconomicDefinition("power_physical_side_v1")]
-public sealed record PowerPhysicalSide:PpaSide
+[EconomicDefinition("power_physical_side_v2")]
+public sealed record PowerPhysicalSide:IntervalPhysicalSide
 {
     [IdentityField]public ReferenceKey Location { get; }
     public PowerPhysicalSide(Guid id,PpaSideTerms terms,ReferenceKey location):base(id,terms){Money.RequireKey(location);Location=location;}
 }
-[EconomicDefinition("ppa_fixed_side_v1")]
-public sealed record PpaFixedSide:PpaSide
-{
-    [IdentityField]public FixedPriceTerm Price { get; }
-    public PpaFixedSide(Guid id,PpaSideTerms terms,FixedPriceTerm price):base(id,terms)
-    {Price=price??throw PpaErrors.Error("ppa_price_rule","fixed_price","Select an explicit price term.");}
-}
-[EconomicDefinition("ppa_floating_side_v1")]
-public sealed record PpaFloatingSide:PpaSide
-{
-    [IdentityField]public IndexPrice Price { get; }
-    public PpaFloatingSide(Guid id,PpaSideTerms terms,IndexPrice price):base(id,terms)
-    {
-        if(price is null || price.Multiplier.CompareTo(default)<=0 || price.Adder is null || string.IsNullOrWhiteSpace(price.Curve.Code))
-            throw PpaErrors.Error("ppa_price_rule","index","Select an exact curve, positive multiplier and compatible explicit adder.");
-        Price=price;
-    }
-}
-[EconomicDefinition("ppa_certificate_delivery_v1")]
-public sealed record CertificateDeliverySide:PpaSide
+[EconomicDefinition("ppa_certificate_delivery_v2")]
+public sealed record CertificateDeliverySide:IntervalPhysicalSide
 {
     [IdentityField]public ReferenceKey CertificateQuantity { get; }
     [IdentityField]public ExactDecimal Conversion { get; }
@@ -52,8 +33,8 @@ public sealed record CertificateDeliverySide:PpaSide
         Money.RequireKey(certificateQuantity);CertificateQuantity=certificateQuantity;Conversion=conversion;Eligibility=eligibility;Holding=holding;Disposition=disposition;
     }
 }
-[EconomicDefinition("ppa_capacity_delivery_v1")]
-public sealed record CapacityDeliverySide:PpaSide
+[EconomicDefinition("ppa_capacity_delivery_v2")]
+public sealed record CapacityDeliverySide:IntervalPhysicalSide
 {
     [IdentityField]public ReferenceKey CapacityQuantity { get; }
     [IdentityField]public string Rule { get; }
@@ -66,15 +47,56 @@ public sealed record CapacityDeliverySide:PpaSide
 
 public sealed record IntervalSideSchedule:PpaSchedule
 {
-    public PpaSide Side { get; }
-    internal IntervalSideSchedule(PpaSide side):base(side.Id,side.Terms.Currency,side.Terms.UnitQuantity){Side=side;}
+    public Side Side { get; }
+    public ImmutableArray<IntervalScheduleMonth> Months { get; }
+    public override IReadOnlyList<ScheduleRow> Rows { get; }
+    public override IntervalSideValuation Evaluate(SideValuationContext context)=>context.Interval is {} interval?
+        interval.Session.Evaluate(Side,interval.Instrument,interval.Coverage,context):throw PpaErrors.Error("ppa_context","side","Use this instrument's prepared interval scope.");
+    internal IntervalSideSchedule(Side side):base(side.Id,side.Terms.Currency,side.Terms.UnitQuantity)
+    {
+        if(side.Terms.Schedule is null||side.Terms.Schedule.Delivery!=side.Terms.Delivery)
+            throw PpaErrors.Error("side_schedule_parameters","schedule","The side must retain its exact whole-term schedule parameters.");
+        Side=side;Months=side.RetainedPlan is {} retained?retained.Months():side.Terms.Schedule.Generate(side.Id,side.Terms.Currency,side.Terms.DateRule);
+        IntervalSchedulePrice price=side switch
+        {
+            FixedSide fixedSide=>new FixedIntervalSchedulePrice(fixedSide.Price),
+            FloatingSide floating=>new IndexedIntervalSchedulePrice(floating.Price),
+            PowerPhysicalSide physical=>new LocationIntervalSchedulePrice(ValuedAttribute.Energy,physical.Location),
+            CertificateDeliverySide=>new LocationIntervalSchedulePrice(ValuedAttribute.Certificate,null),
+            CapacityDeliverySide=>new LocationIntervalSchedulePrice(ValuedAttribute.Capacity,null),
+            _=>throw PpaErrors.Error("ppa_side","schedule","The side has no declared schedule price reference.")
+        };
+        Rows=new IntervalRows(side,Months,price);
+    }
+    private sealed class IntervalRows(Side side,ImmutableArray<IntervalScheduleMonth> months,IntervalSchedulePrice price):IReadOnlyList<ScheduleRow>
+    {
+        private readonly ImmutableArray<IntervalRowBlock> blocks=[..months.Select(month=>new IntervalRowBlock(RetainedSideSchedules.Terms(side),month,price,side.RetainedPlan))];
+        public int Count { get; }=months.Sum(m=>m.Intervals.Length);
+        public ScheduleRow this[int index]
+        {
+            get
+            {
+                if((uint)index>=(uint)Count)throw new ArgumentOutOfRangeException(nameof(index));
+                var low=0;var high=months.Length-1;
+                while(low<high){var middle=low+(high-low+1)/2;if(months[middle].FirstRowOrdinal<=index)low=middle;else high=middle-1;}
+                return new(blocks[low],index-months[low].FirstRowOrdinal);
+            }
+        }
+        public IEnumerator<ScheduleRow> GetEnumerator()
+        {
+            foreach(var block in blocks)
+                for(var n=0;n<block.Month.Intervals.Length;n++)yield return new(block,n);
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()=>GetEnumerator();
+    }
 }
 public abstract record PpaSchedule:SideSchedule
 {
     protected PpaSchedule(Guid id,ReferenceKey currency,Quantity unit):base(id,currency,unit,"interval_side_schedule_v1"){}
     public override ImmutableArray<CurveRequest> Dependencies=>throw PpaErrors.Error("ppa_context","dependencies","Dependencies require prepared delivery coverage.");
 }
-internal sealed record IntervalSideContext(IntervalValuationSession Session,PpaInstrument Instrument,DeliveryCoverage Coverage);
+internal sealed record IntervalSideContext(IntervalValuationSession Session,PpaInstrument Instrument,DeliveryCoverage Coverage,
+    PpaScheduleGraph Graph,ScheduleGraphSession Values,ImmutableArray<SidePaymentFactor> Factors,CancellationToken Cancellation);
 public sealed partial class SideValuationContext
 {
     internal IntervalSideContext? Interval { get; init; }

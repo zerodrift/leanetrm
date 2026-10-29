@@ -14,7 +14,7 @@ import type {RequestCommand} from './pending-command.js';
 import {publicText,curveName} from './market-view.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-type Period={amount:string|null;fixed:{price:string|null;currency:string;deliveryFrom:string;deliveryTo:string;paymentSchedule:PaymentInput}|null;floating:{customProjection?:CustomProjection|null;observationSchedule?:ObservationSchedule|null;curve:string;index:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentSchedule:PaymentInput;resetFrequency:string;averagingMethod:string;spread:string}|null};
+type Period={amount:string|null;fixed:{price:string|null;currency:string;deliveryFrom:string;deliveryTo:string;paymentSchedule:PaymentInput}|null;floating:{settlement:import('./price-settlement.js').PriceSettlement;customProjection?:CustomProjection|null;observationSchedule?:ObservationSchedule|null;curve:string;index:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentSchedule:PaymentInput;resetFrequency:string;averagingMethod:string;spread:string}|null};
 type BulkTerms={amount?:string|null;price?:string;payment?:PaymentInput;observations?:ScheduledFloatingTerms};
 type QuantitySide={basis:string;quantity:ReferenceKey;amount:string|null;allocation:string|null;priceApplication:string;power:{clock:ReferenceKey;product:string;startHour:number|null;endHour:number|null;saturday:boolean|null;calendar:ReferenceKey|null}|null;periods:Period[]};
 type Factor={value:string;numeratorQuantity:ReferenceKey;denominatorQuantity:ReferenceKey;implementation:string;unitConversionImplementation:string};

@@ -16,16 +16,17 @@ def run_checks(query, manifest, observed, weighted):
     def literal(value):
         return "'" + str(value).replace("'", "''") + "'"
 
-    def command(body):
-        a, b = body['fixed'], body['floating']
+    def write(body, fixed, first, floating, coefficient):
+        parties = {key: body[key] for key in ('legalEntityId', 'legalEntityRevision', 'counterpartyId', 'counterpartyRevision')}
+        encode = lambda value: None if value is None else json.dumps(value)
         arguments = [catalog, str(uuid4()), None, None, body['bookId'], body['definitionRevisionId'], reference, revision,
-                     b['curve'], b['index'], a['currency'], b['currency'], a['deliveryFrom'], a['deliveryTo'], '2021-02-18T00:00:00Z',
-                     b['deliveryFrom'], b['deliveryTo'], '2021-02-18T00:00:00Z', b['averagingMethod'], a['price'], body['quantity'], '-1', False,
-                     '2020-12-18T16:00:00Z', None, '2020-12-18T16:00:00Z', 'Initial booking', body['convention'],
-                     json.dumps(a['paymentSchedule']), json.dumps(b['paymentSchedule']), body['commodity'], None, None, None,
-                     json.dumps({key: body[key] for key in ('legalEntityId', 'legalEntityRevision', 'counterpartyId', 'counterpartyRevision')}),
-                     '{}', None, json.dumps(b.get('observationSchedule'))]
-        return 'PERFORM security.save_observation_swap_with_parties(' + ','.join('NULL' if value is None else 'false' if value is False else literal(value) for value in arguments) + ');'
+                     body['commodity'], encode(fixed), encode(first), encode(floating), body['quantity'], coefficient, False,
+                     '2020-12-18T16:00:00Z', '2020-12-18T16:00:00Z', 'Initial booking', body['convention'], None,
+                     json.dumps(parties), '{}']
+        return 'PERFORM security.save_composed_swap(' + ','.join('NULL' if value is None else 'false' if value is False else literal(value) for value in arguments) + ');'
+
+    def command(body):
+        return write(body, body['fixed'], None, body['floating'], '-1')
 
     def runtime(statement):
         token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
@@ -33,12 +34,7 @@ def run_checks(query, manifest, observed, weighted):
         return f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{statement}COMMIT;"
 
     def composed(first, second):
-        parties = {key: weighted[key] for key in ('legalEntityId', 'legalEntityRevision', 'counterpartyId', 'counterpartyRevision')}
-        arguments = [catalog, str(uuid4()), None, None, weighted['bookId'], weighted['definitionRevisionId'], reference, revision,
-                     weighted['commodity'], None, json.dumps(first), json.dumps(second), '100', '1', False,
-                     '2020-12-18T16:00:00Z', '2020-12-18T16:00:00Z', 'Initial booking', weighted['convention'], None,
-                     json.dumps(parties), '{}']
-        return 'PERFORM security.save_composed_swap(' + ','.join('NULL' if value is None else 'false' if value is False else literal(value) for value in arguments) + ');'
+        return write(weighted, None, first, second, '1')
 
     before = query('SELECT count(*) FROM trading.publications;')
     bad = deepcopy(observed); bad['floating']['observationSchedule']['calendar'] = None
@@ -54,10 +50,10 @@ def run_checks(query, manifest, observed, weighted):
     bad = deepcopy(second); bad['observationSchedule']['calendar'] = None
     query(runtime(reject(composed(first, bad), 'P0001', 'swap_averaging')))
     assert query('SELECT count(*) FROM trading.publications;') == before
-    assert query(runtime("SELECT NOT has_function_privilege(current_user,(SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security' AND p.proname='save_projected_swap_core'),'EXECUTE');")) == 't'
+    assert query(runtime("SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security' AND p.proname IN('save_projected_swap_core','save_observation_swap_with_parties'));")) == 't'
     assert query(runtime("SELECT count(*)=4 AND bool_and(NOT has_function_privilege(current_user,p.oid,'EXECUTE')) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security' AND p.proname IN('swap_observation_rows','swap_observation_sampling','retain_floating_swap_side','retained_swap_fixing_evidence');")) == 't'
     query(runtime(reject("PERFORM security.swap_observation_rows(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text,NULL::date,NULL::date,NULL::text,NULL::jsonb);", '42501')))
-    print('PASS observation storage: both composed slots and legacy writes enforce positive quantities, exact source cadence, required calendars and private helpers', flush=True)
+    print('PASS observation storage: fixed/floating and both floating slots enforce positive quantities, exact source cadence, required calendars and private helpers', flush=True)
 
     def clone(table, overrides, predicate):
         replacement = json.dumps(overrides).replace("'", "''")

@@ -283,7 +283,12 @@
      },
      "resetFrequency": "daily",
      "averagingMethod": "arithmetic",
-     "spread": "0"
+     "spread": "0",
+     "settlement": {
+      "mode": "curve_target",
+      "index": null,
+      "projectionPolicy": null
+     }
     },
     "definitionRevisionId": "60000000-0000-0000-0000-000000000002",
     "commodity": "test_gas",
@@ -376,7 +381,12 @@
       },
       "resetFrequency": "daily",
       "averagingMethod": "arithmetic",
-      "spread": "0"
+      "spread": "0",
+      "settlement": {
+       "mode": "curve_target",
+       "index": null,
+       "projectionPolicy": null
+      }
      },
      "reason": null,
      "definitionRevisionId": "60000000-0000-0000-0000-000000000002",
@@ -441,7 +451,8 @@
      "currency": "USD",
      "unit": "MMBtu (IT)",
      "quoteMultiplier": "1",
-     "quantityCode": "test_gas_quantity"
+     "quantityCode": "test_gas_quantity",
+     "settlementIndices": []
     }
    ],
    "paymentOptions": {
@@ -574,7 +585,7 @@
     "swapType": "scheduled_financial_swap",
     "firstCoefficient": "-1",
     "scheduled": {
-     "implementation": "independent_scheduled_financial_swap_v1",
+     "implementation": "whole_term_scheduled_financial_swap_v1",
      "first": {
       "basis": "period_total",
       "quantity": {
@@ -669,7 +680,12 @@
          },
          "resetFrequency": "monthly",
          "averagingMethod": "none",
-         "spread": "0"
+         "spread": "0",
+         "settlement": {
+          "mode": "curve_target",
+          "index": null,
+          "projectionPolicy": null
+         }
         }
        },
        {
@@ -694,7 +710,12 @@
          },
          "resetFrequency": "monthly",
          "averagingMethod": "none",
-         "spread": "0"
+         "spread": "0",
+         "settlement": {
+          "mode": "curve_target",
+          "index": null,
+          "projectionPolicy": null
+         }
         }
        }
       ]
@@ -754,7 +775,7 @@
      "swapType": "scheduled_financial_swap",
      "firstCoefficient": "-1",
      "scheduled": {
-      "implementation": "independent_scheduled_financial_swap_v1",
+      "implementation": "whole_term_scheduled_financial_swap_v1",
       "first": {
        "basis": "period_total",
        "quantity": {
@@ -849,7 +870,12 @@
           },
           "resetFrequency": "monthly",
           "averagingMethod": "none",
-          "spread": "0"
+          "spread": "0",
+          "settlement": {
+           "mode": "curve_target",
+           "index": null,
+           "projectionPolicy": null
+          }
          }
         },
         {
@@ -874,7 +900,12 @@
           },
           "resetFrequency": "monthly",
           "averagingMethod": "none",
-          "spread": "0"
+          "spread": "0",
+          "settlement": {
+           "mode": "curve_target",
+           "index": null,
+           "projectionPolicy": null
+          }
          }
         }
        ]
@@ -943,7 +974,8 @@
        },
        "unit": "MMBtu (IT)"
       }
-     ]
+     ],
+     "settlementIndices": []
     }
    ],
    "paymentOptions": {
@@ -1004,7 +1036,7 @@
     "implementation": "monthly_payment_date_rules_v1"
    },
    "scheduledOptions": {
-    "implementation": "independent_scheduled_financial_swap_v1",
+    "implementation": "whole_term_scheduled_financial_swap_v1",
     "priceApplication": "period_average_times_quantity_v1",
     "maximumPeriods": 120,
     "powerQuantities": [],
@@ -1290,7 +1322,12 @@
      },
      "resetFrequency": "daily",
      "averagingMethod": "arithmetic",
-     "spread": "0"
+     "spread": "0",
+     "settlement": {
+      "mode": "curve_target",
+      "index": null,
+      "projectionPolicy": null
+     }
     },
     "definitionRevisionId": "60000000-0000-0000-0000-000000000002",
     "commodity": "test_gas",
@@ -1383,7 +1420,12 @@
       },
       "resetFrequency": "daily",
       "averagingMethod": "arithmetic",
-      "spread": "0"
+      "spread": "0",
+      "settlement": {
+       "mode": "curve_target",
+       "index": null,
+       "projectionPolicy": null
+      }
      },
      "reason": null,
      "definitionRevisionId": "60000000-0000-0000-0000-000000000002",
@@ -1448,7 +1490,8 @@
      "currency": "USD",
      "unit": "MMBtu (IT)",
      "quoteMultiplier": "1",
-     "quantityCode": "test_gas_quantity"
+     "quantityCode": "test_gas_quantity",
+     "settlementIndices": []
     }
    ],
    "paymentOptions": {

@@ -28,9 +28,9 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
             trader.call('swaps/book',{**swap_context,**trade_booking(),'operationId':str(uuid4()),'bookId':book,
                 'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'quantity':quantity,'fixedCoefficient':'-1','discounting':discounting,
                 'fixed':{'price':strike,'currency':index['currencyCode'],**delivery,'paymentSchedule':payment(18)},
-                'floating':{'curve':curve,'index':index['index'],'currency':index['currencyCode'],**delivery,'paymentSchedule':payment(46),'resetFrequency':'monthly','averagingMethod':'none'}})
+                'floating':{'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':curve,'index':index['index'],'currency':index['currencyCode'],**delivery,'paymentSchedule':payment(46),'resetFrequency':'monthly','averagingMethod':'none'}})
     index=next(i for i in catalog['indices'] if i['curve']=='base_forward' and i['definitionRevisionId']==manifest['revisionId'])
-    floating={'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment(18),'resetFrequency':'monthly','averagingMethod':'none','spread':'0.1'}
+    floating={'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment(18),'resetFrequency':'monthly','averagingMethod':'none','spread':'0.1'}
     pair=trader.call('swaps/book',{**swap_context,**trade_booking(),'operationId':str(uuid4()),'bookId':books[0],
         'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'quantity':'10','firstCoefficient':'-1','swapType':'financial_floating_floating',
         'firstFloating':floating,'floating':{**floating,'spread':'0.2'},'discounting':False})

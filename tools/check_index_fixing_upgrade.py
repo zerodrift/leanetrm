@@ -8,7 +8,7 @@ from preview_fixture import fixture, trade_booking, trading_fixture
 from swap_fixture import fixture as swap_fixture
 
 
-def run_checks(query, psql, environment, root, dotnet):
+def run_checks(query, psql, environment, root):
     name = 'openetrm_fixing_upgrade_' + uuid4().hex
     target = list(psql)
     target[target.index('-d') + 1] = name
@@ -77,8 +77,10 @@ def run_checks(query, psql, environment, root, dotnet):
         historical = runtime(bind + history_sql)
         assert json.loads(historical)['side']['implementation'] == 'prefixing_index_projection_v1'
 
-        tables = upgraded("SELECT quote_ident(schemaname)||'.'||quote_ident(tablename) FROM pg_tables "
-                          "WHERE schemaname IN('ref_data','market_data','trading') ORDER BY schemaname COLLATE \"C\",tablename COLLATE \"C\";").splitlines()
+        def table_names():
+            return upgraded("SELECT quote_ident(schemaname)||'.'||quote_ident(tablename) FROM pg_tables "
+                            "WHERE schemaname IN('ref_data','market_data','trading') ORDER BY schemaname COLLATE \"C\",tablename COLLATE \"C\";").splitlines()
+        tables = table_names()
 
         def snapshot():
             return {table: upgraded(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY to_jsonb(t)::text COLLATE "C";')
@@ -107,16 +109,19 @@ def run_checks(query, psql, environment, root, dotnet):
         assert snapshot() == before
         print('PASS index-fixing upgrade: exact legacy retry/status and certified history survive; changed terms conflict and unused commands cannot create manual-boundary trades', flush=True)
         for migration in sorted((root/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
-            if int(migration.name[:4]) > 50:
+            if 50 < int(migration.name[:4]) < 123:
                 upgraded('\n'.join(line for line in migration.read_text().splitlines() if not line.startswith('CREATE ROLE ')))
-        subprocess.run([str(dotnet), 'build', 'tests/OpenEtrm.Api.Checks'], cwd=root, env=environment,
-                       check=True, capture_output=True, timeout=120)
-        token = upgraded("SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context("
-                         f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
-        connection = f"Host={target[target.index('-h')+1]};Port={target[target.index('-p')+1]};Database={name};Username=preview_runtime;Timezone=UTC"
-        payload = dict(manifest=manifest, connection=connection, token=token, tradeId=retained['tradeId'])
-        subprocess.run([str(dotnet), str(root/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0/OpenEtrm.Api.Checks.dll'), '--legacy-swap-editor'],
-                       input=json.dumps(payload), text=True, cwd=root, env=environment, check=True, timeout=60)
+        tables = table_names()
+        before_cutover = snapshot()
+        try:
+            upgraded((root/'db/migrations/0123_whole_term_swap_sides.sql').read_text())
+        except AssertionError as error:
+            assert 'whole_term_swap_rebooking_required' in str(error), error
+        else:
+            raise AssertionError('An old swap crossed the explicit whole-term rebooking boundary')
+        assert snapshot() == before_cutover
+        assert upgraded("SELECT to_regclass('trading.swap_side_periods') IS NULL;") == 't'
+        print('PASS index-fixing cutover: whole-term adoption refuses retained old swaps atomically; the current adapter does not reinterpret stored definitions', flush=True)
     finally:
         # Every target connection is a completed subprocess. No force-drop or
         # shared cluster teardown is allowed here.

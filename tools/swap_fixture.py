@@ -6,7 +6,7 @@ from preview_fixture import CAT, RCAT, RREV, identity
 REVISION = '60000000-0000-0000-0000-000000000002'
 
 
-def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=False, closes=()):
+def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=False, closes=(),effective_from='2020-01-01'):
     """closes: further instants at which the bundle publishes its prices and the fixings due by then."""
     m = f"'{CAT}','{REVISION}'"; r = f"'{RCAT}','{RREV}'"
     rows = ['BEGIN;', f"INSERT INTO market_data.revisions VALUES ({m},{r},'draft',0);"]
@@ -30,7 +30,8 @@ def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=Fal
         rows.extend([f"INSERT INTO market_data.series VALUES ({m},'{sid}','swap_rate_{n}',{r},NULL,NULL,'test_zero_rate');",
                      f"INSERT INTO market_data.rate_curve_points VALUES ({m},'interest_rates','{maturity}','{sid}',{n});"])
         prices.append((2800+n,sid,Decimal('.025')+Decimal(n)/200,'parameter'))
-    rows.extend([f"INSERT INTO market_data.revision_periods VALUES ({m},'2020-01-01','2022-01-01');",
+    boundary=date.fromisoformat(effective_from).isoformat()
+    rows.extend([f"INSERT INTO market_data.revision_periods VALUES ({m},'{boundary}','2022-01-01');",
                  f"UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{CAT}' AND id='{REVISION}';"])
     now=datetime.now(timezone.utc).isoformat();frames=[]
     for day in range(15, 19):

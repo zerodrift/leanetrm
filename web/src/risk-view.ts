@@ -1,3 +1,4 @@
+import {projectionPolicyLabels} from './projection-policy.js';
 // The risk report of the Blotter desk (blotter-desk.md, Side panel: Risk report), drawn in the side panel's Risk report mode. It offers
 // Shock every held contract and Parallel shift, which shock the targets the catalog names for what the books hold, and the custom
 // scenario lab with nested stresses; it runs a report now or queues it as jobs and keeps the retained job history. A run's results come
@@ -354,7 +355,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     let first:unknown;const stale=()=>version!==generation;
     await runParts(current.parts,stale,async(part,index)=>{
       if(current.parts.length>1)get('risk-progress').textContent=`Running part ${index+1} of ${current.parts.length}…`;
-      try{part.report=await options.api<RiskReport>('portfolio/risk',part.request);}
+      try{const report=await options.api<RiskReport>('portfolio/risk',part.request);projectionPolicyLabels(report.projectionPolicies);part.report=report;}
       catch(error){if(stale())return false;denied(error);if(stale())throw error;part.failure=failure(error,'The part could not be run.');first??=error;}
       return true;
     });
@@ -450,7 +451,10 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function take(part:Part,value:Job){
     if(part.job&&value.id!==part.job.id)throw Error('The risk job receipt does not match its part. Refresh to check its retained outcome.');
     part.job=value;part.report=undefined;part.failure=undefined;
-    if(value.state==='completed'){if(value.result)part.report=value.result;else part.failure='The completed job result is unavailable. Refresh its retained outcome.';}
+    if(value.state==='completed'){
+      if(value.result){try{projectionPolicyLabels(value.result.projectionPolicies);part.report=value.result;}catch(error){part.failure=failure(error,'The completed job result is invalid. Run risk again.');}}
+      else part.failure='The completed job result is unavailable. Refresh its retained outcome.';
+    }
     else if(value.state==='failed'||value.state==='cancelled')part.failure=value.error?.message??jobLabels[value.state];
   }
   async function refreshJobs(version=generation,all=false){
@@ -573,7 +577,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     overview.textContent=publicText(`${prefix}${w.positionCount} holdings · ${report.heldInstruments} held instruments · ${w.uniqueValuations} unit valuations · ${w.scenarioCount} valuation scenarios · ${w.preparationScenarioCount} preparation scenarios · ${w.unitPricerCalls} pricer calls · ${w.repeatedInstrumentReferences} additional quantity references · ${w.quantityApplications} quantity applications.`);
     const evidence=document.createElement('details'),title=document.createElement('summary'),rows=document.createElement('ul');title.textContent='Graph and preparation work';
     for(const line of riskWorkDetails(report)){const item=document.createElement('li');item.textContent=line;rows.append(item);}
-    evidence.append(title,rows);wrap.append(overview,evidence);return wrap;
+    evidence.append(title,rows);wrap.append(overview);for(const label of projectionPolicyLabels(report.projectionPolicies)){const note=document.createElement('p');note.textContent=label;wrap.append(note);}wrap.append(evidence);return wrap;
   }
   /** Downloads the run's results and inputs: each part is read again under current authority, as its own request or its own retained job. */
   async function download(){
@@ -584,6 +588,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       const report=part.job?(await call<Job>(`portfolio/risk/jobs/${part.job.id}`)).result:await call<RiskReport>('portfolio/risk',part.request);
       if(version!==generation)return;
       if(!report)throw Error('The completed job result is unavailable. Refresh its retained outcome.');
+      projectionPolicyLabels(report.projectionPolicies);
       parts.push(report);
     }
     const blob=new Blob([JSON.stringify({setup:current.setup??null,parts},null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='leanetrm-risk.json';link.click();URL.revokeObjectURL(url);

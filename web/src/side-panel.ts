@@ -212,7 +212,7 @@ export type SidePanel=ReturnType<typeof setupSidePanel>;
  * Asks a question inside the panel: what it asks, the answer that keeps things as they are, which has focus, and the one that goes on.
  * Escape keeps, as the first button does.
  */
-export function askInPanel(host:HTMLElement,question:{text:string;keep:string;go:string}){
+export function askInPanel(host:HTMLElement,question:{text:string;keep:string;go:string},beforeFocus?:()=>void){
   const slot=host.querySelector<HTMLElement>(`#${host.id}-prompt`)!;
   return (abandoned:AbortSignal)=>new Promise<boolean>(resolve=>{
     const button=(label:string,going:boolean)=>{const b=document.createElement('button');b.type='button';b.textContent=label;if(!going)b.className='secondary';b.onclick=()=>finish(going);return b;};
@@ -224,8 +224,8 @@ export function askInPanel(host:HTMLElement,question:{text:string;keep:string;go
     const text=document.createElement('p');text.textContent=question.text;
     const actions=document.createElement('div'),keep=button(question.keep,false);actions.className='side-panel-prompt-actions';actions.append(keep,button(question.go,true));
     slot.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();finish(false);}};
-    slot.replaceChildren(text,actions);slot.hidden=false;keep.focus();abandoned.addEventListener('abort',abort);
+    slot.replaceChildren(text,actions);slot.hidden=false;beforeFocus?.();keep.focus();abandoned.addEventListener('abort',abort);
   });
 }
 /** Asks inside the panel whether to discard what it holds unsaved. */
-export const askLeave=(host:HTMLElement)=>askInPanel(host,{text:'This panel has unsaved changes. Leaving discards them.',keep:'Keep editing',go:'Discard changes'});
+export const askLeave=(host:HTMLElement,beforeFocus?:()=>void)=>askInPanel(host,{text:'This panel has unsaved changes. Leaving discards them.',keep:'Keep editing',go:'Discard changes'},beforeFocus);

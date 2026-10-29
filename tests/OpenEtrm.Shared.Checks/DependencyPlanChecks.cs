@@ -158,6 +158,24 @@ internal static class DependencyPlanChecks
             finally{release.Set();pricing.GetAwaiter().GetResult();}
             Equal(first.Get(0),2L);
         });
+        Check("weighted vector work belongs to the evaluated session and excludes reused outputs",()=>
+        {
+            var plan=DependencyPlan.Compile(3,[new(1,0)]);long[] weights=[0,720,30];
+            var root=new GraphSession<long>(plan,(n,r,_)=>n==1?r.Get(0)+1:2,checkedAdd,workWeights:weights);
+            weights[1]=999;
+            Equal(root.Get(1),3L);Equal(root.Work.EvaluatedWork,720L);
+            Equal(root.Get(2),2L);Equal(root.Work.EvaluatedWork,750L);
+            var child=root.WithOffsets(new Dictionary<int,long>{{0,1}});
+            Equal(child.Get(1),4L);Equal(child.Get(2),2L);Equal(child.Work.EvaluatedWork,720L);
+            Equal(root.Work.EvaluatedWork,750L);
+            var next=root.Advance((n,r,_)=>n==1?r.Get(0)+1:5,[0]);
+            Equal(next.Get(1),6L);Equal(next.Work.EvaluatedWork,720L);
+            var reordered=root.Rebind(DependencyPlan.Compile(3,[new(0,1)]),(n,r,_)=>n==0?r.Get(1)+1:8,[1,0,2],[1]);
+            Equal(reordered.Get(0),9L);Equal(reordered.Work.EvaluatedWork,720L);
+            Reject("graph_work",()=>new GraphSession<long>(plan,(_,_,_)=>0,checkedAdd,workWeights:[1,-1,0]));
+            Reject("graph_work",()=>new GraphSession<long>(plan,(_,_,_)=>0,checkedAdd,workWeights:[1]));
+            Reject("graph_work",()=>new GraphSession<long>(plan,(_,_,_)=>0,checkedAdd,workWeights:[long.MaxValue,1,0]));
+        });
         return count;
     }
     private static long checkedAdd(long left,long right)=>checked(left+right);

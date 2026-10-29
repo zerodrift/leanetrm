@@ -1,4 +1,3 @@
-using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -17,14 +16,10 @@ internal static class PpaBlotter
     internal const string PendingActuals="estimate_until_actual_v1";
     internal const string OtherVersions="other_definition_versions";
     internal const string UnpricedDelivery="unpriced_delivery";
-    // The refusals that say the selected market data has no price for part of a trade's delivery: no block of its curve,
-    // no interval of a marked curve or no due actual covers it, or the frame leaves out a projection it needs. Any other
-    // refusal, such as an ambiguous definition or a data integrity error, still refuses the whole read.
-    private static readonly FrozenSet<string> Unpriceable=new[]{"interval_block_coverage","interval_curve_coverage","interval_actual_missing"}.ToFrozenSet();
-    private const string MissingCurveView="missing_curve_view";
+    internal const string NeedsRebooking="needs_rebooking";
     internal const string ReferenceNotVisible="reference_not_visible_at_close";
     internal static async Task<ImmutableArray<JsonObject>> Read(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,
-        InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct)
+        InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null)
     {
         var books=await new FuturesStore(database.Manifest).Books(connection,ct);
         FuturesStore.ValidateScope(books,bookIds,portfolioIds);
@@ -33,44 +28,36 @@ internal static class PpaBlotter
         if(selected.IsEmpty)return [];
         var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId??throw new PreviewDeniedException(),ct)).Context;
         var scope=await PpaPortfolio.Scope(connection,data,frame,context,selected,ct);
+        if(position is not null)
+        {
+            scope=scope.Without(scope.Heads.Keys.Where(t=>t!=position.TradeId).ToHashSet());
+            position.Require(scope.Bindings);
+        }
         // A trade with any binding booked under other versions is listed whole, so no total holds part of a trade.
         var other=scope.Bindings.Where(b=>!PpaPortfolio.SameVersions(data,b)).Select(b=>b.Id("trade_id")).ToHashSet();
         var facts=await Facts(connection,database.Manifest.CatalogId,scope.Heads,ct);
         var priced=scope.Without(other);
-        var unpriced=new HashSet<Guid>();var isolated=false;
-        ImmutableArray<JsonObject> valued;
-        while(true)
-        {
-            try{valued=await Valued(priced.Without(unpriced));break;}
-            // A frame without a projection names the trades that need it.
-            catch(CloseRiskInputsException missing) when(Missing(missing) is {Count:>0} trades&&!trades.IsSubsetOf(unpriced)){unpriced.UnionWith(trades);}
-            // One trade the market data cannot price must not hide the others: once, each is tried on its own to find which
-            // it is, and the rest are valued together again. A refusal no single trade explains still refuses the read.
-            // This costs a preparation per trade of the read, after a refused read only, within the request's deadline.
-            catch(MarketDataException refusal) when(!isolated&&Unpriceable.Contains(refusal.Code))
-            {
-                isolated=true;
-                foreach(var trade in priced.Heads.Keys.Where(t=>!unpriced.Contains(t)))
-                {
-                    ct.ThrowIfCancellationRequested();
-                    try{await Valued(priced.Without(priced.Heads.Keys.Where(t=>t!=trade).ToHashSet()));}
-                    catch(MarketDataException alone) when(Unpriceable.Contains(alone.Code)){unpriced.Add(trade);}
-                    catch(CloseRiskInputsException alone) when(Missing(alone).Contains(trade)){unpriced.Add(trade);}
-                }
-            }
-        }
+        var admission=new PpaBlotterAdmission();
+        var retained=new RetainedScheduleStore(data.DefinitionRevision.CatalogId);
+        var prepared=await PpaPortfolio.Prepare(connection,data,frame,context,priced,PendingActuals,SchedulePreview.ParseAt(context.KnownAt),
+            IntervalKnowledgePolicy.ResolvedCutoff,ct,retained,admission);
+        var valued=Valued(prepared);
+        var rebook=admission.Refusals.Where(p=>p.Value.Any(PpaBlotterAdmission.NeedsRebooking)).Select(p=>p.Key).ToHashSet();
+        var unpriced=admission.Refusals.Keys.Where(t=>!rebook.Contains(t)).ToHashSet();
         var result=ImmutableArray.CreateBuilder<JsonObject>();
         result.AddRange(valued);
         if(other.Count>0)result.AddRange(await Unvalued(connection,database.Manifest.CatalogId,scope,other,OtherVersions,facts,books,ct));
         if(unpriced.Count>0)result.AddRange(await Unvalued(connection,database.Manifest.CatalogId,scope,unpriced,UnpricedDelivery,facts,books,ct));
+        if(rebook.Count>0)
+            foreach(var row in await Unvalued(connection,database.Manifest.CatalogId,scope,rebook,NeedsRebooking,facts,books,ct))
+            {
+                row["unavailableCodes"]=JsonSerializer.SerializeToNode(admission.Refusals[row["tradeId"]!.GetValue<Guid>()].Order(StringComparer.Ordinal));
+                result.Add(row);
+            }
         return result.ToImmutable();
 
-        // The trades a refusal names as needing a projection the frame leaves out, or none if it names any other reason.
-        static IReadOnlySet<Guid> Missing(CloseRiskInputsException refusal)=>refusal.AffectedBindings.All(b=>b.Reason==MissingCurveView)
-            ?refusal.AffectedBindings.Select(b=>b.TradeId).ToHashSet():new HashSet<Guid>();
-        async Task<ImmutableArray<JsonObject>> Valued(PpaScope valuedScope)
+        ImmutableArray<JsonObject> Valued(PpaPortfolioInput? prepared)
         {
-            var prepared=await PpaPortfolio.Prepare(connection,data,frame,context,valuedScope,PendingActuals,SchedulePreview.ParseAt(context.KnownAt),ct);
             if(prepared is null)return [];
             var rows=ImmutableArray.CreateBuilder<JsonObject>();
             var session=prepared.Receipt.Instruments.IsEmpty?throw new PreviewDeniedException():prepared.Portfolio.Setup.Interval!.Session(prepared.Market);

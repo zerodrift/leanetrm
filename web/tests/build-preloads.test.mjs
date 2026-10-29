@@ -21,6 +21,15 @@ test('the emitted application has no remaining project-module imports',async()=>
   const imports=Object.values(result.metafile.outputs).flatMap(output=>output.imports);
   assert.deepEqual(imports.map(item=>item.path).sort(),['./vendor/echarts.js','./vendor/klinecharts.js','./vendor/tabulator.js']);
 });
+test('a separate trade window also loads one bundle with only its declared vendor imports preloaded',async()=>{
+  const result=await build({absWorkingDir:fileURLToPath(new URL('../dist/',import.meta.url)),entryPoints:['position-window.js'],
+    bundle:false,write:false,metafile:true,format:'esm',platform:'browser',logLevel:'silent'});
+  const imports=Object.values(result.metafile.outputs).flatMap(output=>output.imports).map(item=>item.path);
+  assert.ok(imports.every(path=>['./vendor/echarts.js','./vendor/klinecharts.js','./vendor/tabulator.js'].includes(path)),'The trade window must not fetch project modules separately.');
+  const html=readFileSync(new URL('../dist/position.html',import.meta.url),'utf8');
+  assert.deepEqual([...html.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map(match=>match[1]).sort(),imports.map(path=>path.slice(1)).sort());
+  assert.equal((html.match(/<script type="module" src="\/position-window.js"><\/script>/g)??[]).length,1);
+});
 
 async function fixture(files,run){
   const parent=realpathSync(mkdtempSync(join(tmpdir(),'openetrm-bundle-test-'))),root=join(parent,'dist');mkdirSync(root);

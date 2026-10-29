@@ -13,11 +13,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const script=async(...answers)=>{if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('The fake provider refused a scripted answer.');};
   const release=async name=>{await fetch(new URL('/release/'+name,control),{method:'POST'});};
   // Each tab records its requests and how many agents each agents read listed, can lose its next ask or price read before it
-  // is sent or hold its next ask until released, and keeps every stream it opens, across reloads.
+  // is sent or hold its next ask or workspace response until released, and keeps every stream it opens, across reloads.
   const recorder='window.__requests=[];window.__streams=[];{const send=window.fetch;window.__fetch=send;window.fetch=async(...args)=>{const path=String(args[0]),'
     +"entry={path,body:args[1]?.body?JSON.parse(args[1].body):null};window.__requests.push(entry);if(path.endsWith('/assistant/turns/ask')){if(window.__drop){window.__drop=false;"
     +"throw TypeError('Synthetic lost connection');}if(window.__held)await window.__held;}if(window.__failEvaluate&&path.endsWith('/evaluate')){window.__failEvaluate=false;"
     +"throw TypeError('Synthetic lost connection');}const response=await send(...args);if(path.endsWith('/assistant/agents')&&response.ok)entry.agents=(await response.clone().json()).agents.length;"
+    +"if(window.__holdWorkspace&&path.endsWith('/trading/workspace')){window.__holdWorkspace=false;window.__heldWorkspaceRequest=entry.body;await new Promise(resolve=>{window.__releaseWorkspace=resolve;});}"
     +'return response;};const Native=window.EventSource;window.EventSource=class extends Native{constructor(...args){super(...args);window.__streams.push(this);}};}';
 
   // This run's agents: a guide that reads market data and navigates, and a second that reads only the page.
@@ -176,49 +177,49 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");
   await evaluate(`${q('#futures-form')}.requestSubmit()`);await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&"+idle);
   await click('#desk-positions .tabulator-row:not(.tabulator-group)');
-  await wait("!document.querySelector('#side-panel').hidden");
-  const trade=await evaluate("document.querySelector('#side-panel-head .side-panel-reference').textContent");
-  const revision=await evaluate("document.querySelector('#side-panel-head .side-panel-meta').textContent.match(/Revision (\\d+)/)[1]");
+  await wait("document.querySelector('#position-details')?.hidden===false");
+  const trade=await evaluate("document.querySelector('#position-details-head .side-panel-reference').textContent");
+  const revision=await evaluate("document.querySelector('#position-details-head .side-panel-meta').textContent.match(/Revision (\\d+)/)[1]");
   await check('Looking at names the trade the panel shows, at its revision, with the assistant open beside the panel',
-    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision ${revision}`]))}&&${shown('#assistant-panel')}&&!${q('#side-panel')}.hidden&&${q('#side-panel')}.dataset.placement==='overlay'`,looking);
+    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision ${revision}`]))}&&${shown('#assistant-panel')}&&${q('#position-details')}?.hidden===false&&!!${q('#position-details')}.closest('.tabulator-row')&&document.querySelector('#side-panel').hidden`,looking);
   await script({text:'That trade is open in the panel. '});
   await ask('What is this trade?');await wait(finished);
   await check('the assistant is asked while the trade is open, and the ask reports it: its page report names the trade, its kind and its revision',
     `(()=>{const r=${asks}.at(-1).body.pageReport,s=r.selection;return r.page==='blotter'&&s.view==='trade'&&typeof s.tradeId==='string'&&['future','financial_swap'].includes(s.instrumentType)&&s.revision===${revision}&&s.mode===null&&s.groupBy===null;})()`,`JSON.stringify(${asks}.at(-1).body.pageReport)`);
-  await click('#side-panel-close');
-  await check('closing the panel returns Looking at to the Blotter\'s rows',`${looking}[1].startsWith('Trade rows · ')&&${q('#side-panel')}.hidden`,looking);
+  await click('#position-details .position-close');
+  await check('closing the panel returns Looking at to the Blotter\'s rows',`${looking}[1].startsWith('Trade rows · ')&&(${q('#position-details')}?.hidden!==false)`,looking);
   // An amendment under way holds a live move away from the page, like any other unsaved edit, and Back brings the trade back in the panel.
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!document.querySelector('#side-panel').hidden");
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details')?.hidden===false");
   await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden");
   await evaluate(`${q('#trade-lots')}.focus();${q('#trade-lots')}.select()`);await command('Input.insertText',{text:'3'});
   await script({tools:[['toolu_panel_05b','navigate',{page:'schedules',target:null}]]},{text:'Here are the schedules.'});
   await ask('Take me to the schedules.');await wait(finished);
   await check('a live target that would leave an amendment with unsaved edits does not move the page: its notice says so and offers Go anyway',
-    `${q('#page-title')}.textContent==='Blotter'&&!${q('#side-panel')}.hidden&&!${q('#trade-editing')}.hidden&&${notice}.textContent.includes('Go would leave unsaved changes on this page.')&&${buttons}==='Go anyway'&&${asks}.at(-1).body.pageReport.selection.view==='trade'`,`${notice}?.textContent`);
+    `${q('#page-title')}.textContent==='Blotter'&&${q('#position-details')}?.hidden===false&&!${q('#trade-editing')}.hidden&&${notice}.textContent.includes('Go would leave unsaved changes on this page.')&&${buttons}==='Go anyway'&&${asks}.at(-1).body.pageReport.selection.view==='trade'`,`${notice}?.textContent`);
   await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Schedules'&&${idle}`);
   // The edits were given up on the person's word, so the form holds nothing to return to, and the browser is asked nothing when the page is left.
   await check('once the page has gone on the person\'s word, the form holds nothing and the browser is asked nothing when the page is left',
     `${q('#trade-editing')}.hidden&&!(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;})()`,`[${q('#trade-editing')}.hidden]`);
-  await press('Back');await wait(`${q('#page-title')}.textContent==='Blotter'&&!${q('#side-panel')}.hidden&&${idle}`);
+  await press('Back');await wait(`${q('#page-title')}.textContent==='Blotter'&&${q('#position-details')}?.hidden===false&&${idle}`);
   await check('Back opens the trade again in the panel, on its Terms and without the edits that were given up',
-    `${q('#side-panel-head .side-panel-reference')}.textContent===${JSON.stringify(trade)}&&${q('#side-panel-tabs-terms')}.getAttribute('aria-selected')==='true'&&${q('#trade-editing')}.hidden&&JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision ${revision}`]))}`,looking);
-  await click('#side-panel-close');
+    `${q('#position-details-head .side-panel-reference')}.textContent===${JSON.stringify(trade)}&&${q('#position-details-tabs-terms')}.getAttribute('aria-selected')==='true'&&${q('#trade-editing')}.hidden&&JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision ${revision}`]))}`,looking);
+  await click('#position-details .position-close');
   // The report names the revision the form displays: the position's own, or an earlier one that the form's selector shows.
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!document.querySelector('#side-panel').hidden");
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details')?.hidden===false");
   await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&"+idle);
   await set('#trade-lots','5');await set('#trade-reason','Synthetic report revision');await evaluate(`${q('#trade-amend-form')}.requestSubmit()`);await wait(idle);
   await click('#trade-confirm');await click('#trade-submit');
-  await wait(`${q('#side-panel-head .side-panel-meta')}?.textContent.startsWith('Revision 2')&&${idle}`);
+  await wait(`${q('#position-details-head .side-panel-meta')}?.textContent.startsWith('Revision 2')&&${idle}`);
   await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&"+idle);
   await set('#trade-revision','1');await wait(idle);
   await check('Looking at names the revision the form displays, though the Blotter holds a later one',
-    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision 1`]))}&&${q('#side-panel-head .side-panel-meta')}.textContent.startsWith('Revision 2')`,looking);
+    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision 1`]))}&&${q('#position-details-head .side-panel-meta')}.textContent.startsWith('Revision 2')`,looking);
   await script({text:'It shows revision 1. '});
   await ask('Which revision is this?');await wait(finished);
   await check('and so does the page report an ask sends',`${asks}.at(-1).body.pageReport.selection.revision===1&&${asks}.at(-1).body.pageReport.selection.view==='trade'`,`JSON.stringify(${asks}.at(-1).body.pageReport)`);
   await click('#trade-reload');
   await check('which is the Blotter\'s again once the form reloads the latest',`JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision 2`]))}`,looking);
-  await click('#side-panel-close');
+  await click('#position-details .position-close');
   // A trade the assistant names opens from the Blotter's trade rows. A pivot's rows are totals, so the move is refused in words that name the
   // view it needs: the person's view stays as it is, and nothing says the trade was shown.
   const tradeId=await evaluate(`${asks}.filter(r=>r.body.pageReport.selection?.view==='trade').at(-1).body.pageReport.selection.tradeId`);
@@ -228,7 +229,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await ask('Open that trade.');await wait(finished);
   await pause(300);
   await check('a trade the assistant names is refused in a pivot, in words that name the view it needs, and the view stays as it was',
-    `!${q('#error')}.hidden&&${q('#error')}.textContent.includes('Individual trades')&&${q('#blotter-mode')}.value==='pivot'&&${q('#side-panel')}.hidden&&${q('#page-title')}.textContent==='Blotter'`,`[${q('#error')}.textContent,${q('#blotter-mode')}.value,${q('#side-panel')}.hidden]`);
+    `!${q('#error')}.hidden&&${q('#error')}.textContent.includes('Individual trades')&&${q('#blotter-mode')}.value==='pivot'&&(${q('#position-details')}?.hidden!==false)&&${q('#page-title')}.textContent==='Blotter'`,`[${q('#error')}.textContent,${q('#blotter-mode')}.value,(${q('#position-details')}?.hidden!==false)]`);
   await check('and nothing says the trade was shown: its notice still offers Go',`!${notice}.textContent.startsWith('Took you to')&&${buttons}==='Go'`,`[${notice}?.textContent,${buttons}]`);
   // The view is the one the Blotter has applied: a Display choice that has not been applied neither refuses a trade nor allows one, and the
   // control is left as the person set it.
@@ -238,15 +239,21 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await ask('Open that trade, though Display shows trade rows that are not applied.');await wait(finished);
   await pause(300);
   await check('a Display choice that has not been applied does not allow a trade: the pivot is the view, the trade is refused, and the control stays as it was set',
-    `!${q('#error')}.hidden&&${q('#error')}.textContent.includes('Individual trades')&&${q('#blotter-mode')}.value==='trades'&&${q('#side-panel')}.hidden&&${q('#blotter-table-title')}.textContent==='Pivot summary'`,`[${q('#error')}.textContent,${q('#blotter-mode')}.value,${q('#blotter-table-title')}.textContent]`);
+    `!${q('#error')}.hidden&&${q('#error')}.textContent.includes('Individual trades')&&${q('#blotter-mode')}.value==='trades'&&(${q('#position-details')}?.hidden!==false)&&${q('#blotter-table-title')}.textContent==='Pivot summary'`,`[${q('#error')}.textContent,${q('#blotter-mode')}.value,${q('#blotter-table-title')}.textContent]`);
   await click('#blotter-apply');await wait(`${q('#blotter-table-title')}.textContent.startsWith('Positions')&&${idle}`);
-  await set('#blotter-mode','pivot');
+  await set('#blotter-mode','pivot');await evaluate('window.__holdWorkspace=true');
   await script({tools:[['toolu_panel_17','read_trades',trade14]]},{tools:[['toolu_panel_18','navigate',{page:null,target:'n1'}]]},{text:'That is the trade, again.'});
   await ask('Open that trade, though Display shows a pivot that is not applied.');await wait(finished);
-  await pause(300);
+  await wait("typeof window.__releaseWorkspace==='function'");
+  await check('an answer can finish while its trade navigation still waits for the applied trade view, without claiming the trade was shown',
+    `${q('#error')}.hidden&&window.__heldWorkspaceRequest.view.mode==='trades'&&${q('#futures-page')}.dataset.pricingState==='pending'&&${notice}&&!${notice}.textContent.startsWith('Took you to')&&(${q('#position-details')}?.hidden!==false)`);
+  // Usage ends the answer, not the navigation it requested. Read completion,
+  // including the trade's Terms, is what permits the target to claim success.
+  await evaluate('window.__releaseWorkspace();delete window.__releaseWorkspace');
+  await wait(`${notice}?.textContent.startsWith('Took you to')&&${idle}`);
   await check('and one that has not been applied does not refuse it: the trade rows are the view, and the trade opens',
-    `${q('#error')}.hidden&&!${q('#side-panel')}.hidden&&${q('#side-panel-head .side-panel-reference')}.textContent===${JSON.stringify(trade)}`,`[${q('#error')}.textContent,${q('#side-panel')}.hidden,${q('#side-panel-head .side-panel-reference')}?.textContent]`);
-  await click('#side-panel-close');await set('#blotter-mode','trades');
+    `${q('#error')}.hidden&&${q('#position-details')}?.hidden===false&&${q('#position-details-head .side-panel-reference')}.textContent===${JSON.stringify(trade)}`,`[${q('#error')}.textContent,(${q('#position-details')}?.hidden!==false),${q('#position-details-head .side-panel-reference')}?.textContent]`);
+  await click('#position-details .position-close');await set('#blotter-mode','trades');
 
   // A page the assistant does not read (§7.3).
   await click('#nav-delivery');
@@ -259,7 +266,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'delivery_prices',selection:{}})`);
   // PPA bookings is read once it lists a book (D250): before that Looking at says so and nothing is asked; then Read current
   // page reads the listed book's PPA trades.
-  await openPpaBookings({click,wait});
+  await openPpaBookings({click,wait,evaluate});
   await wait(`${q('#ppa-book-filter')}.options.length>1&&${idle}`);
   await set('#assistant-question','Which PPAs are in this book?');
   await check('Looking at on PPA bookings before a book is listed says to load one, and nothing is asked',

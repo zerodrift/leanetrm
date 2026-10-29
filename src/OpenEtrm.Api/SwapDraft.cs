@@ -65,7 +65,7 @@ public sealed partial class SwapStore
         var draft=await PrepareDraft(connection,data,frame,body,ct,resolvePar:true);var snapshot=draft.Data.Snapshot(draft.Frame);
         var connected=await ConnectedDraft(connection,draft,snapshot,ct);
         var value=FinancialSwapValuation.Evaluate(draft.Instrument,connected.Valuation,connected.Bindings,connected.Authority,draft.Discount,ct);
-        return new{unbooked=true,measure="present_value",enteredQuantity=draft.Entered,quantity=draft.Quantity,parRate=draft.ParRate,resolvedFixedPrice=(draft.Instrument.First as FixedSide)?.Price.Value.ToString(),
+        return new{unbooked=true,measure="present_value",enteredQuantity=draft.Entered,quantity=draft.Quantity,parRate=draft.ParRate,resolvedFixedPrice=draft.Instrument.First is FixedSide{Price:FlatPrice fixedPrice}?fixedPrice.Price.Value.ToString():null,
             currency=draft.Data.References["currencies"].Single(c=>c.Text("code")==draft.Instrument.Currency.Code).Text("display_code"),conversion=UnitConverter.Implementation,valuation=DraftValue(value,draft.Quantity),numericalPolicy=DealRisk.NumericalPolicy,bumpPolicy=DealRisk.BumpPolicy};
     }
     public async Task<object> RiskDraft(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapDraftRiskRequest body,CancellationToken ct)
@@ -86,7 +86,7 @@ public sealed partial class SwapStore
         var group=result.Groups.Single();
         var connectedRun=new DealRiskRun(group.BaseValues.Single().Value,group.Factors.Select((f,n)=>new DealFactorRisk(prepared.Factors[n],
             new(prepared.Factors[n].Input,prepared.Factors[n].Quote,f.Bump.Unit,f.Bump.Size,QuoteBump.Convention),f.Totals.Single().Values)).ToImmutableArray(),result.Work.ScenarioCount);
-        return DraftRisk.Result(draft.Data,connectedRun,"present_value");
+        return DraftRisk.Result(draft.Data,connectedRun,"present_value",ProjectionPolicyReceipts.For(draft.Instrument));
     }
     private async Task<CustomCurves.PreparedMarket> ConnectedDraft(NpgsqlConnection connection,PreparedDraft draft,MarketSnapshot snapshot,CancellationToken ct)
     {

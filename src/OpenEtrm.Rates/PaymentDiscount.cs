@@ -124,8 +124,16 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
         foreach(var schedule in plans.Cast<SidePaymentSchedule>())schedule.RequireUndue(snapshot);
         return plans.Cast<SidePaymentSchedule>().SelectMany(p=>p.Payments).Select(p=>p.Key).ToImmutableArray();
     }
-    private SidePaymentFactor Factor(SidePaymentKey key,PaymentDiscount input)=>new(key,input.Factor,Snapshot,
-        input.Enabled?DiscountFactorSource.CurrencyDefault:DiscountFactorSource.Undiscounted);
+    private SidePaymentFactor Factor(SidePaymentKey key,PaymentDiscount input)
+    {
+        var factor=new SidePaymentFactor(key,input.Factor,Snapshot,input.Enabled?DiscountFactorSource.CurrencyDefault:DiscountFactorSource.Undiscounted);
+        if(!input.Enabled)return factor;
+        var definition=input.Definition!;
+        return factor with { RateDefinition=new(input.MappingId!.Value,definition.Key,definition.Specification,definition.Currency,definition.Source,
+            DateOnly.FromDateTime(Snapshot.ValuationAt.UtcDateTime),input.PaymentDate,definition.DayCount,definition.Compounding,definition.Implementation,
+            definition.DateBasis,input.RateNumericalPolicy!,input.InterpolationPolicy!,
+            [..input.Pillars.Select(p=>new RateDiscountPillar(p.Maturity,Snapshot.Selections.Single(s=>s.Input==new InputKey(p.Series,InputUse.Variable) && s.Observation.Key==p.Observation).Observation))]) };
+    }
     public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot)
     {
         if(!Snapshot.HasSameInputs(snapshot))
@@ -144,14 +152,14 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
 
 public sealed record DiscountedSidePayment
 {
-    public SidePaymentValue Cashflow { get; }
+    public ScheduleRowValue Cashflow { get; }
     public PaymentDiscount Discount { get; }
-    internal DiscountedSidePayment(SidePaymentValue cashflow, PaymentDiscount discount, MarketSnapshot snapshot)
+    internal DiscountedSidePayment(ScheduleRowValue cashflow, PaymentDiscount discount, MarketSnapshot snapshot)
     {
-        if (cashflow.Discount.DiscountFactor != discount.Factor || !snapshot.HasSameInputs(discount.Snapshot) ||
+        if (cashflow.PaymentDiscount.DiscountFactor != discount.Factor || !snapshot.HasSameInputs(discount.Snapshot) ||
             discount.Currency != cashflow.Plan.Currency ||
             discount.PaymentDate != cashflow.Plan.PaymentDate ||
-            cashflow.Discount.Source != (discount.Enabled ? DiscountFactorSource.CurrencyDefault : DiscountFactorSource.Undiscounted))
+            cashflow.PaymentDiscount.Source != (discount.Enabled ? DiscountFactorSource.CurrencyDefault : DiscountFactorSource.Undiscounted))
             throw new MarketDataException("schedule_discount", "Discount evidence must match the side payment's factor, date, currency and full context.");
         Cashflow = cashflow; Discount = discount;
     }
@@ -209,10 +217,10 @@ public static class FinancialSwapValuation
     }
     public static ParSwapRate ParRate(ScheduledFinancialSwap instrument,ImmutableArray<DiscountedSideValuation> sides,AmountFormat rounding)
     {
-        if(instrument?.First.IsFixed!=true||sides.IsDefault||sides.Length!=2||rounding is null||rounding.TieRule!=CashTieRule.ToEven||
+        if(instrument?.First is not FixedSide||sides.IsDefault||sides.Length!=2||rounding is null||rounding.TieRule!=CashTieRule.ToEven||
             sides.Where((s,n)=>s.Contribution.SideId!=instrument.Sides[n].Side.Id).Any())
             throw new MarketDataException("swap_par_rate","Scheduled par pricing requires the exact fixed/floating evaluation and explicit precision with ties to even.");
-        var unit=((FixedSide)instrument.First.Periods[0]).Price.Unit;
+        var unit=((FixedSide)instrument.First).Price.Unit;
         return SolveScheduledPar(sides,unit,rounding);
     }
     public static ParSwapRate ParRate(FinancialSwapValue value,AmountFormat rounding)
@@ -289,7 +297,7 @@ public static class FinancialSwapValuation
     private static IEnumerable<SideSchedule> Schedules(SidedInstrument instrument)
     {
         var sides=instrument.Sides.Select(m=>m.Side).ToArray();
-        if(sides.GroupBy(s=>s.Id).Any(g=>g.Select(DefinitionIdentity.For).Distinct().Count()!=1||g.Select(s=>s.PricingBindingIdentity).Distinct().Count()!=1||g.OfType<FloatingSide>().Select(s=>s.CustomProjection).Distinct().Count()>1))
+        if(sides.GroupBy(s=>s.Id).Any(g=>g.Select(DefinitionIdentity.For).Distinct().Count()!=1||g.Select(s=>s.PricingBindingIdentity).Distinct().Count()!=1))
             throw new MarketDataException("side_definition","One side identity cannot resolve to conflicting economic terms or pricing bindings.");
         return sides.DistinctBy(s=>s.Id).Select(s=>s.GenerateSchedule());
     }

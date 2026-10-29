@@ -3,11 +3,30 @@ import json
 from uuid import uuid4
 from preview_client import PreviewClient
 from preview_fixture import trade_booking
+from exact_values import instant
 from check_ppa_bookings_http import profile_terms
 
 POLICIES = dict(contract='ppa_monthly_gross_fixed_v1', evidence='verified_meter_head_v1',
     rounding='cash_2dp_half_even_per_occurrence_v1', approval='two_principals_exact_action_24h_v1',
     correction='restate_rounded_occurrence_v1', adjustmentDue='original_due_for_adjustment_v1')
+
+
+BOOK_AT='2020-10-01T00:00:00Z'
+AMEND_AT='2020-12-16T00:00:00Z'
+
+
+def prepare(manifest):
+    """Explicit unpriced authoring frames retain this fixture's business dates.
+
+    Booking consumes sealed definitions/reference terms, not a price snapshot.
+    No later quote is relabelled as known before the November delivery.
+    """
+    from copy import deepcopy
+    result=deepcopy(manifest)
+    for at in (BOOK_AT,AMEND_AT):
+        assert not any(frame['at']==at for frame in result['frames']), at
+        result['frames'].append(dict(at=at,observationIds=[],curveContracts={}))
+    return result
 
 
 def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_only=False):
@@ -17,6 +36,23 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
             f"'https://preview.invalid','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
         return query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');"+sql+'COMMIT;')
     def encoded(value): return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
+    client=PreviewClient(url);client.bootstrap();client.call('profile',{'profile':'trader'});client.bootstrap()
+    workspace_frames=client.call('workspace')
+    def authoring_frame(at):
+        frames=[frame for frame in workspace_frames['frames']
+            if frame['id'] in workspace_frames['initialFrameIds'] and instant(frame['at'])==instant(at)]
+        assert len(frames)==1, f'The fixture requires one exact original authoring frame at {at}'
+        return frames[0]['id']
+    book_frame=authoring_frame(BOOK_AT)
+    amend_frame=authoring_frame(AMEND_AT)
+    for selected,at in ((book_frame,BOOK_AT),(amend_frame,AMEND_AT)):
+        qualified=client.call('ppa/catalog',dict(snapshotId=selected))
+        assert instant(qualified['authoringContext']['effectiveAt'])==instant(at), qualified['authoringContext']
+    def save(action,change):
+        request={**change,'operationId':str(uuid4())}
+        result=client.call('ppa/'+action,request)
+        assert client.call('ppa/'+action,request)==result, 'Native operation retries must retain one booking outcome'
+        return result
     terms=profile_terms(manifest)
     terms['delivery'].update(**{'from':'2020-11-01','to':'2020-12-01'})
     asset='test_asset_c' if quarter_only else 'test_asset_b'
@@ -27,15 +63,15 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     cadence=15 if quarter_only else 60
     terms['delivery']['intervalMinutes']=cadence
     terms['memberships'][0]['side']['quantity'].update(kind='volume',sources=[f'{asset}_{cadence}'],stage='generated',capacity=None,energy=None,hours=None)
-    payload=dict(action='booked',snapshotId=str(uuid4()),tradeId=None,expectedRevision=None,
-        bookId='d1000000-0000-0000-0000-000000000001',valuationAt='2020-10-01T00:00:00Z',effectiveAt='2020-10-01T00:00:00Z',boundaryAt=None,
+    payload=dict(snapshotId=book_frame,tradeId=None,expectedRevision=None,
+        bookId='d1000000-0000-0000-0000-000000000001',boundaryAt=None,
         coverageFrom='2020-11-01T04:00:00Z',coverageTo='2020-12-01T05:00:00Z',quantity='80',reason='Synthetic settlement preview',memo='',booking=trade_booking(),terms=terms)
     if quarter_only:payload.update(coverageFrom='2020-11-01T05:00:00Z',coverageTo='2020-12-01T06:00:00Z')
-    booked=json.loads(runtime(f"SELECT security.save_ppa_booking('{catalog}','{uuid4()}',{encoded(payload)});"))
+    booked=save('book',payload)
+    assert query(f"SELECT effective_at=TIMESTAMPTZ '{BOOK_AT}' FROM trading.ppa_trade_revisions WHERE trade_id='{booked['tradeId']}' AND revision=1;")=='t'
     binding=booked['bindings'][0]
     envelope=json.loads(runtime(f"SELECT security.read_ppa_terms('{catalog}','{binding['instrumentId']}');"))
     side=next(s for s in envelope['sideIds'] if s['role']=='strike_payment')
-    client=PreviewClient(url);client.bootstrap();client.call('profile',{'profile':'trader'});client.bootstrap()
     frame=next(f for f in client.call('ppa/frames') if f['at'].startswith('2020-12-15'))['id']
     client.bootstrap()
     mapping=dict(bindingId=binding['bindingId'],originRevision=1,instrumentId=binding['instrumentId'],sideId=side['sideId'],role='strike_payment',ordinal=0)
@@ -93,7 +129,7 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     rev=revise(['12.5' if quarter_only else '50']*len(grid));publish(rev)
     started=time.monotonic();base=preview();elapsed=time.monotonic()-started;old=cutoff()
     from check_indexed_settlement_preview import run_checks as indexed_checks
-    indexed_checks(client,query,manifest,runtime,encoded,payload,frame,grid,cutoff,revise,publish,cadence)
+    indexed_checks(client,query,manifest,runtime,payload,frame,grid,cutoff,revise,publish,cadence,save)
     if quarter_only:
         oracle=sum(gross_cash((F('12.5'),),(F(100),),F(80),F(40),-1) for _ in grid)
         check('full native quarter-hour DST HTTP preview uses MWh once',len(base['components'])==2884 and fraction(base['exactCash'])==oracle==-1153600)
@@ -130,15 +166,13 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     check('unknown request fields cannot supply a caller component manifest',preview(expected=400,components=[])['code']=='request_format')
     replay=client.call('settlement/payment-lineages/plan',body);check('repeated plan retains canonical lineage',replay['lineage']['id']==lineage)
     from copy import deepcopy
-    def save(change):
-        return json.loads(runtime(f"SELECT security.save_ppa_booking('{catalog}','{uuid4()}',{encoded(change)});"))
     def mapping_for(b,revision):
         e=json.loads(runtime(f"SELECT security.read_ppa_terms('{catalog}','{b['instrumentId']}');"))
         side=next(s for s in e['sideIds'] if s['role']=='strike_payment')
         return dict(bindingId=b['bindingId'],originRevision=revision,instrumentId=b['instrumentId'],sideId=side['sideId'],role='strike_payment',ordinal=0)
-    amendment=deepcopy(payload);amendment.update(action='amended',tradeId=booked['tradeId'],expectedRevision=1,boundaryAt=grid[2][0].isoformat(),coverageFrom=grid[2][0].isoformat(),quantity='60')
+    amendment=deepcopy(payload);amendment.update(tradeId=booked['tradeId'],expectedRevision=1,boundaryAt=grid[2][0].isoformat(),coverageFrom=grid[2][0].isoformat(),quantity='60')
     amendment['terms']['memberships'][1]['side']['fixedPrice']['price']='50'
-    changed=save(amendment);tail=next(b for b in changed['bindings'] if b['bindingId']!=binding['bindingId'])
+    changed=save('amend',amendment);tail=next(b for b in changed['bindings'] if b['bindingId']!=binding['bindingId'])
     check('unmapped amendment refuses entire occurrence',preview(expected=422,expectedRevision=2)['code']=='settlement_manifest')
     body2={**body,'expectedRevision':2,'mappings':[mapping,mapping_for(tail,2)]}
     assert client.call('settlement/payment-lineages/plan',body2)['lineage']['id']==lineage
@@ -146,17 +180,18 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     expected=sum(gross_cash((F(0 if i==0 else 51),),(F(100),),F(80 if i<2 else 60),F(40 if i<2 else 50),-1) for i in range(721))
     check('one certified amended head retains prefix and replacement original terms',fraction(amended['exactCash'])==expected and {c['originalMw'] for c in amended['components']}=={'80','60'} and len(amended['components'])==721)
     check('old certified trade and evidence remain replayable',fraction(preview(known=old)['exactCash'])==oracle)
-    termination={**amendment,'action':'terminated','expectedRevision':2,'boundaryAt':grid[4][0].isoformat(),'coverageFrom':None,'coverageTo':None,'quantity':None,'terms':None}
-    save(termination);ended=preview(expectedRevision=3)
+    termination={**amendment,'expectedRevision':2,'boundaryAt':grid[4][0].isoformat(),'coverageFrom':None,'coverageTo':None,'quantity':None,'terms':None}
+    save('terminate',termination);ended=preview(expectedRevision=3)
     expected_end=sum(gross_cash((F(0 if i==0 else 51),),(F(100),),F(80 if i<2 else 60),F(40 if i<2 else 50),-1) for i in range(4))
     check('termination preserves originated four-cell manifest and original due date',len(ended['components'])==4 and fraction(ended['exactCash'])==expected_end and ended['due']['at']==base['due']['at'])
     check('canonical occurrence identity survives amendment and termination',ended['occurrence']==base['occurrence']==amended['occurrence'])
     # A new lineage first planned after a later amendment must still allow the
     # earlier-business November head under later knowledge of the assignment.
     historical_payload=deepcopy(payload);historical_payload['terms']['delivery']['to']='2021-01-01';historical_payload['coverageTo']='2021-01-01T05:00:00Z'
-    hbook=save(historical_payload);hbinding=hbook['bindings'][0];horigin=mapping_for(hbinding,1)
-    ha=deepcopy(historical_payload);ha.update(action='amended',tradeId=hbook['tradeId'],expectedRevision=1,valuationAt='2020-12-16T00:00:00Z',effectiveAt='2020-12-16T00:00:00Z',boundaryAt='2020-12-20T05:00:00Z',coverageFrom='2020-12-20T05:00:00Z',quantity='60')
-    ha['terms']['memberships'][1]['side']['fixedPrice']['price']='50';hamended=save(ha)
+    hbook=save('book',historical_payload);hbinding=hbook['bindings'][0];horigin=mapping_for(hbinding,1)
+    ha=deepcopy(historical_payload);ha.update(snapshotId=amend_frame,tradeId=hbook['tradeId'],expectedRevision=1,boundaryAt='2020-12-20T05:00:00Z',coverageFrom='2020-12-20T05:00:00Z',quantity='60')
+    ha['terms']['memberships'][1]['side']['fixedPrice']['price']='50';hamended=save('amend',ha)
+    assert query(f"SELECT effective_at=TIMESTAMPTZ '{AMEND_AT}' FROM trading.ppa_trade_revisions WHERE trade_id='{hbook['tradeId']}' AND revision=2;")=='t'
     htail=next(b for b in hamended['bindings'] if b['bindingId']!=hbinding['bindingId'])
     later_frame=next(f for f in client.call('ppa/frames') if f['at'].startswith('2020-12-18'))['id']
     hp=client.call('settlement/payment-lineages/plan',dict(snapshotId=later_frame,tradeId=hbook['tradeId'],expectedRevision=2,original=horigin,mappings=[horigin,mapping_for(htail,2)],policies=POLICIES))
@@ -164,7 +199,7 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     check('late planned mapping retains originating business time',earlier['proposalPins']['tradeHead']['revision']==1 and len(earlier['components'])==721)
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
-    racebook=save(payload);racebinding=racebook['bindings'][0];raceorigin=mapping_for(racebinding,1);barrier=Barrier(2)
+    racebook=save('book',payload);racebinding=racebook['bindings'][0];raceorigin=mapping_for(racebinding,1);barrier=Barrier(2)
     def race(_):
         barrier.wait(timeout=10)
         return json.loads(runtime(f"SELECT settlement_data.plan_payment_lineage('{catalog}','{racebook['tradeId']}',1,security.capture_date_context('{catalog}','2020-12-15',NULL),'2020-12-15T16:00:00Z',{encoded(raceorigin)},{encoded([raceorigin])},{encoded(POLICIES)});"))
@@ -175,11 +210,11 @@ def run_checks(url, query, manifest, dotnet, temporary, environment, *, quarter_
     bad={**body,'mappings':[mapping]*33}
     check('binding-work limit refuses before planning',client.call('settlement/payment-lineages/plan',bad,expected=422)['code']=='settlement_manifest')
     for incompatible in ('due','direction'):
-        fresh=save(payload);first_map=mapping_for(fresh['bindings'][0],1)
+        fresh=save('book',payload);first_map=mapping_for(fresh['bindings'][0],1)
         change=deepcopy(amendment);change['tradeId']=fresh['tradeId'];change['expectedRevision']=1
         if incompatible=='due':change['terms']['memberships'][1]['side']['paymentRule']['dayOfMonth']=11
         else:change['terms']['memberships'][1]['coefficient']='1'
-        altered=save(change);last_binding=next(b for b in altered['bindings'] if b['bindingId']!=fresh['bindings'][0]['bindingId'])
+        altered=save('amend',change);last_binding=next(b for b in altered['bindings'] if b['bindingId']!=fresh['bindings'][0]['bindingId'])
         command=dict(snapshotId=frame,tradeId=fresh['tradeId'],expectedRevision=2,original=first_map,mappings=[first_map,mapping_for(last_binding,2)],policies=POLICIES)
         check('incompatible '+incompatible+' refuses atomic lineage planning',client.call('settlement/payment-lineages/plan',command,expected=422)['code']=='settlement_incompatible' and query(f"SELECT count(*) FROM settlement_data.payment_lineages WHERE catalog_id='{catalog}' AND trade_id='{fresh['tradeId']}';")=='0')
     for table,selected_catalog in [('market_catalog_scopes',catalog),('reference_catalog_scopes',manifest['referenceCatalogId'])]:

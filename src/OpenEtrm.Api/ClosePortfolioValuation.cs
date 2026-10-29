@@ -63,7 +63,9 @@ public sealed class ClosePortfolioValuation(PreviewDatabase database)
         var frame=retainedFrame??new InputFrame(snapshot.Id,"Portfolio inputs",snapshot.ValuationAt,
             snapshot.Selections.Select(s=>s.Observation.Key.Id).ToImmutableArray(),ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,
             exact.ContextId,snapshot.Selections.Where(s=>s.Input.Use==InputUse.FrozenFact).Select(s=>s.Observation.Key.Id).ToImmutableArray());
-        if(!data.Snapshot(frame).HasSameInputs(snapshot))
+        var known=SchedulePreview.ParseAt(exact.KnownAt);
+        snapshot=MarketSnapshotBinding.Bind(snapshot,exact.ContextId!.Value,known);
+        if(!MarketSnapshotBinding.Bind(data.Snapshot(frame),exact.ContextId.Value,known).HasSameInputs(snapshot))
             throw new MarketDataException("portfolio_context","Every selected observation and use must match the exact authorized snapshot inputs.");
         // This consumer has no PPA valuation adapter. Trusted complete-scope
         // admission checks every retained head and its current reference access

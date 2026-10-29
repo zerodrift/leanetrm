@@ -83,7 +83,9 @@ def run_checks(url, query, manifest):
                                                       'knownAt': known_at, 'resolve': resolve, 'aggregate': aggregate, 'shock':shock}, expected=expected)
 
     def refused(error, **request):
-        return values(expected=422, **request)['code'] == error
+        actual = values(expected=422, **request)['code']
+        assert actual == error, f'HTTP422 refusal: expected {error}, received {actual}'
+        return True
 
     def period(snapshot):
         return client.call('period-curves/values',{'snapshotId':snapshot,'curve':curves['capacity'],'from':'2021-01-01T00:00:00Z','to':'2021-02-01T00:00:00Z'})
@@ -261,8 +263,9 @@ def run_checks(url, query, manifest):
           len(curve(shaped, NOVEMBER, DECEMBER, client.call('interval-series')['knownAt'])['points']) == 721)
     check('a shaped curve needs an explicit shape cutoff and a marked curve takes none',
           refused('interval_curve_cutoff', code=shaped, start=NOVEMBER, end=DECEMBER) and refused('interval_curve_cutoff', known_at=first_cut))
-    check('a window outside every block is not partitioned',
-          refused('interval_block_partition', code=shaped, start='2031-06-01T04:00:00Z', end='2031-06-02T04:00:00Z', known_at=first_cut))
+    # D252 distinguishes missing market coverage from an ambiguous overlapping partition.
+    check('a window outside every block has no market coverage',
+          refused('interval_block_coverage', code=shaped, start='2031-06-01T04:00:00Z', end='2031-06-02T04:00:00Z', known_at=first_cut))
 
     before = client.call('interval-series')['knownAt']
     collector = Collector(query, manifest, {'pjm': {'provider': 'PJM', 'sourceId': curves['source'], 'clock': 'synthetic_eastern'}})

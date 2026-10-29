@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Calculation;
+using OpenEtrm.MarketData.Power;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -15,16 +16,20 @@ public readonly record struct SidePaymentKey(Guid SideId, int Ordinal, DateTimeO
         if(snapshot.ValuationAt>=PaymentAt)throw new MarketDataException("side_payment_due","A due side value requires explicit lifecycle treatment, not a discount factor.");
     }
 }
-public sealed record IndexPriceLookup(ReferenceKey Index, QuoteSpecification Quote, CurveRequest Market,
+public sealed record IndexPriceLookup(PriceSettlementSelection Settlement, QuoteSpecification Quote, CurveRequest Market,
     MarketContract Contract, Quantity? AveragingQuantity, IndexFixing? Fixing = null,
     CustomCurveProjectionBinding? CustomProjection = null)
 {
+    public ReferenceKey Index => Settlement.SelectedIndex;
     public CurveRequest ProjectionRequest => CustomProjection?.Request(Market) ?? Market;
 }
 public enum SchedulePriceState { Fixed = 1, Projected, Actual }
 public enum DiscountFactorSource { Explicit = 1, CurrencyDefault, Undiscounted }
 public sealed record SidePaymentFactor(SidePaymentKey Payment, ExactDecimal DiscountFactor,
-    MarketSnapshot Snapshot, DiscountFactorSource Source);
+    MarketSnapshot Snapshot, DiscountFactorSource Source)
+{
+    public RateDiscountDefinition? RateDefinition { get; init; }
+}
 
 public interface ISideDiscounting
 {
@@ -64,7 +69,8 @@ public sealed class ExplicitDiscounting : ISideDiscounting
 public sealed record SchedulePriceTerm
 {
     public ExactDecimal Weight { get; }
-    public UnitPrice? FixedPrice { get; }
+    public FixedPriceTerm? FixedPrice { get; }
+    public DateOnly? FixedPriceDate { get; }
     public IndexPriceLookup? Lookup { get; }
     public UnitPrice? Spread { get; }
     internal SchedulePriceTerm(ExactDecimal weight, UnitPrice? fixedPrice, IndexPriceLookup? lookup,UnitPrice? spread=null)
@@ -72,7 +78,13 @@ public sealed record SchedulePriceTerm
         if (weight.CompareTo(default) <= 0 || (fixedPrice is null) == (lookup is null))
             throw new MarketDataException("schedule_price", "A price term requires a positive weight and exactly one fixed price or exact index lookup.");
         if(spread is not null&&(lookup is null||spread.Unit!=PriceUnit.FromQuote(lookup.Quote)))throw new MarketDataException("swap_spread","A floating spread requires its exact index price unit.");
-        Weight = weight; FixedPrice = fixedPrice; Lookup = lookup; Spread=spread;
+        Weight = weight; FixedPrice = fixedPrice is null?null:new FlatPrice(fixedPrice); Lookup = lookup; Spread=spread;
+    }
+    internal SchedulePriceTerm(ExactDecimal weight,FixedPriceTerm fixedPrice,DateOnly operatingDate)
+    {
+        if(weight.CompareTo(default)<=0||fixedPrice is null)
+            throw new MarketDataException("schedule_price","A fixed price reference requires an exact term, operating date and positive weight.");
+        Weight=weight;FixedPrice=fixedPrice;FixedPriceDate=operatingDate;
     }
 }
 
@@ -96,10 +108,14 @@ public sealed record SchedulePriceApplication
         new(TargetFrom,TargetTo,PriceOrdinal,Weight,MappingRule),Price);
 }
 
-public sealed record SidePaymentPlan
+internal sealed record DatedScheduleRow
 {
+    internal RetainedScheduleRowReference? RetainedReference { get; init; }
     public SidePaymentKey Key { get; }
     public Guid SideId => Key.SideId;
+    public int Ordinal { get; }
+    public ScheduleDeliveryWindow DeliveryWindow { get; }
+    public ScheduleQuantityReference QuantityReference { get; }
     public DateOnly DeliveryFrom { get; }
     public DateOnly DeliveryTo { get; }
     public DateTimeOffset PaymentAt => Key.PaymentAt;
@@ -109,22 +125,23 @@ public sealed record SidePaymentPlan
     public ReferenceKey Currency => Key.Currency;
     public Quantity UnitQuantity { get; }
     // Allocation per external strip unit; fractions remain exact through cash/PV.
-    public ExactQuantity AllocatedQuantity { get; }
+    private readonly ExactQuantity? allocation;
+    public ExactQuantity AllocatedQuantity => allocation??throw new MarketDataException("schedule_quantity_reference","An interval row's quantity is resolved from its declared source in the valuation graph.");
     public DateTimeOffset? FirstFixingAt { get; }
     public FloatingAveraging? Averaging { get; }
     public SwapObservationCalendar? Calendar { get; }
     public ImmutableArray<SchedulePriceTerm> Prices { get; }
     public ImmutableArray<SchedulePriceApplication> Applications { get; }
     public string Implementation { get; }
-    internal SidePaymentPlan(Guid sideId, DateOnly from, DateOnly to, DateTimeOffset paymentAt,
+    internal DatedScheduleRow(Guid sideId, DateOnly from, DateOnly to, DateTimeOffset paymentAt,
         ReferenceKey currency, Quantity unitQuantity, DateTimeOffset? firstFixingAt,
         FloatingAveraging? averaging, SwapObservationCalendar? calendar,
         ImmutableArray<SchedulePriceTerm> prices, string implementation,ImmutableArray<FloatingObservationApplication> applications,
         string mappingRule,GeneratedPaymentDate? generatedDate=null,PaymentRule? paymentConvention=null)
     {
         if((generatedDate is null)!=(paymentConvention is null))throw new MarketDataException("payment_rule","Generated dates retain their originating payment convention.");
-        PaymentConvention=paymentConvention; GeneratedDate=generatedDate; Key = new(sideId, 0, paymentAt, currency); DeliveryFrom = from; DeliveryTo = to;
-        UnitQuantity = unitQuantity; AllocatedQuantity = new(1, 1, unitQuantity.Specification); FirstFixingAt = firstFixingAt;
+        PaymentConvention=paymentConvention; GeneratedDate=generatedDate; Key = new(sideId, 0, paymentAt, currency); DeliveryFrom = from; DeliveryTo = to;DeliveryWindow=new DatedScheduleWindow(from,to);
+        UnitQuantity = unitQuantity; allocation = new(1, 1, unitQuantity.Specification); QuantityReference=new ContractualScheduleQuantity(allocation); FirstFixingAt = firstFixingAt;
         Averaging = averaging; Calendar = calendar; Prices = prices; Implementation = implementation;
         if(prices.IsDefaultOrEmpty||applications.IsDefaultOrEmpty||string.IsNullOrWhiteSpace(mappingRule)||
             applications.Any(a=>a is null||a.ObservationOrdinal<0||a.ObservationOrdinal>=prices.Length||
@@ -134,7 +151,7 @@ public sealed record SidePaymentPlan
             throw new MarketDataException("side_price_applications","Every exact price term requires its complete positive target applications and mapping rule.");
         Applications=applications.Select(a=>new SchedulePriceApplication(Key,a,prices[a.ObservationOrdinal])).ToImmutableArray();
     }
-    internal SidePaymentPlan(SidePaymentPlan period, Guid sideId, int ordinal, ExactQuantity allocation)
+    internal DatedScheduleRow(DatedScheduleRow period, Guid sideId, int ordinal, ExactQuantity allocation)
         : this(sideId, period.DeliveryFrom, period.DeliveryTo, period.PaymentAt, period.Currency,
             period.UnitQuantity, period.FirstFixingAt, period.Averaging, period.Calendar, period.Prices,
             period.Implementation,period.Applications.Select(a=>new FloatingObservationApplication(a.TargetFrom,a.TargetTo,a.PriceOrdinal,a.Weight,a.MappingRule)).ToImmutableArray(),
@@ -142,7 +159,7 @@ public sealed record SidePaymentPlan
     {
         if (allocation.Specification != UnitQuantity.Specification || allocation.NumeratorValue.Sign <= 0 || ordinal < 0)
             throw new MarketDataException("monthly_quantity_basis", "Each monthly payment requires a positive exact allocation in the leg quantity unit.");
-        Key = new(sideId, ordinal, period.PaymentAt, period.Currency); AllocatedQuantity = allocation;
+        Key = new(sideId, ordinal, period.PaymentAt, period.Currency); Ordinal=ordinal;this.allocation = allocation;QuantityReference=new ContractualScheduleQuantity(allocation);
         Applications=Applications.Select(a=>a.Rebind(Key)).ToImmutableArray();
     }
 }
@@ -154,6 +171,7 @@ public sealed record ResolvedSchedulePrice
     public UnitPrice Price => ExactPrice.ToUnitPriceExact();
     public ImmutableHashSet<ObservationKey> Lineage { get; }
     public SchedulePriceState State { get; }
+    public PriceSettlementSelection? Settlement => Term.Lookup?.Settlement;
     internal ResolvedSchedulePrice(SchedulePriceTerm term, UnitPrice price, ImmutableHashSet<ObservationKey> lineage,
         SchedulePriceState? state = null)
         : this(term, ExactUnitPrice.FromPrice(price), lineage, state) { }
@@ -234,37 +252,13 @@ public sealed partial class SideValuationContext
     }
     internal ResolvedSchedulePrice Resolve(SchedulePriceTerm term)
     {
-        if (term.FixedPrice is { } fixedPrice) return new(term, fixedPrice, []);
+        if (term.FixedPrice is { } fixedPrice) return new(term, fixedPrice.At(term.FixedPriceDate??
+            (fixedPrice is FlatPrice?DateOnly.MinValue:throw new MarketDataException("schedule_price","A dated fixed price term requires its operating date."))), []);
         if (market is null) throw new MarketDataException("side_market_inputs", "This side requires its declared built commodity market inputs.");
         var lookup = term.Lookup!;
-        market.Model.RequireIndexProjection(lookup.Market, lookup.Contract, lookup.Index, lookup.Quote);
-        if (lookup.Fixing is { } fixing)
-        {
-            market.Model.RequireIndexFixing(lookup, fixing);
-            if (Snapshot.ValuationAt >= fixing.FixingAt)
-            {
-                if (!market.SelectedInputs.TryGetValue(new(fixing.Series, InputUse.FrozenFact), out var selected))
-                    throw new MarketDataException("index_fixing_missing", "The exact published index fixing is required; a forecast cannot replace it.");
-                var observation = selected.Observation;
-                if (observation.Series != fixing.Series || observation.Source != fixing.Source ||
-                    observation.Role != ObservationRole.IndexFixing || observation.State != PublicationState.Final ||
-                    !TradingInstant.IsSupported(observation.ObservedAt) || observation.ObservedAt < fixing.FixingAt || observation.ObservedAt > Snapshot.MarketCutoff)
-                    throw new MarketDataException("index_fixing_selection", "The pinned actual must match the qualified series, source, final role and publication interval.");
-                var actual=new UnitPrice(observation.Value, lookup.Quote);
-                return new(term,term.Spread is {} actualSpread?actual.Add(actualSpread):actual,ImmutableHashSet.Create(observation.Key),SchedulePriceState.Actual);
-            }
-        }
-        var projection = lookup.ProjectionRequest;
-        if (lookup.CustomProjection is not null && (exactPrices is null || permitted is not null && !permitted.Contains(projection)))
-            throw new MarketDataException("custom_projection", "A saved custom projection requires its exact prepared connected pricing inputs.");
-        if (permitted is not null && !permitted.Contains(projection))
-            throw new MarketDataException("risk_dependency", "A side requested an undeclared market input.");
-        if (exactPrices is null || exactLineage is null)
-            throw new MarketDataException("missing_observation", "Every exact scheduled index projection is required in the selected market scenario.");
-        var price = exactPrices(projection);
-        if (price.Unit != PriceUnit.FromQuote(lookup.Quote))
-            throw new MarketDataException("custom_projection", "The connected price must retain the contractual index quote unit and exact observation lineage.");
-        return new(term,term.Spread is {} spread?price.Add(ExactUnitPrice.FromPrice(spread)):price,exactLineage(projection));
+        var selected = PeriodPriceSelector.Resolve(market, lookup, ExactPrice, request =>
+            exactLineage is not null ? exactLineage(request) : throw new MarketDataException("risk_dependency", "The selected projection lineage is unavailable."));
+        return new(term,term.Spread is {} spread?selected.Price.Add(ExactUnitPrice.FromPrice(spread)):selected.Price,selected.Lineage,selected.State);
     }
 }
 
@@ -287,14 +281,14 @@ public sealed record SideApplicationValue
 
 public record SidePaymentCash
 {
-    public SidePaymentPlan Plan { get; }
+    public ScheduleRow Plan { get; }
     public ImmutableArray<ResolvedSchedulePrice> Prices { get; }
     public ExactMoney CashAmount { get; }
     public ImmutableArray<SideResetValue> Resets { get; }
     public ImmutableArray<SideApplicationValue> Applications { get; }
     // The sum may exceed the entered-decimal range while its mean remains valid.
     public string ObservationWeightTotal { get; }
-    internal SidePaymentCash(SidePaymentPlan plan, ImmutableArray<ResolvedSchedulePrice> prices)
+    internal SidePaymentCash(ScheduleRow plan, ImmutableArray<ResolvedSchedulePrice> prices)
     {
         Plan = plan; Prices = prices;
         var weight = prices.Aggregate(System.Numerics.BigInteger.Zero, (sum, price) => sum + price.Term.Weight.ScaledValue);
@@ -315,18 +309,13 @@ public record SidePaymentCash
             .Select(a=>a.CashContribution).Aggregate((a,b)=>a.Add(b)))).ToImmutableArray();
         CashAmount=Applications.Select(a=>a.CashContribution).Aggregate((a,b)=>a.Add(b));
     }
-}
-
-public sealed record SidePaymentValue : SidePaymentCash
-{
-    public SidePaymentFactor Discount { get; }
-    public ExactMoney PresentValue { get; }
-    internal SidePaymentValue(SidePaymentPlan plan, ImmutableArray<ResolvedSchedulePrice> prices, SidePaymentFactor discount)
-        : base(plan, prices)
+    private SidePaymentCash(SidePaymentCash value,ExactDecimal factor)
     {
-        Discount = discount;
-        PresentValue = CashAmount.Scale(discount.DiscountFactor);
+        Plan=value.Plan;Prices=value.Prices;CashAmount=value.CashAmount.Scale(factor);ObservationWeightTotal=value.ObservationWeightTotal;
+        Resets=[..value.Resets.Select(r=>new SideResetValue(r.Price,r.CashContribution.Scale(factor)))];
+        Applications=[..value.Applications.Select(a=>new SideApplicationValue(a.Application,a.Price,a.CashContribution.Scale(factor)))];
     }
+    internal SidePaymentCash Scale(ExactDecimal factor)=>new(this,factor);
 }
 
 public abstract record SideSchedule
@@ -336,6 +325,8 @@ public abstract record SideSchedule
     public Quantity UnitQuantity { get; }
     public string Implementation { get; }
     public abstract ImmutableArray<CurveRequest> Dependencies { get; }
+    public abstract IReadOnlyList<ScheduleRow> Rows { get; }
+    public abstract SideValuation Evaluate(SideValuationContext context);
     public virtual ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)=>Dependencies;
     protected SideSchedule(Guid sideId,ReferenceKey currency,Quantity unitQuantity,string implementation)
     {SideId=sideId;Currency=currency;UnitQuantity=unitQuantity;Implementation=implementation;}
@@ -343,23 +334,23 @@ public abstract record SideSchedule
 
 public sealed record SidePaymentSchedule : SideSchedule
 {
-    public ImmutableArray<SidePaymentPlan> Payments { get; }
+    public ImmutableArray<ScheduleRow> Payments { get; }
+    public override IReadOnlyList<ScheduleRow> Rows=>Payments;
     public override ImmutableArray<CurveRequest> Dependencies => Payments.SelectMany(p => p.Prices)
         .Where(p => p.Lookup is not null).Select(p => p.Lookup!.ProjectionRequest).Distinct().ToImmutableArray();
     public override ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot)
     {
         if (snapshot is null || !TradingInstant.IsSupported(snapshot.ValuationAt))
             throw new MarketDataException("side_context", "An explicit supported valuation instant is required.");
-        return Payments.SelectMany(p => p.Prices).Where(p => p.Lookup is { } lookup &&
-                (lookup.Fixing is null || snapshot.ValuationAt < lookup.Fixing.FixingAt))
-            .Select(p => p.Lookup!.ProjectionRequest).Distinct().ToImmutableArray();
+        return Payments.SelectMany(p => p.Prices).Where(p => p.Lookup is not null)
+            .Select(p => PeriodPriceSelector.ProjectionAt(p.Lookup!, snapshot)).OfType<CurveRequest>().Distinct().ToImmutableArray();
     }
-    internal SidePaymentSchedule(SidePaymentPlan payment)
+    internal SidePaymentSchedule(ScheduleRow payment)
         : this(payment.SideId, payment.Currency, payment.UnitQuantity, payment.Implementation, [payment]) { }
     internal SidePaymentSchedule(Guid sideId, ReferenceKey currency, Quantity unitQuantity, string implementation,
-        ImmutableArray<SidePaymentPlan> payments) : base(sideId,currency,unitQuantity,implementation)
+        ImmutableArray<ScheduleRow> payments) : base(sideId,currency,unitQuantity,implementation)
     {
-        if (payments.IsDefaultOrEmpty || payments.Where((p, n) => p is null || p.Key.SideId != sideId ||
+        if (payments.IsDefaultOrEmpty || payments.Where((p, n) => !p.IsValid || p.Key.SideId != sideId ||
                 p.Key.Ordinal != n || p.Currency != currency || p.UnitQuantity != unitQuantity).Any())
             throw new MarketDataException("side_payment_schedule", "Every payment must retain its leg, ordinal, currency and normalized quantity unit.");
         Payments = payments;
@@ -370,18 +361,16 @@ public sealed record SidePaymentSchedule : SideSchedule
         if (snapshot is null) throw new MarketDataException("side_context", "An explicit valuation snapshot is required.");
         foreach (var payment in Payments) RequireUndue(payment, snapshot);
     }
-    private static void RequireUndue(SidePaymentPlan payment, MarketSnapshot snapshot)
+    private static void RequireUndue(ScheduleRow payment, MarketSnapshot snapshot)
     {
         if (snapshot.ValuationAt >= payment.PaymentAt)
             throw new MarketDataException("side_payment_due", "A due side payment requires explicit lifecycle state before valuation.");
     }
-    public PaymentSideValuation Evaluate(SideValuationContext context)
+    public override PaymentSideValuation Evaluate(SideValuationContext context)
     {
         if (context is null) throw new MarketDataException("side_context", "A side valuation context is required.");
         var resolved = Payments.Select(payment =>
         {
-            if (payment.FirstFixingAt is { } fixing && context.Snapshot.ValuationAt >= fixing)
-                throw new MarketDataException("swap_fixing_required", "This projection-only side requires retained actual fixings from its first fixing onward.");
             RequireUndue(payment, context.Snapshot);
             return payment.Prices.Select(context.Resolve).ToImmutableArray();
         }).ToImmutableArray();
@@ -393,7 +382,7 @@ public sealed record SidePaymentSchedule : SideSchedule
             !factors.Select(f => f.Payment).ToHashSet().SetEquals(Payments.Select(p => p.Key)))
             throw new MarketDataException("side_payment_factors", "Supply one positive factor for each exact side payment and complete context, without missing or extra rows.");
         var selected = factors.ToDictionary(f => f.Payment);
-        return new(this, context, Payments.Select((p, n) => new SidePaymentValue(p, resolved[n], selected[p.Key])).ToImmutableArray());
+        return new(this, context, Payments.Select((p, n) => new ScheduleRowValue(p, resolved[n], selected[p.Key])).ToImmutableArray());
     }
 }
 
@@ -415,9 +404,9 @@ public abstract record SideValuation
 public sealed record PaymentSideValuation : SideValuation
 {
     public new SidePaymentSchedule Schedule => (SidePaymentSchedule)base.Schedule;
-    public ImmutableArray<SidePaymentValue> Payments { get; }
-    internal PaymentSideValuation(SidePaymentSchedule schedule,SideValuationContext context,ImmutableArray<SidePaymentValue> payments)
-        : base(schedule,context,payments.Select(p=>p.PresentValue).Aggregate((a,b)=>a.Add(b)))
+    public ImmutableArray<ScheduleRowValue> Payments { get; }
+    internal PaymentSideValuation(SidePaymentSchedule schedule,SideValuationContext context,ImmutableArray<ScheduleRowValue> payments)
+        : base(schedule,context,payments.Select(p=>p.RequirePresentValue()).Aggregate((a,b)=>a.Add(b)))
     {Payments=payments;}
 }
 
@@ -464,7 +453,7 @@ public sealed record InstrumentValuation
     {
         if (values.IsDefault || values.Length != instrument.Sides.Length || values.Where((v, n) => v is null ||
             v.SideId != instrument.Sides[n].Side.Id || v.Currency != instrument.Currency ||
-            v.UnitQuantity != (instrument is CrossCommodityScheduledSwap ? ((ScheduledSwapSide)instrument.Sides[n].Side).UnitQuantity : instrument.UnitQuantity)).Any())
+            v.UnitQuantity != (instrument is CrossCommodityScheduledSwap ? ((FloatingSide)instrument.Sides[n].Side).UnitQuantity : instrument.UnitQuantity)).Any())
             throw new MarketDataException("instrument_contribution", "Every membership requires its own exact side valuation in the instrument currency and unit basis.");
         if (values.Any(v => !ReferenceEquals(context, v.Context)))
             throw new MarketDataException("instrument_context", "All side PVs must belong to this valuation operation, including its exact scenario and discount inputs.");

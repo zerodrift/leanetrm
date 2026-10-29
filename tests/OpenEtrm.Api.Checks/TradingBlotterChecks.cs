@@ -55,6 +55,7 @@ static class TradingBlotterChecks
         Validation();
         Partitions();
         Aggregation();
+        RebookingTotals();
     }
 
     private static void Validation()
@@ -143,5 +144,29 @@ static class TradingBlotterChecks
         var none=TradingBlotter.Groups(Pivot(MoneyConvention,["instrumentType"],MoneyMeasures),[Position("future-3","future","mmbtu",null,unavailable:"source_expired")]).Single();
         Require(none["executionPnl"] is null&&Count(none,"tradeCount")==1&&Count(none,"unvaluedPositions")==1,"A group that values no position stated a total instead of null");
         Console.WriteLine("PASS a group that values no position states null, never zero");
+    }
+
+    private static void RebookingTotals()
+    {
+        var good=Position("good","ppa","mwh","17");
+        var missing=Position("missing","ppa","mwh",null,unavailable:"needs_rebooking");
+        var unaffected=Position("other-book","ppa","mwh","29");
+        unaffected["bookId"]="b";unaffected["book"]="Book B";
+        List<JsonObject> rows=[good,missing,unaffected,Position("swap","financial_swap","mwh","5")];
+        var totals=TradingBlotter.Groups(Pivot(MoneyConvention,["instrumentType"],MoneyMeasures),rows);
+        var ppa=Group(totals,"ppa","usd");
+        Require(ppa["presentValue"] is null&&Text(ppa,"valuationUnavailableReason")=="needs_rebooking",
+            "A book needing rebooking must not report the healthy PPA subtotal as its complete value");
+        Require(Count(ppa,"tradeCount")==3&&Count(ppa,"unvaluedPositions")==1&&Text(Group(totals,"financial_swap","usd"),"presentValue")=="5",
+            "Rebooking must retain trade facts and unrelated product values");
+        var books=TradingBlotter.Groups(Pivot(MoneyConvention,["book"],MoneyMeasures),rows).Where(g=>Text(g,"instrumentType")=="ppa").ToArray();
+        Require(books.Single(g=>Text(g,"bookId")=="a")["presentValue"] is null&&Text(books.Single(g=>Text(g,"bookId")=="b"),"presentValue")=="29",
+            "Only a group containing an affected trade loses its complete total");
+        Require(Text(good,"presentValue")=="17"&&Text(unaffected,"presentValue")=="29","Projecting unavailable totals changed a healthy position value");
+        missing["unavailableReason"]="unpriced_delivery";
+        var marketGap=Group(TradingBlotter.Groups(Pivot(MoneyConvention,["instrumentType"],MoneyMeasures),rows),"ppa","usd");
+        Require(Text(marketGap,"presentValue")=="46"&&!marketGap.ContainsKey("valuationUnavailableReason"),
+            "The existing explicitly excluded market-coverage subtotal policy changed");
+        Console.WriteLine("PASS missing schedule totals stay unavailable while healthy positions and unaffected groups keep their exact values");
     }
 }

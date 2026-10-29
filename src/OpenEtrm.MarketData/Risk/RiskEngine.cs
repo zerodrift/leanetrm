@@ -6,7 +6,11 @@ using OpenEtrm.MarketData.CustomCurves;
 namespace OpenEtrm.MarketData.Risk;
 
 public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableArray<CurveRequest> Dependencies,
-    ReferenceKey Quantity,ReferenceKey Currency);
+    ReferenceKey Quantity,ReferenceKey Currency)
+{
+    public string? ScheduleIdentity { get; init; }
+    public ImmutableArray<SettlementProjection> SettlementProjections { get; init; }=[];
+}
 // A pricer sees only its declared inputs. No ambient market lookup or services.
 public sealed class PricingInputs
 {
@@ -56,6 +60,8 @@ public sealed record RiskWork(int PositionCount,int UniqueValuations,int UniqueM
     public int VolumeComputations{get;init;}
     public int UniqueSideCalculations{get;init;}
     public long RowEvaluations{get;init;}
+    public long ScheduleGraphEvaluatedNodes{get;init;}
+    public long ScheduleGraphReusedReads{get;init;}
     public int ResolvedCurveMonths{get;init;}
     public int ReusedCurveMonths{get;init;}
     public int CalibratedBlocks{get;init;}
@@ -247,6 +253,7 @@ public static partial class RiskEngine
                 UniqueInstruments=selected.Sum(n=>prepared.Portfolios[n].Instruments.Length),
                 VolumeComputations=selected.Select(n=>prepared.Portfolios[n].Setup.Interval).OfType<IntervalValuationInputs>().Distinct(ReferenceEqualityComparer.Instance).Cast<IntervalValuationInputs>().Sum(i=>i.VolumeComputations),
                 UniqueSideCalculations=intervals.Sum(w=>w.Sides),RowEvaluations=intervals.Sum(w=>w.Rows),
+                ScheduleGraphEvaluatedNodes=intervals.Sum(w=>w.GraphNodes),ScheduleGraphReusedReads=intervals.Sum(w=>w.GraphReused),
                 ResolvedCurveMonths=intervals.Sum(w=>w.Resolved),ReusedCurveMonths=intervals.Sum(w=>w.Reused),
                 CalibratedBlocks=intervals.Sum(w=>w.Calibrated),ReusedBlocks=intervals.Sum(w=>w.ReusedBlocks)
             };

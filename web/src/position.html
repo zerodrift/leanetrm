@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width,initial-scale=1">
+ <meta name="referrer" content="no-referrer">
+ <title>Trade details · LeanETRM</title>
+ <link rel="stylesheet" href="/app.css">
+ <link rel="stylesheet" href="/vendor/tabulator.css">
+ <link rel="stylesheet" href="/position-window.css">
+</head>
+<body class="position-window" aria-busy="true">
+ <main>
+  <header class="position-window-toolbar">
+   <div><p class="eyebrow">Trade details · read only</p><h1 id="position-window-title">Loading trade…</h1></div>
+   <div><button id="position-window-retry" class="secondary" type="button">Read again</button> <button id="position-window-close" class="secondary" type="button">Close window</button></div>
+  </header>
+  <p id="position-window-context" class="muted"></p>
+  <p id="position-window-error" class="position-window-error" role="alert" hidden></p>
+  <section id="position-window-detail" hidden aria-label="Retained trade details">
+   <div id="position-window-head" class="side-panel-head"></div>
+   <div id="position-window-tabs" class="side-panel-tabs"></div>
+   <div id="position-window-body" class="side-panel-body"><div id="position-window-view" class="side-panel-view"></div><div id="position-window-form" hidden></div></div>
+  </section>
+ </main>
+ <script type="module" src="/position-window.js"></script>
+</body>
+</html>

@@ -53,7 +53,7 @@ internal static class PaymentRuleChecks
         Check("rule-backed side retains generated date and the exact originating convention",()=>{
             var rule=Lag(0,PaymentDayBasis.CalendarDays,calendar,DateRoll.ModifiedFollowing);
             var side=new FixedSide(Guid.NewGuid(),price,quantity,from,to,rule,FixedSide.Implementation,quote);
-            var plan=side.GenerateSchedule().Payments.Single();Equal(plan.PaymentDate,"2021-01-29");
+            var plan=side.GenerateDatedSchedule().Payments.Single();Equal(plan.PaymentDate,"2021-01-29");
             if(plan.PaymentConvention!=rule||plan.GeneratedDate?.Unadjusted!=new DateOnly(2021,1,31))throw new Exception("Date rule evidence was discarded");
         });
         Check("null side rules raise a structured domain error",()=>

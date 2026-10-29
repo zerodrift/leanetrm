@@ -86,7 +86,7 @@ def check_unvalued_lifecycle(c,workspace,trade,run_worker):
     job=c.call('portfolio/risk/jobs',{'requestId':str(uuid4()),'request':risk_request(choices,late_context,factor)})
     run_worker()
     completed=c.call('portfolio/risk/jobs/'+job['id'])
-    assert completed['state']=='completed' and completed['result']['excludedPositions']==report['excludedPositions'],completed['state']
+    assert completed['state']=='completed' and completed['result']['excludedPositions']==report['excludedPositions'],completed
     c.call('profile',{'profile':'trader'})
     print('PASS a swap whose settlement lifecycle the close cannot value states why with no PV or mark and keeps its facts; totals, a risk run, its job and the risk catalog leave it out and list it, and where the close values it, it moves under the held contract targets')
 
@@ -99,7 +99,7 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     index=next(i for i in catalog['indices'] if i['curve']=='base_forward')
     payment=dict(frequency='monthly',rule='days_after_period_end',days=18,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1')
     def floating(start,end):
-        return dict(curve=index['curve'],index=index['index'],currency=index['currencyCode'],deliveryFrom=start,deliveryTo=end,paymentSchedule=payment,resetFrequency='monthly',averagingMethod='none',spread='0')
+        return dict(settlement=dict(mode='curve_target',index=None,projectionPolicy=None),curve=index['curve'],index=index['index'],currency=index['currencyCode'],deliveryFrom=start,deliveryTo=end,paymentSchedule=payment,resetFrequency='monthly',averagingMethod='none',spread='0')
     def fixed(start,end):
         return dict(price='3',currency=index['currencyCode'],deliveryFrom=start,deliveryTo=end,paymentSchedule=payment)
     periods=[('2021-01-01','2021-02-01'),('2021-02-01','2021-03-01')]
@@ -108,7 +108,11 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
             periods=[dict(amount=amount,fixed=fixed(*period) if fixed_side else None,floating=None if fixed_side else floating(*period)) for period,amount in zip(periods,amounts)])
     body={**context,'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'executedAt':None,'quantity':None,'fixedCoefficient':None,'discounting':False,'fixed':None,'floating':None,
           'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'swapType':'scheduled_financial_swap','firstCoefficient':'-1',
-          'scheduled':dict(implementation='independent_scheduled_financial_swap_v1',first=side(True,['100','200']),second=side(False,['150','100'])),**trade_booking()}
+          'scheduled':dict(implementation='whole_term_scheduled_financial_swap_v1',first=side(True,['100','200']),second=side(False,['150','100'])),**trade_booking()}
+    missing_selection=deepcopy(body);del missing_selection['scheduled']['second']['periods'][1]['floating']['settlement']
+    assert c.call('swaps/preview',missing_selection,expected=400)['code']=='request_format'
+    null_selection=deepcopy(body);null_selection['scheduled']['second']['periods'][1]['floating']['settlement']=None
+    assert c.call('swaps/preview',null_selection,expected=422)['code']=='price_settlement_selection'
     def preview(b):return c.call('swaps/preview',b)['valuation']
     value=preview(body)
     # Floating marks are taken from the independently priced one-month contracts;
@@ -184,6 +188,8 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     mixed_prices=deepcopy(body);mixed_prices['operationId']=str(uuid4());mixed_prices['scheduled']['first']['periods'][1]['fixed']['price']='4';mixed_prices['scheduled']['second']['periods'][1]['floating']['curve']='local_gas'
     mixed_saved=c.call('swaps/book',mixed_prices)
     report=c.call('trading/blotter',dict(context={**context,'convention':'trading_workspace_v1'},view=dict(mode='trades',bookIds=[],portfolioIds=[],groupBy=[],measures=[],pivotConvention=None)))
+    uniform=next(row for row in report['holdings'] if row['tradeId']==saved['tradeId'])
+    assert uniform['fixedPrice']=='3',uniform
     reported=next(r for r in report['holdings'] if r['tradeId']==mixed_saved['tradeId'])
     assert reported['quantity'] is None and reported['fixedPrice'] is None and reported['mark'] is None
     assert reported['deliveryTo']=='2021-03-01' and set(reported['projectionCurves'])=={'base_forward','local_gas'}

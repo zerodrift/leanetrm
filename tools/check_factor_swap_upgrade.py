@@ -30,6 +30,7 @@ def run_checks(query,psql,environment,root):
         fixed=dict(price='3',currency='usd',deliveryFrom='2021-01-01',deliveryTo='2021-02-01',paymentSchedule=rule)
         floating=dict(curve='base_forward',index='test_price',currency='usd',deliveryFrom='2021-01-01',deliveryTo='2021-02-01',paymentSchedule=rule,resetFrequency='monthly',averagingMethod='none',spread='0')
         def side(fixed_terms,float_terms):return dict(basis='period_total',quantity=ref,amount=None,allocation=None,priceApplication='period_average_times_quantity_v1',power=None,periods=[dict(amount='100',fixed=fixed_terms,floating=float_terms)])
+        # This isolated database uses the 0106 side-composition contract, before 0115 adds factors.
         body=dict(operationId=str(uuid4()),knowledgeMode='current',convention='independent_side_financial_swap_v2',bookId='d1000000-0000-0000-0000-000000000001',definitionRevisionId=manifest['revisionId'],commodity='test_gas',swapType='scheduled_financial_swap',quantity=None,fixed=None,floating=None,firstFloating=None,fixedCoefficient=None,firstCoefficient='-1',discounting=False,scheduled=dict(implementation='independent_scheduled_financial_swap_v1',first=side(fixed,None),second=side(None,floating)),**trade_booking())
         compiled=[dict(relativeNumerator='1',relativeDenominator='1',clock=None,periods=[dict(numerator='1',denominator='1',fixingPins=[],power=None)])]*2
         def literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"

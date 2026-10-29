@@ -7,20 +7,46 @@ internal static class PpaNormalizationReuseChecks
 {
     private static void Equal<T>(T actual,T expected)
     {if(!EqualityComparer<T>.Default.Equals(actual,expected))throw new Exception($"Expected {expected}; got {actual}.");}
+    private static void Reject(string code,Action action)
+    {try{action();}catch(MarketDataException error)when(error.Code==code){return;}throw new Exception("Expected "+code);}
     public static void Run()
     {
         var f=new PpaAcceptanceFixture();var market=f.Market(f.From.AddDays(-2));
+        var sealedInstrument=f.WithCertificate();
+        var originalSide=(PowerPhysicalSide)sealedInstrument.Memberships[0].Side;
+        var changedNormalization=f.Normalization([new(f.Definitions,"synthetic_other_denominator")]);
+        var changedSide=new PowerPhysicalSide(originalSide.Id,originalSide.Terms with{Normalization=changedNormalization},originalSide.Location);
+        if(DefinitionIdentity.For(changedSide)==DefinitionIdentity.For(originalSide))
+            throw new Exception("A side's economic identity must include all normalization assets, basis and policy.");
+        var rejected=false;
+        try
+        {
+            _=new PpaInstrument(Guid.NewGuid(),f.Definitions,f.Reference,
+                sealedInstrument.Memberships.SetItem(0,sealedInstrument.Memberships[0] with{Side=changedSide}),false,PpaInstrument.Implementation);
+        }
+        catch(MarketDataException error)when(error.Code=="ppa_normalization"){rejected=true;}
+        if(!rejected)throw new Exception("A reusable side's normalization denominator cannot be changed by placing it in another instrument.");
+        var cash=(FixedSide)sealedInstrument.Memberships[1].Side;
+        PpaInstrument WithCashTerms(PpaSideTerms terms)=>new(Guid.NewGuid(),f.Definitions,f.Reference,
+            sealedInstrument.Memberships.SetItem(1,sealedInstrument.Memberships[1] with{Side=new FixedSide(cash.Id,terms,cash.Price)}),false,PpaInstrument.Implementation);
+        Reject("ppa_quantity_reference",()=>WithCashTerms(cash.Terms with{InputPorts=default}));
+        Reject("ppa_quantity_reference",()=>WithCashTerms(cash.Terms with{InputPorts=[]}));
+        Reject("ppa_quantity_unit",()=>WithCashTerms(cash.Terms with{InputPorts=[cash.Terms.InputPorts[0] with{Quantity=f.CapacityDays.Key}]}));
+        Reject("ppa_quantity_unit",()=>WithCashTerms(cash.Terms with{ScheduleQuantity=f.CapacityDays.Key}));
+        Reject("ppa_normalization",()=>new PpaNormalization([f.Asset.Key],f.Capacity.Key,PpaNormalizationPolicy.ContractUnit));
+        Reject("ppa_normalization",()=>new PpaNormalization([],f.Capacity.Key,PpaNormalizationPolicy.SumCapacityInForce));
         PpaInstrument Instrument(VolumeQuantity volume,string strike="0",string conversion="1",ImmutableArray<AssetKey> assets=default)
         {
             var original=f.WithCertificate();
+            var normalization=f.Normalization(assets.IsDefault?[f.Asset.Key]:assets);
             var members=original.Memberships.Select(m=>m with {Side=m.Side switch {
-                PowerPhysicalSide side=>new PowerPhysicalSide(side.Id,side.Terms with {Quantity=volume},side.Location),
-                CertificateDeliverySide side=>new CertificateDeliverySide(side.Id,side.Terms with {Quantity=volume},side.CertificateQuantity,
+                PowerPhysicalSide side=>new PowerPhysicalSide(side.Id,side.Terms with {Quantity=volume,Normalization=normalization},side.Location),
+                CertificateDeliverySide side=>new CertificateDeliverySide(side.Id,side.Terms with {Quantity=volume,Normalization=normalization},side.CertificateQuantity,
                     ExactDecimal.Parse(conversion),side.Eligibility,side.Holding,side.Disposition),
-                PpaFixedSide side when m.Slot.Role==PpaRole.StrikePayment=>new PpaFixedSide(side.Id,side.Terms,new FlatPrice(new(ExactDecimal.Parse(strike),f.EnergyPrice))),
+                FixedSide side=>new FixedSide(side.Id,side.Terms with{Normalization=normalization},m.Slot.Role==PpaRole.StrikePayment?new FlatPrice(new(ExactDecimal.Parse(strike),f.EnergyPrice)):side.Price),
                 _=>m.Side
             }}).ToImmutableArray();
-            return new(Guid.NewGuid(),f.Definitions,f.Reference,members,assets.IsDefault?[f.Asset.Key]:assets,false,PpaInstrument.Implementation);
+            return new(Guid.NewGuid(),f.Definitions,f.Reference,members,false,PpaInstrument.Implementation);
         }
         var first=Instrument(f.Volume);var other=Instrument(f.Volume,"40","2");
         var inputs=f.Prepare(market,[first,other]);
@@ -50,7 +76,7 @@ internal static class PpaNormalizationReuseChecks
         CheckEnergy(stages,market,delivered,new(f.From,f.To),"6489","40");
         var asset=f.Asset with {Key=new(f.Definitions,"synthetic_other_asset")};
         var source=f.Source with {Key=new(f.Definitions,"synthetic_other_source"),Asset=asset.Key,ForecastSeries=Guid.NewGuid(),MeteredSeries=Guid.NewGuid()};
-        var different=Instrument(new([source.Key],QuantityStage.Generated),assets:[asset.Key]);
+        var different=Instrument(new([source.Key],QuantityStage.Generated,f.Energy.Key),assets:[asset.Key]);
         var sources=f.Prepare(market,[first,different],extraSources:[source],extraAssets:[asset],
             extraSeries:[f.Forecast("0.75") with {Id=source.ForecastSeries},f.Meter() with {Id=source.MeteredSeries}]);
         Equal(sources.VolumeNormalizations,1442);

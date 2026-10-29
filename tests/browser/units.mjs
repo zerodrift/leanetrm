@@ -18,12 +18,12 @@ export async function run({command,wait,click,set,submit,check,evaluate,idle,url
  const revision=await evaluate("document.querySelector('#trade-revision').value");
  await click('#trade-amount-format summary');await set('#trade-amount-format-trade-money','1');await click('#trade-amount-format button[data-role="trade"]');
  await check('money display saves independently of a financial amendment',"document.querySelector('#trade-amount-format [role=status]').textContent.includes('saved')&&document.querySelector('#trade-revision').value==="+JSON.stringify(revision));
- await click('#side-panel-close');await click('#futures-refresh');
+ await click('#position-details .position-close');await click('#futures-refresh');
  await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
  await check('noncash quantities stay numeric while prices retain tick places',figures+"&&[...document.querySelectorAll('#desk-positions [tabulator-field=c3] .desk-figure')].some(n=>/^-?\\d+\\.\\d{3}$/.test(n.textContent))");
  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&!document.querySelector('#trade-amount-format').hidden");
  await check('reopening a deal keeps advanced settings closed and the saved money display',"!document.querySelector('#trade-amount-format details').open&&document.querySelector('#trade-amount-format-trade-money').value==='1'");
- await click('#side-panel-close');
+ await click('#position-details .position-close');
  await check('numeric grid retains raw exact strings separately from formatted cell text',"[...document.querySelectorAll('#desk-positions .desk-figure[title]')].some(s=>s.title!==s.textContent&&/^-?\\d+(\\.\\d+)?$/.test(s.title))");
  await click('#nav-reference');await set('#reference-table','units');await wait(idle);
  await check('common unit catalog and quantity conversion controls are visible',"!document.querySelector('#unit-converter').hidden&&document.querySelector('#reference').textContent.includes('MMBtu (IT)')&&document.querySelector('#reference').textContent.includes('bbl (42 US gal)')");

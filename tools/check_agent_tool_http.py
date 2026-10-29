@@ -233,7 +233,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
                                       'bookId': offer['books'][0]['id'], 'quantity': '1000000', 'fixedCoefficient': '-1', 'discounting': True,
                                       'fixed': {**january, 'price': '3', 'paymentSchedule': {**paid, 'rule': 'day_of_following_month', 'days': None,
                                                                                             'dayOfMonth': 18, 'dayBasis': None, 'shortMonth': 'reject'}},
-                                      'floating': {**january, 'curve': index['curve'], 'index': index['index'], 'resetFrequency': 'monthly',
+                                      'floating': {'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, **january, 'curve': index['curve'], 'index': index['index'], 'resetFrequency': 'monthly',
                                                    'averagingMethod': 'none', 'paymentSchedule': {**paid, 'rule': 'days_after_period_end', 'days': 46,
                                                                                                  'dayOfMonth': None, 'dayBasis': 'calendar_days'}}})['tradeId']
     for role, money in (('trade', 1), ('fixed', 2)):

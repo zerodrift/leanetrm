@@ -19,9 +19,12 @@ def run_checks(client, context, catalog, manifest):
     print('PASS observation options: source-first and convention-first use the same exact fixing-period capabilities', flush=True)
 
     source = next(index for index in catalog['indices'] if index['curve'] == 'daily_gas')
-    query = {'context': context, 'definitionRevisionId': source['definitionRevisionId'], 'commodity': source['commodity'],
+    query = {'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'context': context, 'definitionRevisionId': source['definitionRevisionId'], 'commodity': source['commodity'],
              'curve': source['curve'], 'index': source['index'], 'resetFrequency': 'daily',
              'averagingMethod': 'quantity_weighted', 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01'}
+    unselected = client.call(endpoint, {key: value for key, value in query.items() if key != 'settlement'})
+    assert unselected['observations'] is None and unselected['deliveryPeriods'] == []
+    assert unselected['availability']['code'] == 'price_settlement_selection'
     quantities = client.call(endpoint, query)
     assert quantities['availability'] is None and len(quantities['observations']) == 31
     assert {'resetFrequency': 'daily', 'averagingMethod': 'quantity_weighted', 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01'} in quantities['deliveryPeriods']

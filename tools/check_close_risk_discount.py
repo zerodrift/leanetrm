@@ -47,7 +47,7 @@ def run_checks(owner, fixture, query, manifest, request, due, work):
     floating,fixed=terms['memberships']
     profile=deepcopy(floating['side']['quantity'])
     floating['role']='indexed_payment'
-    floating['side'].update(kind='indexed',location=None,indexPrice={'curve':manifest['closeRisk']['discountCurve'],'quantity':'test_power_quantity','multiplier':'1','indexMultiplier':'1','adder':'0'})
+    floating['side'].update(kind='indexed',location=None,indexPrice={'curve':manifest['closeRisk']['discountCurve'],'quantity':'test_power_quantity','multiplier':'1','indexMultiplier':'1', 'settlement': None,'adder':'0'})
     fixed['side']['quantity']=deepcopy(profile)
     for member in terms['memberships']:
         member['side']['paymentRule']['dayOfMonth']=18
@@ -90,7 +90,7 @@ def check_floating_pair(owner,trader,query,manifest,request,due,work):
     book=str(uuid4())
     query(f"INSERT INTO trading.books VALUES('{manifest['catalogId']}','{book}','d0000000-0000-0000-0000-000000000001','Synthetic floating pair close',1,'2020-01-01T00:00:00Z');")
     payment={'frequency':'monthly','rule':'days_after_period_end','days':18,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
-    floating={'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment,'resetFrequency':'monthly','averagingMethod':'none','spread':'0.1'}
+    floating={'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','paymentSchedule':payment,'resetFrequency':'monthly','averagingMethod':'none','spread':'0.1'}
     trade=trader.call('swaps/book',{**context,**trade_booking(),'operationId':str(uuid4()),'bookId':book,'definitionRevisionId':index['definitionRevisionId'],
         'commodity':index['commodity'],'quantity':'10','firstCoefficient':'-1','swapType':'financial_floating_floating','firstFloating':floating,'floating':{**floating,'spread':'0.2'},'discounting':False})
     owner_frame=next(f for f in owner.call('workspace')['frames'] if instant(f['at'])==instant(frame['at']) and f['curveContracts']==frame['curveContracts'] and

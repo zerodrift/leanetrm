@@ -1,4 +1,6 @@
 import {readPpaView} from './ppa-trade-view.js';
+import {openPositionWindow,type PositionWindowSelection} from './position-window-selection.js';
+import {readPositionFacts,requirePricedFacts,readIndividualPosition,type PositionFacts,type PositionFact,type IndividualPosition} from './position-facts.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {type PartyCatalog,type Trader} from './trade-annotations.js';
 import {setupSwapEditor,readSwapView} from './swap-editor.js';
@@ -14,7 +16,7 @@ import {setupFuturesBooking} from './futures-booking.js';
 import {draftShapes,otherRevision,readCurveShapes} from './curve-shapes.js';
 import {newTradeControl,newTradeProducts,setupNewTrade,type NewProduct} from './new-trade.js';
 import {createTableWorkspace} from './table-workspace.js';
-import {renderDataGrid} from './data-grid.js';
+import {renderDataGrid,emptyGridLayout} from './data-grid.js';
 import {contractPositions,deltaLadder,ladderExport,type LadderCell,type LadderValue} from './delta-ladder.js';
 import {pivotMatrix,pivotChartPanels,groupLabel,type PivotGroup} from './analytics-model.js';
 import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
@@ -24,8 +26,9 @@ import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
 import {commodityColors,deskGroups,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,projectsFromSeveralCurves,pvChartPanels,severalCurvesShape,signOf,signedText,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type Summary} from './desk-model.js';
-import {askInPanel,askLeave,liveRefreshPlan,panelPlacement,riskRefreshPlan,sameMode,setupSidePanel,type PanelMode,type RiskRefresh} from './side-panel.js';
+import {askLeave,liveRefreshPlan,panelPlacement,riskRefreshPlan,sameMode,setupSidePanel,type PanelMode,type RiskRefresh} from './side-panel.js';
 import {setupPositionPanel,type PositionInput,type PositionRisk} from './position-panel.js';
+import {setupPositionExpansion} from './position-expansion.js';
 import {bookedPosition,followedPosition,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
 import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderDeskCharts,renderMoneyTile,renderPositionsTile,renderRiskTile,renderRunBar,riskColumns,riskGroupHeader,type LensRowView,type RiskTile,type RiskTileResults} from './desk-view.js';
 
@@ -34,7 +37,7 @@ type ReadRequest={snapshotId:string;convention:string;knowledgeMode:'current'|'r
 type BookingCatalog='directory'|'priced_contracts';
 type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string;portfolio_id:string}[];context:Context;asOf:string;canBook:boolean;canAmendTrades:boolean;bookingUnavailableReason:string|null}&({kind:'directory'}|{kind:'priced_contracts';contracts:Contract[]});
 type Holdings={convention:string;pivotNumericalPolicy:string;groups:PivotGroup[];context:Context;asOf:string;evaluatedContracts:number;hasSwaps:boolean;holdings:Holding[];totals:{book:string;currency:string;executionPnl:string|null;unvaluedPositions:number}[];unvaluedPositions:number};
-type Api=<T>(path:string,body?:unknown)=>Promise<T>;
+type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 // A stored view an earlier release saved is listed with this label. It cannot be applied, and choosing it says why.
 const earlierFormatLabel='Earlier format · save again';
 const earlierFormatNote=(name:string)=>`Saved view "${name}" is in an earlier format and cannot be applied. Set up the Blotter as you want it and save it again under this name, or delete it.`;
@@ -67,7 +70,7 @@ const numericFields=['tradeCount','lots','quantity','executionPrice','mark','exe
 // At most this many curves are shaped in one read (market/curve-shapes).
 const curvesPerShapeRead=64;
 
-export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;notice:(message:string)=>void;
+export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;readFailed:(error:unknown)=>void;notice:(message:string)=>void;
   // The definition revision of the curves the selected close prices; positions of another revision get no shape from it.
   definitionRevision:()=>string;
   // The saved views the person lists in the sidebar, and the one the Blotter shows, whenever the saved views are read or the shown one changes.
@@ -87,12 +90,18 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const workspace=createTableWorkspace(get('blotter-workspace'),{
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
     pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
-    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Risk report'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(load),
+    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Risk report'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(()=>load('directory',false,true)),
     note:get('new-trade-availability'),lead:get('desk'),overview:get('desk-charts'),aside:get('side-panel'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),lens:get('desk-lens'),
   });
   // Existing booking controls share the table toolbar.
   get('blotter-refresh').id='futures-refresh';get('blotter-new').id='futures-new';get('blotter-rows').id='desk-positions';
   let catalog:Catalog|undefined,holdings:Holdings|undefined,summaries:Summary[]|undefined,owner='',snapshot='',uncertain=false,generation=0;
+  let facts:PositionFacts|undefined,factsPaging=false,pricingRead:Promise<void>=Promise.resolve(),pricingController:AbortController|undefined;
+  let factsGrid:ReturnType<typeof renderDataGrid>|undefined,factsLayout=emptyGridLayout();
+  let individual:IndividualPosition|undefined,openingFact:PositionFact|undefined,individualController:AbortController|undefined;
+  const factPageSize=64,factsMore=document.createElement('button');
+  factsMore.id='blotter-more-positions';factsMore.type='button';factsMore.className='secondary';factsMore.textContent='Load more positions';factsMore.hidden=true;
+  get('futures-summary').after(factsMore);
   // The curve shapes of the current read, once read: by curve, a shape or why it is unavailable; or why none could be read.
   let shapes:{revision:string;curves:Map<string,CurveShape|string>}|{unavailable:string}|undefined;
   // The desk's read of its curves, while it is under way: what Price before booking waits for before it reads a curve of its own.
@@ -159,7 +168,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
   const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
-    ask:question=>panel.ask(askInPanel(get('side-panel'),question)),
+    ask:question=>expansion.ask(question),
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   // The form of a new future, which the panel hosts as it hosts the forms of the amendments. What it books is kept as the request it was first sent as.
   const booking=setupFuturesBooking({api,act,busy,zone:options.zone,context:readContext,catalog:()=>catalog,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
@@ -171,9 +180,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const docked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
   // A docked panel takes the grid's width, so the grid gives up the columns the panel shows for its position, Curve first and then
   // Mark, for as long as its columns do not fit the room it has left.
-  const dockedGiveUp=()=>panel.current()!==null&&docked()?ladderOn()?[]:lensShown()?riskGiveUp:[curveColumn,markColumn]:[];
+  const dockedGiveUp=()=>sidePanel.current()!==null&&docked()?ladderOn()?[]:lensShown()?riskGiveUp:[curveColumn,markColumn]:[];
   const wide=()=>!phone.matches&&swapEditor.settlementOpen();
-  const panel=setupSidePanel(get('side-panel'),{
+  const sidePanel=setupSidePanel(get('side-panel'),{
     // What the panel holds that switching would lose: the form of an amendment or of a new trade, with edits in it.
     unsaved:editing,confirmLeave:askLeave(get('side-panel')),docked,
     // On a phone the panel is a sheet over the page, which stays out of reach while it is open, unless the Blotter has been left.
@@ -181,10 +190,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // A swap's settlement figures need more room than a docked panel has: off a phone, the panel lies over the desk at a wider width.
     wide,
     changed:()=>{table?.fitColumns(dockedGiveUp());ladderTable?.fitColumns([]);modeChanged();placeRetained();},closed:()=>deskPanel.closed()});
+  const expansion=setupPositionExpansion(sidePanel,{unsaved:editing,busy,changed:()=>{modeChanged();placeRetained();},closed:()=>deskPanel.closed(),resized:keepVisible=>table?.resizeDetail(keepVisible)});
+  const panel=expansion.shell;
   // A request whose outcome is not known is kept with its Check status and Retry in a card, which is in the panel while the panel is open,
   // whatever it shows, and on the page when it is not, so that nothing leaves the person with no way to find out what became of it.
   const retained=get('futures-pending');
-  function placeRetained(){const slot=get(panel.current()!==null?'side-panel-retained':'futures-retained');if(retained.parentElement!==slot)slot.append(retained);}
+  function placeRetained(){const slot=get(sidePanel.current()!==null?'side-panel-retained':'futures-retained');if(retained.parentElement!==slot)slot.append(retained);}
   // The head of the panel's New trade mode, which asks the page for the product the person chooses and for the PPA page.
   const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),ppa:()=>guarded(options.newPpa),busy});
   // The forms belong to the panel's mode: when it moves to another, whatever they held is dropped (the person was asked first if they
@@ -194,7 +205,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const mode=panel.current();
     if(sameMode(mode,formsFor))return;
     // Set before the forms are reset, which places the panel and so calls this again: the mode is then already the one handled.
-    const left=formsFor;formsFor=mode;resetForms();
+    const left=formsFor;formsFor=mode;if(mode?.kind!=='position')cancelIndividual();resetForms();
     if(left?.kind==='risk')risk.shelve();
     if(mode!==null&&mode.kind!=='position')deskPanel.left();
     if(mode?.kind==='new')entry.show(mode,mode.product===null?'choose':'loading');
@@ -206,8 +217,14 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   let mainWidth=main.clientWidth;
   new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;panel.place();}}).observe(main);
   new MutationObserver(()=>panel.place()).observe(document.body,{attributes:true,attributeFilter:['class']});
-  const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
-    read:(h,formats)=>h.instrumentType==='ppa'?readPpaView(api,readContext(),h,catalog!.context.knownAt):h.instrumentType!=='future'?readSwapView(api,readContext(),h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,readContext(),h,formats),
+  const positionContext=()=>!holdings&&individual?{...readContext(),knowledgeMode:'retained',contextId:individual.context.contextId}:readContext();
+  const position=setupPositionPanel(expansion.position,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(positionContext()),onDenied:clear,
+    read:async(h,formats)=>{
+      const retainedIndividual=!holdings,context=positionContext();
+      const read=await(h.instrumentType==='ppa'?readPpaView(api,context,h,(retainedIndividual&&individual?individual.context:catalog!.context).knownAt):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
+      // Retained inspection does not transition into a working settlement editor.
+      return retainedIndividual?{...read,view:zone=>({...read.view(zone),actions:undefined})}:read;
+    },
     amendment:{
       open:h=>void act(()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision))),
       // A future's form is open for its binding, a swap's for its instrument.
@@ -215,7 +232,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       close:async()=>{await leave();},
     },
     openCurve:(curve,contractId)=>guarded(()=>options.openCurve(curve,contractId))});
-  const deskPanel=setupDeskPanel({shell:panel,position,holdings:()=>holdings?.holdings,input:positionInput,grid:()=>table,notice:options.notice});
+  const panelHoldings=()=>holdings?.holdings??(individual?[individual.holding]:undefined);
+  const deskPanel=setupDeskPanel({shell:panel,position,holdings:panelHoldings,input:positionInput,grid:()=>{
+    const grid=holdings?table:factsGrid;if(!grid)return;
+    const sourceIndex=(index:number)=>holdings?index:facts?.positions.findIndex(fact=>fact.tradeId===individual?.holding.tradeId&&fact.bindingId===individual.holding.bindingId)??-1;
+    return {...grid,selectRow:index=>{const at=index===null?null:sourceIndex(index);grid.selectRow(at);grid.detailRow(at,expansion.host);},
+      focusRow:index=>{const at=sourceIndex(index);if(at>=0)grid.focusRow(at);},revealRow:index=>{const at=sourceIndex(index);if(at>=0)grid.revealRow(at);}};
+  },notice:options.notice});
   // Gives the forms the panel hosts up, without asking, and places the panel again for what it then shows: a panel left by its settlement
   // view, however it is left, a switch of mode among the ways, has its own width again.
   function resetForms(){editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();}
@@ -230,6 +253,16 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
   // control disabled. `kept` hears that the person kept them, for a control that has already changed.
   function guarded(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await leave())await act(work);else kept?.();})();}
+  function popout(selected:Pick<PositionFact,'tradeId'|'bindingId'|'revision'|'instrumentType'>){
+    if(busy())return;
+    if(editing()||pending.command){options.notice('Finish the current trade edit before opening a separate trade window.');return;}
+    const read=holdings??facts;
+    if(!read||!snapshot)throw Error('Read the position facts before opening a separate trade window.');
+    const selection:PositionWindowSelection={snapshotId:snapshot,context:read.context,asOf:read.asOf,
+      tradeId:selected.tradeId,bindingId:selected.bindingId,revision:selected.revision,instrumentType:selected.instrumentType,zone:options.zone(),
+      example:(new URL(location.href).searchParams.get('example')??'baseline') as PositionWindowSelection['example']};
+    openPositionWindow(location.href,selection,(url,target,features)=>window.open(url,target,features));
+  }
   // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
   function settle(h:Holding){guarded(()=>swapEditor.openSettlement(h));}
   // New trade (D221) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
@@ -470,9 +503,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     button.disabled=busy()||!control.enabled;
     if(control.reason===null)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby','new-trade-availability');
   }
-  function sync(){syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();syncRiskReport();workspace.busy(busy());syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+  function sync(){
+    // Release the rows before restoring their control's focus. On entry to
+    // busy, position.sync captures that focus before the rows become inert.
+    if(!busy())workspace.busy(false);
+    const awaitingValues=!!facts&&!holdings;get('blotter-workspace').querySelectorAll<HTMLElement>('.table-menu').forEach(menu=>{menu.inert=busy()||awaitingValues&&menu.id!=='blotter-scope';});field('blotter-saved').disabled=busy()||awaitingValues;factsMore.hidden=!facts||facts.nextOffset===null||!!holdings;factsMore.disabled=busy()||factsPaging;syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
-  function clear(){generation++;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';ladderTable=undefined;ladderShown=undefined;inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');sync();}
+  function cancelIndividual(){individualController?.abort();individualController=undefined;openingFact=undefined;}
+  function cancelRead(){generation++;pricingController?.abort();pricingController=undefined;cancelIndividual();}
+  function clear(){cancelRead();individual=undefined;factsGrid=undefined;factsLayout=emptyGridLayout();facts=undefined;factsPaging=false;factsMore.hidden=true;get('futures-page').dataset.pricingState='empty';delete get('futures-page').dataset.pricingContext;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';ladderTable=undefined;ladderShown=undefined;inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');sync();}
   // Starts the Blotter afresh: for another close or context, or for the Blotter opened again, each of which says so of a risk run it
   // clears; or, for another account, saying nothing, as everything the page held goes.
   function reset(cause:ReadCause|null){if(cause)replaceRead(cause);else clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
@@ -559,7 +598,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
         onLayout:layout=>{if(!shown)view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
         group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>shown?riskGroupHeader(headers.get(key)!,count,leftOut(key)):groupHeader(headers.get(key)!,count,money)}:undefined,
         initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
-        onRowOpen:index=>void deskPanel.open(index)});
+        onRowOpen:index=>void deskPanel.open(index,undefined,false),onRowDoubleOpen:index=>{const h=held[index];popout({...h,revision:Number(h.revision),instrumentType:h.instrumentType as PositionFact['instrumentType']});}});
       workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>{
         if(busy())return;captureLayout();view.columns=selected;render();
       },[...deskFields]);
@@ -644,8 +683,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // The position at a row of the read on screen, as the side panel draws it; nothing while the desk draws no positions.
   function positionInput(index:number):PositionInput|undefined{
-    const h=holdings?.holdings[index],row=drawn?.rows[index];
-    return h&&row&&drawn?{holding:h,row,formats:holdingFormats(h),shape:shapeOf(h),color:drawn.colors.get(row.commodity)!,risk:positionRisk(h,row)}:undefined;
+    const h=panelHoldings()?.[index];if(!h)return;
+    const row=holdings?drawn?.rows[index]:positionRows([h])[0];if(!row)return;
+    return {holding:h,row,formats:holdingFormats(h),shape:holdings?shapeOf(h):'Open the market to inspect its curve.',
+      color:(holdings?drawn?.colors:commodityColors([h.commodity.code]))?.get(row.commodity)!,risk:positionRisk(h,row)};
   }
   function renderPivot(scope:string){
     const read=holdings!;drawn=undefined;
@@ -687,40 +728,141 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function requireCurrentRead(started:number,scope:string){
     if(started!==generation||whereAmI()!==scope)throw Error('The account or market selection changed. Reload the Blotter before continuing.');
   }
-  async function load(bookingCatalog:BookingCatalog='directory',live=false){
-    restore();if(!viewsLoaded)await loadViews();view=parseBlotterViews(JSON.stringify([readView()]))[0];const source=options.source();
+  function pendingTile(id:string,label:string,value:string,note:string){
+    const title=document.createElement('h3'),number=document.createElement('div'),help=document.createElement('p');
+    title.className='desk-tile-title';title.textContent=label;number.className='kpi-value';number.textContent=value;help.className='desk-tile-note';help.textContent=note;
+    get(id).replaceChildren(title,number,help);
+  }
+  function renderFacts(message?:string){
+    if(!facts)return;
+    const failed=get('futures-page').dataset.pricingState==='failed',value=failed?'Unavailable':'Pending',note=failed?'Refresh to retry valuation':'Complete selected scope is being valued';
+    message??=failed?'Values and totals unavailable. Refresh to retry':'Values and totals pending';
+    get('desk').hidden=false;get('desk-charts').hidden=true;get('blotter-chart-card').hidden=true;
+    pendingTile('desk-tile-swapPv','Swap PV',value,note);
+    pendingTile('desk-tile-futuresPnl','Futures execution P&L',value,note);
+    pendingTile('desk-tile-positions','Position bindings',String(facts.total),`${facts.positions.length} loaded`);
+    pendingTile('desk-tile-risk','Risk','Not run','Available after the complete valuation');
+    for(const [key,type,label] of [['heatRatePv','heat_rate','Heat-rate PV'],['ppaValue','ppa','PPA value excluding overdue cash']] as const){
+      const present=facts.positions.some(position=>position.instrumentType===type);let tile=document.getElementById('desk-tile-'+key);
+      if(present&&!tile){tile=document.createElement('section');tile.id='desk-tile-'+key;tile.className='desk-tile';get('desk-tile-swapPv').parentElement!.append(tile);}
+      if(tile){tile.hidden=!present;if(present)pendingTile(tile.id,label,value,note);}
+    }
+    text('blotter-table-title',failed?'Booked positions · valuation unavailable':'Booked positions · values pending');get('blotter-row-group-control').hidden=true;workspace.describe([]);
+    const rows=facts.positions.map(position=>[position.tradeReference,position.book,friendly(position.instrumentType),position.marketLabel??'—',
+      position.deliveryFrom&&position.deliveryTo?(position.instrumentType==='ppa'?`${position.deliveryFrom} — ${position.deliveryTo}`:deliveryLabel(position.deliveryFrom,position.deliveryTo)):'—',
+      position.bookedQuantity===null?'—':`${position.bookedQuantity}${position.bookedUnit===null?'':' '+position.bookedUnit}`,value]);
+    const previousFilters=factsGrid?.state();
+    factsGrid=workspace.render('desk-positions','facts:'+facts.context.contextId,
+      ['Trade','Book','Instrument','Market','Delivery','Booked quantity','Value'],rows,[],busy,
+      {keys:['tradeReference','book','instrumentType','market','delivery','bookedQuantity','value'],stretch:true,rowHeight:46,onReady:sync,layout:factsLayout,onLayout:layout=>{factsLayout=layout;},initial:previousFilters,cellTitles:rows,giveUp:[6,2,4,1],onRowOpen:index=>void openFact(index),onRowDoubleOpen:index=>popout(facts!.positions[index])});
+    workspace.columns([],[],()=>{});text('futures-summary',`${facts.positions.length} of ${facts.total} trade bindings loaded. ${message}.`);
+    get('futures-page').dataset.pricingContext=facts.context.contextId;options.onReadContext(facts.asOf,facts.context.knownAt);sync();if(individual)deskPanel.sync();
+  }
+  async function openFact(index:number){
+    if(busy()||!facts||holdings)return;
+    const selected=facts.positions[index],from=facts,started=generation,scope=whereAmI();
+    if(!selected||scope===undefined||!await panel.leave()||started!==generation)return;
+    cancelIndividual();const controller=individualController=new AbortController();openingFact=selected;
+    text('futures-summary',`${from.positions.length} of ${from.total} trade bindings loaded. Opening ${selected.tradeReference}…`);
+    try{
+      const value=await api<unknown>('trading/position',{context:{...readContext(),convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:from.context.contextId},
+        tradeId:selected.tradeId,bindingId:selected.bindingId,revision:selected.revision,instrumentType:selected.instrumentType},controller.signal);
+      if(started!==generation||whereAmI()!==scope||get('futures-page').hidden||individualController!==controller||holdings)return;
+      if(facts?.context.contextId!==from.context.contextId)return;
+      individual=readIndividualPosition(value,from,selected);
+      await deskPanel.open(0,undefined,false);
+    }catch(error){
+      if(started!==generation||whereAmI()!==scope||get('futures-page').hidden||individualController!==controller)return;
+      if((error as {code?:string}).code==='access_denied')clear();
+      options.readFailed(error);
+    }finally{
+      if(individualController===controller){individualController=undefined;openingFact=undefined;
+        if(facts&&!holdings)text('futures-summary',`${facts.positions.length} of ${facts.total} trade bindings loaded. Values and totals ${get('futures-page').dataset.pricingState==='failed'?'unavailable':'pending'}.`);}
+    }
+  }
+  factsMore.onclick=()=>{
+    if(busy()||factsPaging||!facts||facts.nextOffset===null||holdings)return;
+    const previous=facts,started=generation,scope=whereAmI();if(scope===undefined)return;
+    void act(async()=>{
+      factsPaging=true;sync();
+      try{
+        const page=await api<unknown>('trading/positions',{context:{...readContext(),convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:previous.context.contextId},
+          bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],offset:previous.nextOffset,limit:factPageSize});
+        requireCurrentRead(started,scope);if(get('futures-page').hidden||facts!==previous||holdings)return;
+        facts=readPositionFacts(page,previous.nextOffset!,factPageSize,previous);renderFacts();
+      }catch(error){
+        if(started!==generation||get('futures-page').hidden)return;
+        if((error as {code?:string}).code==='access_denied')clear();else if(holdings)return;
+        throw error;
+      }finally{if(started===generation){factsPaging=false;sync();}}
+    });
+  };
+  async function load(bookingCatalog:BookingCatalog='directory',live=false,background=false){
+    restore();if(!viewsLoaded)await loadViews();view=parseBlotterViews(JSON.stringify([facts?{...view,bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}:readView()]))[0];const source=options.source();
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before reading holdings.');
     snapshot=source.snapshotId;
     const inputs=JSON.stringify([source.snapshotId,source.context?.contextId??null,view.bookIds,view.portfolioIds]);
-    if(live)generation++;else replaceRead(inputs===readInputs?'read':'inputs');
+    if(live)cancelRead();else replaceRead(inputs===readInputs?'read':'inputs');
     const started=generation,scope=JSON.stringify([options.profile(),source]);
     const request:ReadRequest={snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};
+    const selectedView={mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:view.mode==='pivot'?[...view.groupBy]:[],measures:view.mode==='pivot'?[...view.measures]:[],pivotConvention:view.mode==='pivot'?'trading_blotter_totals_v1':null,priceNumericalPolicy:view.mode==='pivot'&&view.measures.some(m=>isPriceMeasure(m)&&m.endsWith('Mean'))?priceMeanPolicy:null};
+    const summaryViews=deskSummaryViews(view.bookIds,view.portfolioIds);
+    get('futures-page').dataset.pricingState='pending';
     try{
-      const selectedView={mode:view.mode,bookIds:view.bookIds,portfolioIds:view.portfolioIds,groupBy:view.mode==='pivot'?view.groupBy:[],measures:view.mode==='pivot'?view.measures:[],pivotConvention:view.mode==='pivot'?'trading_blotter_totals_v1':null,priceNumericalPolicy:view.mode==='pivot'&&view.measures.some(m=>isPriceMeasure(m)&&m.endsWith('Mean'))?priceMeanPolicy:null};
-      const summaryViews=deskSummaryViews(view.bookIds,view.portfolioIds);
-      const combined=await api<{catalog:Catalog;blotter:Holdings;summaries:Summary[]}>('trading/workspace',{context:{...request,convention:'trading_workspace_v1'},view:selectedView,bookingCatalog,summaries:summaryViews});
-      requireCurrentRead(started,scope);
-      const selected=combined.catalog.context,reported=combined.blotter.context;
-      if(combined.catalog.kind!==bookingCatalog||combined.catalog.kind==='directory'&&Object.hasOwn(combined.catalog,'contracts')||combined.catalog.kind==='priced_contracts'&&!Array.isArray(combined.catalog.contracts))throw Error('The trading workspace returned an inconsistent booking catalog. Refresh and try again.');
-      if(!selected.contextId||selected.contextId!==reported.contextId||selected.effectiveOn!==reported.effectiveOn||selected.knownAt!==reported.knownAt||combined.catalog.asOf!==combined.blotter.asOf)throw Error('The trading workspace returned inconsistent market contexts. Refresh and try again.');
-      if(!Array.isArray(combined.summaries)||combined.summaries.length!==summaryViews.length)throw Error('The trading workspace did not return the desk summaries. Refresh and try again.');
-      // A read the desk refuses leaves the desk it had, and the read that desk was drawn from, as they were.
-      const previous={catalog,holdings,summaries,shapes,lastReadRequest,readPlace};
-      catalog=combined.catalog;holdings=combined.blotter;summaries=combined.summaries;shapes=undefined;drafts.reset();
-      const reportRequest={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selected.contextId},view:selectedView};lastReadRequest=reportRequest;
-      readPlace={contextId:selected.contextId,asOf:combined.blotter.asOf,snapshotId:request.snapshotId,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]};
-      try{viewControls();render();}catch(error){({catalog,holdings,summaries,shapes,lastReadRequest,readPlace}=previous);throw error;}
-      readInputs=inputs;
-      shapesRead=view.mode==='trades'?loadShapes(started,scope,source):Promise.resolve();
-      await loadChart(reportRequest,started,scope);requireCurrentRead(started,scope);workspace.closeMenus();
-    }catch(error){
-      if(started===generation){
-        if(!live||(error as {code?:string}).code==='access_denied')clear();
-        // A refresh that fails leaves the desk as it was, but it abandoned the read of the curves, if it was under way.
-        else if(shapes===undefined)noShapes('the refresh that interrupted their read failed');
+      if(!live&&bookingCatalog==='directory'){
+        const directory=await api<Catalog>('trading/directory',{...request,convention:'trading_workspace_v1'});
+        requireCurrentRead(started,scope);if(get('futures-page').hidden)return;
+        if(directory.kind!=='directory'||Object.hasOwn(directory,'contracts')||!directory.context?.contextId||!Array.isArray(directory.books)||
+          source.context&&directory.context.contextId!==source.context.contextId)throw Error('The trading directory returned an inconsistent context. Refresh the Blotter.');
+        catalog=directory;viewControls();
+        const page=await api<unknown>('trading/positions',{context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId},bookIds:selectedView.bookIds,portfolioIds:selectedView.portfolioIds,offset:0,limit:factPageSize});
+        requireCurrentRead(started,scope);if(get('futures-page').hidden)return;
+        facts=readPositionFacts(page,0,factPageSize);
+        if(facts.context.contextId!==directory.context.contextId||facts.context.effectiveOn!==directory.context.effectiveOn||facts.context.knownAt!==directory.context.knownAt||facts.asOf!==directory.asOf)throw Error('The position facts returned a different directory context. Refresh the Blotter.');
+        renderFacts();
       }
-      throw error;
-    }
+    }catch(error){if(started===generation)clear();throw error;}
+    const controller=background&&!live&&bookingCatalog==='directory'?new AbortController():undefined;
+    pricingController=controller;
+    const finish=async()=>{
+      try{
+        // A working valuation remains a current read so its booking permissions
+        // remain current. Historical valuations retain the selected context.
+        const combined=await api<{catalog:Catalog;blotter:Holdings;summaries:Summary[]}>('trading/workspace',{context:{...request,convention:'trading_workspace_v1'},view:selectedView,bookingCatalog,summaries:summaryViews,...(controller?{progressive:true}:{})},controller?.signal);
+        requireCurrentRead(started,scope);if(get('futures-page').hidden)return;
+        const selected=combined.catalog.context,reported=combined.blotter.context;
+        if(combined.catalog.kind!==bookingCatalog||combined.catalog.kind==='directory'&&Object.hasOwn(combined.catalog,'contracts')||combined.catalog.kind==='priced_contracts'&&!Array.isArray(combined.catalog.contracts))throw Error('The trading workspace returned an inconsistent booking catalog. Refresh and try again.');
+        if(!selected.contextId||selected.contextId!==reported.contextId||selected.effectiveOn!==reported.effectiveOn||selected.knownAt!==reported.knownAt||combined.catalog.asOf!==combined.blotter.asOf)throw Error('The trading workspace returned inconsistent market contexts. Refresh and try again.');
+        if(!Array.isArray(combined.summaries)||combined.summaries.length!==summaryViews.length)throw Error('The trading workspace did not return the desk summaries. Refresh and try again.');
+        if(facts){requirePricedFacts(facts,combined.blotter,!!source.context);get('desk-tile-risk').replaceChildren();}
+        const previous={catalog,holdings,summaries,shapes,lastReadRequest,readPlace};
+        catalog=combined.catalog;holdings=combined.blotter;summaries=combined.summaries;shapes=undefined;drafts.reset();
+        const reportRequest={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selected.contextId},view:selectedView};lastReadRequest=reportRequest;
+        readPlace={contextId:selected.contextId,asOf:combined.blotter.asOf,snapshotId:request.snapshotId,bookIds:[...selectedView.bookIds],portfolioIds:[...selectedView.portfolioIds]};
+        try{viewControls();render();}catch(error){({catalog,holdings,summaries,shapes,lastReadRequest,readPlace}=previous);throw error;}
+        const opening=openingFact;cancelIndividual();individual=undefined;
+        facts=undefined;factsGrid=undefined;factsMore.hidden=true;readInputs=inputs;
+        if(opening){const index=holdings.holdings.findIndex(h=>h.tradeId===opening.tradeId&&h.bindingId===opening.bindingId&&String(h.revision)===String(opening.revision));if(index>=0)await deskPanel.open(index);}
+        shapesRead=view.mode==='trades'?loadShapes(started,scope,source):Promise.resolve();
+        await loadChart(reportRequest,started,scope);requireCurrentRead(started,scope);if(get('futures-page').hidden)return;
+        get('futures-page').dataset.pricingContext=selected.contextId;get('futures-page').dataset.pricingState='complete';workspace.closeMenus();sync();
+      }catch(error){
+        if(started!==generation||get('futures-page').hidden)return;
+        // A detached background read is discarded. An awaited booking read
+        // must still report a changed selection to the action waiting for it.
+        if(whereAmI()!==scope){if(controller)return;clear();throw error;}
+        if((error as {code?:string}).code==='access_denied')clear();
+        else if(facts){get('futures-page').dataset.pricingState='failed';renderFacts('Values and totals unavailable. Refresh to retry');}
+        else if(!live)clear();
+        else{get('futures-page').dataset.pricingState='failed';if(shapes===undefined)noShapes('the refresh that interrupted their read failed');}
+        if(background&&!live&&bookingCatalog==='directory'){options.readFailed(error);return;}
+        throw error;
+      }finally{if(pricingController===controller)pricingController=undefined;}
+    };
+    pricingRead=finish();
+    if(background&&!live&&bookingCatalog==='directory'){
+      void pricingRead.catch(error=>{if(started===generation&&whereAmI()===scope&&!get('futures-page').hidden)options.readFailed(error);});
+    }else await pricingRead;
   }
   // Every row's curve unavailable, with the reason.
   function noShapes(why:string){shapes={unavailable:`Curve shape unavailable · ${why}`};redrawCurves();deskPanel.sync();}
@@ -887,7 +1029,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const about=ladder?[...metadata.slice(0,-1),['Risk run',get('desk-run-title').textContent??''],['Run detail',get('desk-run-detail').textContent??''],[]]:metadata;
     const csv=guardedCsv(about)+guardedCsv([shown.headers,...shown.rows],shown.numeric);void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv(ladder?'leanetrm-delta-ladder.csv':'leanetrm-blotter.csv',csv);});
   };
-  get('futures-refresh').onclick=()=>guarded(load);
+  get('futures-refresh').onclick=()=>guarded(()=>load('directory',false,true));
   // A Blotter view a navigation target names, applied as Apply applies the view's controls.
   async function show(selection:BlotterSelection){
     restore();if(!viewsLoaded)await loadViews();
@@ -906,7 +1048,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // The new trade the panel holds, as the page reports it: of its product, or of none until the person has chosen one.
   function newTradeShown():EntryShown|null{const mode=panel.current();return mode?.kind==='new'?{product:mode.product}:null;}
-  return {load,reset,sync,show,
+  return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),reset,sync,show,
     // The person's saved views, read for the sidebar when they are not read yet.
     async views(){restore();if(!viewsLoaded)await loadViews();},
     // Shows the saved view a sidebar entry names, read afresh with the other saved views; the page then reads the Blotter.
@@ -928,6 +1070,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
     async openTrade(tradeId:string,instrumentType:TradeShown['instrumentType'],revision:number|null){
+      await pricingRead;
       requireTradeRows(view.mode);
       if(!holdings)throw Error('Choose a market date to read the Blotter, then open the trade.');
       const index=tradeIndex(holdings.holdings,{tradeId,instrumentType}),h=holdings.holdings[index];
@@ -945,5 +1088,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     unsaved:()=>!!pending.command||editing()||risk.unconfirmed(),
     // Whether the panel holds the form of an amendment or of a new trade, or a risk report's setup, with edits, and the question asked before it is given up: false means the person kept it. The forms
     // are dropped without a question when the page is left on the person's word, as the assistant's Go anyway is.
-    editing,leave,dropForms};
+    editing,leave,dropForms,cancelRead,
+    // A page exit has already passed its unsaved-edit guard. Clear its
+    // retained expansion as well as forms, without returning focus to a row.
+    leavePage(){cancelRead();dropForms();deskPanel.reset();}};
 }

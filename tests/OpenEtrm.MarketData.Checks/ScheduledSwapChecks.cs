@@ -13,23 +13,23 @@ internal static class ScheduledSwapChecks
         var b = f.Swap(monthly:true, monthOrdinal:1);
         var c = f.Swap(monthly:true, monthOrdinal:2);
         var one = ExactDecimal.Parse("1");
-        var fixedSide = new ScheduledSwapSide(Guid.NewGuid(), [a.Fixed,b.Fixed], [new(1,3),new(2,3)], ScheduledSwapSide.Implementation);
-        var floatingSide = new ScheduledSwapSide(Guid.NewGuid(), [b.Floating,c.Floating], [new(3,5),new(2,5)], ScheduledSwapSide.Implementation);
+        var fixedSide = WholeTermSideFixtures.Fixed([a.Fixed,b.Fixed],f.Quote,[new(1,3),new(2,3)]);
+        var floatingSide = WholeTermSideFixtures.Floating([b.Floating,c.Floating],[new(3,5),new(2,5)]);
         var swap = new ScheduledFinancialSwap(Guid.NewGuid(), [new(fixedSide,ExactDecimal.Parse("-1"),new(1,1)),new(floatingSide,one,new(5,6))], false, ScheduledFinancialSwap.Implementation);
         var market = f.Model.Build(f.Snapshot, swap.DependenciesAt(f.Snapshot));
         var value = swap.PV(new SideValuationContext(market,new ExplicitDiscounting(one,DiscountFactorSource.Undiscounted)));
         // Pay 100*4 +200*4; receive150*3.251 +100*3.252 = -387.15.
         Equal(value.PresentValue.Scale(ExactDecimal.Parse("300")).ToExactString(), "-387.15");
-        Equal(fixedSide.GenerateSchedule().Payments[0].AllocatedQuantity.Scale(ExactDecimal.Parse("300")).ToQuantity().Amount.ToString(),"100");
-        Equal(floatingSide.GenerateSchedule().Payments[0].AllocatedQuantity.Scale(new ExactRatio(5,6)).Scale(ExactDecimal.Parse("300")).ToQuantity().Amount.ToString(),"150");
+        Equal(fixedSide.GenerateDatedSchedule().Payments[0].AllocatedQuantity.Scale(ExactDecimal.Parse("300")).ToQuantity().Amount.ToString(),"100");
+        Equal(floatingSide.GenerateDatedSchedule().Payments[0].AllocatedQuantity.Scale(new ExactRatio(5,6)).Scale(ExactDecimal.Parse("300")).ToQuantity().Amount.ToString(),"150");
         if(fixedSide.DeliveryFrom==floatingSide.DeliveryFrom||fixedSide.DeliveryTo==floatingSide.DeliveryTo)throw new Exception("Independent periods were lost.");
-        Reject("scheduled_quantity",()=>new ScheduledSwapSide(Guid.NewGuid(),[a.Fixed,b.Fixed],[new(1,2),new(1,3)],ScheduledSwapSide.Implementation));
-        Reject("scheduled_swap_periods",()=>new ScheduledSwapSide(Guid.NewGuid(),[b.Fixed,a.Fixed],[new(1,2),new(1,2)],ScheduledSwapSide.Implementation));
+        Reject("scheduled_swap_instrument",()=>new ScheduledFinancialSwap(Guid.NewGuid(),[new(WholeTermSideFixtures.Fixed([a.Fixed,b.Fixed],f.Quote,[new(1,2),new(1,3)]),ExactDecimal.Parse("-1"),ExactRatio.One),new(floatingSide,one,ExactRatio.One)],false,ScheduledFinancialSwap.Implementation));
+        Reject("swap_side_periods",()=>WholeTermSideFixtures.Fixed([b.Fixed,a.Fixed],f.Quote,[new(1,2),new(1,2)]));
         // Exact nonterminating cross-side scaling must cancel before a decimal boundary.
         var thirds = new ScheduledFinancialSwap(Guid.NewGuid(),[new(fixedSide,ExactDecimal.Parse("-1"),new(1,1)),new(floatingSide,one,new(2,3))],false,ScheduledFinancialSwap.Implementation);
         var thirdValue = thirds.PV(new SideValuationContext(market,new ExplicitDiscounting(one,DiscountFactorSource.Undiscounted)));
         Equal(thirdValue.PresentValue.Scale(ExactDecimal.Parse("300")).ToExactString(),"-549.72");
-        if(DefinitionIdentity.For(floatingSide)!=DefinitionIdentity.For(new ScheduledSwapSide(Guid.NewGuid(),[b.Floating,c.Floating],[new(3,5),new(2,5)],ScheduledSwapSide.Implementation)))
+        if(DefinitionIdentity.For(floatingSide)!=DefinitionIdentity.For(WholeTermSideFixtures.Floating([b.Floating,c.Floating],[new(3,5),new(2,5)])))
             throw new Exception("Independent side identity depends on its containing instrument.");
         var same=new ScheduledFinancialSwap(Guid.NewGuid(),[new(floatingSide,ExactDecimal.Parse("-1"),ExactRatio.One),new(floatingSide,one,ExactRatio.One)],false,ScheduledFinancialSwap.Implementation);
         Equal(same.PV(new SideValuationContext(market,new ExplicitDiscounting(one,DiscountFactorSource.Undiscounted))).PresentValue.ToExactString(),"0");

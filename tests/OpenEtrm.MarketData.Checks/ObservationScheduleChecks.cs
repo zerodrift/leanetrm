@@ -66,10 +66,16 @@ internal static class ObservationScheduleChecks
             foreach(var (mode,numerator,denominator) in new[]{(FloatingAveraging.ObservationArithmetic,"23","1"),(FloatingAveraging.CalendarDaysPrevious,"149","7"),(FloatingAveraging.CalendarDaysNext,"179","7")})
             {
                 var side=fixture.Side(mode,[fixture.Projections[0],fixture.Projections[4],fixture.Projections[6]],new(fixture.Base.R("observation_calendar"),calendar.BusinessDays));
-                var schedule=side.GenerateSchedule();var value=schedule.Evaluate(fixture.Context(side));
+                var schedule=side.GenerateDatedSchedule();var value=schedule.Evaluate(fixture.Context(side));
                 if(!ReferenceEquals(value.Schedule,schedule))throw new Exception("Another schedule was evaluated");
                 Equal(value.PresentValue.Numerator,numerator);Equal(value.PresentValue.Denominator,denominator);
                 var plan=schedule.Payments.Single();var payment=value.Payments.Single();
+                var instrument=new FinancialSwapInstrument(Guid.NewGuid(),[new(side,ExactDecimal.Parse("1")),new(side,ExactDecimal.Parse("-1"))],FinancialSwapInstrument.Implementation,false);
+                var retained=RetainedSideSchedules.Attach(instrument,new Dictionary<Guid,ScheduleDefinition>{{side.Id,ScheduleDefinitionCompiler.Generate(side)}});
+                var retainedRow=((SidePaymentSchedule)retained.Sides[0].Side.GenerateSchedule()).Payments.Single();
+                Equal(retainedRow.Calendar?.Key,side.Calendar?.Key);
+                Equal(string.Join(',',retainedRow.Applications.Select(row=>row.Weight)),string.Join(',',plan.Applications.Select(row=>row.Weight)));
+                Equal(string.Join(',',retainedRow.Applications.Select(row=>row.MappingRule)),string.Join(',',plan.Applications.Select(row=>row.MappingRule)));
                 Equal(payment.Applications.Length,mode==FloatingAveraging.ObservationArithmetic?3:7);
                 foreach(var row in payment.Applications)
                 {
@@ -85,7 +91,7 @@ internal static class ObservationScheduleChecks
             var quantities=new[]{"1.5","2.5","0.5","3.5"};
             var selected=fixture.Projections.Select((p,n)=>p with{AveragingQuantity=new(ExactDecimal.Parse(quantities[n]),fixture.Quote.Quantity)}).ToImmutableArray();
             var side=fixture.Side(FloatingAveraging.QuantityWeighted,selected);
-            var value=side.GenerateSchedule().Evaluate(fixture.Context(side));
+            var value=side.GenerateDatedSchedule().Evaluate(fixture.Context(side));
             Equal(value.PresentValue.Numerator,"37");Equal(value.PresentValue.Denominator,"2");
             Equal(value.PresentValue.Scale(ExactDecimal.Parse("8")).ToMoney().Amount.ToString(),"148");
             Equal(string.Join(',',value.Payments.Single().Applications.Select(a=>a.Application.Weight.ToString())),"1.5,2.5,0.5,3.5");
@@ -99,14 +105,14 @@ internal static class ObservationScheduleChecks
             var projections=fixture.Projections.Select((p,n)=>p with{AveragingQuantity=new(ExactDecimal.Parse(quantities[n]),fixture.Quote.Quantity)}).ToImmutableArray();
             var fixings=fixture.Projections.Select((p,n)=>new IndexFixing(fixture.Base.R("index"),fixture.Quote.Key,p.Contract.DeliveryFrom,p.Contract.DeliveryTo,
                 n is 0 or 2?at:at.AddDays(1),fixture.Series[n].Key,fixture.Base.R("actual_source"),IndexFixing.SupportedImplementation)).ToImmutableArray();
-            var side=new FloatingSide(Guid.NewGuid(),fixture.Base.R("index"),fixture.Quote,fixture.Unit,fixture.From,fixture.To,
+            var side=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(fixture.Base.R("index")),fixture.Quote,fixture.Unit,fixture.From,fixture.To,
                 fixings,fixture.Payment,FloatingAveraging.QuantityWeighted,projections,FloatingSide.IndexedImplementation);
             var actuals=new[]{0,2}.Select(n=>new SelectedObservation(new(fixture.Series[n].Key,InputUse.FrozenFact),new(new(fixture.Base.Revision.CatalogId,Guid.NewGuid()),
                 fixture.Series[n].Key,fixings[n].Source,ObservationRole.IndexFixing,PublicationState.Final,at,ExactDecimal.Parse(n==0?"17":"23")))).ToImmutableArray();
             var snapshot=fixture.Snapshot with{Id=Guid.NewGuid(),ValuationAt=at,MarketCutoff=at,Selections=fixture.Snapshot.Selections.AddRange(actuals)};
             var dependencies=side.DependenciesAt(snapshot);Equal(dependencies.Length,2);
             var market=fixture.Model.Build(snapshot,dependencies);
-            PaymentSideValuation Value(CurveBuild build)=>side.GenerateSchedule().Evaluate(new(build,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+            PaymentSideValuation Value(CurveBuild build)=>side.GenerateDatedSchedule().Evaluate(new(build,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
             var baseline=Value(market);Equal(baseline.PresentValue.Scale(ExactDecimal.Parse("8")).ToMoney().Amount.ToString(),"148");
             var shifts=new[]{1,3}.Select(n=>new QuoteShift(new(fixture.Series[n].Key,InputUse.Variable),fixture.Quote.Key,PriceUnit.FromQuote(fixture.Quote),ExactDecimal.Parse("2.5"),QuoteShift.Convention)).ToImmutableArray();
             var up=Value(fixture.Model.WithShifts(market,shifts));
@@ -130,7 +136,7 @@ internal static class ObservationScheduleChecks
         {
             var fixture=new ObservationFixture(from,["1","3"]);
             var projections=fixture.Projections.Select(p=>p with{AveragingQuantity=new(ExactDecimal.Parse("900000000000000000000000"),fixture.Quote.Quantity)}).ToImmutableArray();
-            var side=fixture.Side(FloatingAveraging.QuantityWeighted,projections);var value=side.GenerateSchedule().Evaluate(fixture.Context(side));
+            var side=fixture.Side(FloatingAveraging.QuantityWeighted,projections);var value=side.GenerateDatedSchedule().Evaluate(fixture.Context(side));
             Equal(value.PresentValue.ToMoney().Amount.ToString(),"2");
             Equal(value.Payments.Single().ObservationWeightTotal.ToString(),"1800000000000000000000000");
         });
@@ -138,10 +144,10 @@ internal static class ObservationScheduleChecks
         {
             var fixture=new ObservationFixture(from,["29.5"]);var at=Fixture.Utc("2048-04-07T16:45:00Z");
             var fixing=new IndexFixing(fixture.Base.R("index"),fixture.Quote.Key,from,from.AddDays(1),at,fixture.Series[0].Key,fixture.Base.R("actual_source"),IndexFixing.SupportedImplementation);
-            var side=new FloatingSide(Guid.NewGuid(),fixture.Base.R("index"),fixture.Quote,fixture.Unit,from,from.AddDays(1),[fixing],fixture.Payment,FloatingAveraging.CalendarDayArithmetic,fixture.Projections,FloatingSide.IndexedImplementation);
+            var side=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(fixture.Base.R("index")),fixture.Quote,fixture.Unit,from,from.AddDays(1),[fixing],fixture.Payment,FloatingAveraging.CalendarDayArithmetic,fixture.Projections,FloatingSide.IndexedImplementation);
             var actual=new SelectedObservation(new(fixture.Series[0].Key,InputUse.FrozenFact),new(new(fixture.Base.Revision.CatalogId,Guid.NewGuid()),fixture.Series[0].Key,fixing.Source,ObservationRole.IndexFixing,PublicationState.Final,at,ExactDecimal.Parse("28.75")));
             var due=fixture.Snapshot with{Id=Guid.NewGuid(),ValuationAt=at,MarketCutoff=at,Selections=fixture.Snapshot.Selections.Add(actual)};
-            PaymentSideValuation Value(MarketSnapshot snapshot)=>side.GenerateSchedule().Evaluate(new(fixture.Model.Build(snapshot,side.DependenciesAt(snapshot)),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+            PaymentSideValuation Value(MarketSnapshot snapshot)=>side.GenerateDatedSchedule().Evaluate(new(fixture.Model.Build(snapshot,side.DependenciesAt(snapshot)),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
             var before=due with{ValuationAt=at.AddTicks(-10),MarketCutoff=at.AddTicks(-10),Selections=fixture.Snapshot.Selections};
             Equal(Value(before).PresentValue.ToMoney().Amount.ToString(),"29.5");Equal(Value(due).PresentValue.ToMoney().Amount.ToString(),"28.75");
             MarketSnapshot Change(Func<MarketObservation,MarketObservation> change)=>due with{Selections=fixture.Snapshot.Selections.Add(actual with{Observation=change(actual.Observation)})};
@@ -163,14 +169,14 @@ internal static class ObservationScheduleChecks
             Equal(DefinitionIdentity.For(side),before);Equal(side.PV(context).PresentValue,standalone.PresentValue);
             Equal(receive.Sides[1].Side,pay.Sides[1].Side);
             var negative=new ObservationFixture(from,["-7","9","9"]);var negativeSide=negative.Side(FloatingAveraging.CalendarDayArithmetic,negative.Projections);
-            var negativeValue=negativeSide.GenerateSchedule().Evaluate(negative.Context(negativeSide));
+            var negativeValue=negativeSide.GenerateDatedSchedule().Evaluate(negative.Context(negativeSide));
             Equal(negativeValue.PresentValue.Numerator,"11");Equal(negativeValue.PresentValue.Denominator,"3");
         });
         Check("monthly fixed price stays one monthly observation rather than a daily average",()=>
         {
             var monthly=new IndexFixingChecks.FixingFixture(monthly:true);var snapshot=monthly.Snapshot(monthly.Fixings[0].FixingAt.AddDays(-2));
             snapshot=snapshot with{Selections=snapshot.Selections.Select(s=>s with{Observation=s.Observation with{Value=ExactDecimal.Parse("47.125")}}).ToImmutableArray()};
-            var side=monthly.Floating();var value=side.GenerateSchedule().Evaluate(new(monthly.Model.Build(snapshot,side.DependenciesAt(snapshot)),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+            var side=monthly.Floating();var value=side.GenerateDatedSchedule().Evaluate(new(monthly.Model.Build(snapshot,side.DependenciesAt(snapshot)),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
             Equal(value.PresentValue.ToMoney().Amount.ToString(),"47.125");Equal(value.Payments.Single().Applications.Length,1);
             var daily=new ObservationFixture(from,["41","52","45","58"]);var dailySide=daily.Side(FloatingAveraging.CalendarDayArithmetic,daily.Projections);
             Equal(dailySide.PV(daily.Context(dailySide)).PresentValue.ToMoney().Amount.ToString(),"49");
@@ -181,7 +187,7 @@ internal static class ObservationScheduleChecks
     private static void RejectCode(string code,Action action)
     {try{action();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception("Expected "+code);}
 
-    private sealed class ObservationFixture
+    internal sealed class ObservationFixture
     {
         public Fixture Base {get;}=new();
         public QuoteSpecification Quote=>Base.Quotes[0];
@@ -201,7 +207,7 @@ internal static class ObservationScheduleChecks
             Snapshot=Base.Snapshot() with{Selections=series.Select((s,n)=>new SelectedObservation(new(s.Key,InputUse.Variable),new(new(Base.Revision.CatalogId,Guid.NewGuid()),s.Key,Base.R("source"),ObservationRole.TraderMark,PublicationState.Final,Fixture.Utc("2040-12-18T00:00:00Z"),ExactDecimal.Parse(prices[n])))).ToImmutableArray()};
             Projections=contracts.Select(c=>new SwapProjection(new(curve,c.Key),c)).ToImmutableArray();
         }
-        public FloatingSide Side(FloatingAveraging mode,ImmutableArray<SwapProjection> projections,SwapObservationCalendar? calendar=null)=>new(Guid.NewGuid(),Base.R("index"),Quote,Unit,From,To,Fixture.Utc("2048-05-01T00:00:00Z"),Payment,mode,projections,FloatingSide.Implementation,calendar);
+        public FloatingSide Side(FloatingAveraging mode,ImmutableArray<SwapProjection> projections,SwapObservationCalendar? calendar=null)=>new(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(Base.R("index")),Quote,Unit,From,To,Fixture.Utc("2048-05-01T00:00:00Z"),Payment,mode,projections,FloatingSide.Implementation,calendar);
         public SideValuationContext Context(FloatingSide side)=>new(Model.Build(Snapshot,side.DependenciesAt(Snapshot)),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted));
     }
 }

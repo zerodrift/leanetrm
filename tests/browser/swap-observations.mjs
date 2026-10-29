@@ -27,17 +27,17 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const point=await evaluate("(()=>{const rect=document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) .tabulator-cell').getBoundingClientRect();return {x:rect.left+12,y:rect.top+rect.height/2};})()");
   await command('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await command('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
   // The press opens the position in the side panel; Amend opens the swap's editor from there.
-  await wait("!document.querySelector('#side-panel').hidden");if(await evaluate("document.querySelector('#swap-editing').hidden"))await click('#side-panel-amend');await wait("!document.querySelector('#swap-editing').hidden&&"+idle);
+  await wait("document.querySelector('#position-details')?.hidden===false");if(await evaluate("document.querySelector('#swap-editing').hidden"))await click('#side-panel-amend');await wait("!document.querySelector('#swap-editing').hidden&&"+idle);
  }
  let index=await start();
  const projection=JSON.stringify([index.definitionRevisionId,index.curve,index.index]);
  await check('contractual curves are selectable before observation frequency or averaging',`document.querySelector('#swap-reset-frequency').value===''&&document.querySelector('#swap-averaging').value===''&&[...document.querySelector('#swap-projection').options].some(option=>option.value===${JSON.stringify(projection)})`);
- await change('#swap-projection',projection);await change('#swap-reset-frequency','daily');
+ await change('#swap-projection',projection);await change('#swap-settlement-mode','curve_target');await change('#swap-reset-frequency','daily');
  await check('a daily source offers every qualified observation method from the backend',`(()=>{const choices=${last('swaps/observation-options')}.data.samplings.filter(row=>row.resetFrequency==='daily');return choices.length===5&&choices.every(row=>[...document.querySelector('#swap-averaging').options].some(option=>option.value===row.averagingMethod));})()`);
- await click('#side-panel-close');index=await start(false);
+ await click('#side-panel:not([hidden]) #side-panel-close,#position-details:not([hidden]) .position-close');index=await start(false);
  await change('#swap-reset-frequency','daily');await change('#swap-averaging','quantity_weighted');
  await check('convention-first entry filters indices through the authorized backend matrix',`(()=>{const options=${last('swaps/observation-options')}.data;const expected=[...new Set(options.indices.map(row=>row.index))].sort(),actual=[...document.querySelector('#swap-index').options].map(row=>row.value).filter(Boolean).sort();return document.querySelector('#swap-averaging').value==='quantity_weighted'&&JSON.stringify(expected)===JSON.stringify(actual);})()`);
- await change('#swap-index',index.index);await change('#swap-projection',projection);
+ await change('#swap-index',index.index);await change('#swap-projection',projection);await change('#swap-settlement-mode','curve_target');
  await check('mode-first and curve-first selection resolve the same exact projection',`document.querySelector('#swap-projection').value===${JSON.stringify(projection)}&&document.querySelector('#swap-averaging').value==='quantity_weighted'`);
  await fillTerms(index,'fixed');
  await check('weighted entry uses the complete backend-planned interval rows without default quantities',`(()=>{const plan=${last('swaps/observation-options')}.data.observations,inputs=[...document.querySelectorAll('#swap-observation-quantities input')];return plan.length===31&&inputs.length===31&&inputs.every((input,index)=>input.dataset.from===plan[index].from&&input.dataset.to===plan[index].to&&input.value==='');})()`);
@@ -54,7 +54,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await change('#swap-revision','1');await check('retained weighted revision shows original schedule and read-only authoring',"document.querySelector('#swap-fields').disabled&&document.querySelector('#swap-averaging').value==='quantity_weighted'&&document.querySelector('#swap-quantity').value==='100'&&document.querySelectorAll('#swap-observation-quantities input').length===31");await click('#swap-latest');
  await change('#swap-averaging','observation_arithmetic');
  await check('changing observation policy invalidates prior values and exposes a separate exact calendar',"document.querySelector('#swaps-draft-value').textContent===''&&!document.querySelector('#swap-observation-calendar-field').hidden&&document.querySelector('#swap-observation-calendar').value===''&&document.querySelector('#swap-observation-quantities').hidden");
- await click('#side-panel-close');index=await start();await change('#swap-reset-frequency','daily');await change('#swap-averaging','observation_arithmetic');await change('#swap-projection',projection);await fillTerms(index);
+ await click('#side-panel:not([hidden]) #side-panel-close,#position-details:not([hidden]) .position-close');index=await start();await change('#swap-reset-frequency','daily');await change('#swap-averaging','observation_arithmetic');await change('#swap-projection',projection);await change('#swap-settlement-mode','curve_target');await fillTerms(index);
  const calendar=await evaluate(`JSON.stringify(${last('swaps/observation-options')}.data.observationCalendars.find(row=>row.reference.code==='test_business').reference)`);
  await change('#swap-observation-calendar',calendar);await click('#swaps-draft-price');
  await check('calendar sampling transports its exact version and no quantity weights',`(()=>{const request=${last('swaps/price')};return request.status===200&&JSON.stringify(request.body.floating.observationSchedule.calendar)===${JSON.stringify(calendar)}&&request.body.floating.observationSchedule.quantities===null;})()`);
@@ -68,13 +68,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  }
  await change('#swap-averaging','quantity_weighted');
  await check('switching away from calendar sampling clears the calendar before requesting new intervals',`(()=>{const request=${last('swaps/observation-options')};return request.status===200&&!request.body.observationCalendar&&document.querySelector('#swap-observation-calendar-field').hidden&&document.querySelectorAll('#swap-observation-quantities input').length===31&&[...document.querySelectorAll('#swap-observation-quantities input')].every(input=>input.value==='');})()`);
- await click('#side-panel-close');
+ await click('#side-panel:not([hidden]) #side-panel-close,#position-details:not([hidden]) .position-close');
  index=await start(true,'financial_floating_floating');
  await check('first floating side requires its own commodity before index selection',"document.querySelector('#swap-first-commodity').value===''&&![...document.querySelector('#swap-first-index').options].some(option=>option.value)");
  await change('#swap-first-commodity',index.commodity);
  await check('explicit first-side commodity offers its index without changing the second side',`[...document.querySelector('#swap-first-index').options].some(option=>option.value===${JSON.stringify(index.index)})&&document.querySelector('#swap-index').value===${JSON.stringify(index.index)}`);
- await change('#swap-reset-frequency','daily');await change('#swap-averaging','observation_arithmetic');await change('#swap-projection',projection);
- await change('#swap-first-reset-frequency','daily');await change('#swap-first-averaging','quantity_weighted');await change('#swap-first-index',index.index);await change('#swap-first-projection',projection);
+ await change('#swap-reset-frequency','daily');await change('#swap-averaging','observation_arithmetic');await change('#swap-projection',projection);await change('#swap-settlement-mode','curve_target');
+ await change('#swap-first-reset-frequency','daily');await change('#swap-first-averaging','quantity_weighted');await change('#swap-first-index',index.index);await change('#swap-first-projection',projection);await change('#swap-first-settlement-mode','curve_target');
  for(const side of ['first','floating']){
   await change(`#swap-${side}-from`,'2021-01-01');await change(`#swap-${side}-to`,'2021-02-01');await change(`#swap-${side}-currency`,index.currencyCode);
   await change(`#swap-${side}-payment-frequency`,'monthly');await change(`#swap-${side}-payment-rule`,'days_after_period_end');await change(`#swap-${side}-payment-number`,'18');await change(`#swap-${side}-day-basis`,'calendar_days');await change(`#swap-${side}-payment-adjustment`,'unadjusted');
@@ -92,7 +92,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('composed amendment retains both exact plans and independently scaled PV',`${last('swaps/editor')}.data.state.revision===2&&${last('swaps/editor')}.data.valuation.presentValue==='-6.0625'&&${last('swaps/amend')}.body.firstFloating.observationSchedule.quantities[0].quantity.value==='2'&&JSON.stringify(${last('swaps/amend')}.body.floating.observationSchedule.calendar)===${JSON.stringify(calendar)}`);
  await change('#swap-first-averaging','observation_arithmetic');
  await check('editing the first floating convention preserves the second side calendar',`document.querySelector('#swap-first-observation-quantities').hidden&&!document.querySelector('#swap-first-observation-calendar-field').hidden&&document.querySelector('#swap-first-observation-calendar').value===''&&document.querySelector('#swap-observation-calendar').value===${JSON.stringify(calendar)}`);
- await click('#side-panel-close');
+ await click('#side-panel:not([hidden]) #side-panel-close,#position-details:not([hidden]) .position-close');
  await click('#futures-new');await evaluate("window.holdObservation=true;document.querySelector('#new-trade-swaps').click()");await wait('!!window.releaseObservation');
  await evaluate("document.querySelector('#side-panel').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));window.releaseObservation()");await wait(idle);
  await check('late observation options cannot reopen a reset editor or restore cleared side data',"document.querySelector('#swap-editing').hidden&&document.querySelector('#swap-schedules').children.length===0&&document.querySelector('#swap-index').options.length===0");

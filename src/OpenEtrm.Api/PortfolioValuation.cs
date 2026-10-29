@@ -161,7 +161,9 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             snapshot.Definitions!=data.DefinitionRevision||frame.ContextId!=exact.ContextId||frame.Id!=snapshot.Id||frame.At!=snapshot.ValuationAt||
             DateOnly.FromDateTime(snapshot.ValuationAt.UtcDateTime)!=PublishedSchedules.ContextDate(exact))
             throw new MarketDataException("portfolio_context","Select explicit books and exact market frames under one certified effective context.");
-        if(!data.Snapshot(frame).HasSameInputs(snapshot))
+        var known=SchedulePreview.ParseAt(exact.KnownAt);
+        snapshot=MarketSnapshotBinding.Bind(snapshot,exact.ContextId!.Value,known);
+        if(!MarketSnapshotBinding.Bind(data.Snapshot(frame),exact.ContextId.Value,known).HasSameInputs(snapshot))
             throw new MarketDataException("portfolio_context","Every selected observation and use must match the exact authorized snapshot inputs.");
         var ppa=await PpaPortfolio.Prepare(connection,data,frame,context,bookIds,policy.PpaPendingActuals,SchedulePreview.ParseAt(exact.KnownAt),ct);
         var futuresStore=new FuturesStore(database.Manifest);
@@ -302,7 +304,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         contracts.GroupBy(c=>c.Id).Select(g=>
         {
             var first=g.First();
-            if(g.Any(c=>c.ModelVersion!=first.ModelVersion||c.Quantity!=first.Quantity||c.Currency!=first.Currency))
+            if(g.Any(c=>c.ModelVersion!=first.ModelVersion||c.Quantity!=first.Quantity||c.Currency!=first.Currency||
+                c.ScheduleIdentity!=first.ScheduleIdentity||!c.SettlementProjections.SequenceEqual(first.SettlementProjections)))
                 throw new MarketDataException("portfolio_model_receipt","One instrument receipt requires consistent model, quantity and currency lineage across every binding scope.");
             return first with{Dependencies=g.SelectMany(c=>c.Dependencies).Distinct().ToImmutableArray()};
         }).ToImmutableArray();

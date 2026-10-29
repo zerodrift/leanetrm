@@ -897,12 +897,15 @@ The financial-swap trade-valuing operation applies positive typed trade quantity
 once after that sum. The current instrument implementation is
 `independent_side_financial_swap_v2`.
 
-Each constituent FixedSide or FloatingSide has one payment. The managed
-`MonthlySwapSide` composes these into a multi-payment strip with explicit rational
-quantity allocations; `MonthlyFinancialSwap` supports one to 1,200 contiguous
-complete months. Booking and the trade editor still persist one month.
+The original numerical core used one-payment sides composed into monthly strips.
+D253 replaces those wrappers with whole-term `FixedSide` and `FloatingSide`
+parameters and retains their complete pricing schedules. `MonthlyFinancialSwap`
+supports one to 1,200 contiguous complete months in managed valuation; retained
+bookings have their separate entity bound. The single-period and recurring
+editors both use the new definitions. See [side schedules](side-schedules.md)
+for the current contract and qualification.
 Delivery/payment dates, calendars, lookup rules and quote multipliers belong to
-each constituent side. SideValuationContext carries no
+each side's period parameters. SideValuationContext carries no
 instrument, membership sign or trade quantity. A standalone fixed side can value
 with only the selected snapshot and rate inputs; a floating side additionally
 requires its declared model-owned market projections. Returned side schedules

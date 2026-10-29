@@ -27,7 +27,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     def payment(days):return {'frequency':'monthly','rule':'days_after_period_end','days':days,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
     body={**context,**trade_booking(),'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'bookId':book,'quantity':'100','fixedCoefficient':'-1','discounting':True,
           'fixed':{'price':'3','currency':index['currencyCode'],**delivery,'paymentSchedule':payment(18)},
-          'floating':{'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],**delivery,'paymentSchedule':payment(46),'resetFrequency':'monthly','averagingMethod':'none'}}
+          'floating':{'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],**delivery,'paymentSchedule':payment(46),'resetFrequency':'monthly','averagingMethod':'none'}}
     def book_swap(terms):return client.call('swaps/book',{**terms,'operationId':str(uuid4())})
     first=book_swap(body);second=book_swap({**body,'quantity':'250'});undiscounted=book_swap({**body,'quantity':'20','discounting':False})
     earlier=client.call('swaps/editor',{'context':context,'tradeId':first['tradeId'],'revision':None})['context']

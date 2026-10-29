@@ -72,12 +72,15 @@ def run_checks(url, query, manifest, dotnet, owned_root, environment):
             f"FROM market_data.temporal_contexts WHERE id='{identity}';"))
 
     before = capture()
-    payload = json.loads(query(f"SELECT request FROM trading.ppa_trade_revisions WHERE catalog_id='{catalog}' AND event_kind='booked' ORDER BY publication_order LIMIT 1;"))
-    payload.update(bookId=book, snapshotId=frame['id'], reason='Synthetic whole-book refusal check')
-    payload['terms'].update(manifest['ppaR3']['bundle'])
-    encoded = json.dumps(payload).replace("'", "''")
-    query(runtime(f"SELECT security.save_ppa_booking('{catalog}','{uuid4()}','{encoded}'::jsonb);"))
-    ppa = query(f"SELECT trade_id FROM trading.ppa_trade_revisions WHERE catalog_id='{catalog}' AND book_id='{book}';")
+    from ppa_demo_terms import profile_terms
+    bundle=manifest['ppaR3']['bundle']
+    other=next(f for f in client.call('ppa/frames') if f.get('ppaBundle')==bundle and f['at']==frame['at'])
+    terms=profile_terms(manifest);terms.update(bundle)
+    terms['delivery'].update({'from':'2020-12-01','to':'2021-01-01'})
+    payload=dict(operationId=str(uuid4()),snapshotId=other['id'],tradeId=None,expectedRevision=None,
+        bookId=book,boundaryAt=None,coverageFrom='2020-12-19T05:00:00Z',coverageTo='2020-12-19T06:00:00Z',
+        quantity='80',reason='Synthetic whole-book refusal check',memo='',booking=trade_booking(),terms=terms)
+    ppa=client.call('ppa/book',payload)['tradeId']
     fixture = Path(owned_root) / 'ppa-portfolio.json'
     fixture.write_text(json.dumps({'frame': frame, 'bookId': book, 'futureTradeId': future['tradeId'], 'before': before, 'after': capture()}))
     def managed(mode):

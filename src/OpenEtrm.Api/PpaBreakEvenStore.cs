@@ -33,13 +33,13 @@ internal sealed class PpaBreakEvenStore(PreviewDatabase database,PpaStore trades
         await PpaReads.RequireMarket(connection,database.Manifest.CatalogId,request.Terms.DefinitionRevisionId,request.Terms.ReferenceCatalogId,request.Terms.ReferenceRevisionId,frame,context,ct);
         var data=await trades.Definitions(connection,frame,false,ct);
         var tou=await PpaReads.Tou(connection,data,frame,context,[request.Terms],ct);
-        var instrument=PpaCompiler.Compile(data,request.Terms,tou);await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);
+        var instrument=PpaCompiler.Compile(data,request.Terms,tou,await PpaCompiler.ReadQuantityTypes(connection,data,request.Terms,ct));await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);
         var coverage=PpaCompiler.Coverage(instrument,PpaQuantitiesStore.Clock(data,instrument.Delivery.Clock.Code),request.CoverageFrom,request.CoverageTo);
         var plan=PpaBreakEvenPlan.Create(instrument,new(PpaCompiler.Role(request.SelectedSide.Role),request.SelectedSide.Ordinal),coverage,mw,request.Measure,request.QuoteDecimalPlaces,request.QuoteRounding);
         PpaCompiler.Work(plan.Basis.Select(i=>(i,coverage)),[],i=>PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code));
         data=new PreviewData(bundle,data.Definitions,data.References,await PreviewDatabase.ReadObservationPins(connection,bundle,frame.ObservationIds,ct)){CalendarDaysRead=true};
         var bindings=plan.Basis.Select(i=>new PpaBinding(null,null,Guid.NewGuid(),i,coverage,mw)).ToImmutableArray();
-        var prepared=await new PpaReads().Prepare(connection,data,frame,bindings,known,context,pending,[],ct);
+        var prepared=await new PpaReads().Prepare(connection,data,frame,bindings,known,new(context,known),IntervalKnowledgePolicy.ResolvedCutoff,pending,[],ct);
         var session=prepared.Inputs.Session(prepared.Market);
         var result=plan.Solve(session,prepared.Discounting[plan.Basis[0].Id],ct);
         await trades.Recheck(connection,frame,ct);

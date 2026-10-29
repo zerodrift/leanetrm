@@ -20,10 +20,11 @@ internal static class PpaContractChecks
         PpaInstrument WithOrdinal(int ordinal)
         {
             var deliverySlot=new SideSlot(PpaRole.EnergyDelivery,ordinal);
-            var cash=(PpaFixedSide)original.Memberships[1].Side;
+            var cash=(FixedSide)original.Memberships[1].Side;
             var members=original.Memberships.SetItem(0,original.Memberships[0] with {Slot=deliverySlot})
-                .SetItem(1,original.Memberships[1] with {Side=new PpaFixedSide(Guid.NewGuid(),cash.Terms with {Quantity=new SlotQuantity([deliverySlot])},cash.Price)});
-            return new(Guid.NewGuid(),original.Definitions,original.Reference,members,original.NormalizationAssets,false,PpaInstrument.Implementation);
+                .SetItem(1,original.Memberships[1] with {Side=new FixedSide(Guid.NewGuid(),cash.Terms with {Quantity=new SlotQuantity([deliverySlot]),
+                    InputPorts=[new(deliverySlot,cash.Price.Unit.Quantity,cash.Terms.Schedule)]},cash.Price)});
+            return new(Guid.NewGuid(),original.Definitions,original.Reference,members,false,PpaInstrument.Implementation);
         }
         if(WithOrdinal(7).Capability!="fixed_physical")throw new Exception("The highest stored slot ordinal must remain supported.");
         Reject("ppa_side",()=>WithOrdinal(8));

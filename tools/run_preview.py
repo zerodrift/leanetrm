@@ -55,6 +55,7 @@ def main():
     parser.add_argument('--risk-jobs-check',action='store_true',help='Qualify nested risk and durable worker execution in a disposable database')
     parser.add_argument('--factor-swap-check',action='store_true',help='Qualify typed contractual factors and cross-commodity scheduled swaps in an owned fixture')
     parser.add_argument('--scheduled-swap-check',action='store_true',help='Qualify explicit recurring financial swap quantity schedules')
+    parser.add_argument('--retained-schedule-check',action='store_true',help='Qualify staged graphs and shared Side reuse across reverse effective boundaries')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
@@ -93,6 +94,7 @@ def main():
     if args.ppa_http_benchmark:
         args.ppa_bookings_check = True
     if args.demo_instruments_check: args.check=True
+    if args.retained_schedule_check: args.check=True
     fixing_frames=args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check
     if args.interval_series_benchmark or args.usage_benchmark:
         if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
@@ -277,6 +279,13 @@ def main():
                 from check_cash_rounding_retirement import run_checks as check_cash_retirement
                 check_cash_retirement(query,migration.read_text())
             query(migration.read_text())
+        if args.check:
+            from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema
+            check_whole_term_swap_schema(query)
+            from check_ppa_side_schedule_schema import run_checks as check_ppa_side_schedule_schema
+            check_ppa_side_schedule_schema(query)
+            from check_retained_side_schedules import run_checks as check_retained_side_schedules
+            check_retained_side_schedules(query)
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
             reference,market,manifest=prepare_execution(reference,market,manifest)
@@ -335,7 +344,12 @@ def main():
             from swap_fixture import fixture as swap_fixture
             # The valuation-status check reads the last custom-curve close, at which the daily bundle publishes.
             swap_market,swap_manifest=swap_fixture(fixing_frames=fixing_frames,observation_guards=args.side_observation_check or args.scheduled_swap_check,
-                scheduled_periods=args.scheduled_swap_check,closes=['2020-12-31T16:00:00Z'] if args.valuation_status_check else ());query(swap_market)
+                scheduled_periods=args.scheduled_swap_check,closes=['2020-12-31T16:00:00Z'] if args.valuation_status_check else (),
+                effective_from='2020-12-16' if args.retained_schedule_check else '2020-01-01')
+            if args.index_fixing_check:
+                from check_swap_settlement_selection import prepare_daily
+                swap_market=prepare_daily(swap_market,swap_manifest)
+            query(swap_market)
             if args.connected_portfolio_check or args.valuation_status_check or args.with_custom_curves:
                 # The primary custom-curve fixture visits closes beyond the four standard weekdays.
                 # Its unrelated secondary bundle explicitly supplies no inputs there.
@@ -373,11 +387,12 @@ def main():
         # The close-risk fixture has a contemporary definition period; the
         # unchanged temporal baseline runs separately in --ppa-bookings-check.
         if args.ppa_bookings_check and not args.close_risk_check:
-            from check_ppa_bookings_storage import run_checks as check_ppa_bookings_storage
-            check_ppa_bookings_storage(query,manifest)
-            from check_ppa_temporal_storage import run_checks as check_ppa_temporal_storage
-            check_ppa_temporal_storage(query,manifest)
+            from check_pre_retention_storage import ppa as check_ppa_raw_admission
+            check_ppa_raw_admission(query,psql,env,ROOT,
+                [reference,market,swap_market,security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)
         if args.ppa_check:
+            from check_settlement_preview import prepare as prepare_settlement_preview
+            manifest=prepare_settlement_preview(manifest)
             from check_ppa_storage import run_checks as check_ppa_storage
             check_ppa_storage(query,manifest)
             from check_meter_finality import run_checks as check_meter_finality
@@ -387,7 +402,7 @@ def main():
             check_interval_series_storage(query,manifest,psql,env)
         if args.index_fixing_check:
             from check_index_fixing_upgrade import run_checks as check_index_fixing_upgrade
-            check_index_fixing_upgrade(query,psql,env,ROOT,dotnet)
+            check_index_fixing_upgrade(query,psql,env,ROOT)
         if args.unit_check:
             manifest['unitCatalogPreviousKnownAt']=query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');")
             unit_reference='20000000-0000-0000-0000-000000000004'
@@ -499,12 +514,16 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.demo_instruments_check:
+            if args.retained_schedule_check:
+                from check_retained_side_schedules import run_stage_checks,run_temporal_checks
+                run_stage_checks(query,manifest)
+                run_temporal_checks(url,query,manifest)
+            elif args.demo_instruments_check:
                 from check_demo_instruments import run_checks
                 worker_env=prepare_risk_worker()
                 def run_demo_worker():
                     subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
-                run_checks(url,manifest,query,run_worker=run_demo_worker,owned_root=temporary,run_id=run_id)
+                run_checks(url,manifest,query,run_worker=run_demo_worker,owned_root=temporary,run_id=run_id,psql=psql,environment=env)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
@@ -624,7 +643,11 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--side-observations'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=240):raise RuntimeError('Owned side observation browser checks failed')
+                    # This combines 26 observation checks and the 171 swap checks
+                    # whose standalone suite has a 300s budget. Linux reached
+                    # 194/195 with continuous progress before the former 240s
+                    # cutoff. Individual action and application deadlines stay unchanged.
+                    if browser_process.wait(timeout=360):raise RuntimeError('Owned side observation browser checks failed')
             elif args.swap_risk_holdings_check:
                 from check_swap_risk_holdings import run_checks as check_swap_risk_holdings
                 check_swap_risk_holdings(url,query,manifest,dotnet,temporary,app_env,psql)
@@ -733,7 +756,10 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--swaps'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=180):raise RuntimeError('Owned swap browser checks failed')
+                    # This suite has 169 checks. Two Linux runs made continuous
+                    # progress through 149/150 before the former 180s whole-suite
+                    # cutoff. Individual action and application deadlines stay unchanged.
+                    if browser_process.wait(timeout=300):raise RuntimeError('Owned swap browser checks failed')
             elif args.booking_check:
                 from check_definition_publication import run_checks as check_definition_publication
                 check_definition_publication(query,manifest)
@@ -864,9 +890,15 @@ def main():
                 from check_units_preview import run_checks as check_units
                 check_units(url)
                 from check_trading_reference_access import run_checks as check_reference_authority
-                check_reference_authority(query,manifest)
+                check_reference_authority(query,manifest,url)
                 from check_economic_lookups import run_checks as check_identities
                 check_identities(url,query,manifest)
+                from check_trading_reference_allocation import run_checks as check_reference_allocation, run_http_checks as check_reference_allocation_http
+                check_reference_allocation(query,manifest,psql,env)
+                check_reference_allocation_http(url,query)
+                from check_trading_history_boundary import run_checks as check_trading_history, run_http_checks as check_trading_history_http
+                check_trading_history(query,manifest)
+                check_trading_history_http(query,manifest,url,temporary)
             elif args.example=='mixed-gas':
                 from check_mixed_preview import run_checks
                 run_checks(url,json.loads(export.read_text()))
@@ -940,17 +972,31 @@ def main():
                 from check_units_preview import run_checks as check_units
                 check_units(url,client=session)
                 from check_trading_reference_access import run_checks as check_reference_authority
-                check_reference_authority(query,manifest)
+                check_reference_authority(query,manifest,url,session)
                 from check_economic_lookups import run_checks as check_identities
                 check_identities(url,query,manifest,session)
-                from check_swaps_storage import run_checks as check_swaps_storage
-                check_swaps_storage(query,manifest,psql,env)
+                from check_trading_reference_allocation import run_checks as check_reference_allocation, run_http_checks as check_reference_allocation_http
+                check_reference_allocation(query,manifest,psql,env)
+                check_reference_allocation_http(url,query,session)
+                from check_trading_history_boundary import run_checks as check_trading_history, run_http_checks as check_trading_history_http
+                check_trading_history(query,manifest)
+                check_trading_history_http(query,manifest,url,temporary,session)
+                from check_pre_retention_storage import ordinary_swaps as check_swaps_storage
+                check_swaps_storage(query,psql,env,ROOT,
+                    [reference,market,swap_market,security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)
                 from seed_preview_swaps import seed_swaps
                 seeded=seed_swaps(url,run_id,temporary,session)
                 assert len(seeded)==16 and seeded==seed_swaps(url,run_id,temporary,session)
                 print('PASS sixteen synthetic swap examples seed idempotently across all four weekdays',flush=True)
                 from check_seeded_preview import run_swap_book_checks
                 run_swap_book_checks(session,seeded)
+            if args.scheduled_swap_check:
+                from check_whole_term_swap_schema import run_storage_checks as check_whole_term_swap_storage, check_rebooking_guard
+                from check_pre_retention_storage import swaps as check_whole_term_swap_admission
+                check_whole_term_swap_admission(query,psql,env,ROOT,
+                    [reference,market,swap_market,security,trading_fixture(manifest['catalogId'],swap_defaults=True)],manifest)
+                check_whole_term_swap_storage(query,manifest,require_retention=True)
+                check_rebooking_guard(query,psql,env,ROOT)
         else:
             if args.example=='standard':
                 worker_env=prepare_risk_worker()

@@ -35,7 +35,7 @@ class PreviewClient:
         self.opener = build_opener(HTTPCookieProcessor(self.jar))
         self.token = ''
 
-    def call(self, path, body=None, expected=200, headers=None):
+    def call(self, path, body=None, expected=200, headers=None, timeout=20):
         """POST a body, serialized unless it is already bytes, or GET without one."""
         request_headers = {'Origin': self.url, **(headers or {})}
         if body is not None:
@@ -44,7 +44,7 @@ class PreviewClient:
         data = body if body is None or isinstance(body, bytes) else json.dumps(body).encode()
         request = Request(self.url+self.api_prefix+path, data=data, headers=request_headers, method='GET' if body is None else 'POST')
         try:
-            response = self.opener.open(request, timeout=20)
+            response = self.opener.open(request, timeout=timeout)
         except HTTPError as error:
             response = error
         value = response.read()

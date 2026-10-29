@@ -29,8 +29,8 @@ public sealed class PpaBreakEvenPlan
     {
         Original=original;SelectedSide=side;Coverage=coverage;Mw=mw;Measure=measure;QuoteDecimalPlaces=places;QuoteRounding=rounding;price=selected;
         PpaInstrument At(ExactDecimal value)=>new(Guid.NewGuid(),original.Definitions,original.Reference,
-            [..original.Memberships.Select(m=>m.Slot==side?m with{Side=new PpaFixedSide(m.Side.Id,m.Side.Terms,new FlatPrice(new(value,selected.Unit)))}:m)],
-            original.NormalizationAssets,original.Discounting,PpaInstrument.Implementation);
+            [..original.Memberships.Select(m=>m.Slot==side?m with{Side=new FixedSide(m.Side.Id,m.Side.Terms,new FlatPrice(new(value,selected.Unit)))}:m)],
+            original.Discounting,PpaInstrument.Implementation);
         Basis=[At(default),At(ExactDecimal.Parse("1"))];
     }
     public static PpaBreakEvenPlan Create(PpaInstrument instrument,SideSlot side,DeliveryCoverage coverage,ExactDecimal mw,string measure,int quoteDecimalPlaces,string quoteRounding)
@@ -38,7 +38,7 @@ public sealed class PpaBreakEvenPlan
         if(measure is not("ValueExcludingOverdue" or "CompletePv"))throw Error("measure","Select ValueExcludingOverdue or CompletePv explicitly.");
         if(quoteDecimalPlaces is <0 or >18 || quoteRounding!="half_even_v1")throw Error("quote","Select 0–18 quote decimals and explicit half_even_v1 rounding.");
         if(instrument is null || instrument.Capability is not("fixed_physical" or "virtual_fixed_for_floating") || side is null || side.Role!=PpaRole.StrikePayment ||
-            instrument.Memberships.SingleOrDefault(m=>m.Slot==side)?.Side is not PpaFixedSide {Price:FlatPrice flat})
+            instrument.Memberships.SingleOrDefault(m=>m.Slot==side)?.Side is not FixedSide {Price:FlatPrice flat})
             throw Error("side","Select exactly one flat fixed-strike payment membership of a fixed physical or virtual fixed-for-floating PPA.");
         if(coverage is null || coverage.From>=coverage.To || mw.CompareTo(default)<=0)throw Error("scope","Supply explicit nonempty delivery coverage and positive contract MW.");
         return new(instrument,side,coverage,mw,measure,quoteDecimalPlaces,quoteRounding,flat);

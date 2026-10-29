@@ -12,8 +12,9 @@ public sealed record SideSlot([property:IdentityField]PpaRole Role,[property:Ide
 public sealed record PpaDelivery([property:IdentityField]ReferenceKey Clock,[property:IdentityField]int IntervalMinutes,
     [property:IdentityField]DateOnly From,[property:IdentityField]DateOnly To);
 public abstract record PpaQuantity;
-[EconomicDefinition("ppa_volume_quantity_v1")]
-public sealed record VolumeQuantity([property:IdentityField]ImmutableArray<VolumeSourceKey> Sources,[property:IdentityField]QuantityStage Stage):PpaQuantity;
+[EconomicDefinition("ppa_volume_quantity_v2")]
+public sealed record VolumeQuantity([property:IdentityField]ImmutableArray<VolumeSourceKey> Sources,[property:IdentityField]QuantityStage Stage,
+    [property:IdentityField]ReferenceKey Energy):PpaQuantity;
 [EconomicDefinition("ppa_profile_quantity_v1")]
 public sealed record ProfileQuantity([property:IdentityField]ReferenceKey Capacity,[property:IdentityField]ReferenceKey Energy,
     [property:IdentityField]DeliveryHours Hours):PpaQuantity;
@@ -21,9 +22,30 @@ public sealed record ProfileQuantity([property:IdentityField]ReferenceKey Capaci
 public sealed record SlotQuantity([property:IdentityField]ImmutableArray<SideSlot> Slots):PpaQuantity;
 [EconomicDefinition("ppa_accreditation_quantity_v1")]
 public sealed record AccreditedQuantity([property:IdentityField]ImmutableArray<AssetKey> Assets):PpaQuantity;
-[EconomicDefinition("ppa_side_terms_v1")]
+public enum PpaNormalizationPolicy { ContractUnit=1,SumCapacityInForce }
+[EconomicDefinition("ppa_normalization_v1")]
+public sealed record PpaNormalization
+{
+    [IdentityField]public ImmutableArray<AssetKey> Assets { get; }
+    [IdentityField]public ReferenceKey Basis { get; }
+    [IdentityField]public PpaNormalizationPolicy Policy { get; }
+    public PpaNormalization(ImmutableArray<AssetKey> assets,ReferenceKey basis,PpaNormalizationPolicy policy)
+    {
+        if(assets.IsDefault||assets.Distinct().Count()!=assets.Length||!Enum.IsDefined(policy)||
+            policy==PpaNormalizationPolicy.ContractUnit&&!assets.IsEmpty||policy==PpaNormalizationPolicy.SumCapacityInForce&&assets.IsEmpty)
+            throw PpaErrors.Error("ppa_normalization","policy","Select an explicit contract-unit basis or a distinct nonempty asset set normalized by capacity in force.");
+        Money.RequireKey(basis);
+        Assets=[..assets.OrderBy(a=>a.Code,StringComparer.Ordinal)];Basis=basis;Policy=policy;
+    }
+}
+[EconomicDefinition("schedule_quantity_input_port_v1")]
+public sealed record ScheduleInputPort([property:IdentityField]SideSlot Slot,[property:IdentityField]ReferenceKey Quantity,
+    [property:IdentityField]IntervalScheduleParameters Schedule);
+[EconomicDefinition("ppa_side_terms_v2")]
 public sealed record PpaSideTerms([property:IdentityField]PpaDelivery Delivery,[property:IdentityField]PpaQuantity Quantity,
-    [property:IdentityField]ReferenceKey Currency,[property:IdentityField]Quantity UnitQuantity,[property:IdentityField]PaymentRule DateRule);
+    [property:IdentityField]ReferenceKey Currency,[property:IdentityField]Quantity UnitQuantity,[property:IdentityField]PaymentRule DateRule,
+    [property:IdentityField]IntervalScheduleParameters Schedule,[property:IdentityField]ReferenceKey ScheduleQuantity,[property:IdentityField]PpaNormalization Normalization,
+    [property:IdentityField]ImmutableArray<ScheduleInputPort> InputPorts);
 
 public abstract record FixedPriceTerm
 {
@@ -61,10 +83,11 @@ public sealed record SteppedPrice:FixedPriceTerm
     public override ExactUnitPrice At(DateOnly operatingDate)=>ExactUnitPrice.FromPrice(Steps.LastOrDefault(s=>s.From<=operatingDate)?.Price
         ??throw PpaErrors.Error("ppa_price_rule","price","The strike steps do not cover delivery."));
 }
-[EconomicDefinition("ppa_index_price_v1")]
-public sealed record IndexPrice([property:IdentityField]CurveKey Curve,[property:IdentityField]ExactDecimal Multiplier,[property:IdentityField]UnitPrice Adder);
+[EconomicDefinition("ppa_index_price_v2")]
+public sealed record IndexPrice([property:IdentityField]CurveKey Curve,[property:IdentityField]ExactDecimal Multiplier,[property:IdentityField]UnitPrice Adder,
+    [property:IdentityField]PriceSettlementSelection? Settlement);
 [EconomicDefinition("ppa_member_v1")]
-public sealed record PpaMembership([property:IdentityField]SideSlot Slot,[property:IdentityField]PpaSide Side,[property:IdentityField]ExactDecimal Coefficient);
+public sealed record PpaMembership([property:IdentityField]SideSlot Slot,[property:IdentityField]Side Side,[property:IdentityField]ExactDecimal Coefficient);
 internal static class PpaErrors
 {
     internal static MarketDataException Error(string code,string term,string message)=>new(code,$"{PpaCapabilities.Version}: {term}: {message}");

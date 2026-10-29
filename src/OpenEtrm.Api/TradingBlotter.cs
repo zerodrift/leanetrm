@@ -9,7 +9,7 @@ namespace OpenEtrm.Api;
 
 // Report adapter over the same authorized product valuation operations. Numeric
 // values stay typed in the backend; unsupported measures remain unavailable.
-public sealed class TradingBlotter(PreviewDatabase database,FuturesStore futures,SwapStore swaps)
+public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore futures,SwapStore swaps)
 {
  private PreviewManifest manifest=>database.Manifest;
  public const string Convention="trading_workspace_v1";
@@ -77,13 +77,7 @@ public sealed class TradingBlotter(PreviewDatabase database,FuturesStore futures
   var tradeView=view with {Mode="trades",GroupBy=[],Measures=[],PivotConvention=null,PriceNumericalPolicy=null};
   var priced=JsonSerializer.SerializeToNode(await futures.Blotter(connection,data,frame,tradeView,ct),Json)!.AsObject();
   var rows=priced["holdings"]!.AsArray().Select(n=>n!.DeepClone().AsObject()).ToList();
-  foreach(var row in rows)
-  {
-   var curve=data.Definitions["curves"].Single(c=>c.Text("code")==row["curve"]!.GetValue<string>());
-   var quote=data.Quotes.Single(q=>q.Key.Code==curve.Text("quote_code"));
-   row["quantitySpecification"]=JsonSerializer.SerializeToNode(quote.Quantity,Json);row["currencyReference"]=JsonSerializer.SerializeToNode(quote.Currency,Json);
-   row["definitionRevisionId"]=manifest.RevisionId.ToString();row["instrumentType"]="future";row["presentValue"]=null;row["fixedPrice"]=null;row["direction"]=null;
-  }
+  foreach(var row in rows)FutureTerms(row,data);
   var swapRows=await swaps.Holdings(connection,data,frame,view.BookIds,view.PortfolioIds,ct);
   rows.AddRange(swapRows.Rows.Select(r=>JsonNode.Parse(r.GetRawText())!.AsObject()));
   rows.AddRange(await PpaBlotter.Read(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct));
@@ -91,9 +85,7 @@ public sealed class TradingBlotter(PreviewDatabase database,FuturesStore futures
   var formats=await DealAmountFormats.All(connection,manifest.CatalogId,ct);
   foreach(var row in rows)
   {
-   var selectedFormats=formats.GetValueOrDefault(Guid.Parse(row["tradeId"]!.GetValue<string>()));
-   row["amountFormat"]=JsonSerializer.SerializeToNode(DealAmountFormats.Resolve(selectedFormats,"trade"),Json);
-   row["fixedAmountFormat"]=JsonSerializer.SerializeToNode(DealAmountFormats.Resolve(selectedFormats,"fixed"),Json);
+   AmountFormats(row,formats.GetValueOrDefault(Guid.Parse(row["tradeId"]!.GetValue<string>())));
   }
   return new(Project(view,rows,priced["evaluatedContracts"]!.GetValue<int>(),priced["totals"],
    new(swapRows.Rows.Length,swapRows.Valuations,swapRows.SupplementalMarketLoads)),Summarize(summaries,rows));
@@ -132,6 +124,9 @@ public sealed class TradingBlotter(PreviewDatabase database,FuturesStore futures
   foreach(var partition in partitions)
   {
    var first=partition.First();var group=new JsonObject();
+   // A healthy subtotal cannot be the complete value of a group whose retained
+   // schedules need rebooking. Its individual healthy positions remain valued.
+   var needsRebooking=partition.Any(row=>Text(row,"unavailableReason")==PpaBlotter.NeedsRebooking);
    foreach(var d in view.GroupBy)
    {
     var field=dimensions[d];group[field=="curve"?"market":field]=(field=="curve"?first["marketKey"]??first[field]:first[field])?.DeepClone();
@@ -146,6 +141,7 @@ public sealed class TradingBlotter(PreviewDatabase database,FuturesStore futures
    foreach(var measure in view.Measures)
    {
     if(measure=="tradeCount"){group[measure]=partition.Select(r=>Text(r,"tradeId")).Distinct().Count();continue;}
+    if(needsRebooking&&Valuation(measure)){group[measure]=null;continue;}
     var counted=Valuation(measure)?partition.Where(Valued).ToArray():partition.ToArray();
     if(PriceMeasures.TryGetValue(measure,out var price))
     {
@@ -160,6 +156,7 @@ public sealed class TradingBlotter(PreviewDatabase database,FuturesStore futures
     else group[measure]=counted.Select(r=>ExactDecimal.Parse(Text(r,measure)!)).Aggregate((a,b)=>a+b).ToString();
    }
    group["unvaluedPositions"]=Unvalued(partition);
+   if(needsRebooking)group["valuationUnavailableReason"]=PpaBlotter.NeedsRebooking;
    groups.Add(group);
   }
   return groups;

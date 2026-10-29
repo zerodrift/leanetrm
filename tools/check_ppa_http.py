@@ -2,7 +2,7 @@
 from fractions import Fraction
 from uuid import uuid4
 from exact_values import fraction, instant
-from preview_client import PreviewClient
+from preview_client import PreviewClient, initial_frame
 
 
 def run_checks(url, query, manifest):
@@ -12,7 +12,7 @@ def run_checks(url, query, manifest):
         assert condition,name
         passed+=1;print('PASS PPA http: '+name,flush=True)
     client=PreviewClient(url);client.bootstrap();client.call('profile',{'profile':'editor'})
-    frame=client.call('workspace')['frames'][0]['id']
+    frame=initial_frame(client.call('workspace'),'2020-12-15')['id']
     def cutoff():return client.call('interval-series')['knownAt']
     heads={}
     def revise(series,start,values):

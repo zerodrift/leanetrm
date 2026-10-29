@@ -44,13 +44,13 @@ def run_checks(url, manifest, query, run_worker):
         'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'], 'quantity': '10',
         'fixedCoefficient': '-1', 'discounting': False,
         'fixed': {'price': '0', 'currency': index['currencyCode'], **delivery, 'paymentSchedule': payment},
-        'floating': {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
+        'floating': {'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'],
             **delivery, 'paymentSchedule': payment, 'resetFrequency': 'monthly', 'averagingMethod': 'none',
             'customProjection': reference}}
     draft = {'context': context, **{key: terms[key] for key in
         ('definitionRevisionId', 'commodity', 'fixedCoefficient', 'discounting', 'fixed', 'floating')},
         'quantity': {'value': terms['quantity'], 'specification': index['quantityChoices'][0]['specification']}}
-    period_query = {'context': context, 'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'],
+    period_query = {'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'context': context, 'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'],
                     'curve': index['curve'], 'index': index['index'], 'resetFrequency': 'monthly', 'averagingMethod': 'none',
                     'customProjection': reference}
     periods = client.call('swaps/observation-options', period_query)['deliveryPeriods']

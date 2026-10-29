@@ -40,7 +40,7 @@ def seed_heat_rates(c):
             def side(index, quantity):
                 return dict(basis='period_total', quantity=next(q['specification'] for q in index['quantityChoices'] if q['specification']['code'] == index['quantityCode']), amount=None,
                             allocation=None, priceApplication='period_average_times_quantity_v1', power=None,
-                            periods=[dict(amount=quantity, fixed=None, floating=dict(curve=index['curve'], index=index['index'], currency=index['currencyCode'],
+                            periods=[dict(amount=quantity, fixed=None, floating=dict(settlement=dict(mode='curve_target',index=None,projectionPolicy=None),curve=index['curve'], index=index['index'], currency=index['currencyCode'],
                                 deliveryFrom='2021-01-01', deliveryTo='2021-02-01', paymentSchedule=payment, resetFrequency='monthly', averagingMethod='none', spread='0'))])
             # The managed factor contract derives the second-side schedule exactly.
             first, second = side(power, amount), side(gas, None)
@@ -61,7 +61,7 @@ def seed_ppas(c, manifest):
     virtual = deepcopy(physical)
     virtual['memberships'][0] = dict(role='indexed_payment', ordinal=0, coefficient='1', side=dict(kind='indexed', quantity=deepcopy(physical['memberships'][0]['side']['quantity']),
         paymentRule=physical['memberships'][0]['side']['paymentRule'], location=None, fixedPrice=None,
-        indexPrice=dict(curve=manifest['intervalCurves']['shaped'], quantity='test_power_quantity', multiplier='1', indexMultiplier='1', adder='0'), attribute=None))
+        indexPrice=dict(curve=manifest['intervalCurves']['shaped'], quantity='test_power_quantity', multiplier='1', indexMultiplier='1',settlement=None, adder='0'), attribute=None))
     virtual['memberships'][1]['side']['quantity'] = deepcopy(physical['memberships'][0]['side']['quantity'])
     alternate = profile_terms(manifest, '45')
     for membership in alternate['memberships']:

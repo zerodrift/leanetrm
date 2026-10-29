@@ -45,9 +45,9 @@ def run_checks(url, manifest, query, run_worker):
     terms={**context,**trade_booking(),'operationId':str(uuid4()),'bookId':daily_book,'definitionRevisionId':index['definitionRevisionId'],
         'commodity':index['commodity'],'quantity':'31','fixedCoefficient':'-1','discounting':False,
         'fixed':{'price':'0','currency':index['currencyCode'],**delivery,'paymentSchedule':payment},
-        'floating':{'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],**delivery,'paymentSchedule':payment,
+        'floating':{'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':index['curve'],'index':index['index'],'currency':index['currencyCode'],**delivery,'paymentSchedule':payment,
                     'resetFrequency':'daily','averagingMethod':'arithmetic','customProjection':choice['reference']}}
-    period_query={'context':context,'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],
+    period_query={'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'context':context,'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],
                   'curve':index['curve'],'index':index['index'],'resetFrequency':'daily','averagingMethod':'arithmetic',
                   'customProjection':choice['reference']}
     assert any(p['deliveryFrom']=='2021-01-01' for p in client.call('swaps/observation-options',period_query)['deliveryPeriods'])

@@ -488,7 +488,7 @@ def run_checks(url):
     local = next(i for i in catalog['indices'] if i['curve'] == 'local_gas')
 
     def floating(index):
-        return {'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01',
+        return {'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': index['curve'], 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01',
                 'deliveryTo': '2021-02-01', 'paymentSchedule': payment, 'resetFrequency': 'monthly', 'averagingMethod': 'none'}
     common = {**swap_context, **trade_booking(), 'definitionRevisionId': base['definitionRevisionId'], 'commodity': base['commodity'],
               'bookId': BOOKS[0], 'quantity': '1000'}

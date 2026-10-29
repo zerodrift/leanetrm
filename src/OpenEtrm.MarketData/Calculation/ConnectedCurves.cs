@@ -483,22 +483,24 @@ public sealed partial class ConnectedCurvePlan
     public ExactUnitPrice Evaluate(CurvePointKey point,CancellationToken cancellation=default)
         =>CreateSession().Get(IndexOf(point),cancellation);
     private ExactUnitPrice EvaluateNode(int node,GraphInputs<ExactUnitPrice> inputs,CancellationToken cancellation)
+        =>EvaluateNode(node,inputs,static price=>price,cancellation);
+    internal ExactUnitPrice EvaluateNode<T>(int node,GraphInputs<T> inputs,Func<T,ExactUnitPrice> price,CancellationToken cancellation) where T:notnull
     {
         cancellation.ThrowIfCancellationRequested();var operation=nodes[node];
         if(operation.Source is {} source)return ExactUnitPrice.FromPrice(new(source.Observation.Value,source.Quote));
         if(operation.Built is {} built)
         {
-            var value=inputs.Get(operation.Dependencies[0]).ToUnitPriceExact();
+            var value=price(inputs.Get(operation.Dependencies[0])).ToUnitPriceExact();
             if(built.Multiplier is {} multiplier)value=value.Times(multiplier);
-            value=value.Add(inputs.Get(operation.Dependencies[1]).ToUnitPriceExact());
+            value=value.Add(price(inputs.Get(operation.Dependencies[1])).ToUnitPriceExact());
             return ExactUnitPrice.FromPrice(value);
         }
-        var sum=inputs.Get(operation.Dependencies[0]).Scale(operation.Weights[0]);
+        var sum=price(inputs.Get(operation.Dependencies[0])).Scale(operation.Weights[0]);
         for(var i=1;i<operation.Dependencies.Length;i++)
-        {cancellation.ThrowIfCancellationRequested();sum=sum.Add(inputs.Get(operation.Dependencies[i]).Scale(operation.Weights[i]));}
+        {cancellation.ThrowIfCancellationRequested();sum=sum.Add(price(inputs.Get(operation.Dependencies[i])).Scale(operation.Weights[i]));}
         return sum.Divide(operation.Divisor);
     }
-    private void ValidateNode(int node,ExactUnitPrice value)
+    internal void ValidateNode(int node,ExactUnitPrice value)
     {
         var operation=nodes[node];var quote=operation.Source?.Quote??operation.Built?.Quote;
         if(quote is not null)value.ToUnitPriceExact().RequireQuote(quote);

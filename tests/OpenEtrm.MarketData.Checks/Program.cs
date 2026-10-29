@@ -3,6 +3,17 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
+if(args is ["--compact-retained"]){CompactRetainedChecks.Run();return;}
+if(args is ["--side-block-export",var blockOutput]){SideBlockExperiment.Export(blockOutput,12);return;}
+if(args is ["--side-block-export",var blockOutputMonths,var blockMonths]){SideBlockExperiment.Export(blockOutputMonths,int.Parse(blockMonths,System.Globalization.CultureInfo.InvariantCulture));return;}
+if(args is ["--side-block-evaluate",var blockInput,var blockResult]){SideBlockExperiment.Evaluate(blockInput,blockResult);return;}
+if(args is ["--side-model-oracle"]){SideModelOracleChecks.Run();return;}
+if(args is ["--schedule-graph"]){ScheduleGraphChecks.Run();return;}
+if(args is ["--whole-term-payments"]){WholeTermPaymentChecks.Run();return;}
+if(args is ["--retained-schedules"]){RetainedScheduleChecks.Run();ScheduleStorageWorkChecks.Run();return;}
+if(args is ["--schedule-storage-work"]){ScheduleStorageWorkChecks.Run();return;}
+if(args is ["--interval-schedules"]){IntervalScheduleChecks.Run();return;}
 
 if(args is ["--ppa-connected"]){PpaConnectedChecks.Run();return;}
 if(args is ["--curve-lookups"]){CurveLookupChecks.Run();return;}
@@ -71,6 +82,12 @@ if (args.Length > 0)
     return;
 }
 
+SideModelOracleChecks.Run();
+WholeTermPaymentChecks.Run();
+RetainedScheduleChecks.Run();
+ScheduleStorageWorkChecks.Run();
+ScheduleGraphChecks.Run();
+IntervalScheduleChecks.Run();
 IntervalDataChecks.Run();
 PowerHoursChecks.Run();
 CustomCurveChecks.Run();

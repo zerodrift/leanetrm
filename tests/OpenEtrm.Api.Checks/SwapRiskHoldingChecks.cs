@@ -107,7 +107,8 @@ internal static class SwapRiskHoldingChecks
             var snapshot=data.Snapshot(frame);
             var final=data.Snapshot(frame with {ObservationIds=[request.Id("frozenObservationId")]}).Selections.Single();
             var frozen=snapshot with { Selections=snapshot.Selections.Add(final with {Input=final.Input with {Use=InputUse.FrozenFact}}) };
-            var holdings=await store.ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],excluded:[],ct,frozen);
+            var pinned=frame with{ContextId=current.ContextId};
+            var holdings=await store.ReadRiskHoldings(connection,data,pinned,[request.Id("bookId")],excluded:[],ct,frozen);
             var expected=request.GetProperty("holdings").EnumerateArray().ToArray();
             Check("actual persisted latest revisions retain their external quantities and exact references",holdings.Length==3&&holdings.All(holding=>
             {
@@ -118,6 +119,14 @@ internal static class SwapRiskHoldingChecks
             }));
             var shared=holdings.Where(h=>h.Instrument.Id==request.Id("sharedInstrumentId")).ToArray();
             Check("two stored trades reuse the same unit instrument and run-local payment provider",shared.Length==2&&ReferenceEquals(shared[0].Instrument,shared[1].Instrument)&&ReferenceEquals(shared[0].Discounting,shared[1].Discounting));
+            var sideGroups=holdings.SelectMany(h=>h.Instrument.Sides.Select(m=>(Instrument:h.Instrument.Id,m.Side)))
+                .GroupBy(m=>m.Side.Id).Where(g=>g.Select(m=>m.Instrument).Distinct().Count()>1).ToArray();
+            Check("different retained instruments load each shared immutable side schedule once per read",sideGroups.Length==2&&sideGroups.All(g=>
+                g.First().Side.RetainedSchedule is not null&&g.All(m=>ReferenceEquals(m.Side.RetainedSchedule,g.First().Side.RetainedSchedule))));
+            var anotherRead=await store.ReadRiskHoldings(connection,data,pinned,[request.Id("bookId")],excluded:[],ct,frozen);
+            Check("retained side content does not leak into another read on the same connection and context",anotherRead.All(h=>
+                h.Instrument.Sides.All(m=>!ReferenceEquals(m.Side.RetainedSchedule,holdings.First(p=>p.Instrument.Id==h.Instrument.Id)
+                    .Instrument.Sides.First(p=>p.Side.Id==m.Side.Id).Side.RetainedSchedule))));
             Check("the supplied frozen snapshot reaches every independently dated payment unchanged",holdings.All(h=>h.Discounting is CurrencyDefaultDiscounting provider&&
                 ReferenceEquals(provider.Snapshot,frozen)&&provider.Inputs.Values.All(input=>ReferenceEquals(input.Snapshot,frozen))));
             foreach(var holding in holdings)
@@ -127,7 +136,7 @@ internal static class SwapRiskHoldingChecks
                 var value=holding.Instrument.PV(new SideValuationContext(market,holding.Discounting)).PresentValue.Scale(holding.Quantity.Amount).ToMoney();
                 Check("stored projection/payment terms reproduce the separate editor PV for "+expectedRow.Text("label"),value.Amount.ToString()==expectedRow.Text("presentValue"));
                 var primitive=holding.Instrument as FinancialSwapInstrument??throw new Exception("This stored fixture requires ordinary swaps.");
-                var ids=primitive.Floating.GenerateSchedule().Payments.SelectMany(p=>p.Prices).Select(p=>p.Lookup!.Contract.Key.Id);
+                var ids=primitive.Floating.GenerateDatedSchedule().Payments.SelectMany(p=>p.Prices).Select(p=>p.Lookup!.Contract.Key.Id);
                 Check("exact dated projections match retained editor evidence for "+expectedRow.Text("label"),ids.SequenceEqual(expectedRow.GetProperty("projectionIds").EnumerateArray().Select(id=>id.GetGuid())));
             }
             var discounted=(CurrencyDefaultDiscounting)shared[0].Discounting;
@@ -191,7 +200,9 @@ internal static class SwapRiskHoldingChecks
                 result.Positions.Single(p=>p.TradeId==request.Id("amendedTradeId")).Revision==2&&
                 result.Positions.Any(p=>p.TradeId==request.Id("futureTradeId")&&p.Measure==PortfolioValuation.FuturesMeasure)&&
                 result.SnapshotId==frame.Id&&result.Context.ContextId==current.ContextId&&result.Policy==policy&&
-                result.DiscountInputs.Length==4&&result.DiscountInputs.All(d=>ReferenceEquals(d.Input.Snapshot,frozen)));
+                result.DiscountInputs.Length==4&&result.DiscountInputs.All(d=>
+                    d.Input.Snapshot.HasSameInputs(frozen.WithKnowledge(current.ContextId!.Value,SchedulePreview.ParseAt(current.KnownAt)))&&
+                    ReferenceEquals(d.Input.Snapshot,result.DiscountInputs[0].Input.Snapshot))&&frozen.Knowledge is null);
             Check("one shared factor set covers both labelled valuation measures",result.Factors.Length>0&&result.Risk.Any(r=>r.Measure==PortfolioValuation.SwapMeasure)&&
                 result.Risk.Any(r=>r.Measure==PortfolioValuation.FuturesMeasure)&&result.Work.ScenarioCount==1+2*result.Factors.Length);
             Check("small discounted positions retain exact rational scenario cash and zero linear gamma",result.Risk.All(r=>

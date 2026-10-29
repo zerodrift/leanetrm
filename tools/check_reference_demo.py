@@ -36,7 +36,7 @@ def run_checks(url,manifest,demo,query,run_worker):
     request={**context,**trade_booking(),'operationId':str(uuid4()),'bookId':book,'definitionRevisionId':demo['definitionRevisionId'],
         'commodity':index['commodity'],'quantity':'10','fixedCoefficient':'-1','discounting':True,
         'fixed':{'price':'40','currency':index['currencyCode'],**delivery,'paymentSchedule':payment},
-        'floating':{'curve':'demo_forward','index':'demo_monthly_index','currency':index['currencyCode'],**delivery,'paymentSchedule':payment,'resetFrequency':'monthly','averagingMethod':'none'}}
+        'floating':{'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve':'demo_forward','index':'demo_monthly_index','currency':index['currencyCode'],**delivery,'paymentSchedule':payment,'resetFrequency':'monthly','averagingMethod':'none'}}
     priced=client.call('swaps/preview',request)
     # Independent simple ACT/365 zero-rate oracle: ten units at 50 minus 40.
     from datetime import date,datetime

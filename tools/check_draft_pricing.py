@@ -2,6 +2,8 @@
 from copy import deepcopy
 from fractions import Fraction as F
 from preview_client import PreviewClient
+from preview_fixture import trade_booking
+from uuid import uuid4
 
 
 def run_checks(url, query, manifest, client=None):
@@ -19,7 +21,7 @@ def run_checks(url, query, manifest, client=None):
         return {'context': context, 'definitionRevisionId': index['definitionRevisionId'], 'commodity': index['commodity'],
                 'quantity': {'value': amount, 'specification': index['quantityChoices'][0]['specification']}, 'fixedCoefficient': '-1', 'discounting': False,
                 'fixed': {'price': '3', 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule},
-                'floating': {'curve': curve, 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule, 'resetFrequency': 'daily' if daily else 'monthly', 'averagingMethod': 'arithmetic' if daily else 'none'}}
+                'floating': {'spread': '0', 'settlement': {'mode': 'curve_target', 'index': None, 'projectionPolicy': None}, 'curve': curve, 'index': index['index'], 'currency': index['currencyCode'], 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'paymentSchedule': rule, 'resetFrequency': 'daily' if daily else 'monthly', 'averagingMethod': 'arithmetic' if daily else 'none'}}
 
     def run(draft, pv, deltas):
         priced = c.call('swaps/price', draft)
@@ -60,6 +62,17 @@ def run_checks(url, query, manifest, client=None):
         c.call('swaps/price', {**base, **edit}, expected=422)
     omitted = deepcopy(base); del omitted['discounting']
     c.call('swaps/price', omitted, expected=400)
+    omitted = deepcopy(base); del omitted['floating']['settlement']
+    assert c.call('swaps/price', omitted, expected=400)['code'] == 'request_format'
+    unselected = deepcopy(base); unselected['floating']['settlement'] = None
+    assert c.call('swaps/price', unselected, expected=422)['code'] == 'price_settlement_selection'
+    missing_spread = deepcopy(base); del missing_spread['floating']['spread']
+    assert c.call('swaps/price', missing_spread, expected=422)['code'] == 'swap_input'
+    missing_booking = {**{key: value for key, value in missing_spread.items() if key not in ('context', 'quantity')},
+                       **context, **trade_booking(), 'bookId': catalog['books'][0]['id'], 'operationId': str(uuid4()),
+                       'quantity': missing_spread['quantity']['value']}
+    assert c.call('swaps/book', missing_booking, expected=422)['code'] == 'swap_input'
+    assert before == query("SELECT count(*)::text||':'||(SELECT count(*) FROM trading.publications)::text FROM trading.trades;")
     c.call('swaps/price', {**base, 'discounting': None}, expected=400)
     c.call('swaps/draft-risk', {**request, 'draft': None}, expected=422)
     c.call('swaps/draft-risk', {**request, 'numericalPolicy': 'unselected'}, expected=422)

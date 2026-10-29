@@ -19,6 +19,11 @@ test('a PPA whose delivery the close cannot price reads in plain words, and only
  for(const instrumentType of ['future','financial_swap','heat_rate'])
   assert.throws(()=>valuationReason('unpriced_delivery',instrumentType),{message:'The Blotter returned an unknown valuation status.'});
 });
+test('a PPA with an unavailable retained schedule explicitly needs rebooking, without a pricing fallback',()=>{
+ assert.equal(valuationReason('needs_rebooking','ppa'),'Needs rebooking');
+ for(const instrumentType of ['future','financial_swap','heat_rate'])
+  assert.throws(()=>valuationReason('needs_rebooking',instrumentType),{message:'The Blotter returned an unknown valuation status.'});
+});
 test('a status or instrument the Blotter does not define is refused, never shown as valued or as another reason',()=>{
  for(const code of ['index_fixing_missing','','toString','__proto__',undefined,null])
   assert.throws(()=>valuationReason(code,'future'),{message:'The Blotter returned an unknown valuation status.'});

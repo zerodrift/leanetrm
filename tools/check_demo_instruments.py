@@ -7,7 +7,7 @@ from seed_preview_positions import BOOKS
 from seed_preview_ppa import seed_ppa
 
 
-def run_checks(url, manifest, query, *, run_worker, owned_root, run_id):
+def run_checks(url, manifest, query, *, run_worker, owned_root, run_id, psql, environment):
     seed_ppa(url, manifest)
     c = PreviewClient(url)
     c.bootstrap()
@@ -31,6 +31,10 @@ def run_checks(url, manifest, query, *, run_worker, owned_root, run_id):
     rows = workspace['blotter']['holdings']
     assert len(rows) == 33 and {r['instrumentType'] for r in rows} == {'future', 'financial_swap', 'heat_rate', 'ppa'}
     print('PASS all eight heat-rate and five PPA bindings appear in the shared blotter', flush=True)
+    from check_position_facts import run_checks as check_facts
+    check_facts(c,context,view,rows,query,psql,environment,owned_root)
+    from check_position_details import run_checks as check_details
+    check_details(c,context,view,rows,query,original_context,owned_root)
     assert all((r['executionPnl'] if r['instrumentType'] == 'future' else r['presentValue']) is not None for r in rows)
     ppa_rows = [r for r in rows if r['instrumentType'] == 'ppa']
     assert all(r['measure'] == 'ppa_value_excluding_overdue' and r['pendingActuals'] == 'estimate_until_actual_v1' and r['overdueKnown'] == '0' for r in ppa_rows)
