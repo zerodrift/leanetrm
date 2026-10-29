@@ -167,6 +167,9 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await evaluate("document.querySelector('#side-panel-amend').focus()");
   await evaluate('window.__releaseShapes()');
   await wait("!!document.querySelector('#position-details-body .chart canvas')");
+  // The chart can arrive before the virtual grid finishes reattaching the row
+  // and restoring its focused control. Both are asynchronous completion criteria.
+  await wait("document.activeElement.id==='side-panel-amend'");
   await check('the panel drawn again, as its curve arrives, keeps keyboard focus on the control it was on',`document.activeElement.id==='side-panel-amend'`,'[document.activeElement.id,document.activeElement.tagName]');
   // The held read is the desk's own, and completes when it is released: the panel adds none to it.
   await check('and draws it when it arrives, from the desk\'s read and no other',`${shapeReads}===${shapeReadsHeld}+1&&!document.querySelector('#position-details-view').textContent.startsWith('Loading curve shape')`,`[${shapeReads},${shapeReadsHeld}]`);
