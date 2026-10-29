@@ -752,7 +752,10 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--swaps'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=180):raise RuntimeError('Owned swap browser checks failed')
+                    # This suite has 169 checks. Two Linux runs made continuous
+                    # progress through 149/150 before the former 180s whole-suite
+                    # cutoff. Individual action and application deadlines stay unchanged.
+                    if browser_process.wait(timeout=300):raise RuntimeError('Owned swap browser checks failed')
             elif args.booking_check:
                 from check_definition_publication import run_checks as check_definition_publication
                 check_definition_publication(query,manifest)
