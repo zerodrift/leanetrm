@@ -51,6 +51,7 @@ if(args is ["--interval-resolver-reuse"]){IntervalResolverReuseChecks.Run();retu
 if(args is ["--interval-resolver-benchmark",var resolverOutput]){IntervalResolverBenchmark.Run(resolverOutput);return;}
 
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
+if(args is ["--curve-kinds"]){CurveKindChecks.Run();return;}
 if(args is ["--exact-curve-prices"]){ExactCurvePriceChecks.Run();return;}
 if(args is ["--curve-engine-cutover"]){CurveEngineCutoverChecks.Run();return;}
 if(args is ["--connected-curves"]){ConnectedCurveChecks.Run();return;}
@@ -91,6 +92,7 @@ IntervalScheduleChecks.Run();
 IntervalDataChecks.Run();
 PowerHoursChecks.Run();
 CustomCurveChecks.Run();
+CurveKindChecks.Run();
 ExactCurvePriceChecks.Run();
 var passed = PpaConnectedChecks.Run()+CrossCommoditySwapChecks.Run()+PpaBenchmark.CheckWorkloads()+ScheduledSwapChecks.Run()+SwapSettlementChecks.Run()+SettlementDeterminationChecks.Run()+SwapLifecycleChecks.Run()+SwapNetSettlementChecks.Run()+SwapContractBridgeChecks.Run();
 void Check(string label, Action run) { run(); passed++; Console.WriteLine($"PASS {label}"); }
