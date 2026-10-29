@@ -565,7 +565,8 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   }
   await settle(760,900);await open('fut');await click('#side-panel-open-curve');
   await wait("document.querySelector('#nav-market').classList.contains('active')&&!document.querySelector('#contract-panel').hidden");
-  await check('Open curve closes inline details and opens the contract sheet',`${panel}.hidden&&!document.querySelector('#contract-panel').closest('[inert]')`);
+  await check('Open curve closes inline details and opens the contract sheet',`${panel}.hidden&&!document.querySelector('#contract-panel').closest('[inert]')`,
+    `({positionHidden:${panel}.hidden,futuresPageHidden:document.querySelector('#futures-page').hidden,contractHidden:document.querySelector('#contract-panel').hidden,contractInert:document.querySelector('#contract-panel').closest('[inert]')?.id,openRows:document.querySelectorAll('#desk-positions .open-row').length,busy:document.body.getAttribute('aria-busy')})`);
   await click('#contract-panel-close');
   await check('closing the contract sheet leaves the page usable',`document.querySelector('#contract-panel').hidden&&document.querySelectorAll('[inert]').length===0`);
   await click('#nav-futures');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");

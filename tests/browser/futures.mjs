@@ -291,6 +291,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('unknown booking response retains its original command',"!document.querySelector('#futures-pending').hidden&&!document.querySelector('#error').hidden");
   await check('the request of an unknown outcome is kept in a card that names it, and its form and its panel are gone: the same booking is not offered twice',"(()=>{const card=document.querySelector('#futures-pending');return !card.hidden&&card.getClientRects().length>0&&card.textContent.includes('New futures trade')&&card.textContent.includes('its outcome is not known')&&document.querySelector('#side-panel').hidden&&document.querySelector('#futures-new-trade').hidden&&!document.querySelector('#side-panel-form').contains(document.querySelector('#futures-form'));})()");
   await check('and New trade is held back, with its reason in words under the toolbar, until the request is settled',`document.querySelector('#futures-new').disabled&&${shown('#new-trade-availability')}&&document.querySelector('#new-trade-availability').textContent==='A trade request is retained. Reconcile or retry it before creating another.'`);
+  const uncertainRequest=await evaluate("JSON.stringify(window.__futuresRequests.at(-1))"),uncertainSends=await evaluate('window.__futuresRequests.length');
+  await click('#nav-market');await wait("!document.querySelector('#market-page').hidden&&"+idle);
+  await click('#nav-futures');await wait("!document.querySelector('#futures-page').hidden&&!document.querySelector('#futures-pending').hidden&&"+idle);
+  await check('leaving the Blotter closes only its views and preserves the exact uncertain financial command without resending it',
+    `JSON.stringify(window.__futuresRequests.at(-1))===${JSON.stringify(uncertainRequest)}&&window.__futuresRequests.length===${uncertainSends}&&!document.querySelector('#futures-pending').hidden&&document.querySelector('#futures-new').disabled`);
   await evaluate('window.__denyReconcile=true');await click('#futures-reconcile');
   await check('denied reconciliation clears holdings and preserves the uncertain request',"document.querySelector('#desk-positions').children.length===0&&!document.querySelector('#futures-pending').hidden");
   await click('#futures-refresh');await set('#futures-lots','9');

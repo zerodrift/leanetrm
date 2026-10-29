@@ -1088,5 +1088,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     unsaved:()=>!!pending.command||editing()||risk.unconfirmed(),
     // Whether the panel holds the form of an amendment or of a new trade, or a risk report's setup, with edits, and the question asked before it is given up: false means the person kept it. The forms
     // are dropped without a question when the page is left on the person's word, as the assistant's Go anyway is.
-    editing,leave,dropForms,cancelRead};
+    editing,leave,dropForms,cancelRead,
+    // A page exit has already passed its unsaved-edit guard. Clear its
+    // retained expansion as well as forms, without returning focus to a row.
+    leavePage(){cancelRead();dropForms();deskPanel.reset();}};
 }
