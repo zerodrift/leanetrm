@@ -5,6 +5,7 @@ using OpenEtrm.Security;
 
 if(args is ["--schedule-input-batch"]){await ScheduleInputBatchChecks.Run();return;}
 if(args is ["--booked-side-program"]){BookedSideProgramChecks.Run();return;}
+if(args is ["--schedule-program-execution"]){ScheduleProgramExecutionChecks.Run();return;}
 if(args is ["--schedule-program-demand"]){ScheduleProgramDemandChecks.Run();return;}
 
 if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
@@ -88,6 +89,7 @@ if (args.Length > 0)
 
 await ScheduleInputBatchChecks.Run();
 BookedSideProgramChecks.Run();
+ScheduleProgramExecutionChecks.Run();
 ScheduleProgramDemandChecks.Run();
 SideModelOracleChecks.Run();
 WholeTermPaymentChecks.Run();

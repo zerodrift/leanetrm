@@ -327,8 +327,30 @@ selection, even when they share a lookup. Broadcasts union source uses;
 reductions require their complete retained input windows. Holding and overdue
 amounts do not request unused discount factors. These are source requests under
 one context, not new schedule rows or a replacement execution graph. Source
-resolution, pricing and trade-owned settlement integration remain subsequent
-work; selecting the scenario lane does not make a published fixing shockable.
+resolution and trade-owned settlement integration remain subsequent work;
+selecting the scenario lane does not make a published fixing shockable.
+
+The evaluator foundation executes supplied admitted columns through those stored
+addresses. Checks cover independent whole-term payments, rational daily
+averages, hourly and quarter-hour DST grids, profile durations, volume
+normalization, indexed multipliers/adders, capacity reductions and certificate
+holdings. Separate contribution rows retain base overdue amounts and selected
+scenario PV. Per-cell presence distinguishes a resolved zero, an input not
+requested in that lane, and PV explicitly excluded by a lifecycle guard. Only
+the last may be omitted from the declared measure. Equal actual scenario
+identities use one canonical input with unioned demands. Eligibility masks also
+suppress unused intermediate arithmetic; they do not change stored operations.
+
+Arithmetic reuses the shared signed-ratio primitive, preserving unbounded cash
+intermediates and the existing per-operation quantity and price limits. Discount
+inputs retain their positive exact-working-decimal contract. Mixed component
+price states remain separate flags, including modeled-price evidence. Row
+classification is for the gross unit schedule; it does not establish that a
+particular trade has or has not paid. Accepted cash, allocations and payment
+state must come from that binding's obligation records under the selected
+context. Source eligibility, lineage, authorized SQL loading and application
+cutover are not qualified by these supplied-column checks. No end-to-end speed
+or production-throughput claim follows from this evaluator foundation.
 
 ## Checks
 

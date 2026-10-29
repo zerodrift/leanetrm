@@ -14,8 +14,10 @@ public sealed class ScheduleInputDemandSet
     internal BookedSideProgram Program { get; }
     public ResolvedCalculationContext Context { get; }
     public ImmutableArray<ScheduleInputDemand> Sources { get; }
-    internal ScheduleInputDemandSet(BookedSideProgram program,ResolvedCalculationContext context,ImmutableArray<ScheduleInputDemand> sources)
-    {Program=program;Context=context;Sources=sources;}
+    internal ImmutableArray<ImmutableArray<ScheduleInputLanes>> Uses { get; }
+    internal ScheduleInputDemandSet(BookedSideProgram program,ResolvedCalculationContext context,ImmutableArray<ScheduleInputDemand> sources,
+        ImmutableArray<ImmutableArray<ScheduleInputLanes>> uses)
+    {Program=program;Context=context;Sources=sources;Uses=uses;}
 }
 
 public sealed partial class BookedSideProgram
@@ -27,6 +29,8 @@ public sealed partial class BookedSideProgram
         var needed=Document.Instructions.Select(instruction=>
         {cancellation.ThrowIfCancellationRequested();return new ScheduleInputLanes[CellCount(instruction.Output)];}).ToArray();
         void Add(int address,int cell,ScheduleInputLanes lanes)=>needed[address][cell]|=lanes;
+        var pv=Document.Roots.Single(root=>root.Name=="pv").Row;
+        for(var cell=0;cell<needed[pv].Length;cell++)Add(pv,cell,ScheduleInputLanes.Base|ScheduleInputLanes.Scenario);
         foreach(var instruction in Document.Instructions)
         {
             cancellation.ThrowIfCancellationRequested();var guard=instruction.Output;
@@ -39,7 +43,7 @@ public sealed partial class BookedSideProgram
             for(var cell=0;cell<needed[guard.Ordinal].Length;cell++)
             {
                 cancellation.ThrowIfCancellationRequested();
-                var holding=guard.Parameters["lifecycle"]=="certificate_holding_v1"&&Document.Grids[guard.Grid!.Value].Interval(cell).End<=context.ValuationAt;
+                var holding=guard.Parameters["lifecycle"]=="certificate_holding_v1"&&Document.Grids[guard.Grid!.Value].EndTicks(cell)<=context.ValuationAt.Ticks;
                 var lane=holding||guard.ValueAt>context.ValuationAt?ScheduleInputLanes.Scenario:ScheduleInputLanes.Base;
                 var amount=instruction.Inputs["amount"][0];var discounted=instruction.Inputs["discounted"][0];
                 Add(amount,needed[amount].Length==1?0:cell,lane);
@@ -69,12 +73,13 @@ public sealed partial class BookedSideProgram
                 }
         }
         var result=ImmutableArray.CreateBuilder<ScheduleInputDemand>();
+        var frozen=needed.Select(cells=>cells.ToImmutableArray()).ToImmutableArray();
         foreach(var instruction in Document.Instructions)
             if(IsInput(instruction.Output.Operation)&&needed[instruction.Output.Ordinal].Any(lanes=>lanes!=ScheduleInputLanes.None))
             {
-                result.Add(new(instruction.Output.Ordinal,[..needed[instruction.Output.Ordinal]]));
+                result.Add(new(instruction.Output.Ordinal,frozen[instruction.Output.Ordinal]));
             }
-        return new(this,context,result.ToImmutable());
+        return new(this,context,result.ToImmutable(),frozen);
     }
 
     private int CellCount(ScheduleDefinitionRow row)=>row.Operation=="discount"?1:row.Grid is {} grid?Document.Grids[grid].CellCount:1;
