@@ -337,7 +337,10 @@ and saved recipes use one connected evaluator with immutable multi-date inputs,
 exact rational combinations and observation/factor lineage. The backend compiles
 formulas and resolves all selections; the browser only edits and displays the
 contract. D186 removes the SQL panel alternative. The workspace and its explicit
-limits are described in [custom curves](custom-curves.md).
+limits are described in [custom curves](custom-curves.md). D262 adds read-only
+raw component histories through the same backend sampler, preserving declared
+contract binding, actual dated contracts and roll jumps under the selected
+knowledge cutoff. The browser performs no historical selection or analytics.
 
 Add a table, configuration value or dependency only with a named current consumer
 or a concrete executable baseline use case. A seed row or a viewer alone is not

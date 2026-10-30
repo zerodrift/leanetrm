@@ -92,7 +92,10 @@ booking, portfolio and retained-risk operations. The editor offers compatible
 published outputs from the authorized backend catalog and preserves the selected
 exact version/output through amendments. Daily indexed projections can map each
 unfixed reset to one computed output with the same exact delivery interval.
-Cross-revision rolling histories and historical VaR/covariance remain work.
+D262 adds raw component history for relative selections and exact weighted
+contract mappings, with explicit sampling windows and retained roll jumps.
+Cross-revision rolling histories, arbitrary output replay, adjusted roll series
+and historical VaR/covariance remain work.
 
 Published custom curves also act as reusable sources in the same visual/formula
 workbench (D187). Explicit version/output FKs import the complete parent panel

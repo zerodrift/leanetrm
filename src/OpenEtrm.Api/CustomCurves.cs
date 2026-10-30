@@ -68,6 +68,11 @@ public static partial class CustomCurves
         }));
         api.MapPost("/custom-curves/publish",(HttpContext c,CustomCurvePublishRequest body)=>operation(c,"SealMarketDefinitions",null,async(connection,pin,ct)=>
             Results.Ok(await store.Publish(connection,body,ct))));
+        api.MapPost("/custom-curves/component-history",(HttpContext c,ComponentHistoryRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
+        {
+            pin=await PreviewPin(connection,database,pin,ct);
+            return Results.Ok((await PreviewRead(connection,database,pin,new(body.Definition,body.SnapshotId,body.Id,body.Version),ct,body)).Value);
+        }));
         api.MapPost("/custom-curves/preview",(HttpContext c,CustomCurvePreviewRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
             pin=await PreviewPin(connection,database,pin,ct);
@@ -409,7 +414,7 @@ public static partial class CustomCurves
         }
         return new(frame.Id,data.DefinitionRevision,frame.At,frame.At,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,selections.ToImmutable());
     }
-    static object Result(RecipeResult result,PreviewData data,PinnedContext pin,RecipeDefinition definition,Guid? id,int? version)
+    static object Result(RecipeResult result,PreviewData data,PinnedContext pin,RecipeDefinition definition,Guid? id,int? version,bool history=false)
     {
         var format=new AmountFormat(6,CashTieRule.ToEven,true,true);
         string Unit(PriceUnit unit)
@@ -422,12 +427,12 @@ public static partial class CustomCurves
         object Chart()
         {
             var unit=result.Points.Length>0?Unit(result.Points[0].Price.Unit):"";
-            if(result.Points.All(p=>p.Dates.Length==1)&&result.Points.GroupBy(p=>p.Position).Any(group=>group.Count()>1))
+            if(result.Points.All(p=>p.Dates.Length==1)&&(history||result.Points.GroupBy(p=>p.Position).Any(group=>group.Count()>1)))
                 return new{title="Custom curve history",axis="observation",axisName="Sampling date",unit,
                     series=result.Points.GroupBy(p=>p.Position).OrderBy(group=>group.Key).Select(group=>new
                     {
                         name="Position "+group.Key.ToString(CultureInfo.InvariantCulture),
-                        points=group.OrderBy(p=>p.Dates[0]).Select(p=>new{x=p.Dates[0].ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),y=p.Price.Format(format),label=p.Dates[0].ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)})
+                        points=group.OrderBy(p=>p.Dates[0]).Select(p=>new{x=p.Dates[0].ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),y=p.Price.Format(format),label=p.Dates[0].ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),text="Contracts: "+string.Join(", ",p.Contracts.Select(c=>data.ContractRows(c.Id).Single().DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)))})
                     })};
             return new{title="Custom curve",axis="category",axisName="Curve point",unit,
                 series=new[]{new{name="Price",points=result.Points.Select(p=>new{x=p.Label,y=p.Price.Format(format),label=p.Label})}}};

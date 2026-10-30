@@ -37,11 +37,14 @@ public static partial class CustomCurves
             sources=data.Definitions["curves"].Select(row=>new{code=row.Text("code"),name=row.Text("name"),kind=PreviewData.CurveKind(row.Text("rule"),row.OptionalText("direct_role")),catalogId=data.DefinitionRevision.CatalogId,revisionId=data.DefinitionRevision.RevisionId,contracts=data.DefinitionRows("curve_members","curve_code",row.Text("code")).OrderBy(m=>m.GetProperty("ordinal").GetInt32()).Select(m=>data.ContractRows(m.Id("contract_id")).Single()).Select(k=>new{id=k.Key.Id,label=k.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),k.DeliveryFrom,k.DeliveryTo})}),
             calendars=calendars.Select(row=>new{code=row.Reference.Code,name=row.Reference.Code,row.Reference.CatalogId,row.Reference.RevisionId}),
             schedules=versions.Where(v=>v.State=="published").Select(v=>new{value=v.Id.ToString("D")+":"+v.Version.ToString(CultureInfo.InvariantCulture),name=v.Definition.Name,v.Id,v.Version}),
-            operators=Operators(),templates=Templates(data),recipes,publishedSources,formulaSupported=true};
+            operators=Operators(),templates=Templates(data),recipes,publishedSources,formulaSupported=true,
+            componentHistory=new{policy=RecipeComponentHistory.Policy,label="Raw prices · contract roll jumps retained",kinds=new[]{"select","weighted_contracts","sample"},selectionModes=new[]{"positions"},sampleSelectionPort="selection",
+                sampling="context_utc_time",corrections="exact_context_frame_history_latest_visible",
+                description="Sample at the selected close's UTC time. Keep the component's contract-binding rule and read historical corrections visible at the selected knowledge cutoff. Every requested observation is required."}};
         return new(value,recipes.Length+publishedSources.Count+data.Definitions["curves"].Length+versions.Length+calendars.Length,
             await ReferenceCatalogs(connection,data,recipes,versions.Where(v=>v.Calendar is not null).Select(v=>v.Calendar!.CatalogId).Concat(calendars.Select(c=>c.Reference.CatalogId)),ct));
     }
-    internal static async Task<CurveRead> PreviewRead(NpgsqlConnection connection,PreviewDatabase database,PinnedContext pin,CustomCurvePreviewRequest body,CancellationToken ct)
+    internal static async Task<CurveRead> PreviewRead(NpgsqlConnection connection,PreviewDatabase database,PinnedContext pin,CustomCurvePreviewRequest body,CancellationToken ct,ComponentHistoryRequest? history=null)
     {
         var store=new CustomCurvesStore(database);
         var context=pin.Context??throw Invalid("Recipe pricing requires its resolved financial context.");
@@ -56,9 +59,17 @@ public static partial class CustomCurves
             if(saved.EngineVersion!=RecipeEngine.Version)throw Invalid("The selected retained curve engine is unavailable.");
             if(!Equivalent(saved.Definition,body.Definition)||saved.Sources.Any(p=>!references.Sources.TryGetValue(p.Key,out var value)||value!=p.Value)||saved.Calendars.Any(p=>!references.Calendars.TryGetValue(p.Key,out var value)||value!=p.Value)||saved.Schedules.Any(p=>!references.Schedules.TryGetValue(p.Key,out var value)||value!=p.Value))throw Invalid("The selected graph or exact references differ from its retained version.");
         }
-        var graph=await PrepareDefinition(connection,database,body.Definition,data,frame,references.Sources,references.Calendars,references.Schedules,
+        var inspected=body.Definition;
+        if(history is not null)
+        {
+            inspected=RecipeComponentHistory.Build(body.Definition,history.Node,history.Dates,history.Policy);
+            Validate(inspected);
+            references=await store.References(connection,inspected,data,ct);
+        }
+        var graph=await PrepareDefinition(connection,database,inspected,data,frame,references.Sources,references.Calendars,references.Schedules,
             pin.Context??throw Invalid("Recipe pricing requires its resolved financial context."),ct);
-        var value=Result(EvaluateGraph(graph,CalculationContext(frame,data.DefinitionRevision,context),database,ct),data,pin,body.Definition,body.Id,body.Version);
+        var value=Result(EvaluateGraph(graph,CalculationContext(frame,data.DefinitionRevision,context),database,ct),data,pin,inspected,body.Id,body.Version,history is not null);
+        if(history is not null)value=new{node=history.Node,policy=history.Policy,preview=value};
         var referenceCatalogs=graph.Definitions.SelectMany(d=>d.Points).SelectMany(point=>point.Expression is ConnectedRecipeProjection projected?
             projected.Declaration.References.Calendars.Select(c=>c.Reference.Revision.CatalogId).Concat(projected.Declaration.References.Schedules.Where(s=>s.Calendar is not null).Select(s=>s.Calendar!.Reference.Revision.CatalogId)):[]);
         return new(value,graph.Outputs.Length,[..referenceCatalogs.Append(data.ReferenceRevision.CatalogId).Distinct()]);

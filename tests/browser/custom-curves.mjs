@@ -28,7 +28,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await evaluate("document.querySelector('#assistant-question').value=''");await click('#assistant-close');
  await check('custom curve editor loads backend operation and template catalogs',"!document.querySelector('#custom-curves-page').hidden&&document.querySelector('#custom-curves-template option[value=ng_prompt]')&&document.querySelectorAll('#custom-curves-operators button').length>=5");
  await pickTemplate('ng_prompt');
- await check('a curve opens as one tab group on Outputs, with a Preview call to action and no preview run',`JSON.stringify(${groups})==='[["Outputs","Graph","Configuration","Versions","Lineage"]]'&&${tab('outputs')}.getAttribute('aria-selected')==='true'&&!${body('outputs')}.hidden&&${body('graph')}.hidden&&!document.querySelector('#custom-curves-outputs-empty').hidden&&!document.querySelector('#custom-curves-outputs-preview').disabled&&document.querySelector('#custom-curves-result').hidden&&document.querySelector('#custom-curves-start').hidden&&document.querySelector('#custom-curves-heading').textContent.includes('NG prompt')`,groups);
+ await check('a curve opens as one tab group on Outputs, with a Preview call to action and no preview run',`JSON.stringify(${groups})==='[["Outputs","Graph","Configuration","Versions","Lineage","History"]]'&&${tab('outputs')}.getAttribute('aria-selected')==='true'&&!${body('outputs')}.hidden&&${body('graph')}.hidden&&!document.querySelector('#custom-curves-outputs-empty').hidden&&!document.querySelector('#custom-curves-outputs-preview').disabled&&document.querySelector('#custom-curves-result').hidden&&document.querySelector('#custom-curves-start').hidden&&document.querySelector('#custom-curves-heading').textContent.includes('NG prompt')`,groups);
  await evaluate(`${tab('outputs')}.focus()`);await press('ArrowRight');
  await check('the arrow keys move between a group’s tabs',`${tab('graph')}.getAttribute('aria-selected')==='true'&&document.activeElement===${tab('graph')}&&!${body('graph')}.hidden&&${body('outputs')}.hidden`);
  await check('prompt template creates a connected editable graph',"document.querySelectorAll('.custom-curve-node').length>=4&&document.querySelectorAll('.custom-curve-wires path').length>=3");
@@ -36,6 +36,17 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('.custom-curve-node[data-node-id=select] p');
  const width=selector=>`document.querySelector('${selector}').getBoundingClientRect().width`;
  await check('selecting a graph card shows Graph, its selected operation beside the board, and the board is the widest region',`${tab('graph')}.getAttribute('aria-selected')==='true'&&!document.querySelector('#custom-curves-inspector').hidden&&${body('graph')}.contains(document.querySelector('#custom-curves-properties'))&&document.querySelector('#custom-curves-inspector').getBoundingClientRect().left>=document.querySelector('#custom-curves-graph').getBoundingClientRect().right&&document.querySelector('#custom-curve-property-count')?.value==='1'&&${width('#custom-curves-graph')}>${width('#custom-curves-rail')}&&${width('#custom-curves-graph')}>${width('#custom-curves-inspector')}`);
+ await click('#custom-curve-component-history');
+ await check('the selected component opens its own history with no implicit date window',"document.querySelector('#component-history-node').value==='select'&&document.querySelector('#component-history-count').value===''&&document.querySelector('#component-history-mode').value===''&&!document.querySelector('#custom-curves-tab-history').hidden");
+ await set('#component-history-mode','prior_calendar');await set('#component-history-count','24');await set('#component-history-include','true');
+ await click('#component-history-read');await wait(idle);
+ await check('raw component history charts the server series across a contract roll and lists both dated contracts',"document.querySelector('#component-history-chart canvas')&&document.querySelector('#component-history-status').textContent.includes('contract roll jumps retained')&&document.querySelector('#component-history-values').textContent.includes('2020-12-01')&&document.querySelector('#component-history-values').textContent.includes('2021-01-01')&&document.querySelector('#error').hidden", "document.querySelector('#error').textContent");
+ await shot('custom-curves-component-history');
+ await set('#component-history-count','2');
+ await check('changing the inspection window immediately removes its previous prices',"!document.querySelector('#component-history-chart canvas')&&!document.querySelector('#component-history-values table')");
+ await click('#component-history-read');await wait(idle);
+ await click('#custom-curves-dock-graph');await click('#custom-curves-mode-formula');await wait(idle);await check('the graph still samples its original context',"document.querySelector('#custom-curves-formula').value.includes('mode=\"context\"')&&!document.querySelector('#custom-curves-formula').value.includes('history_dates')");
+ await click('#custom-curves-mode-visual');
  await click('#custom-curves-dock-configuration');
  await check('Configuration holds the code, name, template and ingredients with their kind badges',`(()=>{const configuration=${body('configuration')};const items=[...document.querySelectorAll('#custom-curves-ingredients li')];return !configuration.hidden&&${body('graph')}.hidden&&['#custom-curves-code','#custom-curves-name','#custom-curves-template','#curve-blend'].every(id=>configuration.contains(document.querySelector(id)))&&items.length===1&&items[0].querySelector('.curve-kind[role=img]')?.getAttribute('aria-label')?.length>0;})()`,"[...document.querySelectorAll('#custom-curves-ingredients li')].map(li=>li.innerHTML)");
  await click('#custom-curves-dock-graph');
@@ -59,7 +70,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await startDrag('configuration');
  await check('dragging a tab shows the centre and edge drop zones of its group',"(()=>{const zones=[...document.querySelectorAll('#custom-curves-dock .dock-group[data-group=\"0\"] .dock-zone')];return document.querySelector('#custom-curves-dock').hasAttribute('data-dragging')&&zones.map(z=>z.dataset.edge).sort().join()==='bottom,centre,left,right,top'&&zones.every(z=>z.getBoundingClientRect().width>0&&z.getBoundingClientRect().height>0);})()");
  await dropOn('configuration',0,'right');
- const sideBySide=`(()=>{const [a,b]=[...document.querySelectorAll('#custom-curves-dock .dock-group')].map(g=>g.getBoundingClientRect());return JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage"],["Configuration"]]'&&b.left>=a.right&&Math.abs(a.top-b.top)<1;})()`;
+ const sideBySide=`(()=>{const [a,b]=[...document.querySelectorAll('#custom-curves-dock .dock-group')].map(g=>g.getBoundingClientRect());return JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage","History"],["Configuration"]]'&&b.left>=a.right&&Math.abs(a.top-b.top)<1;})()`;
  await check('dropping Configuration on the right edge shows two groups side by side, each showing its tab',`${sideBySide}&&!${body('configuration')}.hidden&&!${body('outputs')}.hidden&&!document.querySelector('#custom-curves-dock').hasAttribute('data-dragging')`,groups);
  await evaluate("document.querySelector('.custom-curve-desk').scrollIntoView({block:'start'})");await shot('custom-curves-side-by-side');
  // The template's graph is an unsaved edit, which the browser would ask about on reload; a blank new curve holds none.
@@ -68,15 +79,15 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await persona('editor');await set('#snapshot',selectedClose);await wait(idle);await click('#nav-custom-curves');await pickTemplate('ng_prompt');
  await check('a reload keeps the arrangement',sideBySide,groups);
  await click('#custom-curves-reset-layout');
- await check('Reset layout returns to one group on Outputs and forgets the arrangement',`JSON.stringify(${groups})==='[["Outputs","Graph","Configuration","Versions","Lineage"]]'&&${tab('outputs')}.getAttribute('aria-selected')==='true'&&localStorage.getItem('openetrm.custom-curves.layout.v1')===null`,groups);
+ await check('Reset layout returns to one group on Outputs and forgets the arrangement',`JSON.stringify(${groups})==='[["Outputs","Graph","Configuration","Versions","Lineage","History"]]'&&${tab('outputs')}.getAttribute('aria-selected')==='true'&&localStorage.getItem('openetrm.custom-curves.layout.v1')===null`,groups);
  await menuOn('graph');
  await check('a tab’s menu opens from the keyboard with the moves it offers',`JSON.stringify(${dockMenu})===JSON.stringify(['Move to new group right','Move to new group below','Move to group…'])&&document.activeElement?.textContent==='Move to new group right'&&document.querySelector('.dock-menu [aria-disabled]')?.textContent==='Move to group…'`,dockMenu);
  await press('ArrowDown');await press('Enter');
- await check('Move to new group below, from the keyboard, splits the group above and below with focus on the moved tab',`(()=>{const [a,b]=[...document.querySelectorAll('#custom-curves-dock .dock-group')].map(g=>g.getBoundingClientRect());return JSON.stringify(${groups})==='[["Outputs","Configuration","Versions","Lineage"],["Graph"]]'&&b.top>=a.bottom&&Math.abs(a.left-b.left)<1&&document.activeElement===${tab('graph')};})()`,groups);
+ await check('Move to new group below, from the keyboard, splits the group above and below with focus on the moved tab',`(()=>{const [a,b]=[...document.querySelectorAll('#custom-curves-dock .dock-group')].map(g=>g.getBoundingClientRect());return JSON.stringify(${groups})==='[["Outputs","Configuration","Versions","Lineage","History"],["Graph"]]'&&b.top>=a.bottom&&Math.abs(a.left-b.left)<1&&document.activeElement===${tab('graph')};})()`,groups);
  await menuOn('lineage');await press('ArrowUp');await press('Enter');
  await check('Move to group… lists the other groups',`JSON.stringify(${dockMenu})==='["Group 2 · Graph"]'`,dockMenu);
  await press('Enter');
- await check('choosing a group moves the tab into it and shows it there',`JSON.stringify(${groups})==='[["Outputs","Configuration","Versions"],["Graph","Lineage"]]'&&${tab('lineage')}.getAttribute('aria-selected')==='true'&&!${body('lineage')}.hidden&&!${body('outputs')}.hidden`,groups);
+ await check('choosing a group moves the tab into it and shows it there',`JSON.stringify(${groups})==='[["Outputs","Configuration","Versions","History"],["Graph","Lineage"]]'&&${tab('lineage')}.getAttribute('aria-selected')==='true'&&!${body('lineage')}.hidden&&!${body('outputs')}.hidden`,groups);
  await evaluate("document.querySelector('#custom-curves-dock .dock-divider').focus()");await press('ArrowDown');
  await check('a divider resizes its split from the keyboard',"document.querySelector('#custom-curves-dock .dock-divider').getAttribute('aria-valuenow')==='55'&&JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).ratio===0.55");
  // A divider dragged with the pointer keeps the share where it is let go; a cancelled drag keeps the arrangement as it was.
@@ -141,6 +152,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('the library chip of the selected curve turns Published',"document.querySelector('#custom-curves-library [aria-current=true] .curve-state-chip')?.textContent==='Published'");
  await persona('editor');await click('#example');await click('#nav-custom-curves');
  await pickTemplate('ng_balmo');await click('#custom-curves-preview');
+ await check('daily-delivery components do not offer unsupported history',"![...document.querySelector('#component-history-node').options].some(option=>['select','sample'].includes(option.value))");
  await check('balance of month template previews a backend-defined daily-forward average',"!document.querySelector('#custom-curves-result').hidden&&document.querySelector('#error').hidden&&document.querySelectorAll('#custom-curves-values tbody tr').length===1&&document.querySelector('#custom-curves-values').textContent.includes('3.6175')");
  await pickTemplate('ng_average');
  await evaluate("{const nodes=[...document.querySelectorAll('.custom-curve-node')],dates=nodes.find(n=>n.textContent.toLowerCase().includes('date'));if(!dates)throw Error('Date sequence operation missing');dates.querySelector('button').click();}");
@@ -314,15 +326,15 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await evaluate("document.querySelector('.custom-curve-desk').scrollIntoView({block:'start'})");await shot('custom-curves-published-source');
  // A narrow page shows every tab in one group and leaves the saved arrangement for when the page is wide again.
  await menuOn('configuration');await press('Enter');
- const split=`JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage"],["Configuration"]]'`;
+ const split=`JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage","History"],["Configuration"]]'`;
  await check('a split arrangement is saved before the page narrows',split,groups);
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait(`document.querySelectorAll('#custom-curves-dock .dock-group').length===1&&${idle}`);
  await menuOn('outputs');
  await check('at phone width a tab’s menu says why it offers no moves',`JSON.stringify(${dockMenu})==='["Arrange groups on a wider page"]'&&!!document.querySelector('.dock-menu [aria-disabled]')&&document.activeElement===document.querySelector('.dock-menu [aria-disabled]')`,dockMenu);
  await press('Escape');
  await check('Escape closes a menu that offers nothing and returns focus to its tab',`document.querySelector('.dock-menu').hidden&&document.activeElement===${tab('outputs')}&&${tab('outputs')}.getAttribute('aria-expanded')==='false'`,"[document.querySelector('.dock-menu').hidden,document.activeElement?.id]");
- await check('at phone width the split shows as one group with every tab',`JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage","Configuration"]]'&&!document.querySelector('#custom-curves-dock .dock-divider')`,groups);
- for(const id of ['outputs','graph','versions','lineage','configuration']){await click('#custom-curves-dock-'+id);await check(`at phone width the ${id} tab is reachable`,`!${body(id)}.hidden&&${body(id)}.getBoundingClientRect().width>0`);}
+ await check('at phone width the split shows as one group with every tab',`JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage","History","Configuration"]]'&&!document.querySelector('#custom-curves-dock .dock-divider')`,groups);
+ for(const id of ['outputs','graph','versions','lineage','history','configuration']){await click('#custom-curves-dock-'+id);await check(`at phone width the ${id} tab is reachable`,`!${body(id)}.hidden&&${body(id)}.getBoundingClientRect().width>0`);}
  await check('choosing tabs at phone width leaves the saved arrangement unchanged',`JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).kind==='split'`);
  await click('#custom-curves-dock-graph');await evaluate("document.querySelector('.custom-curve-centre').scrollIntoView({block:'start'})");
  await check('custom curve graph and tables scroll within a narrow viewport',fitsWidth);await shot('custom-curves-mobile');

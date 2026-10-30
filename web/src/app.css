@@ -1594,3 +1594,10 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
   .position-schedules .schedule-fields select{min-width:0;width:100%}
   .position-schedules .schedule-fields label{flex:1 1 140px}
 }
+
+.component-history{min-width:0;padding:16px}
+.component-history-controls{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:12px 0}
+.component-history-controls label{display:grid;gap:6px;flex:1 1 170px;min-width:0}
+.component-history-controls input,.component-history-controls select{width:100%;min-width:0}
+.component-history-controls button{margin-bottom:0}
+.component-history .chart{min-width:0}

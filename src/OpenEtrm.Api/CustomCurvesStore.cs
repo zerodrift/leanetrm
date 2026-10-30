@@ -19,6 +19,8 @@ public sealed record CustomCurveCompileRequest(string Formula,string Code,string
 public sealed record CustomCurveFormatRequest(RecipeDefinition Definition);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CustomCurvePreviewRequest(RecipeDefinition Definition,Guid SnapshotId,Guid? Id=null,int? Version=null);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record ComponentHistoryRequest(RecipeDefinition Definition,Guid SnapshotId,string Node,RecipeNode Dates,string Policy,Guid? Id=null,int? Version=null);
 public sealed record CurveSourceReference(Guid CatalogId,Guid RevisionId,string Code);
 public sealed record CurveScheduleReference(Guid CatalogId,Guid Id,int Version);
 // Who saved a generation, as reads show it (D260): `person`, `assistant`, or null for a generation saved before
