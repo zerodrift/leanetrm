@@ -133,6 +133,12 @@ Lateness is judged against a cadence each provider series **declares**. A
 series without a declared cadence shows "cadence not declared"; it is never
 assumed fresh.
 
+Closes and risk runs are not provider series. Their widgets state *latest*,
+*newer available* (a newer close or run exists than the one shown) or
+*historical*, using the existing close-badge semantics (D219). Lateness of an
+expected close against its business calendar is later work, planned with the
+provider cadence in phase 2.
+
 In the current context, widgets update live as new observations are committed
 (using the existing live event stream). In a past context the page is
 read-only and static.
@@ -148,7 +154,7 @@ read-only and static.
 | **Inventory** | An inventory series (gas storage region, crude hub, LNG storage) and a declared comparison range (e.g. five-year min/max/mean series). Backend returns level, change since the previous report and position against the range. | Level against a shaded range band, weekly bars of change. |
 | **Outages** | Outage event records: market operator, zone or unit, capacity and unit, planned/unplanned, start and expected end. | Capacity-out bar by zone; list. |
 | **News & events** | News items: headline, provider, published time, tags for commodity and region. Headlines only; no article bodies are stored. | List, newest first. |
-| **Positions by month** | The delta ladder (the existing D230 read) of the latest completed run of the risk run definition the widget is configured with (its books and shock preset). Two qualifying runs at the same latest instant are a refusal that asks the user, as with closes. The run's time is the widget's observation time. The widget never starts or recomputes a run. | Ladder bars by delivery month. |
+| **Positions by month** | The delta ladder (the existing D230 read) of the latest completed run of the saved **risk run definition** the widget is configured with (see below). Two qualifying runs at the same latest valuation instant are a refusal that asks the user, as with closes. The run's valuation time is the widget's observation time. The widget never recomputes a run; it offers **Run now**, which queues one from the definition. | Ladder bars by delivery month. |
 | **Agent alerts & charts** | Alerts and pinned chart cards for this user (below). | Alert list with evidence; the existing card renderers. |
 
 Sources:
@@ -162,6 +168,34 @@ Sources:
 *My call:* no basemap or map tiles in this version. Map tiles are an external
 dataset with their own rights; weather widgets are charts by location. A map
 widget can follow once an installation supplies licensed tiles.
+
+## Risk run definitions
+
+Decided with the user after the first approval: a risk run today is a one-off job
+that retains its exact shocked targets and sizes, not the preset that chose them,
+so "the latest run of the same setup" cannot be identified from past runs. The
+dashboard therefore adds saved definitions.
+
+- A **risk run definition** belongs to a user and has immutable versions. A
+  version holds: a name, the exact books (foreign keys), the preset (shock every
+  held contract, or a parallel shift per held curve), and one shock size per
+  price unit (exact currency and unit references). Revising creates a new
+  version; old runs keep pointing at the version they used.
+- **Run now** resolves the preset to targets in the backend, at a selected
+  retained context, from the same held-target catalog the Blotter uses. A held
+  price unit without a size in the definition is a structured refusal
+  (`risk_definition_size`), never a default size. The backend splits the
+  targets into parts as queued runs already are (D222) and records which run
+  came from which definition version. A retried Run now with the same request
+  identity returns its first outcome.
+- **Latest completed run** of a definition, in a context, is the run whose every
+  part completed, whose valuation time is at or before the effective time and
+  which was known by the knowledge cutoff, with the greatest valuation time.
+  A tie is a refusal that lists the tied runs.
+- A newer completed run of the same definition than the one shown is stated on
+  the widget ("newer run available"), as closes already do.
+- The Blotter keeps its own risk report unchanged. Running a definition from
+  the Blotter is later work for the Blotter redesign.
 
 ## Provider connections
 
@@ -300,7 +334,8 @@ agent to raise messages and the card contract forbids agent prose.
 ## Suggested delivery order
 
 1. Page, layout record, Board/Morning arrangements, freshness footer; Latest
-   levels (close only), Price chart and Positions widgets from existing reads.
+   levels (close only) and Price chart from existing reads; risk run
+   definitions with Run now, and the Positions widget.
 2. Provider connection model, observation and event storage, Data providers
    setup screen, synthetic providers; Weather, Inventory, Outages, News widgets.
 3. Intraday prices on Latest levels (with the shared live-price source).
