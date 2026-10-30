@@ -569,7 +569,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
   foreach(var row in rows)
   {
    var terms=Terms(data,row,frame.Id);var id=row.Id("instrument_id");
-   var source=data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId?data:One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId)).Data;
+   var market=data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId?(Data:data,Frame:frame):One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId));
+   var source=market.Data;
    var book=One(books.Where(b=>b.Id("id")==row.Id("book_id")));
    SidedInstrument instrument;HeldValue held;
    // D220: a position-specific failure leaves the position unvalued at the close, with that code; any other failure fails the read.
@@ -577,17 +578,17 @@ public sealed partial class SwapStore(PreviewDatabase database)
    if(settlement.GetProperty("occurrences").GetArrayLength()!=0)
    {
     bindingValuations++;LifecycleEvaluation? lifecycle=null;string? reason=null;
-    try{lifecycle=await EvaluateLifecycle(connection,data,frame,row,terms,settlement,ct,schedules,sourceHistories);}
+    try{lifecycle=await EvaluateLifecycle(connection,source,market.Frame,row,terms,settlement,ct,schedules,sourceHistories);}
     catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){reason=error.Code;}
-    instrument=lifecycle?.Instrument??(await ResolveRetained(connection,source,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
+    instrument=lifecycle?.Instrument??(await ResolveRetained(connection,source,market.Frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
     held=lifecycle is null?new(null,null,reason,"Active",null):new(Exact(lifecycle.Value.RemainingValue),null,null,"Active",LifecycleValue(lifecycle.Value));
    }
    else if(terms.Scheduled is not null)
    {
     bindingValuations++;FinancialSwapValue? value=null;ScheduledResolution? resolved=null;string? reason=null;
-    try{var priced=await ScheduledPriceDetail(connection,data,frame,terms,id,ct,schedules,sourceHistories);value=priced.Value;resolved=priced.Resolved;}
+    try{var priced=await ScheduledPriceDetail(connection,source,market.Frame,terms,id,ct,schedules,sourceHistories);value=priced.Value;resolved=priced.Resolved;}
     catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){reason=error.Code;}
-    instrument=resolved?.Instrument??(await ResolveRetained(connection,source,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
+    instrument=resolved?.Instrument??(await ResolveRetained(connection,source,market.Frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
     held=value is null?new(null,null,reason,"Projection",null):new(Exact(value.ExactPresentValue),null,null,"Projection",null);
    }
    else

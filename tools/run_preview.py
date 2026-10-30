@@ -755,6 +755,7 @@ def main():
                 from check_swap_settlement_agents import prepare as prepare_settlement_agent
                 agent_fixture=temporary/'settlement-agent.json'
                 agent_fixture.write_text(json.dumps(prepare_settlement_agent(query,settlement_fixture)))
+                subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--swap-holding-markets',str(agent_fixture)],cwd=ROOT,env=app_env,check=True,timeout=120)
                 subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--swap-settlement-agent',str(agent_fixture)],cwd=ROOT,env=app_env,check=True,timeout=120)
                 if args.browser_check:
                     target=temporary/'browser-target.json'

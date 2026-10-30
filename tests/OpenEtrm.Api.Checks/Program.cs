@@ -7,6 +7,7 @@ if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
 if(args is ["--booked-programs",var bookedProgramsFixture]){await BookedProgramStorageChecks.Run(bookedProgramsFixture);return;}
 if(args is ["--ppa-blotter-admission"]){await PpaBlotterAdmissionChecks.Run();return;}
 if(args is ["--position-facts"]){TradePositionFactsChecks.Run();return;}
+if(args is ["--swap-holding-markets",var holdingMarketFixture]){await SwapHoldingMarketChecks.Run(holdingMarketFixture);return;}
 if(args is ["--swap-settlement-agent",var settlementAgentFixture]){await SwapSettlementAgentChecks.Run(settlementAgentFixture);return;}
 if(args is ["--custom-curve-savers",var curveSaverFixture]){await CustomCurveSaverChecks.Run(curveSaverFixture);return;}
 if(args is ["--custom-curve-tool",var curveToolFixture]){await CustomCurveToolChecks.Run(curveToolFixture);return;}
