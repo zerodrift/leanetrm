@@ -2,7 +2,7 @@
 // Exercise the same edits, context fencing and keyboard paths in each surface.
 import {chooseProduct,newTrade,startNewTrade} from './new-trade.mjs';
 const panel="(document.querySelector('#position-details')??{hidden:true})",side="document.querySelector('#side-panel')";
-const tiles="JSON.stringify([...document.querySelectorAll('.desk-tile')].map(t=>{const r=t.getBoundingClientRect();return [r.left+scrollX,r.top+scrollY,r.width,r.height].map(Math.round);}))";
+const tiles="JSON.stringify([...document.querySelectorAll('#blotter-strip .strip-item')].map(t=>{const r=t.getBoundingClientRect();return [r.left+scrollX,r.top+scrollY,r.width,r.height].map(Math.round);}))";
 const rowSelector=kind=>`#desk-positions .tabulator-row:not(.tabulator-group):has(.desk-pill-${kind})`;
 const referenceOf=kind=>`document.querySelector(${JSON.stringify(rowSelector(kind))}).querySelector('.desk-reference').textContent`;
 const panelReference="document.querySelector('#position-details-head .side-panel-reference').textContent";
@@ -37,7 +37,8 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   const held=reference=>`${rowsRead}.find(h=>h.tradeReference===${JSON.stringify(reference)})`;
   const shapeReads="window.__futuresResponses.filter(r=>r.path==='/api/market/curve-shapes').length";
   const editorReads="window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').length";
-  const open=async(kind,tab='curve')=>{await click(rowSelector(kind));await wait(`!${panel}.hidden&&${panelReference}===${referenceOf(kind)}&&document.activeElement===${panel}`);if(tab==='curve'){await click('#position-details-tabs-curve');await evaluate(`${panel}.focus()`);}};
+  // The row's reference is read before it opens: the grid draws only the rows in its pane's view, which the opening detail scrolls.
+  const open=async(kind,tab='curve')=>{const reference=await evaluate(referenceOf(kind));await click(rowSelector(kind));await wait(`!${panel}.hidden&&${panelReference}===${JSON.stringify(reference)}&&document.activeElement===${panel}`);if(tab==='curve'){await click('#position-details-tabs-curve');await evaluate(`${panel}.focus()`);}};
   await settle(1440,900);
   const futureReference=await evaluate(referenceOf('fut')),tilesBefore=await evaluate(tiles),shapesBefore=await evaluate(shapeReads),initialEditorReads=await evaluate(editorReads);
   await open('fut','terms');
@@ -48,7 +49,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     `!${panel}.hidden&&${panel}.getAttribute('aria-label')==='Position details'&&${panelReference}===${JSON.stringify(futureReference)}&&!!document.querySelector('#position-details-body .chart canvas')&&document.activeElement===${panel}`,
     `[${panel}.hidden,${panelReference},document.activeElement.id]`);
   const inlineGeometry=`(()=>{const p=${panel},r=p.closest('.tabulator-row'),cells=[...r.querySelectorAll(':scope>.tabulator-cell')].filter(c=>c.getClientRects().length),box=p.getBoundingClientRect(),row=r.getBoundingClientRect();return cells.length===7&&cells.every(c=>c.getBoundingClientRect().bottom<=box.top+1)&&box.left>=row.left-1&&box.right<=row.right+1&&box.bottom<=row.bottom+1&&r.getAttribute('aria-expanded')==='true'&&document.querySelector('#side-panel').hidden;})()`;
-  await check('the position expands below its own cells, inside the row, without moving the tiles',
+  await check('the position expands below its own cells, inside the row, without moving the summary strip',
     `${inlineGeometry}&&${tiles}===${JSON.stringify(tilesBefore)}`,`(()=>{const p=${panel},r=p.closest('.tabulator-row');return {tiles:${tiles},before:${JSON.stringify(tilesBefore)},detail:p.getBoundingClientRect().toJSON(),row:r.getBoundingClientRect().toJSON(),expanded:r.getAttribute('aria-expanded'),cells:[...r.querySelectorAll(':scope>.tabulator-cell')].filter(c=>c.getClientRects().length).map(c=>c.getBoundingClientRect().toJSON())};})()`);
   await check('opening a position preserves all seven desktop columns and the grid fits',
     `${shownColumns}==='c0,c1,c2,c3,c4,c5,c6'&&${gridFits}`,`[${shownColumns},${gridWidths}]`);
@@ -560,7 +561,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     const phoneWidth=await evaluate('document.documentElement.scrollWidth');
     await open('fut');
     await check(`at ${width} pixels position details stay inside the row and do not widen the page`,`${inlineGeometry}&&${panel}.getBoundingClientRect().width<=document.querySelector('#desk-positions .tabulator-tableholder').clientWidth+1&&document.documentElement.scrollWidth===${phoneWidth}&&document.documentElement.scrollWidth<=document.documentElement.clientWidth+1`,`({inline:${inlineGeometry},detail:${panel}.getBoundingClientRect().toJSON(),holder:document.querySelector('#desk-positions .tabulator-tableholder').clientWidth,page:[document.documentElement.scrollWidth,document.documentElement.clientWidth],before:${phoneWidth}})`);
-    await check('inline detail leaves page controls available and takes keyboard focus',`document.querySelectorAll('[inert]').length===0&&document.activeElement===${panel}`);
+    await check('inline detail leaves page controls available and takes keyboard focus',`document.querySelectorAll('[inert]').length===0&&document.activeElement===${panel}`,`({width:${width},inert:[...document.querySelectorAll('[inert]')].map(n=>n.id||n.className),focus:[document.activeElement?.id,document.activeElement?.className]})`);
     await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&document.querySelector('#position-details-form')?.contains(document.activeElement)");
     await check('the mobile amendment stays inside the row and its form receives focus',`!document.querySelector('#position-details-form').hidden&&document.querySelector('#position-details-form').contains(document.activeElement)&&document.querySelector('#position-details-form').scrollWidth<=document.querySelector('#position-details-form').clientWidth+1&&document.querySelectorAll('[inert]').length===0`);
     await click('#side-panel-amend');await click('#position-details .position-close');await wait(`${panel}.hidden`);

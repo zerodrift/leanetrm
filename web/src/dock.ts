@@ -16,7 +16,8 @@ const shape=(a:Arrangement)=>JSON.stringify([form(a.layout),[...a.collapsed].sor
 export type Dock={arrangement():Arrangement;set(a:Arrangement):void;reveal(tab:string):void;relayout():void;destroy():void};
 
 /** `changed` hears each arrangement the viewer makes (never one set by the caller or a narrow page's); `shown` hears each tab whose
- *  body comes into view, so that what it draws can measure itself there; `label` names the tab groups to assistive technology. */
+ *  body comes into view, also when the dock is drawn again and moves it, so that what it draws can measure itself there (a moved element
+ *  loses its scroll offsets); `label` names the tab groups to assistive technology. */
 export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boolean;rules:DockRules;initial:Arrangement;changed:(a:Arrangement)=>void;shown?:(id:string)=>void;label?:string}):Dock{
   const {rules}=o,label=new Map(o.tabs.map(t=>[t.id,t.label]));
   const flat=(a:Arrangement):Arrangement=>({layout:collapse(a.layout),collapsed:a.collapsed});
@@ -95,6 +96,9 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
     const [first,second]=l.children.map(child=>draw(child,depth+1,count));
     const divider=div('dock-divider');divider.tabIndex=0;divider.setAttribute('role','separator');divider.setAttribute('aria-label','Resize the groups');
     divider.setAttribute('aria-orientation',l.direction==='row'?'vertical':'horizontal');divider.setAttribute('aria-valuemin',String(Math.round(rules.ratioRange[0]*100)));divider.setAttribute('aria-valuemax',String(Math.round(rules.ratioRange[1]*100)));
+    node.append(first,divider,second);drawnSplits[at]={first,second,divider};
+    // A side collapsed to bars keeps its own size (proportion), so a ratio would change nothing on screen: the divider does not move.
+    if(l.children.some(barred)){divider.tabIndex=-1;divider.setAttribute('aria-disabled','true');return node;}
     const ratioAt=(event:PointerEvent)=>{const box=node.getBoundingClientRect();return l.direction==='row'?(event.clientX-box.left)/box.width:(event.clientY-box.top)/box.height;};
     divider.onpointerdown=event=>{
       if(event.button!==0)return;event.preventDefault();divider.setPointerCapture(event.pointerId);
@@ -108,7 +112,7 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
       const step=({ArrowLeft:-.05,ArrowUp:-.05,ArrowRight:.05,ArrowDown:.05} as Record<string,number>)[event.key];
       if(step===undefined)return;event.preventDefault();apply({layout:resize(saved.layout,at,ratioOf(at)+step,rules),collapsed:saved.collapsed});
     };
-    node.append(first,divider,second);drawnSplits[at]={first,second,divider};return node;
+    return node;
   }
   function draw(l:DockLayout,depth:number,count:{groups:number;splits:number}):HTMLElement{
     return l.kind==='group'?drawGroup(l,count.groups++,depth):drawSplit(l,depth,count);
@@ -116,9 +120,10 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   const ratioOf=(at:number)=>splitsOf(shown.layout)[at].ratio;
   /** Shows a group's selected tab. */
   function mark(g:Group){const away=shown.collapsed.includes(g.active);for(const id of g.tabs){const active=id===g.active,b=buttons.get(id)!;b.setAttribute('aria-selected',String(active));b.tabIndex=active?0:-1;bodies.get(id)!.hidden=!active||away;}}
-  /** Sizes each split's two sides by its ratio; a side that is one collapsed bar keeps its own size and the other takes the rest. */
+  /** Whether a side shows only collapsed bars: a collapsed group, or a split of such sides. */
+  const barred=(l:DockLayout):boolean=>l.kind==='group'?shown.collapsed.includes(l.active):l.children.every(barred);
+  /** Sizes each split's two sides by its ratio; a side of collapsed bars keeps its own size and the other takes the rest. */
   function proportion(){
-    const barred=(l:DockLayout)=>l.kind==='group'&&shown.collapsed.includes(l.active);
     splitsOf(shown.layout).forEach((split,at)=>{const drawn=drawnSplits[at],[a,b]=split.children.map(barred);
       drawn.first.style.flex=a?'0 0 auto':`${b?1:split.ratio} 1 0`;drawn.second.style.flex=b?'0 0 auto':`${a?1:1-split.ratio} 1 0`;
       drawn.divider.setAttribute('aria-valuenow',String(Math.round(split.ratio*100)));});
@@ -128,12 +133,14 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
     const now=new Set(groupsOf(shown.layout).filter(g=>!shown.collapsed.includes(g.active)).map(g=>g.active)),fresh=[...now].filter(id=>!visible.has(id));
     visible=now;for(const id of fresh)o.shown?.(id);
   }
-  /** Draws `shown` again, keeping focus on what had it. */
-  function render(){
+  /** Draws `shown` again, keeping focus on what had it. The first drawing announces nothing: the page draws what it shows first itself. */
+  function render(again=true){
     const focused=host.contains(document.activeElement)?document.activeElement as HTMLElement:undefined;
     drawnSplits=[];menu.close();stopWaiting();
     host.replaceChildren(draw(shown.layout,0,{groups:0,splits:0}),menu.element);proportion();
     if(focused?.isConnected&&document.activeElement!==focused)focused.focus({preventScroll:true});
+    // Every body was moved into the groups just drawn, so every one in view comes into view again.
+    if(again)visible=new Set();
     announce();
   }
   /** Shows `next`, which is also kept (and `changed` told) as the arrangement unless the page is narrow or `keep` is false (a divider being dragged). */
@@ -200,6 +207,6 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   host.addEventListener('focusin',enter);
   const leave=(event:FocusEvent)=>{if(!host.contains(event.target as Node))focusedIn=undefined;};
   document.addEventListener('focusin',leave);
-  host.classList.add('tab-dock');render();
+  host.classList.add('tab-dock');render(false);
   return {arrangement:()=>saved,set,reveal,relayout,destroy(){host.removeEventListener('focusin',enter);document.removeEventListener('focusin',leave);stopWaiting();menu.close();host.classList.remove('tab-dock');host.replaceChildren();}};
 }

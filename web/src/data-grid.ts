@@ -16,10 +16,11 @@ type Cells=(string|HTMLElement)[][];
 // through new data. A grid given none names its rows by their place in the rows it was given.
 // stretch: the last column fills the grid's remaining width.
 // toolbarHost: where the filter toolbar (search, column filters, row count) is drawn, when not above the table.
+// fill: the table takes the height its host gives it, such as a pane's, and its rows scroll within it; otherwise it is sized to its rows.
 // giveUp: columns, by index, that the grid gives up in this order, one at a time, only while the columns it shows do not fit its width, as a
 // consumer that takes room from it asks; `fitColumns` changes them while the grid stands. A grid with room for all of them shows all.
 export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void;onRowDoubleOpen?:(index:number)=>void;
-  cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;giveUp?:readonly number[]};
+  cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[]};
 /**
  * What a grid is built for and cannot change while it stands: its key, scope and columns. A later render with the same identity changes the
  * standing grid's rows, grouping, column visibility, filters and layout in place, so the person keeps their place in it.
@@ -148,7 +149,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   const groupOf=(data:Record<string,string>)=>options.group!.keys[Number(data.__sourceIndex)];
   const rowData=()=>values.map((row,index)=>({...Object.fromEntries(row.map((cell,i)=>[field(i),cell])),__sourceIndex:String(index),__key:keys[index]}))
     .sort((a,b)=>options.group?options.group.order.indexOf(groupOf(a))-options.group.order.indexOf(groupOf(b)):0);
-  const height=()=>Math.min(560,Math.max(140,values.length*(options.rowHeight??35)+(options.group?.order.length??0)*36+(groups.size?82:46)))+'px';
+  const height=()=>options.fill?'100%':Math.min(560,Math.max(140,values.length*(options.rowHeight??35)+(options.group?.order.length??0)*36+(groups.size?82:46)))+'px';
   let drawnHeight=height();
   const table=new TabulatorFull(container,{
     index:'__key',
@@ -216,8 +217,12 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   async function settle(version:number,place:Place,view:HTMLElement|null,row:GridRow|false){
     if(!view||!row)return;
     const away=()=>{const target=row.getElement();return target.isConnected?target.getBoundingClientRect().top-view.getBoundingClientRect().top-place.offset:undefined;};
-    // A row already where it was is left alone: scrolling to it would draw the rows again for nothing.
-    if(Math.abs(away()??Infinity)<1){lastPlace=capture();return;}
+    // A row already where it was is left alone: scrolling to it would draw the rows again for nothing. The virtual renderer can still
+    // move the rows on the frame after a change, as it does in a short pane, so the row is measured again then.
+    if(Math.abs(away()??Infinity)<1){
+      await frame();if(version!==placing||!alive)return;
+      if(Math.abs(away()??Infinity)<1){lastPlace=capture();return;}
+    }
     // A person working in the open detail sees the rows where they are: an anchor still in view is near enough, and scrolling would draw
     // the rows again under them.
     if(focusedDetail()&&inView(row,view))return;
@@ -227,7 +232,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     try{await row.scrollTo('top',false);}catch{return;}finally{if(focusVersion===at)restoreDetailFocus(held);}
     // The virtual renderer estimates the heights of rows it has not drawn, so the row is measured where it lands and moved again until it holds.
     for(let tries=0;tries<4&&version===placing&&alive;tries++){
-      const delta=away();if(delta===undefined)return;
+      // A short viewport's rows are drawn again on the frame after a scroll: the anchor is measured once it is drawn.
+      let delta=away();if(delta===undefined){await frame();delta=away();}
+      if(delta===undefined)return;
       if(Math.abs(delta)<1)break;
       const focused=focusedDetail(),moved=focusVersion;view.scrollTop+=delta;await frame();if(focusVersion===moved)restoreDetailFocus(focused);
     }
@@ -394,6 +401,11 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
      * (Cell.setValue); a Tabulator upgrade has to keep that behavior, or this has to change with it.
      */
     redrawCells(column:number){if(ready&&alive)for(const row of table.getRows()){const cell=row.getCell(field(column));if(cell)cell.setValue(row.getData()[field(column)]);}},
+    /**
+     * Draws the rows again for the room the grid now has, at the place the person last left them: for a grid whose element was moved,
+     * which loses its scroll offset, or whose room changed while it was out of view.
+     */
+    relayout(){if(!ready||!alive)return;const at=lastPlace;void change(()=>{width=container.clientWidth;redraw();fit();},at&&(()=>at));},
     /** Gives up these columns instead of those it was given before, in this order, while the table does not fit its width. */
     fitColumns(next:readonly number[]){
       if(next.length===order.length&&next.every((index,at)=>index===order[at]))return;

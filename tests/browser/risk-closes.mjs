@@ -22,7 +22,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
 
   const panelRisk="(()=>{const panel=document.querySelector('#side-panel');return !panel.hidden&&panel.dataset.mode==='risk'&&!document.querySelector('#risk-report').hidden;})()";
   const inline="(()=>{const bar=document.querySelector('#desk-run');return !bar.hidden&&!document.querySelector('#desk-lens').hidden&&document.querySelector('#desk-lens [data-lens=risk]').getAttribute('aria-pressed')==='true';})()";
-  const elsewhere="(()=>!document.querySelector('#desk-run').hidden&&document.querySelector('#desk-lens').hidden&&[...document.querySelectorAll('#desk-run-notes li')].some(li=>li.textContent.startsWith('This run was made at another close, context or books than the Blotter read on screen'))&&document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Results made elsewhere'&&!document.querySelector('#risk-export').hidden)()";
+  const elsewhere="(()=>!document.querySelector('#desk-run').hidden&&document.querySelector('#desk-lens').hidden&&[...document.querySelectorAll('#desk-run-notes li')].some(li=>li.textContent.startsWith('This run was made at another close, context or books than the Blotter read on screen'))&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-value').textContent==='Results made elsewhere'&&!document.querySelector('#risk-export').hidden)()";
   const workspace="window.__riskReads.filter(r=>r.path==='/api/trading/workspace')";
   const blotterAt=async close=>{await set('#snapshot',close);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled&&"+idle);};
   const openReport=async()=>{await click('#blotter-risk');await wait(panelRisk+"&&!document.querySelector('#risk-fields').disabled&&"+idle);};
@@ -43,11 +43,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('the other close of the date is read at the same market context',`${workspace}.at(-1).data.blotter.context.contextId===${JSON.stringify(context)}`);
   await openReport();await fromHistory(job.id);
   await check('a run made at another close of the date, at the same context, is made elsewhere: never drawn as this close\'s risk, and offered for export',elsewhere,
-    "[[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent),document.querySelector('#desk-lens').hidden,document.querySelector('#desk-tile-risk').textContent]");
+    "[[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent),document.querySelector('#desk-lens').hidden,[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
   // Back at its own close, context and books, the same run from the history is drawn.
   await blotterAt(closes[0]);await openReport();await fromHistory(job.id);
-  await check('the run from the history at its own close, context and books is drawn inline',`${inline}&&document.querySelector('#desk-tile-risk .desk-risk-count').textContent==='1 shock'`,
-    "[[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent),document.querySelector('#desk-tile-risk').textContent]");
+  await check('the run from the history at its own close, context and books is drawn inline',`${inline}&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-label').textContent.split(' · ').at(-1)==='1 shock'`,
+    "[[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent),[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
 
   // A run of several parts whose part the job history no longer lists: that part is missing from the history, and a position no listed
   // part moves is not known, never not moved.
@@ -81,10 +81,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await set('#blotter-filters .table-search','');await wait(idle);
   const known=parts.filter((_,index)=>index!==dropped).reduce((count,part)=>count+part.shocks,0);
   await check('the run states only how many of its shocks are known, never fewer shocks than it ran',
-    `document.querySelector('#desk-tile-risk .desk-risk-count').textContent===${JSON.stringify(`${known} shocks known`)}&&document.querySelector('#desk-run-detail').textContent.startsWith(${JSON.stringify(`${known} shocks known · `)})`,
-    "[document.querySelector('#desk-tile-risk .desk-risk-count').textContent,document.querySelector('#desk-run-detail').textContent]");
+    `[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-label').textContent.split(' · ').at(-1)===${JSON.stringify(`${known} shocks known`)}&&document.querySelector('#desk-run-detail').textContent.startsWith(${JSON.stringify(`${known} shocks known · `)})`,
+    "[[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-label').textContent.split(' · ').at(-1),document.querySelector('#desk-run-detail').textContent]");
   await check('the change chart and the risk tile say which positions are not known and why',
-    `[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].some(p=>p.textContent.startsWith(${JSON.stringify(`Not known, as ${name.toLowerCase()} is missing from the job history: `)}))&&document.querySelector('#desk-tile-risk .desk-tile-note').textContent.includes(${JSON.stringify(`${name} is missing from the job history`)})&&document.querySelector('#desk-tile-risk').textContent.includes('Largest known move: ')`,
-    "[[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].map(p=>p.textContent),document.querySelector('#desk-tile-risk').textContent]");
+    `[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].some(p=>p.textContent.startsWith(${JSON.stringify(`Not known, as ${name.toLowerCase()} is missing from the job history: `)}))&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-reason').textContent.includes(${JSON.stringify(`${name} is missing from the job history`)})&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ').includes('Largest known move: ')`,
+    "[[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].map(p=>p.textContent),[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
   await evaluate('window.__dropFromHistory=undefined');
 }

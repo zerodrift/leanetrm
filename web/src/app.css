@@ -622,7 +622,7 @@ dialog label{margin-top:16px}
 .library-filters .filter-tabs button.active{background:var(--surface);color:var(--accent-text);box-shadow:0 1px 2px #1b2e2324}
 .chart-toolbar>span strong{color:var(--text);font-weight:600}
 
-/* Blotter desk: summary tiles, market charts and grouped positions (blotter-desk.md, Desk layout). Every
+/* Blotter desk: summary strip, desk charts and grouped positions (blotter-desk.md, Desk layout). Every
    figure is a backend string; signs, bar direction and words always accompany gain, loss and commodity colors. */
 /* The saved views list takes the room the toolbar has left, up to a limit, so its label shows whole; it gives way before the toolbar wraps. */
 .table-workspace-toolbar>select{flex:1 1 150px;min-width:120px;max-width:260px}
@@ -632,19 +632,9 @@ dialog label{margin-top:16px}
 .table-group-by select{width:auto;max-width:170px;min-height:32px;font-size:12px;font-weight:500;padding:5px 28px 5px 10px}
 .table-workspace-filters{display:flex;flex:1 1 300px;justify-content:flex-end;min-width:0}
 .table-workspace-filters .table-filters{flex:1;justify-content:flex-end;margin:0;padding:0}
-/* The desk is a size container: a figure that would not fit even a lone tile shrinks to its width (.kpi-figure below). */
-.table-workspace>.desk{container:desk/inline-size;display:grid;gap:12px;padding:14px 16px 12px;background:var(--bg)}
-/* Under the tiles, the charts and the positions share a column, and the side panel docks beside it (see Side panel below). */
-.table-workspace-stage{display:block;min-width:0}
-.table-workspace-main{min-width:0}
-.table-workspace-main>.table-workspace-heading{border-top:1px solid var(--border)}
-/* Tiles take the room their content needs. A row of them wraps before a figure or a split would be cut off: the money tiles
-   and the positions and risk tiles are two pairs, so a narrower desk shows two by two, and a narrower one still one by one. */
-.desk-tiles,.desk-tile-pair{display:flex;flex-wrap:wrap;gap:12px}
-.desk-tile-pair{flex:1 1 422px}.desk-tile-pair:first-child{flex:1.8 1 492px}
+/* Tiles take the room their content needs, and a row of them wraps before a figure would be cut off. */
+.desk-tiles{display:flex;flex-wrap:wrap;gap:12px}
 .desk-tile{display:flex;flex:1 1 176px;flex-direction:column;gap:4px;padding:11px 14px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
-.desk-tile-pair:first-child .desk-tile{flex-basis:240px}
-#desk-tile-positions{flex-basis:200px}
 .desk-tile-label{display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:550;color:var(--text-3)}
 .desk-tile-row{display:flex;flex-direction:column;gap:6px;min-width:0}
 .desk-tile-row+.desk-tile-row{padding-top:8px;border-top:1px solid var(--border)}
@@ -653,8 +643,6 @@ dialog label{margin-top:16px}
 /* A figure is one token: it never splits, and its currency wraps beneath it. A tile only gets narrower than its figure when the desk
    itself is, and then the figure shrinks to the desk's width (about two thirds of its size per character, for the widest digits). */
 .desk-tile .kpi-figure{white-space:nowrap;font-size:min(1em,calc((100cqw - 30px)/(var(--figure-length)*.66)))}
-.desk-tile-several .kpi-value{font-size:20px}
-.desk-tile .desk-not-valued{font-size:20px;color:var(--text-3)}
 .desk-tile-currency{margin:0;font-size:11px;font-weight:600;color:var(--text-2)}
 .desk [data-sign=positive],#desk-positions [data-sign=positive],.desk-tile [data-sign=positive]{color:var(--gain-ink)}
 .desk [data-sign=negative],#desk-positions [data-sign=negative],.desk-tile [data-sign=negative]{color:var(--loss-ink)}
@@ -671,11 +659,7 @@ dialog label{margin-top:16px}
 .desk-legend{display:flex;flex-wrap:wrap;gap:1px 12px;margin:0;padding:0;list-style:none;font-size:11px;line-height:1.3;color:var(--text-2)}
 .desk-legend li{display:inline-flex;align-items:center;gap:5px}.desk-legend b{font-weight:600;font-variant-numeric:tabular-nums}
 .desk-swatch{display:inline-block;width:9px;height:9px;border-radius:3px}
-.desk-tile-risk{flex:1.05 1 210px;background:radial-gradient(120% 140% at 100% 0%,var(--accent-soft) 0%,var(--surface) 58%)}
-.desk-risk-state{margin:0;font-size:18px;font-weight:650;letter-spacing:-.3px}
-.desk-tile-hint{margin:0;font-size:11.5px;line-height:1.4;color:var(--text-2)}
-.desk-tile-risk button{align-self:flex-start;margin-top:auto;font-size:12px;padding:6px 12px}
-.desk-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:12px;padding:0 16px 14px;background:var(--bg)}
+.desk-charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));align-items:start;gap:12px}
 .desk-chart{min-width:0;padding:11px 14px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
 .desk-chart-title{margin:0 0 6px;font-size:13px;font-weight:600;color:var(--text)}
 .desk-chart>.chart{min-height:0}.desk-chart>.chart+.chart{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
@@ -742,17 +726,13 @@ dialog label{margin-top:16px}
 .desk-lens button{padding:4px 10px;border:0;border-radius:7px;background:none;font-size:11.5px;font-weight:550;color:var(--text-2)}
 .desk-lens button:hover{background:var(--surface)}
 .desk-lens button[aria-pressed=true]{background:var(--surface);color:var(--text);font-weight:650;box-shadow:0 1px 2px rgba(18,34,27,.1)}
-.desk-risk-count{flex:none;font-weight:600;white-space:nowrap;color:var(--text-2)}
-.desk-risk-moves{display:grid;gap:4px}
-.desk-risk-largest,.desk-risk-none{margin:0;font-size:11.5px;line-height:1.4;color:var(--text-2);overflow-wrap:anywhere}
-.desk-risk-bars{display:block;max-width:100%;overflow:visible}
 .desk-chart-note{margin:0 0 6px;font-size:11.5px;line-height:1.4;color:var(--text-2)}
 .desk-group-left{font-weight:500;color:var(--warn)}
 .desk-risk .desk-sub{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .side-risk-shock h3{overflow-wrap:anywhere}.side-risk-shock .field-help{margin:0}
 .side-risk-shock .side-panel-facts{grid-template-columns:repeat(2,minmax(0,1fr))}
 .side-risk-shock b[data-sign=positive]{color:var(--gain-ink)}.side-risk-shock b[data-sign=negative]{color:var(--loss-ink)}
-@media(max-width:760px){.table-workspace>.desk{padding:12px 12px 10px}.desk-charts{grid-template-columns:minmax(0,1fr);padding:0 12px 12px}.table-workspace-filters{flex-basis:100%}.table-workspace-filters .table-filters{justify-content:flex-start}#desk-positions .tabulator-group span.desk-group-totals{margin-left:8px}
+@media(max-width:760px){.table-workspace-filters{flex-basis:100%}.table-workspace-filters .table-filters{justify-content:flex-start}#desk-positions .tabulator-group span.desk-group-totals{margin-left:8px}
   .desk-run{flex-wrap:wrap;align-items:flex-start}.desk-run-mark{display:none}.desk-run-actions{flex-basis:100%}}
 
 /* Side panel (blotter-desk.md, Side panel). Docked, it is a column beside the charts and the positions that keeps in view as they
@@ -878,6 +858,7 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 /* Rows kept on screen while the Blotter is read again: dimmed, with the reason below them. */
 .standard-data-grid.stale .tabulator-tableholder{opacity:.6}
 #desk.stale>:not(#desk-stale-note),#desk-charts.stale,#blotter-chart-card.stale,#futures-summary.stale{opacity:.6}
+#desk-stale-note{margin:0 0 6px}
 .table-stale-note{margin:6px 0 0;font-size:12.5px;color:var(--text-2)}
 /* A row brought into view, as a position opened by a booking is, comes to rest with room around it, not flush with an edge. */
 .table-workspace .standard-data-grid .tabulator-row{scroll-margin-block:24px}
@@ -1623,3 +1604,58 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .custom-curve-node>.custom-curve-type-row{margin:8px 12px;padding-top:6px;border-top:1px solid var(--border)}
 .custom-curve-pick .curve-component-type{margin-right:auto}
 .custom-curve-row-open .curve-component-type{margin-bottom:3px}
+
+/* The Blotter workbench (blotter-workbench.md, Layout): beside the navigation the Blotter fills the window, which never scrolls. The
+   toolbar keeps its row; the panes share the rest and scroll within themselves, the positions grid within its own rows. A phone has the
+   navigation above the page, which scrolls, and the panes keep the dock's own height. */
+@media(min-width:761px){
+  main:has(>#futures-page:not([hidden])){box-sizing:border-box;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  main:has(>#futures-page:not([hidden]))>:not(#futures-page){flex:none}
+  #futures-page:not([hidden]){display:flex;flex:1 1 0;flex-direction:column;min-height:0}
+  #futures-page>:not(#blotter-workspace){flex:none}
+  #blotter-workspace{flex:1 1 0;min-height:0}
+  #blotter-workspace>.table-workspace{display:flex;flex-direction:column;height:100%}
+  #blotter-workspace .table-workspace-toolbar,#blotter-workspace .table-workspace-note{flex:none}
+  #blotter-workspace .table-workspace-stage{display:grid;flex:1 1 0;grid-template-columns:minmax(0,1fr);min-width:0;min-height:0}
+  #blotter-workspace .table-workspace-stage:has(>.side-panel[data-placement=docked]:not([hidden])){grid-template-columns:minmax(0,1fr) var(--panel-width)}
+  #futures-page .side-panel[data-placement=docked]{min-height:0;overflow:auto}
+  #futures-page .side-panel[data-placement=docked] .side-panel-frame{position:relative;top:auto;max-height:none}
+  #blotter-dock.tab-dock{height:auto}
+}
+#blotter-dock.tab-dock{min-height:0;padding:10px;background:var(--bg)}
+/* The saved views list keeps its whole label; the search beside it gives way first. */
+#blotter-workspace .table-workspace-toolbar>select{flex:none;width:auto}
+.table-workspace-rows{display:flex;flex:1 1 560px;align-items:center;gap:6px 14px;min-width:0}
+@media(max-width:760px){.table-workspace-rows{flex-wrap:wrap;flex-basis:100%}}
+#blotter-workspace .table-workspace-filters{flex:1 1 380px}
+#blotter-workspace .table-workspace-filters .table-filters{flex-wrap:nowrap}
+#blotter-workspace .table-workspace-filters .table-search{flex:1 1 120px;min-width:100px;width:auto}
+#blotter-dock .dock-panels{padding:10px 12px}
+/* The summary strip keeps the room its figures need; the positions keep room for a row under their header, however the panes are sized. */
+#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-summary:not([hidden])){min-height:max-content}
+#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-grid:not([hidden])){min-height:190px}
+#blotter-dock .dock-panels:has(>#blotter-pane-grid:not([hidden])){display:flex;flex-direction:column;padding:0;overflow:hidden}
+.blotter-pane-grid:not([hidden]){display:flex;flex:1 1 0;flex-direction:column;min-height:0}
+.blotter-pane-grid>:not(#desk-positions){flex:none}
+.blotter-pane-grid .table-workspace-heading{padding:8px 12px 4px}
+.blotter-pane-grid .table-workspace-footer{padding:6px 12px 8px}
+#desk-positions{display:flex;flex:1 1 0;flex-direction:column;min-height:0}
+#desk-positions>:not(.standard-data-grid){flex:none}
+#desk-positions>.standard-data-grid{flex:1 1 0;min-height:0}
+.desk{display:grid;gap:8px}
+.summary-strip{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 22px;margin:0;padding:0;list-style:none}
+.strip-item{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;min-width:0;font-size:12px;color:var(--text-2)}
+.strip-label{font-weight:550;color:var(--text-3)}
+.strip-value{font-size:16px;font-weight:650;letter-spacing:-.2px;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.strip-currency{font-weight:550}
+.strip-reason{font-size:11.5px;color:var(--text-2);overflow-wrap:anywhere}
+.strip-item[data-state=pending] .strip-value,.strip-item[data-state=unavailable] .strip-value{font-size:14px;color:var(--text-2)}
+.strip-item[data-state=pending] .strip-reason,.strip-item[data-state=unavailable] .strip-reason{color:var(--warn)}
+.desk-book-bars{display:grid;gap:5px}.desk-book-bars+.desk-book-bars{margin-top:10px;padding-top:8px;border-top:1px solid var(--border)}
+#desk-chart-mix .desk-legend{margin-top:8px}
+#blotter-pane-charts{display:grid;gap:12px}
+/* A collapsed pane beside another is an upright bar of its title, and the divider beside a collapsed bar does not move. */
+.dock-split[data-direction=row]>.dock-group[data-collapsed]>.dock-bar{flex:1 1 auto;flex-direction:column-reverse;justify-content:flex-end;padding:8px 4px}
+.dock-split[data-direction=row]>.dock-group[data-collapsed] .dock-title{writing-mode:vertical-rl;white-space:nowrap}
+.dock-divider[aria-disabled=true]{cursor:default}
+.dock-divider[aria-disabled=true]::after{display:none}

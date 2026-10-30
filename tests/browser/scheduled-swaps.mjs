@@ -30,7 +30,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  async function openRow(reference){
   await set('#blotter-filters .table-search',reference);await wait(idle);
   await wait(`(()=>{const rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length);return rows.length===1&&rows[0].textContent.includes(${JSON.stringify(reference)});})()`);
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details').getAttribute('aria-label')==='Position details'&&"+idle);
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle);
  }
  async function amend(){await click('#side-panel-amend');await wait(ticket);await wait(idle);}
  async function reopenBooked(){
@@ -76,7 +76,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await submit('#scheduled-swap-form');await wait(idle);await click('#scheduled-confirm');await check('reviewed fresh scheduled preview can be submitted',"!document.querySelector('#scheduled-submit').disabled");
  await click('#scheduled-submit',35000);await wait(idle);
  // The booked scheduled swap is the position the panel shows; the desk gives it no single quantity, fixed price or mark, and says why.
- await wait("document.querySelector('#position-details').getAttribute('aria-label')==='Position details'&&"+idle);
+ await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle);
  const scheduledReference=await evaluate("document.querySelector('#position-details-head .side-panel-reference').textContent");
  await check('the booked scheduled swap\'s row says its quantity, fixed prices and mark are by period, with its side and its PV',`(()=>{const row=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].find(r=>r.textContent.includes(${JSON.stringify(scheduledReference)}));if(!row)return false;const cell=n=>row.querySelector('[tabulator-field=c'+n+']').textContent;return cell(2).startsWith('By period')&&cell(2).includes('Pay fixed')&&!row.querySelector('[tabulator-field=c2] .desk-size-bar rect')&&cell(3).startsWith('By period')&&cell(4)==='By period'&&/PV · USD/.test(cell(5));})()`,
   `[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].find(r=>r.textContent.includes(${JSON.stringify(scheduledReference)}))?.innerText`);
