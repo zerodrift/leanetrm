@@ -23,7 +23,8 @@ public sealed record ReferencePage(string Table,ImmutableArray<JsonElement> Rows
     ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
 public sealed record FuturesProductRead(JsonElement Product,ImmutableArray<JsonElement> Series,ImmutableArray<JsonElement> Milestones,
     ImmutableArray<JsonElement> ExecutionPolicies,ImmutableDictionary<string,ImmutableArray<JsonElement>> References,ReferenceRevision ReferenceRevision);
-public sealed record ReferenceHit(string Table,string Code,string Label,string? ProductCode);
+public sealed record ReferenceSummaryField(string Label,string? Value);
+public sealed record ReferenceHit(string Table,string Code,string Label,string? ProductCode,ImmutableArray<ReferenceSummaryField> Summary);
 public sealed record ReferenceSearch(string Query,ImmutableArray<ReferenceHit> Hits,bool Truncated);
 public sealed record PreviewSwapMarket(Guid RevisionId,PreviewSeedFrame[] Frames);
 public sealed record PreviewSequenceCoverage(string Curve, DateTimeOffset From, DateTimeOffset To, DateTimeOffset ExampleAt);
@@ -423,37 +424,55 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         return(revision,definition);
     }
 
-    // Searchable categories in workspace order, with the column naming each row and the
-    // futures product it belongs to. Identifiers come only from this list.
-    private static readonly (string Table,string Label,string? Product)[] SearchTables=
+    // Searchable categories in workspace order, with the column naming each row, the futures product it belongs to and its
+    // one-line summary. A search matches only a row's code and name. Identifiers and summaries come only from this list.
+    private static readonly (string Table,string Label,string? Product,string? Summary)[] SearchTables=
     [
-        ("futures_products","name","code"),("futures_series","series_label","product_code"),("price_index_definitions","code",null),
-        ("exchanges","name",null),("clearing_houses","name",null),("interest_rate_definitions","code",null),("sources","code",null),
-        ("commodities","name",null),("units","symbol",null),("currencies","name",null),("measurement_bases","code",null),
-        ("quantity_specifications","code",null),("value_specifications","code",null),("locations","name",null),
-        ("location_types","description",null),("calendars","code",null),("clock_rules","code",null),("quote_specifications","code",null),
-        ("settlement_targets","code",null),("delivery_profiles","code",null)
+        ("futures_products","name","code",FuturesProductSummary),("futures_series","series_label","product_code",null),("price_index_definitions","code",null,null),
+        ("exchanges","name",null,null),("clearing_houses","name",null,null),("interest_rate_definitions","code",null,null),("sources","code",null,null),
+        ("commodities","name",null,null),("units","symbol",null,null),("currencies","name",null,null),("measurement_bases","code",null,null),
+        ("quantity_specifications","code",null,null),("value_specifications","code",null,null),("locations","name",null,null),
+        ("location_types","description",null,null),("calendars","code",null,null),("clock_rules","code",null,null),("quote_specifications","code",null,null),
+        ("settlement_targets","code",null,null),("delivery_profiles","code",null,null)
     ];
+    // A futures product's exchange, location, lot size and quote unit, named by rows of the product's own revision.
+    private const string FuturesProductSummary="""
+        jsonb_build_array(
+          jsonb_build_object('label','Exchange','value',(SELECT x.name FROM ref_data.exchanges x WHERE(x.catalog_id,x.revision_id,x.code)=(r.catalog_id,r.revision_id,r.exchange_code))),
+          jsonb_build_object('label','Location','value',(SELECT l.name FROM ref_data.locations l WHERE(l.catalog_id,l.revision_id,l.code)=(r.catalog_id,r.revision_id,r.location_code))),
+          jsonb_build_object('label','Lot size','value',r.contract_size::text||' '||(SELECT u.symbol FROM ref_data.units u WHERE(u.catalog_id,u.revision_id,u.code)=(r.catalog_id,r.revision_id,r.lot_unit_code))
+            ||CASE WHEN r.lot_basis='per_delivery_hour' THEN ' per delivery hour' ELSE '' END),
+          jsonb_build_object('label','Quote unit','value',(SELECT c.display_code FROM ref_data.currencies c WHERE(c.catalog_id,c.revision_id,c.code)=(r.catalog_id,r.revision_id,r.quote_currency_code))
+            ||'/'||(SELECT u.symbol FROM ref_data.units u WHERE(u.catalog_id,u.revision_id,u.code)=(r.catalog_id,r.revision_id,r.quote_unit_code))))
+        """;
     private const int SearchHitsPerTable=10,SearchHitLimit=60;
     public async Task<ReferenceSearch> SearchReferences(NpgsqlConnection connection,string query,CancellationToken ct)
     {
-        if(string.IsNullOrWhiteSpace(query)||query.Length>160)
+        query=query.Trim();
+        if(query.Length is 0 or >160)
             throw new MarketDataException("reference_search","Enter search text of 1 to 160 characters.");
         // Tables can resolve to different exact revisions; each distinct source is proven once.
         var scoped=SearchTables.Select(t=>t.Table).DistinctBy(table=>ReferenceSource(Manifest,table)).ToArray();
         async Task ProveScopes(){foreach(var table in scoped)await ReferenceScope(connection,table,ct);}
         await ProveScopes();
+        // Working data shows and matches applied display labels, as every other read does: each source's display revision is
+        // its complete copy with those labels. A historical context has none and keeps the source's original labels.
+        var shown=new Dictionary<ReferenceRevision,ReferenceRevision>();
+        foreach(var source in SearchTables.Select(t=>ReferenceSource(Manifest,t.Table).Revision).Distinct())
+            shown[source]=(await ReferenceEditors.Display(connection,source,ct))?.DisplayRevision??source;
         // Search is literal, including SQL wildcard characters; each table reads one row past its cap.
         var selects=SearchTables.Select((t,i)=>$"""
-            (SELECT {i} position,'{t.Table}' category,code::text code,{t.Label}::text label,{t.Product??"NULL"}::text product_code
-             FROM ref_data.{t.Table} r WHERE catalog_id=${2*i+2} AND revision_id=${2*i+3}
-               AND strpos(lower(row_to_json(r)::text),lower($1))>0
-             ORDER BY {t.Label},code LIMIT {SearchHitsPerTable+1})
+            (SELECT {i} position,'{t.Table}' category,r.code::text code,r.{t.Label}::text label,{(t.Product is null?"NULL":"r."+t.Product)}::text product_code,
+               {t.Summary??"'[]'::jsonb"} summary
+             FROM ref_data.{t.Table} r WHERE r.catalog_id=${2*i+2} AND r.revision_id=${2*i+3}
+               AND(strpos(lower(r.code::text),lower($1))>0 OR strpos(lower(r.{t.Label}::text),lower($1))>0)
+             ORDER BY label,code LIMIT {SearchHitsPerTable+1})
             """);
-        var revisions=SearchTables.Select(t=>ReferenceSource(Manifest,t.Table).Revision).SelectMany(r=>new object[]{r.CatalogId,r.RevisionId});
+        var revisions=SearchTables.Select(t=>shown[ReferenceSource(Manifest,t.Table).Revision]).SelectMany(r=>new object[]{r.CatalogId,r.RevisionId});
         var found=await Rows(connection,$"SELECT row_to_json(t)::text FROM({string.Join(" UNION ALL ",selects)})t ORDER BY position,label,code",
             [query,..revisions],ct);
-        var hits=found.Select(r=>new ReferenceHit(r.Text("category"),r.Text("code"),r.Text("label"),r.OptionalText("product_code")))
+        var hits=found.Select(r=>new ReferenceHit(r.Text("category"),r.Text("code"),r.Text("label"),r.OptionalText("product_code"),
+                [..r.GetProperty("summary").EnumerateArray().Select(f=>new ReferenceSummaryField(f.Text("label"),f.OptionalText("value")))]))
             .GroupBy(h=>h.Table).SelectMany(g=>g.Take(SearchHitsPerTable)).ToArray();
         await ProveScopes();
         return new(query,[..hits.Take(SearchHitLimit)],hits.Length<found.Length||hits.Length>SearchHitLimit);
@@ -511,6 +530,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
     // One futures product with its contracts, their dates and execution eligibility, all from one exact revision.
     public async Task<FuturesProductRead> ReadFuturesProduct(NpgsqlConnection connection,string code,CancellationToken ct)
     {
+        if(code.Length is 0 or >160)throw new MarketDataException("reference_page","Read one futures product by its exact code of 1 to 160 characters.");
         async Task<ReferenceRevision> ProveScopes()
         {
             var revisions=new HashSet<ReferenceRevision>();

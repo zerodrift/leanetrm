@@ -70,6 +70,16 @@ def run_checks(url,query):
         recorded=edits()
         assert client.call('reference/commit',commit)==committed and edits()==recorded, 'An exact retry returns its first outcome and writes nothing'
         assert client.call('reference/commit',{**commit,'values':{'symbol':original+' other'}},expected=409)['code']=='reference_conflict'
+        assert client.call('reference/commit',{**commit,'expectedVersion':commit['expectedVersion']+1},expected=409)['code']=='reference_conflict', 'The same id with only another expected version is a conflict'
+        # Committing the values already applied records nothing and returns the current version (D238), also on retry.
+        current_version={'revisionId':committed['displayRevisionId'],'displayRevisionId':committed['displayRevisionId'],'version':committed['version']}
+        unchanged={**commit,'operationId':str(uuid4()),'baseRevisionId':committed['displayRevisionId'],'expectedVersion':committed['version'],'values':{'symbol':original+' sample'}}
+        assert client.call('reference/commit',unchanged)==current_version and client.call('reference/commit',unchanged)==current_version and edits()==recorded, 'An unchanged commit must write nothing'
+        assert client.call('reference/editor?table=units')['displayVersion']==committed['version']
+        assert client.call('reference/commit',{**unchanged,'operationId':str(uuid4()),'values':{'code':'megawatt_hour'}},expected=422)['code']=='reference_edit', 'Only display fields can be committed, unchanged or not'
+        assert client.call('reference/commit',{**unchanged,'operationId':commit['operationId']},expected=409)['code']=='reference_conflict', 'A used id with another body is a conflict even when it changes nothing'
+        assert client.call('reference/commit',{**unchanged,'operationId':str(uuid4()),'baseRevisionId':editor['baseRevisionId'],'expectedVersion':editor['displayVersion'],'values':{'symbol':original}},expected=409)['code']=='reference_conflict', 'An unchanged commit from a stale version is a conflict'
+        assert edits()==recorded
         stale={**commit,'operationId':str(uuid4()),'baseRevisionId':committed['displayRevisionId'],'values':{'symbol':original+' stale'}}
         assert client.call('reference/commit',stale,expected=409)['code']=='reference_conflict'
         assert edits()==recorded, 'A stale version must roll back its saved draft'
@@ -78,7 +88,8 @@ def run_checks(url,query):
         display=current['unitReferenceDisplay']
         assert display['sourceRevision']==source and display['displayRevision']['revisionId']==committed['revisionId']
         assert display['references']['units']==[{'code':'megawatt_hour','symbol':original+' sample'}]
-        history=client.call('reference/editor?table=units&code=megawatt_hour')['versions']
+        read=client.call('reference/editor?table=units&code=megawatt_hour');history=read['versions']
+        assert read['historyTruncated'] is False
         assert {k:v for k,v in history[0].items() if k not in ['recordedAt','author']}=={'version':committed['version'],'table':'units','code':'megawatt_hour','changes':{'symbol':original+' sample'}} \
             and history[0]['author'], 'History lists the item\'s applied display versions with their author and changed fields'
         assert client.call('reference/editor?table=units')['versions']==[], 'History belongs to one item'
@@ -139,8 +150,16 @@ def run_checks(url,query):
         def product_display():
             return client.call('reference/futures-product?'+urlencode({'code':product['code']}))['referenceDisplay']
         assert product_display()['references'].get('futures_products') is None
-        commit_metadata('futures_products',product['code'],{'name':'Synthetic relabelled future'})
-        assert product_display()['references']['futures_products']==[{'code':product['code'],'name':'Synthetic relabelled future'}], 'The product read must show its committed display label'
+        relabelled='Synthetic "relabelled" \\ future'
+        commit_metadata('futures_products',product['code'],{'name':relabelled})
+        assert product_display()['references']['futures_products']==[{'code':product['code'],'name':relabelled}], 'The product read must show its committed display label'
+        def search_labels(text):
+            return [h['label'] for h in client.call('reference/search?'+urlencode({'q':text}))['hits'] if h['table']=='futures_products' and h['code']==product['code']]
+        assert search_labels('"relabelled" \\')==[relabelled], 'Search must match and show the applied display label, quotes and backslashes literally'
+        assert search_labels(product['name'])==[], 'The original label must no longer find a relabelled item in working data'
+        client.call('market/context',{'effectiveOn':historical['effectiveOn'],'knownAt':historical['knownAt'],'mode':'at','selection':'latest_correction'})
+        assert search_labels(product['name'])==[product['name']] and search_labels(relabelled)==[], 'A historical context searches its original labels'
+        client.call('market/current',{})
         commit_metadata('futures_products',product['code'],{'name':product['name']})
         assert product_display()['references'].get('futures_products') is None
     finally:
