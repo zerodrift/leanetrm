@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {addWidget,removeWidget,moveOnBoard,moveToSection,arrange,morningSections,homeSection,endOfSection} from '../dist/dashboard-layout.js';
+import {newWidget,addWidget,removeWidget,moveOnBoard,moveToSection,arrange,morningSections,homeSection,endOfSection} from '../dist/dashboard-layout.js';
 
 const widget=(id,kind,config,section,order,board={x:0,y:0,w:4,h:3})=>({id,kind,config,board,morning:{section,order}});
 const levels=widget('00000000-0000-4000-8000-000000000001','latest_levels',{curves:['hh','ttf']},'prices_positions',0);
@@ -64,4 +64,11 @@ test('a widget the layout does not hold, or one added twice, is refused',()=>{
 test('a section ends after its last order, and an empty section starts at zero',()=>{
   assert.equal(endOfSection(layout(levels,chart,ladder),'prices_positions'),3);
   assert.equal(endOfSection(layout(levels),'missed'),0);
+});
+
+test('a new widget goes below the lowest on the Board and at the end of its home section',()=>{
+  const added=newWidget(layout(levels,ladder),'00000000-0000-4000-8000-000000000009',{kind:'price_chart',config:chart.config});
+  assert.deepEqual(added.board,{x:0,y:7,w:6,h:6});
+  assert.deepEqual(added.morning,{section:'prices_positions',order:3});
+  assert.deepEqual(newWidget(layout(),'00000000-0000-4000-8000-000000000009',{kind:'latest_levels',config:{curves:['hh']}}).board,{x:0,y:0,w:6,h:4});
 });

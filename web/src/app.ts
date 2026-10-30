@@ -3,12 +3,13 @@ import {setupPpa} from './ppa-editor.js';
 import {setupCustomCurves} from './custom-curves-view.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
-import {newestDate,newestClose,closeBadge,latestInstant,type CloseChoice} from './latest-close.js';
+import {newestDate,newestClose,closeBadge,latestInstant,type CloseBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
 import {setupIntervalSeries} from './interval-series-view.js';
 import {setupIntervalCurves} from './interval-curves-view.js';
 import {setupJobs} from './jobs-view.js';
 import {setupDashboard} from './dashboard-view.js';
+import type {DashboardMarket} from './dashboard-levels.js';
 import {setupReferenceEditor} from './reference-editor.js';
 import {setupPartyEditors} from './party-view.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
@@ -321,11 +322,12 @@ async function recheckNewestClose(){
 // selected (taken the first time the close is rendered, and again whenever it is selected), so a later close is news
 // whoever selected the close. A historical or unapplied view has no newest close to claim, and a workspace without closes
 // has nothing to compare.
-function renderCloseBadge(){
+function currentCloseBadge():CloseBadge|null{
  const closes=workspaceCloses,shown=shownClose,latest=closes?latestInstant(closes):null;
  if(latest&&closeBasis?.close!==shown)closeBasis={close:shown,latest};
- marketCalendar.badge(closes&&latest&&closeBasis&&!contextDirty&&!historicalContext()?closeBadge(shown,closeBasis.latest,closes):null);
+ return closes&&latest&&closeBasis&&!contextDirty&&!historicalContext()?closeBadge(shown,closeBasis.latest,closes):null;
 }
+function renderCloseBadge(){marketCalendar.badge(currentCloseBadge());}
 // The As of dates the selector offers: a historical view's own date's frames, or every frame of working data.
 function offeredFrames(){const context=historicalContext();return context?directory().frames.filter(f=>f.at.slice(0,10)===context.effectiveOn):directory().frames;}
 function renderFrames(value:string){const frames=offeredFrames();choose('snapshot',[{value:'',name:frames.length?'Choose a date…':'No inputs for this context date'},...frameOptions(frames,prefs.timeZone)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;shownClose=select('snapshot').value;invalidateMarketDates();}
@@ -666,6 +668,7 @@ async function refreshLiveScreen(update:LiveContextUpdate){
  if(page==='market'){if(curve){const open=contract;historyData=undefined;historySeries=[];await build();if(open&&contract===open)await history();}await loadBoard();}
  else if(page==='custom-curves')await customCurves.liveRefresh();
  else if(page==='futures')await futures.liveRefresh();
+ else if(page==='dashboard')await dashboard.liveRefresh();
  else if(page==='reference')await loadReference();
  text('environment-context-note','Live corrections · fixed effective and market dates. Every risk run and queued job retains its admitted context.');
 }
@@ -849,7 +852,12 @@ const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
-const dashboard=setupDashboard({api,act,busy:()=>busy,historical:()=>contextDirty||!!historicalContext()});
+// The market the dashboard's widgets read in: the navigation and close on screen, the close's own label and its badge.
+function dashboardMarket():DashboardMarket{
+ const close=frame();
+ return {navigation:directory(),snapshotId:close.id,zone:prefs.timeZone,historical:!!historicalContext(),close:{at:close.at,label:close.name||null,badge:currentCloseBadge()}};
+}
+const dashboard=setupDashboard({api,act,busy:()=>busy,historical:()=>contextDirty||!!historicalContext(),market:dashboardMarket});
 const jobs=setupJobs({api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone});
 const referenceEditor=setupReferenceEditor({host:$('reference-editor'),api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,onDenied:clearReference,onApplied:async()=>{
  const selected=select('snapshot').value,offset=referencePage?.offset??0,search=referencePage?.search??'';

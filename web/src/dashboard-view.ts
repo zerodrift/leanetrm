@@ -1,5 +1,8 @@
 import {PendingCommand} from './pending-command.js';
-import {arrange,removeWidget,moveToSection,morningSections,endOfSection,type Arrangement,type DashboardLayout,type DashboardWidget,type Section,type WidgetKind} from './dashboard-layout.js';
+import {setupAddWidget} from './dashboard-add.js';
+import {chartBody} from './dashboard-chart.js';
+import {levelsBody,refusalNote,type DashboardMarket} from './dashboard-levels.js';
+import {addWidget,newWidget,arrange,removeWidget,moveToSection,morningSections,endOfSection,type Arrangement,type DashboardLayout,type DashboardWidget,type Section,type WidgetKind} from './dashboard-layout.js';
 
 type Stored={version:string|null;layout:DashboardLayout|null};
 const kindNames:Record<WidgetKind,string>={latest_levels:'Latest levels',price_chart:'Price chart',positions:'Positions by month'};
@@ -11,15 +14,19 @@ function element<K extends keyof HTMLElementTagNameMap>(tag:K,className='',text=
   const node=document.createElement(tag);node.className=className;node.textContent=text;return node;
 }
 
-// The body of one widget. Each widget kind renders here.
-function renderWidget(widget:DashboardWidget):HTMLElement {
-  return element('p','muted',`${kindNames[widget.kind]} has no display yet.`);
-}
-
-export function setupDashboard(options:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;historical:()=>boolean}){
+export function setupDashboard(options:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;historical:()=>boolean;market:()=>DashboardMarket}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const pending=new PendingCommand(code=>!!code&&knownRejections.has(code));
-  let version:string|null=null,layout:DashboardLayout|undefined,conflict=false;
+  let version:string|null=null,layout:DashboardLayout|undefined,conflict=false,releases:(()=>void)[]=[];
+
+  // The body of one widget. Each widget kind renders here, reading the market now on screen; a body that holds something to release says how.
+  function renderWidget(widget:DashboardWidget):HTMLElement {
+    switch(widget.kind){
+      case 'latest_levels':return levelsBody(widget.config,options.market(),options.api);
+      case 'price_chart':{const {body,dispose}=chartBody(widget.config,options.market(),options.api);releases.push(dispose);return body;}
+      case 'positions':return element('p','muted',`${kindNames[widget.kind]} has no display yet.`);
+    }
+  }
 
   // A widget that throws shows its own refusal in place of its body; the other widgets and the page are unaffected.
   function widgetElement(widget:DashboardWidget):HTMLElement {
@@ -35,13 +42,13 @@ export function setupDashboard(options:{api:<T>(path:string,body?:unknown)=>Prom
     actions.append(remove);
     const header=element('div','card-heading');header.append(title,actions);card.append(header);
     try{card.append(renderWidget(widget));}
-    catch(error){
-      const refusal=element('p','dashboard-refusal',error instanceof Error?error.message:'This widget could not be shown.');refusal.setAttribute('role','alert');card.append(refusal);
-    }
+    catch(error){card.append(refusalNote(error));}
     return card;
   }
   function render(){
     const host=get('dashboard-widgets');
+    for(const release of releases)release();
+    releases=[];
     get('dashboard-conflict').hidden=!conflict;
     if(!layout){host.replaceChildren();return;}
     for(const [id,arrangement] of [['dashboard-board','board'],['dashboard-morning','morning']] as const)get(id).setAttribute('aria-pressed',String(layout.arrangement===arrangement));
@@ -81,15 +88,19 @@ export function setupDashboard(options:{api:<T>(path:string,body?:unknown)=>Prom
   async function save(next:DashboardLayout){pending.begin('dashboard/layout',{layout:next,expectedVersion:version});await send();}
   async function load(){
     const saved=await options.api<Stored>('dashboard/layout');
-    pending.clear();conflict=false;version=saved.version;layout=saved.layout??empty;render();
+    pending.clear();conflict=false;version=saved.version;layout=saved.layout??empty;adding.refresh();render();
   }
+  const adding=setupAddWidget(get('dashboard-add'),{market:options.market,api:options.api,
+    add:content=>options.act(()=>save(addWidget(layout!,newWidget(layout!,crypto.randomUUID(),content))))});
   const switchTo=(arrangement:Arrangement)=>()=>void options.act(()=>save(arrange(layout!,arrangement)));
   get('dashboard-board').onclick=switchTo('board');
   get('dashboard-morning').onclick=switchTo('morning');
   get('dashboard-reload').onclick=()=>void options.act(load);
   return {
     load,sync,
+    // The live-correction refresh (D188): the widgets read again, and the add control offers the refreshed navigation. Only a live context calls it.
+    async liveRefresh(){if(layout){adding.refresh();render();}},
     unconfirmed:()=>!!pending.command,
-    reset(){pending.clear();version=null;layout=undefined;conflict=false;get('dashboard-widgets').replaceChildren();get('dashboard-conflict').hidden=true;},
+    reset(){for(const release of releases)release();releases=[];pending.clear();version=null;layout=undefined;conflict=false;get('dashboard-widgets').replaceChildren();get('dashboard-conflict').hidden=true;},
   };
 }

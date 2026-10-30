@@ -1620,5 +1620,18 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .dashboard-section{margin-bottom:16px}
 .dashboard-section>h3{font-size:13px;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em}
 .dashboard-refusal{color:var(--danger);background:var(--danger-soft);border:1px solid var(--danger-border);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px}
+#dashboard-add{margin-top:8px}
+.dashboard-add-form{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;margin-top:8px}
+.dashboard-add-form label{display:flex;flex-direction:column;gap:2px;font-size:12px}
+.dashboard-add-curves{display:flex;flex-wrap:wrap;gap:4px 12px;border:0;padding:0;margin:0;max-width:100%}
+.dashboard-add-curves .dashboard-add-curve{flex-direction:row;align-items:center;gap:4px}
+.level-tile-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;list-style:none;margin:0;padding:0}
+.level-tile{padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);min-width:0}
+.level-tile[data-state=refused]{background:var(--surface)}
+.level-tile-name{margin:0;font-size:13px;font-weight:600}
+.level-tile-front{margin:0;font-size:12px;color:var(--text-3)}
+.level-tile-reason{margin:6px 0 0;font-size:13px;color:var(--text-2)}
+.level-tile-figures{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:6px 12px}
+.level-tile .kpi-value{margin:0;font-size:20px}
 #dashboard-conflict{color:var(--warn);background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px;margin:8px 0 0}
 @media(max-width:760px){.dashboard-board{display:block}.dashboard-board>.dashboard-widget{margin-bottom:16px}}
