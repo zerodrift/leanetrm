@@ -23,6 +23,8 @@ public sealed record PortfolioRiskRequest(FuturesReadRequest Context,ImmutableAr
 public sealed class PortfolioRiskPreview(PreviewDatabase database)
 {
     public const string Convention="portfolio_instrument_repricing_v1";
+    // The most bumps one request takes: a holdings-detail result prices every position under each bump, a books-detail result keeps only book totals.
+    public const int MaxHoldingsBumps=16,MaxBooksBumps=4096;
     private static readonly AmountFormat Display=new(12,CashTieRule.ToEven,false,true);
     private static PortfolioValuationPolicy PricingPolicy=>new(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,
         FuturesRisk.Implementation,SwapStore.Convention,RateConventions.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1");
@@ -41,7 +43,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         var targets=axes.Select(a=>Target(markets,a)).Concat(axes.Where(a=>a.Target is ParallelCurveTarget).Select(a=>
             (object)new{id=a.Id+":bucket",label=a.Label.Replace("all retained contracts","delivery bucket",StringComparison.Ordinal)
                     .Replace("all retained outputs","delivery bucket",StringComparison.Ordinal),
-                coordinate=CurveRiskAxes.Coordinate(a.Coordinate),kind="delivery_bucket",unit=Unit(markets,a.Unit),
+                coordinate=CurveRiskAxes.Coordinate(a.Coordinate),kind="delivery_bucket",unit=Unit(markets,a.Unit),priceUnit=PriceUnitReference(a.Unit),
                 factor=new CurveRiskAxisRequest(CurveRiskAxes.Coordinate(a.Coordinate),new("delivery_bucket",a.Target.Curve,
                     Convention:DeliveryBucketCurveTarget.WholeDelivery))})).ToArray();
         return new{factors=portfolio.Factors.Select(f=>Factor(markets,CurveRiskAxes.Quote(portfolio,f,ct))),
@@ -53,6 +55,22 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             bumpConvention=ConnectedRiskBump.Convention,stressConvention=CurveShift.ParentAdditive,convention=Convention,
             numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=PricingPolicy};
     }
+
+    // The held targets a preset shocks in the books (blotter-desk.md, Risk report inline), as the catalog offers them and in its
+    // order: each with its exact price unit and that unit's label.
+    internal async Task<ImmutableArray<(PortfolioRiskAxis Axis,string Unit)>> Held(NpgsqlConnection connection,PreviewData data,InputFrame frame,
+        ImmutableArray<Guid> bookIds,bool curves,CancellationToken ct)
+    {
+        var (portfolio,_,_)=await PreparePortfolio(connection,data,frame,bookIds,[],PricingPolicy,ct);
+        var axes=CurveRiskAxes.Catalog(portfolio,ct);var held=CurveRiskAxes.Held(portfolio,axes,ct);
+        var markets=portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
+        var chosen=(curves?held.Curves:held.Contracts).ToHashSet(StringComparer.Ordinal);
+        return [..axes.Where(a=>chosen.Contains(a.Id)).Select(a=>(a,Unit(markets,a.Unit)))];
+    }
+    // A request for the books that bumps each factor under the conventions and policies the catalog states.
+    internal static PortfolioRiskRequest Request(FuturesReadRequest context,ImmutableArray<Guid> bookIds,IEnumerable<(CurveRiskAxisRequest Factor,ExactDecimal Size)> bumps)=>
+        new(context,bookIds,[],[..bumps.Select(b=>new CurveBumpRequest(b.Factor,b.Size.ToString(),ConnectedRiskBump.Convention))],
+            Convention,RiskEngine.ExactNumericalPolicy,PricingPolicy,Stress:[]);
 
     // A queued run retains its connected graphs and the positions its submission left out (D220), and
     // prepares exactly the positions its submission prepared.
@@ -86,7 +104,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         var detail=body.Detail switch{null or "holdings"=>RiskDetail.Holdings,"books"=>RiskDetail.Books,
             _=>throw new MarketDataException("risk_detail","Choose holdings or books for the result detail.")};
         if(body.Convention!=Convention||body.NumericalPolicy!=RiskEngine.ExactNumericalPolicy||body.Bumps.IsDefaultOrEmpty||
-            body.Bumps.Length>(detail==RiskDetail.Books?4096:16)||body.Bumps.Any(b=>b is null))
+            body.Bumps.Length>(detail==RiskDetail.Books?MaxBooksBumps:MaxHoldingsBumps)||body.Bumps.Any(b=>b is null))
             throw new MarketDataException("risk_convention","Select the supported portfolio convention, exact numerical policy and bounded explicit curve-coordinate bumps.");
         if(!body.Stress.IsDefault&&(body.Stress.Length>16||body.Stress.Any(s=>s is null)))
             throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative curve shifts.");
@@ -175,14 +193,16 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
     }
     private static object Target(ImmutableArray<PreviewData> markets,PortfolioRiskAxis axis)=>new{
         axis.Id,axis.Label,coordinate=CurveRiskAxes.Coordinate(axis.Coordinate),kind=axis.Request.Target.Kind,
-        unit=Unit(markets,axis.Unit),factor=axis.Request};
+        unit=Unit(markets,axis.Unit),priceUnit=PriceUnitReference(axis.Unit),factor=axis.Request};
+    // The exact price unit a size is saved against, in the shape a definition's sizes name it.
+    private static object PriceUnitReference(PriceUnit unit)=>new{unit.Currency,unit.Quantity,multiplier=unit.Multiplier.ToString()};
     private static object Factor(ImmutableArray<PreviewData> markets,PortfolioRiskAxis axis)
     {
         var quote=axis.Quote;
         var contract=quote is null?null:markets.SelectMany(m=>m.Contracts).Single(c=>c.Key==quote.Contract);
         return new{axis.Id,axis.Label,coordinate=CurveRiskAxes.Coordinate(axis.Coordinate),kind=axis.Request.Target.Kind,
             factor=axis.Request,seriesId=quote?.Input.Series.Id,quote=quote?.Quote.Code,unit=Unit(markets,axis.Unit),
-            priceUnit=new{axis.Unit.Currency,axis.Unit.Quantity,multiplier=axis.Unit.Multiplier.ToString()},curves=new[]{axis.Target.Curve.Code},
+            priceUnit=PriceUnitReference(axis.Unit),curves=new[]{axis.Target.Curve.Code},
             contractId=contract?.Key.Id,deliveryFrom=contract?.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),deliveryTo=contract?.DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),
             value=quote?.BaseValue.ToString(),observation=quote?.Observation,source=quote?.Source,role=quote?.Role.ToString()};
     }

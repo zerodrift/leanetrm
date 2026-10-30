@@ -109,6 +109,7 @@ app.Use(async (context,next)=>
             MarketDataException m when m.Code is "settlement_stale_preview" or "settlement_version_conflict" => (409,m.Code,m.Message),
             PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("settlement_",StringComparison.Ordinal) || p.MessageText.StartsWith("meter_finality_",StringComparison.Ordinal)) => (422,p.MessageText,"Settlement requires compatible, final, certified evidence and explicit policies."),
             CloseRiskInputsException c => (422,CloseRiskInputsException.Code,c.Message),
+            RiskRunTieException t => (409,RiskRunTieException.Code,t.Message),
             AutomationException a => (422,a.Code,a.Message),
             OpenEtrm.Shared.Calculation.CalculationException g => (422,g.Code,g.Message),
             OpenEtrm.Shared.Analytics.OverlayException o => (422,o.Code,o.Message),
@@ -125,7 +126,7 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState is "23502" or "23514" or "22P02" or "22007" or "22008" or "22003" && apiPath.StartsWithSegments("/api/jobs") => (422,"job_input","The job contract has missing, malformed or unsupported fields."),
             PostgresException p when p.MessageText is "job_input" or "job_transition" or "job_limit" => (422,p.MessageText,"Supply a supported job contract or an available action within its limits."),
             AntiforgeryValidationException => (400,"request_token","Reload the preview to obtain a valid request token."),
-            MarketDataException m when m.Code is "shortcut_conflict" or "tou_conflict" or "table_view_conflict" or "futures_revision_conflict" or "swap_revision_conflict" or "custom_curve_conflict" or "contract_date_conflict" => (409,m.Code,m.Message),
+            MarketDataException m when m.Code is "shortcut_conflict" or "tou_conflict" or "table_view_conflict" or "dashboard_layout_conflict" or "dashboard_request_conflict" or "risk_definition_conflict" or "risk_definition_request_conflict" or "futures_revision_conflict" or "swap_revision_conflict" or "custom_curve_conflict" or "contract_date_conflict" => (409,m.Code,m.Message),
             PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/custom-curves") => (409,"custom_curve_conflict","This curve or request changed. Reload or reconcile the original request."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
@@ -237,6 +238,7 @@ app.Use(async (context,next)=>
         object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
             ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
         if(e is CloseRiskInputsException closeRisk)body=new{code,message,affectedBindings=closeRisk.AffectedBindings};
+        if(e is RiskRunTieException tie)body=new{code,message,definition=tie.Definition,runs=tie.Runs};
         await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
     }
     // Binding refuses a body or query value it cannot read, and a body over the limit, with a bare status before any
@@ -1004,6 +1006,10 @@ api.MapPost("/table-views/blotter",(HttpContext c,SaveTableView body)=>Locked(c,
     database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await TableViews.Save(connection,body,ct)),c.RequestAborted)));
 api.MapPost("/table-views/blotter/delete",(HttpContext c,DeleteTableView body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>{await TableViews.Delete(connection,body,ct);return Results.Ok(new {deleted=true});},c.RequestAborted)));
+api.MapGet("/dashboard/layout",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>Results.Ok(await DashboardLayouts.Read(connection,ct)),c.RequestAborted))));
+api.MapPost("/dashboard/layout",(HttpContext c,SaveDashboardLayout body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>Results.Ok(await DashboardLayouts.Save(connection,body,ct)),c.RequestAborted)));
 var futuresStore=new FuturesStore(database.Manifest);
 // Trading pages name their knowledge: current knowledge, captured now at the working frame's date;
 // a context captured earlier, re-read over a working frame; or the selected historical view's own.
@@ -1284,6 +1290,20 @@ api.MapGet("/portfolio/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,se
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
 api.MapPost("/portfolio/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,cancel:true,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
+api.MapGet("/risk/definitions",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskRunDefinitions.List(connection,database.Manifest.CatalogId,ct)),c.RequestAborted))));
+api.MapPost("/risk/definitions",(HttpContext c,SaveRiskRunDefinition body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskRunDefinitions.Save(connection,database.Manifest.CatalogId,body,ct)),c.RequestAborted)));
+api.MapPost("/risk/definitions/{id:guid}/run",(HttpContext c,Guid id,RunRiskDefinition body)=>PortfolioRead(c,
+    body.Context??throw new MarketDataException("risk_job_context","Supply the definition version and exact retained context."),
+    async(connection,data,frame,ct)=>
+    {
+        c.Items["risk_job_attempted"]=true;
+        return (object)await RiskRunDefinitions.Run(connection,database.Manifest,portfolioRisk,data,frame,id,body,ct);
+    }));
+api.MapPost("/risk/definitions/{id:guid}/latest",(HttpContext c,Guid id,LatestRiskRun body)=>TradingRead(c,
+    body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
+    (connection,view,ct)=>tradeReads.LatestRiskRun(connection,view,id,body.RunId,ct),scenario:true,expectedConvention:TradingBlotter.Convention));
 api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking or amending.");

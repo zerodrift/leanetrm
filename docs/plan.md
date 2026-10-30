@@ -1263,6 +1263,20 @@ Extend only after the baseline contracts are demonstrated:
     reproduced before any fix.
   - Rates curves on the market board.
   - A dark color scheme; the charts already follow the tokens.
+- Market dashboard follow-ups ([market-dashboard.md](market-dashboard.md)):
+  - Phase 2: provider connections, observation and event storage, the provider
+    setup screen, synthetic providers and the Weather, Inventory, Outages and
+    News widgets, with lateness against each series' declared cadence.
+  - Phase 3: intraday prices on Latest levels, from the live-price source shared
+    with the Blotter work.
+  - Phase 4: agent alerts and pinned chart cards, then watches once scheduled
+    agent tasks exist.
+  - Lateness of an expected close against its business calendar.
+  - Running a saved risk run definition from the Blotter.
+  - Dragging widgets on the Board; the page moves and sizes them one step at a
+    time.
+  - Measuring publication-lock contention from definition runs before a hosted
+    release (verification.md).
 - Live feed adapters and their entitlement/provenance controls.
 - Settlement workflows, richer administration and deployment hardening.
 
