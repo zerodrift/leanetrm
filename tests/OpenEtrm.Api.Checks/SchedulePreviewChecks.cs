@@ -43,6 +43,16 @@ internal static class SchedulePreviewChecks
             var other = library.Keep("viewer",new("oe.gas","Other name",sequence,1,ScheduleDateRole.DeliveryEnd));
             if(!ReferenceEquals(other.Sequence,shortcut.Sequence))throw new Exception("Sequence copied");
         });
+        Check("observation contract preview resolves exact pins without implicit selection terms",()=>{
+            var observation=new ObservationContractInput(0,new(2026,3,1),new(2026,3,2),at.AddDays(2));
+            var request=new ObservationContractPreviewRequest("gas",new("prompt_offset",null,0,ContractRollRule.ExpiryImplementation,null),[observation]);
+            if(ObservationContractPreview.Resolve(sequence,request).Single().Contract!=contract.Key)throw new Exception("Wrong contract");
+            Reject("contract_selection",()=>ObservationContractPreview.Resolve(sequence,request with{Selection=request.Selection with{Roll=null}}));
+            Reject("contract_selection",()=>ObservationContractPreview.Resolve(sequence,request with{Selection=request.Selection with{Contract=contract.Key}}));
+            Reject("contract_selection",()=>ObservationContractPreview.Resolve(sequence,request with{Curve="other"}));
+            var exact=request with{Selection=new("exact",contract.Key,null,null,null)};
+            if(ObservationContractPreview.Resolve(sequence,exact).Single().Observation.From!=observation.From)throw new Exception("Observation dates changed");
+        });
         Console.WriteLine($"{passed} schedule adapter checks passed.");
     }
 }

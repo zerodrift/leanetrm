@@ -76,6 +76,7 @@ if (args.Length > 0)
     if (args is ["--contract-sequences"])
     {
         ContractSequenceChecks.Run();
+        ObservationContractChecks.Run();
         return;
     }
     if (args is ["--export-mixed-resolution", var destination])
@@ -456,6 +457,7 @@ Check("delegation cannot be borrowed by another agent", () =>
 });
 passed += MixedResolutionChecks.Run();
 ContractSequenceChecks.Run();
+ObservationContractChecks.Run();
 passed += ExpiryTransitionChecks.Run();
 passed += PowerCurveChecks.Run();
 passed += TypedPriceChecks.Run();

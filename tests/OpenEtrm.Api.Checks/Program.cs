@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
 if(args is ["--booked-programs",var bookedProgramsFixture]){await BookedProgramStorageChecks.Run(bookedProgramsFixture);return;}
 if(args is ["--ppa-blotter-admission"]){await PpaBlotterAdmissionChecks.Run();return;}
 if(args is ["--position-facts"]){TradePositionFactsChecks.Run();return;}
