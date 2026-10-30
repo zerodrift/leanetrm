@@ -1409,12 +1409,14 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 @media(max-width:480px){:root{--dock-band:124px}.context-dock{flex-wrap:wrap-reverse}.context-dock .date-control{flex:1 1 100%;padding-left:6px}.context-dock .floating-context{flex:1 1 100%}.context-dock .date-control>label,.context-dock .market-date-status{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.context-dock .market-date-trigger::after{display:none}}
 
 /* Time chart (time-chart.ts): the toolbar, the canvas and the latest values beside it. */
-.time-chart-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
-.time-chart-body{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
-.time-chart-canvas{flex:1 1 480px;min-width:0;height:360px}
-.time-chart-latest{margin:0;min-width:200px;font-size:13px}
-.time-chart-latest dt{color:var(--text-3);font-size:12px}
-.time-chart-latest dd{margin:0 0 8px;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
+.time-chart-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+.time-chart-tools select{width:auto;max-width:160px;min-height:28px;padding:4px 8px;font-size:12px}
+.time-chart-tools input{min-width:0;max-width:120px}
+.time-chart-body{display:flex;flex-direction:column;gap:12px;align-items:stretch}
+.time-chart-canvas{flex:0 0 auto;width:100%;min-width:0;height:360px}
+.time-chart-latest{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;margin:0;min-width:0;font-size:13px}
+.time-chart-latest dt{overflow-wrap:anywhere;color:var(--text-3);font-size:12px}
+.time-chart-latest dd{margin:0;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
 .overlay-menu fieldset{border:1px solid var(--border);border-radius:var(--radius-sm);margin:0 0 8px;padding:8px 12px}
 .overlay-menu legend{font-size:13px;font-weight:550;color:var(--text-2)}
 /* The contract panel of Curves & prices (contract-panel.ts): docked beside the curve's chart and table as a card of its own, or an
@@ -1433,20 +1435,20 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .contract-overlays>summary{padding:8px 12px;font-size:13px;font-weight:550;color:var(--text-2);cursor:pointer}
 .contract-overlays[open]>summary{border-bottom:1px solid var(--border)}
 .contract-overlays .overlay-menu{padding:4px 12px 10px}
-.contract-overlays .overlay-menu fieldset{display:flex;align-items:center;gap:10px;margin:0;padding:7px 0;border:0;border-bottom:1px solid var(--border);border-radius:0}
-.contract-overlays .overlay-menu legend{float:left;flex:1 1 auto;padding:0;font-size:13px;font-weight:550;color:var(--text)}
+.contract-overlays .overlay-menu fieldset{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0;padding:7px 0;border:0;border-bottom:1px solid var(--border);border-radius:0}
+.contract-overlays .overlay-menu legend{float:left;flex:1 1 100%;padding:0;font-size:13px;font-weight:550;color:var(--text)}
 .contract-overlays .overlay-menu label{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;color:var(--text-2);white-space:nowrap}
-.contract-overlays .overlay-menu input{width:64px;min-height:30px;padding:4px 8px}
+.contract-overlays .overlay-menu input{width:80px;min-height:30px;padding:4px 8px}
+.contract-overlays .overlay-menu input[type=checkbox]{width:16px;height:16px;min-height:0;margin:0;accent-color:var(--accent)}
+.contract-overlays .overlay-menu input:disabled{opacity:.5}
 .contract-overlays .overlay-menu>button{margin:10px 8px 0 0;font-size:12.5px;padding:6px 14px}
 .contract-overlays .overlay-menu .fine-print{margin:8px 0 0}
 .contract-chart{min-width:0}
 .contract-chart .time-chart-tools button,.contract-chart .time-chart-tools input,.delivery-chart .time-chart-tools button,.delivery-chart .time-chart-tools input{font-size:12px;padding:4px 9px;min-height:28px}
 .contract-chart .time-chart-tools input{width:110px}
-.contract-chart .time-chart-body{flex-direction:column;align-items:stretch;gap:8px}
-.contract-chart .time-chart-canvas{flex:0 0 auto;height:260px}
-.contract-chart .time-chart-latest{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
-.contract-chart .time-chart-latest dt{overflow-wrap:anywhere}
-.contract-chart .time-chart-latest dd{margin:0;text-align:right}
+.contract-chart .time-chart-body{gap:8px}
+.contract-chart .time-chart-canvas{height:260px}
+.contract-chart .time-chart-latest{padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
 .contract-chart .fine-print{margin:4px 0 0}
 .contract-chart-note{margin:0;padding:12px;border:1px dashed var(--border-strong);border-radius:var(--radius)}
 .contract-history .breakdown-heading{margin:6px 0 0}
@@ -1495,13 +1497,13 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .delivery-chart{min-width:0}
 .delivery-chart .time-chart-tools input{width:120px}
 .delivery-chart .time-chart-canvas{height:340px}
-.delivery-chart .time-chart-latest{flex:0 1 240px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+.delivery-chart .time-chart-latest{padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
 .delivery-chart .time-chart-latest dd{overflow-wrap:anywhere}
 .delivery-chart .fine-print{margin:6px 0 0}
 .delivery-prices .breakdown-heading{margin:18px 0 8px}
 .delivery-empty{min-height:280px;border:0;box-shadow:none}
 .delivery-jobs{margin:0 0 12px;font-size:13px;color:var(--text-2)}
-@media(max-width:760px){.delivery-filter-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.delivery-filter-fields>button{grid-column:span 2}.delivery-head{flex-direction:row;flex-wrap:wrap;gap:8px 16px}.delivery-chart .time-chart-canvas{height:280px}.delivery-chart .time-chart-latest{flex:1 1 100%}}
+@media(max-width:760px){.delivery-filter-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.delivery-filter-fields>button{grid-column:span 2}.delivery-head{flex-direction:row;flex-wrap:wrap;gap:8px 16px}.delivery-chart .time-chart-canvas{height:280px}}
 .table-menu-check{display:flex;align-items:center;gap:8px;font-size:13px}
 /* A position's detail, inline beneath its Blotter row and in its own window: a head card with the position's value,
    a tab strip over a tinted body, and each section of the body a card of its own. Terms read as a grid of label-over-value
