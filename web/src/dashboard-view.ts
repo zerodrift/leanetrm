@@ -1,5 +1,6 @@
 import {PendingCommand} from './pending-command.js';
 import {setupAddWidget} from './dashboard-add.js';
+import {setupPositions} from './dashboard-positions.js';
 import {chartBody} from './dashboard-chart.js';
 import {levelsBody,refusalNote,type DashboardMarket} from './dashboard-levels.js';
 import {addWidget,newWidget,arrange,removeWidget,moveToSection,morningSections,endOfSection,type Arrangement,type DashboardLayout,type DashboardWidget,type Section,type WidgetKind} from './dashboard-layout.js';
@@ -17,6 +18,7 @@ function element<K extends keyof HTMLElementTagNameMap>(tag:K,className='',text=
 export function setupDashboard(options:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;historical:()=>boolean;market:()=>DashboardMarket}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const pending=new PendingCommand(code=>!!code&&knownRejections.has(code));
+  const positions=setupPositions(options.api);
   let version:string|null=null,layout:DashboardLayout|undefined,conflict=false,releases:(()=>void)[]=[];
 
   // The body of one widget. Each widget kind renders here, reading the market now on screen; a body that holds something to release says how.
@@ -24,7 +26,7 @@ export function setupDashboard(options:{api:<T>(path:string,body?:unknown)=>Prom
     switch(widget.kind){
       case 'latest_levels':return levelsBody(widget.config,options.market(),options.api);
       case 'price_chart':{const {body,dispose}=chartBody(widget.config,options.market(),options.api);releases.push(dispose);return body;}
-      case 'positions':return element('p','muted',`${kindNames[widget.kind]} has no display yet.`);
+      case 'positions':return positions.body(widget.config,options.market());
     }
   }
 
@@ -90,7 +92,7 @@ export function setupDashboard(options:{api:<T>(path:string,body?:unknown)=>Prom
     const saved=await options.api<Stored>('dashboard/layout');
     pending.clear();conflict=false;version=saved.version;layout=saved.layout??empty;adding.refresh();render();
   }
-  const adding=setupAddWidget(get('dashboard-add'),{market:options.market,api:options.api,
+  const adding=setupAddWidget(get('dashboard-add'),{market:options.market,api:options.api,positions:positions.configurator(options.market),
     add:content=>options.act(()=>save(addWidget(layout!,newWidget(layout!,crypto.randomUUID(),content))))});
   const switchTo=(arrangement:Arrangement)=>()=>void options.act(()=>save(arrange(layout!,arrangement)));
   get('dashboard-board').onclick=switchTo('board');
@@ -101,6 +103,6 @@ export function setupDashboard(options:{api:<T>(path:string,body?:unknown)=>Prom
     // The live-correction refresh (D188): the widgets read again, and the add control offers the refreshed navigation. Only a live context calls it.
     async liveRefresh(){if(layout){adding.refresh();render();}},
     unconfirmed:()=>!!pending.command,
-    reset(){for(const release of releases)release();releases=[];pending.clear();version=null;layout=undefined;conflict=false;get('dashboard-widgets').replaceChildren();get('dashboard-conflict').hidden=true;},
+    reset(){for(const release of releases)release();releases=[];positions.reset();pending.clear();version=null;layout=undefined;conflict=false;get('dashboard-widgets').replaceChildren();get('dashboard-conflict').hidden=true;},
   };
 }
