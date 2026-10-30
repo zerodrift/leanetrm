@@ -98,6 +98,37 @@ def run_checks(url, query=None, manifest=None):
     assert len(history['rows'])==4
     assert history['chart']['axis']=='observation' and len(history['chart']['series'])==2,history['chart']
     assert all(len(series['points'])==2 and len({p['x'] for p in series['points']})==2 for series in history['chart']['series'])
+    # A component is inspected without replacing the saved output or averaging its sample dates.
+    history_request={'definition':body['definition'],'snapshotId':frame['id'],'node':'select',
+        'policy':'raw_component_history_v1','dates':{'id':'window','kind':'dates','inputs':{},'parameters':{
+            'mode':'prior_calendar','count':'24','includeContext':'true','sampling':'context_utc_time',
+            'corrections':'exact_context_frame_history_latest_visible'}}}
+    raw=client.call('custom-curves/component-history',history_request)
+    assert raw['node']=='select' and raw['policy']=='raw_component_history_v1'
+    raw=raw['preview']
+    assert len(raw['rows'])==24 and raw['chart']['axis']=='observation'
+    contracts_by_date={row[4]:row[5] for row in raw['rows']}
+    assert contracts_by_date['2020-11-27']=='2020-12-01' and contracts_by_date['2020-11-28']=='2021-01-01',contracts_by_date
+    assert len({row['contract']['id'] for row in raw['inputs']})==2
+    prices_by_date={row[4]:row[1] for row in raw['rows']}
+    assert prices_by_date['2020-11-27']=='3.034' and prices_by_date['2020-11-28']=='3.06',prices_by_date
+    from_sample=client.call('custom-curves/component-history',{**history_request,'node':'sample'})
+    assert from_sample['preview']['rows']==raw['rows']
+    locked=deepcopy(history_request)
+    next(n for n in locked['definition']['nodes'] if n['kind']=='select')['parameters']['binding']='context'
+    locked=client.call('custom-curves/component-history',locked)['preview']
+    assert {row[5] for row in locked['rows']}=={'2021-01-01'}
+    mapped=deepcopy(history_request)
+    mapped['definition']['nodes']=[{'id':'select','kind':'weighted_contracts','parameters':{'aggregation':'signed_sum_v1'},
+        'inputs':{'source_1':'source'},'contractWeights':[{'outputPosition':1,'sourcePort':'source_1',
+            'contractId':locked['inputs'][0]['contract']['id'],'weight':'1'}]} if n['id']=='select' else n for n in mapped['definition']['nodes']]
+    mapped_history=client.call('custom-curves/component-history',mapped)['preview']
+    assert [(r[1],r[4],r[5]) for r in mapped_history['rows']]==[(r[1],r[4],r[5]) for r in locked['rows']]
+
+    assert client.call('custom-curves/component-history',{**history_request,'policy':'back_adjusted'},expected=422)['code']=='component_history'
+    assert client.call('custom-curves/component-history',{**history_request,'node':'source'},expected=422)['code']=='component_history'
+    assert client.call('custom-curves/preview',{'definition':body['definition'],'snapshotId':frame['id']})['rows']==prompt['rows']
+    print('PASS component history: raw roll jumps, actual dated contracts, fixed-contract binding, read-only authoring and explicit policy refusals')
     compound=deepcopy(templates['ng_prompt']['definition'])
     next(node for node in compound['nodes'] if node['kind']=='source')['parameters']['curve']='ng_fixed_location'
     fixed=client.call('custom-curves/preview',{'definition':compound,'snapshotId':frame['id']})
@@ -182,6 +213,12 @@ def run_checks(url, query=None, manifest=None):
     final=client.call('custom-curves')
     assert next(r['kind'] for r in final['recipes'] if r['id']==saved['id'])=='prompt_contract'
     assert [row['kind'] for row in final['publishedSources'] if row['reference']['curveId']==saved['id']]==['prompt_contract'],final['publishedSources']
+    client.call('market/current',{})
+    saved_history={**history_request,'definition':published['definition'],'id':saved['id'],'version':1}
+    assert client.call('custom-curves/component-history',saved_history)['preview']['rows']==raw['rows']
+    mismatched=deepcopy(saved_history)
+    next(n for n in mismatched['definition']['nodes'] if n['kind']=='select')['parameters']['count']='2'
+    client.call('custom-curves/component-history',mismatched,expected=422)
     # A certified cutoff before publication must never discover the later graph.
     historical=client.call('market/context',{'effectiveOn':'2020-12-18','knownAt':before['context']['knownAt'],'mode':'at','selection':'latest_correction'})
     assert not any(r['id']==saved['id'] for r in client.call('custom-curves')['recipes'])
@@ -245,10 +282,15 @@ def run_checks(url, query=None, manifest=None):
     client.call('corrections',{'snapshotId':past_frame['id'],'observationId':observed['observations'][0]['id'],'value':str(Decimal(observed['price']['value'])+1)})
     restated=client.call('custom-curves/preview',{'definition':templates['ng_average']['definition'],'snapshotId':frame['id']})
     assert Decimal(restated['rows'][0][1])-Decimal(average['rows'][0][1])==Decimal('.05')
+    restated_history=client.call('custom-curves/component-history',history_request)['preview']
+    raw_dec1=next(row for row in raw['rows'] if row[4]=='2020-12-01')
+    revised_dec1=next(row for row in restated_history['rows'] if row[4]=='2020-12-01')
+    assert Decimal(revised_dec1[1])-Decimal(raw_dec1[1])==1
     client.call('market/context',{'effectiveOn':'2020-12-18','knownAt':before['context']['knownAt'],'mode':'at','selection':'latest_correction'})
     earlier_frame=initial_frame(client.call('workspace/navigation'),'2020-12-18')
     earlier=client.call('custom-curves/preview',{'definition':templates['ng_average']['definition'],'snapshotId':earlier_frame['id']})
     assert earlier['rows']==average['rows']
+    assert client.call('custom-curves/component-history',{**history_request,'snapshotId':earlier_frame['id']})['preview']['rows']==raw['rows']
     if query and manifest:
         temporal_context=client.call('custom-curves')['context']['contextId']
         query(f"""BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token()}');

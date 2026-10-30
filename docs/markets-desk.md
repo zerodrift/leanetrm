@@ -88,20 +88,26 @@ on the shared ECharts component, which preserves gaps between periods.
 - **Data.** Each bar is one backend point. Its value is the exact decimal string,
   turned into a number only for pixels, as the existing charts do. A point
   without a price is passed as a gap. The chart draws no line across it.
+  The custom indicator renderer draws even a single two-point segment, which
+  the library’s native indicator renderer omits.
   A priced point with no priced neighbour gets a dot, since a line joins only
   neighbours. Hovering shows the exact backend string for the instant, for the
   price and every overlay series, never a rounded number.
 - **Theme.** Colors, fonts and grid come from the CSS tokens; a dark scheme follows when the app defines one (it defines none yet; see Remaining work).
 - **Overlays.** The overlay menu lists the backend's overlay catalog. Choosing an
-  overlay asks for its parameters (the window, with no prefilled value), sends
+  overlay through its Show switch asks for its parameters (the window, with no prefilled value), sends
   them with the read, and draws the values the backend returns as a registered
   indicator whose `calc` only looks values up by instant. The legend names the
   definition and parameters, for example "Simple moving average · 5".
+  Unchecking the final overlay can be applied as an empty selection. Remove
+  overlays clears both the request and menu fields. Missing window
+  values say "Waiting for a complete window".
 - **Drawing tools.** Horizontal price line, trend line, ray and text note, from
   the library. Drawings are presentation state for the open chart. They are not
-  saved, and the toolbar says so.
+  saved, and the toolbar says so. A compact selector chooses the line tool.
+  Resizing preserves zoom; Fit chart explicitly restores the full extent.
 - **Values as text.** The latest value, and every overlay's latest value, show
-  beside the chart. The table beside the chart remains the accessible record.
+  below the full-width plot. The table remains the accessible record.
 
 ### Server-computed overlays
 
@@ -397,12 +403,20 @@ the old history card had.
 
 ## Verification
 
+`tools/run_preview.py --markets-desk-check` runs the market and delivery browser
+suites in a newly owned standard fixture, with the ordinary HTTP checks. Supply
+the installed `--pg-bin`, `--dotnet` and `--browser` paths. This option runs alone;
+it does not qualify trading screens.
+
 - Backend numerical checks for each overlay definition, written failing first
   and independent of the implementation: hand-computed series, missing points,
   incomplete windows, parameter refusals, policy rounding.
 - Backend checks for curve summaries (futures, forwards, rates, no remaining
   contracts), the delivery opening policy (ties) and the period summary
   (missing intervals, time weighting across a DST change).
+- A disposable real-browser chart check exercises multiple supplied overlay
+  series, a two-point segment, removal state and preservation of zoom on resize.
+  It uses only synthetic answers and a static server; no application data.
 - Web unit tests for the time-chart data mapping (gaps, overlay lookup by
   instant, no computation) and the new page models.
 - Browser checks in the owned preview: the board, selecting a curve, the

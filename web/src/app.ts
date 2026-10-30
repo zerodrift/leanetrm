@@ -104,7 +104,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
+  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
 }
 function renderWorkspaceMode(){
   const historical=!!historicalContext();
