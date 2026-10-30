@@ -66,15 +66,13 @@ public sealed partial class SwapStore
         (data,frame)=await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct);
         var resolved=await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
         var completions=await SettlementCompletions(connection,row,resolved.Instrument,ct);
-        var starts=terms.Scheduled is null?[]:await PreviewDatabase.Rows(connection,"""
-         SELECT jsonb_build_object('slot',slot,'period',period_ordinal,'starts',min(starts_at))::text
-         FROM trading.swap_power_quantity_intervals WHERE(catalog_id,trade_id,revision)=($1,$2,$3) GROUP BY slot,period_ordinal
-         """,[manifest.CatalogId,row.Id("trade_id"),int.Parse(row.Text("revision"),CultureInfo.InvariantCulture)],ct);
+        var starts=completions.Any(completion=>completion.Source=="retained_quantity_interval_end_v1")
+            ?await QuantityPeriodBounds(connection,row,ct):[];
         return (resolved.Instrument.Currency,resolved.Quantity.Specification,resolved.Instrument.Sides.SelectMany((membership,slot)=>((SidePaymentSchedule)membership.Side.GenerateSchedule()).Payments.Select(plan=>
         {
             var completion=completions.Single(c=>c.MembershipOrdinal==slot&&c.DeliveryFrom==plan.DeliveryFrom&&c.DeliveryTo==plan.DeliveryTo);
             var start=completion.Source=="retained_quantity_interval_end_v1"
-                ?starts.Single(s=>s.GetProperty("slot").GetInt32()==slot&&s.GetProperty("period").GetInt32()==plan.Key.Ordinal).Instant("starts")
+                ?starts.Single(s=>int.Parse(s.Text("slot"),CultureInfo.InvariantCulture)==slot&&int.Parse(s.Text("period"),CultureInfo.InvariantCulture)==plan.Key.Ordinal).Instant("starts")
                 :new DateTimeOffset(plan.DeliveryFrom.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc));
             var projection=terms.Scheduled is {} schedule?(slot==0?schedule.First:schedule.Second).Periods[plan.Key.Ordinal].Floating?.CustomProjection
                 :slot==0?terms.FirstFloating?.CustomProjection:terms.Floating?.CustomProjection;

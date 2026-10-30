@@ -2,8 +2,8 @@
 
 Status: phase 1 implemented locally and unpublished. The adversarial review
 AGENTS.md requires was done once for the whole phase; its findings are fixed
-here, and the changed temporal paths (the context the Positions widget reads in,
-and tied runs) await a focused re-review. The decisions are D263 (layout), D264 (risk run definitions) and D265
+here, and a focused re-review of the changed temporal paths (the context the
+Positions widget reads in, and tied runs) found two more labelling defects, also fixed. The decisions are D265 (layout), D266 (risk run definitions) and D267
 (run receipts and knowledge) in [decisions.md](decisions.md). The design is
 [the dashboard specification](superpowers/specs/2026-10-30-market-dashboard-design.md);
 phases 2 to 4 and the other follow-ups are under [Remaining work](#remaining-work)
@@ -15,8 +15,8 @@ A **Dashboard** entry heads a new Overview navigation group for accounts with
 `ReadMarketData`. The page reads at the session's market date and context, like
 the other market pages, and adds a Board / Morning switch.
 
-- **Layout (D263).** One layout per account, stored server-side by
-  `GET/POST /api/dashboard/layout` (migration 0130), so it follows the account
+- **Layout (D265).** One layout per account, stored server-side by
+  `GET/POST /api/dashboard/layout` (migration 0139), so it follows the account
   between browsers. Every save carries a request id and the expected version: a
   retry returns its first outcome, a reused id with another layout is
   `dashboard_request_conflict`, and a stale version is
@@ -50,7 +50,7 @@ the other market pages, and adds a Board / Morning switch.
 - **Price chart.** The contract's `/history` under the explicitly named
   `exact_snapshot_pins_v1` policy, drawn with the shared time chart. A history
   conflict or a contract absent at the close is a refusal.
-- **Positions by month (D264, D265).** The delta ladder (D230) of the
+- **Positions by month (D266, D267).** The delta ladder (D230) of the
   definition's latest completed run, read in the page's own context: current
   knowledge in working data, or the selected historical context. The read
   names the definition, so the widget makes one request per draw. A newer

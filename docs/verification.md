@@ -2948,7 +2948,7 @@ startup also seeds all 37 bindings successfully; its owned database was removed
 on shutdown. A frontend regression prevents a fabricated single PPA price unit
 per contract MW; side prices remain identified separately.
 
-## Market dashboard phase 1 (D263 to D265)
+## Market dashboard phase 1 (D265 to D267)
 
 `tools/check_all.py` passed on 2026-10-30 on macOS 26.6.2 arm64 with .NET
 10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 156, except that one

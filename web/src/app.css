@@ -1494,6 +1494,48 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .delivery-tiles .desk-tile-words .kpi-value small{display:block;margin-top:3px;font-size:12px;letter-spacing:0}
 .page-tabs{gap:24px;margin:0 0 14px;padding:0;background:none}
 .page-tabs .side-panel-tab{padding:10px 0;font-size:14px;font-weight:500}
+/* Reference data: group tabs beside the search of every category, then the chosen group's category tabs. */
+.reference-navigation{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:12px}
+.reference-navigation .page-tabs{border-bottom:0;margin:0;flex-wrap:wrap}
+.reference-search-all{display:flex;gap:8px;padding-bottom:8px;flex:0 1 360px;min-width:0}
+.reference-search-all input{flex:1;min-width:0}
+.reference-sections{gap:18px;flex-wrap:wrap}
+.reference-sections .side-panel-tab{font-size:13px}
+.reference-search-hits{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px 24px;margin:0 0 16px;font-size:13px}
+.reference-search-hits h3{font-size:12px;color:var(--text-3);margin:0 0 4px}
+.reference-search-hits ul{list-style:none;margin:0;padding:0}
+.reference-search-hits li{display:flex;flex-wrap:wrap;gap:0 8px;align-items:baseline;padding:2px 0;min-width:0}
+.reference-search-hits li p{flex-basis:100%;margin:0;color:var(--text-3);overflow-wrap:anywhere}
+.reference-search-hits li span{color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reference-search-hits>p{grid-column:1/-1;margin:0;color:var(--text-3)}
+@media(max-width:760px){.reference-search-all{flex-basis:100%}}
+/* A reference item's page: breadcrumb, identity, then its fields as a labelled grid; a futures product adds sections and its contracts. */
+.reference-item .breadcrumb{display:flex;flex-wrap:wrap;gap:0 4px;margin:4px 0 8px;font-size:13px;color:var(--text-3)}
+.reference-item h2{margin:0 0 8px;overflow-wrap:anywhere}
+.item-facts{display:flex;flex-wrap:wrap;gap:4px 24px;margin:0 0 16px;font-size:13px}
+.item-facts div{display:flex;gap:6px;min-width:0}
+.item-facts dt{color:var(--text-3)}
+.item-facts dd{margin:0;overflow-wrap:anywhere;min-width:0}
+.item-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:12px 24px;margin:0;font-size:13px}
+.item-grid dt{font-size:11px;color:var(--text-3);margin-bottom:2px}
+.item-grid dd{margin:0;overflow-wrap:anywhere}
+.item-section{margin-top:20px}
+.item-section h3{font-size:13px;margin:0 0 8px}
+.product-contracts{overflow-x:auto;max-width:100%;border:1px solid var(--border);border-radius:var(--radius-sm)}
+/* Edit on an item's page: its controls under the header, inputs in place of the display values, and the confirmation and History beneath. */
+.reference-editor{margin:0 0 16px;font-size:13px}
+.reference-editor .item-actions{display:flex;flex-wrap:wrap;gap:8px}
+.reference-edit-prompt{margin:0 0 12px;padding-right:16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
+.reference-editor h3{font-size:13px;margin:0 0 8px}
+.reference-editor>section,.reference-edit-pending{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.reference-edit-review ul,.reference-history ol{margin:0 0 8px;padding-left:18px}
+.reference-edit-review li,.reference-history li{overflow-wrap:anywhere}
+.reference-history dl{margin:2px 0 8px}
+.reference-history dl div{display:flex;flex-wrap:wrap;gap:0 6px;min-width:0}
+.reference-history dd{margin:0}
+.reference-item [data-edit-field] input{width:100%;min-width:8em;box-sizing:border-box;font:inherit}
+.reference-item [data-edit-field] small{display:block;font-size:11px;font-weight:normal;color:var(--text-3)}
+.reference-item .permanent{font-size:11px;color:var(--text-3)}
 .delivery-overlays{width:fit-content;min-width:min(420px,100%);max-width:100%;margin-bottom:12px}
 .delivery-chart{min-width:0}
 .delivery-chart .time-chart-tools input{width:120px}

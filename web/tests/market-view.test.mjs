@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {summaryTiles,contractCountText,displayDate,frameOptions,deliveryMonth,deliveryLabel,historyPriceLabel,displayInstant,timeLabels,publicText,publicColumns,quoteUnit,curveName,setCurveNames} from '../dist/market-view.js';
-import {dataSections,referenceSections,setupSections} from '../dist/data-sections.js';
+import {dataSections,referenceGroups} from '../dist/data-sections.js';
 import {newPreferences,parsePreferences,loadPreferences,savePreferences} from '../dist/preferences.js';
 const id='12345678-1234-1234-1234-123456789012';
 const frame=(at,name='Initial synthetic inputs',suffix='')=>({id:id+suffix,name,at,observationIds:[]});
@@ -40,13 +40,13 @@ test('profile schema ignores unrelated fields and contains no market input choic
 test('invalid time zone and unsupported preference versions are rejected',()=>{const prefs=newPreferences('UTC');for(const patch of [{timeZone:'invalid/zone'},{version:2},{browseBy:'prices'},{market:''},{market:7},{market:'x'.repeat(129)},{marketType:'guess'},{tab:'unknown'}])assert.throws(()=>parsePreferences(JSON.stringify({...prefs,...patch})));});
 test('unavailable browser storage is surfaced instead of reporting success',()=>{assert.throws(()=>savePreferences({getItem:()=>null,setItem:()=>{throw Error('blocked');}},'viewer',newPreferences('UTC')),/blocked/);});
 
-test('reference data groups business references and conventions as distinct curated sections',()=>{const available=['locations','units','currencies','clock_rules','quote_specifications','commodity_locations','revisions'];assert.deepEqual(dataSections(available).map(g=>g.sections.map(s=>s.value)),[['units','currencies','locations'],['clock_rules','quote_specifications']]);assert.deepEqual(dataSections(['units']).map(g=>g.name),['Reference data']);assert.ok(!referenceSections.some(s=>setupSections.some(t=>t.value===s.value)));});
+test('reference data groups business references and conventions as distinct curated sections',()=>{const available=['locations','units','currencies','clock_rules','quote_specifications','commodity_locations','revisions'];assert.deepEqual(dataSections(available).map(g=>g.sections.map(s=>s.value)),[['units','currencies'],['locations'],['clock_rules'],['quote_specifications']]);assert.deepEqual(dataSections(['units']).map(g=>g.name),['Commodities & units']);});
 test('location coordinates have plain labels and preserve exact decimal text',()=>{const rows=[{id,latitude:'12.345678',longitude:'-45.678912'}];assert.deepEqual(publicColumns(rows),[{key:'latitude',name:'Latitude (°)'},{key:'longitude',name:'Longitude (°)'}]);assert.equal(publicText(rows[0].latitude),'12.345678');});
 
-test('retired standalone convention catalogs are not menu choices',()=>{assert.ok(![...referenceSections,...setupSections].some(s=>['day_count_conventions','compounding_conventions','fx_rate_definitions','heat_rate_definitions'].includes(s.value)));});
+test('retired standalone convention catalogs are not menu choices',()=>{assert.ok(!referenceGroups.flatMap(g=>g.sections).some(s=>['day_count_conventions','compounding_conventions','fx_rate_definitions','heat_rate_definitions'].includes(s.value)));});
 
-test('execution admission inspection has an explicit category and source-code labels',()=>{
-  assert.deepEqual(dataSections(['futures_execution_policies'])[0]?.sections.map(({value,name})=>({value,name})),[{value:'futures_execution_policies',name:'Trading eligibility'}]);
+test('execution admission inspection has source-code labels and no tab of its own',()=>{
+  assert.deepEqual(dataSections(['futures_execution_policies']),[]);
   assert.deepEqual(publicColumns([{eligible_from:'2026-01-05T09:00:00Z',qualification_source_code:'source',source_series_code:'source_contract',usage_policy:'sample'}]).map(c=>c.name),['Trading eligibility from','Qualification source','Source contract code','Usage policy']);
 });
 

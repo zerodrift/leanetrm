@@ -8,7 +8,7 @@ from preview_fixture import trade_booking
 def run_checks(url,query=None,manifest=None,client=None):
     c=client or PreviewClient(url);c.bootstrap();profile=c.call('profile',{'profile':'trader'})
     w=c.call('workspace');frame=next(f for f in w['frames'] if f['at'].startswith('2020-12-18'))
-    context={'snapshotId':frame['id'],'convention':'fixed_total_cash_execution_pnl_v1','knowledgeMode':'current'}
+    context={'snapshotId':frame['id'],'convention':'contract_lot_execution_pnl_v2','knowledgeMode':'current'}
     catalog=c.call('futures/catalog',context);contract=catalog['contracts'][0]
     parties={k:v for k,v in trade_booking().items() if k!='tradeDate'}
     body={**context,**parties,'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'curve':contract['curve'],'contractId':contract['id'],'lots':'2','executionPrice':'3','memo':'Synthetic automatic booking facts'}
@@ -73,7 +73,7 @@ def run_checks(url,query=None,manifest=None,client=None):
             submitted={**parties,**({'tradeDate':patch['date']} if 'date' in patch else {})};booking=json.dumps(submitted).replace("'","''")
             query(f"""BEGIN;SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{issue()}');
              DO $$ BEGIN
-              PERFORM security.book_futures_with_parties('{manifest['catalogId']}','{uuid4()}','{body['bookId']}','{manifest['revisionId']}','{body['curve']}','{body['contractId']}','2020-12-18T16:00:00Z',{patch.get('executed','NULL')},1,3,'fixed_total_cash_execution_pnl_v1',{patch.get('trader','NULL')},NULL,NULL,'{booking}'::jsonb);
+              PERFORM security.book_futures_with_parties('{manifest['catalogId']}','{uuid4()}','{body['bookId']}','{manifest['revisionId']}','{body['curve']}','{body['contractId']}','2020-12-18T16:00:00Z',{patch.get('executed','NULL')},1,3,'contract_lot_execution_pnl_v2',{patch.get('trader','NULL')},NULL,NULL,'{booking}'::jsonb);
               RAISE EXCEPTION 'Forged booking facts accepted';
              EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'trade_booking_read_only' THEN RAISE;END IF;END $$;ROLLBACK;""")
         assert query("SELECT NOT has_table_privilege('preview_runtime','trading.booking_facts','UPDATE') AND NOT has_table_privilege('preview_runtime','security.request_contexts','UPDATE');")=='t'

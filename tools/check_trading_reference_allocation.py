@@ -157,7 +157,7 @@ def run_http_checks(url, query, client=None):
     from preview_fixture import trade_booking
     c = client or PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'trader'})
     frame = next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
-    context = {'snapshotId': frame['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'}
+    context = {'snapshotId': frame['id'], 'convention': 'contract_lot_execution_pnl_v2', 'knowledgeMode': 'current'}
     catalog = c.call('futures/catalog', context); contract = catalog['contracts'][0]
     body = {**context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': catalog['books'][0]['id'],
             'curve': contract['curve'], 'contractId': contract['id'], 'lots': '2', 'executionPrice': '3'}

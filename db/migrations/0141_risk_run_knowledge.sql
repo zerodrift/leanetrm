@@ -1,4 +1,4 @@
--- When a definition's run became known (D265). A run's creation, and each of its parts reaching completed, failed or cancelled, is
+-- When a definition's run became known (D267). A run's creation, and each of its parts reaching completed, failed or cancelled, is
 -- published by its own transaction: at commit, under the knowledge publication lock, it takes the next publication order and
 -- records its transaction id. Capturing a context certifies each publication's commit time as an immutable receipt, as pilot
 -- reports are (0057), so a read at a knowledge cutoff sees a run, and the state of each part, only from receipts known by then.

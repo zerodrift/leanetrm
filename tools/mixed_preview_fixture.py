@@ -95,7 +95,7 @@ def fixture(export_path):
                 f'rate_{index}_{ordinal}','1','parameter','final',frame['at'],now,str(Decimal(250+ordinal*50+index)/Decimal(10000)),None)]))
         frames.append({'at':frame['at'],'observationIds':pins,'curveContracts':frame['curveContracts']})
     market.append('COMMIT;')
-    manifest={'mode':'local-synthetic-preview','catalogId':cat,'revisionId':rev,'referenceCatalogId':rcat,
+    manifest={'futuresConvention':'contract_lot_execution_pnl_v2','mode':'local-synthetic-preview','catalogId':cat,'revisionId':rev,'referenceCatalogId':rcat,
               'referenceRevisionId':rrev,'tenantId':TENANT,'workspaceId':WORKSPACE,'frames':frames,
               'example':{'at':frames[0]['at'],'curve':'location_delivery'}}
     return '\n'.join(ref),'\n'.join(market),security_fixture(cat,rcat),manifest

@@ -34,6 +34,84 @@ internal static class SwapRiskHoldingChecks
             return true;
         },CancellationToken.None);
     }
+    public static async Task ReuseRevoked(string path)
+    {
+        var root=Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT")??throw new InvalidOperationException("Use the owned preview runner.");
+        await using var database=new PreviewDatabase(root);
+        using var fixture=JsonDocument.Parse(File.ReadAllText(path));var request=fixture.RootElement;
+        var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var context=JsonSerializer.Deserialize<ScheduleContext>(request.GetProperty("currentContext"),json)!;
+        var frame=JsonSerializer.Deserialize<InputFrame>(request.GetProperty("frame"),json)! with{ContextId=context.ContextId};
+        async Task Bind(NpgsqlConnection connection,CancellationToken ct)
+        {
+            await MarketContextStore.Bind(connection,database.Manifest.CatalogId,context,ct);
+            await using var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,frame.At);
+            await bind.ExecuteNonQueryAsync(ct);
+        }
+        var holdings=await database.WithIdentity("risk","RunScenario",async(connection,ct)=>
+        {
+            await Bind(connection,ct);
+            var data=await database.Read(connection,ct,observationIds:frame.ObservationIds);
+            var resolved=await new SwapStore(database).ReadRiskHoldings(connection,data,frame,[request.Id("bookId")],[],ct);
+            var reused=await new PortfolioValuation(database).ReuseSwapHoldings(connection,resolved,[request.Id("bookId")],[],context,frame.At,ct);
+            if(!reused.SequenceEqual(resolved))throw new Exception("Authorized reuse changed exact resolved inputs, quantities or settlement state.");
+            var row=resolved[0].Row;
+            var excluded=new ExcludedPosition(row.Id("trade_id"),row.Id("binding_id"),row.Id("book_id"),TradingReference.Trade(row),"financial_swap","missing_observation");
+            var survivors=await new PortfolioValuation(database).ReuseSwapHoldings(connection,resolved,[request.Id("bookId")],[excluded],context,frame.At,ct);
+            if(!survivors.SequenceEqual(resolved.Skip(1)))throw new Exception("Reuse exclusions changed another binding's exact inputs.");
+            async Task Reject(string code,ImmutableArray<Guid> books,ImmutableArray<ExcludedPosition> exclusions,ScheduleContext selected,DateTimeOffset at)
+            {
+                try{await new PortfolioValuation(database).ReuseSwapHoldings(connection,resolved,books,exclusions,selected,at,ct);}
+                catch(MarketDataException error)when(error.Code==code){return;}
+                throw new Exception("Expected exact reuse refusal "+code);
+            }
+            await Reject("risk_contract",[request.Id("bookId")],[excluded,excluded],context,frame.At);
+            await Reject("risk_contract",[request.Id("bookId")],[excluded with{BindingId=Guid.NewGuid()}],context,frame.At);
+            await Reject("portfolio_context",[request.Id("unsupportedBookId")],[],context,frame.At);
+            await Reject("portfolio_context",[request.Id("bookId")],[],context with{ContextId=Guid.NewGuid()},frame.At);
+            await Reject("portfolio_context",[request.Id("bookId")],[],context,frame.At.AddHours(1));
+            Console.WriteLine("PASS portfolio reuse: exact inputs and binding exclusions retained; changed book/context/instant and duplicate or unknown bindings refused");
+            return resolved;
+        },CancellationToken.None);
+        if(holdings.Length!=3)throw new Exception("Expected the complete synthetic held scope before reuse.");
+        // Control-plane revocations serialize behind an active request's epoch
+        // fence. Release that first transaction before the owned fixture revokes
+        // reference access, then directly challenge the reuse guard with the old
+        // resolved inputs under the same certified financial context.
+        await File.WriteAllTextAsync(path+".reuse-ready","ready");
+        var deadline=DateTimeOffset.UtcNow.AddSeconds(15);
+        while(!File.Exists(path+".reuse-release"))
+        {
+            if(DateTimeOffset.UtcNow>=deadline)throw new Exception("Owned reference revocation was not released.");
+            await Task.Delay(20);
+        }
+        var guardReached=false;
+        try
+        {
+            await database.WithIdentity<bool>("risk","RunScenario",async(connection,ct)=>
+            {
+                await Bind(connection,ct);
+                await using(var rights=ScheduleStore.Command(connection,"SELECT security.has_permission('RunScenario') AND security.trading_access($1,'ReadTrades') AND security.market_access($1,'ReadMarketData')",database.Manifest.CatalogId))
+                    if(await rights.ExecuteScalarAsync(ct) is not true)throw new Exception("The reference-only revocation also removed ordinary portfolio authority.");
+                guardReached=true;
+                await new PortfolioValuation(database).ReuseSwapHoldings(connection,holdings,[request.Id("bookId")],[],context,frame.At,ct);
+                throw new Exception("Cached resolved holdings escaped a reference revocation.");
+            },CancellationToken.None);
+        }
+        catch(PostgresException error)when(error.SqlState=="42501"&&guardReached)
+        {Console.WriteLine("PASS portfolio reuse: reference revocation refuses previously resolved holdings under the same certified context");}
+        await database.WithIdentity("risk","RunScenario",async(connection,ct)=>
+        {
+            await Bind(connection,ct);
+            await using(var visible=ScheduleStore.Command(connection,"SELECT count(*) FROM trading.swap_trade_revisions WHERE catalog_id=$1",database.Manifest.CatalogId))
+                if((long)(await visible.ExecuteScalarAsync(ct))!<3)throw new Exception("The missing-reference regression requires visible retained parent revisions.");
+            try{await new SwapStore(database).Rows(connection,null,ct,[request.Id("bookId")]);}
+            catch(PreviewDeniedException)
+            {Console.WriteLine("PASS scoped swap rows: visible parents with hidden exact reference children refuse instead of omitting holdings");return true;}
+            throw new Exception("Visible selected swap revisions disappeared through a reference join without refusal.");
+        },CancellationToken.None);
+    }
+
     public static async Task Run(string path,bool denied,bool expired=false)
     {
         var root=Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT")??throw new InvalidOperationException("Use the owned preview runner.");
@@ -110,6 +188,14 @@ internal static class SwapRiskHoldingChecks
             var pinned=frame with{ContextId=current.ContextId};
             var holdings=await store.ReadRiskHoldings(connection,data,pinned,[request.Id("bookId")],excluded:[],ct,frozen);
             var expected=request.GetProperty("holdings").EnumerateArray().ToArray();
+            var scopedRows=await store.Rows(connection,null,ct,[request.Id("bookId")]);
+            Check("risk row materialization contains only the three latest visible scoped bindings",scopedRows.Length==3&&
+                scopedRows.All(row=>expected.Any(e=>e.Id("tradeId")==row.Id("trade_id")&&e.Text("revision")==row.Text("revision"))));
+            var historicalRows=await store.Rows(connection,request.Id("amendedTradeId"),ct);
+            Check("trade history still materializes both visible amendment revisions",historicalRows.Length==2&&historicalRows.Select(row=>row.Text("revision")).SequenceEqual(new[]{"1","2"}));
+            var outsideRows=await store.Rows(connection,null,ct,[request.Id("unsupportedBookId")]);
+            Check("book scope follows latest revision and retains the transferred daily trade only in its destination",outsideRows.Length==1&&outsideRows[0].Id("trade_id")==request.GetProperty("actualCases")[0].Id("tradeId")&&outsideRows[0].Text("revision")=="2");
+
             Check("actual persisted latest revisions retain their external quantities and exact references",holdings.Length==3&&holdings.All(holding=>
             {
                 var row=expected.Single(e=>e.Id("tradeId")==holding.Row.Id("trade_id"));
@@ -166,13 +252,19 @@ internal static class SwapRiskHoldingChecks
             var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
                 SwapStore.Convention,ZeroRateCurve.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
             var pinned=frame with{ContextId=current.ContextId};
+            var missingFixing=leftOut with{Reason="index_fixing_missing"};
+            var prepared=await new PortfolioValuation(database).Prepare(connection,data,pinned,data.Snapshot(pinned),current,
+                [request.Id("bookId")],policy,[],[missingFixing],ct);
+            Check("a risk run retains the exact missing-published-fixing exclusion and values the remaining held scope",
+                prepared.Excluded.SequenceEqual([missingFixing])&&prepared.Positions.Where(position=>position.InstrumentType=="financial_swap")
+                    .Select(position=>position.TradeId).Order().SequenceEqual(holdings.Skip(1).Select(holding=>holding.Row.Id("trade_id")).Order()));
             try
             {
                 await new PortfolioValuation(database).Prepare(connection,data,pinned,data.Snapshot(pinned),current,[request.Id("bookId")],policy,[],
-                    [leftOut with{Reason="index_fixing_missing"}],ct);
-                throw new Exception("A risk run left out a position for a reason that is not position-specific.");
+                    [leftOut with{Reason="index_fixing_definition"}],ct);
+                throw new Exception("A risk run left out a position for a malformed fixing definition.");
             }
-            catch(MarketDataException error)when(error.Code=="risk_contract"){Check("a risk run refuses to leave out a position for a reason that is not position-specific",true);}
+            catch(MarketDataException error)when(error.Code=="risk_contract"){Check("a risk run refuses to leave out a position for a malformed fixing definition",true);}
         });
         var retained=JsonSerializer.Deserialize<ScheduleContext>(request.GetProperty("earlierContext"),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         await Read(async(connection,data,ct)=>

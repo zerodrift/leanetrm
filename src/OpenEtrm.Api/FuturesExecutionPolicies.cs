@@ -33,14 +33,6 @@ public sealed class FuturesExecutionPolicies
             DateTimeOffset? sourceFirst=first.Text("value_state")=="known"&&first.OptionalText("event_at") is not null?
                 SchedulePreview.RequiredMilestoneInstant(first):null;
             var selected=policies[series.Text("code")].Where(p=>p.Text("implementation")==implementation).ToArray();
-            // Retain the existing explicitly synthetic exact-instant convention.
-            if(selected.Length==0&&product.Text("definition_state")=="synthetic"&&series.Text("definition_state")=="synthetic"&&
-                curve.OptionalText("direct_role")=="daily_settlement"&&sourceFirst is {} legacy)
-            {
-                if(policies[series.Text("code")].Any(p=>p.Text("eligibility_rule")!="source_first_trade_instant_v1"||
-                    SchedulePreview.ParseAt(p.Text("eligible_from"))!=legacy))throw Invalid();
-                return legacy;
-            }
             var policy=One(selected);var role=policy.Text("price_role");
             if(role is not ("daily_settlement" or "trader_mark")||role!=curve.OptionalText("direct_role")||
                 policy.Text("price_source_code")!=curve.OptionalText("direct_source_code"))throw Invalid();

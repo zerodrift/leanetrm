@@ -22,7 +22,7 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             var prepared=await WithRun(claim,(connection,cancellation)=>PrepareReport(connection,claim,cancellation),ct,RunPhase.Preparation);
             // Immutable admitted inputs only. No transaction or authorization
             // locks span the potentially long deterministic calculation.
-            var result=ClosePortfolioValuation.Evaluate(prepared.Preparation,ct);
+            var result=PortfolioValuation.Calculate(prepared.Preparation.Prepared,prepared.Preparation.Bumps,[],RiskDetail.Books,ct);
             await WithRun(claim,async(connection,cancellation)=>
             {
                 await Bind(connection,manifest.CatalogId,prepared.Preparation.Context,prepared.At,cancellation);
@@ -61,7 +61,7 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             var factors=data.Model.QuoteFactors(snapshot).Where(f=>lineage.Contains(f.Observation)).ToImmutableArray();
             // Whole-book preflight occurs before any mark is written. It uses
             // exactly the same black-box adapter as the eventual report.
-            var preflight=await new PortfolioValuation(database).Calculate(connection,data,snapshot,context,definition.BookIds,definition.ValuationPolicy,cancellation);
+            var preflight=await new PortfolioValuation(database).Calculate(connection,data,snapshot,context,definition.BookIds,definition.ValuationPolicy,cancellation,requireNativeEvidence:true);
             var covered=factors.Select(f=>f.Input).ToHashSet();
             if(preflight.Factors.Any(f=>f.Axis.Quote is null||!covered.Contains(f.Axis.Quote.Input)))throw Invalid("Selected root curves must cover every market factor used by every selected book.");
             var moves=definition.LeafMoves.ToDictionary(m=>m.Curve,m=>m.MaxTicks,StringComparer.Ordinal);
@@ -106,7 +106,7 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             var frame=await MarketCloses.Frame(connection,header.Definition.CatalogId,header.Id,context.ContextId,cancellation);
             var data=await database.Read(connection,cancellation,observationIds:frame.ObservationIds,
                 referenceScope:ReferenceReadScope.TradeValuation,includeCalendarDays:true,observationScope:ObservationReadScope.ExactPins);
-            var result=await new PortfolioValuation(database).Calculate(connection,data,data.Snapshot(frame),context,definition.BookIds,definition.ValuationPolicy,cancellation);
+            var result=await new PortfolioValuation(database).Calculate(connection,data,data.Snapshot(frame),context,definition.BookIds,definition.ValuationPolicy,cancellation,requireNativeEvidence:true);
             _=await PilotCloseReports.Publish(connection,claim.Id,result,cancellation);
             return true;
         },ct);
@@ -121,14 +121,13 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
         var header=await MarketCloses.Read(connection,manifest.CatalogId,retained.CloseId,cancellation);
         var declaredRows=json.RootElement.GetProperty("declaredRows").GetInt64();
         var declaredRowScenarios=json.RootElement.GetProperty("declaredRowScenarios").GetInt64();
-        var books=retained.BookIds;var policy=retained.ValuationPolicy;
         var factorPins=json.RootElement.GetProperty("factors").Clone();
         await using var database=new PreviewDatabase(PinnedManifest(header),runtime);
         await Bind(connection,header.Definition.CatalogId,context,header.At,cancellation);
         var frame=await MarketCloses.Frame(connection,header.Definition.CatalogId,header.Id,context.ContextId,cancellation);
         var data=await database.Read(connection,cancellation,observationIds:frame.ObservationIds,
             referenceScope:ReferenceReadScope.TradeValuation,includeCalendarDays:true,observationScope:ObservationReadScope.ExactPins);
-        var preparation=await new ClosePortfolioValuation(database).Prepare(connection,data,data.Snapshot(frame),context,books,policy,cancellation,retained,frame);
+        var preparation=await CloseBookRiskJobs.Prepare(database,connection,data,frame,context,retained,cancellation);
         if(preparation.DeclaredRows!=declaredRows||preparation.DeclaredRowScenarios!=declaredRowScenarios)throw Invalid("Declared work differs from the immutable admission plan.");
         if(!System.Text.Json.Nodes.JsonNode.DeepEquals(
             JsonSerializer.SerializeToNode(CloseBookRiskJobs.FactorPins(preparation),Json),System.Text.Json.Nodes.JsonNode.Parse(factorPins.GetRawText())))
@@ -152,8 +151,8 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
         await using var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",catalog,valuation);
         await trading.ExecuteNonQueryAsync(ct);
     }
-    private enum RunPhase{Legacy,Preparation,Publication}
-    private async Task<T> WithRun<T>(JobClaim claim,Func<NpgsqlConnection,CancellationToken,Task<T>> work,CancellationToken ct,RunPhase phase=RunPhase.Legacy)
+    private enum RunPhase{GeneratedClose,Preparation,Publication}
+    private async Task<T> WithRun<T>(JobClaim claim,Func<NpgsqlConnection,CancellationToken,Task<T>> work,CancellationToken ct,RunPhase phase=RunPhase.GeneratedClose)
     {
         await using var issue=scheduler.CreateCommand("SELECT automation.issue_pilot_context($1,$2,$3)");
         issue.Parameters.AddWithValue(claim.Id);issue.Parameters.AddWithValue(claim.Fence);issue.Parameters.AddWithValue(claim.WorkerId);
@@ -161,9 +160,9 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
         await using var connection=await runtime.OpenConnectionAsync(ct);
         await using var transaction=await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted,ct);
         await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_context($1)",token))await bind.ExecuteNonQueryAsync(ct);
-        if(phase!=RunPhase.Legacy)
+        if(phase!=RunPhase.GeneratedClose)
             await using(var limits=ScheduleStore.Command(connection,"SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='1s'"))await limits.ExecuteNonQueryAsync(ct);
-        var guard=phase==RunPhase.Legacy?"SELECT automation.lock_pilot_run()":"SELECT automation.check_close_risk_run()";
+        var guard=phase==RunPhase.GeneratedClose?"SELECT automation.lock_pilot_run()":"SELECT automation.check_close_risk_run()";
         await using(var fence=ScheduleStore.Command(connection,guard))await fence.ExecuteNonQueryAsync(ct);
         var result=await work(connection,ct);
         // Existing-close publication already performed its final fence and

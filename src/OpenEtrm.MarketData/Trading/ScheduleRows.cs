@@ -52,7 +52,7 @@ public sealed record ScheduleRowValue(Guid SideId,SideSlot? NativeSlot,Component
         var total=cash.Prices.Aggregate(System.Numerics.BigInteger.Zero,(sum,price)=>sum+price.Term.Weight.ScaledValue);
         return [..cash.Prices.Select(price=>new PriceComponent(row.AllocatedQuantity.Scale(row.UnitQuantity.Amount).ScaleFraction(price.Term.Weight.ScaledValue,total),
             price.ExactPrice,price.State switch {SchedulePriceState.Fixed=>RowPriceState.Fixed,SchedulePriceState.Actual=>RowPriceState.Actual,_=>RowPriceState.Projected},
-            price.Term.Lookup?.ProjectionRequest.Curve,null,ExactDecimal.Parse("1"),price.Term.Spread))];
+            price.Term.ContractObservation?.Market.Curve??price.Term.Lookup?.ProjectionRequest.Curve,null,ExactDecimal.Parse("1"),price.Term.Spread))];
     }
     public ImmutableArray<CapacityDay> CapacityDays { get; init; }=[];
     public ScheduleRowValue Scale(ExactDecimal coefficient,ExactDecimal mw)=>this with {

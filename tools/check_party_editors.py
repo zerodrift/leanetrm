@@ -26,7 +26,7 @@ def run_checks(url):
                                     'name': unicode_name+'\U0001f50c'}, expected=422)
         unicode_parties[kind] = saved
     trading_frame = next(f for f in trader.call('workspace')['frames'] if f['at'] == frame['at'])
-    trading_context = {'snapshotId': trading_frame['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'}
+    trading_context = {'snapshotId': trading_frame['id'], 'convention': 'contract_lot_execution_pnl_v2', 'knowledgeMode': 'current'}
     trading = trader.call('futures/catalog', trading_context)
     contract = trading['contracts'][0]
     entity, counterparty = unicode_parties['legal_entity'], unicode_parties['counterparty']

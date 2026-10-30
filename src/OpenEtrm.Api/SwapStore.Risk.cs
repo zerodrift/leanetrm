@@ -26,9 +26,7 @@ public sealed partial class SwapStore
     {
         var books=await new FuturesStore(manifest).Books(connection,ct);
         FuturesStore.ValidateScope(books,bookIds,[]);
-        var rows=ExcludedPosition.Keep((await Rows(connection,null,ct)).GroupBy(row=>row.Id("trade_id"))
-            .Select(group=>group.MaxBy(row=>row.Number("revision"))!)
-            .Where(row=>bookIds.IsEmpty||bookIds.Contains(row.Id("book_id"))).ToImmutableArray(),excluded);
+        var rows=ExcludedPosition.Keep(await Rows(connection,null,ct,bookIds),excluded);
         snapshot??=data.Snapshot(frame);
         if(snapshot.Id!=frame.Id||snapshot.Definitions!=data.DefinitionRevision||snapshot.ValuationAt!=frame.At)
             throw Error("swap_context","Swap risk requires the exact selected model and snapshot context.");

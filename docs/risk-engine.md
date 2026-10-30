@@ -219,6 +219,26 @@ crashed worker with an unconfirmed cancellation remains cancellation-requested;
 this first version has no cluster process-death confirmation workflow. Results
 and terminal state publish atomically.
 
+Heartbeat and cancellation remain available while an input-loading transaction
+holds its attempt-context foreign key to the job. Migration 0137 uses
+`FOR NO KEY UPDATE` for attempt-control and cancellation locks: these serialize
+job-state writers while allowing that foreign key's `KEY SHARE` lock. Claiming
+still uses `FOR UPDATE SKIP LOCKED`; lease tokens, authority generations,
+cancellation acknowledgment and publication checks are unchanged. The disposable
+risk database check keeps a real `risk.bind` transaction open while independently
+renewing and cancelling it, and verifies stale-token and cancellation-first
+publication refusal. No lease, input-loading or calculation deadline is extended.
+
+Migration 0138 permits risk workers to read retained swap quantity intervals
+through the same authorized reader as interactive requests, with current attempt
+fencing before and after the read. Settlement and contract-bridge bounds use
+those exact intervals; private unguarded entry points are not granted to workers.
+Risk holdings select the latest RLS-visible trade revision before applying book
+scope and loading its terms. Historical trade reads retain all visible revisions;
+a book transfer cannot resurrect the prior revision in its former book. A selected
+revision missing required joined records refuses the read rather than silently
+omitting that holding; the completeness check uses the same SQL statement.
+
 Worker reads use a fresh transaction-local authority context for the retained
 actor and delegation. Loading and publication transactions are short; CPU
 calculation runs outside them. Current authority and retained authorization
@@ -327,3 +347,45 @@ must not be summed as independent exposures. Synthetic integration checks book
 a two-parent combination and verify independent parent/root deltas, nested
 stresses, base isolation and exact retained-worker parity. Historical resampling,
 volatility/correlation and financial throughput qualification remain work.
+
+
+## Shared automated-close pricing
+
+Existing-close jobs use the same `PortfolioValuation` preparation and connected
+risk evaluator as interactive portfolio pricing. The separate close valuation
+engine is removed. The close adapter retains complete-book exact-bundle admission,
+valuation-instant PPA knowledge, native factor pins, and the existing report
+schema and publication fence. Generated-close and existing-close operation IDs
+and permissions remain distinct.
+
+The shared report conversion retains PPA input receipts and separate known and
+estimated overdue balances. Work admission counts each unique instrument coverage
+and only its affected native scenarios, using the same counter for native and
+connected preparations.
+
+The existing-close storage contract does not retain connected recipe/sample
+manifests. Those sources remain explicitly unsupported for this operation even
+though the shared engine can price them for other consumers. This consolidation
+does not authorize source reselection on retries or widen retained job inputs.
+
+Verification passed the 646 managed core checks, API and focused close checks,
+existing-close worker integration, generated-close integration, and connected
+portfolio regressions with synthetic inputs on disposable PostgreSQL databases.
+Independent review covered scope authorization, retained inputs, numerical work
+counting and publication fences.
+
+Work reports preserve the same volume computations, unique side calculations,
+resolved curve months, calibrated blocks and interval row counts through native
+and connected execution. `rebuiltCurveNodes` and `reusedCurveNodes` count native
+curve receipts; connected execution does not manufacture those receipts.
+`curveGraphEvaluatedNodes` and `curveGraphReusedReads` retain the connected graph's
+actual work, including base preparation, in portfolio and durable close reports.
+These are separate from schedule graph node/read counters. The twelve-month
+lease fixture requires at least 72 curve graph evaluations (24 base source
+factors plus their 48 signed shocks); graph structure may add further work.
+
+When unavailable prices require position-level qualification, one holdings read
+reuses complete dated-source history only within that authorized operation and
+exact definition, certified context and valuation instant. Individual observations
+are still selected separately. Retained jobs bypass this reuse and load their
+exact admitted pins; failed reads are not retained.

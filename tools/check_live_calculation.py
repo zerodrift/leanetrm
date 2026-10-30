@@ -7,7 +7,7 @@ import threading
 from urllib.parse import urlsplit
 from preview_client import PreviewClient, initial_frame
 
-FUTURES, SWAPS = 'fixed_total_cash_execution_pnl_v1', 'independent_side_financial_swap_v2'
+FUTURES, SWAPS = 'contract_lot_execution_pnl_v2', 'independent_side_financial_swap_v2'
 # A view that is not working data cannot book or amend, and its reasons say which view it is, so that the way back is the right one.
 LIVE_BOOKING = 'Live view is read-only. Return to working data, then select an As of date.'
 LIVE_AMEND = 'Live view is read-only. Return to working data to amend.'

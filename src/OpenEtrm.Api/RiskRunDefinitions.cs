@@ -158,7 +158,7 @@ public static class RiskRunDefinitions
         return await Remember(connection,request.RequestId,hash,JsonSerializer.Serialize(new{runId,definitionId,version=request.Version,jobs}),ct);
     }
 
-    // A run as known at a context: its creation and each part's terminal state are known only from their certified receipts (D265).
+    // A run as known at a context: its creation and each part's terminal state are known only from their certified receipts (D267).
     private sealed record KnownPart(int Part,string State,DateTimeOffset KnownFrom);
     private sealed record KnownRun(Guid RunId,int Version,DateTimeOffset CreatedKnownFrom,DateTimeOffset ValuationAt,int Parts,ImmutableArray<KnownPart> Finished)
     {

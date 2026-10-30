@@ -13,7 +13,7 @@ CREATE TABLE risk.run_definition_versions (
  catalog_id uuid NOT NULL, definition_id uuid NOT NULL, version integer NOT NULL CHECK(version>=1),
  name text NOT NULL CHECK(btrim(name)<>'' AND length(name)<=80),
  preset text NOT NULL CHECK(preset IN('held_contracts','held_curves')),
- -- When the version was saved, by the database clock: shown to the person, never a knowledge time (D265).
+ -- When the version was saved, by the database clock: shown to the person, never a knowledge time (D267).
  saved_at ref_data.instant NOT NULL,
  PRIMARY KEY(catalog_id,definition_id,version), FOREIGN KEY(catalog_id,definition_id) REFERENCES risk.run_definitions(catalog_id,id)
 );

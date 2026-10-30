@@ -374,8 +374,9 @@ public static class ConnectedCurves
         if(source.Sample is {} sample)
         {
             ValidateSample(sample,context);
-            if(source.Input.Use!=(sample.FreezeHistorical?InputUse.FrozenFact:sample.OriginalUse)||observation.ObservedAt>sample.MarketCutoff||
-                sample.OriginalUse==InputUse.Variable&&contract.Expiry<=sample.ValuationAt)
+            if(source.Input.Use!=(sample.FreezeHistorical||sample.FreezeObservation?InputUse.FrozenFact:sample.OriginalUse)||observation.ObservedAt>sample.MarketCutoff||
+                sample.OriginalUse==InputUse.Variable&&contract.Expiry<=sample.ValuationAt||
+                sample.FreezeObservation&&(observation.ObservedAt!=sample.ValuationAt||observation.Role is not(ObservationRole.DailySettlement or ObservationRole.TraderMark)))
                 throw Invalid("A sampled source must preserve its original selected use and explicit historical freezing.");
         }
         var value=new UnitPrice(observation.Value,source.Quote);
@@ -386,6 +387,7 @@ public static class ConnectedCurves
         if(sample is null||sample.SnapshotId==Guid.Empty||!TemporalCurveBindings.IsInstant(sample.ValuationAt)||
             !TemporalCurveBindings.IsInstant(sample.MarketCutoff)||sample.MarketCutoff>sample.ValuationAt||sample.MarketCutoff>context.MarketAsOf||
             sample.ValuationAt>context.ValuationAt||sample.SelectionPolicy!=InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering||
+            sample.FreezeObservation&&(sample.ValuationAt!=context.ValuationAt||sample.OriginalUse!=InputUse.Variable||sample.FreezeHistorical)||
             !Enum.IsDefined(sample.OriginalUse)||sample.FreezeHistorical!=(sample.ValuationAt<context.ValuationAt)||
             !sample.FreezeHistorical&&sample.MarketCutoff!=context.MarketAsOf)
             throw Invalid("A source sample requires exact snapshot and UTC coordinates, selection policy and historical-freeze semantics.");

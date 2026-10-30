@@ -207,7 +207,11 @@ internal static class ObservationScheduleChecks
             Snapshot=Base.Snapshot() with{Selections=series.Select((s,n)=>new SelectedObservation(new(s.Key,InputUse.Variable),new(new(Base.Revision.CatalogId,Guid.NewGuid()),s.Key,Base.R("source"),ObservationRole.TraderMark,PublicationState.Final,Fixture.Utc("2040-12-18T00:00:00Z"),ExactDecimal.Parse(prices[n])))).ToImmutableArray()};
             Projections=contracts.Select(c=>new SwapProjection(new(curve,c.Key),c)).ToImmutableArray();
         }
-        public FloatingSide Side(FloatingAveraging mode,ImmutableArray<SwapProjection> projections,SwapObservationCalendar? calendar=null)=>new(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(Base.R("index")),Quote,Unit,From,To,Fixture.Utc("2048-05-01T00:00:00Z"),Payment,mode,projections,FloatingSide.Implementation,calendar);
+        public ImmutableArray<IndexFixing> Fixings(ImmutableArray<SwapProjection> projections)=>[..projections.Select(projection=>
+            new IndexFixing(Base.R("index"),Quote.Key,projection.Contract.DeliveryFrom,projection.Contract.DeliveryTo,
+                Fixture.Utc("2048-05-01T00:00:00Z"),Series.Single(series=>series.Contract==projection.Contract.Key&&series.Quote==Quote.Key).Key,
+                Base.R("source"),IndexFixing.SupportedImplementation))];
+        public FloatingSide Side(FloatingAveraging mode,ImmutableArray<SwapProjection> projections,SwapObservationCalendar? calendar=null)=>new(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(Base.R("index")),Quote,Unit,From,To,Fixings(projections),Payment,mode,projections,FloatingSide.IndexedImplementation,calendar);
         public SideValuationContext Context(FloatingSide side)=>new(Model.Build(Snapshot,side.DependenciesAt(Snapshot)),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted));
     }
 }

@@ -15,8 +15,11 @@ internal static class SwapChecks
         var contract=f.Contracts[1];var at=f.Snapshot().ValuationAt;
         var fixing=Fixture.Utc("2040-12-19T00:00:00Z");var payment=Fixture.Utc("2041-02-02T12:00:00Z");
         var fixedSide=new FixedSide(Guid.NewGuid(),new UnitPrice(ExactDecimal.Parse("3"),quote),unit,contract.DeliveryFrom,contract.DeliveryTo,payment,FixedSide.Implementation,quote);
-        var floating=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,fixing,payment,
-            FloatingAveraging.MonthlyIndexPrice,[new(new(f.C("base_forward"),contract.Key),contract)],FloatingSide.Implementation);
+        ImmutableArray<IndexFixing> Fixings(ReferenceKey index,QuoteSpecification q,ImmutableArray<SwapProjection> projections,DateTimeOffset fixingAt)=>
+            [..projections.Select(p=>new IndexFixing(index,q.Key,p.Contract.DeliveryFrom,p.Contract.DeliveryTo,fixingAt,
+                p.Contract.Key==f.K(2)?f.S(8):new(p.Contract.Key.Revision,p.Contract.Key.Id),f.R("source"),IndexFixing.SupportedImplementation))];
+        var floating=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,Fixings(f.R("index"),quote,[new(new(f.C("base_forward"),contract.Key),contract)],fixing),payment,
+            FloatingAveraging.MonthlyIndexPrice,[new(new(f.C("base_forward"),contract.Key),contract)],FloatingSide.IndexedImplementation);
         var swap=new FinancialSwapInstrument(Guid.NewGuid(),[new(fixedSide,ExactDecimal.Parse("-1")),new(floating,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, false);
         var snapshot=f.Snapshot();var market=f.Model().Build(snapshot,[new(f.C("base_forward"),contract.Key)]);
         Check("financial swap inherits instrument and retains distinct reusable fixed and floating sides",()=>{
@@ -47,22 +50,18 @@ internal static class SwapChecks
             Reject("swap_valuation",()=>swap.Price(market,unit,ExactDecimal.Parse("1"),FinancialSwapInstrument.Discounted));
             Equal(discounted.PV(explicitOne).PresentValue.ToMoney().Amount.ToString(),"0.1");
         });
-        Check("live monthly projection does not substitute for a due qualified fixing or an expired contract",()=>{
-            var later=snapshot with {Id=Guid.NewGuid(),ValuationAt=fixing};
-            var build=f.Model().Build(later,[new(f.C("base_forward"),contract.Key)]);
-            Equal(swap.Price(build,unit,ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted).Amount.ToString(),"0.1");
-            var qualified=new IndexFixing(f.R("index"),quote.Key,contract.DeliveryFrom,contract.DeliveryTo,fixing,f.S(8),f.R("source"),IndexFixing.SupportedImplementation);
-            var indexed=new FloatingSide(Guid.NewGuid(),floating.Settlement,quote,unit,contract.DeliveryFrom,contract.DeliveryTo,[qualified],payment,
-                FloatingAveraging.MonthlyIndexPrice,[new(new(f.C("base_forward"),contract.Key),contract)],FloatingSide.IndexedImplementation);
-            var fixedSwap=new FinancialSwapInstrument(Guid.NewGuid(),[new(fixedSide,ExactDecimal.Parse("-1")),new(indexed,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation,false);
-            Reject("index_fixing_missing",()=>fixedSwap.Price(f.Model().Build(later,fixedSwap.DependenciesAt(later)),unit,ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted));
-            var expired=later with{ValuationAt=contract.Expiry};
-            Reject("source_expired",()=>swap.DependenciesAt(expired));
+        Check("a live monthly forecast cannot replace a due published fixing, including after contract expiry",()=>{
+            foreach(var valuationAt in new[]{fixing,contract.Expiry})
+            {
+                var later=snapshot with {Id=Guid.NewGuid(),ValuationAt=valuationAt};
+                var build=f.Model().Build(later,swap.DependenciesAt(later));
+                Reject("index_fixing_missing",()=>swap.Price(build,unit,ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted));
+            }
         });
-        Check("calendar-day average requires exact daily coverage instead of inventing daily prices from monthly marks",()=>Reject("swap_averaging",()=>new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,fixing,payment,FloatingAveraging.CalendarDayArithmetic,[new(new(f.C("base_forward"),contract.Key),contract)],FloatingSide.Implementation)));
+        Check("calendar-day average requires exact daily coverage instead of inventing daily prices from monthly marks",()=>Reject("swap_averaging",()=>new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,Fixings(f.R("index"),quote,[new(new(f.C("base_forward"),contract.Key),contract)],fixing),payment,FloatingAveraging.CalendarDayArithmetic,[new(new(f.C("base_forward"),contract.Key),contract)],FloatingSide.IndexedImplementation)));
         Check("daily average is not rounded before trade quantity makes the net result representable",()=>{
             var daily=DailyFixture.Create(f,quote,["1","2","2"]);
-            var floatDaily=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,daily.From,daily.To,fixing,payment,FloatingAveraging.CalendarDayArithmetic,daily.Projections,FloatingSide.Implementation);
+            var floatDaily=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,daily.From,daily.To,Fixings(f.R("index"),quote,daily.Projections,fixing),payment,FloatingAveraging.CalendarDayArithmetic,daily.Projections,FloatingSide.IndexedImplementation);
             var fixedDaily=new FixedSide(Guid.NewGuid(),new UnitPrice(ExactDecimal.Parse("1"),quote),unit,daily.From,daily.To,payment,FixedSide.Implementation,quote);
             var instrument=new FinancialSwapInstrument(Guid.NewGuid(),[new(fixedDaily,ExactDecimal.Parse("-1")),new(floatDaily,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, false);
             Equal(instrument.Price(daily.Market,new Quantity(ExactDecimal.Parse("3"),quote.Quantity),ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted).Amount.ToString(),"2");
@@ -73,7 +72,7 @@ internal static class SwapChecks
             var calendar=new SwapObservationCalendar(f.R("calendar"),DateSet.Create(daily.From,daily.To,[daily.From,daily.From.AddDays(2)]));
             FinancialSwapInstrument Make(FloatingAveraging rule,ImmutableArray<SwapProjection> selected,SwapObservationCalendar? dates)=>new(Guid.NewGuid(),[
                 new(new FixedSide(Guid.NewGuid(),new UnitPrice(default,quote),unit,daily.From,daily.To,payment,FixedSide.Implementation,quote),ExactDecimal.Parse("-1")),
-                new(new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,daily.From,daily.To,fixing,payment,rule,selected,FloatingSide.Implementation,dates),ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, false);
+                new(new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,daily.From,daily.To,Fixings(f.R("index"),quote,selected,fixing),payment,rule,selected,FloatingSide.IndexedImplementation,dates),ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, false);
             var selected=ImmutableArray.Create(daily.Projections[0],daily.Projections[2]);
             Equal(Make(FloatingAveraging.ObservationArithmetic,selected,calendar).Price(daily.Market,new Quantity(ExactDecimal.Parse("6"),quote.Quantity),ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted).Amount.ToString(),"15");
             Equal(Make(FloatingAveraging.CalendarDaysPrevious,selected,calendar).Price(daily.Market,new Quantity(ExactDecimal.Parse("6"),quote.Quantity),ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted).Amount.ToString(),"12");
@@ -85,7 +84,7 @@ internal static class SwapChecks
         });
         Check("quantity weighting requires explicit compatible positive quantities on every daily member",()=>{
             var daily=DailyFixture.Create(f,quote,["1","2","4"]);
-            FloatingSide Floating(ImmutableArray<SwapProjection> projections)=>new(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,daily.From,daily.To,fixing,payment,FloatingAveraging.QuantityWeighted,projections,FloatingSide.Implementation);
+            FloatingSide Floating(ImmutableArray<SwapProjection> projections)=>new(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,daily.From,daily.To,Fixings(f.R("index"),quote,projections,fixing),payment,FloatingAveraging.QuantityWeighted,projections,FloatingSide.IndexedImplementation);
             var selected=daily.Projections.Select((p,n)=>p with {AveragingQuantity=new Quantity(ExactDecimal.Parse(n==2?"2":"1"),quote.Quantity)}).ToImmutableArray();
             var instrument=new FinancialSwapInstrument(Guid.NewGuid(),[new(new FixedSide(Guid.NewGuid(),new UnitPrice(default,quote),unit,daily.From,daily.To,payment,FixedSide.Implementation,quote),ExactDecimal.Parse("-1")),new(Floating(selected),ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, false);
             Equal(instrument.Price(daily.Market,new Quantity(ExactDecimal.Parse("4"),quote.Quantity),ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted).Amount.ToString(),"11");
@@ -93,10 +92,10 @@ internal static class SwapChecks
             Reject("swap_averaging",()=>Floating(selected.SetItem(0,selected[0] with {AveragingQuantity=new Quantity(ExactDecimal.Parse("1"),f.R("wrong"))})));
             Reject("swap_averaging",()=>Floating(selected.SetItem(0,selected[0] with {AveragingQuantity=new Quantity(default,quote.Quantity)})));
         });
-        Check("daily averaging rejects unsupported delivery spans before allocating a calendar",()=>Reject("swap_definition",()=>new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,new(2041,1,1),new(2043,1,1),fixing,Fixture.Utc("2043-02-01T00:00:00Z"),FloatingAveraging.CalendarDayArithmetic,[new(new(f.C("base_forward"),contract.Key),contract)],FloatingSide.Implementation)));
+        Check("daily averaging rejects unsupported delivery spans before allocating a calendar",()=>Reject("swap_definition",()=>new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,new(2041,1,1),new(2043,1,1),Fixings(f.R("index"),quote,[new(new(f.C("base_forward"),contract.Key),contract)],fixing),Fixture.Utc("2043-02-01T00:00:00Z"),FloatingAveraging.CalendarDayArithmetic,[new(new(f.C("base_forward"),contract.Key),contract)],FloatingSide.IndexedImplementation)));
         Check("model-owned index contracts and quote definitions cannot be reinterpreted under retained keys",()=>{
             FinancialSwapInstrument With(FloatingSide side)=>new(Guid.NewGuid(),[new(fixedSide,ExactDecimal.Parse("-1")),new(side,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, false);
-            FloatingSide Side(ReferenceKey index,QuoteSpecification q,MarketContract c)=>new(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(index),q,unit,c.DeliveryFrom,c.DeliveryTo,fixing,payment,FloatingAveraging.MonthlyIndexPrice,[new(new(f.C("base_forward"),c.Key),c)],FloatingSide.Implementation);
+            FloatingSide Side(ReferenceKey index,QuoteSpecification q,MarketContract c)=>new(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(index),q,unit,c.DeliveryFrom,c.DeliveryTo,Fixings(index,q,[new(new(f.C("base_forward"),c.Key),c)],fixing),payment,FloatingAveraging.MonthlyIndexPrice,[new(new(f.C("base_forward"),c.Key),c)],FloatingSide.IndexedImplementation);
             Reject("swap_definition",()=>With(Side(f.R("other_index"),quote,contract)).Price(market,unit,ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted));
             Reject("swap_definition",()=>With(Side(f.R("index"),quote with {TradingTick=ExactDecimal.Parse("0.001")},contract)).Price(market,unit,ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted));
             Reject("swap_definition",()=>With(Side(f.R("index"),quote,contract with {Expiry=contract.Expiry.AddDays(1)})).Price(market,unit,ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted));
@@ -104,7 +103,7 @@ internal static class SwapChecks
         });
         Check("negative prices quote scaling and factors above one preserve explicit signed economics",()=>{
             var scaled=quote with {Multiplier=ExactDecimal.Parse("0.01")};var daily=DailyFixture.Create(f,scaled,["-2"]);
-            var floatSide=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),scaled,unit,daily.From,daily.To,fixing,payment,FloatingAveraging.CalendarDayArithmetic,daily.Projections,FloatingSide.Implementation);
+            var floatSide=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),scaled,unit,daily.From,daily.To,Fixings(f.R("index"),scaled,daily.Projections,fixing),payment,FloatingAveraging.CalendarDayArithmetic,daily.Projections,FloatingSide.IndexedImplementation);
             var fixedNegative=new FixedSide(Guid.NewGuid(),new UnitPrice(ExactDecimal.Parse("-3"),PriceUnit.FromQuote(scaled)),unit,daily.From,daily.To,payment,FixedSide.Implementation,scaled);
             FinancialSwapInstrument Make(string sign)=>new(Guid.NewGuid(),[new(fixedNegative,ExactDecimal.Parse(sign)),new(floatSide,ExactDecimal.Parse(sign=="-1"?"1":"-1"))],FinancialSwapInstrument.Implementation, true);
             Equal(Make("-1").Price(daily.Market,new Quantity(ExactDecimal.Parse("100"),quote.Quantity),ExactDecimal.Parse("1.1"),FinancialSwapInstrument.Discounted).Amount.ToString(),"1.1");
@@ -116,7 +115,7 @@ internal static class SwapChecks
             var wide=quote with {Minimum=ExactDecimal.Parse("-999999999999999999999999"),Maximum=ExactDecimal.Parse("999999999999999999999999")};
             var daily=DailyFixture.Create(f,wide,["999999999999999999999999"]);
             var a=new FixedSide(Guid.NewGuid(),new UnitPrice(ExactDecimal.Parse("999999999999999999999998"),wide),unit,daily.From,daily.To,payment,FixedSide.Implementation,quote);
-            var b=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),wide,unit,daily.From,daily.To,fixing,payment,FloatingAveraging.CalendarDayArithmetic,daily.Projections,FloatingSide.Implementation);
+            var b=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),wide,unit,daily.From,daily.To,Fixings(f.R("index"),wide,daily.Projections,fixing),payment,FloatingAveraging.CalendarDayArithmetic,daily.Projections,FloatingSide.IndexedImplementation);
             var instrument=new FinancialSwapInstrument(Guid.NewGuid(),[new(a,ExactDecimal.Parse("-1")),new(b,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, true);
             Equal(instrument.Price(daily.Market,new Quantity(ExactDecimal.Parse("100"),quote.Quantity),ExactDecimal.Parse("0.95"),FinancialSwapInstrument.Discounted).Amount.ToString(),"95");
         });
@@ -124,7 +123,7 @@ internal static class SwapChecks
             var daily=DailyFixture.Create(f,quote,["1","2"]);
             var projections=daily.Projections.Select((p,n)=>p with {AveragingQuantity=new Quantity(ExactDecimal.Parse(n==0?"1":"2"),quote.Quantity)}).ToImmutableArray();
             var a=new FixedSide(Guid.NewGuid(),new UnitPrice(ExactDecimal.Parse("1"),quote),unit,daily.From,daily.To,payment,FixedSide.Implementation,quote);
-            var b=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,daily.From,daily.To,fixing,payment,FloatingAveraging.QuantityWeighted,projections,FloatingSide.Implementation);
+            var b=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,daily.From,daily.To,Fixings(f.R("index"),quote,projections,fixing),payment,FloatingAveraging.QuantityWeighted,projections,FloatingSide.IndexedImplementation);
             var instrument=new FinancialSwapInstrument(Guid.NewGuid(),[new(a,ExactDecimal.Parse("-1")),new(b,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, true);
             Equal(instrument.Price(daily.Market,new Quantity(ExactDecimal.Parse("3"),quote.Quantity),ExactDecimal.Parse("0.5"),FinancialSwapInstrument.Discounted).Amount.ToString(),"1");
             Reject("precision_loss",()=>instrument.Price(daily.Market,unit,ExactDecimal.Parse("1"),FinancialSwapInstrument.Discounted));
@@ -135,14 +134,14 @@ internal static class SwapChecks
             var calendar=new SwapObservationCalendar(f.R("calendar"),DateSet.Create(daily.From,daily.To,[daily.From,daily.From.AddDays(3)]));
             FinancialSwapInstrument Make(FloatingAveraging rule,int n)=>new(Guid.NewGuid(),[
                 new(new FixedSide(Guid.NewGuid(),new UnitPrice(default,quote),unit,from,to,payment,FixedSide.Implementation,quote),ExactDecimal.Parse("-1")),
-                new(new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,from,to,fixing,payment,rule,[daily.Projections[n]],FloatingSide.Implementation,calendar),ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, false);
+                new(new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,from,to,Fixings(f.R("index"),quote,[daily.Projections[n]],fixing),payment,rule,[daily.Projections[n]],FloatingSide.IndexedImplementation,calendar),ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, false);
             Equal(Make(FloatingAveraging.CalendarDaysPrevious,0).Price(daily.Market,unit,ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted).Amount.ToString(),"1");
             Equal(Make(FloatingAveraging.CalendarDaysNext,3).Price(daily.Market,unit,ExactDecimal.Parse("1"),FinancialSwapInstrument.Undiscounted).Amount.ToString(),"4");
         });
         Check("schedule retains rational cash before discounting instead of rounding a repeating payment",()=>{
             var daily=DailyFixture.Create(f,quote,["1","2","2"]);
             var a=new FixedSide(Guid.NewGuid(),new UnitPrice(ExactDecimal.Parse("1"),quote),unit,daily.From,daily.To,payment,FixedSide.Implementation,quote);
-            var b=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,daily.From,daily.To,fixing,payment,FloatingAveraging.CalendarDayArithmetic,daily.Projections,FloatingSide.Implementation);
+            var b=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,unit,daily.From,daily.To,Fixings(f.R("index"),quote,daily.Projections,fixing),payment,FloatingAveraging.CalendarDayArithmetic,daily.Projections,FloatingSide.IndexedImplementation);
             var instrument=new FinancialSwapInstrument(Guid.NewGuid(),[new(a,ExactDecimal.Parse("-1")),new(b,ExactDecimal.Parse("1"))],FinancialSwapInstrument.Implementation, true);
             var context=new SideValuationContext(daily.Market,new ExplicitDiscounting(ExactDecimal.Parse("0.6"),DiscountFactorSource.Explicit));
             var floatValue=(PaymentSideValuation)b.PV(context);var fixedValue=a.PV(context);
@@ -169,7 +168,7 @@ internal sealed record DailyFixture(DateOnly From,DateOnly To,ImmutableArray<Swa
     {
         var from=new DateOnly(2041,1,1);var curve=f.C("daily_index");
         var contracts=prices.Select((_,n)=>new MarketContract(new(f.Revision,Guid.NewGuid()),ContractKind.Forward,from.AddDays(n),from.AddDays(n+1),Fixture.Utc("2041-02-01T00:00:00Z"),null)).ToImmutableArray();
-        var series=contracts.Select(c=>new MarketSeries(new(f.Revision,Guid.NewGuid()),c.Key,quote.Key,null)).ToImmutableArray();
+        var series=contracts.Select(c=>new MarketSeries(new(f.Revision,c.Key.Id),c.Key,quote.Key,null)).ToImmutableArray();
         var definition=new Curve(curve,quote.Key,f.R("location"),f.R("uniform"),new(SettlementKind.Index,f.R("index"),null),CurveRule.Direct,contracts.Select(c=>c.Key).ToImmutableArray(),[],ObservationRole.TraderMark,f.R("source"),null);
         var model=new CurveModel(f.Revision,f.Reference,f.Quantities,[quote],contracts,[definition],[],[],series);
         var snapshot=f.Snapshot() with {Selections=series.Select((s,n)=>new SelectedObservation(new(s.Key,InputUse.Variable),new(new(f.Revision.CatalogId,Guid.NewGuid()),s.Key,f.R("source"),ObservationRole.TraderMark,PublicationState.Final,Fixture.Utc("2040-12-18T00:00:00Z"),ExactDecimal.Parse(prices[n])))).ToImmutableArray()};

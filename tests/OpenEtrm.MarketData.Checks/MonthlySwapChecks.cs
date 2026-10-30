@@ -152,7 +152,7 @@ internal static class MonthlySwapChecks
         Check("monthly actuals are frozen and create no phantom live factors", () =>
         {
             var three = new StripFixture(3);
-            var periods = Enumerable.Range(0,3).Select(n => three.Market.Swap(indexed:true,monthly:true,monthOrdinal:n)).ToArray();
+            var periods = Enumerable.Range(0,3).Select(n => three.Market.Swap(monthly:true,monthOrdinal:n)).ToArray();
             var indexed = new MonthlyFinancialSwap(Guid.NewGuid(),
                 [new(three.Leg(periods.Select(p => (Side)p.Fixed).ToImmutableArray(),MonthlyQuantityBasis.PerMonth),ExactDecimal.Parse("-1")),
                  new(three.Leg(periods.Select(p => (Side)p.Floating).ToImmutableArray(),MonthlyQuantityBasis.PerMonth),ExactDecimal.Parse("1"))],
@@ -228,12 +228,12 @@ internal static class MonthlySwapChecks
     }
     private sealed class BrokenDiscounting : ISideDiscounting
     {
-        public ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule,MarketSnapshot snapshot) => schedule.Payments.Skip(1).Select(p=>
-            new SidePaymentFactor(p.Key,ExactDecimal.Parse("1"),snapshot,DiscountFactorSource.Explicit)).ToImmutableArray();
+        public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot) => payments.Skip(1).Select(p=>
+            new SidePaymentFactor(p,ExactDecimal.Parse("1"),snapshot,DiscountFactorSource.Explicit)).ToImmutableArray();
     }
     private sealed class AlternatingDiscounting : ISideDiscounting
     {
-        public ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot) => schedule.Payments.Select(p =>
-            new SidePaymentFactor(p.Key, ExactDecimal.Parse(p.Key.Ordinal % 2 == 0 ? "1" : "0.5"), snapshot, DiscountFactorSource.Explicit)).ToImmutableArray();
+        public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments, MarketSnapshot snapshot) => payments.Select(p =>
+            new SidePaymentFactor(p, ExactDecimal.Parse(p.Ordinal % 2 == 0 ? "1" : "0.5"), snapshot, DiscountFactorSource.Explicit)).ToImmutableArray();
     }
 }

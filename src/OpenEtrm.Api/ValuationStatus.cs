@@ -8,8 +8,42 @@ namespace OpenEtrm.Api;
 // and lists it; every other failure still fails them.
 static class ValuationStatus
 {
-    public static bool PositionSpecific(string? code)=>code is "source_expired" or "missing_observation";
+    public static bool PositionSpecific(string? code)=>code is "source_expired" or "missing_observation" or "index_fixing_missing";
     public static bool PositionSpecific(MarketDataException error)=>PositionSpecific(error.Code);
+
+    // Qualifies actual base valuations in blocks; the caller owns their exact
+    // market context and resolves a position-specific failure to a held binding.
+    internal static async Task<ImmutableArray<(T Position,string Reason)>> Qualify<T>(ImmutableArray<T> positions,
+        Func<ImmutableArray<T>,Task> value,CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if(positions.IsEmpty)return [];
+        MarketDataException original;
+        try{await value(positions);return [];}
+        catch(MarketDataException error)when(PositionSpecific(error)){original=error;}
+        var excluded=ImmutableArray.CreateBuilder<(T Position,string Reason)>();
+        var kept=ImmutableArray.CreateBuilder<T>();
+        async Task Isolate(ImmutableArray<T> block)
+        {
+            ct.ThrowIfCancellationRequested();
+            try{await value(block);kept.AddRange(block);}
+            catch(MarketDataException error)when(PositionSpecific(error))
+            {
+                if(block.Length==1){excluded.Add((block[0],error.Code));return;}
+                var half=block.Length/2;
+                await Isolate(block[..half]);await Isolate(block[half..]);
+            }
+        }
+        if(positions.Length==1)return [(positions[0],original.Code)];
+        var middle=positions.Length/2;
+        await Isolate(positions[..middle]);await Isolate(positions[middle..]);
+        // A failure that cannot be assigned to one held binding is not an
+        // exclusion. Also verify the remaining bindings together, not only in
+        // isolated blocks, so interactions cannot silently disappear.
+        if(excluded.Count==0)throw original;
+        if(kept.Count!=0)await value(kept.ToImmutable());
+        return excluded.ToImmutable();
+    }
 
     // One build values every request the close can value (D220). Only when it fails for a position-specific reason are the
     // requests that fail alone isolated, against the same snapshot: requests that build are passed in blocks that double in

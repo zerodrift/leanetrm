@@ -1427,10 +1427,50 @@ source access. The migration refuses any existing retained schedules and require
 an explicit rebooking release. It performs no read-time backfill or compatibility
 conversion. See [the storage contract and qualification boundary](../docs/booked-side-programs.md).
 
+## Reference display history
+
+Migration `0130_reference_display_history.sql` adds the read-only
+`security.reference_display_history(uuid,uuid,text,text)` behind a reference
+item's History (D263). It returns `{versions,truncated}`: the item's latest 20
+applied display versions, newest first, each with its version, item, applied time,
+the author's current workspace display name and the fields its edit changed, and
+whether earlier versions exist. A futures product's history includes its
+contracts' label edits. The function re-proves the reference actor after reading,
+returns no versions under a historical context and, in working data, refuses a
+caller holding neither `WriteReferenceData` nor `SealReferenceData`. It writes
+nothing and changes no table. As a new migration it stops automatic hosted
+updates until the operator qualifies a new baseline (D135).
+
+## Risk controls during input loading
+
+Migration `0137_risk_input_load_locks.sql` changes the job-row locks in
+`risk.owned_attempt` and `risk.cancel` to `FOR NO KEY UPDATE`. The attempt-context
+foreign key inserted by `risk.bind` retains a `KEY SHARE` lock until input loading
+commits; heartbeat and cancellation must not wait for that transaction. The new
+locks still serialize state changes and retain all token, authority and result
+publication checks. Claim/recovery locking, worker grants and deadlines remain
+unchanged. `tools/check_risk_jobs_db.py` verifies both controls with the actual
+bound transaction held open, along with stale-token and cancellation-first
+result refusal. This additive migration requires the usual operator-qualified
+schema baseline (D135).
+
+## Worker reads of retained swap quantity intervals
+
+Migration `0138_swap_quantity_worker_read.sql` exposes the existing exact retained
+quantity reader to risk workers through a guarded wrapper. The wrapper checks
+`risk.require_worker_attempt()` before and after reading; the original reader
+retains its trade visibility, exact reference, child provenance and post-read
+authority checks and is no longer directly executable by runtime or worker roles.
+Settlement completion and contract bridges aggregate this reader's interval
+bounds, avoiding a raw per-interval RLS scan. The scheduled fixture checks both
+sides' independent London DST bounds, unbound access, stale and expired leases,
+cancellation and revoked reference authority. This schema addition requires an
+operator-qualified baseline (D135); it changes no worker deadlines.
+
 ## Market dashboard
 
 Migration `0130_dashboard_layouts.sql` stores one Market Dashboard layout per
-account and workspace in `presentation.dashboard_layouts` (D263), with its saves'
+account and workspace in `presentation.dashboard_layouts` (D265), with its saves'
 request replay in `presentation.dashboard_layout_requests`. Both tables force row
 security: `security.dashboard_identity()` admits only the human actor of the
 current request context holding `ReadMarketData`, and each row is visible and
@@ -1440,7 +1480,7 @@ may update a layout in place and only insert requests. As a new migration it sto
 automatic hosted updates until the operator qualifies a new baseline (D135).
 
 Migration `0131_risk_run_definitions.sql` stores saved risk run definitions
-(D264): `risk.run_definitions` owned by one account, immutable
+(D266): `risk.run_definitions` owned by one account, immutable
 `risk.run_definition_versions` (name, preset and `saved_at`, the database clock at
 the save, never a knowledge time), `risk.run_definition_books` with exact foreign
 keys to `trading.books`, and `risk.run_definition_sizes`, one positive size per
@@ -1454,7 +1494,7 @@ delete. As a new migration it stops automatic hosted updates until the operator
 qualifies a new baseline (D135).
 
 Migration `0132_risk_run_knowledge.sql` makes a definition's runs known only
-through certified commit receipts (D265). Deferred constraint triggers publish a
+through certified commit receipts (D267). Deferred constraint triggers publish a
 run's creation, and each of its parts reaching `completed`, `failed` or
 `cancelled`, into `risk.definition_run_publications` at commit under the knowledge
 publication lock (730849102); other risk jobs publish nothing. It wraps

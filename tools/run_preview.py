@@ -16,6 +16,7 @@ from urllib.request import urlopen
 from uuid import uuid4
 from preview_fixture import fixture
 from owned_process import stop_owned_group
+from preview_diagnostics import print_failure_identifiers
 
 ROOT = Path(__file__).resolve().parents[1]
 # The sessions of the 64 a scope keeps that this process leaves free once the page-assistant checks have run: the
@@ -757,6 +758,7 @@ def main():
                 from check_swap_settlement_agents import prepare as prepare_settlement_agent
                 agent_fixture=temporary/'settlement-agent.json'
                 agent_fixture.write_text(json.dumps(prepare_settlement_agent(query,settlement_fixture)))
+                subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--swap-holding-markets',str(agent_fixture)],cwd=ROOT,env=app_env,check=True,timeout=120)
                 subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--swap-settlement-agent',str(agent_fixture)],cwd=ROOT,env=app_env,check=True,timeout=120)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
@@ -1032,6 +1034,9 @@ def main():
         print('Stopping the owned preview.',flush=True)
         if args.check:
             raise
+    except Exception:
+        print_failure_identifiers(temporary/'app.log')
+        raise
     finally:
         if risk_worker_process is not None:
             try:

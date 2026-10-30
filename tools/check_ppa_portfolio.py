@@ -56,7 +56,7 @@ def run_checks(url, query, manifest, dotnet, owned_root, environment):
           "'Synthetic complete-scope check',1,'2020-01-01T00:00:00Z');")
     client = PreviewClient(url); client.bootstrap(); client.call('profile', {'profile': 'trader'})
     frame = next(f for f in client.call('workspace')['frames'] if f['at'].startswith('2020-12-15') and not f.get('ppaBundle'))
-    context = {'snapshotId': frame['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'}
+    context = {'snapshotId': frame['id'], 'convention': 'contract_lot_execution_pnl_v2', 'knowledgeMode': 'current'}
     contract = client.call('futures/catalog', context)['contracts'][0]
     future = client.call('futures/book', {**context, **trade_booking(), 'operationId': str(uuid4()),
         'bookId': book, 'curve': contract['curve'], 'contractId': contract['id'], 'lots': '1', 'executionPrice': '2.9'})

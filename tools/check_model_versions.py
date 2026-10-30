@@ -96,8 +96,15 @@ def command(model, expected):
     return {'operationId': str(uuid4()), 'modelId': model, 'expectedVersion': expected}
 
 
+def check_identifier_policy_cutover(query):
+    old = 'assistant.edit_model(uuid,uuid,integer,integer,text,date,text[],text,date,text,date,text[],text,date,text,date,text,date)'
+    assert query(f"SELECT to_regprocedure('{old}') IS NULL;").strip() == 't', 'Retired fixed-only SQL writer remains executable'
+    assert query("SELECT NOT EXISTS(SELECT 1 FROM pg_attrdef d JOIN pg_attribute a ON(a.attrelid,a.attnum)=(d.adrelid,d.adnum) WHERE a.attrelid='assistant.model_versions'::regclass AND a.attname='identifier_policy');").strip() == 't', 'Identifier policy still has an implicit storage default'
+
+
 def run_checks(query, psql, manifest, environment, admin, viewer, again):
     """`admin` and `again` are two sessions of the preview administrator, `viewer` one of the viewer, shared with the other modules."""
+    check_identifier_policy_cutover(query)
     contexts = Contexts(query, manifest)
     passed = 0
 
@@ -119,7 +126,7 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
     def sql_edit(model_id, expected, efforts="ARRAY['low']", served='ARRAY[]::text[]'):
         source, date = "'https://example.invalid/s'", "'2026-10-01'"
         return (f"assistant.edit_model(gen_random_uuid(),'{model_id}',{expected},64000,{source},{date},{efforts},{source},{date},"
-                f"{source},{date},{served},{source},{date},{source},{date},{source},{date})")
+                f"{source},{date},{served},{source},{date},{source},{date},{source},{date},'fixed')")
 
     for table in ('model_versions', 'mapping_efforts'):
         contexts.runtime('admin', expect(f'PERFORM 1 FROM assistant.{table};', '42501'))
@@ -289,7 +296,7 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
 
     def version_row(**changes):
         values = {'model_id': f"'{capable['id']}'", 'version': '99', 'provider_id': f"(SELECT provider_id FROM assistant.models WHERE id='{capable['id']}')",
-                  'vendor': "'anthropic'", 'mapping': "'messages_v1'", 'output_limit': '64000', 'reasoning_efforts': "ARRAY['low']",
+                  'vendor': "'anthropic'", 'mapping': "'messages_v1'", 'identifier_policy': "'fixed'", 'output_limit': '64000', 'reasoning_efforts': "ARRAY['low']",
                   'accepted_served': 'ARRAY[]::text[]', **{f'{fact}_source': "'https://example.invalid/s'" for fact in COLUMNS},
                   **{f'{fact}_checked_on': "'2026-10-01'" for fact in COLUMNS}, 'recorded_by': f"'{contexts.administrator}'", 'recorded_at': 'now()', **changes}
         return f"INSERT INTO assistant.model_versions({','.join(values)}) VALUES({','.join(values.values())});"

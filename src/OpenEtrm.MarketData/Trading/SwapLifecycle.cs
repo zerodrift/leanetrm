@@ -78,6 +78,10 @@ public sealed class SwapSettlementInputs
     }
     private static bool Covers(SettlementContribution c,int membership,ScheduleRow plan) =>
         c.MembershipOrdinal == membership && c.DeliveryFrom == plan.DeliveryFrom && c.DeliveryTo == plan.DeliveryTo;
+    public ImmutableArray<SchedulePriceTerm> RequiredPrices(SidedInstrument instrument)=>
+        [..Plans(instrument).Where(payment=>!Contributions.Any(contribution=>Covers(contribution,payment.Membership,payment.Plan)))
+            .SelectMany(payment=>payment.Plan.Prices)];
+
     public ImmutableArray<SidePaymentKey> DiscountKeys(SidedInstrument instrument, MarketSnapshot snapshot) =>
         Plans(instrument).Where(p => !Contributions.Any(c => Covers(c,p.Membership,p.Plan)) && p.Plan.PaymentAt > snapshot.ValuationAt)
             .Select(p => p.Plan.Key).Concat(Contributions.Where(c => c.DueAt > snapshot.ValuationAt && c.Outstanding.Numerator != "0").Select(c => c.DiscountKey))
@@ -120,8 +124,6 @@ public sealed class SwapSettlementInputs
             }
             else
             {
-                if (plan.FirstFixingAt is {} boundary && context.Snapshot.ValuationAt >= boundary)
-                    throw Error("swap_fixing_required", "Legacy projection-only payments require qualified final fixing definitions.");
                 var prices = plan.Prices.Select(context.Resolve).ToImmutableArray();
                 final = prices.All(p => p.State is SchedulePriceState.Fixed or SchedulePriceState.Actual);
                 if (plan.PaymentAt <= context.Snapshot.ValuationAt && !final)
