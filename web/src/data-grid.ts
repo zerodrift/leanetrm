@@ -211,33 +211,43 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     restoring={version,place};
     try{await settle(version,place,view,row);}finally{if(restoring?.version===version)restoring=undefined;}
   }
+  // Whether a row is drawn within the grid's viewport.
+  function inView(row:GridRow,view:HTMLElement){const target=row.getElement();if(!target.isConnected)return false;const box=target.getBoundingClientRect(),port=view.getBoundingClientRect();return box.bottom>port.top&&box.top<port.bottom;}
   async function settle(version:number,place:Place,view:HTMLElement|null,row:GridRow|false){
     if(!view||!row)return;
     const away=()=>{const target=row.getElement();return target.isConnected?target.getBoundingClientRect().top-view.getBoundingClientRect().top-place.offset:undefined;};
     // A row already where it was is left alone: scrolling to it would draw the rows again for nothing.
     if(Math.abs(away()??Infinity)<1){lastPlace=capture();return;}
-    // Scrolling rebuilds virtual rows without the table's render events, detaching the open detail and any focus in it.
-    const held=focusedDetail();
-    try{await row.scrollTo('top',false);}catch{return;}finally{restoreDetailFocus(held);}
+    // A person working in the open detail sees the rows where they are: an anchor still in view is near enough, and scrolling would draw
+    // the rows again under them.
+    if(focusedDetail()&&inView(row,view))return;
+    // Scrolling rebuilds virtual rows without the table's render events, detaching the open detail and any focus in it. The focus is put
+    // back only where it was: a key pressed meanwhile has moved it on, and that move stands.
+    const held=focusedDetail(),at=focusVersion;
+    try{await row.scrollTo('top',false);}catch{return;}finally{if(focusVersion===at)restoreDetailFocus(held);}
     // The virtual renderer estimates the heights of rows it has not drawn, so the row is measured where it lands and moved again until it holds.
     for(let tries=0;tries<4&&version===placing&&alive;tries++){
       const delta=away();if(delta===undefined)return;
       if(Math.abs(delta)<1)break;
-      const focused=focusedDetail();view.scrollTop+=delta;await frame();restoreDetailFocus(focused);
+      const focused=focusedDetail(),moved=focusVersion;view.scrollTop+=delta;await frame();if(focusVersion===moved)restoreDetailFocus(focused);
     }
     if(version===placing&&alive)lastPlace=capture();
   }
   // A full redraw rebuilds the virtual renderer's estimates and scrolls to the top: the horizontal place is kept, and the first row in view
   // where it was, as far as the rows drawn at the old scroll offset show it.
   function redraw(place=capture()){
-    const view=holder(),top=view?.scrollTop??0,left=view?.scrollLeft??0;
+    const view=holder(),top=view?.scrollTop??0,left=view?.scrollLeft??0,held=focusedDetail(),at=focusVersion;
     table.redraw(true);
-    if(view){view.scrollTop=top;view.scrollLeft=left;placeNow(place);}
+    if(!view)return;
+    view.scrollTop=top;view.scrollLeft=left;placeNow(place);
+    // The rows are drawn again at the restored offset on its scroll event, which can detach and reattach the open detail.
+    if(held&&view.scrollTop!==0)requestAnimationFrame(()=>requestAnimationFrame(()=>{if(alive&&focusVersion===at)restoreDetailFocus(held);}));
   }
   // Moves the anchor back to its offset at once, when its row is drawn: a later scroll the person or a caller makes must not be undone.
   function placeNow(place:Place){
     placing++;
     const view=holder(),row=place.anchor===null?false:table.getRow(place.anchor),target=row?row.getElement():undefined;
+    if(view&&row&&focusedDetail()&&inView(row,view))return;
     const delta=view&&target?.isConnected?target.getBoundingClientRect().top-view.getBoundingClientRect().top-place.offset:0;
     // Even a fraction of a pixel would scroll, and a scroll draws the virtual rows again, detaching a detail being opened.
     if(Math.abs(delta)>=1)view!.scrollTop+=delta;
@@ -392,7 +402,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     /** Replaces every row with these, by key, keeping the person's place. */
     replaceRows(next:Cells,displayRows:string[][]|undefined,rowKeys:readonly string[]){
       const nextKeys=keysOf(next,rowKeys);
-      return change(async()=>{rows=next;values=texts(next);keys=nextKeys;options={...options,displayRows};drawFilters();report();await replaceAll();});
+      return change(async()=>{values=texts(next);keys=nextKeys;options={...options,displayRows};drawFilters();report();await replaceAll();});
     },
     /** Adds these rows after the others; the rows on screen stay where they are. A grouped grid's rows are replaced, never appended to. */
     appendRows(more:Cells,displayRows:string[][]|undefined,rowKeys:readonly string[]){
@@ -402,7 +412,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
         if(!!options.displayRows!==!!displayRows)throw Error('Added rows must state display text exactly when the table does.');
         const nextKeys=[...keys,...added],from=values.length;
         if(new Set(nextKeys).size!==nextKeys.length)throw Error('Each row of this table needs a key of its own.');
-        rows=[...rows,...more];values=[...values,...texts(more)];keys=nextKeys;options={...options,displayRows:displayRows&&[...options.displayRows!,...displayRows]};
+        values=[...values,...texts(more)];keys=nextKeys;options={...options,displayRows:displayRows&&[...options.displayRows!,...displayRows]};
         drawFilters();report();fitHeight();
         await table.addData(texts(more).map((row,at)=>({...Object.fromEntries(row.map((cell,i)=>[field(i),cell])),__sourceIndex:String(from+at),__key:added[at]})),false);
       });
@@ -415,18 +425,25 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     setVisible(visible:boolean[]){void change(()=>{options={...options,visible};drawFilters();report();lay(given);fit();});},
     /**
      * Takes a later render's rows and options for the grid it already is (gridIdentity): its rows, grouping, visible columns, filters and
-     * layout change in place, and the rows stop being marked stale.
+     * layout change in place, and only once the new rows are in do they stop being marked stale. An update that fails puts the rows it
+     * replaced back and keeps them marked stale with the reason; it never rejects.
      */
     reconfigure(next:Cells,nextOptions:GridOptions){
       const nextKeys=keysOf(next,nextOptions.rowKeys);
       return change(async()=>{
-        const grouped=!!options.group;
-        rows=next;values=texts(next);keys=nextKeys;options=nextOptions;order=options.giveUp??[];
-        if(options.initial){state.query=options.initial.query;state.columns=headers.map((_,i)=>options.initial!.columns[i]??null);search.value=state.query;}
-        drawFilters();report();markStale(null);
-        lay(given);applyLayout(options.layout);
-        await regroup(grouped);
-        fit();
+        const before={values,keys,options,order,query:state.query,columns:state.columns.slice()},grouped=!!options.group;
+        try{
+          values=texts(next);keys=nextKeys;options=nextOptions;order=options.giveUp??[];
+          if(options.initial){state.query=options.initial.query;state.columns=headers.map((_,i)=>options.initial!.columns[i]??null);search.value=state.query;}
+          drawFilters();report();
+          await regroup(grouped);
+          lay(given);applyLayout(options.layout);fit();
+          markStale(null);
+        }catch(error){
+          ({values,keys,options,order}=before);state.query=before.query;state.columns=before.columns;search.value=state.query;drawFilters();report();
+          await regroup(!!nextOptions.group).catch(()=>undefined);
+          markStale(`These rows could not be updated: ${error instanceof Error&&error.message?error.message:'the update failed'}`);
+        }
       });
     },
     /** Selects the row of a key, or none, without reporting it back as the person's selection. */

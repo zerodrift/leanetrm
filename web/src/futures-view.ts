@@ -43,7 +43,12 @@ const earlierFormatLabel='Earlier format · save again';
 const earlierFormatNote=(name:string)=>`Saved view "${name}" is in an earlier format and cannot be applied. Set up the Blotter as you want it and save it again under this name, or delete it.`;
 const curveColumn=deskColumns.findIndex(([key])=>key==='curve'),markColumn=deskColumns.findIndex(([key])=>key==='mark');
 // Under the Risk lens a docked panel takes the grid's width from the shock sizes first, which a row's panel also states, and then its deltas.
-const riskGiveUp=['riskShock','riskDelta'].map(key=>riskColumns.findIndex(([column])=>column===key));
+// The trade rows' own columns under both lenses: one grid holds them all, and the lens shows its own (D222). The Values lens shows the
+// price, mark, value and curve; the Risk lens the shock, its changes and the delta in their place.
+const tradeHead=[...deskColumns,...riskColumns.filter(([key])=>!deskColumns.some(([desk])=>desk===key))];
+const riskOnly=new Set<string>(riskColumns.flatMap(([key])=>deskColumns.some(([desk])=>desk===key)?[]:[key]));
+const valuesOnly=new Set<string>(deskColumns.flatMap(([key])=>riskColumns.some(([risk])=>risk===key)?[]:[key]));
+const riskGiveUp=['riskShock','riskDelta'].map(key=>tradeHead.findIndex(([column])=>column===key));
 // The Risk lens columns, which a saved view never keeps.
 const riskKeys=riskColumns.flatMap(([key])=>key.startsWith('risk')?[key]:[]);
 // What a new read of the Blotter says of the risk run it clears (D222): changing the close, the context or the book scope says so in the
@@ -323,7 +328,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   function captureFilters(){if(!table)return;const state=table.state();view.query=state.query;view.columnFilters=Object.fromEntries(state.columns.flatMap((value,i)=>value===null||transientKeys.has(tableColumns[i])?[]:[[tableColumns[i],value]]));}
   // A view keeps the layout of its own columns: the Risk lens draws others, whose layout it never keeps.
-  function captureLayout(){captureFilters();if(table?.ready()&&!tableColumns.includes('riskShock'))view.grid=withoutColumns(table.layout(),transientKeys);}
+  function captureLayout(){captureFilters();if(table?.ready())view.grid=withoutColumns(table.layout(),transientKeys);}
   function readView():BlotterView{
     captureLayout();const next=structuredClone(view);next.mode=field('blotter-mode').value as BlotterView['mode'];next.sidebar=get<HTMLInputElement>('blotter-sidebar').checked;
     if(get<HTMLSelectElement>('blotter-books').options.length)next.bookIds=selected('blotter-books');
@@ -516,11 +521,21 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function cancelIndividual(){individualController?.abort();individualController=undefined;openingFact=undefined;}
   function cancelRead(){generation++;pricingController?.abort();pricingController=undefined;cancelIndividual();}
   function clear(){clearRead(false);}
+  // A read again keeps on screen what the read before drew, its rows and the desk's tiles, charts and summary, all marked stale with the
+  // reason until the new values land.
+  const staleReason='Reading the Blotter again · these values are from the previous read.';
+  const deskStale=document.createElement('p');deskStale.id='desk-stale-note';deskStale.className='table-stale-note';deskStale.setAttribute('role','status');deskStale.hidden=true;get('desk').prepend(deskStale);
+  // The grid's own mark is cleared by the grid once its new rows are in (`rows:false`).
+  function markStale(reason:string|null,rows=true){
+    if(rows)workspace.stale(reason);
+    for(const id of ['desk','desk-charts','blotter-chart-card','futures-summary'])get(id).classList.toggle('stale',reason!==null);
+    deskStale.textContent=reason??'';deskStale.hidden=reason===null;
+  }
   // Forgets the read on screen. A new read for the same account keeps what the page draws, its rows marked stale, so the read arriving
   // changes the grid in place and the person keeps their place in it; the panel closes as it does for any new read.
   function clearRead(keepGrid:boolean){
     kept=keepGrid&&table&&holdings?{grid:table,keys:holdings.holdings.map(rowKey)}:undefined;
-    if(keepGrid){table?.selectRow(null);table?.detailRow(null,expansion.host);workspace.stale('Reading the Blotter again · these rows are from the previous read.');}
+    if(keepGrid){table?.selectRow(null);table?.detailRow(null,expansion.host);markStale(staleReason);}else markStale(null);
     cancelRead();individual=undefined;factsGrid=undefined;factsLayout=emptyGridLayout();facts=undefined;factsPaging=false;factsMore.hidden=true;get('futures-page').dataset.pricingState='empty';delete get('futures-page').dataset.pricingContext;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';ladderTable=undefined;ladderShown=undefined;inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;text('header-calculation-time','');
     if(!keepGrid){get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');}
     sync();}
@@ -546,7 +561,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const money=(value:string)=>amountText(value,'money'),quantity=(value:string)=>amountText(value,'quantity');
   function render(){
     if(!catalog||!holdings||!summaries)return;
-    kept=undefined;
+    kept=undefined;markStale(null,false);
     const pivot=view.mode==='pivot',colors=commodityColors(holdings.holdings.map(h=>h.commodity.code));
     // Everything the desk shows is selected from the read before anything is drawn, so a read the desk refuses leaves the
     // desk on screen whole, and never new tiles and rows beside the old charts. The tiles summarize the read in both display
@@ -586,10 +601,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(ladderOn())renderLadder(scope);
     else{
       ladderTable=undefined;ladderShown=undefined;
-      // Every other trade column is present, shown when the view chooses it, so a filter on a hidden one stays active. Under the Risk lens
-      // the price, mark, value and curve columns give way to the shock, its changes and the delta (D222).
+      // Every other trade column is present, shown when the view chooses it, so a filter on a hidden one stays active. Both lenses' columns
+      // are present too, and switching the lens shows the other's in place (tradeHead).
       const details=tradeColumns.filter(([key])=>!(deskFields as readonly string[]).includes(key));
-      const head=shown?riskColumns:deskColumns,columns=[...head,...details];
+      const head=tradeHead,columns=[...head,...details];
       tableColumns=columns.map(c=>c[0]);transientKeys=new Set(['curve',...riskKeys]);
       const numeric=tableColumns.flatMap((key,i)=>i>=head.length?(numericFields.includes(key)?[i]:[]):['quantity','executionPrice','mark','presentValue','riskUp','riskDown','riskDelta'].includes(key)?[i]:[]);
       const lenses=shown?held.map((h,i)=>lensRow(shown,h,rows[i])):undefined;
@@ -597,19 +612,19 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       const single=(i:number)=>lenses?.[i].state==='shocks'&&lenses[i].shocks.length===1?lenses[i].shocks[0]:undefined;
       const lensWords=(i:number)=>{const lens=lenses![i];return lens.state==='left'?'Left out':lens.state==='unmoved'?'Not moved':lens.state==='unknown'?'Not known'
         :lens.shocks.length>1?`${lens.shocks.length} shocks`:`±${lens.shocks[0].bump} ${lens.shocks[0].unit}`;};
-      const values=rows.map((row,i)=>shown?[row.reference,row.market,row.quantity??'',lensWords(i),single(i)?.up??'',single(i)?.down??'',single(i)?.delta??'',...details.map(([key])=>fields[i][key]??'')]
-        :[row.reference,row.market,row.quantity??'',row.price??'',row.mark??'',row.value??'','',...details.map(([key])=>fields[i][key]??'')]);
+      const values=rows.map((row,i)=>[row.reference,row.market,row.quantity??'',row.price??'',row.mark??'',row.value??'','',
+        ...(shown?[lensWords(i),single(i)?.up??'',single(i)?.down??'',single(i)?.delta??'']:['','','','']),...details.map(([key])=>fields[i][key]??'')]);
       const headers=new Map(groups?.headers.map(h=>[h.key,h])??[]);
       const cells=deskCells(rows,colors,{money:(i,value)=>formats[i].money(value),quantity:(i,value)=>formats[i].quantity(value),price:(i,value)=>formats[i].price(value),mark:(i,value)=>formats[i].mark(value),
         factor:(i,value)=>formats[i].factor(value)},i=>shapeOf(held[i]),tableColumns,lenses&&(i=>lenses[i]));
       // How many of a book's, or an instrument type's, positions the run leaves out, by the book and instrument type the run names for each.
       const leftOut=(key:string)=>shown?shown.excluded.filter(e=>view.rowGroup==='book'?e.bookId===key:view.rowGroup==='instrumentType'?e.instrumentType===key:false).length:0;
       table=workspace.update('desk-positions',scope+':trades',columns.map(c=>c[1]),values,numeric,busy,{
-        keys:tableColumns,rowKeys:held.map(rowKey),cells,searchText:rows.map((row,i)=>shown?`${row.words} ${lensWords(i)}`:row.words),visual:shown?[]:[curveColumn],giveUp:dockedGiveUp(),rowHeight:46,stretch:true,
-        visible:columns.map(([key],i)=>i<head.length||view.columns.includes(key)),
-        // The Risk lens keeps the widths of the columns it shares with the view, and is laid out afresh: a saved view never keeps it.
-        layout:shown?{order:riskColumns.map(([key])=>key),widths:view.grid.widths,sort:view.grid.sort.filter(s=>riskColumns.some(([key])=>key===s.key))}:view.grid,
-        onLayout:layout=>{if(!shown)view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
+        keys:tableColumns,rowKeys:held.map(rowKey),cells,searchText:rows.map((row,i)=>shown?`${row.words} ${lensWords(i)}`:row.words),visual:[curveColumn],giveUp:dockedGiveUp(),rowHeight:46,stretch:true,
+        visible:columns.map(([key],i)=>riskOnly.has(key)?!!shown:valuesOnly.has(key)?!shown:i<head.length||view.columns.includes(key)),
+        // The Risk lens's columns follow the position's size; a saved view never keeps them (transientKeys).
+        layout:{...view.grid,order:view.grid.order.flatMap(key=>key==='quantity'?[key,...riskOnly]:[key])},
+        onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
         group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>shown?riskGroupHeader(headers.get(key)!,count,leftOut(key)):groupHeader(headers.get(key)!,count,money)}:undefined,
         initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
         onRowOpen:index=>{if(holdings){void deskPanel.open(index,undefined,false);return;}const at=facts?.positions.findIndex(fact=>rowKey(fact)===rowKey(held[index]))??-1;if(at>=0)void openFact(at);},onRowDoubleOpen:index=>{const h=held[index];popout({...h,revision:Number(h.revision),instrumentType:h.instrumentType as PositionFact['instrumentType']});}});
@@ -752,6 +767,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   function renderFacts(message?:string){
     if(!facts)return;
+    markStale(null);
     const failed=get('futures-page').dataset.pricingState==='failed',value=failed?'Unavailable':'Pending',note=failed?'Refresh to retry valuation':'Complete selected scope is being valued';
     message??=failed?'Values and totals unavailable. Refresh to retry':'Values and totals pending';
     get('desk').hidden=false;get('desk-charts').hidden=true;get('blotter-chart-card').hidden=true;

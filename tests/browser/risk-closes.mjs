@@ -76,8 +76,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('a position only that part could move is not known, and no position is said to be not moved',
     `${JSON.stringify(notMoved)}.startsWith('0 of ')&&${JSON.stringify(notKnown)}.startsWith(${JSON.stringify(`${unknown.length} of `)})&&${unknown.length}>0`,JSON.stringify([notMoved,notKnown,unknown]));
   await set('#blotter-filters .table-search',unknown[0]);await wait("[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length).length===1");
-  await check('its row says not known, with the part and why',`document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c3]').textContent===${JSON.stringify(`Not known${name} is missing from the job history`)}`,
-    "document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c3]').textContent");
+  await check('its row says not known, with the part and why',`document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c7]').textContent===${JSON.stringify(`Not known${name} is missing from the job history`)}`,
+    "document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c7]').textContent");
   await set('#blotter-filters .table-search','');await wait(idle);
   const known=parts.filter((_,index)=>index!==dropped).reduce((count,part)=>count+part.shocks,0);
   await check('the run states only how many of its shocks are known, never fewer shocks than it ran',

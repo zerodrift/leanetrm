@@ -1,13 +1,28 @@
 // The Blotter's grid is built once and changed in place: the trader's place in it, the first row in view and the selected row, survives
-// a change of grouping, columns, sort, filters, a new read and the window's width. A selection the filters hide is cleared and said so,
-// and the grid does not jump to its top.
-export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){
+// a change of grouping, columns, sort, filters, a new read, the window's width and the lens. A selection the filters hide is cleared and
+// said so, and the grid does not jump to its top. While the Blotter is read again, everything it keeps on screen is marked stale.
+export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
   const frames='new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))';
   const width=1440,height=1050;
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});await wait(idle);
+  // A grid changed in place stays marked stale until its new rows are in, and an update that fails keeps the mark with its reason.
+  await evaluate(`(async()=>{const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js');const host=document.createElement('div');host.id='stale-grid';document.body.append(host);
+    const options={keys:['position'],rowKeys:['a','b'],layout:emptyGridLayout(),onLayout(){}};
+    window.__staleGrid=renderDataGrid(host,'stale','synthetic',['Position'],[['Synthetic A'],['Synthetic B']],[],()=>false,options);window.__staleOptions=options;})()`);
+  await wait('window.__staleGrid.ready()');
+  await check('a grid being updated stays marked stale until its new rows are in, and is then current',`(async()=>{const g=window.__staleGrid,grid=document.querySelector('#stale-grid .standard-data-grid');g.markStale('Synthetic read under way');
+    const done=g.reconfigure([['Synthetic C']],{...window.__staleOptions,rowKeys:['c']}),during=grid.classList.contains('stale');await done;
+    return during&&!grid.classList.contains('stale')&&document.querySelector('#stale-grid .table-stale-note').hidden&&document.querySelector('#stale-grid .tabulator-row').textContent.includes('Synthetic C');})()`);
+  await check('an update that fails keeps the rows marked stale and says why',`(async()=>{const g=window.__staleGrid,grid=document.querySelector('#stale-grid .standard-data-grid');g.markStale('Synthetic read under way');
+    await g.reconfigure([['Synthetic D']],{...window.__staleOptions,rowKeys:['d'],layout:{get order(){throw Error('Synthetic layout failure');},widths:{},sort:[]}});
+    const note=document.querySelector('#stale-grid .table-stale-note');return grid.classList.contains('stale')&&!note.hidden&&note.textContent.includes('Synthetic layout failure');})()`,
+    "document.querySelector('#stale-grid .table-stale-note').textContent");
+  await evaluate("window.__staleGrid.destroy();document.querySelector('#stale-grid').remove();delete window.__staleGrid;delete window.__staleOptions");
   // The positions of the last read, by row key, and where the grid's rows are drawn within its viewport.
   await evaluate(`(()=>{const send=window.fetch;window.__placeOriginalFetch=send;window.fetch=async(input,init)=>{
+    // A held read, released by the scenario, shows what is on screen while the Blotter is read again.
+    if(String(input)==='/api/trading/workspace'&&window.__placeHold){window.__placeHold=false;await new Promise(resolve=>{window.__placeRelease=resolve;});}
     const response=await send(input,init);
     if(String(input)==='/api/trading/workspace'&&response.ok){const data=await response.clone().json();window.__placeHoldings=new Map(data.blotter.holdings.map(h=>[h.tradeId+':'+h.bindingId,h]));}
     return response;
@@ -21,7 +36,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   };
  })()`);
   try{
-    await persona('trader');
+    // The Risk Analyst can read the Blotter and run risk, whose results turn the lens.
+    await persona('risk');
     const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&!f.originCloseId).id;})()");
     await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
     await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`);
@@ -67,9 +83,32 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
       return {label:column[0],value};})()`);
     const keeping=await numericFilter('(a,b)=>[">= "+(Number(a)<Number(b)?a:b),"<= "+(Number(a)<Number(b)?b:a)]');
     await kept(`filtering ${keeping.label} ${keeping.value}`,()=>set(`#desk-positions input[aria-label="Filter ${keeping.label}"]`,keeping.value));
-    await kept('reading the Blotter again',()=>click('#futures-refresh'));
+    // What a read again keeps on screen is marked stale, with the reason, until the new values land.
+    const staleParts="['#desk-positions .standard-data-grid','#desk','#desk-charts','#futures-summary'].map(s=>document.querySelector(s)).filter(n=>n&&!n.hidden)";
+    await kept('reading the Blotter again',async()=>{
+      await evaluate("window.__placeHold=true;document.querySelector('#futures-refresh').click()");await wait("typeof window.__placeRelease==='function'");
+      await check('while the Blotter is read again, its rows, tiles, charts and summary stay on screen marked stale, each with the reason',
+        `(()=>{const parts=${staleParts},notes=[...document.querySelectorAll('#desk-positions .table-stale-note,#desk-stale-note')];return parts.length===4&&parts.every(n=>n.classList.contains('stale'))&&notes.length===2&&notes.every(n=>!n.hidden&&n.getClientRects().length>0&&n.textContent.includes('previous read'));})()`,
+        `({parts:${staleParts}.map(n=>[n.id||n.className,n.classList.contains('stale')]),notes:[...document.querySelectorAll('#desk-positions .table-stale-note,#desk-stale-note')].map(n=>[n.hidden,n.textContent])})`);
+      await evaluate('window.__placeRelease();window.__placeRelease=undefined');
+      await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
+      await check('once the new values land, nothing is marked stale',`(()=>${staleParts}.every(n=>!n.classList.contains('stale'))&&[...document.querySelectorAll('#desk-positions .table-stale-note,#desk-stale-note')].every(n=>n.hidden))()`);
+    });
     await kept(`narrowing the window to 1200 px`,()=>command('Emulation.setDeviceMetricsOverride',{width:1200,height,deviceScaleFactor:1,mobile:false}));
     await kept(`widening it to ${width} px again`,()=>command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false}));
+    // A risk run's results turn the lens to Risk; Values and Risk then switch in place, the same grid showing the other lens's columns.
+    await click('#blotter-risk');await wait("document.querySelector('#side-panel').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
+    await click('input[name=risk-choice][value=held]');
+    const sizes=await evaluate("document.querySelectorAll('#risk-sizes input').length");
+    for(let index=0;index<sizes;index++)await set(`#risk-size-${index}`,'0.05');
+    const lens=name=>`(()=>{const bar=document.querySelector('#desk-run');return !bar.hidden&&document.querySelector('#desk-lens [data-lens=${name}]')?.getAttribute('aria-pressed')==='true';})()`;
+    await kept('a risk run turning the lens to Risk',async()=>{await submit('#risk-form',60000);await wait(lens('risk')+'&&'+idle,60000);});
+    const columnShown=title=>`[...document.querySelectorAll('#desk-positions .tabulator-col')].some(c=>c.style.display!=='none'&&c.textContent.trim()===${JSON.stringify(title)})`;
+    // A docked risk report takes the shock's column first when the columns do not fit, so the changes are what the lens always shows.
+    await check('the Risk lens shows the changes in place of the values',`${columnShown('Up')}&&${columnShown('Down')}&&!${columnShown('Mark')}&&!${columnShown('Value')}`);
+    await kept('switching to the Values lens',async()=>{await click('#desk-lens [data-lens=values]');await wait(lens('values')+'&&'+idle);});
+    await check('the Values lens shows the values in place of the changes',`${columnShown('Value')}&&!${columnShown('Up')}&&!${columnShown('Shock')}`);
+    await kept('switching back to the Risk lens',async()=>{await click('#desk-lens [data-lens=risk]');await wait(lens('risk')+'&&'+idle);});
     const leaving=await numericFilter('(a,b)=>["!= "+b]');
     await set(`#desk-positions input[aria-label="Filter ${leaving.label}"]`,leaving.value);await wait(idle);await evaluate(frames);
     const cleared="(()=>{const s=window.__place.state(),note=document.querySelector('#desk-positions .table-open-note');return s.probe==='kept'&&s.selected===null&&!note.hidden&&note.textContent.includes('no longer shown')&&s.scroll>0;})()";
