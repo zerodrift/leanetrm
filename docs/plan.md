@@ -45,6 +45,12 @@ an immutable program artifact and adds an authorized direct loader. Migration
 0129 requires explicit rebooking. Production input adapters and switching booked
 pricing to that loader remain separate integration steps; this checkpoint alone
 does not remove the existing read-time valuation preparation.
+The next managed source checkpoint binds stored columns to the existing dated,
+native quantity/price and discount resolvers under an exact graph context. Its
+API metadata decoder resolves qualified fixing publication times without Side
+terms. Sibling composition, partial coverage, complete receipts, production
+input concurrency and the booked portfolio/worker cutover remain separate work;
+the source checks do not establish readiness for that deployment.
 
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.

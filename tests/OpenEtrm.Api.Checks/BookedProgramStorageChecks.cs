@@ -14,13 +14,15 @@ internal static class BookedProgramStorageChecks
         var entries=fixture.RootElement.GetProperty("instruments").EnumerateArray().ToArray();
         if(entries.Length<2)throw new Exception("Direct loading requires independently booked instruments and shared sides.");
         var families=new HashSet<string>(StringComparer.Ordinal);
+        foreach(var entry in entries)
         await database.WithIdentity("trader","ReadTrades",async(connection,ct)=>
         {
             var store=new RetainedScheduleStore(database);
-            foreach(var entry in entries)
             {
                 var context=entry.GetProperty("contextId").GetGuid();
                 var at=entry.GetProperty("asOf").GetDateTimeOffset();
+                var selectedContext=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,context,ct)).Context;
+                await PinnedContext.Retained(selectedContext).Bind(connection,database.Manifest.CatalogId,ct);
                 var programs=await store.LoadPrograms(connection,entry.GetProperty("instrumentId").GetGuid(),context,at,ct);
                 var expected=entry.GetProperty("sides").EnumerateArray().ToArray();
                 if(programs.Length!=expected.Length)throw new Exception("A direct read lost an instrument membership.");
@@ -32,6 +34,24 @@ internal static class BookedProgramStorageChecks
                         loaded.Identity.ScheduleManifest!=document.ScheduleManifest)
                         throw new Exception("Direct loading must retain exact published bytes, side membership and operation addresses.");
                     families.Add(document.Family);
+                    if(document.Instructions.Any(instruction=>instruction.Output is{Operation:"price_lookup",Grid:null}))
+                    {
+                        var revision=document.Instructions.SelectMany(instruction=>instruction.Bindings).First(binding=>binding.Port=="market").Market!.Value.Curve.Revision;
+                        var reference=document.Instructions[document.Roots.Single(root=>root.Name=="pv").Row].Output.Currency!.Value.Revision;
+                        var data=await database.Read(connection,ct,observationIds:[],
+                            ppaBundle:new(revision.RevisionId,reference.CatalogId,reference.RevisionId));
+                        var lookups=BookedScheduleLookups.Dated(data,loaded.Program);
+                        if(lookups.IsEmpty||lookups.Any(lookup=>lookup.Contract.Kind!=ContractKind.Forward))
+                            throw new Exception("Direct dated sources must resolve exact forward metadata without loading Side terms.");
+                        foreach(var lookup in lookups.Where(value=>value.Fixing is not null))
+                        {
+                            var fixing=lookup.Fixing!;
+                            var definition=data.Definitions["index_fixing_observations"].Single(row=>row.Text("index_code")==lookup.Index.Code&&
+                                row.Id("series_id")==fixing.Series.Id&&row.Text("source_code")==fixing.Source.Code);
+                            if(fixing.FixingAt!=definition.Instant("fixing_at"))
+                                throw new Exception("A stored lookup must use its exact qualified publication timestamp.");
+                        }
+                    }
                     if(entry.TryGetProperty("minimumPayments",out var payments)&&
                         document.Instructions.Count(instruction=>instruction.Output.Operation=="output_guard")<payments.GetInt32())
                         throw new Exception("A directly loaded whole-term Side must retain all independently dated payments.");
