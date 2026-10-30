@@ -65,7 +65,7 @@ def unpack(artifact, destination, repository, commit, run_id, run_attempt, maxim
             names.add(entry.name)
             total += entry.size + 512
             limit = maximum_bytes if entry.name == 'image.tar' else min(maximum_bytes, 1024 * 1024)
-            require(0 <= entry.size <= limit and total <= maximum_bytes and len(names) <= 133, 'release expansion limit exceeded')
+            require(0 <= entry.size <= limit and total <= maximum_bytes and len(names) <= 144, 'release expansion limit exceeded')
             target = destination / entry.name
             target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             with target.open('xb') as output:

@@ -35,7 +35,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D13 | Typed values and controlled precision | Money, price, quantity, units, rounding and numerical policy are distinct contracts |
 | D14 | Futures and fixed/floating linear products are the initial product scope | Futures settlement/variation-margin semantics are required; options/optimization remain later breadth |
 | D15 | Sides own schedule generation and PV behavior | Each side computes its contribution from its schedule; instruments combine schedules and valuations |
-| D16 | An option side can reference sibling sides | Explicit context-bound dependencies preserve a flat instrument-side topology |
+| D16 | Instruments own connections between independent sides | Clarified by the owner on 2026-10-30: sides expose named outputs and accept typed inputs; only the instrument retains and resolves connections. A side has no peer reference or resolver. This also governs future option inputs; exercise accounting remains separately specified |
 | D17 | Physical and financial sides can form a composite | Delivery terms/activity and financial settlement remain separately modeled |
 | D18 | Lifecycle is a core design concern | Amendments, due events and expiry must have explicit retained transitions |
 | D19 | Portfolio contains books; book contains trades | Business ownership and aggregation follow this hierarchy |
@@ -1392,6 +1392,25 @@ they take no settlement selection.
   behaviour.
 
 ## D258 — Persist each booked side's complete schedule
+
+Owner clarification (2026-10-30): connections exist only on the instrument.
+Independent Side programs expose named outputs and consume typed input columns;
+they neither identify nor resolve other Sides. The instrument retains exact
+member/output/input mappings, validates geometry, units and cycles, and supplies
+resolved values with context and scenario evidence. Historical “sibling” wording
+does not authorize side-to-side references. The current stored port labels are
+not instructions to infer connections from member roles. This clarifies D16 and
+the D258 execution boundary; it does not claim the live cutover is complete.
+
+The local managed assembly projects PPA execution metadata from existing typed
+instrument/member records, under the retained-program authority boundary. It
+retains currency, normalization, delivery, direction and discount policy without
+reconstructing Side terms. PostgreSQL reads retained facts; C# validates and
+assembles the executable instrument. No new economic metadata copy is introduced.
+Swap metadata preserves exact relative sizing and factor conversion; retained
+period allocations are checked against sealed literals. PPA and swap publication
+verification runs inside booking transactions. Live valuation integration remains
+unqualified.
 
 Status: decided by the owner (2026-10-28). Local implementation and qualification
 are in progress. Refines D253, whose

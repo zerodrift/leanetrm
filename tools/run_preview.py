@@ -531,7 +531,7 @@ def main():
                 run_stage_checks(query,manifest)
                 booked_program_instruments,before_programs=run_temporal_checks(url,query,manifest)
                 from check_booked_side_programs import run_direct_read_checks,run_authority_checks,book_native_programs
-                booked_program_instruments+=book_native_programs(url,manifest)
+                booked_program_instruments+=book_native_programs(url,manifest,query)
                 booked_program_items=run_direct_read_checks(query,manifest,temporary,dotnet,app_env,booked_program_instruments,
                     ('fixed','floating','power','certificate','capacity'))
                 run_authority_checks(query,manifest,booked_program_items[0],before_programs)

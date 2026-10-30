@@ -25,7 +25,7 @@ public sealed partial class ScheduleMarketSources
         }).ToArray();
         return AssetVolumes.Compute(definition,asset,stage,periods,forecast,meter,volumeContext!,energy);
     }
-    private ScheduleNumber Capacity(BookedSideInstruction instruction,ScheduleDefinitionGrid? grid,int cell)
+    private (ScheduleNumber Value,ScheduleCapacityEvidence Evidence) Capacity(BookedSideInstruction instruction,ScheduleDefinitionGrid? grid,int cell)
     {
         RequireNative(grid);var row=instruction.Output;var binding=instruction.Bindings.Single();
         if(!reference!.Assets.TryGetValue(new(binding.Definitions!.Value,binding.Code!),out var asset)||asset.Clock!=grid!.Clock||asset.CapacityQuantity.Key!=row.Unit)
@@ -42,6 +42,6 @@ public sealed partial class ScheduleMarketSources
             (interval.Start!=asset.OperatingClock.StartOfDay(interval.OperatingDate).ToUniversalTime()||
              interval.End!=asset.OperatingClock.StartOfDay(interval.OperatingDate.AddDays(1)).ToUniversalTime()))
             throw Invalid("Accredited capacity requires a whole operating day.");
-        return ScheduleNumber.Parse(capacity.ToString());
+        return (ScheduleNumber.Parse(capacity.ToString()),new(asset.Key,version,interval,row.Parameters["measure"]));
     }
 }

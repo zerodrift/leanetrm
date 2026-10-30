@@ -23,7 +23,69 @@ internal static class BookedProgramStorageChecks
                 var at=entry.GetProperty("asOf").GetDateTimeOffset();
                 var selectedContext=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,context,ct)).Context;
                 await PinnedContext.Retained(selectedContext).Bind(connection,database.Manifest.CatalogId,ct);
-                var programs=await store.LoadPrograms(connection,entry.GetProperty("instrumentId").GetGuid(),context,at,ct);
+                var retained=await store.LoadInstrumentPrograms(connection,entry.GetProperty("instrumentId").GetGuid(),context,at,ct);
+                var programs=retained.Members;
+                if(entry.GetProperty("native").GetBoolean())
+                {
+                    var native=await store.LoadPpaInstrumentPrograms(connection,entry.GetProperty("instrumentId").GetGuid(),context,at,ct);
+                    if(!native.Execution.Members.Select(member=>member.SideId).SequenceEqual(retained.Members.Select(member=>member.SideId))||
+                        native.Members.Any(member=>member.Coefficient is not (-1 or 1))||native.Delivery.From>=native.Delivery.To||
+                        native.Members.Any(member=>member.Normalization.Basis!=native.UnitQuantity))
+                        throw new Exception("Native executable assembly must retain exact signed membership, delivery and normalization without Side terms.");
+                    if(entry.TryGetProperty("expectedMetadata",out var wantedMetadata))
+                    {
+                        var delivery=wantedMetadata.GetProperty("delivery");
+                        if(native.Currency.Code!=wantedMetadata.GetProperty("currency").GetString()||
+                            native.UnitQuantity.Code!=wantedMetadata.GetProperty("unitQuantity").GetString()||
+                            native.Discounting!=wantedMetadata.GetProperty("discounting").GetBoolean()||
+                            native.Delivery.Clock.Code!=delivery.GetProperty("clock").GetString()||
+                            native.Delivery.IntervalMinutes!=delivery.GetProperty("intervalMinutes").GetInt32()||
+                            native.Delivery.From!=delivery.GetProperty("from").Deserialize<DateOnly>()||
+                            native.Delivery.To!=delivery.GetProperty("to").Deserialize<DateOnly>()||
+                            !native.Members.Select(member=>member.Coefficient).SequenceEqual(wantedMetadata.GetProperty("members").EnumerateArray().Select(member=>member.GetProperty("coefficient").GetInt32())))
+                            throw new Exception("Executable PPA metadata must reproduce the independent booking inputs exactly.");
+                    }
+                }
+
+                if(!entry.GetProperty("native").GetBoolean())
+                {
+                    var swap=await store.LoadSwapInstrumentPrograms(connection,entry.GetProperty("instrumentId").GetGuid(),context,at,ct);
+                    var ratio=entry.TryGetProperty("secondRatio",out var expectedRatio)?expectedRatio.GetString():"1/1";
+                    if(swap.Members.Length!=2||swap.Members[0].Coefficient!=-1||swap.Members[1].Coefficient!=1||
+                        swap.Members[0].QuantityRatio!=OpenEtrm.Shared.Numerics.ExactRatio.One||
+                        $"{swap.Members[1].QuantityRatio.Numerator}/{swap.Members[1].QuantityRatio.Denominator}"!=ratio||
+                        !swap.Members.Select(member=>member.Program.SideId).SequenceEqual(programs.Select(member=>member.SideId)))
+                        throw new Exception("Stored swap membership must preserve exact directions, native sizes and program identities.");
+                    if(entry.TryGetProperty("factorValue",out var expectedFactor))
+                    {
+                        if(swap.Factor is not {} factor||factor.Value.ToString()!=expectedFactor.GetString()||swap.FactorId is null||
+                            swap.Members[0].UnitQuantity.Code!=entry.GetProperty("firstUnit").GetString()||
+                            swap.Members[1].UnitQuantity.Code!=entry.GetProperty("secondUnit").GetString()||
+                            factor.DenominatorQuantity.Code!=entry.GetProperty("factorDenominator").GetString()||
+                            factor.NumeratorQuantity.Code!=entry.GetProperty("factorNumerator").GetString())
+                            throw new Exception("A stored factor swap must retain its explicit typed factor and different native units.");
+                    }
+                    else if(swap.Factor is not null||swap.FactorId is not null)throw new Exception("An ordinary swap must not infer a quantity factor.");
+                }
+                foreach(var member in programs)
+                foreach(var instruction in member.Program.Document.Instructions.Where(instruction=>instruction.Bindings.Any(binding=>binding.Kind=="sibling_quantity")))
+                {
+                    var grid=member.Program.Document.Grids[instruction.Output.Grid!.Value];
+                    var connections=retained.Connections.Where(link=>link.InputSide==member.SideId&&link.InputInstruction==instruction.Output.Ordinal).ToArray();
+                    if(!connections.SelectMany(link=>link.InputCells).Order().SequenceEqual(Enumerable.Range(0,grid.CellCount)))
+                        throw new Exception("The direct loader must retain every input cell exactly once without rebuilding the schedule.");
+                    foreach(var link in connections)
+                    {
+                        var source=programs.Single(program=>program.SideId==link.OutputSide).Program.Document;
+                        var root=source.Roots.Single(root=>root.Name==link.Output&&root.Measure=="schedule_quantity");
+                        var row=source.Instructions[root.Row].Output;var sourceGrid=source.Grids[row.Grid!.Value];
+                        if(row.Unit!=instruction.Output.Unit||grid.Clock!=sourceGrid.Clock||link.InputCells.Length!=link.OutputCells.Length||
+                            link.InputCells.Where((cell,n)=>grid.Interval(cell)!=sourceGrid.Interval(link.OutputCells[n])).Any())
+                            throw new Exception("Saved instrument mappings must preserve independently inspected exact units and cell geometry.");
+                    }
+                }
+                if(retained.Connections.Any(link=>!programs.Any(member=>member.SideId==link.InputSide)||!programs.Any(member=>member.SideId==link.OutputSide)))
+                    throw new Exception("A connection cannot escape its exact instrument membership.");
                 var expected=entry.GetProperty("sides").EnumerateArray().ToArray();
                 if(programs.Length!=expected.Length)throw new Exception("A direct read lost an instrument membership.");
                 for(var slot=0;slot<programs.Length;slot++)

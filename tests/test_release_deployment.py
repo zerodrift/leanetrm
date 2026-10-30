@@ -64,21 +64,21 @@ class BundleChecks(unittest.TestCase):
         self.assertEqual(manifest['commit'], COMMIT)
         self.assertEqual((self.destination / 'image.tar').read_bytes(), b'owned synthetic image')
 
-    def test_bundle_with_129_migrations_and_four_release_files_is_admitted(self):
-        entries = release_entries(migration_count=129)
-        self.assertEqual(len(entries), 133)
+    def test_bundle_with_140_migrations_and_four_release_files_is_admitted(self):
+        entries = release_entries(migration_count=140)
+        self.assertEqual(len(entries), 144)
         manifest = self.unpack(entries)
-        self.assertEqual(len(manifest['files']), 132)
+        self.assertEqual(len(manifest['files']), 143)
         for name, value in entries:
             self.assertEqual((self.destination / name).read_bytes(), value)
 
-    def test_134th_regular_file_is_refused_before_its_body_is_written(self):
-        entries = release_entries(migration_count=130)
-        self.assertEqual(len(entries), 134)
+    def test_145th_regular_file_is_refused_before_its_body_is_written(self):
+        entries = release_entries(migration_count=141)
+        self.assertEqual(len(entries), 145)
         with self.assertRaisesRegex(bundle.ReleaseError, 'expansion limit'):
             self.unpack(entries)
         self.assertFalse((self.destination / entries[-1][0]).exists())
-        self.assertEqual(sum(path.is_file() for path in self.destination.rglob('*')), 133)
+        self.assertEqual(sum(path.is_file() for path in self.destination.rglob('*')), 144)
 
     def test_rejects_traversal_links_duplicates_and_unlisted_files(self):
         for extra in [('../escape', b'x'), ('/escape', b'x'), ('image.tar', b'x'),

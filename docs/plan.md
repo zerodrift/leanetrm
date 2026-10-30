@@ -48,9 +48,17 @@ does not remove the existing read-time valuation preparation.
 The next managed source checkpoint binds stored columns to the existing dated,
 native quantity/price and discount resolvers under an exact graph context. Its
 API metadata decoder resolves qualified fixing publication times without Side
-terms. Sibling composition, partial coverage, complete receipts, production
-input concurrency and the booked portfolio/worker cutover remain separate work;
-the source checks do not establish readiness for that deployment.
+terms. Native contribution coverage and managed instrument-owned quantity connections
+now have focused execution checks. Booking-time cell mappings and their authorized
+direct loader are implemented under migration 0139, with explicit rebooking
+required. PPA booking verifies sealed identities against persisted members before
+commit. PPA and swap execution metadata load directly from typed headers,
+including exact factor/native-unit conversion and period-allocation checks.
+Migration 0140 applies booking-time publication identity checks to swaps.
+In-memory source receipts and bounded dated custom-output scenarios have managed
+checks. Durable receipts, production input concurrency, broader custom-output
+integration and the booked portfolio/worker cutover remain work; these checks do
+not establish readiness for that deployment.
 
 D261 adds a bounded daily-observation consumer of exact dated futures contracts
 to scheduled swaps. Booking materializes selection results; later sampling retains

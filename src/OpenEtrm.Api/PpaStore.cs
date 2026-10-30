@@ -102,6 +102,30 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         await Authority(connection,[data.ReferenceRevision.CatalogId],ct);
         return new(data.DefinitionRevision,data.ReferenceRevision,instrument);
     }
+    internal static object BookingCommand(InputFrame frame,PpaWriteRequest request,string action)=>
+        new{action,request.SnapshotId,request.TradeId,request.ExpectedRevision,request.BookId,valuationAt=frame.At,effectiveAt=frame.At,boundaryAt=request.BoundaryAt,
+            request.CoverageFrom,request.CoverageTo,request.Quantity,request.Reason,request.Memo,request.Booking,request.Terms};
+
+    // Booking alone compares the persisted terms with the executable identity.
+    // This is deliberately outside every valuation and risk read path.
+    internal async Task VerifyPublishedPrograms(NpgsqlConnection connection,InputFrame frame,Guid operation,Guid instrument,CancellationToken ct)
+    {
+        var envelope=await StoredTerms(connection,instrument,ct);
+        var input=envelope.GetProperty("terms").Deserialize<PpaTermsInput>(Json)!;
+        var ids=envelope.GetProperty("sideIds").EnumerateArray().ToDictionary(
+            row=>new SideSlot(PpaCompiler.Role(row.Text("role")),row.GetProperty("ordinal").GetInt32()),row=>row.Id("sideId"));
+        var data=await Definitions(connection,frame,false,ct);
+        var actual=PpaCompiler.Compile(data,input,await products.Read(connection,ct),
+            await PpaCompiler.ReadQuantityTypes(connection,data,input,ct),instrument,ids);
+        var programs=new List<RetainedPublicationIdentity>();
+        await using(var command=ScheduleStore.Command(connection,
+            "SELECT * FROM security.read_ppa_publication_identities($1,$2,$3)",Catalog,operation,instrument))
+        await using(var reader=await command.ExecuteReaderAsync(ct))
+            while(await reader.ReadAsync(ct))programs.Add(new(reader.GetInt32(0),reader.GetGuid(1),reader.GetString(2),reader.GetString(3)));
+        RetainedSchedulePublication.Require(actual.Sides.Select(member=>member.Side).ToArray(),programs);
+        await Authority(connection,[actual.Reference.CatalogId],ct);
+    }
+
     internal async Task<object> Save(NpgsqlConnection connection,InputFrame frame,PpaWriteRequest request,string action,CancellationToken ct)
     {
         if(action!="terminated")
@@ -112,8 +136,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         }
         else if(request.Terms is not null || request.Quantity is not null || request.CoverageFrom is not null || request.CoverageTo is not null)
             throw PpaCompiler.Error("ppa_amendment","Termination carries no replacement terms or quantity.");
-        var payload=JsonSerializer.Serialize(new{action,request.SnapshotId,request.TradeId,request.ExpectedRevision,request.BookId,valuationAt=frame.At,effectiveAt=frame.At,boundaryAt=request.BoundaryAt,
-            request.CoverageFrom,request.CoverageTo,request.Quantity,request.Reason,request.Memo,request.Booking,request.Terms},Json);
+        var payload=JsonSerializer.Serialize(BookingCommand(frame,request,action),Json);
         await using var command=ScheduleStore.Command(connection,"SELECT security.save_ppa_booking($1,$2,$3::jsonb)::text",Catalog,request.OperationId,payload);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }

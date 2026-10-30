@@ -149,8 +149,9 @@ holds references and contract terms only, never node values.
 The reusable program's identity includes the side's economic identity, exact
 definition and reference revisions (including clock, TOU and shape definitions),
 declared input-port shapes and execution version. The instrument's retained
-composition binds those ports to its sibling sides at booking; it does not make
-the reusable Side specific to that instrument. Value reuse additionally requires
+composition connects those ports to explicitly named outputs of its members at
+booking. The Side receives values only, with no peer reference or resolver; its
+reusable program remains independent of the instrument. Value reuse additionally requires
 the resolved port mappings, coverage and full context/scenario. Requested
 coverage is an evaluation input, not a reason to rebuild the schedule.
 

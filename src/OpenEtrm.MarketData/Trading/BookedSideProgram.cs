@@ -44,7 +44,12 @@ public sealed partial class BookedSideProgram
         };
     }
     public BookedSideProgramDocument Document { get; }
-    private BookedSideProgram(BookedSideProgramDocument document)=>Document=document;
+    public BookedSideProgramIdentity Identity { get; }
+    private BookedSideProgram(BookedSideProgramDocument document,string? digest=null)
+    {
+        Document=document;
+        Identity=new(digest??Digest(Write()),document.ScheduleManifest,document.Family,document.EconomicIdentity,document.PricingBindingIdentity);
+    }
 
     public static BookedSideProgram Compile(ScheduleDefinition definition)
     {
@@ -107,7 +112,7 @@ public sealed partial class BookedSideProgram
             throw Error("The executable schedule does not belong to the selected published side and pricing bindings.");
         try{Validate(document);}
         catch(MarketDataException error)when(error.Code!="side_schedule_program"){throw Error(error.Message);}
-        return new(document);
+        return new(document,expected.ContentDigest);
     }
 
     // Checks the stored addresses in place. It neither constructs edges nor

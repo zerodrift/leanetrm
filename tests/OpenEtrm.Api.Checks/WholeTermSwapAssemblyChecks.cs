@@ -9,6 +9,8 @@ internal static class WholeTermSwapAssemblyChecks
     internal static void Run()
     {
         RequireSettlementChoice();
+        FactorMapping();
+        PeriodAllocations();
         var revision=new ReferenceRevision(Guid.NewGuid(),Guid.NewGuid());
         ReferenceKey R(string code)=>new(revision,code);
         var one=ExactDecimal.Parse("1");
@@ -54,6 +56,7 @@ internal static class WholeTermSwapAssemblyChecks
         }
         catch(MarketDataException error)when(error.Code=="swap_definition"){}
         var side=SwapScheduledAssembly.Fixed(Guid.NewGuid(),periods,[new(1,3),new(2,3)]);
+        CheckPublication(side,floatingSide,quote);
         var schedule=side.GenerateDatedSchedule();
         if(schedule.Payments.Length!=2 || side.Periods.Length!=2 || side.Price.At(first).ToUnitPriceExact().Value.ToString()!="40" ||
             side.Price.At(second).ToUnitPriceExact().Value.ToString()!="50" || schedule.Payments[0].AllocatedQuantity.Numerator!="1" ||
@@ -63,6 +66,68 @@ internal static class WholeTermSwapAssemblyChecks
         catch(MarketDataException error)when(error.Code=="scheduled_quantity")
         {Console.WriteLine("PASS whole-term swap assembly: direct period parameters, stepped agreed prices and exact allocations");return;}
         throw new Exception("Missing period allocations must be refused before assembling a side.");
+    }
+    private static void PeriodAllocations()
+    {
+        var first=new DateOnly(2048,1,1);var middle=first.AddMonths(1);var end=middle.AddMonths(1);
+        ImmutableArray<RetainedSwapPeriod> a=[new(0,first,middle,new(1,3)),new(1,middle,end,new(2,3))];
+        ImmutableArray<RetainedSwapPeriod> independent=[new(0,first,end,ExactRatio.One)];
+        // Ordinary schedules can differ, but their monthly periods remain explicit.
+        var b=a.SetItem(0,a[0] with{Allocation=new(1,2)}).SetItem(1,a[1] with{Allocation=new(1,2)});
+        RetainedScheduleStore.RequirePeriodAllocations(a,b,false);
+        RetainedScheduleStore.RequirePeriodAllocations(a,a,true);
+        void Refuse(ImmutableArray<RetainedSwapPeriod> left,ImmutableArray<RetainedSwapPeriod> right,bool factor)
+        {
+            try{RetainedScheduleStore.RequirePeriodAllocations(left,right,factor);}
+            catch(MarketDataException error)when(error.Code=="instrument_program_metadata"){return;}
+            throw new Exception("Stored allocations must refuse malformed periods and incompatible factor distributions.");
+        }
+        Refuse(a,b,true);Refuse(a,independent,false);
+        Refuse(a,a.SetItem(1,a[1] with{Ordinal=2}),false);
+        Refuse(a,a.SetItem(1,a[1] with{Allocation=new(1,3)}),false);
+        Refuse(a,a.SetItem(1,a[1] with{From=end,To=end.AddMonths(1)}),false);
+        Refuse(a,[a[0]],false);Refuse(a,[],false);
+    }
+    private static void FactorMapping()
+    {
+        var revision=new ReferenceRevision(Guid.NewGuid(),Guid.NewGuid());
+        ReferenceKey R(string code)=>new(revision,code);
+        var converter=new UnitConverter([
+            new(R("mwh"),R("energy"),"MWh"),new(R("kwh"),R("energy"),"kWh"),
+            new(R("mmbtu"),R("energy"),"MMBtu"),new(R("therm"),R("energy"),"therm")],
+            [new(R("mwh"),R("kwh"),ExactDecimal.Parse("1000"),ExactDecimal.Parse("1")),
+             new(R("mmbtu"),R("therm"),ExactDecimal.Parse("10"),ExactDecimal.Parse("1"))],
+            [new(R("power_mwh"),R("power"),R("electrical"),R("mwh"),R("energy")),
+             new(R("power_kwh"),R("power"),R("electrical"),R("kwh"),R("energy")),
+             new(R("gas_mmbtu"),R("gas"),R("thermal"),R("mmbtu"),R("energy")),
+             new(R("gas_therm"),R("gas"),R("thermal"),R("therm"),R("energy"))]);
+        var factor=new QuantityFactor(ExactDecimal.Parse("0.075"),R("gas_therm"),R("power_kwh"),QuantityFactor.Implementation);
+        RetainedScheduleStore.RequireFactorMapping(factor,R("power_mwh"),R("gas_mmbtu"),new(15,2),converter);
+        try{RetainedScheduleStore.RequireFactorMapping(factor,R("power_mwh"),R("gas_mmbtu"),new(3,40),converter);}
+        catch(MarketDataException error)when(error.Code=="instrument_program_metadata"){return;}
+        throw new Exception("A factor expressed in other units must refuse an unconverted stored native ratio.");
+    }
+    private static void CheckPublication(FixedSide side,FloatingSide floating,QuoteSpecification quote)
+    {
+        RetainedPublicationIdentity Stored(Side value,int slot)
+        {
+            var program=BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(value));var d=program.Document;
+            return new(slot,value.Id,d.EconomicIdentity,d.PricingBindingIdentity);
+        }
+        var fixedProgram=Stored(side,0);var floatingProgram=Stored(floating,1);
+        RetainedSchedulePublication.Require([side,floating],[fixedProgram,floatingProgram]);
+        void Refuses(Side[] members,RetainedPublicationIdentity[] programs)
+        {
+            try{RetainedSchedulePublication.Require(members,programs);}
+            catch(MarketDataException error)when(error.Code=="side_schedule_identity"){return;}
+            throw new Exception("Publication must refuse wrong membership, same-family economics and pricing bindings.");
+        }
+        var different=new FixedSide(side.Id,new FlatPrice(new(ExactDecimal.Parse("99"),side.Price.Unit)),quote,side.UnitQuantity,side.Periods);
+        Refuses([different,floating],[fixedProgram,floatingProgram]);
+        Refuses([side,floating],[fixedProgram]);
+        Refuses([side,floating],[floatingProgram with{Slot=0},fixedProgram with{Slot=1}]);
+        Refuses([side,floating],[fixedProgram with{SideId=Guid.NewGuid()},floatingProgram]);
+        Refuses([side,floating],[fixedProgram,floatingProgram with{PricingBindingIdentity="different exact pricing binding"}]);
     }
     private static void RequireSettlementChoice()
     {

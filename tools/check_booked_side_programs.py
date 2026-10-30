@@ -97,10 +97,71 @@ def run_direct_read_checks(query,manifest,root,dotnet,environment,instruments,re
             FROM trading.instrument_side_schedules m JOIN trading.side_schedule_programs p
              ON(p.catalog_id,p.schedule_id)=(m.catalog_id,m.schedule_id)
             WHERE(m.catalog_id,m.instrument_id)=('{catalog}','{identifier}');"""))
-        items.append({**entry,'contextId':selected,'knownAt':known,'sides':sides})
+        native=query(f"SELECT EXISTS(SELECT 1 FROM trading.ppa_instruments WHERE(catalog_id,instrument_id)=('{catalog}','{identifier}')); ")=='t'
+        if not native:
+            operation=query(f"SELECT operation_id FROM trading.swap_trade_revisions WHERE(catalog_id,instrument_id)=('{catalog}','{identifier}') ORDER BY revision LIMIT 1;")
+            wrong_command=f"ALTER TABLE trading.side_schedule_requests DISABLE TRIGGER immutable_record;UPDATE trading.side_schedule_requests SET command_hash=sha256(convert_to('synthetic different swap booking','UTF8')) WHERE(catalog_id,request_id)=('{catalog}','{operation}');"
+            refusal=f"DO $$BEGIN PERFORM security.publish_side_schedules('{catalog}','{operation}','{identifier}');RAISE EXCEPTION 'Expected swap command binding refusal';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'side_schedule_command' THEN RAISE;END IF;END$$;"
+            runtime_query(query,manifest,refusal,prefix=wrong_command,commit=False)
+            read=f"PERFORM security.read_swap_publication('{catalog}','{operation}','{identifier}')"
+            def denied_swap(statement,code='42501',message=None):
+                exact='' if message is None else f"IF SQLERRM<>'{message}' THEN RAISE;END IF;"
+                return f"DO $$BEGIN {statement};RAISE EXCEPTION 'Expected swap publication refusal';EXCEPTION WHEN SQLSTATE '{code}' THEN {exact} END$$;"
+            runtime_query(query,manifest,denied_swap(read),profile='viewer')
+            for permission in ('ReadTrades','BookTrade'):
+                runtime_query(query,manifest,denied_swap(read),prefix=f"DELETE FROM security.role_permissions WHERE permission='{permission}';",commit=False)
+            runtime_query(query,manifest,denied_swap(read),prefix=f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{manifest['referenceCatalogId']}';",commit=False)
+            runtime_query(query,manifest,denied_swap(read,'P0001','side_schedule_command'),prefix=wrong_command,commit=False)
+            runtime_query(query,manifest,denied_swap(read.replace(identifier,'00000000-0000-0000-0000-000000000001'),'P0001','side_schedule_command'))
+            runtime_query(query,manifest,f"SELECT security.use_market_context('{catalog}','{selected}');"+denied_swap(read))
+            query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{denied_swap(read)}ROLLBACK;")
+
+        if native:
+            statement=f"SELECT security.read_ppa_program_metadata('{catalog}','{identifier}','{selected}','{at}')::text;"
+            metadata=json.loads(runtime_query(query,manifest,statement))
+            assert metadata['implementation']=='ppa_instrument_v2'
+            operation=query(f"SELECT operation_id FROM trading.ppa_trade_revisions r JOIN trading.ppa_revision_bindings b ON(b.catalog_id,b.trade_id,b.revision)=(r.catalog_id,r.trade_id,r.revision) WHERE(b.catalog_id,b.instrument_id)=('{catalog}','{identifier}') ORDER BY r.revision LIMIT 1;")
+            wrong_command=f"ALTER TABLE trading.side_schedule_requests DISABLE TRIGGER immutable_record;UPDATE trading.side_schedule_requests SET command_hash=sha256(convert_to('synthetic different booking','UTF8')) WHERE(catalog_id,request_id)=('{catalog}','{operation}');"
+            refusal=f"DO $$BEGIN PERFORM security.publish_side_schedules('{catalog}','{operation}','{identifier}');RAISE EXCEPTION 'Expected command binding refusal';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'side_schedule_command' THEN RAISE;END IF;END$$;"
+            runtime_query(query,manifest,refusal,prefix=wrong_command,commit=False)
+            identities=f"SELECT * FROM security.read_ppa_publication_identities('{catalog}','{operation}','{identifier}');"
+            assert runtime_query(query,manifest,identities), 'Booking authority reads complete sealed member identities'
+            def denied_identity(statement,code='42501',message=None):
+                exact='' if message is None else f"IF SQLERRM<>'{message}' THEN RAISE;END IF;"
+                return f"DO $$BEGIN {statement};RAISE EXCEPTION 'Expected publication identity refusal';EXCEPTION WHEN SQLSTATE '{code}' THEN {exact} END$$;"
+            read_identity=f"PERFORM security.read_ppa_publication_identities('{catalog}','{operation}','{identifier}')"
+            runtime_query(query,manifest,denied_identity(read_identity),profile='viewer')
+            for permission in ('ReadTrades','BookTrade'):
+                runtime_query(query,manifest,denied_identity(read_identity),prefix=f"DELETE FROM security.role_permissions WHERE permission='{permission}';",commit=False)
+            wrong_actor=f"ALTER TABLE trading.side_schedule_requests DISABLE TRIGGER immutable_record;UPDATE trading.side_schedule_requests r SET actor_id=(SELECT id FROM security.principals WHERE id<>r.actor_id ORDER BY id LIMIT 1) WHERE(catalog_id,request_id)=('{catalog}','{operation}');"
+            runtime_query(query,manifest,denied_identity(read_identity),prefix=wrong_actor,commit=False)
+            runtime_query(query,manifest,f"SELECT security.use_market_context('{catalog}','{selected}');"+denied_identity(read_identity))
+            withdrawal=f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{manifest['referenceCatalogId']}';"
+            runtime_query(query,manifest,denied_identity(read_identity),prefix=withdrawal,commit=False)
+            runtime_query(query,manifest,denied_identity(read_identity,'P0001','side_schedule_command'),prefix=wrong_command,commit=False)
+            wrong_instrument=read_identity.replace(identifier,'00000000-0000-0000-0000-000000000001')
+            runtime_query(query,manifest,denied_identity(wrong_instrument,'P0001','side_schedule_command'))
+            query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{denied_identity(read_identity)}ROLLBACK;")
+            assert query("SELECT has_function_privilege('openetrm_runtime','security.publish_admitted_side_schedules(uuid,uuid,uuid)','EXECUTE');")=='f'
+
+            if 'expectedMetadata' in entry:
+                wanted=entry['expectedMetadata']
+                assert metadata['currency']==wanted['currency'] and metadata['unitQuantity']==wanted['unitQuantity']
+                assert metadata['discounting']==wanted['discounting']
+                assert metadata['clock']==wanted['delivery']['clock'] and metadata['intervalMinutes']==wanted['delivery']['intervalMinutes']
+                assert metadata['deliveryFrom']==wanted['delivery']['from'] and metadata['deliveryTo']==wanted['delivery']['to']
+                assert [{key:m[key] for key in ('role','ordinal','coefficient')} for m in metadata['members']]==wanted['members']
+            assert [m['sideId'] for m in metadata['members']]==[m['sideId'] for m in sides]
+            assert all(m['coefficient'] in (-1,1) for m in metadata['members'])
+            assert all(m['normalizationPolicy'] in ('contract_unit_v1','sum_capacity_in_force_v1') for m in metadata['members'])
+            if any(m['assets'] for m in metadata['members']):
+                corruption=f"ALTER TABLE trading.ppa_instrument_assets DISABLE TRIGGER immutable_record;DELETE FROM trading.ppa_instrument_assets WHERE(catalog_id,instrument_id)=('{catalog}','{identifier}');"
+                refusal=f"DO $$BEGIN PERFORM security.read_ppa_program_metadata('{catalog}','{identifier}','{selected}','{at}');RAISE EXCEPTION 'Expected normalization mismatch';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'ppa_normalization' THEN RAISE;END IF;END$$;"
+                runtime_query(query,manifest,refusal,prefix=corruption,commit=False)
+        items.append({**entry,'contextId':selected,'knownAt':known,'sides':sides,'native':native})
     fixture=root/'booked-programs.json'
     fixture.write_text(json.dumps(dict(instruments=items,requiredFamilies=list(required_families))))
-    signatures=['read_side_schedule_header(uuid,uuid,uuid,uuid,uuid,timestamp with time zone)',
+    signatures=['read_ppa_terms(uuid,uuid)','read_side_schedule_header(uuid,uuid,uuid,uuid,uuid,timestamp with time zone)',
                 *[f'read_side_schedule_{part}(uuid,uuid,uuid,uuid,uuid,timestamp with time zone,integer,integer)'
                   for part in ('grids','rows','edges','bindings','roots','ports')]]
     functions=','.join('security.'+signature for signature in signatures)
@@ -113,7 +174,7 @@ def run_direct_read_checks(query,manifest,root,dotnet,environment,instruments,re
     return items
 
 
-def book_native_programs(url,manifest):
+def book_native_programs(url,manifest,query):
     from copy import deepcopy
     from uuid import uuid4
     from benchmark_ppa_http import terms,midnight,instant
@@ -148,11 +209,28 @@ def book_native_programs(url,manifest):
             coverageFrom=instant(midnight(selected['delivery']['from'],zone)),
             coverageTo=instant(midnight(selected['delivery']['to'],zone)),quantity='80',reason='Synthetic executable schedule qualification',
             memo='',booking=trade_booking(),terms=deepcopy(selected))
+        if not items:
+            signature='security.read_ppa_publication_identities(uuid,uuid,uuid)'
+            original=query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+            fragment='RETURN QUERY SELECT item.slot,item.side_id,item.economic_identity,item.pricing_binding_identity;'
+            assert fragment in original
+            corrupted=original.replace(fragment,"RETURN QUERY SELECT item.slot,item.side_id,item.economic_identity||'synthetic mismatch',item.pricing_binding_identity;")
+            before=query("SELECT count(*) FROM trading.ppa_trade_revisions;")
+            try:
+                query(corrupted)
+                refusal=client.call('ppa/book',body,expected=422)
+                assert refusal['code']=='side_schedule_identity'
+                assert query("SELECT count(*) FROM trading.ppa_trade_revisions;")==before, 'Identity refusal must roll back the new trade revision'
+                assert query(f"SELECT count(*) FROM trading.ppa_trade_revisions WHERE operation_id='{body['operationId']}';")=='0'
+            finally:
+                query(original)
         result=client.call('ppa/book',body)
         assert client.call('ppa/book',body)==result, 'Native schedule booking must return its first exact retry outcome'
         assert len(result['bindings'])==1, 'Each storage fixture books one explicit instrument binding'
         instrument=result['bindings'][0]['instrumentId']
-        items.append(dict(instrumentId=instrument,asOf=frame['at']))
+        items.append(dict(instrumentId=instrument,asOf=frame['at'],expectedMetadata=dict(
+            delivery=selected['delivery'],currency=selected['currency'],unitQuantity=selected['unitQuantity'],
+            discounting=selected['discounting'],members=[dict(role=m['role'],ordinal=m['ordinal'],coefficient=int(m['coefficient'])) for m in selected['memberships']])))
     return items
 
 
@@ -172,6 +250,17 @@ def run_authority_checks(query,manifest,entry,before_context):
         AND NOT EXISTS(SELECT 1 FROM trading.side_schedule_publications v WHERE(v.catalog_id,v.schedule_id)=(p.catalog_id,p.schedule_id))
         ORDER BY p.schedule_id LIMIT 1;""")
     assert unpublished, 'Visibility qualification requires a complete sealed unpublished program'
+    # Normal history excludes a revision without its committed knowledge receipt;
+    # booking-time publication reads are independently exercised before commit by HTTP.
+    normal=f"SELECT count(*) FROM trading.swap_revision_rows('{catalog}',NULL) r WHERE r->>'instrument_id'='{instrument}';"
+    history_bind=f"SELECT security.use_market_context('{catalog}','{selected}');SELECT security.use_trading_context('{catalog}','{at}');"
+    assert runtime_query(query,manifest,history_bind+normal)!='0'
+    missing_receipt=f"ALTER TABLE trading.knowledge_receipts DISABLE TRIGGER ALL;DELETE FROM trading.knowledge_receipts WHERE(catalog_id,publication_order) IN(SELECT catalog_id,publication_order FROM trading.swap_trade_revisions WHERE(catalog_id,instrument_id)=('{catalog}','{instrument}'));"
+    assert runtime_query(query,manifest,history_bind+normal,prefix=missing_receipt,commit=False)=='0'
+    assert runtime_query(query,manifest,f"SELECT security.use_market_context('{catalog}','{before_context}');SELECT security.use_trading_context('{catalog}','{at}');"+normal)=='0'
+    for function in ('trading.swap_revision_terms(uuid,uuid,integer)','trading.swap_revision_rows(uuid,uuid,integer)','trading.swap_observation_terms(uuid,uuid[])'):
+        assert query(f"SELECT prosecdef FROM pg_proc WHERE oid='{function}'::regprocedure;")=='f'
+    assert query("SELECT has_function_privilege('openetrm_runtime','security.swap_publication_authority(uuid,uuid,uuid)','EXECUTE');")=='f'
     published=entry['sides'][0]['scheduleId']
     bind=f"SELECT security.use_market_context('{catalog}','{selected}');SELECT security.use_trading_context('{catalog}','{at}');"
     visibility=f"SELECT jsonb_build_array((SELECT count(*) FROM trading.side_schedule_programs WHERE schedule_id='{published}'),(SELECT count(*) FROM trading.side_schedule_programs WHERE schedule_id='{unpublished}'));"
@@ -183,6 +272,64 @@ def run_authority_checks(query,manifest,entry,before_context):
     floor=f"SELECT trading.record_history_boundary('{catalog}','{uuid4()}','{selected}');"
     runtime_query(query,manifest,refused(read(context=before_context),'P0001','trading_history_archived'),prefix=floor,commit=False)
     query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{refused(read())}ROLLBACK;")
+    def cells(identifier=instrument,context=selected):
+        return f"PERFORM security.read_instrument_schedule_cells('{catalog}','{identifier}','{context}','{at}')"
+    for identifier in (instrument,str(uuid4())):
+        runtime_query(query,manifest,refused(cells(identifier)),profile='viewer')
+    runtime_query(query,manifest,refused(f"PERFORM security.read_instrument_schedule_cells('{catalog}','{instrument}',NULL,NULL)"))
+    runtime_query(query,manifest,refused(cells(context=before_context)))
+    runtime_query(query,manifest,refused(cells()),prefix=withdrawal,commit=False)
+    runtime_query(query,manifest,refused(cells(context=before_context),'P0001','trading_history_archived'),prefix=floor,commit=False)
+    query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{refused(cells())}ROLLBACK;")
+    def metadata(identifier=instrument,context=selected):
+        return f"PERFORM security.read_ppa_program_metadata('{catalog}','{identifier}','{context}','{at}')"
+    for identifier in (instrument,str(uuid4())):
+        runtime_query(query,manifest,refused(metadata(identifier)),profile='viewer')
+    runtime_query(query,manifest,refused(f"PERFORM security.read_ppa_program_metadata('{catalog}','{instrument}',NULL,NULL)"))
+    runtime_query(query,manifest,refused(metadata(context=before_context)))
+    runtime_query(query,manifest,refused(metadata()),prefix=withdrawal,commit=False)
+    runtime_query(query,manifest,refused(metadata(context=before_context),'P0001','trading_history_archived'),prefix=floor,commit=False)
+    query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{refused(metadata())}ROLLBACK;")
+    def swap_metadata(identifier=instrument,context=selected):
+        return f"PERFORM security.read_swap_program_metadata('{catalog}','{identifier}','{context}','{at}')"
+    for identifier in (instrument,str(uuid4())):
+        runtime_query(query,manifest,refused(swap_metadata(identifier)),profile='viewer')
+    runtime_query(query,manifest,refused(f"PERFORM security.read_swap_program_metadata('{catalog}','{instrument}',NULL,NULL)"))
+    runtime_query(query,manifest,refused(swap_metadata(context=before_context)))
+    runtime_query(query,manifest,refused(swap_metadata()),prefix=withdrawal,commit=False)
+    runtime_query(query,manifest,refused(swap_metadata(context=before_context),'P0001','trading_history_archived'),prefix=floor,commit=False)
+    query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{refused(swap_metadata())}ROLLBACK;")
+    assert query("SELECT has_function_privilege('openetrm_runtime','security.seal_side_schedule_ports(uuid,uuid,jsonb)','EXECUTE');")=='f', 'The pre-mapping seal cannot bypass executable connection admission'
+    assert query("SELECT count(*) FROM trading.instrument_schedule_cell_seals WHERE mapping_count=0;")!='0', 'Independent sides still require an explicit empty composition marker'
+    assert query("SELECT count(*) FROM trading.side_schedule_request_seals r LEFT JOIN trading.instrument_schedule_cell_seals c USING(catalog_id,request_id) WHERE c.request_id IS NULL;")=='0', 'Every sealed request must retain executable connection admission'
+    mapping_count=query('SELECT count(*) FROM trading.instrument_schedule_cells;')
+    query("DO $$BEGIN BEGIN UPDATE trading.instrument_schedule_cells SET input_cells=input_cells; RAISE EXCEPTION 'Accepted immutable mapping update'; EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'instrument_schedule_immutable' THEN RAISE;END IF;END;END$$;")
+    for mutation in ('DELETE FROM trading.instrument_schedule_cells',
+                     'INSERT INTO trading.instrument_schedule_cells SELECT * FROM trading.instrument_schedule_cells LIMIT 1'):
+        query("DO $$BEGIN BEGIN "+mutation+"; RAISE EXCEPTION 'Accepted immutable mapping mutation'; EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'instrument_schedule_immutable' THEN RAISE;END IF;END;END$$;")
+    composition_request=query(f"SELECT request_id FROM trading.instrument_schedule_compositions WHERE(catalog_id,instrument_id)=('{catalog}','{instrument}');")
+    # Simulate an internal publisher omitting the required marker. This entire
+    # corruption probe is rolled back in the owned synthetic database.
+    query(f"""BEGIN;
+        ALTER TABLE trading.instrument_schedule_cell_seals DISABLE TRIGGER immutable_record;
+        ALTER TABLE trading.instrument_schedule_compositions DISABLE TRIGGER immutable_record;
+        DELETE FROM trading.instrument_schedule_cell_seals WHERE(catalog_id,request_id)=('{catalog}','{composition_request}');
+        DELETE FROM trading.instrument_schedule_compositions WHERE(catalog_id,instrument_id)=('{catalog}','{instrument}');
+        DO $$BEGIN BEGIN
+          INSERT INTO trading.instrument_schedule_compositions VALUES('{catalog}','{instrument}','{composition_request}');
+          SET CONSTRAINTS ALL IMMEDIATE;
+          RAISE EXCEPTION 'Published without executable connection marker';
+        EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'instrument_schedule_missing' THEN RAISE;END IF;END;END$$;
+        ROLLBACK;""")
+    for name,code in (('0139_instrument_schedule_cells.sql','instrument_schedule_rebooking_required'),
+                      ('0140_swap_program_admission.sql','swap_program_rebooking_required')):
+        migration=Path(__file__).resolve().parents[1]/'db/migrations'/name
+        try:
+            query(migration.read_text())
+        except RuntimeError as error:
+            if code not in str(error):raise
+        else:raise AssertionError('An existing sealed request must require explicit rebooking at the program cutover')
+    assert query('SELECT count(*) FROM trading.instrument_schedule_cells;')==mapping_count, 'Refused installation must preserve existing connections'
     before=query('SELECT count(*) FROM trading.side_schedule_programs;')
     migration=Path(__file__).resolve().parents[1]/'db/migrations/0129_booked_side_programs.sql'
     try:
@@ -192,7 +339,7 @@ def run_authority_checks(query,manifest,entry,before_context):
     else:
         raise AssertionError('Installing the executable format over retained schedules must require explicit rebooking')
     assert query('SELECT count(*) FROM trading.side_schedule_programs;')==before, 'A refused installation must retain every existing program'
-    print('PASS booked program authority: hidden/unknown scope, pre-publication knowledge, revoked source, archive floor and unclaimed worker refuse',flush=True)
+    print('PASS booked programs and instrument mappings: scoped reads, history, revoked source, worker claims, immutable retries and mandatory publication markers',flush=True)
 
 
 def run_schema_checks(query):
