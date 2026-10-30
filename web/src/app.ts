@@ -44,7 +44,7 @@ import {pageReport,webPage,type PageState,type PageContext,type Place} from './a
 import {readPages,type Target,type TargetContext} from './assistant-events.js';
 import {readCurveShapes} from './curve-shapes.js';
 import type {CurveShape} from './desk-model.js';
-import {commodityDot,librarySparkline,marketBoard,renderBoard,shapeReads} from './market-board.js';
+import {commodityIcon,librarySparkline,marketBoard,renderBoard,shapeReads} from './market-board.js';
 import {renderTile} from './tiles.js';
 import {kindBadge} from './curve-kinds.js';
 import {panelPlacement} from './side-panel.js';
@@ -113,7 +113,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
+  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
 }
 function renderWorkspaceMode(){
   const historical=!!historicalContext();
@@ -391,8 +391,8 @@ function renderBrowse(){
   const owner=directory();
   $('curves').replaceChildren(...groups.map(group=>{const section=el('details'),key=prefs.browseBy+'|'+group.key;section.className='curve-group';section.open=!prefs.collapsedCurveGroups.includes(key);section.append(el('summary',group.name));
     section.ontoggle=()=>{if(!section.isConnected||navigation!==owner)return;const closed=prefs.collapsedCurveGroups.includes(key);if(closed===!section.open)return;prefs.collapsedCurveGroups=section.open?prefs.collapsedCurveGroups.filter(k=>k!==key):[...prefs.collapsedCurveGroups,key].slice(-64);persist();};
-    // The kind badge, name and type are the row's text; the commodity dot and the curve's sparkline beside them are decorative.
-    group.cards.forEach(c=>{const button=el('button'),line=librarySparkline(c);button.className='curve-button'+(c.curve===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.curve===curve));button.append(commodityDot(c),kindBadge(c.curveKind),el('span',c.name),el('small',c.type),...(line?[line]:[]));button.onclick=()=>chooseCurve(c.curve);section.append(button);});return section;}));
+    // Named commodity and curve-kind icons distinguish identity; the sparkline is decorative.
+    group.cards.forEach(c=>{const button=el('button'),line=librarySparkline(c),commodity=commodityIcon(c);button.className='curve-button'+(c.curve===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.curve===curve));button.append(...commodity?[commodity]:[],kindBadge(c.curveKind),el('span',c.name),el('small',c.type),...(line?[line]:[]));button.onclick=()=>chooseCurve(c.curve);section.append(button);});return section;}));
   if(!groups.length)$('curves').append(el('p','No curves match these choices.'));
 }
 function renderContext(){
@@ -945,7 +945,8 @@ const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScop
 const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
  zone:()=>prefs.timeZone,busy:()=>busy,enabled:()=>!!navigation&&can('ReadMarketData')&&!contextDirty,
  selected:()=>select('snapshot').value,current:()=>navigation?.frames.find(frame=>frame.id===select('snapshot').value),
- open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose,'closes'),select:chooseClose
+ open:()=>void act(()=>openMarketCalendar()),newer:()=>leaving(openNewestClose,'closes'),select:chooseClose,
+ workspace:{enabled:()=>page==='market',open:()=>void act(async()=>{await selectCurve('');await openMarketCalendar();})}
 });
 const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});

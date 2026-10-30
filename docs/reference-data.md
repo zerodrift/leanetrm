@@ -92,7 +92,7 @@ and reading the original sealed reference version. No seeded role holds both
 permissions; an administrator assigns both roles to people who edit labels.
 An item's page has one **Edit** button that turns its display fields into inputs
 in place; the code and financial fields stay as text. Save lists the changed
-fields for confirmation, then sends one `POST /reference/commit` (D261) from the
+fields for confirmation, then sends one `POST /reference/commit` (D263) from the
 item's exact base version. On a futures product's page one Edit covers the
 product name and every contract label; each changed item is its own commit,
 sent in order, and the first refusal stops the rest, which stay unsent in the

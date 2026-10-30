@@ -1431,7 +1431,7 @@ conversion. See [the storage contract and qualification boundary](../docs/booked
 
 Migration `0130_reference_display_history.sql` adds the read-only
 `security.reference_display_history(uuid,uuid,text,text)` behind a reference
-item's History (D261). It returns `{versions,truncated}`: the item's latest 20
+item's History (D263). It returns `{versions,truncated}`: the item's latest 20
 applied display versions, newest first, each with its version, item, applied time,
 the author's current workspace display name and the fields its edit changed, and
 whether earlier versions exist. A futures product's history includes its

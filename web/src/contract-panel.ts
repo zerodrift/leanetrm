@@ -81,10 +81,10 @@ export function setupContractPanel(host:HTMLElement,o:{docked:()=>boolean;sheet:
   }));
   switcher.replaceChildren(...buttons.values());
   const basis=part('history-basis'),chartHost=part('history-chart'),overlaySummary=part('history-overlays').querySelector('summary')!;
-  let chart:TimeChart|undefined,menu:OverlayCatalog|undefined;
+  let chart:TimeChart|undefined,menu:OverlayCatalog|undefined,menuControls:ReturnType<typeof overlayMenu>|undefined;
   function clearChart(message?:string){chart?.dispose();chart=undefined;chartHost.replaceChildren(...(message?[node('p','field-help contract-chart-note',message)]:[]));}
   // A closed panel keeps nothing of what it showed: it opens again on History, with no chart and an empty overlay menu.
-  function forget(){clearChart();menu=undefined;part('history-overlay-menu').replaceChildren();part('history-overlays').removeAttribute('open');tabs.mark('history');show('history');}
+  function forget(){clearChart();menu=undefined;menuControls=undefined;part('history-overlay-menu').replaceChildren();part('history-overlays').removeAttribute('open');tabs.mark('history');show('history');}
   return {
     /** Opens the panel on a contract, or gives focus to the one it shows; false when it stayed as it was. */
     open:(mode:ContractMode)=>shell.show(mode),
@@ -100,8 +100,9 @@ export function setupContractPanel(host:HTMLElement,o:{docked:()=>boolean;sheet:
     catalog(catalog:OverlayCatalog){
       if(menu===catalog)return;menu=catalog;
       // Applying folds the menu away, so the chart it changes is in view; its summary says how many overlays are shown.
-      overlayMenu(part('history-overlay-menu'),catalog,requests=>{part('history-overlays').removeAttribute('open');o.overlays(requests);});
+      menuControls=overlayMenu(part('history-overlay-menu'),catalog,requests=>{part('history-overlays').removeAttribute('open');o.overlays(requests);});
     },
+    sync(busy:boolean){menuControls?.sync(busy);},
     history(state:HistoryState){
       for(const [policy,button] of buttons)button.setAttribute('aria-pressed',String(policy===state.policy));
       overlaySummary.textContent=overlaySummaryText(state);

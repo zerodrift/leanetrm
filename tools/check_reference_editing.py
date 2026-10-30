@@ -107,7 +107,7 @@ def run_checks(query, manifest):
     assert json.loads(call('viewer', f"SELECT security.reference_display_state('{catalog}','{source}')::text"))['references']['currencies'] == [{'code':'usd','name':'Synthetic second label'}]
     # History names the applied versions of one item, newest first, with the author who saved each edit and only
     # its changed fields; unapplied drafts, other items and historical contexts list nothing. In working data only
-    # people who may write or seal reference data read it (D261); a reader is refused.
+    # people who may write or seal reference data read it (D263); a reader is refused.
     history = lambda table, code, bound=None, profile='editor': json.loads(call(profile, f"SELECT security.reference_display_history('{catalog}','{source}','{table}','{code}')::text", bound=bound))
     author = query(f"SELECT display_name FROM security.workspace_memberships WHERE principal_id='{editor}' AND workspace_id='{workspace}';")
     listed = history('currencies','usd')

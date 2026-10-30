@@ -87,12 +87,17 @@ exact persisted member weights and explicit `signed_sum_v1` or
 `normalized_weighted_mean_v1` aggregation. The visual/formula workbench edits this
 contract; formulas compile only in the backend. SQL panel execution is removed.
 [Custom curves](custom-curves.md) records the supported policies and limits.
+Graph cards distinguish backend output types from financial curve kinds, with
+separate dated-contract icons on exact member rows (D259).
 Published recipes supply explicit monthly indexed swap projections through
 booking, portfolio and retained-risk operations. The editor offers compatible
 published outputs from the authorized backend catalog and preserves the selected
 exact version/output through amendments. Daily indexed projections can map each
 unfixed reset to one computed output with the same exact delivery interval.
-Cross-revision rolling histories and historical VaR/covariance remain work.
+D262 adds raw component history for relative selections and exact weighted
+contract mappings, with explicit sampling windows and retained roll jumps.
+Cross-revision rolling histories, arbitrary output replay, adjusted roll series
+and historical VaR/covariance remain work.
 
 Published custom curves also act as reusable sources in the same visual/formula
 workbench (D187). Explicit version/output FKs import the complete parent panel
@@ -1390,6 +1395,16 @@ terms. Existing preview cashflows remain the valuation review. Publishing econom
 index changes, selecting newer versions for existing contracts, bulk impact
 analysis and a separate forecast-configuration migration remain future work.
 
+
+Side observation entry now connects commodity-scoped index choices and observation
+conventions in both directions for single-period and scheduled tickets. Period
+qualification shares required source/fixing checks with delivery-date availability;
+missing due actuals cannot remain offered as a usable selected plan. Entered
+incompatible terms stay visible without an automatic replacement, and required
+calendar controls remain available for repair. This is an extension of the D216
+compatibility controls, not contract-relative sampling: durable side selectors,
+flexible roll rules and observation-date/contract-delivery separation remain work.
+
 Operational limits (P42, proposed): move each operating value out of code into
 explicit, versioned configuration, keeping its ceiling fixed, and state each value
 once. See [operational limits](operational-limits.md) for the complete inventory. In
@@ -1416,3 +1431,14 @@ accepts P42:
 7. Settings pages for the installation limits and sign-in policy.
 
 The pilot's next schema window applies 0122 (D256) over its hotfixed `pin_turn`.
+
+
+D261's first local slice resolves exact-contract and prompt-offset authoring terms
+at each observation fixing instant into concrete dated contract receipts. It
+shares the expiry resolver with date shortcuts and accepts explicitly supplied
+earlier roll boundaries without changing exchange expiry. The authorized
+observation-contract preview uses the same managed resolver. Remaining work is
+loading exact daily futures settlements and official final settlements under the
+selected historical context, normalized side/schedule
+persistence and admission, retained pricing of those dated references, and guided
+ticket controls. Current swap booking continues to reject unsupported terms.

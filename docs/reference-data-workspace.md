@@ -1,6 +1,6 @@
 # Reference data workspace, specification corrections and assisted lookup
 
-Status: Phase 1 implemented (D261); Phases 2 and 3 are proposed designs, not
+Status: Phase 1 implemented (D263); Phases 2 and 3 are proposed designs, not
 implemented. Three separately plannable phases. Phase 1 is presentation plus
 read operations. Phases 2 and 3 add a write path and an agent capability, and
 require decision records, independent adversarial review and the checks named

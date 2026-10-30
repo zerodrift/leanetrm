@@ -32,7 +32,7 @@ test('required observation calendars stay exact and old sampling pairs omit the 
 test('each floating slot owns its observation calendar and clears only its own inapplicable choice',async()=>{
  const {setupSwapObservationControls}=await import('../dist/swap-observations-view.js');
  const previous=globalThis.document;
- const nodes=Object.fromEntries(['swap','swap-first'].flatMap(prefix=>['calendar','calendar-field','quantities','status'].map(suffix=>[`${prefix}-observation-${suffix}`,{value:'',hidden:false,required:false,disabled:false,replaceChildren(){}}])));
+ const nodes=Object.fromEntries(['swap','swap-first'].flatMap(prefix=>['calendar','calendar-field','quantities','status'].map(suffix=>[`${prefix}-observation-${suffix}`,{value:'',hidden:false,required:false,disabled:false,options:[],replaceChildren(...children){this.options=children;}}])));
  globalThis.document={getElementById:id=>nodes[id]};
  try{
   let firstMode={resetFrequency:'daily',averagingMethod:'observation_arithmetic',requiresObservationCalendar:true,requiresQuantityWeights:false};
@@ -53,10 +53,29 @@ test('each floating slot owns its observation calendar and clears only its own i
 test('an inactive floating slot cannot leave required observation controls enabled',async()=>{
  const {setupSwapObservationControls}=await import('../dist/swap-observations-view.js');
  const previous=globalThis.document;
- const nodes=Object.fromEntries(['calendar','calendar-field','quantities','status'].map(suffix=>[`swap-observation-${suffix}`,{value:'',hidden:false,required:false,disabled:false,replaceChildren(){}}]));
+ const nodes=Object.fromEntries(['calendar','calendar-field','quantities','status'].map(suffix=>[`swap-observation-${suffix}`,{value:'',hidden:false,required:false,disabled:false,options:[],replaceChildren(...children){this.options=children;}}]));
  globalThis.document={getElementById:id=>nodes[id]};
  try{
   const controls=setupSwapObservationControls({prefix:'swap',enabled:()=>false,api:()=>assert.fail('No API read expected'),request:()=>({}),choice:()=>({resetFrequency:'daily',averagingMethod:'observation_arithmetic',requiresObservationCalendar:true,requiresQuantityWeights:false}),unit:()=>'',busy:()=>false,apply:()=>{}});
   controls.sync();assert.equal(nodes['swap-observation-calendar'].disabled,true);assert.equal(nodes['swap-observation-calendar'].required,false);
  }finally{globalThis.document=previous;}
+});
+
+
+test('ordinary observation modes require a fresh compatible backend plan before submission',async()=>{
+ const {setupSwapObservationControls}=await import('../dist/swap-observations-view.js');
+ const previous=globalThis.document,previousOption=globalThis.Option;
+ const nodes=Object.fromEntries(['calendar','calendar-field','quantities','status'].map(suffix=>[`swap-observation-${suffix}`,{value:'',hidden:false,required:false,disabled:false,options:[],replaceChildren(...children){this.options=children;}}]));
+ globalThis.document={getElementById:id=>nodes[id]};globalThis.Option=class {constructor(text,value){this.text=text;this.value=value;}};
+ try{
+  let scope={curve:'daily',deliveryFrom:'2030-01-01'},result={indices:[],samplings:[{resetFrequency:'daily',averagingMethod:'arithmetic',requiresObservationCalendar:false,requiresQuantityWeights:false}],observationCalendars:[],choices:[],observations:rows,availability:null,customProjectionUnavailableReason:null};
+  const controls=setupSwapObservationControls({prefix:'swap',enabled:()=>true,api:async()=>result,request:()=>scope,choice:()=>({resetFrequency:'daily',averagingMethod:'arithmetic',requiresObservationCalendar:false,requiresQuantityWeights:false}),unit:()=>'',busy:()=>false,apply:()=>{}});
+  assert.throws(()=>controls.read(),/Refresh/);
+  await controls.refresh();assert.equal(controls.read(),undefined);
+  scope={...scope,deliveryFrom:'2030-02-01'};assert.throws(()=>controls.read(),/Refresh/);
+  result={...result,availability:{code:'index_fixing_missing',message:'Required actual is missing.'}};
+  await controls.refresh();assert.throws(()=>controls.read(),/Required actual/);
+  result={...result,availability:null,samplings:[]};await controls.refresh();
+  assert.throws(()=>controls.read(),/available observation convention/,'Catalog display metadata must not revive a backend-rejected convention.');
+ }finally{globalThis.document=previous;globalThis.Option=previousOption;}
 });

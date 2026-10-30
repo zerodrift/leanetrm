@@ -43,7 +43,7 @@ public static class ReferenceEditors
             catch(JsonException){throw Error("reference_edit","The reference editor field contract is incomplete. Reload after its metadata is qualified.");}
             if(fields.IsDefault||fields.Any(f=>f is null||f.MaxLength is <1 or >300))throw Error("reference_edit","The reference editor field bounds are invalid.");
         }
-        // History: the item's latest applied display versions, which only those who may write or seal reference data read (D261).
+        // History: the item's latest applied display versions, which only those who may write or seal reference data read (D263).
         var history=display is not null&&code is not null&&(write||seal)
             ?await Execute(connection,"SELECT security.reference_display_history($1,$2,$3,$4)::text",[source.CatalogId,source.RevisionId,table,code],ct)
             :JsonSerializer.SerializeToElement(new{versions=Array.Empty<object>(),truncated=false},Json);

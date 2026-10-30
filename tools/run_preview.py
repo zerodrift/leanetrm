@@ -77,10 +77,16 @@ def main():
     parser.add_argument('--identity-check', action='store_true', help='Run economic-key integration checks in the owned standard fixture, then clean up')
     parser.add_argument('--provider-adapters-check',action='store_true',help='Qualify additional provider routing and billing through HTTP Test in an owned fixture')
     parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider, model and price administration in an owned fixture')
+    parser.add_argument('--markets-desk-check',action='store_true',help='Run market and delivery desk browser checks in the owned standard fixture')
     parser.add_argument('--browser-check',action='store_true',help='Run checked-in browser scenarios in the newly owned standard fixture')
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.markets_desk_check:
+        if any(value for name,value in vars(args).items() if name.endswith(('_check','_benchmark')) and name not in ('markets_desk_check','browser_check')):
+            parser.error('--markets-desk-check runs alone; omit other named checks and benchmarks')
+        args.check=True
+        args.browser_check=True
     if args.reference_import_check:
         args.check=True
         if args.example!='standard' or args.browser_check:
@@ -948,7 +954,7 @@ def main():
                     risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
-                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve())],cwd=ROOT,env=env,start_new_session=True)
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),*(['--markets-desk'] if args.markets_desk_check else [])],cwd=ROOT,env=env,start_new_session=True)
                     # The desk's scenarios run in this suite; a slower runner needs more than six minutes for all of them.
                     if browser_process.wait(timeout=900):
                         raise RuntimeError('Owned browser checks failed')

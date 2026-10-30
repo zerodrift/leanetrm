@@ -1,7 +1,7 @@
 // The market board of Curves & prices (docs/markets-desk.md): opened on the newest close with no curve chosen, a card for each listed
 // curve in the library's groups and order, from curve-shapes reads of at most 64 curves and no evaluate; each card states the backend's
 // front contract, exact price, unit and count, or why the close prices none; the library rows keep their markup and gain the curve's
-// commodity dot and sparkline; neither shows a previous close's or context's figures while another is read; a read that fails says so on
+// commodity icon and sparkline; neither shows a previous close's or context's figures while another is read; a read that fails says so on
 // its cards and is read again; and a card opens its curve as the library does. The selected curve shows the backend's summary in
 // tiles and returns to the board through All markets; a contract row opens the contract panel, docked on a wide screen and a sheet on
 // a phone, whose History tab reads under the revision policy the switch shows, draws the backend's overlay values with their
@@ -43,12 +43,12 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "(()=>{const shapes=new Map(window.__shapeReads.flatMap(r=>r.shapes).map(s=>[s.curve,s])),priced=[...document.querySelectorAll('.market-card[data-state=priced]')];"+
    "return priced.length>0&&priced.every(card=>{const s=shapes.get(card.dataset.curve);return s.front&&card.querySelector('.kpi-figure').textContent===s.front.price&&card.querySelector('.market-card-unit').textContent===s.unit&&"+
    "card.querySelector('.market-card-label').textContent.startsWith('Front · ')&&card.querySelector('.market-card-count').textContent===s.contractCount+(s.contractCount===1?' contract':' contracts')&&card.querySelector('svg.sparkline path.sparkline-line')&&card.querySelector('svg.sparkline').getAttribute('aria-label').startsWith(card.querySelector('.market-card-open').textContent+' · forward curve');});})()");
-  await check('library rows keep their name and type text and gain the commodity dot and, for a priced curve, a decorative sparkline',
+  await check('library rows keep their name and type text and gain the commodity icon and, for a priced curve, a decorative sparkline',
    "(()=>{const rows=[...document.querySelectorAll('.curve-button')],cards=new Map([...document.querySelectorAll('.market-card')].map(c=>[c.querySelector('.market-card-open').textContent,c]));"+
    "return rows.length===cards.size&&rows.every(b=>{const name=b.querySelector('span').textContent,card=cards.get(name),line=b.querySelector('svg.sparkline');"+
-   "return card&&b.firstElementChild.classList.contains('commodity-dot')&&b.textContent===name+b.querySelector('small').textContent&&(card.dataset.state==='priced'?line?.getAttribute('aria-hidden')==='true'&&!!line.querySelector('path'):!line);});})()");
-  await check('a curve\'s dot on the board and in the library share its commodity color',
-   "[...document.querySelectorAll('.market-card')].every(card=>{const row=[...document.querySelectorAll('.curve-button')].find(b=>b.querySelector('span').textContent===card.querySelector('.market-card-open').textContent);return row.querySelector('.commodity-dot').style.getPropertyValue('--commodity')===card.querySelector('.commodity-dot').style.getPropertyValue('--commodity');})");
+   "return card&&(b.querySelector('.commodity-icon')?.getAttribute('aria-label')||b.querySelector('[data-kind=interest_rate]'))&&b.textContent===name+b.querySelector('small').textContent&&(card.dataset.state==='priced'?line?.getAttribute('aria-hidden')==='true'&&!!line.querySelector('path'):!line);});})()");
+  await check('a curve\'s commodity icons agree on the board and in the library',
+   "[...document.querySelectorAll('.market-card')].every(card=>{const row=[...document.querySelectorAll('.curve-button')].find(b=>b.querySelector('span').textContent===card.querySelector('.market-card-open').textContent);const a=row.querySelector('.commodity-icon'),b=card.querySelector('.commodity-icon');return a?.getAttribute('aria-label')===b?.getAttribute('aria-label')&&a?.dataset.commodityIcon===b?.dataset.commodityIcon&&!row.querySelector('.commodity-dot')&&!card.querySelector('.commodity-dot');})");
   // The backend names each curve's kind (curve_kinds_v1); the badge carries its label as the accessible name and tooltip.
   await check('each card and library row shows the backend\'s curve kind as a badge named by its label, a settlement curve as Market settlement',
    "(async()=>{const kinds=new Map((await(await fetch('/api/workspace/navigation')).json()).curves.map(c=>[c.code,c.kind])),cards=[...document.querySelectorAll('.market-card')];"+
@@ -116,8 +116,9 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    `(()=>{const read=${history}.data,rows=[...document.querySelectorAll('#history-values tbody tr')];return read.points.length>1&&rows.length===read.points.length&&[...document.querySelectorAll('#history-values thead th')].map(th=>th.textContent).slice(0,3).join('|')==='Market date|Price|Known at'&&rows.every(r=>r.cells[2].textContent.length>0);})()`);
   // An overlay is asked for with an explicit window; the chart draws the values the backend returned, named by definition and window.
   await evaluate("document.querySelector('#history-overlays').open=true");
-  await evaluate("(()=>{const input=[...document.querySelectorAll('#history-overlay-menu fieldset')].find(f=>f.querySelector('legend').textContent==='Simple moving average').querySelector('input');input.value='3';input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+  await evaluate("(()=>{const fieldset=[...document.querySelectorAll('#history-overlay-menu fieldset')].find(f=>f.querySelector('legend').textContent==='Simple moving average');const toggle=fieldset.querySelector('input[type=checkbox]');toggle.click();const input=fieldset.querySelector('input:not([type=checkbox])');input.value='3';input.dispatchEvent(new Event('input',{bubbles:true}));})()");
   await evaluate("document.querySelector('#history-overlay-menu form').requestSubmit()");await wait(idle);
+  await check('unchecked overlay parameters remain disabled after the history read',"[...document.querySelectorAll('#history-overlay-menu fieldset')].filter(f=>!f.querySelector('input[type=checkbox]').checked).every(f=>f.querySelector('input:not([type=checkbox])').disabled)");
   await check('a simple moving average with window 3 is read from the backend and drawn with its definition and window, showing its exact latest value',
    `(()=>{const read=${history},overlay=read.data.overlays?.[0],latest=[...document.querySelectorAll('#history-chart .time-chart-latest dt')].map(dt=>[dt.textContent,dt.nextElementSibling.textContent]);`+
    "const sma=latest.find(([name])=>name==='Simple moving average · 3 · value'),last=overlay?.series.value.at(-1);"+
@@ -231,8 +232,9 @@ export async function deliveryDesk({command,evaluate,wait,click,set,submit,check
   await evaluate("window.__denyOverlays=false;document.querySelector('#delivery-price-overlays').open=false");
   // An overlay is asked for with an explicit window; the chart draws the values the backend returned, named by definition and window.
   await evaluate("document.querySelector('#delivery-price-overlays').open=true");await wait("!!document.querySelector('#delivery-price-overlay-menu fieldset')");
-  await evaluate("(()=>{const input=[...document.querySelectorAll('#delivery-price-overlay-menu fieldset')].find(f=>f.querySelector('legend').textContent==='Simple moving average').querySelector('input');input.value='4';input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+  await evaluate("(()=>{const fieldset=[...document.querySelectorAll('#delivery-price-overlay-menu fieldset')].find(f=>f.querySelector('legend').textContent==='Simple moving average');const toggle=fieldset.querySelector('input[type=checkbox]');toggle.click();const input=fieldset.querySelector('input:not([type=checkbox])');input.value='4';input.dispatchEvent(new Event('input',{bubbles:true}));})()");
   await evaluate("document.querySelector('#delivery-price-overlay-menu form').requestSubmit()");await wait(`${idle}&&window.__periods.length===3`);
+  await check('unchecked overlay parameters remain disabled after the delivery read',"[...document.querySelectorAll('#delivery-price-overlay-menu fieldset')].filter(f=>!f.querySelector('input[type=checkbox]').checked).every(f=>f.querySelector('input:not([type=checkbox])').disabled)");
   await check('a simple moving average with window 4 is read with the same range and drawn with its definition and window, showing its exact latest value',
    `(()=>{const read=${period},o=${catalog}.opening,last=read.data.overlays[0].series.value.at(-1),latest=[...document.querySelectorAll('#delivery-price-chart .time-chart-latest dt')].map(dt=>[dt.textContent,dt.nextElementSibling.textContent]).find(([name])=>name==='Simple moving average · 4 · value');`+
    "return JSON.stringify(read.body.overlays)===JSON.stringify([{code:'simple_moving_average_v1',parameters:{window:4}}])&&read.body.sourceId===o.sourceId&&read.body.fromDate===o.fromDate&&latest&&latest[1]===last.value&&"+

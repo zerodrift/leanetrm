@@ -1,4 +1,4 @@
--- The applied display versions of one reference item (D261), newest first: when each was applied, the workspace member who
+-- The applied display versions of one reference item (D263), newest first: when each was applied, the workspace member who
 -- authored its edit (by their current display name) and only the fields that edit changed. A futures product's history
 -- includes its own contracts' label edits. Historical contexts keep their original labels and so list none; in working
 -- data only people who may write or seal reference data read it. The latest 20 versions are listed; `truncated` says earlier ones exist.

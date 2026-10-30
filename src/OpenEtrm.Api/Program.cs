@@ -606,6 +606,8 @@ api.MapGet("/schedules",(Func<HttpContext,Task<IResult>>)(c=>ScheduleOperation(c
         dateSchedules=session.Dates.For(Profile(session)).ToArray(),draftCurves=session.Dates.Curves(Profile(session)).ToArray(),
         curveTemplates=data.Definitions["curves"].Select(c=>new {code=c.Text("code")}).ToArray(),dateRoles=SchedulePreview.DateRoleChoices});
 })));
+api.MapPost("/schedules/observation-contracts",(HttpContext c,ObservationContractPreviewRequest body)=>ScheduleOperation(c,(session,data)=>
+    Results.Ok(ObservationContractPreview.Resolve(SchedulePreview.Compile(data,ScheduleSource(body.Curve)),body))));
 api.MapPost("/schedules/preview",(HttpContext c,SchedulePreviewRequest body)=>ScheduleOperation(c,(session,data)=>
     Results.Ok(SchedulePreview.Result(SchedulePreview.Create(SchedulePreview.Compile(data,ScheduleSource(body.Curve)),body),SchedulePreview.ParseAt(body.At)))));
 api.MapPost("/schedules/keep",(HttpContext c,SchedulePreviewRequest body)=>ScheduleOperation(c,(session,data)=>

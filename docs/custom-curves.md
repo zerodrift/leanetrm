@@ -299,3 +299,41 @@ layouts. Assistant checks cover explicit review, unpriced reopening, owner/sourc
 authorization and the original historical pin. These synthetic checks establish
 the supported contracts; they do not qualify financial throughput or Swarm
 failure recovery.
+
+## Raw component history
+
+The History tab and **View component history** inspector action sample a relative
+contract selection, an exact weighted-contract mapping, or its sample step through
+the backend under `raw_component_history_v1` (D262). The view does not edit or save
+the graph. It removes downstream averaging only from the temporary inspection.
+Choose the component, prior calendar or publication-business dates, count and
+whether to include the context date; business dates also require a calendar.
+
+An `each_sample` selection resolves the canonical traded contract separately at
+each sampling instant. Prices remain raw: roll jumps are neither smoothed nor
+back-adjusted. A `context` binding retains its selected contract across dates.
+The chart uses observation time, and the table and tooltips identify actual
+dated contracts. Exact weighted mappings retain their declared weights.
+
+Sampling uses the selected close's UTC time. Historical corrections are the latest
+visible at the selected knowledge cutoff; the context close retains its exact
+snapshot pins. Every required observation must exist, and all samples must fall
+within the selected exact definition revision's coverage. Missing prices do not
+promote the next contract or trigger interpolation. Saved identity and references
+are validated before inspection. The browser renders server-returned prices and charts.
+
+This view does not replay arbitrary aggregated outputs, daily-delivery panels or
+published recipe outputs across historical contexts. Cross-revision continuous
+histories and adjusted roll series remain separate work.
+
+
+## Component labels
+
+Graph cards and the inspector show an icon and a written label for the backend's
+output type: Curve, Contract selection, Date sequence, Price panel or Curve output.
+An individual exact member in a source or mapping has a separate Dated contract
+icon and label. Source cards also show the catalog's curve kind in words, alongside
+the existing kind badge (including Interest rate when supplied by the catalog).
+These labels distinguish object shape from financial kind; they do not infer an
+asset class from a name or introduce rate-curve operators that the backend does
+not support. Browser code only presents the supplied types.

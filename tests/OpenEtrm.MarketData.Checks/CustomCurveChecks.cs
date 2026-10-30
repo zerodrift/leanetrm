@@ -72,6 +72,14 @@ internal static class CustomCurveChecks
         var result=Result(definition,supplied.Inputs,supplied.Samples);
         Equal("Historical prompt numerator",result.Points.Single().Price.Numerator,"101");Equal("Historical prompt denominator",result.Points.Single().Price.Denominator,"30");
         if(result.Inputs.Length!=3||result.Factors.Length!=1||result.Inputs.Count(s=>s.Fixed)!=2)throw new Exception("Only the current selected contract is live; historical selections remain frozen.");
+        var historyWindow=definition.Nodes.Single(n=>n.Id=="dates") with{Parameters=ImmutableDictionary<string,string>.Empty.Add("mode","prior_calendar")};
+        var rawDefinition=RecipeComponentHistory.Build(definition,"select",historyWindow,RecipeComponentHistory.Policy);
+        var rawInputs=supplied.Inputs with{Dates=ImmutableDictionary<string,ImmutableArray<DateOnly>>.Empty.Add(rawDefinition.Nodes.Single(n=>n.Kind=="dates").Id,supplied.Inputs.Dates["dates"])};
+        var raw=Result(rawDefinition,rawInputs,supplied.Samples);
+        Equal("Raw rolling history keeps the roll jump",string.Join(",",raw.Points.Select(p=>p.Price.ToExactString())),"3,3.1,4");
+        if(raw.Points[0].Contracts.Single()!=contracts[0].Key||raw.Points[1].Contracts.Single()!=contracts[0].Key||raw.Points[2].Contracts.Single()!=contracts[1].Key)
+            throw new Exception("Raw history lost the dated contract at the exact expiry boundary.");
+        Reject("A missing raw observation cannot promote a later contract",()=>Result(rawDefinition,rawInputs,supplied.Samples.Where(s=>!(s.Contract==contracts[0].Key&&s.Date.Day==27)).ToImmutableArray()));
         var locked=definition with{Nodes=definition.Nodes.Select(n=>n.Id=="select"?n with{Parameters=n.Parameters.SetItem("binding","context")}:n).ToImmutableArray()};
         var lockedResult=Result(locked,supplied.Inputs,supplied.Samples).Points.Single().Price;
         Equal("Locked contract numerator",lockedResult.Numerator,"19");Equal("Locked contract denominator",lockedResult.Denominator,"5");

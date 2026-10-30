@@ -28,6 +28,7 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
  const from=get<HTMLInputElement>('delivery-price-from'),through=get<HTMLInputElement>('delivery-price-through');
  const overlays=get<HTMLDetailsElement>('delivery-price-overlays');
  let catalog:Catalog|undefined,generation=0,session=0,chosenBy:ChosenBy='opening',menu:OverlayCatalog|undefined,requests:OverlayRequest[]=[],chart:TimeChart|undefined;
+ let menuControls:ReturnType<typeof overlayMenu>|undefined;
  const firstDate=createAvailableDatePicker(get('delivery-price-from-calendar'),{id:'delivery-price-from-picker',label:'Delivery date from',busy:options.busy,onChange:date=>{from.value=date;syncDates();changed();}});
  const lastDate=createAvailableDatePicker(get('delivery-price-through-calendar'),{id:'delivery-price-through-picker',label:'Delivery date to',busy:options.busy,onChange:date=>{through.value=date;syncDates();changed();}});
  const show=(tab:string)=>{get('delivery-price-prices').hidden=tab!=='prices';get('delivery-price-collection').hidden=tab!=='collection';};
@@ -121,7 +122,7 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
    if(typeof next?.policy!=='string'||!Array.isArray(next.overlays))throw Error('The overlay catalog is missing or inconsistent. Refresh and try again.');
    menu=next;
    // Applying folds the menu away, so the chart it changes is in view, and reads the range on screen again.
-   overlayMenu(host,next,chosen=>{requests=chosen;overlays.open=false;overlaySummary();void options.act(read);});
+   menuControls=overlayMenu(host,next,chosen=>{requests=chosen;overlays.open=false;overlaySummary();void options.act(read);});
   }catch(error){if(started===session)host.replaceChildren(node('p','field-help',`Overlays could not be read: ${error instanceof Error?error.message:String(error)} Close the menu and open it again to retry.`));}
   finally{if(started===session)reading=false;}
  });
@@ -129,8 +130,8 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
   catalog=undefined;clearShown();get('delivery-price-attempts').replaceChildren();get('delivery-price-jobs').textContent='';get('delivery-price-known').textContent='';
  }
  return {
-  sync(){known.refresh();firstDate.sync();lastDate.sync();for(const name of filterNames)select(name).disabled=options.busy()||select(name).options.length<2;},
-  reset(){session++;reading=false;known.clear();forget();menu=undefined;requests=[];get('delivery-price-overlay-menu').replaceChildren();overlays.open=false;overlaySummary();
+  sync(){menuControls?.sync(options.busy());known.refresh();firstDate.sync();lastDate.sync();for(const name of filterNames)select(name).disabled=options.busy()||select(name).options.length<2;},
+  reset(){session++;reading=false;known.clear();forget();menu=undefined;menuControls=undefined;requests=[];get('delivery-price-overlay-menu').replaceChildren();overlays.open=false;overlaySummary();
    for(const name of filterNames)select(name).replaceChildren();filters();tabs.mark('prices');show('prices');},
   async load(){
    from.value='';through.value='';chosenBy='opening';forget();filters();const started=generation;

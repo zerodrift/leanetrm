@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {EventEmitter,once} from 'node:events';
 import {createServer} from 'node:http';
-import {mkdtemp,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,rm,stat,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {waitForBrowserPort,waitForBrowserPage,stopOwnedBrowser,browserPageActions,idle} from './owned-browser.mjs';
+import {waitForBrowserPort,waitForBrowserPage,stopOwnedBrowser,stopOwnedBrowserGroup,browserPageActions,idle} from './owned-browser.mjs';
 
 async function fixture(t,args=['-e','setInterval(()=>{},1000)']){
   const directory=await mkdtemp(join(tmpdir(),'openetrm-browser-port-'));
@@ -131,6 +131,25 @@ test('browser teardown awaits successful SIGKILL escalation',async t=>{
   await stopOwnedBrowser(ready,undefined,75);
   assert.equal(ready.signalCode,'SIGKILL');
   assert.equal(ready.exitCode,null);
+});
+
+test('group teardown stops helpers that outlive the browser before its profile is removed',async t=>{
+  // A synthetic browser exits on SIGTERM while its helper keeps writing into the profile, as Chrome's helpers can.
+  const directory=await mkdtemp(join(tmpdir(),'openetrm-browser-group-'));
+  const helper="const {mkdirSync,writeFileSync}=require('node:fs');setInterval(()=>{mkdirSync(process.argv[1]+'/Default',{recursive:true});writeFileSync(process.argv[1]+'/Default/state','x');},5)";
+  const browser=spawn(process.execPath,['-e',`require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(helper)},process.argv[1]],{stdio:'ignore'});process.on('SIGTERM',()=>process.exit(0));process.stdout.write('ready');setInterval(()=>{},1000)`,directory],{stdio:['ignore','pipe','ignore'],detached:true});
+  t.after(async()=>{try{process.kill(-browser.pid,'SIGKILL');}catch{}await rm(directory,{recursive:true,force:true});});
+  await once(browser.stdout,'data');
+  const state=join(directory,'Default','state'),until=performance.now()+5000;
+  while(performance.now()<until){
+    try{await stat(state);break;}catch(error){if(error.code!=='ENOENT')throw error;}
+    await delay(10);
+  }
+  await stat(state); // The helper is writing before shutdown; readiness timeout must fail the check.
+  await stopOwnedBrowserGroup(browser,undefined,200);
+  await rm(directory,{recursive:true,force:true});
+  await delay(100);
+  await assert.rejects(stat(directory),{code:'ENOENT'},'no owned helper may write into the removed profile');
 });
 
 test('failed browser cleanup retains the original failure and cleanup detail',async()=>{

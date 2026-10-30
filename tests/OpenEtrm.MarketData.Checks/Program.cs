@@ -56,7 +56,7 @@ if(args is ["--interval-price-resolver"]){IntervalPriceResolverChecks.Run();Inte
 if(args is ["--interval-resolver-reuse"]){IntervalResolverReuseChecks.Run();return;}
 if(args is ["--interval-resolver-benchmark",var resolverOutput]){IntervalResolverBenchmark.Run(resolverOutput);return;}
 
-if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
+if(args is ["--custom-curves"]){ComponentHistoryChecks.Run();CustomCurveChecks.Run();return;}
 if(args is ["--curve-kinds"]){CurveKindChecks.Run();return;}
 if(args is ["--exact-curve-prices"]){ExactCurvePriceChecks.Run();return;}
 if(args is ["--curve-engine-cutover"]){CurveEngineCutoverChecks.Run();return;}
@@ -76,6 +76,7 @@ if (args.Length > 0)
     if (args is ["--contract-sequences"])
     {
         ContractSequenceChecks.Run();
+        ObservationContractChecks.Run();
         return;
     }
     if (args is ["--export-mixed-resolution", var destination])
@@ -456,6 +457,7 @@ Check("delegation cannot be borrowed by another agent", () =>
 });
 passed += MixedResolutionChecks.Run();
 ContractSequenceChecks.Run();
+ObservationContractChecks.Run();
 passed += ExpiryTransitionChecks.Run();
 passed += PowerCurveChecks.Run();
 passed += TypedPriceChecks.Run();

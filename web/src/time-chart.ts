@@ -1,4 +1,4 @@
-import {dispose,init,registerIndicator,type Chart,type DeepPartial,type IndicatorCreateTooltipDataSourceParams,type IndicatorFigure,type KLineData,type Styles} from './vendor/klinecharts.js';
+import {dispose,init,registerIndicator,type Chart,type DeepPartial,type IndicatorCreateTooltipDataSourceParams,type IndicatorDrawParams,type KLineData,type Styles} from './vendor/klinecharts.js';
 import {palette} from './chart-view.js';
 import {displayInstant,timeLabels} from './market-view.js';
 import {plotNumber} from './plot-number.js';
@@ -49,23 +49,6 @@ export function exactTexts(series:Record<string,OverlayPoint[]>):(timestamp:numb
   return timestamp=>Object.fromEntries(named.map(([name,byInstant])=>[name,byInstant.get(timestamp)??undefined]));
 }
 
-const present=(value:number|null|undefined)=>typeof value==='number';
-/**
- * The indexes of values no line is drawn through, which need a marker: a line joins only neighbours, so a value with none beside it;
- * and the library draws a series' line only when it has more than one segment, so both ends of a series' only segment.
- */
-export function isolatedPoints(values:(number|null|undefined)[]):number[]{
-  const segments=values.flatMap((value,i)=>present(value)&&present(values[i+1])?[i]:[]);
-  const lone=segments.length===1?[segments[0],segments[0]+1]:[];
-  return values.flatMap((value,i)=>present(value)&&(!present(values[i-1])&&!present(values[i+1])||lone.includes(i))?[i]:[]);
-}
-const markerKey=(key:string)=>`${key}_point`;
-/** Adds `<key>_point` beside each isolated value, for the marker figure. */
-export function withIsolatedPoints<R extends Record<string,number|null|undefined>>(rows:R[],keys:string[]):(R&Record<string,number|null|undefined>)[]{
-  const isolated=new Map(keys.map(key=>[key,new Set(isolatedPoints(rows.map(row=>row[key])))]));
-  return rows.map((row,i)=>({...row,...Object.fromEntries(keys.map(key=>[markerKey(key),isolated.get(key)!.has(i)?row[key]:undefined]))}));
-}
-
 /**
  * The x-axis tick of each point, by instant, in the chart's zone: the time of day for a series within one day, otherwise the day,
  * with its year when the series spans several years. The crosshair and the legends name each point's full instant.
@@ -105,7 +88,7 @@ export function overlayLegend(overlay:Pick<OverlaySeries,'label'|'parameters'>){
   return `${overlay.label} · ${entries.length===1?entries[0][1]:entries.map(([name,value])=>`${name} ${value}`).join(', ')}`;
 }
 
-const reasonText=(reason:string|null|undefined)=>reason?`No value (${reason.replaceAll('_',' ')})`:'No value';
+const reasonText=(reason:string|null|undefined)=>reason==='window_incomplete'?'Waiting for a complete window':reason?`No value (${reason.replaceAll('_',' ')})`:'No value';
 /** The latest price and each overlay's latest value as text, exactly as the backend states them. */
 export function latestValues(spec:Pick<TimeChartSpec,'unit'|'points'|'overlays'>){
   const last=spec.points.at(-1);
@@ -118,14 +101,14 @@ export function latestValues(spec:Pick<TimeChartSpec,'unit'|'points'|'overlays'>
 
 export type OverlayMenuState={requests:OverlayRequest[];canApply:boolean;problem:string|null};
 /**
- * What the menu would send. A definition with no entered parameter is not requested; one with a missing, non-integer or
- * out-of-range parameter blocks Apply. Nothing is defaulted.
+ * What the menu would send. Explicit selection includes only checked definitions; a selected definition with a missing,
+ * non-integer or out-of-range parameter blocks Apply. Without a selection set, only filled definitions are requested. Nothing is defaulted.
  */
-export function overlayMenuState(catalog:OverlayCatalog,entered:Record<string,Record<string,string>>):OverlayMenuState{
+export function overlayMenuState(catalog:OverlayCatalog,entered:Record<string,Record<string,string>>,enabled?:ReadonlySet<string>):OverlayMenuState{
   const requests:OverlayRequest[]=[];let problem:string|null=null;
   for(const definition of catalog.overlays){
     const texts=definition.parameters.map(p=>entered[definition.code]?.[p.name]??'');
-    if(texts.every(text=>text===''))continue;
+    if(enabled?!enabled.has(definition.code):texts.every(text=>text===''))continue;
     const parameters:Record<string,number>={};
     definition.parameters.forEach((p,i)=>{
       const value=/^\d+$/.test(texts[i])?Number(texts[i]):NaN;
@@ -140,25 +123,43 @@ export function overlayMenuState(catalog:OverlayCatalog,entered:Record<string,Re
 /** The overlay menu. It collects explicit parameters only; the page sends them with the next read. */
 export function overlayMenu(host:HTMLElement,catalog:OverlayCatalog,onApply:(requests:OverlayRequest[])=>void){
   const form=document.createElement('form');form.className='overlay-menu';
-  const entered:Record<string,Record<string,string>>={};
+  const entered:Record<string,Record<string,string>>={},enabled=new Set<string>();
+  let busy=false,applied=false;
+  const controls:{toggle:HTMLInputElement;inputs:HTMLInputElement[];code:string}[]=[];
   const status=document.createElement('p');status.className='fine-print';status.setAttribute('role','status');
   const apply=document.createElement('button');apply.type='submit';apply.textContent='Apply';
   const remove=document.createElement('button');remove.type='button';remove.className='secondary';remove.textContent='Remove overlays';
-  const refresh=()=>{const state=overlayMenuState(catalog,entered);apply.disabled=!state.canApply;status.textContent=state.problem??'Leave a definition blank to skip it.';return state;};
+  const refresh=()=>{
+    const state=overlayMenuState(catalog,entered,enabled);apply.disabled=busy||state.problem!==null||(!state.requests.length&&!applied);remove.disabled=busy;
+    status.textContent=state.problem??'Windows count observations. Values come from the server; incomplete windows remain gaps.';
+    for(const {toggle,inputs,code} of controls){toggle.checked=enabled.has(code);toggle.disabled=busy;for(const input of inputs)input.disabled=busy||!toggle.checked;}
+    return state;
+  };
   for(const definition of catalog.overlays){
     const group=document.createElement('fieldset');
     const name=document.createElement('legend');name.textContent=definition.label;group.append(name);
+    const choice=document.createElement('label');choice.className='overlay-toggle';
+    const toggle=document.createElement('input');toggle.type='checkbox';toggle.setAttribute('aria-label',definition.label);
+    toggle.addEventListener('change',()=>{if(toggle.checked)enabled.add(definition.code);else enabled.delete(definition.code);refresh();});
+    choice.append(toggle,document.createTextNode('Show'));group.append(choice);
+    const inputs:HTMLInputElement[]=[];
     for(const parameter of definition.parameters){
-      const label=document.createElement('label');label.textContent=`${parameter.label} (${parameter.minimum} to ${parameter.maximum})`;
+      const label=document.createElement('label');label.textContent=parameter.label;
       const input=document.createElement('input');input.type='text';input.inputMode='numeric';input.autocomplete='off';
+      input.placeholder=`${parameter.minimum}–${parameter.maximum}`;input.setAttribute('aria-label',`${definition.label} ${parameter.label}`);
       input.addEventListener('input',()=>{(entered[definition.code]??={})[parameter.name]=input.value;refresh();});
-      label.append(input);group.append(label);
+      inputs.push(input);label.append(input);group.append(label);
     }
-    form.append(group);
+    controls.push({toggle,inputs,code:definition.code});form.append(group);
   }
-  form.addEventListener('submit',event=>{event.preventDefault();const state=refresh();if(state.canApply)onApply(state.requests);});
-  remove.addEventListener('click',()=>onApply([]));
+  form.addEventListener('submit',event=>{event.preventDefault();const state=refresh();if(!apply.disabled){applied=state.requests.length>0;refresh();onApply(state.requests);}});
+  remove.addEventListener('click',()=>{
+    applied=false;enabled.clear();for(const key of Object.keys(entered))delete entered[key];
+    for(const {inputs} of controls)for(const input of inputs)input.value='';
+    refresh();onApply([]);
+  });
   form.append(apply,remove,status);host.replaceChildren(form);refresh();
+  return {sync(reading:boolean){busy=reading;refresh();}};
 }
 
 const tokenNames=['--font','--text','--text-2','--text-3','--border','--surface','--accent'] as const;
@@ -187,7 +188,7 @@ const readTokens=(element:Element)=>{
 
 type Bar=KLineData&{price:number|null};
 type Lookup=Shown&{lookup:(timestamp:number)=>Record<string,number|undefined>};
-type Shown={exact:(timestamp:number)=>Record<string,string|undefined>;titles:Record<string,string>};
+type Shown={colors:Record<string,string>;exact:(timestamp:number)=>Record<string,string|undefined>;titles:Record<string,string>};
 const priceIndicator='openetrm_price',overlayIndicator='openetrm_overlay';
 // The hovered instant's legend rows: the exact backend strings, with no rounding, grouping or folding.
 type Row=Record<string,number|null|undefined>;
@@ -195,16 +196,39 @@ const tooltipOf=({chart,indicator,crosshair}:IndicatorCreateTooltipDataSourcePar
   const shown=indicator.extendData as Shown,texts=shown.exact(crosshair.kLineData?.timestamp??crosshair.timestamp??NaN);
   return {name:indicator.shortName,calcParamsText:'',features:[],legends:Object.entries(shown.titles).map(([key,title])=>({title,value:texts[key]??chart.getStyles().indicator.tooltip.legend.defaultValue}))};
 };
-const markerFigure=(key:string,color:string):IndicatorFigure=>({key:markerKey(key),type:'circle',attrs:()=>({r:3}),styles:()=>({color,style:'fill' as const})});
+/** Draw only supplied values. KLineCharts 10 drops a line with one segment; this renderer also preserves gaps at any zoom. */
+export function drawServerLines({ctx,chart,indicator,xAxis,yAxis}:IndicatorDrawParams<Row,string,Shown>):boolean{
+  const rows=indicator.result,range=chart.getVisibleRange();
+  const from=Math.max(0,range.from-1),to=Math.min(rows.length,range.to+1);
+  for(const [key,color] of Object.entries(indicator.extendData.colors)){
+    ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;ctx.beginPath();
+    let joined=false;
+    for(let i=from;i<to;i++){
+      const value=rows[i][key];
+      if(typeof value!=='number'){joined=false;continue;}
+      const x=xAxis.convertToPixel(i),y=yAxis.convertToPixel(value);
+      if(joined)ctx.lineTo(x,y);else ctx.moveTo(x,y);
+      joined=true;
+    }
+    ctx.stroke();
+    for(let i=from;i<to;i++){
+      const value=rows[i][key];
+      if(typeof value==='number'&&typeof rows[i-1]?.[key]!=='number'&&typeof rows[i+1]?.[key]!=='number'){
+        ctx.beginPath();ctx.arc(xAxis.convertToPixel(i),yAxis.convertToPixel(value),3,0,2*Math.PI);ctx.fill();
+      }
+    }
+  }
+  return true;
+}
 let registered=false;
 function registerIndicators(){
   if(registered)return;registered=true;
   registerIndicator<Record<string,number|null|undefined>,string,Shown>({name:priceIndicator,figures:[{key:'price',title:'Price: ',type:'line'}],
-    calc:bars=>withIsolatedPoints(bars.map(bar=>({price:(bar as Bar).price})),['price']),createTooltipDataSource:tooltipOf});
+    calc:bars=>bars.map(bar=>({price:(bar as Bar).price})),draw:drawServerLines,createTooltipDataSource:tooltipOf});
   // The calc only looks values up by instant; calcParams name the series so the figures follow the definition.
   registerIndicator<Record<string,number|null|undefined>,string,Lookup>({name:overlayIndicator,calcParams:[],
     regenerateFigures:names=>names.map(name=>({key:name,title:`${name}: `,type:'line'})),
-    calc:(bars,indicator)=>withIsolatedPoints(bars.map(bar=>indicator.extendData.lookup(bar.timestamp)),indicator.calcParams),
+    calc:(bars,indicator)=>bars.map(bar=>indicator.extendData.lookup(bar.timestamp)),draw:drawServerLines,
     createTooltipDataSource:tooltipOf});
 }
 const decimals=(points:TimePoint[])=>Math.min(6,Math.max(0,...points.map(p=>p.value?.split('.')[1]?.length??0)));
@@ -229,7 +253,10 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
   const chart:Chart=started;
   let bars:Bar[]=[],fitting=0;
   const button=(label:string,click:()=>void)=>{const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label;b.addEventListener('click',click);toolbar.append(b);return b;};
-  for(const tool of tools)button(tool.label,()=>{chart.createOverlay(tool.name);});
+  const drawing=document.createElement('select');drawing.setAttribute('aria-label','Drawing tool');
+  for(const tool of tools){const option=document.createElement('option');option.value=tool.name;option.textContent=tool.label;drawing.append(option);}
+  toolbar.append(drawing);button('Draw',()=>{chart.createOverlay(drawing.value);});
+  button('Fit chart',fit);
   const noteText=document.createElement('input');noteText.type='text';noteText.placeholder='Note text';noteText.setAttribute('aria-label','Note text');
   const addNote=button('Text',()=>{chart.createOverlay({name:'simpleAnnotation',extendData:noteText.value});});
   addNote.disabled=true;noteText.addEventListener('input',()=>{addNote.disabled=noteText.value.trim()==='';});
@@ -245,7 +272,7 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
     const space=Math.max(1,Math.min(widestBar,width/(bars.length+1)));
     chart.setBarSpace(space);chart.setOffsetRightDistance(space/2);
   }
-  const resize=new ResizeObserver(()=>{chart.resize();fit();});resize.observe(canvas);
+  const resize=new ResizeObserver(()=>{chart.resize();});resize.observe(canvas);
   function update(next:TimeChartSpec){
     const data=timeChartData(next.points);
     const names=timeLabels(next.points.map(p=>p.at),next.zone),labels=new Map(data.map((bar,i)=>[bar.timestamp,names[i]]));
@@ -264,14 +291,14 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
     // backend string (see tooltipOf).
     const accent=readTokens(host)['--accent'];
     chart.createIndicator({name:priceIndicator,shortName:`${next.title} (${next.unit})`,precision:decimals(next.points),paneId:'candle_pane',
-      extendData:{exact:exactTexts({price:next.points}),titles:{price:'Price: '}},
-      figures:[{key:'price',title:'Price: ',type:'line',styles:()=>({color:accent})},markerFigure('price',accent)]},true);
+      extendData:{colors:{price:accent},exact:exactTexts({price:next.points}),titles:{price:'Price: '}},
+      figures:[{key:'price',title:'Price: ',type:'line',styles:()=>({color:accent})}]},true);
     let color=0;
     for(const overlay of next.overlays){
       const series=Object.keys(overlay.series),colors=series.map(()=>palette[1+color++%(palette.length-1)]);
       chart.createIndicator({name:overlayIndicator,shortName:overlayLegend(overlay),calcParams:series,precision:decimals(next.points),paneId:'candle_pane',
-        extendData:{lookup:overlayLookup(overlay),exact:exactTexts(overlay.series),titles:Object.fromEntries(series.map(name=>[name,`${name}: `]))},
-        figures:series.flatMap((name,i)=>[{key:name,title:`${name}: `,type:'line',styles:()=>({color:colors[i]})},markerFigure(name,colors[i])])},true);
+        extendData:{colors:Object.fromEntries(series.map((name,i)=>[name,colors[i]])),lookup:overlayLookup(overlay),exact:exactTexts(overlay.series),titles:Object.fromEntries(series.map(name=>[name,`${name}: `]))},
+        figures:series.map((name,i)=>({key:name,title:`${name}: `,type:'line',styles:()=>({color:colors[i]})}))},true);
     }
     latest.replaceChildren(...latestValues(next).flatMap(row=>{const term=document.createElement('dt'),value=document.createElement('dd');term.textContent=row.name;value.textContent=row.value;return [term,value];}));
   }

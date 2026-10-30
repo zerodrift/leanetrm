@@ -10,6 +10,36 @@ integration remain work; see [scenario coverage](business-scenarios.md).
 No deployment, publication or automatic reference-data import is authorized by
 this document. Examples are synthetic.
 
+## Observation contract selection
+
+D261 fixes the selection anchor at each observation's explicit UTC fixing instant.
+The managed `ObservationContractSelector` supports an exact dated contract or a
+zero-based prompt offset. Prompt zero means the first contract whose selected roll
+boundary is strictly after the fixing instant; at the boundary selection advances.
+The caller explicitly selects exchange-expiry rolls or supplies one ordered roll
+instant per pinned sequence contract. Explicit rolls must be after eligibility and
+no later than expiry. They never replace exchange milestones. Calendar-derived
+roll instants require separately resolved exact calendar terms; no calendar or
+exchange convention is inferred here.
+
+Resolution returns actual exact-version contract IDs, observation coordinates,
+contract delivery periods, expiry and eligibility separately. An exact contract
+can be identified after expiry without asserting that its expired mark is usable.
+Prompt resolution requires complete sequence coverage and never skips an ineligible
+contract. The legacy date shortcut uses the same selection kernel with its existing
+explicit expiry-ordinal semantics.
+
+`POST /api/schedules/observation-contracts` exposes this read-only resolution under
+the existing authorized schedule operation. It does not save a trade, infer a
+fixing price or admit these terms to current swap pricing. The first booking
+integration must retain the resolved dated contracts in D258's rows and preserve
+authoring terms for review. Pricing must consume the resolved rows, not rerun the
+offset against the valuation date. Futures observations use daily exchange
+settlement before expiry and the official final contract settlement after expiry once available; missing final prices fail
+rather than freezing the last live mark. A different settlement index requires an
+explicitly configured curve. Daily-source loading, normalized booked-side admission
+and ticket controls remain work.
+
 ## Current authoring implementation
 
 Independent date schedules now have saved/renameable drafts and immutable published

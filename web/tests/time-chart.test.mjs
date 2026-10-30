@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 // The chart library reads the browser's user agent when it loads; the pure functions under test never draw.
 globalThis.window??={navigator:{userAgent:'node'}};
-const {answeredOverlays,axisLabels,timeChartData,overlayLookup,overlayLegend,overlayMenuState,latestValues,chartStyles,exactTexts,isolatedPoints,withIsolatedPoints}=await import('../dist/time-chart.js');
+const {answeredOverlays,axisLabels,timeChartData,overlayLookup,overlayLegend,overlayMenuState,latestValues,chartStyles,exactTexts,drawServerLines}=await import('../dist/time-chart.js');
 import {plotNumber} from '../dist/plot-number.js';
 
 const at=n=>`2027-03-${String(n).padStart(2,'0')}T00:00:00Z`;
@@ -74,7 +74,7 @@ test('latest values show the last point as the backend states it',()=>{
   const rows=latestValues({unit:'USD / MWh',points:[{at:at(1),value:'10'},{at:at(2),value:'10.50'}],overlays:[sma]});
   assert.deepEqual(rows,[{name:'Price',value:'10.50 USD / MWh'},{name:'Simple moving average · 5 · average',value:'10.5'}]);
   const gap=latestValues({unit:'u',points:[{at:at(1),value:null}],overlays:[{...sma,series:{average:[{at:at(1),value:null,reason:'window_incomplete'}]}}]});
-  assert.deepEqual(gap,[{name:'Price',value:'No price'},{name:'Simple moving average · 5 · average',value:'No value (window incomplete)'}]);
+  assert.deepEqual(gap,[{name:'Price',value:'No price'},{name:'Simple moving average · 5 · average',value:'Waiting for a complete window'}]);
 });
 
 test('chart styles come from the page tokens',()=>{
@@ -95,26 +95,13 @@ test('the text shown for an instant is the exact string the backend stated, neve
   assert.deepEqual(shown(ms(9)),{price:undefined,average:undefined});
 });
 
-test('a point is isolated when neither neighbour has a value',()=>{
-  assert.deepEqual(isolatedPoints([1,undefined,2,3,undefined,4,5,null]),[0]);
-  assert.deepEqual(isolatedPoints([undefined,1]),[1]);
-  assert.deepEqual(isolatedPoints([1,undefined]),[0]);
-  assert.deepEqual(isolatedPoints([undefined,5,undefined]),[1]);
-  assert.deepEqual(isolatedPoints([null,undefined]),[]);
-  assert.deepEqual(isolatedPoints([7]),[0]);
-  assert.deepEqual(isolatedPoints([]),[]);
-});
-
-test('the ends of a series\' only segment are marked too, as the library draws no line of a single segment',()=>{
-  assert.deepEqual(isolatedPoints([undefined,undefined,3.03,3.04]),[2,3]);
-  assert.deepEqual(isolatedPoints([1,undefined,2,3,undefined,4,null]),[0,2,3,5]);
-  assert.deepEqual(isolatedPoints([1,2,3]),[]);
-  assert.deepEqual(isolatedPoints([1,2,undefined,3,4]),[]);
-});
-
-test('marker values appear only at isolated points',()=>{
-  const rows=withIsolatedPoints([{price:1},{price:undefined},{price:2},{price:3},{price:4}],['price']);
-  assert.deepEqual(rows.map(row=>row.price_point),[1,undefined,undefined,undefined,undefined]);
+test('drawing joins adjacent server values, breaks at gaps, and marks isolated values including zero',()=>{
+  const paths=[],dots=[];let path;
+  const ctx={beginPath(){path=[];},moveTo(x,y){path.push(['move',x,y]);},lineTo(x,y){path.push(['line',x,y]);},stroke(){paths.push(path);},arc(x,y){dots.push([x,y]);},fill(){}};
+  const rows=[{value:1},{value:2},{value:null},{value:0},{value:null},{value:7},{value:8}];
+  assert.equal(drawServerLines({ctx,chart:{getVisibleRange:()=>({from:0,to:7})},indicator:{result:rows,extendData:{colors:{value:'#123456'}}},xAxis:{convertToPixel:i=>i*10},yAxis:{convertToPixel:v=>v*2}}),true);
+  assert.deepEqual(paths,[[['move',0,2],['line',10,4],['move',30,0],['move',50,14],['line',60,16]]]);
+  assert.deepEqual(dots,[[30,0]]);
 });
 
 test('axis ticks name the day of each point, the year too when the series spans several, and the time when it spans one day',()=>{
@@ -156,4 +143,12 @@ test('overlays that do not answer the request, or that the catalog does not defi
   assert.throws(()=>answeredOverlays([],[answer],readCatalog),/overlays/);
   const unknown={code:'unknown_v1',parameters:{window:3}};
   assert.throws(()=>answeredOverlays([unknown],[{...unknown,policy:readCatalog.policy,series:{value:[]}}],readCatalog),/catalog/);
+});
+
+
+test('explicit overlay selection requires parameters and excludes unchecked drafts',()=>{
+  const selected=new Set(['simple_moving_average_v1']);
+  assert.equal(overlayMenuState(catalog,{},selected).canApply,false);
+  assert.deepEqual(overlayMenuState(catalog,{simple_moving_average_v1:{window:'3'},rolling_range_v1:{window:'5'}},selected).requests,
+    [{code:'simple_moving_average_v1',parameters:{window:3}}]);
 });

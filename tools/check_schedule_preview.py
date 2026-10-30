@@ -23,6 +23,28 @@ def run_checks(Client, check):
           and at['contractId'] == source['entries'][1]['contractId'])
     check('resolution carries exact source and rule pins',
           all(at[k] for k in ['sequence', 'references', 'ruleVersion', 'dateRole', 'valuationAt']))
+    observation_request = {'curve': 'future', 'selection': {'mode': 'prompt_offset', 'contract': None,
+        'promptOffset': 0, 'roll': 'contract_expiry_roll_v1', 'boundaries': None}, 'observations': [
+        {'ordinal': 0, 'from': '2021-01-01', 'to': '2021-01-02', 'fixingAt': draft['at']},
+        {'ordinal': 1, 'from': '2021-01-02', 'to': '2021-01-03', 'fixingAt': '2020-12-28T15:30:00Z'}]}
+    concrete = c.call('schedules/observation-contracts', observation_request)
+    check('observation fixing instants resolve concrete dated contracts independently of delivery dates',
+          [row['contract']['id'] for row in concrete] == [before['contractId'], at['contractId']]
+          and concrete[1]['observation']['from'] == '2021-01-02' and concrete[1]['deliveryFrom'] == '2021-02-01')
+    for missing in ['ordinal', 'from', 'to', 'fixingAt']:
+        incomplete = {key: value for key, value in observation_request['observations'][0].items() if key != missing}
+        c.call('schedules/observation-contracts', {**observation_request, 'observations': [incomplete]}, expected=400)
+    check('every observation coordinate must be explicitly supplied')
+    exact_request = {**observation_request, 'selection': {'mode': 'exact', 'contract': before['contractKey'],
+        'promptOffset': None, 'roll': None, 'boundaries': None}}
+    exact = c.call('schedules/observation-contracts', exact_request)
+    check('an exact dated contract does not change when prompt rolls',
+          all(row['contract'] == before['contractKey'] for row in exact))
+    invalid = c.call('schedules/observation-contracts', {**observation_request,
+        'selection': {**observation_request['selection'], 'roll': None}}, expected=422)
+    check('observation contract resolution never supplies a default roll rule', invalid['code'] == 'contract_selection')
+    c.call('schedules/observation-contracts', observation_request, headers={'X-Preview-CSRF': 'invalid'}, expected=400)
+    check('observation contract resolution enforces the shared request boundary')
     second = c.call('schedules/preview', {**draft, 'symbol': 'oe.other', 'position': 2})
     check('symbol spelling never supplies an ordinal', second['contractId'] == at['contractId'])
     last = c.call('schedules/preview', {**draft, 'dateRole': 'last_trading'})

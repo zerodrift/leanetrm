@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {marketBoard,renderBoard,shapeReads} from '../dist/market-board.js';
+import {marketBoard,renderBoard,shapeReads,commodityIcon} from '../dist/market-board.js';
 import {curvePoints} from '../dist/desk-model.js';
 import {navigationGroups} from '../dist/market-navigation.js';
 import {setCurveNames} from '../dist/market-view.js';
@@ -126,7 +126,21 @@ test('each card shows the backend\'s curve kind as a badge named by its label be
  globalThis.document=dom;
  try{
   const target=new Element('div');renderBoard(target,marketBoard(navigation,all,new Map()),()=>{},false);
-  const kinds=walk(target).filter(e=>e.className==='market-card').map(item=>{const head=item.children[0],badge=walk(head).find(e=>e.attributes.role==='img');return [item.dataset.curve,badge?.getAttribute('aria-label')];});
+  const kinds=walk(target).filter(e=>e.className==='market-card').map(item=>{const head=item.children[0],badge=walk(head).find(e=>e.className?.startsWith('curve-kind '));return [item.dataset.curve,badge?.getAttribute('aria-label')];});
   assert.deepEqual(kinds.sort(),[['gas_forward','Weighted blend'],['gas_futures','Market settlement'],['power_forward','Basis / spread'],['usd_rates','Interest rate']]);
+ }finally{delete globalThis.document;}
+});
+
+
+test('commodity icons use distinct gas and power shapes with names, no hollow marker for rates',()=>{
+ globalThis.document=dom;
+ try{
+  const board=marketBoard(navigation,all,new Map()),gas=commodityIcon(card(board,'gas_futures')),power=commodityIcon(card(board,'power_forward'));
+  assert.equal(gas.getAttribute('aria-label'),'Synthetic gas');assert.equal(power.getAttribute('aria-label'),'Synthetic power');
+  assert.notEqual(JSON.stringify(gas.children),JSON.stringify(power.children));
+  assert.equal(gas.dataset.commodityIcon,'gas');assert.equal(power.dataset.commodityIcon,'power');
+  assert.equal(commodityIcon(card(board,'usd_rates')),null);
+  const other=commodityIcon({...card(board,'gas_futures'),commodity:{code:'synthetic_other',name:'Other commodity'}});
+  assert.equal(other.dataset.commodityIcon,'other');assert.equal(other.getAttribute('aria-label'),'Other commodity');
  }finally{delete globalThis.document;}
 });
