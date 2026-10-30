@@ -57,7 +57,8 @@ export async function run({command,evaluate,wait,click,set,submit,check,idle,url
     await check('clicking a location row opens its item page with its fields and a link to its type',`${itemShown}&&${read('table')}==='locations'&&location.hash==='#reference/locations/'+encodeURIComponent(${read('code')})&&${facts}.Code===${read('code')}&&document.querySelector('#reference-item .item-grid a[href^="#reference/location_types/"]')`);
     await check('an item\'s grid names its name field Name and leaves its code to the Code fact above it',
       `(()=>{const terms=[...document.querySelectorAll('#reference-item .item-grid dt')],name=terms.find(t=>t.textContent==='Name');
-        return !terms.some(t=>t.textContent==='Description'||t.textContent==='Code')&&terms.filter(t=>t.textContent==='Name').length===1&&name.nextElementSibling.textContent===document.querySelector('#reference-item h2').textContent;})()`);
+        return !terms.some(t=>t.textContent==='Description'||t.textContent==='Code')&&terms.filter(t=>t.textContent==='Name').length===1&&name.nextElementSibling.textContent.replace(/^Synthetic /,'')===document.querySelector('#reference-item h2').textContent;})()`,
+      `[document.querySelector('#reference-item h2').textContent,...[...document.querySelectorAll('#reference-item .item-grid div')].map(d=>d.textContent)]`);
     await open('#reference/locations');
     await check('reloading at a category address opens that tab with one read',`window.__referenceReads.length===1&&${read('table')}==='locations'&&${selected('reference-sections')}==='Locations'&&document.querySelector('#error').hidden&&document.querySelector('#reference tbody tr')`);
     await open('#reference/locations/absent_code');
