@@ -832,7 +832,7 @@ $('follow-live').onclick=()=>leaving(async()=>{
 },'keeps');
 $('live-retry').onclick=()=>{if(liveStream?.readyState===EventSource.CLOSED&&navigation?.live){liveStream=undefined;connectLive(navigation.live);}else if(lastLiveUpdate)liveUpdates?.offer({...lastLiveUpdate,generation:lastLiveUpdate.live.generation},true);};
 // The contract panel of Curves & prices docks beside the page when the main area has the room and the assistant is closed; Curve builder
-// shows its views' tab groups side by side only from a main area this wide (curve-dock.ts).
+// shows its views' tab groups side by side only from a main area this wide (dock.ts).
 const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)'),dockedGroupsFrom=960;
 const panelDocked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
 const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScopeChanged:invalidateMarketDates,unsavedChanged:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),draft:text=>assistant.draft(text)},busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});

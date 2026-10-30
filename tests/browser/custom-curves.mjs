@@ -5,7 +5,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  // The focus checks need focus events to reach the page, as in a focused window.
  await command('Emulation.setFocusEmulationEnabled',{enabled:true});
  const discardAsked=async()=>{if(await evaluate("!document.querySelector('#custom-curves-page-prompt').hidden"))await click('#custom-curves-page-prompt button:not(.secondary)');};
- // The curve's views are tabs in a dock (curve-dock.ts): `tab` reads one of them, `groups` the tabs each group shows, in order.
+ // The curve's views are tabs in a dock (dock.ts): `tab` reads one of them, `groups` the tabs each group shows, in order.
  const tab=id=>`document.querySelector('#custom-curves-dock-${id}')`,body=id=>`document.querySelector('#${id==='versions'?'curve-activation':'custom-curves-tab-'+id}')`;
  const groups="[...document.querySelectorAll('#custom-curves-dock .dock-group')].map(g=>[...g.querySelectorAll('[role=tab]')].map(t=>t.textContent))";
  const press=async(key,modifiers=0)=>{const codes={Escape:27,Enter:13,ArrowDown:40,ArrowUp:38,ArrowRight:39,F10:121,ContextMenu:93};for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,modifiers,windowsVirtualKeyCode:codes[key],...(type==='keyDown'&&key==='Enter'?{text:'\r',unmodifiedText:'\r'}:{})});await wait(idle);};
@@ -90,9 +90,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await press('Enter');
  await check('choosing a group moves the tab into it and shows it there',`JSON.stringify(${groups})==='[["Outputs","Configuration","Versions","History"],["Graph","Lineage"]]'&&${tab('lineage')}.getAttribute('aria-selected')==='true'&&!${body('lineage')}.hidden&&!${body('outputs')}.hidden`,groups);
  await evaluate("document.querySelector('#custom-curves-dock .dock-divider').focus()");await press('ArrowDown');
- await check('a divider resizes its split from the keyboard',"document.querySelector('#custom-curves-dock .dock-divider').getAttribute('aria-valuenow')==='55'&&JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).ratio===0.55");
+ await check('a divider resizes its split from the keyboard',"document.querySelector('#custom-curves-dock .dock-divider').getAttribute('aria-valuenow')==='55'&&JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).layout.ratio===0.55");
  // A divider dragged with the pointer keeps the share where it is let go; a cancelled drag keeps the arrangement as it was.
- const divider="document.querySelector('#custom-curves-dock .dock-divider')",stored="JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).ratio";
+ const divider="document.querySelector('#custom-curves-dock .dock-divider')",stored="JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).layout.ratio";
  const grab=async dy=>{const a=await evaluate(`(()=>{const r=${divider}.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};})()`);
   await command('Input.dispatchMouseEvent',{type:'mouseMoved',...a});await command('Input.dispatchMouseEvent',{type:'mousePressed',...a,button:'left',buttons:1,clickCount:1});
   for(let step=1;step<=6;step++)await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:a.x,y:a.y+dy*step/6,button:'left',buttons:1});return {x:a.x,y:a.y+dy};};
@@ -337,7 +337,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('Escape closes a menu that offers nothing and returns focus to its tab',`document.querySelector('.dock-menu').hidden&&document.activeElement===${tab('outputs')}&&${tab('outputs')}.getAttribute('aria-expanded')==='false'`,"[document.querySelector('.dock-menu').hidden,document.activeElement?.id]");
  await check('at phone width the split shows as one group with every tab',`JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage","History","Configuration"]]'&&!document.querySelector('#custom-curves-dock .dock-divider')`,groups);
  for(const id of ['outputs','graph','versions','lineage','history','configuration']){await click('#custom-curves-dock-'+id);await check(`at phone width the ${id} tab is reachable`,`!${body(id)}.hidden&&${body(id)}.getBoundingClientRect().width>0`);}
- await check('choosing tabs at phone width leaves the saved arrangement unchanged',`JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).kind==='split'`);
+ await check('choosing tabs at phone width leaves the saved arrangement unchanged',`JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).layout.kind==='split'`);
  await click('#custom-curves-dock-graph');await evaluate("document.querySelector('.custom-curve-centre').scrollIntoView({block:'start'})");
  await check('custom curve graph and tables scroll within a narrow viewport',fitsWidth);await shot('custom-curves-mobile');
  await click('#custom-curves-toggle-rail');await evaluate("document.querySelector('#custom-curves-graph').scrollIntoView({block:'start'})");await check('a collapsed mobile rail preserves the graph without page overflow',"document.querySelector('#custom-curves-rail-body').hidden&&"+fitsWidth+"&&document.querySelectorAll('.custom-curve-node').length>0");await shot('custom-curves-mobile-collapsed');await click('#custom-curves-toggle-rail');

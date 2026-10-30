@@ -1,6 +1,7 @@
-// The tab dock on Curve builder (markets-desk.md, Curve builder): the page's views are tabs in groups, and a group can
-// be split beside or above another to a depth of two. This module is only the arrangement: which tabs sit in which group, how groups
-// split, and how a drop, a saved layout or a narrow screen changes it. Drawing and storage belong to the caller.
+// The tab dock shared by Curve builder (markets-desk.md) and the Blotter (blotter-workbench.md): a page's views are tabs in groups,
+// and a group can be split beside or above another to a depth the caller's rules set. This module is only the arrangement: which tabs
+// sit in which group, which are collapsed, how groups split, and how a drop, a saved arrangement or a narrow screen changes it.
+// Drawing and storage belong to the caller.
 
 export type DockLayout=
   |{kind:'group';tabs:string[];active:string}
@@ -9,10 +10,12 @@ export type Group=Extract<DockLayout,{kind:'group'}>;
 export type Split=Extract<DockLayout,{kind:'split'}>;
 export type DropEdge='centre'|'left'|'right'|'top'|'bottom';
 
-const maxDepth=2;
-const ratioRange=[0.2,0.8] as const;
+/** The layout and the tabs put away to a one-line bar: what a viewer arranges and a caller stores. */
+export type Arrangement={layout:DockLayout;collapsed:string[]};
+/** `fixed` tabs can never be collapsed; splits nest at most `maxDepth` levels; a divider keeps a split's ratio within `ratioRange`. */
+export type DockRules={maxDepth:number;fixed:readonly string[];ratioRange:readonly [number,number]};
 
-export const defaultLayout=(tabs:readonly string[]):DockLayout=>({kind:'group',tabs:[...tabs],active:'outputs'});
+export const defaultLayout=(tabs:readonly string[],active:string):DockLayout=>({kind:'group',tabs:[...tabs],active});
 
 /** The groups in depth-first order: the numbers a drop target uses. */
 export function groupsOf(l:DockLayout):Group[]{
@@ -38,12 +41,12 @@ function rebuild(l:DockLayout,change:(g:Group)=>DockLayout|null):DockLayout|null
 }
 
 /** Moves a tab onto a group: its centre joins that group, an edge splits the group with the tab alone on that side. */
-export function moveTab(l:DockLayout,tab:string,target:{group:number;edge:DropEdge}):DockLayout{
+export function moveTab(l:DockLayout,tab:string,target:{group:number;edge:DropEdge},rules:DockRules):DockLayout{
   const groups=groupsOf(l);
   const from=groups.find(g=>g.tabs.includes(tab));
   const to=groups[target.group];
   if(!from||!to)return l;
-  const edge=target.edge!=='centre'&&depthOf(l,to)>=maxDepth?'centre':target.edge;
+  const edge=target.edge!=='centre'&&depthOf(l,to)>=rules.maxDepth?'centre':target.edge;
   if(from===to&&(edge==='centre'||from.tabs.length===1))return l;
   const left=from.tabs.filter(t=>t!==tab);
   const at=from.tabs.indexOf(tab);
@@ -65,13 +68,13 @@ export function select(l:DockLayout,tab:string):DockLayout{
   return rebuild(l,g=>g.tabs.includes(tab)?{...g,active:tab}:g)!;
 }
 
-const clamp=(ratio:number)=>Math.min(ratioRange[1],Math.max(ratioRange[0],ratio));
+const clamp=(ratio:number,rules:DockRules)=>Math.min(rules.ratioRange[1],Math.max(rules.ratioRange[0],ratio));
 
 /** Sets the share of the first child of split `index` (`splitsOf` numbering). */
-export function resize(l:DockLayout,index:number,ratio:number):DockLayout{
+export function resize(l:DockLayout,index:number,ratio:number,rules:DockRules):DockLayout{
   const target=splitsOf(l)[index];
   if(!target||!Number.isFinite(ratio))return l;
-  const walk=(n:DockLayout):DockLayout=>n.kind==='group'?n:{...n,ratio:n===target?clamp(ratio):n.ratio,children:[walk(n.children[0]),walk(n.children[1])]};
+  const walk=(n:DockLayout):DockLayout=>n.kind==='group'?n:{...n,ratio:n===target?clamp(ratio,rules):n.ratio,children:[walk(n.children[0]),walk(n.children[1])]};
   return walk(l);
 }
 
@@ -81,7 +84,7 @@ export function collapse(l:DockLayout):DockLayout{
   return {kind:'group',tabs:groups.flatMap(g=>g.tabs),active:groups[0].active};
 }
 
-function parse(saved:unknown,depth:number):DockLayout|null{
+function parse(saved:unknown,depth:number,rules:DockRules):DockLayout|null{
   if(typeof saved!=='object'||saved===null)return null;
   const s=saved as Record<string,unknown>;
   if(s.kind==='group'){
@@ -89,20 +92,31 @@ function parse(saved:unknown,depth:number):DockLayout|null{
     if(!Array.isArray(tabs)||!tabs.length||!tabs.every(t=>typeof t==='string')||typeof active!=='string'||!tabs.includes(active))return null;
     return {kind:'group',tabs:[...tabs] as string[],active};
   }
-  if(s.kind!=='split'||depth>=maxDepth)return null;
+  if(s.kind!=='split'||depth>=rules.maxDepth)return null;
   const {direction,ratio,children}=s;
   if((direction!=='row'&&direction!=='column')||typeof ratio!=='number'||!Number.isFinite(ratio))return null;
   if(!Array.isArray(children)||children.length!==2)return null;
-  const a=parse(children[0],depth+1);
-  const b=parse(children[1],depth+1);
-  return a&&b?{kind:'split',direction,ratio:clamp(ratio),children:[a,b]}:null;
+  const a=parse(children[0],depth+1,rules);
+  const b=parse(children[1],depth+1,rules);
+  return a&&b?{kind:'split',direction,ratio:clamp(ratio,rules),children:[a,b]}:null;
 }
 
-/** A layout saved by an earlier visit (untrusted storage) if it is well formed and holds exactly these tabs once each; else the default. */
-export function restore(saved:unknown,tabs:readonly string[]):DockLayout{
-  const layout=parse(saved,0);
-  if(!layout)return defaultLayout(tabs);
+/** `a` with `tab` collapsed or expanded again; a fixed tab (the Blotter's positions grid) never collapses. */
+export function toggleCollapsed(a:Arrangement,tab:string,rules:DockRules):Arrangement{
+  if(!groupsOf(a.layout).some(g=>g.tabs.includes(tab)))throw new Error(`Unknown tab ${tab}.`);
+  if(rules.fixed.includes(tab))throw new Error(`The ${tab} tab cannot be collapsed.`);
+  return {layout:a.layout,collapsed:a.collapsed.includes(tab)?a.collapsed.filter(t=>t!==tab):[...a.collapsed,tab]};
+}
+
+/** An arrangement saved by an earlier visit (untrusted storage) if it is well formed, holds exactly these tabs once each and collapses
+ *  none of the fixed ones; else `fallback`. */
+export function restoreArrangement(saved:unknown,tabs:readonly string[],rules:DockRules,fallback:Arrangement):Arrangement{
+  if(typeof saved!=='object'||saved===null)return fallback;
+  const {layout:raw,collapsed}=saved as Record<string,unknown>;
+  const layout=parse(raw,0,rules);
+  if(!layout||!Array.isArray(collapsed))return fallback;
   const held=groupsOf(layout).flatMap(g=>g.tabs);
   const same=held.length===tabs.length&&new Set(held).size===held.length&&held.every(t=>tabs.includes(t));
-  return same?layout:defaultLayout(tabs);
+  const shelved=collapsed.every(t=>typeof t==='string'&&tabs.includes(t)&&!rules.fixed.includes(t))&&new Set(collapsed).size===collapsed.length;
+  return same&&shelved?{layout,collapsed:collapsed as string[]}:fallback;
 }

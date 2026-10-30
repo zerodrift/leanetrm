@@ -9,7 +9,8 @@ import {setupCurveBlend} from './curve-blend.js';
 import {askInPanel} from './side-panel.js';
 import {renderTile,space} from './tiles.js';
 import {kindBadge,kindGroups,kindLabel,kindsVersion,type CurveKind} from './curve-kinds.js';
-import {setupDock} from './curve-dock.js';
+import {setupDock} from './dock.js';
+import {defaultLayout,restoreArrangement,type DockRules} from './dock-model.js';
 import {menuKey,placeOf,setupMenu,type MenuItem} from './context-menu.js';
 
 type Choice={value:unknown;label:string};
@@ -70,7 +71,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  const kicker=el('p','Custom curve');kicker.className='eyebrow';const heading=el('h2');heading.id='custom-curves-heading';
  const headKind=el('span');headKind.id='custom-curves-kind';const titleRow=el('div');titleRow.className='custom-curve-title-row';titleRow.append(headKind,heading);
  const status=el('p');status.id='custom-curves-state';status.className='custom-curve-status';status.setAttribute('role','status');titles.append(kicker,titleRow,status);
- const resetLayoutButton=button('Reset layout','custom-curves-reset-layout',()=>dock.reset());resetLayoutButton.className='text-button';
+ const resetLayoutButton=button('Reset layout','custom-curves-reset-layout',()=>resetDock());resetLayoutButton.className='text-button';
  const previewButton=button('Preview','custom-curves-preview',()=>void o.act(preview));previewButton.className='secondary';
  const saveButton=button('Save draft','custom-curves-save',()=>void o.act(save));
  const publishButton=button('Publish','custom-curves-publish',()=>void o.act(publish));publishButton.className='secondary';
@@ -191,8 +192,14 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  const historyView=setupComponentHistory({api:o.api,act:o.act,busy:o.busy,zone:o.zone,valid:()=>!!catalog&&!formulaDirty&&!blend.dirty()&&definition.nodes.length>0,
   selection:()=>{validate();return {definition:clone(definition),snapshotId:o.source().snapshotId,...(selected&&!dirty?{id:selected.id,version:selected.version}:{})};}});
  const dockHost=el('div');dockHost.id='custom-curves-dock';
- const dock=setupDock(dockHost,{narrow:o.narrow,storageKey:'openetrm.custom-curves.layout.v1',shown:id=>{if(id==='graph')remeasure();},tabs:[{id:'outputs',label:'Outputs',body:outputs},{id:'graph',label:'Graph',body:graphTab},
+ const dockTabs=['outputs','graph','configuration','versions','lineage','history'],dockKey='openetrm.custom-curves.layout.v1';
+ const dockRules:DockRules={maxDepth:2,fixed:[],ratioRange:[0.2,0.8]},dockDefault={layout:defaultLayout(dockTabs,'outputs'),collapsed:[]};
+ // The arrangement is this viewer's presentation state in this browser only; storage that cannot be read or written leaves it to this visit.
+ const dockSaved=()=>{try{const raw=localStorage.getItem(dockKey);return raw===null?undefined:JSON.parse(raw);}catch{return undefined;}};
+ const dock=setupDock(dockHost,{narrow:o.narrow,label:'Curve views',rules:dockRules,initial:restoreArrangement(dockSaved(),dockTabs,dockRules,dockDefault),
+  changed:a=>{try{localStorage.setItem(dockKey,JSON.stringify(a));}catch{/* The arrangement lasts this visit. */}},shown:id=>{if(id==='graph')remeasure();},tabs:[{id:'outputs',label:'Outputs',body:outputs},{id:'graph',label:'Graph',body:graphTab},
   {id:'configuration',label:'Configuration',body:configuration},{id:'versions',label:'Versions',body:activation},{id:'lineage',label:'Lineage',body:lineage},{id:'history',label:'History',body:historyView.element}]});
+ function resetDock(){dock.set(dockDefault);try{localStorage.removeItem(dockKey);}catch{/* Nothing was kept. */}}
  const workspace=el('div');workspace.className='custom-curve-main';workspace.append(start,dockHost);desk.append(rail,workspace);
  host.replaceChildren(head,templateHelp,accessNote,pendingPanel,prompt,desk,menu.element);
  function guard(){return {generation,identity:o.identity()};}function current(request:{generation:number;identity:string}){return generation===request.generation&&o.identity()===request.identity;}
@@ -232,7 +239,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   if(!read.length)ingredients.append(el('li','This graph reads no curves yet.'));
  }
  /** Shows Combine curves in Configuration, for the ingredient changes waiting to be built or discarded. */
- function showCombine(){dock.show('configuration');blend.element.scrollIntoView({block:'nearest'});blend.element.querySelector<HTMLElement>('select:enabled,input:enabled')?.focus({preventScroll:true});}
+ function showCombine(){dock.reveal('configuration');blend.element.scrollIntoView({block:'nearest'});blend.element.querySelector<HTMLElement>('select:enabled,input:enabled')?.focus({preventScroll:true});}
  /** Marks the library's entry for the exact version open, if it is one. */
  function markLibrary(){for(const entry of library.querySelectorAll<HTMLElement>('[data-recipe]')){if(selected&&entry.dataset.recipe===selected.id+'|'+selected.version)entry.setAttribute('aria-current','true');else entry.removeAttribute('aria-current');}}
  function sync(){const busy=o.busy(),editable=editAllowed(),retryAllowed=['custom-curves/publish','custom-curves/activation'].includes(pending.command?.path??'')?!!catalog?.canPublish&&!o.historical():pending.command?.path==='custom-curves/save'?editable:false;for(const input of [code,name,templates])input.disabled=busy||!editable;code.disabled ||=!!selected;retryButton.disabled=busy||!retryAllowed;discardButton.disabled=busy;pendingPanel.hidden=!pending.command;newButton.disabled=startNewButton.disabled=busy||!editable;for(const b of startTemplates.querySelectorAll('button'))b.disabled=busy||!editable;reloadButton.disabled=busy;for(const entry of library.querySelectorAll('button'))entry.disabled=busy;templateHelp.hidden=!templateHelp.textContent;const incomplete=missingContractInputs(definition).length>0;previewButton.disabled=busy||!catalog||!definition.nodes.length||formulaDirty||incomplete;effectiveButton.disabled=busy||!selected||dirty||formulaDirty;saveButton.disabled=busy||!editable||!definition.nodes.length||formulaDirty||incomplete;publishButton.disabled=busy||!catalog?.canPublish||o.historical()||!selected||selected.state==='published'||dirty;compile.disabled=busy||!editable||!catalog?.formulaSupported;formula.disabled=busy||!editable||!catalog?.formulaSupported;fitButton.disabled=busy;actualButton.disabled=busy;arrangeButton.disabled=busy||!editable;for(const b of operations.querySelectorAll('button'))b.disabled=busy||!editable;for(const input of properties.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button,textarea'))input.disabled=busy||(!editable&&!input.hasAttribute('data-read-only-action'));
@@ -249,7 +256,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  // The formula shows only the graph it was formatted from: an earlier one is cleared first, so a graph the backend cannot format shows none.
  async function formatFormula(){if(!catalog?.formulaSupported||formulaDirty)return;formula.value='';const request=guard();const result=await o.api<{formula:string}>('custom-curves/format',{definition});if(!current(request))return;formula.value=result.formula;formulaDirty=false;sync();}
  function setMode(value:string){if(o.busy())return;mode=value;board.hidden=value!=='visual';expression.hidden=value!=='formula';graphTools.hidden=value!=='visual';if(value==='visual'){if(estimated.size)renderGraph();else{sizeCanvas();positionCanvas();}}for(const b of [visualButton,formulaButton]){const active=b.id.endsWith(value);b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));}sync();}
- function openDefinition(next:CurveDefinition,positions:CurveLayout={},recipe?:Recipe,show?:'outputs'|'graph'|'configuration'){historyView.reset();opened=true;generation++;clearGraphModes();effectiveCurve=undefined;clearActivation();mode='visual';definition=clone(next);layout={...positions};estimated.clear();selected=recipe;selectedNode=definition.nodes.find(node=>(catalog?.operators.find(operator=>operator.kind===node.kind)?.fields.length??0)>0)?.id||definition.output||definition.nodes[0]?.id||'';dirty=false;formulaDirty=false;formula.value='';templateHelp.textContent='';code.value=definition.code;name.value=definition.name;clearPreview();render();notifyMarketScope();if(show)dock.show(show);}
+ function openDefinition(next:CurveDefinition,positions:CurveLayout={},recipe?:Recipe,show?:'outputs'|'graph'|'configuration'){historyView.reset();opened=true;generation++;clearGraphModes();effectiveCurve=undefined;clearActivation();mode='visual';definition=clone(next);layout={...positions};estimated.clear();selected=recipe;selectedNode=definition.nodes.find(node=>(catalog?.operators.find(operator=>operator.kind===node.kind)?.fields.length??0)>0)?.id||definition.output||definition.nodes[0]?.id||'';dirty=false;formulaDirty=false;formula.value='';templateHelp.textContent='';code.value=definition.code;name.value=definition.name;clearPreview();render();notifyMarketScope();if(show)dock.reveal(show);}
  /** Opens a saved version; `show` names the tab to show, as a curve the person opens shows Outputs (a save or reload shows what it showed). */
  function openRecipe(recipe:Recipe,show?:'outputs'){if(catalog){catalog.recipes=[...catalog.recipes.filter(r=>r.id!==recipe.id||r.version!==recipe.version),recipe];renderLibrary();}openDefinition(recipe.definition,recipe.layout,recipe,show);setTemplate('');}
  function renderLibrary(){const recipes=catalog?.recipes??[];
@@ -282,9 +289,9 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  };
  code.oninput=()=>{definition={...definition,code:code.value};invalidate();};name.oninput=()=>{definition={...definition,name:name.value};invalidate();};formula.oninput=()=>{formulaDirty=true;invalidate();};
  function renderPalette(){operations.replaceChildren();for(const operator of catalog?.operators??[]){const b=button(operator.label,'',()=>{if(o.busy()||!editAllowed())return;addNode(operator);});b.title=operator.description??operator.label;operations.append(b);}}
- function addNode(operator:Operator,parameters:Record<string,unknown>={}){let i=1;while(definition.nodes.some(n=>n.id===operator.kind+'_'+i))i++;const id=operator.kind+'_'+i;definition={...definition,nodes:[...definition.nodes,{id,kind:operator.kind,parameters,inputs:{}}]};selectedNode=id;invalidate();render();dock.show('graph');}
+ function addNode(operator:Operator,parameters:Record<string,unknown>={}){let i=1;while(definition.nodes.some(n=>n.id===operator.kind+'_'+i))i++;const id=operator.kind+'_'+i;definition={...definition,nodes:[...definition.nodes,{id,kind:operator.kind,parameters,inputs:{}}]};selectedNode=id;invalidate();render();dock.reveal('graph');}
  /** Selecting a card shows its operation in the inspector beside the graph; focus on the card stays on it. */
- function selectNode(id:string){if(o.busy()||drag)return;const fromCard=canvas.contains(document.activeElement);selectedNode=id;dock.show('graph');showSide(true);renderGraph();renderInspector();
+ function selectNode(id:string){if(o.busy()||drag)return;const fromCard=canvas.contains(document.activeElement);selectedNode=id;dock.reveal('graph');showSide(true);renderGraph();renderInspector();
   if(fromCard)canvas.querySelector<HTMLButtonElement>(`[data-node-id="${CSS.escape(id)}"] button`)?.focus({preventScroll:true});}
  function nodeTitle(node:CurveNode){return catalog?.operators.find(op=>op.kind===node.kind)?.label??node.kind;}
  function fieldValue(node:CurveNode,field:Field){return field.type==='published_source'?node.publishedSource:node.parameters[field.key];}
@@ -324,7 +331,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   definition=changeCurveConnection(replace?removeCurveConnection(definition,replace.target,replace.port):definition,target,port,source);invalidate();renderGraph();renderInspector();focusWire(`${target}|${port}`);
  }
  /** Shows a mapping in the inspector and puts focus in one field of one of its rows: the existing editor is where every row value is entered. */
- function editRow(target:string,row:number,fieldName:'Weight'|'Source'|'Contract'){selectedNode=target;dock.show('graph');showSide(true);renderGraph();renderInspector();
+ function editRow(target:string,row:number,fieldName:'Weight'|'Source'|'Contract'){selectedNode=target;dock.reveal('graph');showSide(true);renderGraph();renderInspector();
   properties.querySelector<HTMLElement>(`[aria-label="${fieldName} for connection ${row+1}"]`)?.focus();}
  function addContractRow(target:string){const rows=definition.nodes.find(n=>n.id===target)?.contractWeights??[];definition=changeContractWeights(definition,target,[...rows,{outputPosition:null,sourcePort:'',contractId:'',weight:''}]);invalidate();return rows.length;}
  function removeNode(id:string){for(const target of definition.nodes)for(const [port,source] of Object.entries(target.inputs))if(source===id)definition=removeCurveConnection(definition,target.id,port);definition={...definition,output:definition.output===id?'':definition.output,nodes:definition.nodes.filter(n=>n.id!==id)};delete layout[id];expanded.delete(id);selectedNode=definition.nodes[0]?.id??'';invalidate();render();}
@@ -539,7 +546,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   properties.append(section);
  }
  function renderInspector(){properties.replaceChildren();const node=definition.nodes.find(n=>n.id===selectedNode);if(!node){properties.append(el('p','Select a graph card to edit its properties.'));return;}const operator=catalog?.operators.find(op=>op.kind===node.kind);properties.append(el('h4',nodeTitle(node)),el('p',operator?.description??''));if(operator){const type=el('div');type.className='custom-curve-type-row';type.append(componentTypeBadge(operator.outputType));const kind=ingredientKind(node);if(kind)type.append(kindBadge(kind),el('span',kindLabel(kind)));properties.append(type);}
-  if(offersComponentHistory(catalog,definition,node)){const inspect=button('View component history','custom-curve-component-history',()=>{historyView.choose(node.id);dock.show('history');});inspect.dataset.readOnlyAction='true';properties.append(inspect);}
+  if(offersComponentHistory(catalog,definition,node)){const inspect=button('View component history','custom-curve-component-history',()=>{historyView.choose(node.id);dock.reveal('history');});inspect.dataset.readOnlyAction='true';properties.append(inspect);}
   for(const spec of operator?.fields??[]){if(!curveFieldVisible(spec,node.parameters))continue;if(spec.type==='contract_weights'){renderWeights(node,spec);continue;}if(spec.type==='panel_weights'){renderPanelWeights(node,spec);continue;}const choices=choicesFor(spec),currentValue=fieldValue(node,spec),id='custom-curve-property-'+spec.key;let control:HTMLInputElement|HTMLSelectElement;
    if(choices.length||['select','curve','calendar','schedule','published_source'].includes(spec.type)){const select=el('select');select.id=id;option(select,'','Choose…');choices.forEach((choice,index)=>option(select,String(index),choice.label));const index=choices.findIndex(choice=>JSON.stringify(choice.value)===JSON.stringify(currentValue));select.value=index<0?'':String(index);if(currentValue!==undefined&&index<0){option(select,'retained','Retained value · '+pretty(currentValue));select.value='retained';}select.onchange=()=>{if(o.busy()||!editAllowed())return;const value=select.value;if(value==='retained')return;changeParameter(node.id,spec.key,value===''?null:choices[Number(value)].value);};control=select;
    }else{const input=field(id,spec.type==='boolean'?'checkbox':spec.type==='integer'?'number':'text');if(spec.type==='boolean')input.checked=currentValue==='true';else input.value=currentValue===undefined||currentValue===null?'':String(currentValue);if(spec.type==='integer')input.step='1';input.onchange=()=>{if(o.busy()||!editAllowed())return;changeParameter(node.id,spec.key,spec.type==='boolean'?String(input.checked):input.value);};control=input;}
@@ -560,7 +567,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  }
  function displayEvidence(value:unknown):unknown{if(typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value))return displayInstant(value,o.zone());if(Array.isArray(value))return value.map(displayEvidence);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,displayEvidence(item)]));return value;}
  function validate(){if(blend.dirty())throw Error('Build or discard the ingredient changes first.');if(!code.reportValidity()||!name.reportValidity())throw Error('Enter a code and name for this curve.');if(formulaDirty)throw Error('Apply the formula before previewing or saving.');}
- async function preview(retain=false){validate();if(!retain){effectiveCurve=undefined;clearPreview();dock.show('outputs');}const request=guard(),source=o.source();const values=await o.api<Preview>('custom-curves/preview',{definition,snapshotId:source.snapshotId,...(selected&&!dirty?{id:selected.id,version:selected.version}:{})});if(!current(request))return;lastPreview={values,source};showPreview(values,source);}
+ async function preview(retain=false){validate();if(!retain){effectiveCurve=undefined;clearPreview();dock.reveal('outputs');}const request=guard(),source=o.source();const values=await o.api<Preview>('custom-curves/preview',{definition,snapshotId:source.snapshotId,...(selected&&!dirty?{id:selected.id,version:selected.version}:{})});if(!current(request))return;lastPreview={values,source};showPreview(values,source);}
  function clearActivation(){activationLoaded=false;activationDirty=false;activationPlan=null;activationRows.replaceChildren();activationReason.value='';activationState.textContent='';}
  function activationEdited(){activationDirty=true;effectiveCurve=undefined;clearPreview();activationState.textContent='Unpublished replacement timeline · publish it or reload the retained timeline before an effective preview.';sync();}
  function activationRow(segment?:ActivationSegment){
@@ -580,7 +587,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  }
  async function previewEffective(retain=false){
   if(activationDirty)throw Error('Publish or reload the replacement timeline before an effective preview.');
-  const id=effectiveCurve??selected?.id;if(!id)throw Error('Choose a saved logical curve first.');const request=guard(),source=o.source();if(!retain){clearPreview();dock.show('outputs');}
+  const id=effectiveCurve??selected?.id;if(!id)throw Error('Choose a saved logical curve first.');const request=guard(),source=o.source();if(!retain){clearPreview();dock.reveal('outputs');}
   const result=await o.api<{activation:ActivationPlan;recipe:Recipe;preview:Preview}>('custom-curves/effective-preview',{curveId:id,snapshotId:source.snapshotId,policy:'complete_effective_timeline_v1'});
   if(!current(request))return;if(result.recipe?.id!==id||result.activation?.curveId!==id||result.preview?.snapshotId!==source.snapshotId)throw Error('The effective preview returned inconsistent selection identities.');
   previewTiles(result.preview.summary);openRecipe(result.recipe);effectiveCurve=id;showActivation(result.activation);lastPreview={values:result.preview,source};showPreview(result.preview,source);
