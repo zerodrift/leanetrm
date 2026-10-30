@@ -8,7 +8,7 @@ namespace OpenEtrm.Api;
 // and lists it; every other failure still fails them.
 static class ValuationStatus
 {
-    public static bool PositionSpecific(string? code)=>code is "source_expired" or "missing_observation";
+    public static bool PositionSpecific(string? code)=>code is "source_expired" or "missing_observation" or "index_fixing_missing";
     public static bool PositionSpecific(MarketDataException error)=>PositionSpecific(error.Code);
 
     // One build values every request the close can value (D220). Only when it fails for a position-specific reason are the

@@ -5,6 +5,7 @@ using System.Text.Json;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.Rates;
 
 namespace OpenEtrm.Api;
@@ -87,8 +88,29 @@ public sealed partial class SwapStore
         var key = new PaymentOccurrenceKey(request.TradeId, existing.ValueKind == JsonValueKind.Undefined ? row.Id("binding_id") : existing.Id("origin_binding_id"),
             request.MembershipOrdinal, plan.DeliveryFrom, plan.DeliveryTo);
         var rounding = new SwapSettlementRounding(request.Currency, request.DecimalPlaces, CashTieRule.ToEven, request.RoundingPolicy);
+        var snapshot=data.Snapshot(frame);
+        var market=data.Model.Build(snapshot,[]);
+        var cashContext=new SideValuationContext(market,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted));
+        var sources=plan.Prices.Where(price=>price.ContractObservation is not null).Select(price=>price.ContractObservation!).Distinct().ToImmutableArray();
+        if(!sources.IsEmpty)
+        {
+            if(sources.Any(source=>source.FixingAt>frame.At))
+                throw Error("settlement_not_final","Every contractual source observation must be due before determining cash.");
+            if(snapshot.MarketCutoff!=frame.At)
+                throw Error("contract_observation_context","This source consumer requires an explicit market cutoff equal to the valuation instant.");
+            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,frame.ContextId??
+                throw Error("settlement_context","Supply the exact certified context."),ct)).Context;
+            var exact=PinnedContext.Exact(context);
+            var samples=await ContractObservationSamples.Read(connection,database,data,frame,exact,sources,ct);
+            var calculationContext=new ResolvedCalculationContext(exact.ContextId!.Value,
+                SettlementHash(new{snapshot.Id,snapshot.Definitions,sources,context=exact}),frame.At,
+                SchedulePreview.ParseAt(exact.KnownAt),frame.At,snapshot.MarketCutoff);
+            var pricing=ContractObservationPricing.Compile(samples,calculationContext,
+                new CustomCurves.PreparedBindings(sources.Select(source=>source.Market.Curve).ToHashSet(),calculationContext));
+            cashContext=cashContext.WithContractObservations(pricing,ConnectedScenario.Base(pricing.Plan,database.Calculations,ct));
+        }
         var calculation = SwapSettlement.Calculate(resolved.Instrument, request.MembershipOrdinal, request.PaymentOrdinal,
-            resolved.Quantity, key, data.Model.Build(data.Snapshot(frame), []), rounding);
+            resolved.Quantity, key, cashContext, rounding);
         var contractHash = SettlementHash(new{cashContract=calculation.ContractHash,completion,policy=SwapPeriodCompletion.Policy});
         if (existing.ValueKind != JsonValueKind.Undefined && existing.Text("contract_hash") != contractHash)
             throw Error("settlement_continuity", "Changed determined payment terms require an explicit qualified continuity mapping.");
@@ -242,7 +264,8 @@ public sealed partial class SwapStore
         var mapping = enabled ? await Discount(connection,data,frame,resolved.Instrument.Currency,ct) : null;
         var discounting = new CurrencyDefaultDiscounting(inputs.DiscountKeys(resolved.Instrument,snapshot),snapshot,enabled,mapping);
         var context = (await new KnowledgeStore(manifest.CatalogId).Read(connection,frame.ContextId??throw Error("settlement_context","Supply the exact certified context."),ct)).Context;
-        var connected = await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),ct);
+        var connected = await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),ct,
+            activePrices:inputs.RequiredPrices(resolved.Instrument));
         return new(resolved.Instrument,resolved.Quantity,inputs,inputs.Evaluate(resolved.Instrument,
             connected.Valuation.PaymentContext(connected.Bindings,connected.Authority,discounting,ct)),state);
     }
@@ -371,7 +394,7 @@ public sealed partial class SwapStore
         value.Snapshot.MarketCutoff,
         prices = value.Evidence.Prices.Select(p => new
         {
-            price = ExactPrice(p.ExactPrice), p.ExactPrice.Unit, p.State, p.Term.Lookup, p.Term.Spread,
+            price = ExactPrice(p.ExactPrice), p.ExactPrice.Unit, p.State, p.Term.Lookup, p.Term.ContractObservation, p.Term.Spread,
             weight = p.Term.Weight.ToString(), lineage = p.Lineage.OrderBy(k => k.Id).ToImmutableArray()
         }),
         applications = value.Evidence.Applications.Select(a => new

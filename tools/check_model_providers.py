@@ -65,7 +65,7 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet, admin
     check('the administration, grant, turn, Test, worker and usage operations are the only definers and all the runtime may execute',
           query(f"{functions} AND prosecdef;") == query(f"{functions} AND has_function_privilege('preview_runtime',oid,'EXECUTE');")
           == 'add_model,add_price,agent_directory,append_turn_text,ask_turn,attest,close_test,close_turn_call,conversation,conversations,'
-          'create_agent,credential_slot,curve_proposal,disable_model,disable_provider,edit_model,edit_model,enable_model,enable_provider,end_turn,end_turn_session,'
+          'create_agent,credential_slot,curve_proposal,disable_model,disable_provider,edit_model,enable_model,enable_provider,end_turn,end_turn_session,'
           'export_usage,grant_agent,grants,mark_read,model_directory,open_test,open_turn_call,pin_turn,provider_directory,publish_agent,'
           'record_terms,record_tool_step,rename_model,replace_credential,retire_agent,revoke_grant,save_agent_version,start_turn,start_worker,'
           'stop_turn,turn_stream,unfinished_turn,usable_agents,usage_directory,usage_report,use_agent_admission,use_grant_admission,withdraw_price,'

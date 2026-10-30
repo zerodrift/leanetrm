@@ -4,8 +4,22 @@ using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
+
+public sealed record CloseQuoteFactor(QuoteFactor Factor,ExactDecimal BumpSize);
+public sealed record CloseFactorRisk(string Measure,Guid BookId,ReferenceKey Currency,InputKey Factor,
+    ExactMoney Up,ExactMoney Down,ExactMoney UpPnl,ExactMoney DownPnl,ExactRiskDerivative Delta,ExactRiskDerivative Gamma);
+public sealed record ClosePortfolioValuationResult(Guid SnapshotId,ScheduleContext Context,PortfolioValuationPolicy Policy,
+    ImmutableArray<UnitPricingContract> ModelContracts,ImmutableArray<PortfolioPositionEvidence> Positions,
+    ImmutableArray<CloseQuoteFactor> Factors,ImmutableArray<PortfolioTotal> Totals,
+    ImmutableArray<CloseFactorRisk> Risk,RiskWork Work)
+{
+    public ImmutableArray<PortfolioDiscountEvidence> DiscountInputs{get;init;}=[];
+    public ValuationReceipt? PpaReceipt{get;init;}
+    public ImmutableArray<BookValueMeasures> PpaMeasures{get;init;}=[];
+}
 
 // Publication accepts only a fenced service occurrence. Core relationships are
 // normalized in storage; the serialized command is parsed and not retained.
@@ -19,13 +33,15 @@ public static class PilotCloseReports
         return await command.ExecuteScalarAsync(ct) is true;
     }
     public static Task<Guid> Publish(NpgsqlConnection connection,Guid runId,PortfolioValuationResult result,CancellationToken ct)
+        =>Publish(connection,runId,Adapt(result),ct);
+    internal static ClosePortfolioValuationResult Adapt(PortfolioValuationResult result)
     {
         var factors=result.Factors.Select(f=>new CloseQuoteFactor(f.Axis.Quote??throw Invalid(),f.BumpSize)).ToImmutableArray();
         var byId=result.Factors.Select((f,i)=>(f.Axis.Id,i)).ToDictionary(p=>p.Id,p=>p.i);
         var risk=result.Risk.Select(r=>new CloseFactorRisk(r.Measure,r.BookId,r.Currency,factors[byId[r.Factor]].Factor.Input,
             r.Up,r.Down,r.UpPnl,r.DownPnl,r.Delta,r.Gamma)).ToImmutableArray();
-        return Publish(connection,runId,new ClosePortfolioValuationResult(result.SnapshotId,result.Context,result.Policy,result.ModelContracts,
-            result.Positions,factors,result.Totals,risk,result.Work){DiscountInputs=result.DiscountInputs},ct);
+        return new ClosePortfolioValuationResult(result.SnapshotId,result.Context,result.Policy,result.ModelContracts,
+            result.Positions,factors,result.Totals,risk,result.Work){DiscountInputs=result.DiscountInputs,PpaReceipt=result.PpaReceipt,PpaMeasures=result.PpaMeasures};
     }
     public static async Task<Guid> Publish(NpgsqlConnection connection,Guid runId,ClosePortfolioValuationResult result,CancellationToken ct)
     {

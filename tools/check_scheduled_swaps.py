@@ -41,7 +41,8 @@ def prepare(market,manifest):
             observations.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REV}','{series}',{R},'fixture','scheduled_{ordinal}_{sample}','1','trader_mark','final','{frame['at']}','{datetime.now(timezone.utc).isoformat()}',{price},NULL);")
     market=market.replace('UPDATE market_data.revisions SET','\n'.join(definitions)+'\nUPDATE market_data.revisions SET',1)
     market=market.rsplit('COMMIT;',1)[0]+'\n'+'\n'.join(observations)+'\nCOMMIT;\n'
-    return market
+    from check_contract_observation_booking import prepare as prepare_contract_observations
+    return prepare_contract_observations(market,manifest)
 
 
 def check_unvalued_lifecycle(c,workspace,trade,run_worker):
@@ -394,4 +395,6 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     print('PASS scheduled swap HTTP: period totals, daily rates, total allocation, cash/PV, replay and exact revision amendment')
     from check_scheduled_observations import run as check_scheduled_observations
     check_scheduled_observations(c,context,manifest)
+    from check_contract_observation_booking import run as check_contract_observations
+    check_contract_observations(c,context,body,query,run_worker=run_worker)
     return dict(frame=partial,tradeId=mixed_saved['tradeId'],currency=value['currency'],netTradeId=net_fixture['tradeId'])

@@ -13,6 +13,12 @@ public sealed class ConnectedValuation
 {
     public ConnectedScenario Scenario{get;}
     public MarketSnapshot Snapshot{get;}
+    public ContractObservationPricing? ContractObservations { get; private init; }
+    public ConnectedValuation WithContractObservations(ContractObservationPricing pricing)
+    {
+        foreach(var lookup in pricing.Points.Keys)pricing.Resolve(lookup,Scenario);
+        return new(Scenario,Snapshot){ContractObservations=pricing};
+    }
     private ConnectedValuation(ConnectedScenario scenario,MarketSnapshot snapshot)
     {Scenario=scenario;Snapshot=snapshot;}
 
@@ -88,7 +94,7 @@ public sealed class ConnectedValuation
     {
         if(scenario is null||!ReferenceEquals(scenario.Plan,Scenario.Plan))
             throw new MarketDataException("instrument_context","Scenario reuse requires the exact prepared plan and retained context.");
-        return new(scenario,Snapshot);
+        return new(scenario,Snapshot){ContractObservations=ContractObservations};
     }
 
     internal PreparedValuationMarket Market(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation,CurveBuild? nativeScenario=null)
@@ -160,9 +166,12 @@ public sealed class ConnectedValuation
             foreach(var request in requests)if(!ReferenceEquals(Price(request,cancellation),connected.Price(request,cancellation)))return false;
             return true;
         }
-        internal override SideValuationContext Context(ISideDiscounting? discounting,ImmutableArray<CurveRequest> dependencies,CancellationToken cancellation)=>
-            authority is null?new(Snapshot,discounting,dependencies,request=>Price(request,cancellation),NumericalPolicy,ScenarioId):
+        internal override SideValuationContext Context(ISideDiscounting? discounting,ImmutableArray<CurveRequest> dependencies,CancellationToken cancellation)
+        {
+            SideValuationContext context=authority is null?new(Snapshot,discounting,dependencies,request=>Price(request,cancellation),NumericalPolicy,ScenarioId):
                 new(authority,discounting,dependencies,request=>Price(request,cancellation),request=>Lineage(request,cancellation),NumericalPolicy,ScenarioId);
+            return valuation.ContractObservations is {} observations?context.WithContractObservations(observations,valuation.Scenario):context;
+        }
     }
 
     public SideValuationContext PaymentContext(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,

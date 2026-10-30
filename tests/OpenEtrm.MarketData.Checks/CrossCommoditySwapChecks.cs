@@ -15,7 +15,7 @@ internal static class CrossCommoditySwapChecks
         var from=new DateOnly(2041,1,1);var to=from.AddMonths(1);var payment=Fixture.Utc("2041-02-18T00:00:00Z");
         var contract=new MarketContract(new(definition,Guid.Parse("50000000-0000-0000-0000-000000000001")),ContractKind.Forward,from,to,Fixture.Utc("2041-02-01T00:00:00Z"),null);
         var fixedSide=new FixedSide(Guid.NewGuid(),new(ExactDecimal.Parse("4"),quote),quantity,from,to,payment,FixedSide.Implementation,quote);
-        var floating=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(R("index")),quote,quantity,from,to,Fixture.Utc("2040-12-31T00:00:00Z"),payment,FloatingAveraging.MonthlyIndexPrice,[new(new(new(definition,"gas"),contract.Key),contract)],FloatingSide.Implementation);
+        var floating=new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(R("index")),quote,quantity,from,to,[new(R("index"),quote.Key,from,to,Fixture.Utc("2040-12-31T00:00:00Z"),new(definition,Guid.Parse("70000000-0000-0000-0000-000000000001")),R("synthetic_source"),IndexFixing.SupportedImplementation)],payment,FloatingAveraging.MonthlyIndexPrice,[new(new(new(definition,"gas"),contract.Key),contract)],FloatingSide.IndexedImplementation);
         var first=WholeTermSideFixtures.Fixed([fixedSide],quote,[ExactRatio.One]);
         var second=WholeTermSideFixtures.Floating([floating],[ExactRatio.One]);
         var legacy=new ScheduledFinancialSwap(Guid.NewGuid(),[new(first,ExactDecimal.Parse("-1"),ExactRatio.One),new(second,one,ExactRatio.One)],false,ScheduledFinancialSwap.Implementation);

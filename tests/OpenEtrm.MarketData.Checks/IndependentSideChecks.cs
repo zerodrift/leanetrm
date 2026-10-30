@@ -17,9 +17,11 @@ internal static class IndependentSideChecks
         var fixedAt = Fixture.Utc("2041-02-02T12:00:00Z"); var floatAt = fixedAt.AddMonths(1);
         var fixedSide = new FixedSide(Guid.NewGuid(), new UnitPrice(ExactDecimal.Parse("3"), quote), unit,
             contract.DeliveryFrom, contract.DeliveryTo, fixedAt, FixedSide.Implementation,quote);
+        var fixing=new IndexFixing(f.R("index"),quote.Key,contract.DeliveryFrom,contract.DeliveryTo,
+            Fixture.Utc("2040-12-19T00:00:00Z"),f.S(8),f.R("source"),IndexFixing.SupportedImplementation);
         var floating = new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R("index")), quote, unit, contract.DeliveryFrom, contract.DeliveryTo,
-            Fixture.Utc("2040-12-19T00:00:00Z"), floatAt, FloatingAveraging.MonthlyIndexPrice,
-            [new(new(f.C("base_forward"), contract.Key), contract)], FloatingSide.Implementation);
+            [fixing], floatAt, FloatingAveraging.MonthlyIndexPrice,
+            [new(new(f.C("base_forward"), contract.Key), contract)], FloatingSide.IndexedImplementation);
         var market = f.Model().Build(snapshot, floating.Dependencies);
         Check("composed instruments require explicit nonempty valid memberships", () =>
         {
@@ -34,13 +36,13 @@ internal static class IndependentSideChecks
             Reject("swap_definition", () => new FixedSide(Guid.NewGuid(), ((FlatPrice)fixedSide.Price).Price, holdingQuantity,
                 contract.DeliveryFrom, contract.DeliveryTo, fixedAt, "independent_fixed_quantity_v2",quote));
             Reject("swap_definition", () => new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R("index")), quote, holdingQuantity,
-                contract.DeliveryFrom, contract.DeliveryTo, Fixture.Utc("2040-12-19T00:00:00Z"), floatAt,
+                contract.DeliveryFrom, contract.DeliveryTo, [fixing], floatAt,
                 FloatingAveraging.MonthlyIndexPrice, floating.Projections, "independent_floating_quantity_v2"));
             Reject("swap_definition", () => new FixedSide(Guid.NewGuid(), ((FlatPrice)fixedSide.Price).Price, holdingQuantity,
                 contract.DeliveryFrom, contract.DeliveryTo, fixedAt, FixedSide.Implementation,quote));
             Reject("swap_definition", () => new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R("index")), quote, holdingQuantity,
-                contract.DeliveryFrom, contract.DeliveryTo, Fixture.Utc("2040-12-19T00:00:00Z"), floatAt,
-                FloatingAveraging.MonthlyIndexPrice, floating.Projections, FloatingSide.Implementation));
+                contract.DeliveryFrom, contract.DeliveryTo, [fixing], floatAt,
+                FloatingAveraging.MonthlyIndexPrice, floating.Projections, FloatingSide.IndexedImplementation));
         });
         Check("explicit keys resolve their own factors without fabricating cash payment plans", () =>
         {
@@ -51,7 +53,7 @@ internal static class IndependentSideChecks
             if(!factors.Select(f=>f.Payment).SequenceEqual(keys) || factors.Any(f=>f.DiscountFactor.ToString()!="0.8" ||
                 f.Source!=DiscountFactorSource.Explicit || !f.Snapshot.HasSameInputs(snapshot)))throw new Exception("Exact key factor ownership changed.");
         });
-        var source = new TestDiscounting((schedule, context) => schedule.Payments.Select(p => new SidePaymentFactor(p.Key,
+        var source = new TestDiscounting((payments, context) => payments.Select(p => new SidePaymentFactor(p,
             ExactDecimal.Parse(p.PaymentAt == fixedAt ? "0.5" : "0.8"), context, DiscountFactorSource.Explicit)).ToImmutableArray());
         var context = new SideValuationContext(market, source);
         FinancialSwapInstrument Swap(string fixedSign) => new(Guid.NewGuid(), [new(fixedSide, ExactDecimal.Parse(fixedSign)),
@@ -185,9 +187,9 @@ internal static class IndependentSideChecks
         public override SideSchedule GenerateSchedule()=>new PhysicalSchedule(Id,Money,Unit);
         public override SideValuation PV(SideValuationContext context)=>new PhysicalValue(GenerateSchedule(),context,ExactMoney.FromMoney(new(Amount,Money)));
     }
-    private sealed class TestDiscounting(Func<SidePaymentSchedule, MarketSnapshot, ImmutableArray<SidePaymentFactor>> resolve) : ISideDiscounting
+    private sealed class TestDiscounting(Func<ImmutableArray<SidePaymentKey>, MarketSnapshot, ImmutableArray<SidePaymentFactor>> resolve) : ISideDiscounting
     {
-        public ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot) => resolve(schedule, snapshot);
+        public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments, MarketSnapshot snapshot) => resolve(payments, snapshot);
     }
     private sealed record RecordedSide(SideValuation Value) : Side(Value.SideId)
     {

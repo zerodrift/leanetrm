@@ -140,6 +140,7 @@ public static class ScheduleOperations
     public static IReadOnlyDictionary<string,string[]> Parameters { get; }=new Dictionary<string,string[]>(StringComparer.Ordinal)
     {
         ["constant_price"]=["numerator","denominator"], ["price_lookup"]=["selection"],
+        [ContractObservationScheduleSource.Operation]=["selectionAt","sampleAt","observationOrdinal","expiryPolicy","implementation"],
         ["quantity_input"]=["stage"], ["quantity_literal"]=["numerator","denominator"],
         ["asset_capacity"]=["measure"], ["quantity_normalize"]=[],["quantity_add"]=[],
         ["quantity_scale"]=["numerator","denominator"],["quantity_transform"]=["numerator","denominator","implementation"],
@@ -150,13 +151,14 @@ public static class ScheduleOperations
         ["output_guard"]=["measure","lifecycle","pricePolicy","averaging","firstFixingAt","paymentRule","unadjustedPayment"]
     };
     public static ImmutableHashSet<string> BindingKinds { get; }=ImmutableHashSet.Create(StringComparer.Ordinal,
-        "contract_price","index_fixing","curve_interval","custom_output","quantity_source","asset","clock","calendar",
+        "contract_price","index_fixing","settlement_source","curve_interval","custom_output","quantity_source","asset","clock","calendar",
         "rate_curve","sibling_quantity","quantity_unit","currency","location","index","quote");
     public static void Require(ScheduleDefinitionRow row)
     {
         if(row.Operation is null||row.Parameters is null||!Parameters.TryGetValue(row.Operation,out var keys)||
             !row.Parameters.Keys.Order(StringComparer.Ordinal).SequenceEqual(keys.Order(StringComparer.Ordinal))||row.Parameters.Values.Any(value=>value is null))
             throw ScheduleDefinition.Error("A row has an unsupported operation or a missing/unknown parameter.");
+        if(row.Operation==ContractObservationScheduleSource.Operation)ContractObservationScheduleSource.Require(row);
         if(row.Parameters.TryGetValue("numerator",out var numerator))
         {
             var n=Integer(numerator);var d=Integer(row.Parameters["denominator"]);

@@ -7,7 +7,13 @@ using OpenEtrm.MarketData.CustomCurves;
 namespace OpenEtrm.MarketData.Calculation;
 
 public sealed record ConnectedSourceSample(Guid SnapshotId,DateTimeOffset ValuationAt,DateTimeOffset MarketCutoff,
-    InputSelectionPolicy SelectionPolicy,InputUse OriginalUse,bool FreezeHistorical);
+    InputSelectionPolicy SelectionPolicy,InputUse OriginalUse,bool FreezeHistorical)
+{
+    // An explicitly fixed current observation is distinct from a current forward
+    // projection of that same series. Historical freezing remains unchanged.
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]
+    public bool FreezeObservation { get; init; }
+}
 public sealed record ConnectedNumericInput(InputKey Input,MarketSeries Series,MarketObservation Observation);
 // Existing source rules keep their selected working-decimal arithmetic and quote
 // domain. Recipe means consume their exact results without rounding the means.

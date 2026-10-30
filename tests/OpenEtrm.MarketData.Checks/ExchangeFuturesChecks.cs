@@ -25,13 +25,13 @@ internal static class ExchangeFuturesChecks
   Check("a directly observed basis future retains settlement references without upstream price exposure",()=>{
    var basisQuote=quote with {Kind=QuoteKind.Basis};
    var series=Series("2500",LotBasis.FixedTotal,"cash") with {BasisSettlement=new(f.R("regional_index"),f.R("benchmark_series"),"index_minus_future_v1")};
-   var binding=new FuturesMarketBinding(Guid.NewGuid(),new(new(original.Key.Revision,"basis"),original.Key),original,series,basisQuote,"cash",FuturesMarketBinding.GeneralImplementation);
+   var binding=new FuturesMarketBinding(Guid.NewGuid(),new(new(original.Key.Revision,"basis"),original.Key),original,series,basisQuote,"cash",FuturesMarketBinding.Implementation);
    Equal(binding.ExecutionPnl(new(ExactDecimal.Parse("-0.2"),basisQuote),new(ExactDecimal.Parse("-0.3"),basisQuote),ExactDecimal.Parse("2")).Amount.ToString(),"500");
    if(binding.Dependencies.Length!=1||binding.Dependencies[0]!=binding.Market)throw new Exception("A directly observed basis mark must expose only its selected factor.");
-   Equal(binding.Convention,FuturesMarketBinding.GeneralImplementation);
-   Reject(()=>new FuturesMarketBinding(Guid.NewGuid(),binding.Market,original,series with {BasisSettlement=null},basisQuote,"cash",FuturesMarketBinding.GeneralImplementation));
-   Reject(()=>new FuturesMarketBinding(Guid.NewGuid(),binding.Market,original,series,quote,"cash",FuturesMarketBinding.GeneralImplementation));
-   Reject(()=>new FuturesMarketBinding(Guid.NewGuid(),binding.Market,original,series,basisQuote,"cash",FuturesMarketBinding.Implementation));
+   Equal(binding.Convention,FuturesMarketBinding.Implementation);
+   Reject(()=>new FuturesMarketBinding(Guid.NewGuid(),binding.Market,original,series with {BasisSettlement=null},basisQuote,"cash",FuturesMarketBinding.Implementation));
+   Reject(()=>new FuturesMarketBinding(Guid.NewGuid(),binding.Market,original,series,quote,"cash",FuturesMarketBinding.Implementation));
+   Reject(()=>new FuturesMarketBinding(Guid.NewGuid(),binding.Market,original,series,basisQuote,"cash","fixed_total_cash_execution_pnl_v1"));
   });
   foreach(var hours in new[]{384,416,432})Check($"published {hours} MWh lot applies once to signed lots and quote price",()=>{
    var lot=new FuturesLotResolution(new(ExactDecimal.Parse(hours.ToString()),quote.Quantity),ExactDecimal.Parse(hours.ToString()),"published_contract_size_v1");
@@ -48,7 +48,7 @@ internal static class ExchangeFuturesChecks
   Check("final valid cash survives an intermediate price difference outside the working decimal range",()=>{
    var series=Series("0.01",LotBasis.FixedTotal,"physical");
    var wide=quote with {Minimum=ExactDecimal.Parse("-999999999999999999999999"),Maximum=ExactDecimal.Parse("999999999999999999999999")};
-   var binding=new FuturesMarketBinding(Guid.NewGuid(),new(new(original.Key.Revision,"boundary"),original.Key),original,series,wide,"physical",FuturesMarketBinding.GeneralImplementation);
+   var binding=new FuturesMarketBinding(Guid.NewGuid(),new(new(original.Key.Revision,"boundary"),original.Key),original,series,wide,"physical",FuturesMarketBinding.Implementation);
    Equal(binding.ExecutionPnl(new(ExactDecimal.Parse("900000000000000000000000"),wide),new(ExactDecimal.Parse("-900000000000000000000000"),wide),ExactDecimal.Parse("1")).Amount.ToString(),"18000000000000000000000");
   });
   Check("variable lots reject missing factors, inconsistent totals, wrong exact units and unselected rules",()=>{
@@ -66,7 +66,7 @@ internal static class ExchangeFuturesChecks
    var wide=quote with {Multiplier=ExactDecimal.Parse(multiplier),Minimum=ExactDecimal.Parse("-999999999999999999999999"),Maximum=ExactDecimal.Parse("999999999999999999999999")};
    var model=new CurveModel(original.Key.Revision,wide.Key.Revision,[f.Quantities.Single(q=>q.Key==wide.Quantity)],[wide],[original],[f.Curves[0]],[series],[],[new(f.S(1),original.Key,wide.Key,null)]);
    var selected=f.Snapshot();var snapshot=selected with {Selections=[selected.Selections[0] with {Observation=selected.Selections[0].Observation with {Value=ExactDecimal.Parse("900000000000000000000000")}}]};
-   var binding=model.BindFutures(Guid.NewGuid(),new(f.C("future"),original.Key),"physical",FuturesMarketBinding.GeneralImplementation);
+   var binding=model.BindFutures(Guid.NewGuid(),new(f.C("future"),original.Key),"physical",FuturesMarketBinding.Implementation);
    var trade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[FuturesExecution.Bind(Guid.NewGuid(),binding,ExactDecimal.Parse("1"),new(ExactDecimal.Parse("-900000000000000000000000"),wide),snapshot.ValuationAt,FuturesSettlementState.Unprocessed)]);
    var result=FuturesRisk.Calculate([trade],snapshot,model,[new(new(f.S(1),InputUse.Variable),wide.Key,PriceUnit.FromQuote(wide),ExactDecimal.Parse("1"),QuoteBump.Convention)],FuturesRisk.Implementation,RiskEngine.NumericalPolicy).Factors.Single().Positions.Single();
    Equal(result.Base.Amount.ToString(),"18000000000000000000000");Equal(result.UpPnl.Amount.ToString(),"0.01");Equal(result.DownPnl.Amount.ToString(),"-0.01");Equal(result.Delta.Value.ToString(),"0.01");Equal(result.Gamma.Value.ToString(),"0");

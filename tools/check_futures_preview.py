@@ -5,11 +5,12 @@ from uuid import uuid4
 
 
 def run_checks(Client, check):
-    convention = 'fixed_total_cash_execution_pnl_v1'
+    convention = 'contract_lot_execution_pnl_v2'
     trader = Client(); trader.bootstrap(); trader.call('profile', {'profile': 'trader'})
     source = trader.call('workspace')
     frame = next(f for f in source['frames'] if f['at'].startswith('2020-12-18'))
     view = {'snapshotId': frame['id'], 'convention': convention, 'knowledgeMode': 'current'}
+    trader.call('futures/catalog', {**view, 'convention': 'fixed_total_cash_execution_pnl_v1'}, expected=422)
     catalog = trader.call('futures/catalog', view)
     check('futures catalog resolves actual curve members and two scoped books', len(catalog['books']) == 2 and len(catalog['contracts']) == 6)
     contract = next(c for c in catalog['contracts'] if c['deliveryFrom'] == '2021-01-01')

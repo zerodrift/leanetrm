@@ -58,7 +58,7 @@ def run_checks(query, manifest, psql=None, environment=None):
             'points': [{'curve': curve, 'pointId': str(uuid4())}]}
     frame.update(supplementalMarkets={}, swapMarketSelections={}, scenarioAxes=[axis],
                  connectedMarkets=[{'revisionId': revision, 'manifestId': 'b' * 64,
-                     'sourceExecutionConvention': 'fixed_total_cash_execution_pnl_v1', 'recipes': [], 'samples': []}])
+                     'sourceExecutionConvention': 'contract_lot_execution_pnl_v2', 'recipes': [], 'samples': []}])
     request = {'context': {'snapshotId': frame['id'], 'contextId': context, 'knowledgeMode': 'retained', 'convention': 'trading_workspace_v1'},
                'bookIds': books, 'portfolioIds': [],
                'bumps': [{'factor': factor, 'size': '0.01', 'convention': 'absolute_curve_coordinate_symmetric_v1'}],
@@ -66,7 +66,7 @@ def run_checks(query, manifest, psql=None, environment=None):
                'detail': 'books', 'stress': [], 'engineVersion': 'synthetic_engine_v1',
                'pricingPolicy': {'curveNumericalPolicy': 'exact_18_fractional_abs_lt_1e24_v1',
                                  'riskNumericalPolicy': 'exact_rational_portfolio_repricing_v1',
-                                 'futuresConvention': 'fixed_total_cash_execution_pnl_v1',
+                                 'futuresConvention': 'contract_lot_execution_pnl_v2',
                                  'swapConvention': 'independent_side_financial_swap_v2',
                                  'rateNumericalPolicy': 'simple_actual365fixed_rational_to_even_18_v1',
                                  'discountInterpolationPolicy': 'log_discount_geometric_root_to_even_18_v1',
@@ -120,7 +120,7 @@ def run_checks(query, manifest, psql=None, environment=None):
                      'swapMarketSelections': {supplemental_revision: supplemental_frame['observationIds']},
                      'connectedMarkets': [*frame['connectedMarkets'],
                          {'revisionId': supplemental_revision, 'manifestId': 'c' * 64,
-                          'sourceExecutionConvention': 'fixed_total_cash_execution_pnl_v1', 'recipes': [], 'samples': []}]}
+                          'sourceExecutionConvention': 'contract_lot_execution_pnl_v2', 'recipes': [], 'samples': []}]}
     generic_request = {**request, 'engineVersion': 'synthetic_portfolio_engine_v1'}
     # The cutover refuses old financial operations and missing graph/axis pins;
     # each rejection is exercised against the same otherwise valid fixture.

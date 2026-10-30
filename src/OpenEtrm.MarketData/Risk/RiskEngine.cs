@@ -173,23 +173,35 @@ public static partial class RiskEngine
             throw Error("risk_bump","Admission requires an explicit distinct set of the prepared native factor scenarios.");
         return IntervalWork(prepared,bumps.Select(b=>b.Input).ToImmutableHashSet());
     }
-    private static (long Rows,long RowScenarios) IntervalWork(PreparedPortfolioRisk prepared,ImmutableHashSet<InputKey> selected)
+    private static (long Rows,long RowScenarios) IntervalWork(PreparedPortfolioRisk prepared,ImmutableHashSet<InputKey> selected)=>
+        IntervalWork(prepared.Market.Pricing,prepared.Portfolios,prepared.Contracts,selected);
+    public static (long Rows,long RowScenarios) IntervalWork(PreparedConnectedPortfolioRisk prepared)=>
+        IntervalWork(prepared,prepared.Factors.Select(f=>f.Input).ToImmutableArray());
+    public static (long Rows,long RowScenarios) IntervalWork(PreparedConnectedPortfolioRisk prepared,ImmutableArray<InputKey> selectedNativeFactors)
+    {
+        if(prepared is null||selectedNativeFactors.IsDefault||selectedNativeFactors.Distinct().Count()!=selectedNativeFactors.Length||
+            selectedNativeFactors.Any(input=>!prepared.Factors.Any(factor=>factor.Input==input)))
+            throw Error("risk_bump","Admission requires an explicit distinct set of the prepared native factor scenarios.");
+        return IntervalWork(prepared.Market,prepared.Portfolios,prepared.Contracts,selectedNativeFactors.ToImmutableHashSet());
+    }
+    private static (long Rows,long RowScenarios) IntervalWork(PreparedValuationMarket market,ImmutableArray<ValuationPortfolio> portfolios,
+        ImmutableArray<ImmutableArray<UnitPricingContract>> contracts,ImmutableHashSet<InputKey> selected)
     {
         long rows=0,work=0;
-        var values=prepared.Market.Values.ToDictionary(v=>v.Request);
-        for(var n=0;n<prepared.Portfolios.Length;n++)
+        for(var n=0;n<portfolios.Length;n++)
         {
-            var portfolio=prepared.Portfolios[n];
+            var portfolio=portfolios[n];
             for(var index=0;index<portfolio.Scopes.Length;index++)
             {
                 var scope=portfolio.Scopes[index];
-                var context=new UnitValuationContext(prepared.Market.Snapshot,portfolio.Setup,prepared.Market.Pricing,prepared.Contracts[n][index],coverage:scope.Coverage);
+                var context=new UnitValuationContext(market.Snapshot,portfolio.Setup,market,contracts[n][index],coverage:scope.Coverage);
                 var count=scope.Instrument.WorkRows(context);
                 if(count<0)throw Error("risk_contract","An instrument's declared work must be nonnegative.");
                 if(count==0)continue;
-                var lineage=prepared.Contracts[n][index].Dependencies.SelectMany(d=>values[d].Lineage).ToHashSet();
-                var factors=prepared.Factors.Count(f=>selected.Contains(f.Input)&&lineage.Contains(f.Observation));
-                rows=checked(rows+count);work=checked(work+count*(1L+2L*factors));
+                // Provenance may be shared by frozen and live samples. Count
+                // variable source inputs reached by this scope, not matching IDs.
+                var reached=market.Factors(contracts[n][index].Dependencies,default).Select(f=>f.Input).Distinct().Count(selected.Contains);
+                rows=checked(rows+count);work=checked(work+count*(1L+2L*reached));
             }
         }
         return(rows,work);

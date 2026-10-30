@@ -327,3 +327,29 @@ must not be summed as independent exposures. Synthetic integration checks book
 a two-parent combination and verify independent parent/root deltas, nested
 stresses, base isolation and exact retained-worker parity. Historical resampling,
 volatility/correlation and financial throughput qualification remain work.
+
+
+## Shared automated-close pricing
+
+Existing-close jobs use the same `PortfolioValuation` preparation and connected
+risk evaluator as interactive portfolio pricing. The separate close valuation
+engine is removed. The close adapter retains complete-book exact-bundle admission,
+valuation-instant PPA knowledge, native factor pins, and the existing report
+schema and publication fence. Generated-close and existing-close operation IDs
+and permissions remain distinct.
+
+The shared report conversion retains PPA input receipts and separate known and
+estimated overdue balances. Work admission counts each unique instrument coverage
+and only its affected native scenarios, using the same counter for native and
+connected preparations.
+
+The existing-close storage contract does not retain connected recipe/sample
+manifests. Those sources remain explicitly unsupported for this operation even
+though the shared engine can price them for other consumers. This consolidation
+does not authorize source reselection on retries or widen retained job inputs.
+
+Verification passed the 646 managed core checks, API and focused close checks,
+existing-close worker integration, generated-close integration, and connected
+portfolio regressions with synthetic inputs on disposable PostgreSQL databases.
+Independent review covered scope authorization, retained inputs, numerical work
+counting and publication fences.

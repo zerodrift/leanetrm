@@ -20,9 +20,11 @@ internal static class TradingIdentityChecks
         FixedSide Fixed(string price, DateTimeOffset? payment = null) => new(Guid.NewGuid(), new(ExactDecimal.Parse(price), q),
             new(ExactDecimal.Parse("1"), q.Quantity), k.DeliveryFrom, k.DeliveryTo,
             payment ?? Fixture.Utc("2041-02-02T00:00:00Z"), FixedSide.Implementation,q);
+        ImmutableArray<IndexFixing> MonthlyFixings(string index)=>[new(f.R(index),q.Key,k.DeliveryFrom,k.DeliveryTo,
+            Fixture.Utc("2040-12-19T00:00:00Z"),f.S(8),f.R("source"),IndexFixing.SupportedImplementation)];
         FloatingSide Floating() => new(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R("index")), q, new(ExactDecimal.Parse("1"), q.Quantity),
-            k.DeliveryFrom, k.DeliveryTo, Fixture.Utc("2040-12-19T00:00:00Z"), Fixture.Utc("2041-02-02T00:00:00Z"),
-            FloatingAveraging.MonthlyIndexPrice, [new(new(f.C("base_forward"), k.Key), k)], FloatingSide.Implementation);
+            k.DeliveryFrom, k.DeliveryTo, MonthlyFixings("index"), Fixture.Utc("2041-02-02T00:00:00Z"),
+            FloatingAveraging.MonthlyIndexPrice, [new(new(f.C("base_forward"), k.Key), k)], FloatingSide.IndexedImplementation);
         FinancialSwapInstrument Swap(string price = "3", bool reverse = false, bool discounting = false) => new(Guid.NewGuid(),
             [new(Fixed(price), ExactDecimal.Parse(reverse ? "1" : "-1")), new(Floating(), ExactDecimal.Parse(reverse ? "-1" : "1"))],
             FinancialSwapInstrument.Implementation, discounting);
@@ -99,18 +101,20 @@ internal static class TradingIdentityChecks
         Check("floating index, exact projections, weighting and calendars participate", () =>
         {
             FloatingSide Monthly(string index, string curve) => new(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R(index)), q, new(ExactDecimal.Parse("1"), q.Quantity),
-                k.DeliveryFrom, k.DeliveryTo, Fixture.Utc("2040-12-19T00:00:00Z"), Fixture.Utc("2041-02-02T00:00:00Z"),
-                FloatingAveraging.MonthlyIndexPrice, [new(new(f.C(curve), k.Key), k)], FloatingSide.Implementation);
+                k.DeliveryFrom, k.DeliveryTo, MonthlyFixings(index), Fixture.Utc("2041-02-02T00:00:00Z"),
+                FloatingAveraging.MonthlyIndexPrice, [new(new(f.C(curve), k.Key), k)], FloatingSide.IndexedImplementation);
             Assert(DefinitionIdentity.For(Monthly("index", "base_forward")) != DefinitionIdentity.For(Monthly("other_index", "base_forward")));
             Assert(DefinitionIdentity.For(Monthly("index", "base_forward")) != DefinitionIdentity.For(Monthly("index", "other_curve")));
             var dates = Enumerable.Range(0, 31).Select(n => k.DeliveryFrom.AddDays(n)).ToArray();
             var projections = dates.Select(date => { var contract = new MarketContract(new(f.Revision, Guid.NewGuid()),
                 ContractKind.Forward, date, date.AddDays(1), Fixture.Utc("2041-02-02T00:00:00Z"), null);
                 return new SwapProjection(new(f.C("daily"), contract.Key), contract); }).ToImmutableArray();
+            var dailyFixings=projections.Select(p=>new IndexFixing(f.R("index"),q.Key,p.Contract.DeliveryFrom,p.Contract.DeliveryTo,
+                Fixture.Utc("2040-12-19T00:00:00Z"),new SeriesKey(f.Revision,p.Contract.Key.Id),f.R("source"),IndexFixing.SupportedImplementation)).ToImmutableArray();
             FloatingSide Daily(FloatingAveraging method, string calendarCode = "calendar", string weight = "1") => new(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R("index")), q,
-                new(ExactDecimal.Parse("1"), q.Quantity), k.DeliveryFrom, k.DeliveryTo, Fixture.Utc("2040-12-19T00:00:00Z"), Fixture.Utc("2041-02-02T00:00:00Z"),
+                new(ExactDecimal.Parse("1"), q.Quantity), k.DeliveryFrom, k.DeliveryTo, dailyFixings, Fixture.Utc("2041-02-02T00:00:00Z"),
                 method, method == FloatingAveraging.QuantityWeighted ? projections.Select((p,n) => p with { AveragingQuantity = new(ExactDecimal.Parse(n == 0 ? weight : "1"), q.Quantity) }).ToImmutableArray() : projections,
-                FloatingSide.Implementation, method == FloatingAveraging.ObservationArithmetic ? new(f.R(calendarCode), DateSet.Create(k.DeliveryFrom,k.DeliveryTo,dates)) : null);
+                FloatingSide.IndexedImplementation, method == FloatingAveraging.ObservationArithmetic ? new(f.R(calendarCode), DateSet.Create(k.DeliveryFrom,k.DeliveryTo,dates)) : null);
             Assert(DefinitionIdentity.For(Daily(FloatingAveraging.CalendarDayArithmetic)) != DefinitionIdentity.For(Daily(FloatingAveraging.QuantityWeighted)));
             Assert(DefinitionIdentity.For(Daily(FloatingAveraging.QuantityWeighted)) != DefinitionIdentity.For(Daily(FloatingAveraging.QuantityWeighted, weight:"2")));
             Assert(DefinitionIdentity.For(Daily(FloatingAveraging.ObservationArithmetic)) != DefinitionIdentity.For(Daily(FloatingAveraging.ObservationArithmetic,"other_calendar")));
@@ -120,7 +124,7 @@ internal static class TradingIdentityChecks
             var a = Floating();
             var alias = k with {Key = new(k.Key.Revision,Guid.NewGuid())};
             var b = new FloatingSide(Guid.NewGuid(),a.Settlement,a.Quote,a.UnitQuantity,a.DeliveryFrom,a.DeliveryTo,
-                a.FirstFixingAt,a.PaymentAt,a.Averaging,[new(new(a.Projections[0].Market.Curve,alias.Key),alias)],FloatingSide.Implementation);
+                a.Fixings,a.PaymentAt,a.Averaging,[new(new(a.Projections[0].Market.Curve,alias.Key),alias)],FloatingSide.IndexedImplementation);
             Assert(DefinitionIdentity.For(a) == DefinitionIdentity.For(b));
             Assert(DefinitionIdentity.For(a.PricingBinding) != DefinitionIdentity.For(b.PricingBinding));
             var map = new InstrumentIdentityMap(f.Revision.CatalogId);

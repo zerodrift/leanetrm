@@ -377,3 +377,17 @@ test('each swap family exposes the selected override index and unmodelled basis 
  const scheduled=clone(details.scheduledSwap);for(const period of scheduled.state.terms.scheduled.second.periods)period.floating.settlement=selection;
  assert.equal(rowsOf(swapTerms(scheduled,'UTC',formats),'Second side · Receive')['Price settlement'],'Different index · Synthetic Override · forward curve projection, basis unmodelled');
 });
+
+test('scheduled dated observations display their explicit source without an index',()=>{
+ const detail=clone(details.scheduledSwap),revision=detail.state.terms.definitionRevisionId;
+ const quote=detail.catalog.indices.find(i=>i.definitionRevisionId===revision);
+ detail.catalog.contractObservationSources=[{...quote,curve:'future',name:'Synthetic future'}];
+ for(const period of detail.state.terms.scheduled.second.periods){
+  Object.assign(period.floating,{curve:'future',index:null,settlement:null,resetFrequency:'daily',averagingMethod:'arithmetic',
+   contractObservations:{implementation:'contract_observation_source_v1',role:'daily_settlement',historyPolicy:'visible_corrections_at_cutoff_v1',expiryPolicy:'require_live',selection:{mode:'prompt_offset',promptOffset:0,roll:'contract_expiry_roll_v1',contract:null,boundaries:null},observations:[]}});
+ }
+ const rows=rowsOf(swapTerms(detail,'UTC',formats),'Second side · Receive');
+ assert.match(rows['Jan 2021'],/Official daily exchange settlement/);
+ assert.equal(rows['Price settlement'],'Official daily exchange settlement');
+ assert.equal(rows.Spread,'0 USD/MMBtu (IT)');
+});

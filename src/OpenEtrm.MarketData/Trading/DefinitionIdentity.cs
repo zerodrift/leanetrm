@@ -41,7 +41,13 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    private static string ContractVersion(object definition,EconomicDefinitionAttribute contract)=>contract.Version;
+    private static string ContractVersion(object definition,EconomicDefinitionAttribute contract)=>
+        definition switch
+        {
+            FloatingSidePeriod p when !p.ContractObservations.IsDefaultOrEmpty=>"floating_side_period_v2",
+            FloatingProjectionBinding b when !b.ContractObservations.IsDefaultOrEmpty=>"floating_projection_binding_v2",
+            _=>contract.Version
+        };
 
     private static void Write(Utf8JsonWriter writer, object? value)
     {
@@ -55,6 +61,8 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             writer.WriteStartObject(); writer.WriteString("contract", ContractVersion(value, contract));
             foreach (var field in fields)
             {
+                if(field.Name==nameof(FloatingSidePeriod.ContractObservations)&&
+                    (value is FloatingSidePeriod p&&p.ContractObservations.IsDefaultOrEmpty||value is FloatingProjectionBinding b&&b.ContractObservations.IsDefaultOrEmpty))continue;
                 var selected=field.GetValue(value);
                 writer.WritePropertyName(field.Name);Write(writer,selected);
             }

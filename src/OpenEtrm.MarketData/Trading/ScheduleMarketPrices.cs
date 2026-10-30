@@ -5,15 +5,26 @@ namespace OpenEtrm.MarketData.Trading;
 
 public sealed partial class ScheduleMarketSources
 {
+    private (ExactUnitPrice Price,SchedulePriceFacts State) ContractObservation(BookedSideInstruction instruction,CurveBuild market)
+    {
+        if(contractObservations is null)throw Invalid("The retained contract observation requires its exact context-bound source samples.");
+        var bound=instruction.Bindings.Single(binding=>binding.Port=="market").Market;
+        var candidates=contractObservations.Points.Keys.Where(lookup=>lookup.Market==bound&&
+            ContractObservationScheduleSource.Read(instruction,lookup.Contract,lookup.Quote)==lookup).ToArray();
+        if(candidates.Length!=1)throw Invalid("The stored contract observation requires one exact admitted sample without reselection.");
+        var resolved=contractObservations.Resolve(candidates[0],market.Graph);RequireUnit(resolved.Price,instruction.Output);
+        return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected);
+    }
+
     private (ExactUnitPrice Price,SchedulePriceFacts State) Dated(BookedSideInstruction instruction,CurveBuild market)
     {
         var row=instruction.Output;var bindings=instruction.Bindings.ToDictionary(binding=>binding.Port);
-        if(!bindings.ContainsKey("market")||!bindings.ContainsKey("index")||!bindings.ContainsKey("quote"))
-            throw Invalid("A scalar price requires the supported exact dated market, index and quote bindings.");
+        if(!bindings.ContainsKey("market")||!bindings.ContainsKey("index")||!bindings.ContainsKey("quote")||!bindings.TryGetValue("fixing",out var fixing))
+            throw Invalid("A scalar price requires exact dated market, index, quote and fixing bindings.");
         var candidates=dated.Where(lookup=>lookup.Market==bindings["market"].Market&&lookup.Index==bindings["index"].Reference&&
             lookup.Quote.Key==bindings["quote"].Reference&&lookup.Contract.DeliveryFrom==row.ObservationFrom&&lookup.Contract.DeliveryTo==row.ObservationTo&&
             DefinitionIdentity.For(lookup.Settlement).Canonical==row.Parameters["selection"]&&
-            (bindings.TryGetValue("fixing",out var fixing)?lookup.Fixing is {} f&&f.Series==fixing.Series&&f.Source==fixing.Reference&&f.Implementation==fixing.Coordinate:lookup.Fixing is null)&&
+            lookup.Fixing is {} f&&f.Series==fixing.Series&&f.Source==fixing.Reference&&f.Implementation==fixing.Coordinate&&
             (bindings.TryGetValue("projection",out var projection)?lookup.CustomProjection is {} p&&p.CatalogId==projection.EntityCatalog&&p.CurveId==projection.Entity&&
                 p.Version==projection.Version&&p.OutputNode==projection.Coordinate&&p.Position==projection.Position:lookup.CustomProjection is null)).Distinct().ToArray();
         if(candidates.Length!=1)throw Invalid("A stored dated lookup requires one exact admitted contract, quote, fixing and projection definition.");

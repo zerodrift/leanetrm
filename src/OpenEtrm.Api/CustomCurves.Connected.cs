@@ -11,7 +11,7 @@ namespace OpenEtrm.Api;
 
 public sealed record ConnectedSampleObservation(Guid Id,Guid SeriesId,string Use);
 public sealed record ConnectedSampleEvidence(Guid SnapshotId,DateTimeOffset At,string SourceCurve,Guid ContractId,
-    bool FreezeHistorical,ImmutableArray<ConnectedSampleObservation> Observations);
+    bool FreezeHistorical,ImmutableArray<ConnectedSampleObservation> Observations,string Kind="recipe",bool FreezeObservation=false);
 public sealed record ConnectedMarketEvidence(Guid RevisionId,string ManifestId,string SourceExecutionConvention,
     ImmutableArray<CustomCurveProjectionBinding> Recipes,ImmutableArray<ConnectedSampleEvidence> Samples);
 public sealed record ConnectedPreparationWork(int SourceCompilations,int DeclaredSourceNodes);
@@ -23,7 +23,7 @@ public static partial class CustomCurves
 
     // Only authorized retained data enters this resolver. Synthetic runtime
     // aliases are coordinates in that materialization, never database identities.
-    private sealed class PreparedBindings(HashSet<CurveKey> definitions,ResolvedCalculationContext selected):ICurveBindingResolver
+    internal sealed class PreparedBindings(HashSet<CurveKey> definitions,ResolvedCalculationContext selected):ICurveBindingResolver
     {
         public CurveKey Resolve(LogicalCurveKey logical,ResolvedCalculationContext context)=>
             throw Invalid("A booked custom projection requires an exact published version.");
@@ -57,7 +57,7 @@ public static partial class CustomCurves
     internal static async Task<PreparedMarket> PrepareMarket(NpgsqlConnection connection,PreviewDatabase database,
         PreviewData data,InputFrame frame,MarketSnapshot snapshot,ScheduleContext context,
         ImmutableArray<Instrument> instruments,ImmutableArray<CurveRequest> dependencies,CancellationToken ct,
-        ConnectedMarketEvidence? retained=null)
+        ConnectedMarketEvidence? retained=null,ImmutableArray<SchedulePriceTerm>? activePrices=null)
     {
         var exact=PinnedContext.Exact(context);
         if(frame.ContextId!=exact.ContextId||snapshot.Id!=frame.Id||snapshot.ValuationAt!=frame.At||
@@ -144,6 +144,27 @@ public static partial class CustomCurves
             samples.AddRange(preparation.Samples);sourceCompilations+=preparation.SourceCompilations;declaredSourceNodes+=preparation.DeclaredSourceNodes;
         }
         if(bindings.Count!=dependencies.Length)throw Invalid("Every declared pricing dependency must have exactly one retained graph binding.");
+        var prices=activePrices??instruments.OfType<SidedInstrument>().SelectMany(instrument=>instrument.Sides)
+            .SelectMany(member=>((SidePaymentSchedule)member.Side.GenerateSchedule()).Payments).SelectMany(payment=>payment.Prices).ToImmutableArray();
+        // A due index fixing is a pricing input even when no projected curve
+        // dependency remains. Qualify it before advertising a usable risk graph.
+        foreach(var lookup in prices.Where(price=>price.Lookup is not null).Select(price=>price.Lookup!).Distinct())
+            _=IndexFixingPricing.Resolve(authority,lookup);
+        var observationLookups=prices.Where(price=>price.ContractObservation is not null)
+            .Select(price=>price.ContractObservation!).Distinct().ToImmutableArray();
+        if(!observationLookups.IsEmpty&&snapshot.MarketCutoff!=frame.At)
+            throw new MarketDataException("contract_observation_context","This source consumer requires an explicit market cutoff equal to the valuation instant.");
+        var observationSamples=await ContractObservationSamples.Read(connection,database,data,frame,exact,observationLookups,ct,retained);
+        ContractObservationPricing? observationPricing=null;
+        if(!observationSamples.IsEmpty)
+        {
+            observationPricing=ContractObservationPricing.Compile(observationSamples,resolved,
+                new PreparedBindings(observationLookups.Select(lookup=>lookup.Market.Curve).ToHashSet(),resolved));
+            definitions.AddRange(observationPricing.Definitions);
+            outputRoots.AddRange(observationPricing.Points.Values);
+            sourceCompilations+=observationSamples.Length;
+            declaredSourceNodes+=observationPricing.Definitions.Sum(definition=>definition.Points.Length);
+        }
         var merged=ConnectedCurves.MergeDefinitions(definitions);
         // Fully fixed instruments have no projected roots; source authority is
         // still retained for the ordinary fixing contract.
@@ -155,12 +176,17 @@ public static partial class CustomCurves
             samples.OrderBy(s=>s.Source.Code,StringComparer.Ordinal).ThenBy(s=>s.Date).ThenBy(s=>s.Contract.Id).ThenBy(s=>s.Snapshot.Id)
                 .Select(s=>new ConnectedSampleEvidence(s.Snapshot.Id,s.Snapshot.ValuationAt,s.Source.Code,s.Contract.Id,s.FreezeHistorical,
                     s.Snapshot.Selections.OrderBy(o=>o.Input.Series.Id).ThenBy(o=>o.Input.Use)
-                        .Select(o=>new ConnectedSampleObservation(o.Observation.Key.Id,o.Input.Series.Id,o.Input.Use.ToString())).ToImmutableArray())).ToImmutableArray());
+                        .Select(o=>new ConnectedSampleObservation(o.Observation.Key.Id,o.Input.Series.Id,o.Input.Use.ToString())).ToImmutableArray()))
+                .Concat(observationSamples.Select(sample=>ContractObservationSamples.Evidence(sample,frame.At)))
+                .DistinctBy(sample=>JsonSerializer.Serialize(sample,RiskJobs.Json))
+                .OrderBy(sample=>sample.Kind,StringComparer.Ordinal).ThenBy(sample=>sample.SourceCurve,StringComparer.Ordinal)
+                .ThenBy(sample=>sample.At).ThenBy(sample=>sample.ContractId).ThenBy(sample=>sample.FreezeObservation).ThenBy(sample=>sample.SnapshotId).ToImmutableArray());
         if(retained is not null&&JsonSerializer.Serialize(evidence,RiskJobs.Json)!=JsonSerializer.Serialize(retained,RiskJobs.Json))
             throw new MarketDataException("risk_graph_manifest","The rebuilt graph differs from its admitted recipe, sample or topology manifest.");
         var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan,database.Calculations,ct),snapshot,
             samples.Select(s=>snapshot.Knowledge is null?s.Snapshot:
-                MarketSnapshotBinding.Bind(s.Snapshot,exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt))).Distinct().ToImmutableArray(),ct);
+                MarketSnapshotBinding.Bind(s.Snapshot,exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt))).Concat(observationSamples.Select(sample=>sample.Snapshot)).Distinct().ToImmutableArray(),ct);
+        if(observationPricing is not null)valuation=valuation.WithContractObservations(observationPricing);
         return new(valuation,authority,bindings.ToImmutable(),evidence,new(sourceCompilations,declaredSourceNodes));
     }
     static CustomProjectionMapping ProjectionMapping(ConnectedRecipeGraph graph)

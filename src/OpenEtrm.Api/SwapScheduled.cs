@@ -36,7 +36,7 @@ internal sealed record RetainedScheduledSide(Guid Id,ImmutableArray<ExactRatio> 
 public sealed partial class SwapStore
 {
     public const string ScheduledPriceApplication="period_average_times_quantity_v1";
-    private sealed record ScheduledPreview(int? ExpectedRevision,object Valuation,object QuantityInputs,SwapChangeReview? ChangeReview,[property:JsonIgnore]ScheduledResolution Prepared,[property:JsonIgnore]MarketSnapshot Snapshot);
+    private sealed record ScheduledPreview(int? ExpectedRevision,object Valuation,object QuantityInputs,SwapChangeReview? ChangeReview,[property:JsonIgnore]ScheduledResolution Prepared,[property:JsonIgnore]MarketSnapshot Snapshot,[property:JsonIgnore]ImmutableDictionary<ContractObservationLookup,Guid> ContractObservationPins);
     private sealed record ScheduledResolution(SidedInstrument Instrument,Quantity Quantity,
         ImmutableArray<SwapQuantitySchedule> Quantities,ImmutableArray<ImmutableArray<PowerQuantitySchedule>> Power);
     private static SwapScheduledInput CanonicalScheduled(SwapScheduledInput input)
@@ -66,7 +66,7 @@ public sealed partial class SwapStore
             throw Error("quantity_factor","Choose the explicit factor contract, two floating sides, authored first-side quantities and derived second-side quantities.");
         if(input.Factor is {} selectedFactor&&selectedFactor.UnitConversionImplementation!=UnitConverter.Implementation)throw Error("quantity_factor","Select the supported pinned unit-conversion implementation.");
         var factor=input.Factor is {} f?new QuantityFactor(ExactDecimal.Parse(Required(f.Value)),f.NumeratorQuantity,f.DenominatorQuantity,f.Implementation):null;
-        var common=ResolveFloatingPeriod(data,sides[factorContract?0:1].Periods[0].Floating!,Required(body.Commodity));
+        var common=ResolveFloatingPeriod(data,sides[factorContract?0:1].Periods[0].Floating!,Required(body.Commodity),input.Retained.IsDefaultOrEmpty?null:input.Retained[factorContract?0:1].Evidence[0]);
         var converter=UnitOperations.Converter(new(data.ReferenceRevision,data.References));
         var quantities=ImmutableArray.CreateBuilder<SwapQuantitySchedule>();
         var powers=ImmutableArray.CreateBuilder<ImmutableArray<PowerQuantitySchedule>>();
@@ -84,7 +84,7 @@ public sealed partial class SwapStore
                 {
                     if(floating.PaymentAt is not null||floating.FirstFixingAt is not null||floating.PaymentSchedule is null||floating.Spread is null)
                         throw Error("scheduled_swap_input","Each floating period needs its own payment and observation rules and explicit spread. Fixing boundaries come from the qualified index.");
-                    var parameters=ResolveFloatingPeriod(data,floating,factorContract&&slot==1?null:body.Commodity);
+                    var parameters=ResolveFloatingPeriod(data,floating,factorContract&&slot==1?null:body.Commodity,retained?.Evidence[n]);
                     floatingPeriods.Add(parameters);from=parameters.Period.DeliveryFrom;to=parameters.Period.DeliveryTo;
                     if(retained is not null)ValidatePeriodProjections(parameters,retained.Evidence[n]);
                 }
@@ -187,8 +187,9 @@ public sealed partial class SwapStore
             _=>throw Error("swap_definition","Unsupported swap version.")};
         return(evaluated.Scale(resolved.Quantity),resolved);
     }
-    private static bool ScheduledAmendmentEligible(SidedInstrument instrument,DateTimeOffset at)=>
-        instrument.Sides.SelectMany(s=>((SidePaymentSchedule)s.Side.GenerateSchedule()).Payments).All(p=>at<p.PaymentAt&&(p.FirstFixingAt is null||at<p.FirstFixingAt));
+    internal static bool ScheduledAmendmentEligible(SidedInstrument instrument,DateTimeOffset at)=>
+        instrument.Sides.SelectMany(s=>((SidePaymentSchedule)s.Side.GenerateSchedule()).Payments)
+            .All(p=>at<p.PaymentAt&&p.Prices.All(price=>price.ContractObservation is not {} observation||at<observation.FixingAt));
     private async Task<object> PreviewScheduled(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
     {
         body=body with{Scheduled=CanonicalScheduled(body.Scheduled??throw Error("scheduled_swap_input","Supply scheduled side terms."))};
@@ -211,7 +212,10 @@ public sealed partial class SwapStore
         }
         else if(body.ExpectedRevision is not null)throw Error("swap_input","A new trade has no prior revision.");
         var priced=await ScheduledPriceDetail(connection,data,frame,body,null,ct);
-        return new ScheduledPreview(body.ExpectedRevision,Value(priced.Value),QuantityInputs(body.Scheduled!,priced.Resolved),booked is null?null:ReviewChanges(booked,body),priced.Resolved,priced.Value.Instrument.Snapshot);
+        return new ScheduledPreview(body.ExpectedRevision,Value(priced.Value),QuantityInputs(body.Scheduled!,priced.Resolved),booked is null?null:ReviewChanges(booked,body),priced.Resolved,priced.Value.Instrument.Snapshot,
+            priced.Value.Sides.SelectMany(side=>side.Payments).SelectMany(payment=>payment.Cashflow.Resets)
+                .Where(reset=>reset.Price.Term.ContractObservation is not null).GroupBy(reset=>reset.Price.Term.ContractObservation!)
+                .ToImmutableDictionary(group=>group.Key,group=>group.SelectMany(reset=>reset.Price.Lineage).Distinct().Single().Id));
     }
     private async Task<JsonElement> SaveScheduled(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
     {
@@ -224,12 +228,12 @@ public sealed partial class SwapStore
             var preview=(ScheduledPreview)await PreviewScheduled(connection,selected,pinned,body,ct);
             if(preview.ChangeReview is {Action:"keep_booked_terms"})
                 throw Error("swap_no_change","Change at least one booked trade term before submitting an amendment.");
-            return(Resolved:preview.Prepared,preview.Snapshot);
+            return(Resolved:preview.Prepared,preview.Snapshot,preview.ContractObservationPins);
         },ct);
         var resolved=prepared.Resolved;
-        var pins=SideComponents.ActualFixingPins(prepared.Snapshot,resolved.Instrument.Sides.Select(m=>m.Side)).ToArray();
+        var pins=SideComponents.ActualFixingPins(prepared.Snapshot,resolved.Instrument.Sides.Select(m=>m.Side)).Concat(prepared.ContractObservationPins.Values).Distinct().ToArray();
         var compiled=resolved.Instrument.Sides.Select((m,slot)=>new {relativeNumerator=m.QuantityRatio!.Numerator.ToString(CultureInfo.InvariantCulture),relativeDenominator=m.QuantityRatio.Denominator.ToString(CultureInfo.InvariantCulture),clock=resolved.Power[slot].IsEmpty?null:new{resolved.Power[slot][0].Clock.Rules,resolved.Power[slot][0].Clock.Fingerprint},
-            periods=SwapSidePeriods.Allocations(m.Side).Select((q,n)=>new {fixingPins=PeriodFixingPins(prepared.Snapshot,m.Side,n),numerator=q.Numerator.ToString(CultureInfo.InvariantCulture),denominator=q.Denominator.ToString(CultureInfo.InvariantCulture),
+            periods=SwapSidePeriods.Allocations(m.Side).Select((q,n)=>new {contractObservations=m.Side is FloatingSide floating&&!floating.Periods[n].ContractObservations.IsDefaultOrEmpty?floating.Periods[n].ContractObservations.Select(row=>new{observationId=prepared.ContractObservationPins[row],ordinal=row.Ordinal,observationFrom=Date(row.From),observationTo=Date(row.To),fixingAt=row.FixingAt,selectionAt=row.SelectionAt,contractId=row.Contract.Key.Id,seriesId=row.Series.Id,sourceCode=row.Source.Code}).ToArray():null,fixingPins=PeriodFixingPins(prepared.Snapshot,m.Side,n),numerator=q.Numerator.ToString(CultureInfo.InvariantCulture),denominator=q.Denominator.ToString(CultureInfo.InvariantCulture),
                 power=resolved.Power[slot].IsEmpty?null:CompiledPower(resolved.Power[slot][n])}).ToArray()}).ToArray();
         return await WriteScheduled(connection,body,compiled,resolved.Quantity.Amount.ToString(),frame.At,pins,ct);
     }
@@ -246,6 +250,7 @@ public sealed partial class SwapStore
     private static void ValidatePeriodProjections(ResolvedFloatingSwapPeriod parameters,JsonElement evidence)
     {
         var period=parameters.Period;
+        if(!period.ContractObservations.IsDefaultOrEmpty)return; // Exact retained source rows were validated during reconstruction.
         var plan=FloatingObservationPlan.Generate(period.DeliveryFrom,period.DeliveryTo,period.Averaging,parameters.Quote,period.Calendar,
             period.Averaging==FloatingAveraging.QuantityWeighted?[..period.Projections.Select(p=>new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity))]:[]);
         var contracts=evidence.GetProperty("projection_contracts");var weights=evidence.GetProperty("projection_weights");

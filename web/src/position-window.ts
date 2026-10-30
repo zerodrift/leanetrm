@@ -17,7 +17,7 @@ const panel=setupPositionPanel({element:name=>get('position-window-'+name),form:
  {zone:()=>selection!.zone,busy:()=>loading,canAmend:()=>false,tabs:['terms','history'],curveListed:()=>false,context:()=>JSON.stringify(selection),
   read:async(h,formats)=>{
    const api=reader,context={...positionWindowRequest(selection!).context,
-    convention:h.instrumentType==='future'?'fixed_total_cash_execution_pnl_v1':'independent_side_financial_swap_v2'};
+    convention:h.instrumentType==='future'?'contract_lot_execution_pnl_v2':'independent_side_financial_swap_v2'};
    const value:DetailRead=await(h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
     readTradeView(api,context,h,formats):readSwapView(api,context,h,formats,{busy:()=>loading,act:async work=>{await work();},settle(){throw Error('This trade window is read only.');}}));
    return {...value,view:zone=>({...value.view(zone),actions:undefined})};

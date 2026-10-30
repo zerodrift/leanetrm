@@ -3,12 +3,14 @@ using OpenEtrm.MarketData.Calculation;
 
 namespace OpenEtrm.MarketData.CustomCurves;
 
+public sealed record RecipeOutputShape(int Position,DateOnly DeliveryFrom,DateOnly DeliveryTo,PriceUnit Unit);
 public sealed record RecipeNativeDemand(CurveKey Source,DateOnly Date,ContractKey Contract);
 // Price-free preparation retains the full declared panel shape. Consumer demand
 // walks formula edges before observations are loaded or live eligibility checked.
 public sealed class RecipeTopology
 {
     internal RecipeEngine.Panel Panel{get;}
+    public ImmutableArray<RecipeOutputShape> Outputs=>[..Panel.Cells.Select(cell=>new RecipeOutputShape(cell.Position,cell.DeliveryFrom,cell.DeliveryTo,cell.Unit))];
     private readonly ImmutableDictionary<CurvePointKey,(PublishedRecipeReference Reference,RecipeDelivery Delivery)> published;
     internal RecipeTopology(RecipeEngine.Panel panel,ImmutableDictionary<CurvePointKey,(PublishedRecipeReference,RecipeDelivery)> published)
     {Panel=panel;this.published=published;}

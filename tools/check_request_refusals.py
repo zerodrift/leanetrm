@@ -50,7 +50,7 @@ def run_checks(url, log):
     # Each body is readable and its handler refuses it without administering anything, so a variant bound by mistake
     # would administer nothing either.
     key = {'operationId': str(uuid4()), 'vendor': 'acme', 'expectedVersion': 0, 'key': 'sk-synthetic-' + secrets.token_hex(16)}
-    edit = {'operationId': str(uuid4()), 'modelId': str(uuid4()), 'expectedVersion': 1, 'outputLimitSource': 'https://example.invalid/limit'}
+    edit = {'operationId': str(uuid4()), 'modelId': str(uuid4()), 'expectedVersion': 1, 'identifierPolicy': 'fixed', 'outputLimitSource': 'https://example.invalid/limit'}
     save = {'operationId': str(uuid4()), 'agentId': str(uuid4()), 'modelId': str(uuid4()), 'description': 'Synthetic agent', 'limits': {'toolSteps': 8}}
     routes = (('settings/ai/providers/key', key, 'key', {**key, 'expectedVersion': 99999999999}),
               ('settings/ai/models/edit', edit, 'outputLimitSource', {**edit, 'expectedVersion': 99999999999}),

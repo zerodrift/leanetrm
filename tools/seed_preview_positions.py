@@ -15,7 +15,7 @@ EXECUTIONS = (
 )
 BOOKS = ('d1000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000002')
 NAMESPACE = UUID('e1000000-0000-0000-0000-000000000001')
-CONVENTION = 'fixed_total_cash_execution_pnl_v1'
+CONVENTION = 'contract_lot_execution_pnl_v2'
 
 
 def execution_frames(workspace):

@@ -189,7 +189,7 @@ def run_checks(Client, check, run_worker):
         risk.call('portfolio/risk', invalid, expected=422)
     invalid_policy = deepcopy(request); del invalid_policy['pricingPolicy']['swapConvention']
     risk.call('portfolio/risk', invalid_policy, expected=422)
-    risk.call('portfolio/risk', {**request, 'context': {**retained, 'convention': 'fixed_total_cash_execution_pnl_v1'}}, expected=422)
+    risk.call('portfolio/risk', {**request, 'context': {**retained, 'convention': 'contract_lot_execution_pnl_v2'}}, expected=422)
     check('generic risk rejects missing policies and a product-specific context instead of supplying financial defaults')
     operation = {'requestId': str(uuid4()), 'request': parent_request}
     job = risk.call('portfolio/risk/jobs', operation)

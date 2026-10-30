@@ -86,7 +86,7 @@ def run_checks(url):
         check(curve+' retains 31 exact daily resets and one monthly payment on each independent side', len(view['sides'][0]['payments']) == len(view['sides'][1]['payments']) == 1 and len(resets) == 31 and [r['from'] for r in resets] == [f'2021-01-{day:02d}' for day in range(1, 32)])
         check(curve+' daily reset mean and trade PV match independent arithmetic', Decimal(view['presentValue']) == Decimal(expected) and all(r['weight'] == '1' and r['fixingState'] == 'Projected' and r['lineage'] for r in resets))
         c.call('swaps/preview', {**daily_body, 'floating': {**daily_body['floating'], 'resetFrequency':'monthly','averagingMethod':'none'}}, expected=422)
-    futures_context = {**context, 'convention': 'fixed_total_cash_execution_pnl_v1'}
+    futures_context = {**context, 'convention': 'contract_lot_execution_pnl_v2'}
     future_catalog = c.call('futures/catalog', futures_context)
     future = future_catalog['contracts'][0]
     future_body = {**futures_context, 'operationId': amend['operationId'], **trade_booking(), 'bookId': body['bookId'], 'curve': future['curve'], 'contractId': future['id'], 'lots': '1', 'executionPrice': '2.9'}

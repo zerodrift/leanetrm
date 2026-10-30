@@ -1180,6 +1180,9 @@ api.MapPost("/swaps/settlement/status",(HttpContext c,FuturesStatusRequest body)
  await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.swap_operation_status($1,$2)::text",database.Manifest.CatalogId,body.OperationId);
  return Results.Ok(JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!));
 },c.RequestAborted)));
+api.MapPost("/swaps/contract-observation-preview",(HttpContext c,SwapContractObservationPreviewRequest body)=>FuturesRead(c,
+ body.Context??throw new MarketDataException("swap_context","Supply the selected observation context."),
+ (connection,data,frame,ct)=>swapStore.ContractObservationPreview(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/observation-options",(HttpContext c,SwapObservationOptionsRequest body)=>FuturesRead(c,
  body.Context??throw new MarketDataException("swap_context","Supply the selected observation context."),
  (connection,data,frame,ct)=>swapStore.ObservationOptions(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));

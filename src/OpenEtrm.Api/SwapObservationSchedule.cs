@@ -54,12 +54,12 @@ public sealed partial class SwapStore
             mappingRule=payment.Plan.Applications[0].MappingRule,calendar=payment.Plan.Calendar?.Key,
             observations=payment.Resets.Select((reset,n)=>new
             {
-                ordinal=n,from=Date(reset.Price.Term.Lookup!.Contract.DeliveryFrom),to=Date(reset.Price.Term.Lookup.Contract.DeliveryTo),
-                isGuard=reset.Price.Term.Lookup.Contract.DeliveryFrom<payment.Plan.DeliveryFrom||reset.Price.Term.Lookup.Contract.DeliveryTo>payment.Plan.DeliveryTo,
-                averagingQuantity=reset.Price.Term.Lookup.AveragingQuantity,weight=reset.Price.Term.Weight.ToString(),
+                ordinal=n,from=Date(reset.Price.Term.ContractObservation?.From??reset.Price.Term.Lookup!.Contract.DeliveryFrom),to=Date(reset.Price.Term.ContractObservation?.To??reset.Price.Term.Lookup!.Contract.DeliveryTo),
+                isGuard=(reset.Price.Term.ContractObservation?.From??reset.Price.Term.Lookup!.Contract.DeliveryFrom)<payment.Plan.DeliveryFrom||(reset.Price.Term.ContractObservation?.To??reset.Price.Term.Lookup!.Contract.DeliveryTo)>payment.Plan.DeliveryTo,
+                averagingQuantity=reset.Price.Term.Lookup?.AveragingQuantity,weight=reset.Price.Term.Weight.ToString(),
                 price=ExactPrice(reset.Price.ExactPrice),exactPrice=new{reset.Price.ExactPrice.Numerator,reset.Price.ExactPrice.Denominator},
                 cashContribution=Exact(reset.CashContribution),fixingState=reset.Price.State.ToString(),
-                expectedPublication=reset.Price.Term.Lookup.Fixing?.FixingAt,fixing=reset.Price.Term.Lookup.Fixing,lookup=reset.Price.Term.Lookup,lineage=reset.Price.Lineage
+                expectedPublication=reset.Price.Term.Lookup?.Fixing?.FixingAt,fixing=reset.Price.Term.Lookup?.Fixing,lookup=reset.Price.Term.Lookup,contractObservation=reset.Price.Term.ContractObservation,lineage=reset.Price.Lineage
             }).ToArray(),
             applications=payment.Applications.Select(value=>new
             {
@@ -67,7 +67,7 @@ public sealed partial class SwapStore
                 observationOrdinal=value.Application.PriceOrdinal,weight=value.Application.Weight.ToString(),value.Application.MappingRule,
                 price=ExactPrice(value.Price.ExactPrice),exactPrice=new{value.Price.ExactPrice.Numerator,value.Price.ExactPrice.Denominator},
                 cashContribution=Exact(value.CashContribution),fixingState=value.Price.State.ToString(),
-                expectedPublication=value.Price.Term.Lookup?.Fixing?.FixingAt,fixing=value.Price.Term.Lookup?.Fixing,lookup=value.Price.Term.Lookup,lineage=value.Price.Lineage
+                expectedPublication=value.Price.Term.Lookup?.Fixing?.FixingAt,fixing=value.Price.Term.Lookup?.Fixing,lookup=value.Price.Term.Lookup,contractObservation=value.Price.Term.ContractObservation,lineage=value.Price.Lineage
             }).ToArray()
         };
     }

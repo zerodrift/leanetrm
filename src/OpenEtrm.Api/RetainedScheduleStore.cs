@@ -456,7 +456,7 @@ internal sealed partial class RetainedScheduleStore
         if(binding.Reference is {} reference)
         {
             row["reference_catalog_id"]=reference.Revision.CatalogId;row["reference_revision_id"]=reference.Revision.RevisionId;
-            row[binding.Kind switch{"index_fixing"=>"source_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code","sibling_quantity"=>"quantity_code",_=>throw Error("This binding kind cannot carry a reference key.")}]=reference.Code;
+            row[binding.Kind switch{"index_fixing" or "settlement_source"=>"source_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code","sibling_quantity"=>"quantity_code",_=>throw Error("This binding kind cannot carry a reference key.")}]=reference.Code;
         }
         if(binding.Market is {} market)
         {
@@ -494,7 +494,7 @@ internal sealed partial class RetainedScheduleStore
     private static ScheduleDefinitionBinding ReadBinding(ScheduleFields row)
     {
         var kind=row.Text("kind");ReferenceKey? reference=null;CurveRequest? market=null;SeriesKey? series=null;DefinitionRevision? definitions=null;string? code=null;
-        var referenceCode=kind switch{"index_fixing"=>"source_code","sibling_quantity"=>"quantity_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code",_=>null};
+        var referenceCode=kind switch{"index_fixing" or "settlement_source"=>"source_code","sibling_quantity"=>"quantity_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code",_=>null};
         if(referenceCode is not null&&row.OptionalText(referenceCode) is {} value)reference=new(new(row.Id("reference_catalog_id"),row.Id("reference_revision_id")),value);
         if(row.OptionalId("contract_id") is {} contract)
         {var d=new DefinitionRevision(row.Id("source_catalog_id"),row.Id("definition_revision_id"));market=new(new(d,row.Text("curve_code")),new(d,contract));}

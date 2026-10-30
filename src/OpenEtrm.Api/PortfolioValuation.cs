@@ -27,9 +27,8 @@ public sealed record PortfolioPositionEvidence(Guid TradeId,int Revision,Guid Bi
     public string InstrumentReference{get;init;}="";
     public string InstrumentType{get;init;}="";
 }
-// D220: a held position a portfolio risk run leaves out because its base valuation at the run's close
-// fails for a position-specific reason. The run lists it with the book it is held in, and no holding row
-// or total includes it.
+// A risk exclusion records a position-specific price failure or an explicit unsupported risk source.
+// The risk report lists the exact held binding; ordinary valuation remains independent.
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record ExcludedPosition(Guid TradeId,Guid BindingId,Guid BookId,string TradeReference,string InstrumentType,string Reason)
 {
@@ -98,7 +97,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             throw new MarketDataException("portfolio_policy","Select the supported exact valuation policies and one to 100 symmetric trading ticks explicitly.");
     }
     public async Task<PortfolioValuationResult> Calculate(NpgsqlConnection connection,PreviewData data,MarketSnapshot snapshot,
-        ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,CancellationToken ct)
+        ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,CancellationToken ct,bool requireNativeEvidence=false)
     {
         var exact=PinnedContext.Exact(context);
         await RequireValuationContext(connection,exact,snapshot.ValuationAt,ct);
@@ -106,6 +105,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             snapshot.Selections.Select(s=>s.Observation.Key.Id).ToImmutableArray(),ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,
             exact.ContextId,snapshot.Selections.Where(s=>s.Input.Use==InputUse.FrozenFact).Select(s=>s.Observation.Key.Id).ToImmutableArray());
         var prepared=await Prepare(connection,data,frame,snapshot,exact,bookIds,policy,[],excluded:[],ct);
+        if(requireNativeEvidence)CloseBookRiskJobs.RequireNativeEvidence(prepared.ConnectedMarkets);
         var bumps=prepared.Factors.Select(f=>new PortfolioCurveBump(CurveRiskAxes.Quote(prepared,f,ct),
             f.TradingTick*ExactDecimal.Parse(policy.BumpTicks.ToString(CultureInfo.InvariantCulture)))).ToImmutableArray();
         var result=Calculate(prepared,bumps,[],RiskDetail.Books,ct);
@@ -118,15 +118,15 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         await guard.ExecuteNonQueryAsync(ct);
     }
     // D220: a portfolio risk run values every held position the selected close can value. One preparation
-    // normally values them all. Only when it fails for a position-specific reason are the positions whose
-    // base valuation fails left out, with the reasons the Blotter reports for them, and the rest prepared;
+    // normally values them all. Position-specific price failures and explicit unsupported risk sources
+    // are listed and left out, with the reasons the Blotter reports, and the rest prepared;
     // a failure that remains fails the run.
     public async Task<Prepared> PrepareValued(NpgsqlConnection connection,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
         ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental,CancellationToken ct)
     {
         try{return await Prepare(connection,data,frame,snapshot,context,bookIds,policy,supplemental,[],ct);}
-        catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){}
+        catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error.Code)){}
         return await Prepare(connection,data,frame,snapshot,context,bookIds,policy,supplemental,
             await Unvalued(connection,data,frame,snapshot,bookIds,ct),ct);
     }
@@ -150,7 +150,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     public async Task<Prepared> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
         ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental,ImmutableArray<ExcludedPosition> excluded,CancellationToken ct,
-        ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null)
+        ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null,CloseBookRiskDefinition? closePolicy=null)
     {
         ValidatePolicy(policy);ct.ThrowIfCancellationRequested();
         if(excluded.IsDefault||excluded.Any(e=>e is null||e.InstrumentType is not(FutureType or SwapType or HeatRateType)||!ValuationStatus.PositionSpecific(e.Reason)))
@@ -165,7 +165,10 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         snapshot=MarketSnapshotBinding.Bind(snapshot,exact.ContextId!.Value,known);
         if(!MarketSnapshotBinding.Bind(data.Snapshot(frame),exact.ContextId.Value,known).HasSameInputs(snapshot))
             throw new MarketDataException("portfolio_context","Every selected observation and use must match the exact authorized snapshot inputs.");
-        var ppa=await PpaPortfolio.Prepare(connection,data,frame,context,bookIds,policy.PpaPendingActuals,SchedulePreview.ParseAt(exact.KnownAt),ct);
+        if(closePolicy is not null&&(!excluded.IsEmpty||!supplemental.IsEmpty||closePolicy.ValuationPolicy!=policy||!closePolicy.BookIds.SequenceEqual(bookIds)))
+            throw new MarketDataException("pilot_close_inputs","A close calculation requires its complete exact scope without excluded positions or supplemental markets.");
+        var ppa=closePolicy is null?await PpaPortfolio.Prepare(connection,data,frame,context,bookIds,policy.PpaPendingActuals,SchedulePreview.ParseAt(exact.KnownAt),ct):
+            await PpaPortfolio.Prepare(connection,data,frame,context,bookIds,closePolicy,ct);
         var futuresStore=new FuturesStore(database.Manifest);
         var books=await futuresStore.Books(connection,ct);
         var futures=await futuresStore.ReadTrades(connection,data,books,bookIds,[],ct);
@@ -207,7 +210,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             materialized.Add((data,frame,snapshot,ppa.Portfolio,PpaMeasure));evidence.AddRange(ppa.Evidence);
         }
         if(materialized.Count==0)throw new MarketDataException("risk_position",excluded.IsEmpty?"The selected books have no visible supported holdings.":
-            "The selected close cannot value any held position in the selected books.");
+            "No held position in the selected scope is qualified for this risk calculation.");
         if(evidence.Select(p=>(p.TradeId,p.BindingId)).Distinct().Count()!=evidence.Count||
             materialized.SelectMany(p=>p.Portfolio.Instruments).Select(i=>i.Id).Distinct().Count()!=materialized.Sum(p=>p.Portfolio.Instruments.Length))
             throw new MarketDataException("risk_contract","Every held binding and unit instrument must belong to exactly one market and valuation measure.");
@@ -220,7 +223,13 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             var dependencies=portfolios.SelectMany(p=>p.Declare(first.Snapshot)).SelectMany(c=>c.Dependencies).Distinct().ToImmutableArray();
             var retained=retainedGraphs?.SingleOrDefault(g=>g.RevisionId==first.Snapshot.Definitions.RevisionId);
             if(retainedGraphs is not null&&retained is null)throw new MarketDataException("risk_graph_manifest","The job omitted a required connected market manifest.");
-            var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,ct,retained);
+            // Demand belongs to each trade binding: a paid clone cannot remove
+            // the observations still needed by another holder of the same side.
+            var activePrices=swaps.Where(holding=>holding.Snapshot.Definitions==first.Snapshot.Definitions)
+                .SelectMany(holding=>holding.Settlement?.RequiredPrices(holding.Instrument)??
+                    holding.Instrument.Sides.SelectMany(member=>((SidePaymentSchedule)member.Side.GenerateSchedule()).Payments)
+                        .SelectMany(payment=>payment.Prices).ToImmutableArray()).Distinct().ToImmutableArray();
+            var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,ct,retained,activePrices);
             markets.Add(new(first.Data,first.Frame,first.Snapshot,
                 RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,portfolios,connected.Authority,ct),
                 group.Select(m=>m.Measure).ToImmutableArray(),connected.Evidence,connected.Preparation));
@@ -235,7 +244,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         ImmutableArray<PortfolioCurveShift> stress,RiskDetail detail,CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();ValidatePolicy(prepared.Policy);
-        if(!bumps.IsDefault)RequireWork(prepared,bumps.Length);
+        if(!bumps.IsDefault)RequireWork(prepared,bumps);
         if(bumps.IsDefault||stress.IsDefault||!Enum.IsDefined(detail)||prepared.Markets.IsDefaultOrEmpty)
             throw new MarketDataException("risk_contract","Supply explicit scenarios, detail and complete prepared market partitions.");
         if(bumps.Any(b=>b is null||b.Axis is null||b.Size.CompareTo(default)<=0)||
@@ -285,7 +294,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var combined=new RiskWork(work.Sum(w=>w.PositionCount),work.Sum(w=>w.UniqueValuations),work.Sum(w=>w.UniqueMarketContracts),1+2*bumps.Length,
             work.Sum(w=>w.UnitPricerCalls),work.Sum(w=>w.RebuiltCurveNodes)+prepared.MaterializationWork.RebuiltCurveNodes,
             work.Sum(w=>w.ReusedCurveNodes)+prepared.MaterializationWork.ReusedCurveNodes)
-            {QuantityApplications=work.Sum(w=>w.QuantityApplications),PreparationScenarioCount=work.Sum(w=>w.PreparationScenarioCount)+prepared.MaterializationScenarioCount};
+            {QuantityApplications=work.Sum(w=>w.QuantityApplications),PreparationScenarioCount=work.Sum(w=>w.PreparationScenarioCount)+prepared.MaterializationScenarioCount,
+             RowEvaluations=work.Sum(w=>w.RowEvaluations),ScheduleGraphEvaluatedNodes=work.Sum(w=>w.ScheduleGraphEvaluatedNodes),ScheduleGraphReusedReads=work.Sum(w=>w.ScheduleGraphReusedReads)};
         ct.ThrowIfCancellationRequested();
         return new(prepared.SnapshotId,prepared.Context,prepared.Policy,ModelContracts(groups.SelectMany(g=>g.Group.Contracts)),prepared.Positions,
             bumps.Select(b=>new PortfolioFactor(runs.Single(r=>r.Market.Snapshot.Definitions==b.Axis.Market).Axes[b.Axis.Id],b.Size)).ToImmutableArray(),totals,totalsRisk.ToImmutable(),combined)
@@ -296,6 +306,23 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             BasePositions=groups.SelectMany(g=>g.Group.BasePositions.Select(p=>new PortfolioHoldingValue(g.Measure,p))).ToImmutableArray(),HoldingRisk=holdingRisk.ToImmutable()
         };
     }
+    internal static void RequireWork(Prepared prepared,ImmutableArray<PortfolioCurveBump> bumps)
+    {
+        if(bumps.Any(bump=>bump is null||bump.Axis is null))throw new MarketDataException("risk_bump","Supply explicit scenario axes.");
+        if(prepared.Ppa is null)return;
+        if(CanCountNativeWork(bumps))
+        {
+            var work=prepared.Markets.Select(market=>NativeWork(market.Connected,
+                [..bumps.Where(bump=>bump.Axis.Market==market.Snapshot.Definitions).Select(bump=>bump.Axis.Quote!.Input)]));
+            CloseRiskAdmission.RequireRowScenarios(work.Sum(item=>item.RowScenarios),bumps.Length);
+        }
+        else RequireWork(prepared,bumps.Length);
+    }
+    internal static bool CanCountNativeWork(ImmutableArray<PortfolioCurveBump> bumps)=>
+        bumps.All(bump=>bump.Axis.Coordinate==CurveShockCoordinate.MarketQuote&&bump.Axis.Quote is not null)&&
+        bumps.Select(bump=>(bump.Axis.Market,bump.Axis.Quote!.Input)).Distinct().Count()==bumps.Length;
+    internal static (long Rows,long RowScenarios) NativeWork(PreparedConnectedPortfolioRisk market,ImmutableArray<InputKey> selected)=>
+        RiskEngine.IntervalWork(market,[..selected.Where(input=>market.Factors.Any(factor=>factor.Input==input))]);
     internal static void RequireWork(Prepared prepared,int bumps)
     {
         if(prepared.Ppa is {} ppa)CloseRiskAdmission.RequireRowScenarios(checked(ppa.Rows*(1+2L*bumps)),bumps);
@@ -338,7 +365,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         // Graph reads and affected nodes have distinct counters from materialized
         // curve receipts; report the actual graph work in ConnectedScenarios.
         var work=new RiskWork(w.PositionCount,w.UniqueValuations,w.UniqueMarketContracts,w.ScenarioCount,w.UnitPricerCalls,0,0)
-            {QuantityApplications=w.QuantityApplications,PreparationScenarioCount=w.PreparationScenarioCount};
+            {QuantityApplications=w.QuantityApplications,PreparationScenarioCount=w.PreparationScenarioCount,
+             RowEvaluations=w.RowEvaluations,ScheduleGraphEvaluatedNodes=w.ScheduleGraphEvaluatedNodes,ScheduleGraphReusedReads=w.ScheduleGraphReusedReads};
         return new(market,groups,work,new(market.Snapshot.Definitions,scenario.Plan.ManifestId,scenario.Id,scenario.ParentId,scenario.Depth,run.GraphWork,market.Preparation),axes);
     }
     private static ExactDealRiskValues Unchanged(ExactMoney value,PortfolioCurveBump bump)

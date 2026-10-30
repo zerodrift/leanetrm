@@ -2,7 +2,7 @@
 import json
 from uuid import uuid4
 from check_model_qualification import command, terms
-from check_model_versions import capabilities
+from check_model_versions import capabilities, check_identifier_policy_cutover
 from fake_model_provider import event, stream
 
 
@@ -26,6 +26,7 @@ def recording(vendor, model, served=None):
 
 
 def run_checks(query, manifest, fake, trap, admin):
+    check_identifier_policy_cutover(query)
     for vendor, mapping in [('openai', 'openai_responses_v1'), ('google', 'generate_content_v1'),
                             ('xai', 'xai_responses_v1'), ('meta', 'meta_responses_v1')]:
         current = next(p for p in admin.call('settings/ai/providers')['providers'] if p['vendor'] == vendor)
@@ -38,21 +39,22 @@ def run_checks(query, manifest, fake, trap, admin):
                           'identifier': identifier, 'displayName': 'Synthetic adapter '+vendor})
         initial = capabilities(added['id'], 1, outputLimit=1024, reasoningEfforts=['low'], acceptedServed=[])
         if vendor == 'xai':
-            del initial['identifierPolicy']  # The original fixed-only HTTP contract.
+            omitted = {key: value for key, value in initial.items() if key != 'identifierPolicy'}
+            assert admin.call('settings/ai/models/edit', omitted, expected=400)['code'] == 'request_format'
         saved = admin.call('settings/ai/models/edit', initial)
         assert saved['qualified'] and saved['capability']['mapping'] == mapping
         if vendor == 'xai':
             # Alias approval is an immutable capability fact, not permission for arbitrary
             # served identifiers, new prices, or a different provider.
-            legacy = saved
+            fixed = saved
             alias = capabilities(added['id'], saved['version'], outputLimit=1024,
                                  reasoningEfforts=['low'], acceptedServed=['model-synthetic-snapshot'],
                                  identifierPolicy='alias')
             saved = admin.call('settings/ai/models/edit', alias)
             assert saved['qualified'] and saved['capability']['identifierPolicy'] == 'alias'
-            assert legacy['capability']['identifierPolicy'] == 'fixed'
+            assert fixed['capability']['identifierPolicy'] == 'fixed'
             assert admin.call('settings/ai/models/edit', alias) == saved
-            assert admin.call('settings/ai/models/edit', initial) == legacy
+            assert admin.call('settings/ai/models/edit', initial) == fixed
             assert admin.call('settings/ai/models/edit', alias | {'hasIdentifierPolicy': False}, expected=400)['code'] == 'request_format'
             conflict = admin.call('settings/ai/models/edit', alias | {'identifierPolicy': 'fixed'}, expected=409)
             assert conflict['code'] == 'model_admin_conflict'

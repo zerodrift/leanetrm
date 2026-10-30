@@ -110,6 +110,9 @@ public sealed record SwapPaymentCalculation
                 unit = p.Lookup is {} lookup ? Unit(PriceUnit.FromQuote(lookup.Quote)) : null }),
             applications = plan.Applications.Select(a => new { a.TargetFrom,a.TargetTo,a.PriceOrdinal,a.MappingRule,weight = Weight(a.Weight) })
         });
+        if(plan.Prices.Any(p=>p.ContractObservation is not null))
+            contractual=Hash(new{version="contract_observation_payment_identity_v1",contractual,
+                sources=plan.Prices.Select(p=>p.ContractObservation is {} source?DefinitionIdentity.For(source).Canonical:null)});
         return instrument is CrossCommodityScheduledSwap cross ? Hash(new{version=FactorEvidenceIdentityVersion,contractual,
             factor=new{value=cross.Factor.Value.ToString(),cross.Factor.NumeratorQuantity,cross.Factor.DenominatorQuantity,cross.Factor.Version},cross.UnitConversionImplementation}) : contractual;
     }
@@ -150,7 +153,7 @@ public static class SwapSettlement
             throw new MarketDataException("settlement_rounding", "Rounding must pin this payment's exact currency revision and precision.");
         if (plan.DeliveryFrom != occurrence.DeliveryFrom || plan.DeliveryTo != occurrence.DeliveryTo)
             throw new MarketDataException("settlement_continuity", "Changed contractual periods require an explicit qualified continuity mapping.");
-        if (plan.Prices.Any(p => p.FixedPrice is null && (p.Lookup?.Fixing is not {} fixing || context.Snapshot.ValuationAt < fixing.FixingAt)))
+        if (plan.Prices.Any(p => p.FixedPrice is null && ((p.ContractObservation?.FixingAt ?? p.Lookup?.Fixing?.FixingAt) is not {} fixingAt || context.Snapshot.ValuationAt < fixingAt)))
             throw new MarketDataException("settlement_not_final", "All required contractual fixings must be eligible; projections cannot determine cash.");
         var prices = plan.Prices.Select(context.Resolve).ToImmutableArray();
         if (prices.Any(p => p.State is not (SchedulePriceState.Fixed or SchedulePriceState.Actual)))

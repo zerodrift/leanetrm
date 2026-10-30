@@ -50,7 +50,7 @@ internal static class AmountJsonChecks
    throw new Exception("Reference presentation must preserve exact numeric lexemes, ordinal ordering, booleans and nulls.");
   var financialRevision=Guid.NewGuid();var unitRevision=Guid.NewGuid();
   var manifest=new PreviewManifest("local-synthetic-preview",Guid.NewGuid(),Guid.NewGuid(),revision.CatalogId,financialRevision,Guid.NewGuid(),Guid.NewGuid(),[],null,
-    UnitCatalog:new(unitRevision,Guid.NewGuid()));
+    UnitCatalog:new(unitRevision,Guid.NewGuid()),FuturesConvention:"contract_lot_execution_pnl_v2");
   foreach(var table in new[]{"dimensions","units","unit_conversions","commodities","measurement_bases","quantity_specifications"})
    if(ReferenceEditors.Source(manifest,table)!=new ReferenceRevision(revision.CatalogId,unitRevision))
     throw new Exception("The reference editor must use the exact supplemental unit revision for each consumed unit table.");

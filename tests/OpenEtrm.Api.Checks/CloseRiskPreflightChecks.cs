@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.MarketData.Risk;
 
@@ -37,7 +38,34 @@ internal static class CloseRiskPreflightChecks
                 new(b.Mw,f.Capacity.Key),new(new Money(default,b.Instrument.Currency),f.Capacity.Key),new(default,b.Instrument.Currency)){Coverage=b.Coverage}).ToImmutableArray();
             var portfolio=new ValuationPortfolio([..selected.Select(b=>b.Instrument).DistinctBy(i=>i.Id)],positions,
                 new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)){Interval=prepared});
-            return RiskEngine.IntervalWork(RiskEngine.Prepare(market.Model,market.Snapshot,[portfolio])).RowScenarios;
+            var native=RiskEngine.IntervalWork(RiskEngine.Prepare(market.Model,market.Snapshot,[portfolio]));
+            var requests=portfolio.Declare(market.Snapshot).SelectMany(c=>c.Dependencies).Distinct().ToImmutableArray();
+            var export=market.Model.Compile(market.Snapshot,requests,false,market.Build.Graph.Plan.Context);
+            var bindings=requests.ToImmutableDictionary(r=>r,r=>export.Points[(r,InputUse.Variable)]);
+            var graph=ConnectedScenario.Base(ConnectedCurves.Compile(export.Definitions,[..bindings.Values],market.Build.Graph.Plan.Context,new Bindings()));
+            var connected=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(graph,market.Snapshot),bindings,[portfolio],market.Build);
+            var counted=RiskEngine.IntervalWork(connected);
+            Equal(RiskEngine.IntervalWork(connected,[]).RowScenarios,counted.Rows);
+            var unheld=market.Model.QuoteFactors(market.Snapshot).First(factor=>!connected.Factors.Any(held=>held.Input==factor.Input));
+            Equal(PortfolioValuation.NativeWork(connected,[unheld.Input]).RowScenarios,counted.Rows);
+            foreach(var factor in connected.Factors)
+            {
+                var subset=RiskEngine.IntervalWork(connected,[factor.Input]);
+                var nativeSubset=RiskEngine.IntervalWork(RiskEngine.Prepare(market.Model,market.Snapshot,[portfolio]),
+                    [new QuoteBump(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("1"),QuoteBump.Convention)]);
+                Equal(subset.RowScenarios,nativeSubset.RowScenarios);
+            }
+            if(selected.Select(b=>b.Instrument.Id).Distinct().Count()==2)
+            {
+                var certificate=connected.Factors.Single(factor=>factor.Curves.Contains(f.C("synthetic_certificate")));
+                // Certificate scenarios touch only the four-side agreement;
+                // the separate two-side physical agreement contributes base rows.
+                Equal(RiskEngine.IntervalWork(connected,[certificate.Input]).RowScenarios,10_094);
+                try{RiskEngine.IntervalWork(connected,[certificate.Input,certificate.Input]);throw new Exception("Duplicate scenarios were accepted.");}
+                catch(MarketDataException error)when(error.Code=="risk_bump"){}
+            }
+            Equal(counted.Rows,native.Rows);Equal(counted.RowScenarios,native.RowScenarios);
+            return counted.RowScenarios;
         }
         Equal(Final([binding,binding],inputs),14_420);
         var hour=binding with {Coverage=new(f.From,f.From.AddHours(1))};
@@ -62,6 +90,36 @@ internal static class CloseRiskPreflightChecks
         var qb=binding with {Instrument=qi,Coverage=new(quarter.From,quarter.To)};
         var qr=new Dictionary<(CurveKey,Guid),HashSet<DateOnly>> {[(quarter.C("synthetic_energy"),qb.BindingId)]=[quarter.Month],[(quarter.C("synthetic_certificate"),qb.BindingId)]=[quarter.Month]};
         Equal(CloseRiskAdmission.FutureVolumeWork([qb],qinputs.Reference,qm.Curves,qr,Selections(qr,quarter),qm.Build,qm.Model.QuoteFactors(qm.Snapshot)),57_680);
+        // One observation can back both a current frozen actual and a live
+        // projection. Equal provenance is not equal scenario dependency.
+        var request=market.Build.Values.First(v=>v.Request.Curve==f.C("synthetic_energy")).Request;
+        var liveExport=market.Model.Compile(market.Snapshot,[request],false,market.Build.Graph.Plan.Context);
+        var frozenExport=market.Model.Compile(market.Snapshot,[request],false,market.Build.Graph.Plan.Context,freezeObservation:true);
+        var livePoint=liveExport.Points[(request,InputUse.Variable)];var frozenPoint=frozenExport.Points[(request,InputUse.Variable)];
+        var frozenRequest=request with{Curve=new(f.Definitions,"synthetic_frozen_work")};
+        var mixedGraph=ConnectedScenario.Base(ConnectedCurves.Compile(ConnectedCurves.MergeDefinitions(liveExport.Definitions.Concat(frozenExport.Definitions)),
+            [livePoint,frozenPoint],market.Build.Graph.Plan.Context,new Bindings()));
+        var workUnits=ImmutableArray.Create<Instrument>(new WorkInstrument(request,f.EnergyPrice,2),new WorkInstrument(frozenRequest,f.EnergyPrice,7));
+        var workPortfolio=ValuationPortfolio.FromTrades([new Trade(Guid.NewGuid(),Guid.NewGuid(),[..workUnits.Select(i=>
+            new TradeInstrument(Guid.NewGuid(),i,i.UnitQuantity))])],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+        var mixed=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(mixedGraph,market.Snapshot),
+            ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(request,livePoint).Add(frozenRequest,frozenPoint),[workPortfolio],market.Build);
+        Equal(RiskEngine.IntervalWork(mixed).Rows,9);
+        Equal(RiskEngine.IntervalWork(mixed).RowScenarios,13); // 2*(base/up/down) +7 frozen base rows.
         Console.WriteLine("PASS early risk refusal lower bound: native DST grids, reached factors, exact coverage reuse, zero MW and overdue/unproven scopes");
+    }
+    private sealed record WorkInstrument(CurveRequest Request,PriceUnit Unit,long Rows):Instrument(Guid.NewGuid())
+    {
+        public override ReferenceKey Currency=>Unit.Currency;
+        public override Quantity UnitQuantity=>new(ExactDecimal.Parse("1"),Unit.Quantity);
+        public override bool SupportsQuantityScaling=>true;
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"declared_work_check_v1",[Request],Unit.Quantity,Unit.Currency);
+        public override long WorkRows(UnitValuationContext context)=>Rows;
+        public override ExactMoney Value(UnitValuationContext context)=>throw new Exception("Work admission must not value an instrument.");
+    }
+    private sealed class Bindings:ICurveBindingResolver
+    {
+        public CurveKey Resolve(LogicalCurveKey curve,ResolvedCalculationContext context)=>throw new NotSupportedException();
+        public void RequireVisible(CurveKey curve,ResolvedCalculationContext context){}
     }
 }

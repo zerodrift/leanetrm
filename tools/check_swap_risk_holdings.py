@@ -35,7 +35,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     daily=next(index for index in catalog['indices'] if index['curve']=='daily_gas')
     daily_trade=book_swap({**body,'bookId':unsupported_book,'discounting':False,'definitionRevisionId':daily['definitionRevisionId'],
                'floating':{**body['floating'],'curve':daily['curve'],'index':daily['index'],'resetFrequency':'daily','averagingMethod':'arithmetic'}})
-    future_context={**context,'convention':'fixed_total_cash_execution_pnl_v1'}
+    future_context={**context,'convention':'contract_lot_execution_pnl_v2'}
     future=client.call('futures/catalog',future_context)['contracts'][0]
     future_terms={'curve':future['curve'],'contractId':future['id'],'lots':'2','executionPrice':'2.9'}
     future_price=client.call('futures/price',{'context':future_context,**future_terms})['executionPnl']
