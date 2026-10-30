@@ -21,6 +21,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(body.curve===null&&body.definition===null)data.dates.at(-1).frames[0].at='Synthetic unreadable instant';
     response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
+   if(path.endsWith('/market/dates')&&window.emptyCurveDates&&response.ok){
+    const body=JSON.parse(args[1].body),data=await response.json();
+    if(body.curve!==null){data.dates=[];data.minDate=null;data.maxDate=null;data.unavailable=[{date:'2020-12-17',reason:'source_expired'},{date:'2020-12-18',reason:'missing_observation'}];}
+    response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
+   }
    if(path.endsWith('/market/dates')||path.endsWith('/custom-curves/preview'))window.marketDateRequests.push({path,body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
    return response;
   };
@@ -113,6 +118,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#market-date-open');
  await check('curve changes refresh coverage and disable a date valid only for another curve',"window.marketDateRequests.at(-1).body.curve==='bridge_basis'&&document.querySelector('#market-date-grid button[data-date=\"2020-12-11\"]').disabled&&!document.querySelector('#market-date-grid button[data-date=\"2020-12-17\"]').disabled");
  await click('#market-date-grid button[data-date="2020-12-17"]');
+ await evaluate("window.emptyCurveDates=true;window.beforeEmptyClose=document.querySelector('#snapshot').value;[...document.querySelectorAll('.curve-button')].find(b=>b.textContent.includes('Futures–forward spread')).click()");await wait(idle);
+ await click('#market-date-open');
+ await check('an empty close popup explains expired and missing inputs instead of asking to select absent dates',"document.querySelector('#market-date-dialog').open&&!document.querySelector('#market-date-empty').hidden&&document.querySelector('#market-date-empty').textContent.includes('expired')&&document.querySelector('#market-date-empty').textContent.includes('missing')&&!document.querySelector('#market-date-scope').textContent.includes('Select an available date')&&!document.querySelector('#market-date-workspace').hidden&&document.querySelectorAll('#market-date-grid button').length===0");
+ await shot('market-date-empty');
+ await click('#market-date-workspace');
+ await check('explicit recovery shows workspace closes while preserving the exact selected close',"document.querySelector('#market-date-dialog').open&&document.querySelector('#market-date-empty').hidden&&document.querySelector('#market-date-workspace').hidden&&window.marketDateRequests.at(-1).body.curve===null&&document.querySelector('#snapshot').value===window.beforeEmptyClose&&document.querySelectorAll('#market-date-grid button.available').length>0");
+ await evaluate('window.emptyCurveDates=false');await click('#market-date-close');
+ await evaluate("[...document.querySelectorAll('.curve-button')].find(b=>b.textContent.includes('Futures–forward spread')).click()");await wait(idle);
  await click('#profile-open');await set('#zone','Asia/Tokyo');await submit('#preferences-form');await wait(settled);
  await check('changing the display time zone reads the workspace calendar again, and the badge stays true to the close chosen',`window.marketDateRequests.at(-1).body.timeZone==='Asia/Tokyo'&&window.marketDateRequests.at(-1).body.curve===null&&window.marketDateRequests.at(-1).body.definition===null&&${badge}.textContent==='Selected close'&&!${badge}.querySelector('button')&&document.querySelector('#error').hidden`,`JSON.stringify({last:window.marketDateRequests.at(-1).body,badge:${badge}.hidden?'(hidden)':${badge}.textContent})`);
  await click('#market-date-open');
@@ -166,8 +179,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('an authorization denial clears previously displayed market prices',"window.marketDateRequests.at(-1).status===403&&document.querySelector('#contracts').children.length===0&&document.querySelectorAll('#market-date-grid button').length===0&&!document.querySelector('#market-date-dialog').open&&!document.querySelector('#error').hidden");
  await click('#market-date-open');
  await check('availability can be retried explicitly after a denial without restoring old prices',"window.marketDateRequests.at(-1).status===200&&document.querySelector('#market-date-dialog').open&&document.querySelector('#contracts').children.length===0");
- await click('#market-date-close');await click('#nav-power');await wait(settled);await click('#market-date-open');
+ await click('#market-date-close');await click('#nav-power');await wait(settled);await evaluate('window.emptyCurveDates=true');await click('#market-date-open');
  await check('the power workspace calendar follows its selected pricing curve',"window.marketDateRequests.at(-1).body.curve==='local_power'&&!window.marketDateRequests.at(-1).payload.dates.some(d=>d.date==='2020-12-11')");
+ await check('an empty power calendar does not offer a curve-browser action on the power page',"!document.querySelector('#market-date-empty').hidden&&document.querySelector('#market-date-workspace').hidden");
+ await evaluate('window.emptyCurveDates=false');
  // A historical view the session kept is not working data: starting in it selects no close, reads no workspace calendar
  // and claims no newest close.
  await click('#market-date-close');await set('#date-context-on','2020-12-18');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');

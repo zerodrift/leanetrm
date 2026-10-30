@@ -16,9 +16,19 @@ export function shiftCalendarMonth(month:string,direction:number){const value=ne
 export function closesOnDate(catalog:Pick<MarketDates,'dates'>,date:string){return catalog.dates.find(group=>group.date===date)?.frames??[];}
 export function uniqueClose(catalog:Pick<MarketDates,'dates'>,date:string){const closes=closesOnDate(catalog,date);return closes.length===1?closes[0].id:undefined;}
 
+/** Explain supplied availability refusals; never infer another close or relax pricing rules. */
+export function unavailableClosesMessage(catalog:Pick<MarketDates,'dates'|'unavailable'>):string{
+ if(catalog.dates.length)return '';
+ const reasons=new Set(catalog.unavailable.map(day=>day.reason)),details:string[]=[];
+ if(reasons.has('source_expired')||reasons.has('unsupported_expiry'))details.push('Required contracts have expired without a supported pricing transition.');
+ if(reasons.has('missing_observation'))details.push('Required prices are missing from the retained closes.');
+ if(reasons.has('market_data_unavailable'))details.push('The retained closes have no usable price points for this selection.');
+ return ['No complete close is available for this selection.',...details,'Choose another curve or ask a market-data maintainer to complete its inputs and configuration.'].join(' ');
+}
+
 const badgeText:Record<CloseBadge,string>={latest:'Latest close',selected:'Selected close',newer:'Newer close available',choose:'Choose a close'};
 
-export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;busy:()=>boolean;enabled:()=>boolean;selected:()=>string;current:()=>{at:string}|undefined;select:(id:string)=>void;open:()=>void;newer:()=>void}){
+export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;busy:()=>boolean;enabled:()=>boolean;selected:()=>string;current:()=>{at:string}|undefined;select:(id:string)=>void;open:()=>void;newer:()=>void;workspace?:{enabled:()=>boolean;open:()=>void}}){
  const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
  const open=el('button','Choose a date…');open.type='button';open.id='market-date-open';open.className='market-date-trigger secondary';open.setAttribute('aria-haspopup','dialog');open.setAttribute('aria-controls','market-date-dialog');
  // Says which close the control shows. Only a newer close arriving makes it a button, which selects that close.
@@ -32,8 +42,10 @@ export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;bu
  previous.type=next.type='button';previous.id='market-date-previous';next.id='market-date-next';previous.setAttribute('aria-label','Previous month');next.setAttribute('aria-label','Next month');month.type='month';month.id='market-date-month';month.setAttribute('aria-label','Calendar month');nav.append(previous,month,next);
  const grid=el('table');grid.id='market-date-grid';grid.className='market-calendar-grid';grid.setAttribute('role','grid');grid.setAttribute('aria-label','Available market dates');
  const legend=el('p','● Available close · unavailable dates are disabled');legend.className='field-help';
+ const empty=el('p');empty.id='market-date-empty';empty.setAttribute('role','status');empty.hidden=true;
+ const workspace=el('button','Browse all curves and closes');workspace.id='market-date-workspace';workspace.type='button';workspace.className='secondary';workspace.hidden=true;workspace.onclick=()=>{if(options.busy()||pending||!options.workspace?.enabled())return;chose=true;dialog.close();options.workspace.open();};
  const choices=el('section');choices.id='market-date-closes';choices.setAttribute('aria-label','Choose an exact close');
- dialog.append(heading,scope,nav,grid,legend,choices);host.replaceChildren(control,status,dialog);
+ dialog.append(heading,scope,empty,workspace,nav,grid,legend,choices);host.replaceChildren(control,status,dialog);
  let catalog:MarketDates|undefined,shownMonth='',chosenDate='',pending=false,focusOnOpen=false,message='Choose a market date.',shownBadge:CloseBadge|null=null;
  const allCloses=()=>catalog?.dates.flatMap(group=>group.frames)??[];
  function sync(){
@@ -83,14 +95,15 @@ export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;bu
  function navigate(direction:number){const value=shiftCalendarMonth(shownMonth,direction);if(catalog?.minDate&&value<catalog.minDate.slice(0,7)||catalog?.maxDate&&value>catalog.maxDate.slice(0,7))return;shownMonth=value;chosenDate='';render();}
  previous.onclick=()=>navigate(-1);next.onclick=()=>navigate(1);month.onchange=()=>{if(!/^\d{4}-\d{2}$/.test(month.value)||catalog?.minDate&&month.value<catalog.minDate.slice(0,7)||catalog?.maxDate&&month.value>catalog.maxDate.slice(0,7)){month.value=shownMonth;return;}shownMonth=month.value;chosenDate='';render();};
  open.onclick=()=>{if(!open.disabled)options.open();};close.onclick=()=>dialog.close();dialog.addEventListener('close',()=>{if(!chose)open.focus();chose=false;});
- function reset(note='Choose a market date.'){catalog=undefined;shownMonth='';chosenDate='';pending=false;message=note;if(dialog.open)dialog.close();scope.textContent=note;grid.replaceChildren();choices.replaceChildren();header();}
+ function reset(note='Choose a market date.'){empty.hidden=true;workspace.hidden=true;catalog=undefined;shownMonth='';chosenDate='';pending=false;message=note;if(dialog.open)dialog.close();scope.textContent=note;grid.replaceChildren();choices.replaceChildren();header();}
  return{
   sync,
   update(nextCatalog:MarketDates){
    catalog=nextCatalog;pending=false;message=nextCatalog.dates.length?`${nextCatalog.timeZone} · available closes only`:'No complete close is available for this selection.';
-   if(options.selected()&&!allCloses().some(frame=>frame.id===options.selected()))message='The selected close is unavailable for this curve. Choose an available calendar date.';
+   if(nextCatalog.dates.length&&options.selected()&&!allCloses().some(frame=>frame.id===options.selected()))message='The selected close is unavailable for this curve. Choose an available calendar date.';
    const selected=catalog.dates.find(group=>group.frames.some(frame=>frame.id===options.selected()));shownMonth=(selected?.date??catalog.minDate??catalog.dates[0]?.date??'').slice(0,7);chosenDate=selected?.date??'';
-   scope.textContent=`${nextCatalog.timeZone}. Select an available date, then an exact close when several exist. ${frameCatalogNote(nextCatalog.frameCatalog)} Financial history and knowledge controls remain separate.`;header();if(dialog.open)render();
+   empty.textContent=unavailableClosesMessage(nextCatalog);empty.hidden=nextCatalog.dates.length>0;workspace.hidden=nextCatalog.dates.length>0||nextCatalog.curve===null||!options.workspace?.enabled();
+   scope.textContent=`${nextCatalog.timeZone}. ${nextCatalog.dates.length?'Select an available date, then an exact close when several exist. ':''}${frameCatalogNote(nextCatalog.frameCatalog)} Financial history and knowledge controls remain separate.`;header();if(dialog.open)render();
   },
   loading(){pending=true;message='Checking available closes…';header();},
   unavailable(note:string){reset(note);},

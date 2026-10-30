@@ -24,7 +24,7 @@ export type CardFigures={state:'unread'}|{state:'failed';reason:string}|{state:'
  * A card: its curve's code and name, its market type, its commodity and market type together, the backend's curve kind, its commodity
  * color, and its figures.
  */
-export type BoardCard={curve:string;name:string;type:string;kind:string;curveKind:CurveKind;color:string|null;figures:CardFigures};
+export type BoardCard={curve:string;name:string;type:string;kind:string;curveKind:CurveKind;commodity:NavigationCurve['category'];color:string|null;figures:CardFigures};
 export type BoardGroup={key:string;name:string;cards:BoardCard[]};
 
 const contracts=(count:number)=>`${count} ${count===1?'contract':'contracts'}`;
@@ -50,7 +50,7 @@ function figures(shape:CurveShape|string,name:string):CardFigures{
 }
 function card(curve:NavigationCurve,colors:ReadonlyMap<string,string>,shape:CurveShape|string|undefined):BoardCard{
   const name=curveName(curve.code);
-  return {curve:curve.code,name,type:marketTypeName(curve.marketType),kind:navigationCurveKind(curve),curveKind:curve.kind,color:curve.category?colors.get(curve.category.code)!:null,
+  return {curve:curve.code,name,type:marketTypeName(curve.marketType),kind:navigationCurveKind(curve),curveKind:curve.kind,commodity:curve.category,color:curve.category?colors.get(curve.category.code)!:null,
     figures:curve.marketType==='rates'?{state:'rates'}:shape===undefined?{state:'unread'}:figures(shape,name)};
 }
 /** The board's cards, in the library's groups and order under the library's filters, from the shapes read so far at the close. */
@@ -69,11 +69,15 @@ export function shapeReads(groups:readonly BoardGroup[]):string[][]{
   return reads;
 }
 
-/** A curve's commodity dot, colored by its commodity; a curve without one has a hollow dot. The card or row names the commodity. */
-export function commodityDot(card:Pick<BoardCard,'color'>){
-  const dot=node('i','commodity-dot');dot.setAttribute('aria-hidden','true');
-  if(card.color)dot.style.setProperty('--commodity',card.color);else dot.classList.add('commodity-dot-none');
-  return dot;
+/** Commodity identity uses a named shape as well as colour. Rates retain their existing curve-kind icon. */
+export function commodityIcon(card:Pick<BoardCard,'commodity'|'color'>){
+ if(!card.commodity)return null;
+ const code=card.commodity.code,kind=code==='gas'||code==='test_gas'?'gas':code==='electricity'||code==='test_power'?'power':'other';
+ const paths={gas:'M10 2c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-5 3-6 0 3 1 4 2 4 2-2 1-5 0-8z',power:'M11 2 4 11h5l-1 7 8-10h-5z',other:'M10 2 18 6v8l-8 4-8-4V6zM2 6l8 4 8-4M10 10v8'};
+ const icon=node('i','commodity-icon'),ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),path=document.createElementNS(ns,'path');
+ icon.dataset.commodityIcon=kind;icon.setAttribute('role','img');icon.setAttribute('aria-label',card.commodity.name);icon.setAttribute('title',card.commodity.name);
+ if(card.color)icon.style.setProperty('--commodity',card.color);
+ svg.setAttribute('viewBox','0 0 20 20');svg.setAttribute('aria-hidden','true');svg.setAttribute('focusable','false');path.setAttribute('d',paths[kind]);svg.append(path);icon.append(svg);return icon;
 }
 /** The library row's sparkline: the card's line, small and decorative beside the curve's name; none while the close prices nothing. */
 export function librarySparkline(card:BoardCard){
@@ -115,7 +119,7 @@ export function renderBoard(target:HTMLElement,groups:readonly BoardGroup[],open
       const item=node('li','market-card'),head=node('div','market-card-head'),title=node('h4','market-card-name'),button=node('button','market-card-open',card.name);
       item.dataset.curve=card.curve;item.dataset.state=card.figures.state;
       button.type='button';button.disabled=busy;button.onclick=()=>open(card.curve);title.append(button);
-      head.append(commodityDot(card),kindBadge(card.curveKind),title);
+      const commodity=commodityIcon(card);head.append(...commodity?[commodity]:[],kindBadge(card.curveKind),title);
       item.append(head,node('p','market-card-kind',card.kind),...cardBody(card));
       return item;
     }));

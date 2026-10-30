@@ -1,7 +1,7 @@
 // The market board of Curves & prices (docs/markets-desk.md): opened on the newest close with no curve chosen, a card for each listed
 // curve in the library's groups and order, from curve-shapes reads of at most 64 curves and no evaluate; each card states the backend's
 // front contract, exact price, unit and count, or why the close prices none; the library rows keep their markup and gain the curve's
-// commodity dot and sparkline; neither shows a previous close's or context's figures while another is read; a read that fails says so on
+// commodity icon and sparkline; neither shows a previous close's or context's figures while another is read; a read that fails says so on
 // its cards and is read again; and a card opens its curve as the library does. The selected curve shows the backend's summary in
 // tiles and returns to the board through All markets; a contract row opens the contract panel, docked on a wide screen and a sheet on
 // a phone, whose History tab reads under the revision policy the switch shows, draws the backend's overlay values with their
@@ -43,12 +43,12 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "(()=>{const shapes=new Map(window.__shapeReads.flatMap(r=>r.shapes).map(s=>[s.curve,s])),priced=[...document.querySelectorAll('.market-card[data-state=priced]')];"+
    "return priced.length>0&&priced.every(card=>{const s=shapes.get(card.dataset.curve);return s.front&&card.querySelector('.kpi-figure').textContent===s.front.price&&card.querySelector('.market-card-unit').textContent===s.unit&&"+
    "card.querySelector('.market-card-label').textContent.startsWith('Front · ')&&card.querySelector('.market-card-count').textContent===s.contractCount+(s.contractCount===1?' contract':' contracts')&&card.querySelector('svg.sparkline path.sparkline-line')&&card.querySelector('svg.sparkline').getAttribute('aria-label').startsWith(card.querySelector('.market-card-open').textContent+' · forward curve');});})()");
-  await check('library rows keep their name and type text and gain the commodity dot and, for a priced curve, a decorative sparkline',
+  await check('library rows keep their name and type text and gain the commodity icon and, for a priced curve, a decorative sparkline',
    "(()=>{const rows=[...document.querySelectorAll('.curve-button')],cards=new Map([...document.querySelectorAll('.market-card')].map(c=>[c.querySelector('.market-card-open').textContent,c]));"+
    "return rows.length===cards.size&&rows.every(b=>{const name=b.querySelector('span').textContent,card=cards.get(name),line=b.querySelector('svg.sparkline');"+
-   "return card&&b.firstElementChild.classList.contains('commodity-dot')&&b.textContent===name+b.querySelector('small').textContent&&(card.dataset.state==='priced'?line?.getAttribute('aria-hidden')==='true'&&!!line.querySelector('path'):!line);});})()");
-  await check('a curve\'s dot on the board and in the library share its commodity color',
-   "[...document.querySelectorAll('.market-card')].every(card=>{const row=[...document.querySelectorAll('.curve-button')].find(b=>b.querySelector('span').textContent===card.querySelector('.market-card-open').textContent);return row.querySelector('.commodity-dot').style.getPropertyValue('--commodity')===card.querySelector('.commodity-dot').style.getPropertyValue('--commodity');})");
+   "return card&&(b.querySelector('.commodity-icon')?.getAttribute('aria-label')||b.querySelector('[data-kind=interest_rate]'))&&b.textContent===name+b.querySelector('small').textContent&&(card.dataset.state==='priced'?line?.getAttribute('aria-hidden')==='true'&&!!line.querySelector('path'):!line);});})()");
+  await check('a curve\'s commodity icons agree on the board and in the library',
+   "[...document.querySelectorAll('.market-card')].every(card=>{const row=[...document.querySelectorAll('.curve-button')].find(b=>b.querySelector('span').textContent===card.querySelector('.market-card-open').textContent);const a=row.querySelector('.commodity-icon'),b=card.querySelector('.commodity-icon');return a?.getAttribute('aria-label')===b?.getAttribute('aria-label')&&a?.dataset.commodityIcon===b?.dataset.commodityIcon&&!row.querySelector('.commodity-dot')&&!card.querySelector('.commodity-dot');})");
   // The backend names each curve's kind (curve_kinds_v1); the badge carries its label as the accessible name and tooltip.
   await check('each card and library row shows the backend\'s curve kind as a badge named by its label, a settlement curve as Market settlement',
    "(async()=>{const kinds=new Map((await(await fetch('/api/workspace/navigation')).json()).curves.map(c=>[c.code,c.kind])),cards=[...document.querySelectorAll('.market-card')];"+
