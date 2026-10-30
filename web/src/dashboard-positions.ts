@@ -16,16 +16,22 @@ import type {WidgetContent} from './dashboard-layout.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 export type RunRef={runId:string;valuationAt:string};
 export type IncompleteRun=RunRef&{failedParts:number[]};
+/** A run tied for the latest, told apart by its version and when it became known. */
+export type TiedRun=RunRef&{version:number;knownAt:string};
+type DefinitionName={name:string;version:number};
+type Stated={definition:DefinitionName;newer:RunRef|null;incomplete:IncompleteRun|null};
 /** The latest-run read as the backend answers it; a tie is its 409 refusal, read into the same shape. */
 export type Latest=
-  {state:'none'}|{state:'tie';runs:RunRef[]}|
-  {state:'latest'|'newer_available';run:{runId:string;version:number;valuationAt:string;knownAt:string;parts:{result?:Pick<RiskReport,'factors'>}[]};newer:RunRef|null;incomplete:IncompleteRun|null};
+  ({state:'none'}&Stated)|{state:'tie';definition:DefinitionName;runs:TiedRun[]}|
+  ({state:'latest'|'newer_available'|'earlier_close'|'chosen';run:{runId:string;version:number;valuationAt:string;knownAt:string;parts:{result?:Pick<RiskReport,'factors'>}[]}}&Stated);
 export type PositionsView=
-  {ladder:Ladder;freshness:Freshness;newer:RunRef|null;incomplete:IncompleteRun|null}|{none:true}|{tie:RunRef[]}|{refusal:string};
+  {ladder:Ladder;freshness:Freshness;newer:RunRef|null;incomplete:IncompleteRun|null}|{none:true;newer:RunRef|null;incomplete:IncompleteRun|null}|{tie:TiedRun[]}|{refusal:string};
 type SizeUnit={label:string;priceUnit:unknown};
 type Definition={definitionId:string;version:number;name:string;preset:'held_contracts'|'held_curves';bookIds:string[]};
 type Directory={context:{contextId:string};books:{id:string;name:string}[]};
-type Context={snapshotId:string;convention:string;knowledgeMode:'retained';contextId:string};
+type PageContext={snapshotId:string;convention:'trading_workspace_v1';knowledgeMode:'current'|'retained';contextId?:string};
+type Context=PageContext&{knowledgeMode:'retained';contextId:string};
+type Job={state:string};
 
 export const noRunYet='No completed run yet';
 // The presets a definition can store and the catalog preset each shocks.
@@ -35,26 +41,42 @@ const missingResult='A part of the latest run has no result, so its ladder is no
 /** Run now is offered in working data, not in a historical context, which is read only. */
 export const runNowOffered=(historical:boolean)=>!historical;
 
-/** The widget's content for the latest read. A run that cannot be drawn exactly as returned is a refusal, never a partial ladder. */
+/**
+ * The widget's content for the latest read. A run that cannot be drawn exactly as returned is a refusal, never a partial ladder. A historical
+ * view calls its latest run Historical; a chosen run or one valued at an earlier close keeps saying so.
+ */
 export function positionsView(latest:Latest,historical=false):PositionsView{
-  if(latest.state==='none')return {none:true};
+  if(latest.state==='none')return {none:true,newer:latest.newer,incomplete:latest.incomplete};
   if(latest.state==='tie')return {tie:latest.runs};
   try{
     const reports=latest.run.parts.map(part=>part.result??(()=>{throw Error(missingResult);})());
-    return {ladder:deltaLadder(reports,'delta',curveName),freshness:{state:historical?'historical':latest.state,observedAt:latest.run.valuationAt,source:'Risk run'},
+    const state=historical&&(latest.state==='latest'||latest.state==='newer_available')?'historical':latest.state;
+    return {ladder:deltaLadder(reports,'delta',curveName),freshness:{state,observedAt:latest.run.valuationAt,source:'Risk run'},
       newer:latest.newer,incomplete:latest.incomplete};
   }catch(error){return {refusal:error instanceof Error?error.message:'The latest run could not be shown.'};}
 }
 
-/** The latest completed run of a definition at a retained context; completed runs tied for the latest are read into a tie, any other refusal is thrown. */
-export async function readLatest(api:Api,definitionId:string,context:unknown):Promise<Latest>{
-  try{return await api<Latest>(`risk/definitions/${definitionId}/latest`,{context});}
+/** The page's own context: current knowledge in working data, or the historical view's selected retained context. */
+export function pageContext(market:Pick<DashboardMarket,'snapshotId'|'navigation'>):PageContext{
+  const selected=market.navigation.context;
+  return {snapshotId:market.snapshotId,convention:'trading_workspace_v1',...(selected?{knowledgeMode:'retained',contextId:selected.contextId}:{knowledgeMode:'current'})};
+}
+
+/**
+ * The latest completed run of a definition in a context, or the tied run chosen explicitly; completed runs tied for the latest are read into a
+ * tie, any other refusal is thrown.
+ */
+export async function readLatest(api:Api,definitionId:string,context:unknown,runId?:string):Promise<Latest>{
+  try{return await api<Latest>(`risk/definitions/${definitionId}/latest`,{context,...(runId?{runId}:{})});}
   catch(error){
-    const {code,details}=error as {code?:string;details?:{runs?:RunRef[]}};
-    if(code==='risk_run_tie'&&Array.isArray(details?.runs))return {state:'tie',runs:details.runs};
+    const {code,details}=error as {code?:string;details?:{definition?:DefinitionName;runs?:TiedRun[]}};
+    if(code==='risk_run_tie'&&details?.definition&&Array.isArray(details.runs))return {state:'tie',definition:details.definition,runs:details.runs};
     throw error;
   }
 }
+
+/** A run has finished once every part is completed, failed or cancelled. */
+export const runFinished=(states:readonly string[])=>states.every(state=>state==='completed'||state==='failed'||state==='cancelled');
 
 /** The price units a size is asked for: each exact unit the targets state, once, in the order they first name it. The label is only for display. */
 export function sizeUnits(targets:readonly Pick<ScenarioTarget,'unit'|'priceUnit'>[]):SizeUnit[]{
@@ -87,15 +109,13 @@ export function barWidths(amounts:readonly (string|null)[]):number[]{
   return size.map(value=>largest===0?0:value/largest);
 }
 
-/** The retained context the page is reading at, for the catalog, Run now and the latest read, and the books readable there. */
+/** The page's context retained, for the catalog and Run now, and the books readable there. */
 async function retainedContext(market:DashboardMarket,api:Api):Promise<{context:Context;books:Directory['books']}>{
-  const selected=market.navigation.context,request={snapshotId:market.snapshotId,convention:'trading_workspace_v1',
-    knowledgeMode:selected?'retained':'current',...(selected?{contextId:selected.contextId}:{})};
-  const {context,books}=await api<Directory>('trading/directory',request);
+  const request=pageContext(market),{context,books}=await api<Directory>('trading/directory',request);
   return {context:{...request,knowledgeMode:'retained',contextId:context.contextId},books};
 }
 
-const knownRejections=new Set(['risk_definition','risk_definition_conflict','risk_definition_request_conflict','risk_definition_size','risk_definition_targets','risk_definition_version',
+const knownRejections=new Set(['risk_definition','risk_run_choice','risk_definition_conflict','risk_definition_request_conflict','risk_definition_size','risk_definition_targets','risk_definition_version',
   'risk_job_context','access_denied','request_format','request_too_large','request_token']);
 const messageOf=(error:unknown)=>error instanceof Error?error.message:'The operation could not be completed.';
 
@@ -128,14 +148,23 @@ function ladderElement(ladder:Ladder){
   return wrap;
 }
 
-function viewElement(view:PositionsView,zone:string){
+// Runs are named by their valuation time, and tied runs also by version and when each became known; run ids are internal.
+function viewElement(view:PositionsView,zone:string,choose:(run:TiedRun)=>void){
   const body=node('div');
   if('refusal' in view)return refusalNote(Error(view.refusal));
-  if('none' in view){body.append(node('p','muted',noRunYet));return body;}
-  // Runs are named by their valuation time; their ids are internal.
   const valued=(run:RunRef)=>displayInstant(run.valuationAt,zone);
-  if('tie' in view){body.append(node('p','',`${view.tie.length} completed runs share the latest valuation time, ${valued(view.tie[0])}, so none is shown.`));return body;}
-  body.append(ladderElement(view.ladder),node('p','fine-print',freshnessFooter(view.freshness,zone)));
+  if('tie' in view){
+    const list=node('ul','positions-tie');
+    list.append(...view.tie.map(run=>{
+      const item=node('li','',`Version ${run.version} · known ${displayInstant(run.knownAt,zone)} `),show=node('button','secondary','Show this run') as HTMLButtonElement;
+      show.type='button';show.setAttribute('aria-label',`Show the version ${run.version} run known ${displayInstant(run.knownAt,zone)}`);show.onclick=()=>choose(run);
+      item.append(show);return item;
+    }));
+    body.append(node('p','',`${view.tie.length} completed runs share the latest valuation time, ${valued(view.tie[0])}. Choose the run to show; Reload asks again.`),list);
+    return body;
+  }
+  if('none' in view)body.append(node('p','muted',noRunYet));
+  else body.append(ladderElement(view.ladder),node('p','fine-print',freshnessFooter(view.freshness,zone)));
   if(view.newer)body.append(node('p','positions-note',`A newer completed run is available, valued ${valued(view.newer)}.`));
   if(view.incomplete)body.append(node('p','positions-note',`A newer run valued ${valued(view.incomplete)} did not complete: part ${view.incomplete.failedParts.join(', ')} failed or was cancelled.`));
   return body;
@@ -146,30 +175,53 @@ export function setupPositions(api:Api){
   const runs=new Map<string,PendingCommand>();
   const pendingRun=(definitionId:string)=>runs.get(definitionId)??runs.set(definitionId,new PendingCommand(code=>!!code&&knownRejections.has(code))).get(definitionId)!;
 
-  function body(config:Extract<WidgetContent,{kind:'positions'}>['config'],market:DashboardMarket):HTMLElement{
+  // How often a queued run's parts are read until each has finished.
+  const followEvery=1000;
+
+  /** The widget's body, and what stops it following a queued run. */
+  function body(config:Extract<WidgetContent,{kind:'positions'}>['config'],market:DashboardMarket):{body:HTMLElement;dispose:()=>void}{
     const host=node('div','positions'),content=node('div'),status=node('p','field-help'),run=node('button','secondary dashboard-edit','Run now') as HTMLButtonElement;
     status.setAttribute('role','status');run.type='button';run.hidden=!runNowOffered(market.historical);
     host.append(content,status,run);
-    let definition:Definition|undefined;
-    async function load(){
+    let definition:DefinitionName|undefined,disposed=false,following:ReturnType<typeof setTimeout>|undefined;
+    // Each read replaces the one before; a run chosen from a tie is shown until the next read.
+    let reading=0;
+    async function load(runId?:string){
+      const current=++reading;
       content.replaceChildren(node('p','muted','Reading the latest run…'));
       try{
-        definition=(await api<Definition[]>('risk/definitions')).find(d=>d.definitionId===config.definitionId);
-        if(!definition)throw Error('This definition is no longer available. Remove the widget and add it again.');
-        const {context}=await retainedContext(market,api);
-        content.replaceChildren(node('h4','',definition.name),viewElement(positionsView(await readLatest(api,definition.definitionId,context),market.historical),market.zone));
-      }catch(error){content.replaceChildren(refusalNote(error));}
+        const latest=await readLatest(api,config.definitionId,pageContext(market),runId);
+        if(current!==reading)return;
+        definition=latest.definition;
+        content.replaceChildren(node('h4','',definition.name),viewElement(positionsView(latest,market.historical),market.zone,tied=>void load(tied.runId)));
+        if(runId)content.append(node('p','positions-note','You chose this run from those sharing the latest valuation time. Reload to choose again.'));
+      }catch(error){if(current===reading)content.replaceChildren(refusalNote(error));}
+    }
+    // A queued run's parts are read until each has finished, then the widget reads its latest run again.
+    function follow(jobs:readonly {jobId:string}[]){
+      clearTimeout(following);
+      following=setTimeout(async()=>{
+        if(disposed)return;
+        try{
+          const states=await Promise.all(jobs.map(job=>api<Job>(`portfolio/risk/jobs/${job.jobId}`).then(read=>read.state)));
+          if(disposed)return;
+          if(!runFinished(states)){follow(jobs);return;}
+          status.textContent='';await load();
+        }catch(error){if(!disposed)status.textContent=`${messageOf(error)} Reload the widget to read the run.`;}
+      },followEvery);
     }
     run.onclick=async()=>{
       if(!definition)return;
-      const pending=pendingRun(definition.definitionId);
+      const pending=pendingRun(config.definitionId);
       run.disabled=true;status.textContent='Queuing the run…';
       try{
-        const command=pending.command??pending.begin(`risk/definitions/${definition.definitionId}/run`,{version:definition.version,context:(await retainedContext(market,api)).context});
+        const command=pending.command??pending.begin(`risk/definitions/${config.definitionId}/run`,{version:definition.version,context:(await retainedContext(market,api)).context});
         const previouslyUncertain=pending.sending();
         try{
-          const queued=await api<{jobs:unknown[]}>(command.path,{...command.body,requestId:command.operationId});
-          pending.clear();status.textContent=`The run is queued in ${queued.jobs.length} part${queued.jobs.length===1?'':'s'}. Reload the widget when it has finished.`;
+          const queued=await api<{jobs:{jobId:string}[]}>(command.path,{...command.body,requestId:command.operationId});
+          pending.clear();
+          status.textContent=`The run is queued in ${queued.jobs.length} part${queued.jobs.length===1?'':'s'}. The widget reads it again when every part has finished.`;
+          follow(queued.jobs);
         }catch(error){
           pending.failed((error as {code?:string}).code,previouslyUncertain);
           status.textContent=pending.command?`${messageOf(error)} Run now again to retry the same request.`:messageOf(error);
@@ -179,7 +231,7 @@ export function setupPositions(api:Api){
     };
     const reload=node('button','secondary','Reload') as HTMLButtonElement;reload.type='button';reload.onclick=()=>void load();host.append(reload);
     void load();
-    return host;
+    return {body:host,dispose:()=>{disposed=true;clearTimeout(following);}};
   }
 
   /**

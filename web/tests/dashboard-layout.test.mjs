@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newWidget,addWidget,removeWidget,moveOnBoard,moveToSection,arrange,morningSections,homeSection,endOfSection} from '../dist/dashboard-layout.js';
+import {newWidget,addWidget,removeWidget,moveOnBoard,moveToSection,arrange,morningSections,homeSection,endOfSection,nudged,configuredCurves} from '../dist/dashboard-layout.js';
 
 const widget=(id,kind,config,section,order,board={x:0,y:0,w:4,h:3})=>({id,kind,config,board,morning:{section,order}});
 const levels=widget('00000000-0000-4000-8000-000000000001','latest_levels',{curves:['hh','ttf']},'prices_positions',0);
@@ -71,4 +71,20 @@ test('a new widget goes below the lowest on the Board and at the end of its home
   assert.deepEqual(added.board,{x:0,y:7,w:6,h:6});
   assert.deepEqual(added.morning,{section:'prices_positions',order:3});
   assert.deepEqual(newWidget(layout(),'00000000-0000-4000-8000-000000000009',{kind:'latest_levels',config:{curves:['hh']}}).board,{x:0,y:0,w:6,h:4});
+});
+
+test('a Board widget moves and resizes one step at a time within the twelve-column grid and the stored bounds',()=>{
+  const box={x:0,y:0,w:6,h:4};
+  assert.deepEqual(['right','down','wider','taller'].map(n=>nudged(box,n)),[{x:1,y:0,w:6,h:4},{x:0,y:1,w:6,h:4},{x:0,y:0,w:7,h:4},{x:0,y:0,w:6,h:5}]);
+  assert.deepEqual(['left','up'].map(n=>nudged(box,n)),[null,null]);
+  assert.deepEqual(nudged({x:3,y:2,w:2,h:2},'left'),{x:2,y:2,w:2,h:2});assert.deepEqual(nudged({x:3,y:2,w:2,h:2},'narrower'),{x:3,y:2,w:1,h:2});
+  assert.equal(nudged({x:6,y:0,w:6,h:4},'right'),null,'the right edge stays on the grid');
+  assert.equal(nudged({x:6,y:0,w:6,h:4},'wider'),null);
+  assert.equal(nudged({x:0,y:0,w:1,h:1},'narrower'),null);assert.equal(nudged({x:0,y:0,w:1,h:1},'shorter'),null);
+  assert.equal(nudged({x:0,y:0,w:1,h:12},'taller'),null);assert.equal(nudged({x:0,y:199,w:1,h:1},'down'),null);
+});
+
+test('the curves one shared read takes are every Latest levels and Price chart curve, once each, in widget order',()=>{
+  assert.deepEqual(configuredCurves([levels,chart,ladder,widget('w4','price_chart',{curve:'jkm',contractId:'c2'},'missed',0)]),['hh','ttf','jkm']);
+  assert.deepEqual(configuredCurves([ladder]),[]);
 });

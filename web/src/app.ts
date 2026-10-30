@@ -327,7 +327,8 @@ function currentCloseBadge():CloseBadge|null{
  if(latest&&closeBasis?.close!==shown)closeBasis={close:shown,latest};
  return closes&&latest&&closeBasis&&!contextDirty&&!historicalContext()?closeBadge(shown,closeBasis.latest,closes):null;
 }
-function renderCloseBadge(){marketCalendar.badge(currentCloseBadge());}
+// The dashboard's close footers say what the badge says.
+function renderCloseBadge(){marketCalendar.badge(currentCloseBadge());if(page==='dashboard')dashboard.closeChanged();}
 // The As of dates the selector offers: a historical view's own date's frames, or every frame of working data.
 function offeredFrames(){const context=historicalContext();return context?directory().frames.filter(f=>f.at.slice(0,10)===context.effectiveOn):directory().frames;}
 function renderFrames(value:string){const frames=offeredFrames();choose('snapshot',[{value:'',name:frames.length?'Choose a date…':'No inputs for this context date'},...frameOptions(frames,prefs.timeZone)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;shownClose=select('snapshot').value;invalidateMarketDates();}

@@ -27,7 +27,13 @@ export function setupAddWidget(host:HTMLElement,options:{market:()=>DashboardMar
   let reading=0;
   const levels=()=>kind.value==='latest_levels',chart=()=>kind.value==='price_chart';
   const checked=()=>[...curves.querySelectorAll<HTMLInputElement>('input:checked')];
-  function showKind(){curves.hidden=!levels();for(const field of chartFields)field.hidden=!chart();const positions=kind.value==='positions';options.positions.element.hidden=!positions;if(positions)void options.positions.refresh();}
+  // The chosen kind's choices are read only while the form is open: a chart's contracts, or Positions' definitions and books.
+  function readChoices(){
+    if(!details.open)return;
+    if(chart())void loadContracts();
+    else if(kind.value==='positions')void options.positions.refresh();
+  }
+  function showKind(){curves.hidden=!levels();for(const field of chartFields)field.hidden=!chart();options.positions.element.hidden=kind.value!=='positions';readChoices();}
   async function loadContracts(){
     const current=++reading;contract.replaceChildren();
     if(!curve.value)return;
@@ -50,10 +56,10 @@ export function setupAddWidget(host:HTMLElement,options:{market:()=>DashboardMar
         const row=el('label','dashboard-add-curve');row.append(box,document.createTextNode(` ${curveName(c.code)}`));return row;
       }));
       curve.replaceChildren(...offered.map(c=>new Option(curveName(c.code),c.code,false,c.code===chosen)));
-      status.textContent='';void loadContracts();if(kind.value==='positions')void options.positions.refresh();
+      status.textContent='';reading++;contract.replaceChildren();readChoices();
     }catch(error){status.textContent=error instanceof Error?error.message:'The curves could not be listed.';}
   }
-  kind.onchange=showKind;curve.onchange=()=>void loadContracts();
+  kind.onchange=showKind;curve.onchange=()=>void loadContracts();details.ontoggle=readChoices;
   form.onsubmit=event=>{
     event.preventDefault();
     if(kind.value==='positions'){

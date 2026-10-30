@@ -29,3 +29,9 @@ test('failed shows the backend reason',()=>{
 test('a failure without a reason is refused rather than shown bare',()=>{
   assert.throws(()=>freshnessFooter({state:'failed',observedAt:null,source:'Feed'},'UTC'),/reason/);
 });
+
+test('a chosen run and a run valued at an earlier close are worded as such, never as Latest',()=>{
+  const chosen=freshnessFooter({state:'chosen',observedAt:null,source:'Risk run'},'UTC'),earlier=freshnessFooter({state:'earlier_close',observedAt:null,source:'Risk run'},'UTC');
+  assert.match(chosen,/Chosen run$/);assert.match(earlier,/Valued at an earlier close$/);
+  for(const words of [chosen,earlier])assert.doesNotMatch(words,/Latest/);
+});

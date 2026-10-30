@@ -42,8 +42,24 @@ export function removeWidget(layout:DashboardLayout,id:string):DashboardLayout{
  return {...layout,widgets:layout.widgets.filter(w=>w.id!==id)};
 }
 export const moveOnBoard=(layout:DashboardLayout,id:string,board:Box)=>change(layout,id,w=>({...w,board}));
+
+// One step of moving or resizing a widget on the Board.
+export type Nudge='left'|'right'|'up'|'down'|'narrower'|'wider'|'shorter'|'taller';
+const steps:Record<Nudge,Box>={left:{x:-1,y:0,w:0,h:0},right:{x:1,y:0,w:0,h:0},up:{x:0,y:-1,w:0,h:0},down:{x:0,y:1,w:0,h:0},
+ narrower:{x:0,y:0,w:-1,h:0},wider:{x:0,y:0,w:1,h:0},shorter:{x:0,y:0,w:0,h:-1},taller:{x:0,y:0,w:0,h:1}};
+// The Board's twelve columns, and the rows and height a stored box may take (DashboardLayouts.cs).
+const columns=12,rows=200,tallest=12;
+/** The box one step on, or null where the step would leave the grid or the stored bounds. */
+export function nudged(box:Box,nudge:Nudge):Box|null{
+ const step=steps[nudge],next={x:box.x+step.x,y:box.y+step.y,w:box.w+step.w,h:box.h+step.h};
+ return next.x>=0&&next.w>=1&&next.x+next.w<=columns&&next.y>=0&&next.y<rows&&next.h>=1&&next.h<=tallest?next:null;
+}
 export const moveToSection=(layout:DashboardLayout,id:string,section:Section,order:number)=>change(layout,id,w=>({...w,morning:{section,order}}));
 export const arrange=(layout:DashboardLayout,arrangement:Arrangement):DashboardLayout=>({...layout,arrangement});
+
+/** The curves the layout's Latest levels and Price chart widgets read, once each, in widget order: one shared curve-shapes read takes them all. */
+export const configuredCurves=(widgets:readonly DashboardWidget[])=>
+ [...new Set(widgets.flatMap(w=>w.kind==='latest_levels'?w.config.curves:w.kind==='price_chart'?[w.config.curve]:[]))];
 
 export function morningSections(layout:DashboardLayout){
  return sections.map(({section,label})=>({section,label,widgets:layout.widgets.filter(w=>w.morning.section===section).sort((a,b)=>a.morning.order-b.morning.order)}));

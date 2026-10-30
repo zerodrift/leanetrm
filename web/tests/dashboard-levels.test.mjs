@@ -53,3 +53,10 @@ test('pickers offer only the navigation\'s curves that a curve-shapes read can p
   assert.equal(choices[0].contractId,priced.points[0].contractId);assert.equal(choices[0].label,'Jan 2021');
   assert.deepEqual(contractChoices(unreadable),[]);
 });
+
+test('a curve the navigation does not name is a refusal tile, and the other tiles still show',()=>{
+  const absent={...priced,curve:'no_such_curve',unit:null,points:null,front:null,unavailableReason:'unknown_curve'};
+  const tiles=levelsTiles(new Map([['no_such_curve',absent],['gas_forward',priced]]),['no_such_curve','gas_forward']);
+  assert.equal(tiles[0].curve,'no_such_curve');assert.match(tiles[0].refusal,/^Curve shape unavailable/);
+  assert.equal(tiles[1].price,'3.49');
+});
