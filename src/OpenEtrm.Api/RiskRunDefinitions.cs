@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Npgsql;
 using NpgsqlTypes;
@@ -15,12 +16,16 @@ public sealed record PriceUnitReference(ReferenceKey Currency,ReferenceKey Quant
 public sealed record DefinitionSize(PriceUnitReference Unit,string Size);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SaveRiskRunDefinition(Guid RequestId,Guid? DefinitionId,int? ExpectedVersion,string Name,ImmutableArray<Guid> BookIds,string Preset,ImmutableArray<DefinitionSize> Sizes);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record RunRiskDefinition(Guid RequestId,int Version,FuturesReadRequest Context);
 
 // Saved setups for risk runs. A definition keeps what to shock (books and a preset) and by how much (a size per price unit);
-// resolving the preset to targets happens when it runs, never here.
+// resolving the preset to targets happens when it runs, from the risk catalog's held targets at the run's retained context.
 public static class RiskRunDefinitions
 {
     private const int MaxBooks=4096,MaxSizes=64,MaxNameLength=80;
+    // The most bumps one holdings request takes, so the most in one part of a run.
+    private const int PartBumps=16;
     private static readonly string[] Presets=["held_contracts","held_curves"];
     private static MarketDataException Invalid()=>new("risk_definition","Supply a name, at least one book, a supported preset and one positive size for each distinct price unit.");
     private static MarketDataException Conflict()=>new("risk_definition_conflict","This definition changed. Refresh before saving it.");
@@ -69,21 +74,8 @@ public static class RiskRunDefinitions
     public static async Task<JsonElement> Save(NpgsqlConnection connection,Guid catalogId,SaveRiskRunDefinition submitted,CancellationToken ct)
     {
         var request=Canonical(submitted);
-        // Serialize this account's saves so a replay, the version check and the writes see one state.
-        await using(var guard=new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended(tenant_id::text||workspace_id::text||principal_id::text||'risk_definition',0)) FROM risk.definition_identity()",connection))
-        {
-            await using var reader=await guard.ExecuteReaderAsync(ct);
-            if(!await reader.ReadAsync(ct))throw new PreviewDeniedException();
-        }
         var hash=SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request with{RequestId=Guid.Empty}));
-        await using(var prior=new NpgsqlCommand("SELECT body_hash,response::text FROM risk.run_definition_requests WHERE request_id=$1",connection))
-        {
-            prior.Parameters.AddWithValue(request.RequestId);
-            await using var reader=await prior.ExecuteReaderAsync(ct);
-            if(await reader.ReadAsync(ct))
-                return hash.AsSpan().SequenceEqual((byte[])reader[0])?Parse(reader.GetString(1))
-                    :throw new MarketDataException("risk_definition_request_conflict","This request id already saved a different definition. Reload before saving again.");
-        }
+        if(await Replay(connection,request.RequestId,hash,ct) is {} prior)return prior;
         await using(var access=new NpgsqlCommand("SELECT security.trading_access($1,'ReadTrades')",connection))
         {
             access.Parameters.AddWithValue(catalogId);
@@ -115,11 +107,90 @@ public static class RiskRunDefinitions
         catch(PostgresException e) when(e.SqlState==PostgresErrorCodes.ForeignKeyViolation){throw Invalid();}
         await using var read=new NpgsqlCommand($"SELECT {VersionJson} FROM risk.run_definition_versions v WHERE(v.catalog_id,v.definition_id,v.version)=($1,$2,$3)",connection);
         read.Parameters.AddWithValue(catalogId);read.Parameters.AddWithValue(definitionId);read.Parameters.AddWithValue(version);
-        var response=(string)(await read.ExecuteScalarAsync(ct))!;
+        return await Remember(connection,request.RequestId,hash,(string)(await read.ExecuteScalarAsync(ct))!,ct);
+    }
+
+    // Run now: queues the held targets the version's preset shocks in its books at an exact retained context, each bumped by the size
+    // for its price unit, in parts of sixteen (D222) that are the jobs of one run. A refusal queues nothing.
+    public static async Task<JsonElement> Run(NpgsqlConnection connection,PreviewManifest manifest,PortfolioRiskPreview calculator,
+        PreviewData data,InputFrame frame,Guid definitionId,RunRiskDefinition request,CancellationToken ct)
+    {
+        if(request.RequestId==Guid.Empty||request.Context is not {KnowledgeMode:"retained",ContextId:{} contextId})
+            throw new MarketDataException("risk_job_context","Run a definition at an exact retained financial context with a stable request identity.");
+        var hash=SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{definitionId,request.Version,request.Context}));
+        if(await Replay(connection,request.RequestId,hash,ct) is {} prior)return prior;
+        var (preset,bookIds,sizes)=await Version(connection,manifest.CatalogId,definitionId,request.Version,ct);
+        // Every book of the version must still be one the account can read at this context, under current authority.
+        await using(var visible=new NpgsqlCommand("SELECT count(*) FROM trading.books WHERE catalog_id=$1 AND id=ANY($2)",connection))
+        {
+            visible.Parameters.AddWithValue(manifest.CatalogId);visible.Parameters.AddWithValue(bookIds.ToArray());
+            if((long)(await visible.ExecuteScalarAsync(ct))!!=bookIds.Length)throw new PreviewDeniedException();
+        }
+        var held=await calculator.Held(connection,data,frame,bookIds,preset=="held_curves",ct);
+        if(held.IsEmpty)throw new MarketDataException("risk_definition_targets","The definition's books hold nothing its preset shocks at this context.");
+        var unsized=held.Where(h=>!sizes.ContainsKey(h.Axis.Unit)).Select(h=>h.Unit).Distinct().ToArray();
+        if(unsized.Length>0)throw new MarketDataException("risk_definition_size",
+            $"The definition has no shock size for {string.Join(", ",unsized)}. Add a size for each and save a new version.");
+        var parts=held.Select(h=>(h.Axis.Request,sizes[h.Axis.Unit])).Chunk(PartBumps).ToArray();
+        var runId=Guid.NewGuid();
+        await Execute(connection,"INSERT INTO risk.definition_runs VALUES($1,$2,$3,$4,$5,clock_timestamp())",ct,runId,manifest.CatalogId,definitionId,request.Version,contextId);
+        var jobs=new List<object>();
+        foreach(var (part,index) in parts.Select((part,index)=>(part,index+1)))
+        {
+            var job=(JsonObject)await RiskJobs.Submit(connection,manifest,calculator,data,frame,
+                new(Guid.NewGuid(),PortfolioRiskPreview.Request(request.Context,bookIds,part),new(runId,index,parts.Length)),ct);
+            var jobId=job["id"]!.GetValue<Guid>();
+            await Execute(connection,"INSERT INTO risk.definition_run_jobs VALUES($1,$2,$3)",ct,runId,index,jobId);
+            jobs.Add(new{part=index,jobId});
+        }
+        return await Remember(connection,request.RequestId,hash,JsonSerializer.Serialize(new{runId,definitionId,version=request.Version,jobs}),ct);
+    }
+
+    // A saved version of one of the account's definitions: its preset, its books in order and its size for each price unit.
+    private static async Task<(string Preset,ImmutableArray<Guid> BookIds,ImmutableDictionary<PriceUnit,ExactDecimal> Sizes)> Version(
+        NpgsqlConnection connection,Guid catalogId,Guid definitionId,int version,CancellationToken ct)
+    {
+        await using var command=new NpgsqlCommand("""
+            SELECT v.preset,(SELECT array_agg(b.book_id ORDER BY b.book_id) FROM risk.run_definition_books b WHERE(b.catalog_id,b.definition_id,b.version)=(v.catalog_id,v.definition_id,v.version)),
+             s.reference_catalog_id,s.revision_id,s.currency_code,s.quantity_code,s.multiplier::text,s.size::text
+            FROM risk.run_definition_versions v JOIN risk.run_definition_sizes s ON(s.catalog_id,s.definition_id,s.version)=(v.catalog_id,v.definition_id,v.version)
+            WHERE(v.catalog_id,v.definition_id,v.version)=($1,$2,$3)
+            """,connection);
+        command.Parameters.AddWithValue(catalogId);command.Parameters.AddWithValue(definitionId);command.Parameters.AddWithValue(version);
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        string? preset=null;Guid[] bookIds=[];var sizes=ImmutableDictionary.CreateBuilder<PriceUnit,ExactDecimal>();
+        while(await reader.ReadAsync(ct))
+        {
+            preset=reader.GetString(0);bookIds=reader.GetFieldValue<Guid[]>(1);
+            var revision=new ReferenceRevision(reader.GetGuid(2),reader.GetGuid(3));
+            sizes.Add(new(new(revision,reader.GetString(4)),new(revision,reader.GetString(5)),ExactDecimal.Parse(reader.GetString(6))),ExactDecimal.Parse(reader.GetString(7)));
+        }
+        return preset is null?throw new MarketDataException("risk_definition_version","Choose a saved version of one of your definitions.")
+            :(preset,[..bookIds],sizes.ToImmutable());
+    }
+
+    // Serializes this account's definition commands so a replay and the writes see one state. A request id's first outcome, if it has
+    // one; reusing it for another command is a conflict.
+    private static async Task<JsonElement?> Replay(NpgsqlConnection connection,Guid requestId,byte[] hash,CancellationToken ct)
+    {
+        await using(var guard=new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended(tenant_id::text||workspace_id::text||principal_id::text||'risk_definition',0)) FROM risk.definition_identity()",connection))
+        {
+            await using var reader=await guard.ExecuteReaderAsync(ct);
+            if(!await reader.ReadAsync(ct))throw new PreviewDeniedException();
+        }
+        await using var prior=new NpgsqlCommand("SELECT body_hash,response::text FROM risk.run_definition_requests WHERE request_id=$1",connection);
+        prior.Parameters.AddWithValue(requestId);
+        await using var replay=await prior.ExecuteReaderAsync(ct);
+        if(!await replay.ReadAsync(ct))return null;
+        return hash.AsSpan().SequenceEqual((byte[])replay[0])?Parse(replay.GetString(1))
+            :throw new MarketDataException("risk_definition_request_conflict","This request id already belongs to a different definition command. Reload before trying again.");
+    }
+    private static async Task<JsonElement> Remember(NpgsqlConnection connection,Guid requestId,byte[] hash,string response,CancellationToken ct)
+    {
         await Execute(connection,"""
             INSERT INTO risk.run_definition_requests(tenant_id,workspace_id,principal_id,request_id,body_hash,response)
             SELECT tenant_id,workspace_id,principal_id,$1,$2,$3 FROM risk.definition_identity()
-            """,ct,request.RequestId,hash,JsonParameter(response));
+            """,ct,requestId,hash,JsonParameter(response));
         return Parse(response);
     }
 

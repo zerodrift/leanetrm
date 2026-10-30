@@ -1,6 +1,19 @@
 """Saved risk run definitions against a disposable synthetic preview."""
+import json
 from uuid import uuid4
-from preview_client import PreviewClient
+from preview_client import PreviewClient, initial_frame
+
+
+def client(url, profile):
+    c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': profile}); return c
+
+
+def account(url, login, roles):
+    """A session of a new synthetic account, created by an administrator."""
+    session = client(url, 'admin')
+    session.call('admin/create', dict(operationId=str(uuid4()), login=login, name='Synthetic ' + login.replace('_', ' '), kind='human', roles=roles))
+    session.call('profile', {'profile': login})
+    return session
 
 
 def run_checks(url, query):
@@ -10,13 +23,8 @@ def run_checks(url, query):
         assert condition, name
         passed += 1
         print('PASS ' + name, flush=True)
-    def client(profile):
-        c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': profile}); return c
-    risk = client('risk'); other_browser = client('risk'); trader = client('trader')
-    colleague = dict(operationId=str(uuid4()), login='synthetic_risk_colleague', name='Synthetic risk colleague', kind='human', roles=['risk_analyst'])
-    other_account = client('admin')
-    other_account.call('admin/create', colleague)
-    other_account.call('profile', {'profile': colleague['login']})
+    risk = client(url, 'risk'); other_browser = client(url, 'risk'); trader = client(url, 'trader')
+    other_account = account(url, 'synthetic_risk_colleague', ['risk_analyst'])
 
     frame = next(f for f in trader.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
     catalog = trader.call('futures/catalog', {'snapshotId': frame['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'})
@@ -82,4 +90,84 @@ def run_checks(url, query):
 )
     save(other_account, 409, definitionId=saved['definitionId'], expectedVersion=2)
     trader.call('risk/definitions', expected=403)
+
     print(f'{passed} risk run definition checks passed.', flush=True)
+
+
+def run_now_checks(url, query):
+    """Run now of saved definitions, against the risk fixture's seeded futures and swap holdings."""
+    passed = 0
+    def check(name, condition=True):
+        nonlocal passed
+        assert condition, name
+        passed += 1
+        print('PASS ' + name, flush=True)
+    def contexts(session):
+        """A session's current context of the fixture's 2020-12-18 snapshot, the context it retains and the books holding positions."""
+        blotter = {'snapshotId': initial_frame(session.call('workspace'), '2020-12-18')['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
+        current = session.call('portfolio/risk/catalog', {'context': blotter, 'bookIds': [], 'portfolioIds': []})
+        return blotter, {**blotter, 'knowledgeMode': 'retained', 'contextId': current['context']['contextId']}, sorted(b['bookId'] for b in current['books'])
+    risk = client(url, 'risk')
+    blotter, retained, books = contexts(risk)
+    held = risk.call('portfolio/risk/catalog', {'context': retained, 'bookIds': books, 'portfolioIds': []})
+    targets = {t['id']: t for t in held['scenarioTargets']}
+    units = {f['unit']: f['priceUnit'] for f in held['factors'] + held['availableFactors']}
+    labels = sorted({targets[t]['unit'] for t in held['heldContractTargets']})
+    amounts = {label: f'0.{index + 1}' for index, label in enumerate(labels)}
+    size = lambda label, amount: dict(unit=units[label], size=amount)
+    def save(session, preset, sizes):
+        return session.call('risk/definitions', dict(requestId=str(uuid4()), definitionId=None, expectedVersion=None, name='Held shift',
+                                                     bookIds=books, preset=preset, sizes=sizes))
+    def run(session, definition, status=200, context=retained, **terms):
+        body = dict(requestId=str(uuid4()), version=definition['version'], context=context)
+        return session.call(f"risk/definitions/{definition['definitionId']}/run", {**body, **terms}, expected=status)
+    jobs = lambda: int(query('SELECT count(*) FROM risk.jobs;'))
+    assert len(held['heldContractTargets']) > 16 and len(labels) > 1, 'The risk fixture holds more than sixteen contracts in more than one price unit'
+
+    shocked = save(risk, 'held_contracts', [size(label, amounts[label]) for label in labels])
+    queued = jobs()
+    request_id = str(uuid4())
+    first = run(risk, shocked, requestId=request_id)
+    bumps = [bump for job in first['jobs'] for bump in json.loads(query(f"SELECT request->'bumps' FROM risk.jobs WHERE id='{job['jobId']}';"))]
+    check('run now queues the held targets of the definition\'s books at the retained context',
+          bumps == [dict(factor=targets[t]['factor'], size=amounts[targets[t]['unit']], convention=held['bumpConvention']) for t in held['heldContractTargets']]
+          and first['definitionId'] == shocked['definitionId'] and first['version'] == shocked['version']
+          and query(f"SELECT definition_id||'|'||version||'|'||context_id FROM risk.definition_runs WHERE run_id='{first['runId']}';")
+          == f"{shocked['definitionId']}|{shocked['version']}|{retained['contextId']}")
+    parts = [risk.call('portfolio/risk/jobs/' + job['jobId']) for job in first['jobs']]
+    queued += len(parts)
+    check('parts hold at most sixteen bumps and share one run id',
+          [p['shocks'] for p in parts] == [len(bumps[i:i + 16]) for i in range(0, len(bumps), 16)]
+          and [p['run'] for p in parts] == [dict(id=first['runId'], part=i + 1, parts=len(parts)) for i in range(len(parts))]
+          and [job['part'] for job in first['jobs']] == list(range(1, len(parts) + 1)) and jobs() == queued)
+    other = save(risk, 'held_curves', [size(label, '0.1') for label in labels])
+    retried = run(risk, shocked, requestId=request_id)
+    check('a retried run returns its first outcome; its request id for another run is a conflict',
+          retried['runId'] == first['runId'] and retried['jobs'] == first['jobs'] and jobs() == queued
+          and run(risk, other, 409, requestId=request_id)['code'] == 'risk_definition_request_conflict')
+
+    refusal = run(risk, save(risk, 'held_contracts', [size(labels[0], '0.1')]), 422)
+    check('a held price unit without a size is refused and queues nothing',
+          refusal['code'] == 'risk_definition_size' and all(label in refusal['message'] for label in labels[1:]) and jobs() == queued)
+    check('a non-retained context is refused', run(risk, shocked, 422, context=blotter)['code'] == 'risk_job_context' and jobs() == queued)
+
+    # An account runs its definition, then loses trade reads while keeping every other permission: its books are no longer readable.
+    runner = account(url, 'synthetic_definition_runner', ['risk_analyst'])
+    definition = save(runner, 'held_curves', [size(label, '0.1') for label in labels])
+    _, runner_context, _ = contexts(runner)
+    before = run(runner, definition, context=runner_context)
+    queued = jobs()
+    principal = query("SELECT principal_id FROM security.identity_bindings WHERE subject='synthetic_definition_runner';")
+    role = str(uuid4())
+    query(f"""BEGIN;
+        INSERT INTO security.roles VALUES('{role}','synthetic_risk_without_trades','Synthetic risk analyst without trade reads');
+        INSERT INTO security.role_permissions SELECT DISTINCT '{role}'::uuid,p.permission FROM security.role_permissions p
+         JOIN security.role_grants g ON g.role_id=p.role_id WHERE g.principal_id='{principal}' AND NOT g.revoked AND p.permission<>'ReadTrades';
+        INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{role}',tenant_id,workspace_id,clock_timestamp(),granted_to,false
+         FROM security.role_grants WHERE principal_id='{principal}' AND NOT revoked LIMIT 1;
+        UPDATE security.role_grants SET revoked=true WHERE principal_id='{principal}' AND role_id<>'{role}';
+        COMMIT;""")
+    check('a definition book the account can no longer read refuses the run',
+          before['jobs'] and run(runner, definition, 403, context=runner_context)['code'] == 'access_denied' and jobs() == queued
+          and query(f"SELECT count(*) FROM risk.definition_runs WHERE definition_id='{definition['definitionId']}';") == '1')
+    print(f'{passed} risk run definition run-now checks passed.', flush=True)

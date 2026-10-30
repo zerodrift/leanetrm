@@ -1255,6 +1255,13 @@ api.MapGet("/risk/definitions",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,ses
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskRunDefinitions.List(connection,database.Manifest.CatalogId,ct)),c.RequestAborted))));
 api.MapPost("/risk/definitions",(HttpContext c,SaveRiskRunDefinition body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskRunDefinitions.Save(connection,database.Manifest.CatalogId,body,ct)),c.RequestAborted)));
+api.MapPost("/risk/definitions/{id:guid}/run",(HttpContext c,Guid id,RunRiskDefinition body)=>PortfolioRead(c,
+    body.Context??throw new MarketDataException("risk_job_context","Supply the definition version and exact retained context."),
+    async(connection,data,frame,ct)=>
+    {
+        c.Items["risk_job_attempted"]=true;
+        return (object)await RiskRunDefinitions.Run(connection,database.Manifest,portfolioRisk,data,frame,id,body,ct);
+    }));
 api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking or amending.");

@@ -54,6 +54,22 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=PricingPolicy};
     }
 
+    // The held targets a preset shocks in the books (blotter-desk.md, Risk report inline), as the catalog offers them and in its
+    // order: each with its exact price unit and that unit's label.
+    internal async Task<ImmutableArray<(PortfolioRiskAxis Axis,string Unit)>> Held(NpgsqlConnection connection,PreviewData data,InputFrame frame,
+        ImmutableArray<Guid> bookIds,bool curves,CancellationToken ct)
+    {
+        var (portfolio,_,_)=await PreparePortfolio(connection,data,frame,bookIds,[],PricingPolicy,ct);
+        var axes=CurveRiskAxes.Catalog(portfolio,ct);var held=CurveRiskAxes.Held(portfolio,axes,ct);
+        var markets=portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
+        var chosen=(curves?held.Curves:held.Contracts).ToHashSet(StringComparer.Ordinal);
+        return [..axes.Where(a=>chosen.Contains(a.Id)).Select(a=>(a,Unit(markets,a.Unit)))];
+    }
+    // A request for the books that bumps each factor under the conventions and policies the catalog states.
+    internal static PortfolioRiskRequest Request(FuturesReadRequest context,ImmutableArray<Guid> bookIds,IEnumerable<(CurveRiskAxisRequest Factor,ExactDecimal Size)> bumps)=>
+        new(context,bookIds,[],[..bumps.Select(b=>new CurveBumpRequest(b.Factor,b.Size.ToString(),ConnectedRiskBump.Convention))],
+            Convention,RiskEngine.ExactNumericalPolicy,PricingPolicy,Stress:[]);
+
     // A queued run retains its connected graphs and the positions its submission left out (D220), and
     // prepares exactly the positions its submission prepared.
     internal readonly record struct RetainedRun(ImmutableArray<ConnectedMarketEvidence> Graphs,ImmutableArray<ExcludedPosition> Excluded);
