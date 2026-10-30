@@ -322,8 +322,8 @@ def run_authority_checks(query,manifest,entry,before_context):
           RAISE EXCEPTION 'Published without executable connection marker';
         EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'instrument_schedule_missing' THEN RAISE;END IF;END;END$$;
         ROLLBACK;""")
-    for name,code in (('0139_instrument_schedule_cells.sql','instrument_schedule_rebooking_required'),
-                      ('0140_swap_program_admission.sql','swap_program_rebooking_required')):
+    for name,code in (('0142_instrument_schedule_cells.sql','instrument_schedule_rebooking_required'),
+                      ('0143_swap_program_admission.sql','swap_program_rebooking_required')):
         migration=Path(__file__).resolve().parents[1]/'db/migrations'/name
         try:
             query(migration.read_text())

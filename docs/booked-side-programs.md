@@ -194,7 +194,7 @@ or largest-workload qualification is claimed.
 
 ## Retained instrument cell mappings
 
-Migration `0139_instrument_schedule_cells.sql` extends the existing
+Migration `0142_instrument_schedule_cells.sql` extends the existing
 instrument-owned `side_schedule_request_inputs` links with immutable exact cell
 addresses. Sealing a booking resolves each linked quantity output to its input
 instructions once, retaining zero-based input/output cell arrays with exact
@@ -258,7 +258,7 @@ source authorities after projection. It does not use or loosen historical
 valuation visibility for an uncommitted booking. The managed compiler remains
 the semantic trust boundary: SQL proves command and artifact binding, not that
 arbitrary caller-supplied instructions correctly implement financial terms.
-Migration `0140_swap_program_admission.sql` extends that boundary to dated,
+Migration `0143_swap_program_admission.sql` extends that boundary to dated,
 whole-term and factor swaps. Staging and saving share typed SQL command
 normalizers; publication compares the accepted request after removing only the
 server-generated `sideFixings` evidence. The API recompiles persisted members
@@ -271,7 +271,7 @@ maintained. Normal holdings reads join its security-invoker view directly on exa
 revision keys. A correlated projection boundary keeps those keys inside the
 rendering step, avoiding repeated rendering of unrelated visible revisions.
 The committed receipt join remains in the same statement.
-Migration 0140 requires an explicit rebooking schema window.
+Migration 0143 requires an explicit rebooking schema window.
 
 Qualification includes an injected booking identity mismatch: the API refuses it,
 no trade revision commits, and the same operation succeeds after restoring the
@@ -315,7 +315,7 @@ receipts preserve each selected sample and its actual/projected state.
 
 ## Schema release requirements
 
-Migrations 0139 and 0140 follow the observation-schedule migrations on master.
+Migrations 0142 and 0143 follow the dashboard and risk-definition migrations on master.
 Both refuse retained sealed booking requests; they do not convert or delete
 history. Deployment requires an explicit archive, restore and rebooking plan
 under the existing historical cutover contract, with booking writers stopped
@@ -323,7 +323,7 @@ through both migrations and activation of the matching API. Old application
 booking commands are incompatible with the new publication contract, so an
 image-only rollback is not a qualified recovery plan.
 
-The release reader admits the current 140 migrations plus four envelope files,
+The release reader admits the current 143 migrations plus four envelope files,
 and refuses the next file before writing its body. The installed operator is
 not updated by an application release: qualify and install the matching
 `release_bundle.py` during the operator window. Stop the deployment timer before
