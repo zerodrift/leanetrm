@@ -105,10 +105,10 @@ public sealed class MarketReads(PreviewDatabase database)
     // A composed trade read has already bound its exact market/trading context.
     internal Task<ImmutableArray<CurveName>> BoundCurveNames(NpgsqlConnection connection,CancellationToken ct)=>Names(connection,ct);
 
-    public async Task<ReferencePage> References(NpgsqlConnection connection,PinnedContext pin,string table,int offset,string? search,CancellationToken ct)
+    public async Task<ReferencePage> References(NpgsqlConnection connection,PinnedContext pin,string table,int offset,string? search,string? code,CancellationToken ct)
     {
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        return await database.ReadReferencePage(connection,table,offset,search,ct);
+        return await database.ReadReferencePage(connection,table,offset,search,code,ct);
     }
 
     public async Task<ReferenceSearch> SearchReferences(NpgsqlConnection connection,PinnedContext pin,string query,CancellationToken ct)

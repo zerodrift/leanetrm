@@ -130,6 +130,7 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
             MarketDataException m when m.Code=="reference_conflict" => (409,m.Code,m.Message),
+            MarketDataException m when m.Code=="reference_item" => (404,m.Code,m.Message),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="reference_conflict" => (409,p.MessageText,"This reference version or display selection changed. Reload before editing."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "reference_edit" or "reference_limit" or "reference_economic_change" => (422,p.MessageText,"Supply supported display fields within the authoring limits. Financial terms must remain identical before display activation."),
             PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/tou-products") => (409,"tou_conflict","This TOU product changed or its code already exists. Reload before editing."),
@@ -824,7 +825,8 @@ api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,se
     var requestedOffset=c.Request.Query["offset"].ToString();
     if(!int.TryParse(c.Request.Query.ContainsKey("offset")?requestedOffset:"0",System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var offset))
         throw new MarketDataException("reference_page",$"Choose an offset from 0 to {PreviewDatabase.ReferenceMaximumOffset}.");
-    var page=await marketReads.References(connection,Pin(session),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),ct);
+    var page=await marketReads.References(connection,Pin(session),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),
+        c.Request.Query.TryGetValue("code",out var code)?code.ToString():null,ct);
     var referenceDisplay=await ReferenceEditors.Display(connection,page.ReferenceRevision,ct);
     return Results.Ok(new {page.Table,page.Rows,page.References,page.Offset,page.PageSize,page.MaximumOffset,page.HasMore,page.Search,page.ReferenceRevision,page.DefinitionRevisionId,referenceDisplay,
         tables=PreviewDatabase.ReferenceTables,referenceScope="selected_table",context=session.MarketContext,profile=session.Profile});

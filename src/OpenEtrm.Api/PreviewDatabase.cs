@@ -457,11 +457,14 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         return new(query,[..hits.Take(SearchHitLimit)],hits.Length<found.Length||hits.Length>SearchHitLimit);
     }
 
-    public async Task<ReferencePage> ReadReferencePage(NpgsqlConnection connection,string table,int offset,string? search,CancellationToken ct)
+    public async Task<ReferencePage> ReadReferencePage(NpgsqlConnection connection,string table,int offset,string? search,string? code,CancellationToken ct)
     {
         search??="";
         if(!ReferenceTables.Contains(table)||offset is <0 or >ReferenceMaximumOffset||search.Length>160)
             throw new MarketDataException("reference_page",$"Choose a supported reference table, an offset from 0 to {ReferenceMaximumOffset} and search text up to 160 characters.");
+        // An exact item read names one code-keyed record; it is never a search or a later page.
+        if(code is not null&&(ReferenceKey(table)!="code"||code.Length is 0 or >160||search!=""||offset!=0))
+            throw new MarketDataException("reference_page","Read one item by its exact code from a code-keyed table, without search text or an offset.");
         var (revision,definition)=await ReferenceScope(connection,table,ct);
         const int pageSize=200;
         // Table and key identifiers come only from the fixed public catalog.
@@ -472,9 +475,10 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
                 SELECT r.* FROM ref_data.{table} r
                 WHERE catalog_id=$1 AND revision_id=$2
                   AND ($3='' OR strpos(lower(row_to_json(r)::text),lower($3))>0)
+                  {(code is null?"":"AND code=$5")}
                 ORDER BY {ReferenceKey(table)} LIMIT 201 OFFSET $4
             ) t
-            """,[revision.CatalogId,revision.RevisionId,search,offset],ct);
+            """,code is null?[revision.CatalogId,revision.RevisionId,search,offset]:[revision.CatalogId,revision.RevisionId,search,offset,code],ct);
         var rows=found.Take(pageSize).ToImmutableArray();
         var references=ImmutableDictionary.CreateBuilder<string,ImmutableArray<JsonElement>>();
         references.Add(table,rows);
@@ -489,8 +493,12 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
                 ? existing.Concat(linked).DistinctBy(row=>row.GetProperty("code").GetString()).ToImmutableArray():linked;
         }
         await ReferenceScope(connection,table,ct);
+        // Absence is reported only after current authority is proven again.
+        if(code is not null&&rows.IsEmpty)throw ReferenceItemMissing();
         return new(table,rows,references.ToImmutable(),offset,pageSize,ReferenceMaximumOffset,found.Length>pageSize,search,revision,definition);
     }
+
+    private static MarketDataException ReferenceItemMissing()=>new("reference_item","The reference item does not exist in this context's exact revision.");
 
     private static readonly (string Table,string[] Columns)[] ReferenceLabels=
     [

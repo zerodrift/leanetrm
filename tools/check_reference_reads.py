@@ -118,6 +118,17 @@ def run_checks(c, check):
                   {'table': 'currencies', 'search': 'x' * 161}]:
         c.call('reference/catalog?' + urlencode(query), expected=422)
     check('reference page rejects unsupported table and unbounded requests')
+    loc = references['locations'][0]
+    one = c.call('reference/catalog?' + urlencode({'table': 'locations', 'code': loc['code']}))
+    check('reference item read returns exactly the requested record',
+          [r['code'] for r in one['rows']] == [loc['code']] and not one['hasMore'])
+    check('reference item read reports an absent code as not found',
+          c.call('reference/catalog?' + urlencode({'table': 'locations', 'code': 'absent_code'}), expected=404)['code'] == 'reference_item')
+    check('reference item read requires a code-keyed table and no search or offset',
+          all(c.call('reference/catalog?' + urlencode(query), expected=422)['code'] == 'reference_page'
+              for query in [{'table': 'calendar_days', 'code': 'x'},
+                            {'table': 'locations', 'code': loc['code'], 'search': 'a'},
+                            {'table': 'locations', 'code': loc['code'], 'offset': 1}]))
 
     product = references['futures_products'][0]
     found = c.call('reference/search?' + urlencode({'q': product['name'].upper()}))

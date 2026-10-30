@@ -553,7 +553,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 ToolResults.Observations(await market.Evaluate(connection,pin.Page(await Context()),curve.Curve,ct)),
             {Operation.Id:"market_data.contract_definitions_v1"}=>ToolResults.ContractDefinitions(await schedules.Library(connection,pin.Page(await Context()),ct)),
             {Operation.Id:"reference_data.table_v1",Arguments:ReferenceArguments table}=>
-                ToolResults.Reference(await market.References(connection,pin.Page(await Context()),table.Table,0,table.Search,ct)),
+                ToolResults.Reference(await market.References(connection,pin.Page(await Context()),table.Table,0,table.Search,null,ct)),
             {Operation.Id:"schedules.library_v1"}=>ToolResults.Library(await schedules.Library(connection,pin.Page(await Context()),ct)),
             {Operation.Id:"schedules.tou_products_v1"}=>ToolResults.TouProducts(await schedules.TouProducts(connection,pin.CurrentOnly(),ct)),
             {Operation.Id:"schedules.power_hours_v1"}=>ToolResults.PowerHours(await schedules.PowerCatalog(connection,pin.CurrentOnly(),ct)),
