@@ -16,6 +16,7 @@ from urllib.request import urlopen
 from uuid import uuid4
 from preview_fixture import fixture
 from owned_process import stop_owned_group
+from preview_diagnostics import print_failure_identifiers
 
 ROOT = Path(__file__).resolve().parents[1]
 # The sessions of the 64 a scope keeps that this process leaves free once the page-assistant checks have run: the
@@ -1023,6 +1024,9 @@ def main():
         print('Stopping the owned preview.',flush=True)
         if args.check:
             raise
+    except Exception:
+        print_failure_identifiers(temporary/'app.log')
+        raise
     finally:
         if risk_worker_process is not None:
             try:

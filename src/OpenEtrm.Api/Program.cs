@@ -220,7 +220,18 @@ app.Use(async (context,next)=>
             _ => (500,"preview_error","The preview could not complete the operation.")
         };
         if(e is PostgresException pg)app.Logger.LogWarning("Database operation rejected: {SqlState}",pg.SqlState);
-        if (status==500) app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
+        if (status==500)
+        {
+            app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
+            var inner=e.InnerException;
+            for(var depth=0;inner is not null&&depth<4;inner=inner.InnerException,depth++)
+            {
+                app.Logger.LogError("Preview operation failed: {ErrorType}",inner.GetType().Name);
+                if(inner is PostgresException nested)app.Logger.LogWarning("Database operation rejected: {SqlState}",nested.SqlState);
+            }
+            foreach(var codeLocation in PreviewFailureDiagnostics.Codes(e))
+                app.Logger.LogError("Preview failure code: {CodeLocation}",codeLocation);
+        }
         context.Response.StatusCode=status;
         // A role refusal also names the role and permission as fields, so a page never parses its message.
         object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
