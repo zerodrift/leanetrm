@@ -125,7 +125,7 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState is "23502" or "23514" or "22P02" or "22007" or "22008" or "22003" && apiPath.StartsWithSegments("/api/jobs") => (422,"job_input","The job contract has missing, malformed or unsupported fields."),
             PostgresException p when p.MessageText is "job_input" or "job_transition" or "job_limit" => (422,p.MessageText,"Supply a supported job contract or an available action within its limits."),
             AntiforgeryValidationException => (400,"request_token","Reload the preview to obtain a valid request token."),
-            MarketDataException m when m.Code is "shortcut_conflict" or "tou_conflict" or "table_view_conflict" or "dashboard_layout_conflict" or "dashboard_request_conflict" or "futures_revision_conflict" or "swap_revision_conflict" or "custom_curve_conflict" or "contract_date_conflict" => (409,m.Code,m.Message),
+            MarketDataException m when m.Code is "shortcut_conflict" or "tou_conflict" or "table_view_conflict" or "dashboard_layout_conflict" or "dashboard_request_conflict" or "risk_definition_conflict" or "risk_definition_request_conflict" or "futures_revision_conflict" or "swap_revision_conflict" or "custom_curve_conflict" or "contract_date_conflict" => (409,m.Code,m.Message),
             PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/custom-curves") => (409,"custom_curve_conflict","This curve or request changed. Reload or reconcile the original request."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
@@ -1251,6 +1251,10 @@ api.MapGet("/portfolio/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,se
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
 api.MapPost("/portfolio/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,cancel:true,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
+api.MapGet("/risk/definitions",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskRunDefinitions.List(connection,database.Manifest.CatalogId,ct)),c.RequestAborted))));
+api.MapPost("/risk/definitions",(HttpContext c,SaveRiskRunDefinition body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskRunDefinitions.Save(connection,database.Manifest.CatalogId,body,ct)),c.RequestAborted)));
 api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking or amending.");
