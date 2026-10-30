@@ -1,6 +1,8 @@
 // Presentation organization only. Every read still uses the same scoped API/RLS.
 // Contracts, contract dates and trading eligibility are read inside their product, not as tabs.
 export const foldedIntoProduct=['futures_series','futures_milestones','futures_execution_policies'] as const;
+// Categories whose rows have no code of their own, and so no page of their own.
+export const keylessCategories=['unit_conversions','calendar_days'] as const;
 export const referenceGroups=[
   {name:'Markets & contracts',sections:[
     {value:'futures_products',name:'Futures',consumer:'Used by futures entry and valuation for contract economics and quote/lot conventions.'},

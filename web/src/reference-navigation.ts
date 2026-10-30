@@ -28,19 +28,20 @@ export function setupReferenceNavigation(o:Options){
   const part=(id:string)=>o.host.querySelector<HTMLElement>('#'+id)!;
   const groupTabs=part('reference-groups'),groupPanel=part('reference-group-panel'),sectionTabs=part('reference-sections'),panel=part('reference-panel');
   const form=part('reference-search-all') as HTMLFormElement,text=part('reference-search-all-text') as HTMLInputElement,results=part('reference-search-hits');
-  let shown='';
-  // Another group opens on its first category; the chosen group keeps the category shown.
-  function select(table:string){
+  let shown='',listed=false;
+  // Another group opens on its first category; the chosen group keeps the category shown. `list` says whether the category's
+  // list is shown, or one of its items, whose tab then returns to the list.
+  function select(table:string,list:boolean){
     const groups=o.groups(),index=groups.findIndex(g=>g.sections.some(s=>s.value===table));
     if(index<0)throw Error('That reference category is not available here.');
-    shown=table;
+    shown=table;listed=list;
     setupTabs(groupTabs,groups.map((g,i)=>[String(i),g.name] as const),{label:'Reference groups',panel:groupPanel,selected:String(index),
       select:id=>{const group=groups[Number(id)];if(!group.sections.some(s=>s.value===shown))choose(group.sections[0].value);}});
     setupTabs(sectionTabs,groups[index].sections.map(s=>[s.value,s.name] as const),{label:groups[index].name,panel,selected:table,select:choose});
   }
   // Tabs are disabled while the category is read, which takes focus from the one a key moved to; it is given back afterwards.
   function choose(table:string){
-    if(table===shown)return;
+    if(table===shown&&listed)return;
     const strip=[groupTabs,sectionTabs].find(list=>list.contains(document.activeElement));
     void o.onSelect(table).then(()=>strip?.querySelector<HTMLElement>('[aria-selected=true]')?.focus());
   }
@@ -55,7 +56,7 @@ export function setupReferenceNavigation(o:Options){
     if(truncated)results.append(node('p','Only the first matches are listed. Refine your search to see others.'));
     results.hidden=false;
   }
-  function clear(){shown='';clearTabs(groupTabs,groupPanel);clearTabs(sectionTabs,panel);text.value='';results.replaceChildren();results.hidden=true;}
+  function clear(){shown='';listed=false;clearTabs(groupTabs,groupPanel);clearTabs(sectionTabs,panel);text.value='';results.replaceChildren();results.hidden=true;}
   // A new search first takes away the results of the one before.
   form.onsubmit=event=>{event.preventDefault();results.replaceChildren();results.hidden=true;void o.onSearch(text.value);};
   clear();

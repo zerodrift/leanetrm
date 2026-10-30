@@ -1505,6 +1505,19 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .reference-search-hits li span{color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .reference-search-hits>p{grid-column:1/-1;margin:0;color:var(--text-3)}
 @media(max-width:760px){.reference-search-all{flex-basis:100%}}
+/* A reference item's page: breadcrumb, identity, then its fields as a labelled grid; a futures product adds sections and its contracts. */
+.reference-item .breadcrumb{display:flex;flex-wrap:wrap;gap:0 4px;margin:4px 0 8px;font-size:13px;color:var(--text-3)}
+.reference-item h2{margin:0 0 8px;overflow-wrap:anywhere}
+.item-facts{display:flex;flex-wrap:wrap;gap:4px 24px;margin:0 0 16px;font-size:13px}
+.item-facts div{display:flex;gap:6px;min-width:0}
+.item-facts dt{color:var(--text-3)}
+.item-facts dd{margin:0;overflow-wrap:anywhere;min-width:0}
+.item-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:12px 24px;margin:0;font-size:13px}
+.item-grid dt{font-size:11px;color:var(--text-3);margin-bottom:2px}
+.item-grid dd{margin:0;overflow-wrap:anywhere}
+.item-section{margin-top:20px}
+.item-section h3{font-size:13px;margin:0 0 8px}
+.product-contracts{overflow-x:auto;max-width:100%;border:1px solid var(--border);border-radius:var(--radius-sm)}
 .delivery-overlays{width:fit-content;min-width:min(420px,100%);max-width:100%;margin-bottom:12px}
 .delivery-chart{min-width:0}
 .delivery-chart .time-chart-tools input{width:120px}
