@@ -160,6 +160,15 @@ def run_now_checks(url, query, run_worker):
           retried['runId'] == first['runId'] and retried['jobs'] == first['jobs'] and jobs() == queued
           and run(risk, other, 409, requestId=request_id)['code'] == 'risk_definition_request_conflict')
 
+    # Sizes are saved against the exact price unit a catalog target states; Run now resolves them by the same unit, so a definition
+    # saved from the targets' units alone is sized for everything the preset shocks.
+    by_target = [targets[t]['priceUnit'] for t in held['heldContractTargets']]
+    check('every catalog target states its exact price unit, the same as the factor it shocks',
+          all('priceUnit' in t for t in held['scenarioTargets'])
+          and all(units[t['unit']] == t['priceUnit'] for t in held['scenarioTargets'] if t['unit'] in units)
+          and run(risk, save(risk, 'held_contracts', [dict(unit=u, size='0.1') for u in {json.dumps(u, sort_keys=True): u for u in by_target}.values()]))['jobs'])
+    queued = jobs()
+
     refusal = run(risk, save(risk, 'held_contracts', [size(labels[0], '0.1')]), 422)
     check('a held price unit without a size is refused and queues nothing',
           refusal['code'] == 'risk_definition_size' and all(label in refusal['message'] for label in labels[1:]) and jobs() == queued)

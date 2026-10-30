@@ -41,7 +41,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         var targets=axes.Select(a=>Target(markets,a)).Concat(axes.Where(a=>a.Target is ParallelCurveTarget).Select(a=>
             (object)new{id=a.Id+":bucket",label=a.Label.Replace("all retained contracts","delivery bucket",StringComparison.Ordinal)
                     .Replace("all retained outputs","delivery bucket",StringComparison.Ordinal),
-                coordinate=CurveRiskAxes.Coordinate(a.Coordinate),kind="delivery_bucket",unit=Unit(markets,a.Unit),
+                coordinate=CurveRiskAxes.Coordinate(a.Coordinate),kind="delivery_bucket",unit=Unit(markets,a.Unit),priceUnit=PriceUnitReference(a.Unit),
                 factor=new CurveRiskAxisRequest(CurveRiskAxes.Coordinate(a.Coordinate),new("delivery_bucket",a.Target.Curve,
                     Convention:DeliveryBucketCurveTarget.WholeDelivery))})).ToArray();
         return new{factors=portfolio.Factors.Select(f=>Factor(markets,CurveRiskAxes.Quote(portfolio,f,ct))),
@@ -191,14 +191,16 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
     }
     private static object Target(ImmutableArray<PreviewData> markets,PortfolioRiskAxis axis)=>new{
         axis.Id,axis.Label,coordinate=CurveRiskAxes.Coordinate(axis.Coordinate),kind=axis.Request.Target.Kind,
-        unit=Unit(markets,axis.Unit),factor=axis.Request};
+        unit=Unit(markets,axis.Unit),priceUnit=PriceUnitReference(axis.Unit),factor=axis.Request};
+    // The exact price unit a size is saved against, in the shape a definition's sizes name it.
+    private static object PriceUnitReference(PriceUnit unit)=>new{unit.Currency,unit.Quantity,multiplier=unit.Multiplier.ToString()};
     private static object Factor(ImmutableArray<PreviewData> markets,PortfolioRiskAxis axis)
     {
         var quote=axis.Quote;
         var contract=quote is null?null:markets.SelectMany(m=>m.Contracts).Single(c=>c.Key==quote.Contract);
         return new{axis.Id,axis.Label,coordinate=CurveRiskAxes.Coordinate(axis.Coordinate),kind=axis.Request.Target.Kind,
             factor=axis.Request,seriesId=quote?.Input.Series.Id,quote=quote?.Quote.Code,unit=Unit(markets,axis.Unit),
-            priceUnit=new{axis.Unit.Currency,axis.Unit.Quantity,multiplier=axis.Unit.Multiplier.ToString()},curves=new[]{axis.Target.Curve.Code},
+            priceUnit=PriceUnitReference(axis.Unit),curves=new[]{axis.Target.Curve.Code},
             contractId=contract?.Key.Id,deliveryFrom=contract?.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),deliveryTo=contract?.DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),
             value=quote?.BaseValue.ToString(),observation=quote?.Observation,source=quote?.Source,role=quote?.Role.ToString()};
     }
