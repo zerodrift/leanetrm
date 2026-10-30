@@ -1491,6 +1491,20 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .delivery-tiles .desk-tile-words .kpi-value small{display:block;margin-top:3px;font-size:12px;letter-spacing:0}
 .page-tabs{gap:24px;margin:0 0 14px;padding:0;background:none}
 .page-tabs .side-panel-tab{padding:10px 0;font-size:14px;font-weight:500}
+/* Reference data: group tabs beside the search of every category, then the chosen group's category tabs. */
+.reference-navigation{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:12px}
+.reference-navigation .page-tabs{border-bottom:0;margin:0;flex-wrap:wrap}
+.reference-search-all{display:flex;gap:8px;padding-bottom:8px;flex:0 1 360px;min-width:0}
+.reference-search-all input{flex:1;min-width:0}
+.reference-sections{gap:18px;flex-wrap:wrap}
+.reference-sections .side-panel-tab{font-size:13px}
+.reference-search-hits{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px 24px;margin:0 0 16px;font-size:13px}
+.reference-search-hits h3{font-size:12px;color:var(--text-3);margin:0 0 4px}
+.reference-search-hits ul{list-style:none;margin:0;padding:0}
+.reference-search-hits li{display:flex;gap:8px;align-items:baseline;padding:2px 0;min-width:0}
+.reference-search-hits li span{color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reference-search-hits>p{grid-column:1/-1;margin:0;color:var(--text-3)}
+@media(max-width:760px){.reference-search-all{flex-basis:100%}}
 .delivery-overlays{width:fit-content;min-width:min(420px,100%);max-width:100%;margin-bottom:12px}
 .delivery-chart{min-width:0}
 .delivery-chart .time-chart-tools input{width:120px}

@@ -1,5 +1,7 @@
 export async function run({command,wait,click,set,submit,check,evaluate,idle,url}){
  await command('Runtime.enable');await command('Page.enable');
+ // A reference category is chosen as a person does: its group tab, then its own tab.
+ const referenceTab=async(group,name)=>{for(const [list,label] of [['reference-groups',group],['reference-sections',name]]){await evaluate(`[...document.querySelectorAll('#${list} [role=tab]')].find(t=>t.textContent===${JSON.stringify(label)}).click()`);await wait(idle);}};
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  await click('#profile-open');await set('#profile','trader');await click('#open');await click('#example');await click('#nav-futures');
  await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
@@ -25,11 +27,11 @@ export async function run({command,wait,click,set,submit,check,evaluate,idle,url
  await check('reopening a deal keeps advanced settings closed and the saved money display',"!document.querySelector('#trade-amount-format details').open&&document.querySelector('#trade-amount-format-trade-money').value==='1'");
  await click('#position-details .position-close');
  await check('numeric grid retains raw exact strings separately from formatted cell text',"[...document.querySelectorAll('#desk-positions .desk-figure[title]')].some(s=>s.title!==s.textContent&&/^-?\\d+(\\.\\d+)?$/.test(s.title))");
- await click('#nav-reference');await set('#reference-table','units');await wait(idle);
+ await click('#nav-reference');await referenceTab('Commodities & units','Units');
  await check('common unit catalog and quantity conversion controls are visible',"!document.querySelector('#unit-converter').hidden&&document.querySelector('#reference').textContent.includes('MMBtu (IT)')&&document.querySelector('#reference').textContent.includes('bbl (42 US gal)')");
  await set('#unit-commodity','test_power');
  const supplemental=await evaluate("[...document.querySelector('#unit-from').options].some(o=>o.value==='test_power_catalog_only')");
- if(supplemental){await click('#nav-reference');await set('#reference-table','quantity_specifications');await wait(idle);await check('supplemental quantity definitions resolve labels in their own exact unit catalog',"document.querySelector('#reference').innerText.includes('Catalog kWh')&&document.querySelector('#error').hidden");await click('#nav-reference');await set('#reference-table','units');await wait(idle);}
+ if(supplemental){await click('#nav-reference');await referenceTab('Commodities & units','Quantity definitions');await check('supplemental quantity definitions resolve labels in their own exact unit catalog',"document.querySelector('#reference').innerText.includes('Catalog kWh')&&document.querySelector('#error').hidden");await click('#nav-reference');await referenceTab('Commodities & units','Units');}
  await set('#unit-commodity','test_power');await set('#unit-from','test_power_gigajoule');await set('#unit-to','test_power_quantity');await set('#unit-value','1');await submit('#unit-conversion-form');
  await check('nonterminating conversion fails visibly with no successful default result',"!document.querySelector('#error').hidden&&document.querySelector('#unit-conversion-result').textContent===''");
  await set('#unit-rounding','round');await set('#unit-decimals','6');await submit('#unit-conversion-form');

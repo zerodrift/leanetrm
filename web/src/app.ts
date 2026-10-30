@@ -9,6 +9,8 @@ import {setupIntervalSeries} from './interval-series-view.js';
 import {setupIntervalCurves} from './interval-curves-view.js';
 import {setupJobs} from './jobs-view.js';
 import {setupReferenceEditor} from './reference-editor.js';
+import {setupReferenceNavigation,type ReferenceHit} from './reference-navigation.js';
+import {parseReferenceAddress,formatReferenceAddress,type ReferenceAddress} from './reference-address.js';
 import {setupPartyEditors} from './party-view.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {withNotice} from './notice-text.js';
@@ -70,6 +72,8 @@ let liveSucceeded:Date|undefined;
 let liveStream:EventSource|undefined,liveUpdates:LiveUpdates<LiveContextUpdate & {generation:number}>|undefined,liveId='',lastLiveUpdate:LiveContextUpdate|undefined;
 type ReferencePage={table:string;rows:Row[];references:Record<string,Row[]>;referenceDisplay?:ReferenceDisplay|null;offset:number;pageSize:number;maximumOffset:number;hasMore:boolean;search:string;referenceRevision:{catalogId:string;revisionId:string};definitionRevisionId:string;context:Context|null;profile:string;referenceScope:'selected_table'};
 let referencePage:ReferencePage|undefined;
+// The reference category tab chosen; empty until one is chosen, when the page opens on Currencies.
+let referenceTable='';
 const canAdvanceReference=()=>!!referencePage&&referencePage.hasMore&&referencePage.offset+referencePage.pageSize<=referencePage.maximumOffset;
 let hostedPilot=false;
 type ProfileChoices={mode:string;profiles:{id:string;name:string}[];customProfiles:{id:string;name:string}[]};
@@ -182,7 +186,7 @@ function leaving(work:()=>Promise<void>,move:Move='discards'){void (async()=>{if
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
 function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][],onRowActivate?:(index:number)=>void){
-  const referenceScope=[data().profile,page,select('reference-table').value,referencePage?.referenceRevision,referencePage?.offset,referencePage?.search,historicalContext()];
+  const referenceScope=[data().profile,page,referenceTable,referencePage?.referenceRevision,referencePage?.offset,referencePage?.search,historicalContext()];
   const marketScope=[data().profile,curve,result?.snapshotId??'',target==='history-values'?contract:'',target==='revisions'?input:'',...(['inputs','mappings'].includes(target)?[showAllContracts||target==='inputs'&&sourceOnlyCurve?'all':pricingContract]:[])];
   renderRegularTable($(target),target,JSON.stringify(target==='reference'?referenceScope:marketScope),headers,rows,numeric,()=>busy,{displayRows,onRowActivate});
 }
@@ -210,6 +214,8 @@ async function setPage(next:string){
   // The Blotter is left on the person's word, whichever route took them, so no form of its panel stays held, with edits that the browser would be asked
   // about and that nothing can return to: the Blotter is read afresh when they come back to it.
   if(page==='futures'&&next!=='futures')futures.leavePage();
+  // Only the reference page has an address; another page leaves none behind.
+  if(next!=='reference'&&location.hash.startsWith('#reference'))window.history.replaceState(null,'',location.pathname+location.search);
   page=next;$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures';$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next);$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('curve-date-editor').hidden=next!=='configuration';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin';$('ai-page').hidden=next!=='ai';$('no-access-page').hidden=true;
   text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='jobs'?'Jobs & Infrastructure':next==='custom-curves'?'Curve builder':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='interval-curves'?'Curves & prices':next==='parties'?'Entities & counterparties':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='market'?'Curves & prices':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules':'Reference data');
   for(const name of ['market','custom-curves','delivery','interval-series','interval-curves','power','reference','configuration','schedules','admin','ai','parties','jobs'])$('nav-'+name).classList.toggle('active',next===name||(name==='market'&&next==='interval-curves'));
@@ -586,15 +592,46 @@ function referenceValue(r:Row,key:string){
   return friendly(value);
 }
 function clearReference(){referencePage=undefined;referenceEditor.setPage(undefined);unitConverter.reset();$('reference').replaceChildren();text('reference-page-status','');}
+const referenceSections=()=>dataSections(Object.keys(data().references)).flatMap(g=>g.sections);
+// The chosen category, shown as its group and tab. One no longer available is an error, and the next opening starts on Currencies.
 function referenceCategory(){
-  const groups=dataSections(Object.keys(data().references)),sections=groups.flatMap(g=>g.sections),previous=select('reference-table').value;
-  const selected=sections.some(s=>s.value===previous)?previous:'currencies';
-  if(!sections.some(s=>s.value===selected))throw Error('These details are unavailable. Please refresh the page.');
-  select('reference-table').replaceChildren(...groups.map(g=>{const group=document.createElement('optgroup');group.label=g.name;group.append(...g.sections.map(s=>{const option=el('option',s.name);option.value=s.value;return option;}));return group;}));select('reference-table').value=selected;
-  const group=groups.find(g=>g.sections.some(s=>s.value===selected))!;
-  const section=group.sections.find(s=>s.value===selected)!;
-  text('data-title',section.name);text('data-description',section.consumer);
+  const selected=referenceTable||'currencies',section=referenceSections().find(s=>s.value===selected);
+  if(!section){referenceTable='';referenceNavigation.clear();throw Error('These details are unavailable. Please refresh the page.');}
+  referenceTable=selected;referenceNavigation.select(selected);text('data-title',section.name);text('data-description',section.consumer);
   return selected;
+}
+const shownAddress=(shown:ReferencePage)=>formatReferenceAddress(shown.search?{table:shown.table,search:shown.search}:{table:shown.table});
+// The address of what the page shows. A move between categories or searches is a new history entry; opening an address,
+// or the page from elsewhere, replaces the entry that led to it.
+function addressReference(shown:ReferencePage){
+  const hash=shownAddress(shown),current=parseReferenceAddress(location.hash);
+  if(location.hash===hash)return;
+  if(current&&current.code===undefined)window.history.pushState(null,'',hash);else window.history.replaceState(null,'',hash);
+}
+// Opens a category's tab, with its rows matching `search` when one is given.
+async function showReference(table:string,search:string){
+  clearReference();await loadWorkspace();
+  if(!referenceSections().some(s=>s.value===table)){referenceNavigation.clear();throw Error('That reference table is not available here.');}
+  referenceTable=table;$<HTMLInputElement>('reference-search').value=search;await loadReference(0,search);
+}
+// Until reference items have their own page, an item's address opens its category.
+async function openReferenceItem(address:ReferenceAddress){await showReference(address.table,address.search??'');}
+// A reference address from the browser's location or a link on the page; one naming no category shows no rows.
+async function openReferenceAddress(hash:string){
+  await setPage('reference');
+  const address=parseReferenceAddress(hash);
+  if(address)return openReferenceItem(address);
+  clearReference();referenceNavigation.clear();
+  throw Error('This address names no available reference category. Choose one from Reference data.');
+}
+type ReferenceSearch={query:string;hits:ReferenceHit[];truncated:boolean;context:Context|null;profile:string};
+async function searchReference(q:string){
+  if(contextDirty)throw Error('Apply the changed context first.');await loadWorkspace();
+  const owner=data(),context=historicalContext()??null;
+  const found=await api<ReferenceSearch>('reference/search?'+new URLSearchParams({q}));
+  if(workspace!==owner||contextDirty||page!=='reference'||found.query!==q||!Array.isArray(found.hits)||typeof found.truncated!=='boolean'||found.profile!==owner.profile||JSON.stringify(found.context)!==JSON.stringify(context))
+    throw Error('The reference search is missing or inconsistent. Refresh and try again.');
+  referenceNavigation.showHits(found.hits,found.truncated);
 }
 function renderReference(){
   if(contextDirty||!referencePage)return;
@@ -616,9 +653,10 @@ async function loadReference(offset=0,search=''){
   const sameRequest=next.table===selected&&next.offset===offset&&next.search===search;
   const sameContext=next.profile===owner.profile&&JSON.stringify(next.context)===JSON.stringify(context);
   const boundedPage=next.referenceScope==='selected_table'&&next.pageSize===200&&Number.isSafeInteger(next.maximumOffset)&&next.maximumOffset>=offset&&typeof next.hasMore==='boolean'&&Array.isArray(next.rows)&&next.rows.length<=200&&next.references;
-  if(workspace!==owner||contextDirty||page!=='reference'||select('reference-table').value!==selected||!sameRevision||!sameRequest||!sameContext||!boundedPage)
+  if(workspace!==owner||contextDirty||page!=='reference'||referenceTable!==selected||!sameRevision||!sameRequest||!sameContext||!boundedPage)
     throw Error('The reference page is missing or inconsistent. Refresh and try again.');
   referencePage=next;try{renderReference();}catch(error){clearReference();throw error;}
+  addressReference(next);
 }
 function marketSelection(){return JSON.stringify([administrationScope,currentProfile,select('snapshot').value,curve,contextDirty]);}
 function validateWorkspace(next:Workspace,owner:MarketNavigation,started:number,scope:string){
@@ -640,7 +678,7 @@ async function loadWorkspace(){
 }
 async function loadNavigation(){
   const started=++marketGeneration,profile=currentProfile,scope=administrationScope;
-  workspace=undefined;navigation=undefined;clearReference();setCurveNames([]);$('curves').replaceChildren();
+  workspace=undefined;navigation=undefined;clearReference();referenceNavigation.clear();setCurveNames([]);$('curves').replaceChildren();
   const next=validateMarketNavigation(await api<MarketNavigation>('workspace/navigation'));
   if(started!==marketGeneration||currentProfile!==profile||administrationScope!==scope||next.profile!==profile||contextDirty)
     throw Error('The account or market selection changed. Reload before continuing.');
@@ -724,7 +762,7 @@ $('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were 
 async function loadIdentity(initialAccess?:unknown){
   $('curve-price-navigation').hidden=true;customCurves.reset();$('custom-curves-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('no-access-page').hidden=true;
-  curve='';clearPrices();clearReference();choose('reference-table',[],'');marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('curve-date-editor').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;$('date-context').hidden=true;
+  curve='';clearPrices();clearReference();referenceTable='';referenceNavigation.clear();marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('curve-date-editor').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;$('date-context').hidden=true;
   if(initialAccess===undefined)permissions=(await api<{permissions:string[]}>('access')).permissions;
   else{
     const access=initialAccess as StartupAccess|null;
@@ -744,13 +782,17 @@ async function loadIdentity(initialAccess?:unknown){
   // kept is not working data, so it chooses nothing.
   let opening:CloseChoice={kind:'none'};
   if(read){await loadNavigation();renderFrames('');renderContext();if(!historicalContext()){opening=await selectNewestClose();await initializeContext();}}else renderLayout();
+  // A reference address in the location opens that page in place of the first; failing to open it keeps the rest of the opening.
+  const address=location.hash.startsWith('#reference')&&pageAvailable('reference',permissions)?location.hash:undefined;
+  let unopened:unknown;
   if(first!==null){
-    await showPage(first);
+    if(address===undefined)await showPage(first);else await openReferenceAddress(address).catch(error=>{unopened=error;});
     if(!$('nav-futures').hidden)await futures.views();
     closeCheckDue=false; // the read that chose the close is this page's check for a newer one
     if(opening.kind==='choose')askNewestClose(opening.date);
   }
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
+  if(unopened!==undefined)throw unopened;
 }
 $('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was not switched'))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
 // A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
@@ -777,7 +819,7 @@ $('browse-by').onchange=()=>void act(updateFilters);$('commodity').onchange=()=>
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];await updateFilters();}));
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
 const schedules=setupShortcutEditor(act,{time:api,load:()=>api('schedules'),preview:draft=>api('schedules/preview',draft),keep:draft=>api('schedules/keep',draft),resolve:body=>api('schedules/resolve',body)},()=>busy,()=>prefs.timeZone);
-function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();parties.reset();clearReference();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose View this context to apply it.');}
+function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();parties.reset();clearReference();referenceNavigation.clear();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose View this context to apply it.');}
 const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,source:()=>{if(contextDirty)throw Error('Apply the changed context first.');return frame().id;}});
 const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=>administrationScope+':'+currentProfile,profileChoices);
 // A person's own agent grants, in the profile dialog (docs/ai-assistant.md §7.1).
@@ -868,7 +910,15 @@ let mainWidth=main.clientWidth;
 new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;contractPanel.place();customCurves.place();}}).observe(main);
 new MutationObserver(()=>{contractPanel.place();customCurves.place();}).observe(document.body,{attributes:true,attributeFilter:['class']});
 const touProducts=setupTouProducts(act,api,()=>busy,()=>prefs.timeZone,async()=>{power.reset();if(select('snapshot').value)await power.load();});
-$('reference-table').onchange=()=>void act(async()=>{$<HTMLInputElement>('reference-search').value='';await loadReference();});
+const referenceNavigation=setupReferenceNavigation({host:$('reference-page'),groups:()=>dataSections(Object.keys(data().references)),
+  onSelect:table=>act(async()=>{referenceTable=table;$<HTMLInputElement>('reference-search').value='';await loadReference();}),
+  onSearch:q=>act(()=>searchReference(q))});
+// A reference address the person follows, types or returns to with Back opens what it names.
+window.addEventListener('hashchange',()=>{
+  const hash=location.hash;
+  if(!hash.startsWith('#reference')||page==='reference'&&referencePage&&hash===shownAddress(referencePage))return;
+  leaving(async()=>{if(contextDirty)await applyContext();await openReferenceAddress(hash);});
+});
 $('reference-search-form').onsubmit=event=>{event.preventDefault();void act(()=>loadReference(0,$<HTMLInputElement>('reference-search').value));};
 $('reference-previous').onclick=()=>void act(()=>loadReference(Math.max(0,referencePage!.offset-referencePage!.pageSize),referencePage!.search));
 $('reference-next').onclick=()=>void act(()=>loadReference(referencePage!.offset+referencePage!.pageSize,referencePage!.search));
@@ -992,9 +1042,8 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
     }
     case 'reference_data':{
       const table=String(selection.table),search=String(selection.search);await loadWorkspace();
-      if(!dataSections(Object.keys(data().references)).some(g=>g.sections.some(t=>t.value===table)))throw Error('That reference table is not available here.');
-      await setPage('reference');referenceCategory();select('reference-table').value=table;
-      $<HTMLInputElement>('reference-search').value=search;await loadReference(0,search);return;
+      if(!referenceSections().some(s=>s.value===table))throw Error('That reference table is not available here.');
+      await setPage('reference');await showReference(table,search);return;
     }
     // A job's history opens its details on the page of the directory that lists it, found before the page changes.
     case 'jobs':{const job=await jobs.locateJob(String(selection.job));await setPage('jobs');jobs.showJob(job);return;}
