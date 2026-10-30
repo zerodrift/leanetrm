@@ -464,6 +464,45 @@ def run_checks(query, manifest, psql=None, environment=None):
                 process.wait(timeout=10)
         print('PASS risk worker concurrency: an uncommitted claim locks only its own job', flush=True)
 
+    if psql is not None:
+        loading = submit()
+        attempt = json.loads(worker("SELECT risk.claim(30,'synthetic_engine_v1')"))
+        assert attempt['jobId'] == loading['jobId']
+        process = subprocess.Popen([str(x) for x in psql], cwd=ROOT, env=environment,
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        blocked = []
+        try:
+            # bind inserts the real attempt-context FK. Keep that transaction
+            # uncommitted while separate sessions renew and cancel this attempt.
+            process.stdin.write(f"SET SESSION AUTHORIZATION synthetic_risk_worker;BEGIN;SELECT risk.bind('{loading['jobId']}','{attempt['leaseToken']}');\n")
+            process.stdin.flush()
+            assert select.select([process.stdout], [], [], 10)[0], 'Worker bind did not finish'
+            assert process.stdout.readline().strip(), 'Worker bind returned no context'
+            for label, action in (
+                ('heartbeat', lambda: worker(f"SET lock_timeout='250ms';SELECT risk.heartbeat('{loading['jobId']}','{attempt['leaseToken']}',30)")),
+                ('cancel', lambda: user(f"SET LOCAL lock_timeout='250ms';SELECT risk.cancel('{loading['jobId']}')")),
+            ):
+                try:
+                    result = action()
+                    assert (result == 'running' if label == 'heartbeat' else json.loads(result)['state'] == 'cancellation_requested'), result
+                except RuntimeError as error:
+                    if 'lock timeout' not in str(error):
+                        raise
+                    blocked.append(label)
+            assert not blocked, f'Input loading blocked concurrent job controls: {blocked}'
+            reject(lambda: worker(f"SET lock_timeout='250ms';SELECT risk.heartbeat('{loading['jobId']}','{uuid4()}',30)"), 'risk_job_fence')
+            assert worker(f"SET lock_timeout='250ms';SELECT risk.heartbeat('{loading['jobId']}','{attempt['leaseToken']}',30)") == 'cancellation_requested'
+            assert worker(f"SET lock_timeout='250ms';SELECT risk.finish('{loading['jobId']}','{attempt['leaseToken']}','{{}}',NULL)") == 'cancellation_requested'
+            process.stdin.write('ROLLBACK;\n\\q\n')
+            process.stdin.flush()
+            assert process.wait(timeout=10) == 0
+            assert worker(f"SELECT risk.acknowledge_cancel('{loading['jobId']}','{attempt['leaseToken']}')") == 'cancelled'
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=10)
+        print('PASS risk input loading: heartbeat and cancellation remain available across the bound FK transaction; stale tokens and cancellation-first publication stay fenced', flush=True)
+
     queued = submit()
     assert json.loads(user(f"SELECT risk.cancel('{queued['jobId']}')"))['state'] == 'cancelled'
     running = submit()

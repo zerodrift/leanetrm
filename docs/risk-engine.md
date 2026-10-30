@@ -219,6 +219,16 @@ crashed worker with an unconfirmed cancellation remains cancellation-requested;
 this first version has no cluster process-death confirmation workflow. Results
 and terminal state publish atomically.
 
+Heartbeat and cancellation remain available while an input-loading transaction
+holds its attempt-context foreign key to the job. Migration 0137 uses
+`FOR NO KEY UPDATE` for attempt-control and cancellation locks: these serialize
+job-state writers while allowing that foreign key's `KEY SHARE` lock. Claiming
+still uses `FOR UPDATE SKIP LOCKED`; lease tokens, authority generations,
+cancellation acknowledgment and publication checks are unchanged. The disposable
+risk database check keeps a real `risk.bind` transaction open while independently
+renewing and cancelling it, and verifies stale-token and cancellation-first
+publication refusal. No lease, input-loading or calculation deadline is extended.
+
 Worker reads use a fresh transaction-local authority context for the retained
 actor and delegation. Loading and publication transactions are short; CPU
 calculation runs outside them. Current authority and retained authorization

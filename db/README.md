@@ -1440,3 +1440,16 @@ returns no versions under a historical context and, in working data, refuses a
 caller holding neither `WriteReferenceData` nor `SealReferenceData`. It writes
 nothing and changes no table. As a new migration it stops automatic hosted
 updates until the operator qualifies a new baseline (D135).
+
+## Risk controls during input loading
+
+Migration `0137_risk_input_load_locks.sql` changes the job-row locks in
+`risk.owned_attempt` and `risk.cancel` to `FOR NO KEY UPDATE`. The attempt-context
+foreign key inserted by `risk.bind` retains a `KEY SHARE` lock until input loading
+commits; heartbeat and cancellation must not wait for that transaction. The new
+locks still serialize state changes and retain all token, authority and result
+publication checks. Claim/recovery locking, worker grants and deadlines remain
+unchanged. `tools/check_risk_jobs_db.py` verifies both controls with the actual
+bound transaction held open, along with stale-token and cancellation-first
+result refusal. This additive migration requires the usual operator-qualified
+schema baseline (D135).
