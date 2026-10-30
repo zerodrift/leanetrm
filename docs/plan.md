@@ -1506,3 +1506,6 @@ Generated-close and existing-close jobs retain distinct operation identities and
 publication permissions while sharing pricing. Historical migrations and upgrade
 checks remain necessary to reproduce supported database upgrades. Neither
 migration history nor distinct current operations are duplicate pricing engines.
+
+
+D268 adds a streamed Blotter valuation (`POST /api/trading/workspace/stream`: start count, complete rows per trade as they finish, totals once at the end) with a client reader in `web/src/blotter-stream.ts`. Blotter UI adoption (progress bar, grid built once, removal of `progressive`) is separate work.

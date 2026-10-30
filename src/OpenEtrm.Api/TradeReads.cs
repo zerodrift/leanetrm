@@ -25,20 +25,29 @@ public sealed partial class TradeReads
     // The Blotter with the booking catalog, or with only the catalog's directory of books and parties, and the groupings
     // the caller asks for of the Blotter's own valuation.
     public Task<object> Workspace(NpgsqlConnection connection,TradingView view,FuturesBlotterView report,ImmutableArray<FuturesBlotterView> summaries,bool directory,CancellationToken ct)
+        =>WorkspaceRun(connection,view,report,summaries,directory,null,ct);
+    // The Workspace with its Blotter's one valuation run, which stream consumes inside the bound read, so the read's
+    // transaction stays open while it streams. Without stream, the run is collected.
+    internal Task<object> WorkspaceRun(NpgsqlConnection connection,TradingView view,FuturesBlotterView report,ImmutableArray<FuturesBlotterView> summaries,
+        bool directory,Func<BlotterRun,Task<TradingBlotter.BlotterRead>>? stream,CancellationToken ct)
     {
+        async Task<object> Complete(object catalog,BlotterRun run)
+        {
+            var read=stream is null?await run.Collect(ct):await stream(run);
+            return new{catalog,blotter=read.Blotter,summaries=read.Summaries};
+        }
         // Without any visible trade revision, the directory's empty Blotter needs no valuation (D160).
         async Task<object?> EmptyDirectory()
         {
             if(await blotter.ReadEmptyDirectory(connection,view.Frame,report,summaries,ct) is not {} empty)return null;
             var catalog=await futures.Directory(connection,ct);
             await MarketBundle.RequireReferenceVisibility(connection,database.Manifest,ct);
-            return new{catalog,blotter=empty.Blotter,summaries=empty.Summaries};
+            return await Complete(catalog,empty);
         }
         return Read(connection,view,async data=>
         {
             var catalog=directory?await futures.Directory(connection,ct):await futures.Catalog(connection,data,view.CalculationFrame,ct);
-            var read=await blotter.Read(connection,data,view.CalculationFrame,report,summaries,ct);
-            return new{catalog,blotter=read.Blotter,summaries=read.Summaries};
+            return await Complete(catalog,await blotter.Begin(connection,data,view.CalculationFrame,report,summaries,ct));
         },ct,directory?EmptyDirectory:null,
             referenceScope:directory?ReferenceReadScope.DefinitionClosure:ReferenceReadScope.TradeValuation,
             observationScope:directory?ObservationReadScope.FactHistory:ObservationReadScope.ExactPins);

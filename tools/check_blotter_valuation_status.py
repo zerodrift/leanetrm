@@ -14,6 +14,7 @@ from fractions import Fraction
 import json
 from uuid import UUID, uuid4, uuid5
 from check_blotter_desk_fields import DESK_SUMMARIES, MIXED_SUMMARIES, SEEDED_DIRECTION, SWAP_CONVENTION, check_held_targets, check_money_totals, exact, money_view, total, unvalued
+from check_blotter_stream import run_valuation_status_checks as run_stream_checks
 from check_portfolio_risk import financial, reconcile
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
@@ -129,6 +130,7 @@ def run_checks(url, session=None):
           all(r['unavailableReason'] in (None, *REASONS) for r in rows))
     check('positions the close cannot value have blank mark, P&L and PV, never zero',
           all(r['mark'] is None and r['executionPnl'] is None and r['presentValue'] is None for r in rows if r['unavailableReason']))
+    run_stream_checks(c, dec31)
     left_out = [r for r in rows if r['unavailableReason']]
     check('positions the close cannot value still state their commodity and swap direction, and no mark minus price',
           len(left_out) == 16 and all(r['markMinusPrice'] is None and r['commodity']['code'] in ('test_gas', 'test_power')

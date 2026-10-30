@@ -63,6 +63,7 @@ if (args is ["--power-imports"])
 }
 if(args is ["--model-providers"]){await ModelProviderChecks.Run();return;}
 if(args is ["--turn-streams"]){await TurnStreamChecks.Run();return;}
+if(args is ["--blotter-stream"]){await BlotterStreamChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
@@ -76,6 +77,7 @@ if (args is ["--schedules"])
     TurnWorkerChecks.Run();
     AgentToolChecks.Run();
     await TurnStreamChecks.Run();
+    await BlotterStreamChecks.Run();
     PowerImportChecks.Run();
     SwapChangeReviewChecks.Run();
     WholeTermSwapAssemblyChecks.Run();
