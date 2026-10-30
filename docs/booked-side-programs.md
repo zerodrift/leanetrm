@@ -267,7 +267,11 @@ run as the caller for normal reads, preserving RLS, explicit trade/revision orde
 and the committed knowledge-receipt inner join. A separate operation-authorized
 reader supplies uncommitted terms only to the owning current write operation.
 Both readers use the same financial projection; no second reconstruction is
-maintained. Migration 0140 requires an explicit rebooking schema window.
+maintained. Normal holdings reads join its security-invoker view directly on exact
+revision keys. A correlated projection boundary keeps those keys inside the
+rendering step, avoiding repeated rendering of unrelated visible revisions.
+The committed receipt join remains in the same statement.
+Migration 0140 requires an explicit rebooking schema window.
 
 Qualification includes an injected booking identity mismatch: the API refuses it,
 no trade revision commits, and the same operation succeeds after restoring the

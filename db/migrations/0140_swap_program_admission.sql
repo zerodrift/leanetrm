@@ -5,9 +5,9 @@ SELECT pg_advisory_xact_lock(730849102);
 DO $$BEGIN
  IF EXISTS(SELECT 1 FROM trading.side_schedule_request_seals) THEN RAISE EXCEPTION 'swap_program_rebooking_required';END IF;
 END$$;
-CREATE FUNCTION trading.swap_revision_terms(catalog uuid,trade uuid,selected_revision integer DEFAULT NULL) RETURNS SETOF jsonb
-LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
- SELECT to_jsonb(v) FROM(
+-- Expose the relational projection to the caller's planner. A per-row SQL
+-- function with configuration settings is opaque and repeats the protected joins.
+CREATE VIEW trading.swap_revision_projection WITH(security_invoker=true) AS
    SELECT r.*,facts.booker_id,facts.booker_version,facts.booker_name,facts.booker_login,facts.executed_at AS booked_at,facts.trade_date AS booking_date,facts.implementation AS booking_implementation,facts.label_captured_at AS booker_label_captured_at,le.code AS legal_entity_code,le.name AS legal_entity_name,cp.code AS counterparty_code,cp.name AS counterparty_name,trdr.code AS trader_code,trdr.name AS trader_name,tr.reference_number AS trade_reference,ir.reference_number AS instrument_reference,
     coalesce(i.fixed_side_id,i.first_floating_side_id,i.scheduled_first_id) AS fixed_side_id,i.first_floating_side_id,coalesce(i.floating_side_id,i.scheduled_second_id) AS floating_side_id,i.fixed_coefficient,i.discounting,i.implementation,
     i.scheduled_first_id,i.scheduled_second_id,i.second_quantity_numerator,i.second_quantity_denominator,
@@ -50,9 +50,15 @@ LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
    LEFT JOIN trading.counterparties cp ON(cp.catalog_id,cp.id,cp.revision)=(r.catalog_id,r.counterparty_id,r.counterparty_revision)
    LEFT JOIN trading.traders trdr ON(trdr.catalog_id,trdr.id,trdr.revision)=(r.catalog_id,r.trader_id,r.trader_revision)
    JOIN trading.trade_references tr ON(tr.catalog_id,tr.trade_id)=(r.catalog_id,r.trade_id)
-   JOIN trading.instrument_references ir ON(ir.catalog_id,ir.instrument_id)=(r.catalog_id,r.instrument_id)
-   WHERE r.catalog_id=catalog AND(trade IS NULL OR r.trade_id=trade) AND(selected_revision IS NULL OR r.revision=selected_revision) ORDER BY r.trade_id,r.revision
- )v
+   JOIN trading.instrument_references ir ON(ir.catalog_id,ir.instrument_id)=(r.catalog_id,r.instrument_id);
+ALTER VIEW trading.swap_revision_projection OWNER TO openetrm_security_owner;
+REVOKE ALL ON trading.swap_revision_projection FROM PUBLIC;
+GRANT SELECT ON trading.swap_revision_projection TO openetrm_runtime,openetrm_risk_worker,openetrm_security_owner;
+CREATE FUNCTION trading.swap_revision_terms(catalog uuid,trade uuid,selected_revision integer DEFAULT NULL) RETURNS SETOF jsonb
+LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+ SELECT to_jsonb(v) FROM trading.swap_revision_projection v
+ WHERE v.catalog_id=catalog AND(trade IS NULL OR v.trade_id=trade) AND(selected_revision IS NULL OR v.revision=selected_revision)
+ ORDER BY v.trade_id,v.revision
 $$;
 CREATE FUNCTION trading.swap_revision_rows(catalog uuid,trade uuid,selected_revision integer DEFAULT NULL) RETURNS SETOF jsonb
 LANGUAGE sql STABLE SET search_path=pg_catalog AS $$

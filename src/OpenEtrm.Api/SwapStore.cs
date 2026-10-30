@@ -305,8 +305,13 @@ public sealed partial class SwapStore(PreviewDatabase database)
    UNION ALL
    SELECT * FROM latest_revisions WHERE cardinality($4::uuid[])=0 OR book_id=ANY($4::uuid[])
   ), rendered AS MATERIALIZED(
-   SELECT x AS payload,r.catalog_id,r.trade_id,r.revision,r.binding_id
-   FROM selected_revisions r CROSS JOIN LATERAL trading.swap_revision_rows(r.catalog_id,r.trade_id,r.revision) x
+   SELECT to_jsonb(v)||jsonb_build_object('recorded_at',k.known_from) AS payload,r.catalog_id,r.trade_id,r.revision,r.binding_id
+   FROM selected_revisions r
+   -- Keep the revision restriction inside the projection before rendering its side terms.
+   JOIN LATERAL(SELECT * FROM trading.swap_revision_projection p
+    WHERE(p.catalog_id,p.trade_id,p.revision,p.binding_id)=(r.catalog_id,r.trade_id,r.revision,r.binding_id)
+    OFFSET 0) v ON true
+   JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order)
   )
   SELECT payload FROM(
    SELECT payload::text,trade_id,revision FROM rendered v

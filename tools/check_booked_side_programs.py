@@ -252,9 +252,10 @@ def run_authority_checks(query,manifest,entry,before_context):
     assert unpublished, 'Visibility qualification requires a complete sealed unpublished program'
     # Normal history excludes a revision without its committed knowledge receipt;
     # booking-time publication reads are independently exercised before commit by HTTP.
-    normal=f"SELECT count(*) FROM trading.swap_revision_rows('{catalog}',NULL) r WHERE r->>'instrument_id'='{instrument}';"
+    normal=f"SELECT count(*) FROM trading.swap_revision_projection r JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order) WHERE(r.catalog_id,r.instrument_id)=('{catalog}','{instrument}');"
     history_bind=f"SELECT security.use_market_context('{catalog}','{selected}');SELECT security.use_trading_context('{catalog}','{at}');"
     assert runtime_query(query,manifest,history_bind+normal)!='0'
+    assert runtime_query(query,manifest,normal,profile='viewer')=='0'
     missing_receipt=f"ALTER TABLE trading.knowledge_receipts DISABLE TRIGGER ALL;DELETE FROM trading.knowledge_receipts WHERE(catalog_id,publication_order) IN(SELECT catalog_id,publication_order FROM trading.swap_trade_revisions WHERE(catalog_id,instrument_id)=('{catalog}','{instrument}'));"
     assert runtime_query(query,manifest,history_bind+normal,prefix=missing_receipt,commit=False)=='0'
     assert runtime_query(query,manifest,f"SELECT security.use_market_context('{catalog}','{before_context}');SELECT security.use_trading_context('{catalog}','{at}');"+normal)=='0'
