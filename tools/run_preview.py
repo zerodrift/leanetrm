@@ -593,7 +593,7 @@ def main():
                 from check_portfolio_risk import run_supplemental_scope
                 run_supplemental_scope(Client,check,query,manifest,run_worker)
                 from check_risk_run_definitions import run_now_checks
-                run_now_checks(url,query)
+                run_now_checks(url,query,run_worker)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

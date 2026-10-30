@@ -56,6 +56,9 @@ public sealed partial class TradeReads
     public Task<object> Positions(NpgsqlConnection connection,TradingView view,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,
         int offset,int limit,CancellationToken ct)=>ReadBound(connection,view,
             async()=>await new TradePositionFacts(database.Manifest).Read(connection,view,bookIds,portfolioIds,offset,limit,ct),ct);
+    // A saved risk run definition's latest completed run under the view.
+    public Task<object> LatestRiskRun(NpgsqlConnection connection,TradingView view,Guid definitionId,CancellationToken ct)=>
+        ReadBound(connection,view,()=>RiskRunDefinitions.Latest(connection,database.Manifest.CatalogId,definitionId,view,ct),ct);
     // A trade's selected revision, or its latest under the view, with every revision the view knows.
     public Task<object> FuturesTrade(NpgsqlConnection connection,TradingView view,Guid tradeId,int? revision,CancellationToken ct)=>
         Read(connection,view,data=>futures.Editor(connection,data,view.CalculationFrame,tradeId,revision,ct),ct);

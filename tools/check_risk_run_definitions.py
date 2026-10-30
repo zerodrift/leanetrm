@@ -94,8 +94,22 @@ def run_checks(url, query):
     print(f'{passed} risk run definition checks passed.', flush=True)
 
 
-def run_now_checks(url, query):
-    """Run now of saved definitions, against the risk fixture's seeded futures and swap holdings."""
+def revoke_trade_reads(query, login):
+    """Replace an account's grants with a synthetic role holding the same permissions minus ReadTrades."""
+    principal = query(f"SELECT principal_id FROM security.identity_bindings WHERE subject='{login}';")
+    role = str(uuid4())
+    query(f"""BEGIN;
+        INSERT INTO security.roles VALUES('{role}','synthetic_risk_without_trades_{login}','Synthetic risk analyst without trade reads ({login})');
+        INSERT INTO security.role_permissions SELECT DISTINCT '{role}'::uuid,p.permission FROM security.role_permissions p
+         JOIN security.role_grants g ON g.role_id=p.role_id WHERE g.principal_id='{principal}' AND NOT g.revoked AND p.permission<>'ReadTrades';
+        INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{role}',tenant_id,workspace_id,clock_timestamp(),granted_to,false
+         FROM security.role_grants WHERE principal_id='{principal}' AND NOT revoked LIMIT 1;
+        UPDATE security.role_grants SET revoked=true WHERE principal_id='{principal}' AND role_id<>'{role}';
+        COMMIT;""")
+
+
+def run_now_checks(url, query, run_worker):
+    """Run now of saved definitions and their latest completed runs, against the risk fixture's seeded futures and swap holdings."""
     passed = 0
     def check(name, condition=True):
         nonlocal passed
@@ -157,17 +171,88 @@ def run_now_checks(url, query):
     _, runner_context, _ = contexts(runner)
     before = run(runner, definition, context=runner_context)
     queued = jobs()
-    principal = query("SELECT principal_id FROM security.identity_bindings WHERE subject='synthetic_definition_runner';")
-    role = str(uuid4())
-    query(f"""BEGIN;
-        INSERT INTO security.roles VALUES('{role}','synthetic_risk_without_trades','Synthetic risk analyst without trade reads');
-        INSERT INTO security.role_permissions SELECT DISTINCT '{role}'::uuid,p.permission FROM security.role_permissions p
-         JOIN security.role_grants g ON g.role_id=p.role_id WHERE g.principal_id='{principal}' AND NOT g.revoked AND p.permission<>'ReadTrades';
-        INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{role}',tenant_id,workspace_id,clock_timestamp(),granted_to,false
-         FROM security.role_grants WHERE principal_id='{principal}' AND NOT revoked LIMIT 1;
-        UPDATE security.role_grants SET revoked=true WHERE principal_id='{principal}' AND role_id<>'{role}';
-        COMMIT;""")
+    revoke_trade_reads(query, 'synthetic_definition_runner')
     check('a definition book the account can no longer read refuses the run',
           before['jobs'] and run(runner, definition, 403, context=runner_context)['code'] == 'access_denied' and jobs() == queued
           and query(f"SELECT count(*) FROM risk.definition_runs WHERE definition_id='{definition['definitionId']}';") == '1')
     print(f'{passed} risk run definition run-now checks passed.', flush=True)
+
+    # The latest completed run of a definition, at runs valued at the fixture's successive closes.
+    passed = 0
+    def drain():
+        """Run the worker until no part of a definition's run is queued or running; it claims older work first."""
+        for _ in range(60):
+            if query("SELECT count(*) FROM risk.definition_run_jobs p JOIN risk.jobs j ON j.id=p.job_id WHERE j.state IN('queued','running');") == '0':
+                return
+            run_worker()
+        raise AssertionError('Definition runs did not finish')
+    def at(session, day):
+        """A session's current context of the fixture's snapshot of one day, and the context that read retains."""
+        current = {'snapshotId': initial_frame(session.call('workspace'), day)['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
+        read = session.call('portfolio/risk/catalog', {'context': current, 'bookIds': [], 'portfolioIds': []})
+        return current, {**current, 'knowledgeMode': 'retained', 'contextId': read['context']['contextId']}
+    def latest(session, definition, context, status=200):
+        return session.call(f"risk/definitions/{definition['definitionId']}/latest", {'context': context}, expected=status)
+    def ran(session, definition, day):
+        return run(session, definition, context=at(session, day)[1])['runId']
+    def valued(day):
+        return initial_frame(risk.call('workspace'), day)['at']
+
+    # The access change above failed every part queued before it, the first run's included.
+    rerun = run(risk, shocked, context=at(risk, '2020-12-18')[1]); drain()
+    shown = latest(risk, shocked, at(risk, '2020-12-18')[0])
+    parts = [risk.call('portfolio/risk/jobs/' + job['jobId']) for job in rerun['jobs']]
+    check('the latest completed run at or before the effective time is chosen, its parts read in order as job reports',
+          len(parts) > 1 and shown['state'] == 'latest' and shown['run']['runId'] == rerun['runId'] and shown['run']['version'] == shocked['version']
+          and shown['run']['parts'] == parts and [p['run']['part'] for p in parts] == list(range(1, len(parts) + 1))
+          and all(p['state'] == 'completed' and p['result']['factors'] for p in parts)
+          and shown['newer'] is None and shown['incomplete'] is None and first['runId'] not in json.dumps(shown)
+          and latest(risk, shocked, retained)['state'] == 'none')
+
+    daily = save(risk, 'held_curves', [size(label, '0.1') for label in labels])
+    on15 = ran(risk, daily, '2020-12-15'); drain()
+    _, before16 = at(risk, '2020-12-16'); _, before17 = at(risk, '2020-12-17')
+    on16 = ran(risk, daily, '2020-12-16'); drain()
+    past = latest(risk, daily, before16)
+    check('a run known after the knowledge cutoff is not visible',
+          past['state'] == 'latest' and past['run']['runId'] == on15 and past['run']['valuationAt'] == valued('2020-12-15')
+          and latest(risk, daily, at(risk, '2020-12-16')[0])['run']['runId'] == on16)
+    earlier = latest(risk, daily, at(risk, '2020-12-15')[0])
+    hidden = latest(risk, daily, before17)
+    check('a newer completed run beyond the selected effective time is stated',
+          earlier['state'] == 'newer_available' and earlier['run']['runId'] == on15
+          and earlier['newer'] == dict(runId=on16, valuationAt=valued('2020-12-16'))
+          and hidden['state'] == 'latest' and hidden['run']['runId'] == on15 and hidden['newer'] is None and on16 not in json.dumps(hidden))
+
+    on17 = ran(risk, daily, '2020-12-17')
+    _, while_queued = at(risk, '2020-12-17')
+    queued_now = latest(risk, daily, at(risk, '2020-12-17')[0])
+    drain()
+    queued_then = latest(risk, daily, while_queued)
+    check('a queued run is never shown in a past context',
+          queued_now['run']['runId'] == on16 and queued_now['incomplete'] is None and on17 not in json.dumps(queued_now)
+          and queued_then['run']['runId'] == on16 and on17 not in json.dumps(queued_then)
+          and latest(risk, daily, at(risk, '2020-12-17')[0])['run']['runId'] == on17)
+
+    cancelled = run(risk, daily, context=at(risk, '2020-12-17')[1])
+    risk.call(f"portfolio/risk/jobs/{cancelled['jobs'][0]['jobId']}/cancel", {})
+    drain()
+    after_cancel = latest(risk, daily, at(risk, '2020-12-17')[0])
+    check('a run with a failed or cancelled part is not completed',
+          after_cancel['run']['runId'] == on17
+          and after_cancel['incomplete'] == dict(runId=cancelled['runId'], valuationAt=valued('2020-12-17'), failedParts=[1]))
+
+    again = ran(risk, daily, '2020-12-17'); drain()
+    tie = latest(risk, daily, at(risk, '2020-12-17')[0], 409)
+    check('two completed runs at the same valuation time are refused',
+          tie['code'] == 'risk_run_tie' and tie['runs'] == [dict(runId=r, valuationAt=valued('2020-12-17')) for r in (on17, again)])
+
+    reader = account(url, 'synthetic_definition_reader', ['risk_analyst'])
+    readable = save(reader, 'held_curves', [size(label, '0.1') for label in labels])
+    ran(reader, readable, '2020-12-18'); drain()
+    current = at(reader, '2020-12-18')[0]
+    seen = latest(reader, readable, current)
+    revoke_trade_reads(query, 'synthetic_definition_reader')
+    check('lost book access refuses the read',
+          seen['state'] == 'latest' and latest(reader, readable, current, 403)['code'] == 'access_denied')
+    print(f'{passed} latest risk run checks passed.', flush=True)
