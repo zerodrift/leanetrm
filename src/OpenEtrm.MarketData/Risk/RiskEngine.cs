@@ -57,6 +57,8 @@ public sealed record RiskWork(int PositionCount,int UniqueValuations,int UniqueM
     public long ReusedUnitScenarioValues=>UnitScenarioCandidates-UnitPricerCalls;
     public int QuantityApplications{get;init;}
     public int PreparationScenarioCount{get;init;}
+    public long CurveGraphEvaluatedNodes{get;init;}
+    public long CurveGraphReusedReads{get;init;}
     public int VolumeComputations{get;init;}
     public int UniqueSideCalculations{get;init;}
     public long RowEvaluations{get;init;}

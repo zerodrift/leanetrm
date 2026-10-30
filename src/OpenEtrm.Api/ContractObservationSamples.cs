@@ -7,9 +7,29 @@ namespace OpenEtrm.Api;
 
 internal static class ContractObservationSamples
 {
-    internal static async Task<ImmutableArray<ContractObservationSample>> Read(NpgsqlConnection connection,PreviewDatabase database,
-        PreviewData data,InputFrame frame,ScheduleContext context,ImmutableArray<ContractObservationLookup> lookups,CancellationToken ct,ConnectedMarketEvidence? retained=null)
+    // One authorized Holdings operation owns this reader; it never outlives
+    // that operation's transaction and permission fence.
+    internal sealed class History
     {
+        private readonly Dictionary<(DefinitionRevision Revision,ScheduleContext Context,DateTimeOffset At),PreviewData> histories=[];
+        internal async Task<PreviewData> Read(DefinitionRevision revision,InputFrame frame,ScheduleContext context,
+            bool retained,Func<Task<PreviewData>> load)
+        {
+            var exact=PinnedContext.Exact(context);
+            if(frame.ContextId!=exact.ContextId)throw Invalid("Source history requires the bound certified context.");
+            if(retained)return await load();
+            var key=(revision,exact,frame.At);
+            if(histories.TryGetValue(key,out var history))return history;
+            history=await load();
+            histories.Add(key,history);
+            return history;
+        }
+    }
+
+    internal static async Task<ImmutableArray<ContractObservationSample>> Read(NpgsqlConnection connection,PreviewDatabase database,
+        PreviewData data,InputFrame frame,ScheduleContext context,ImmutableArray<ContractObservationLookup> lookups,CancellationToken ct,ConnectedMarketEvidence? retained=null,History? histories=null)
+    {
+        ct.ThrowIfCancellationRequested();
         if(lookups.IsEmpty)return [];
         var exact=PinnedContext.Exact(context);
         if(frame.ContextId!=exact.ContextId)throw Invalid("Source samples require the bound certified knowledge context.");
@@ -17,8 +37,9 @@ internal static class ContractObservationSamples
         // only facts committed by its certified knowledge cutoff.
         var pins=retained is null?(ImmutableArray<Guid>?)null:retained.Samples.Where(sample=>sample.Kind=="contract_observation")
             .SelectMany(sample=>sample.Observations.Select(observation=>observation.Id)).Concat(frame.ObservationIds).Distinct().ToImmutableArray();
-        var history=await database.Read(connection,ct,data.DefinitionRevision.RevisionId,data,pins,
+        Task<PreviewData> Load()=>database.Read(connection,ct,data.DefinitionRevision.RevisionId,data,pins,
             includeCalendarDays:false,observationScope:retained is null?ObservationReadScope.FactHistory:ObservationReadScope.ExactPins);
+        var history=histories is null?await Load():await histories.Read(data.DefinitionRevision,frame,exact,retained is not null,Load);
         return [..lookups.Distinct().Select(lookup=>{
             ConnectedSampleEvidence? evidence=null;
             if(retained is not null)

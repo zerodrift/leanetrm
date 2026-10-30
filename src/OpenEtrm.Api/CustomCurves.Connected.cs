@@ -57,7 +57,7 @@ public static partial class CustomCurves
     internal static async Task<PreparedMarket> PrepareMarket(NpgsqlConnection connection,PreviewDatabase database,
         PreviewData data,InputFrame frame,MarketSnapshot snapshot,ScheduleContext context,
         ImmutableArray<Instrument> instruments,ImmutableArray<CurveRequest> dependencies,CancellationToken ct,
-        ConnectedMarketEvidence? retained=null,ImmutableArray<SchedulePriceTerm>? activePrices=null)
+        ConnectedMarketEvidence? retained=null,ImmutableArray<SchedulePriceTerm>? activePrices=null,ContractObservationSamples.History? sourceHistories=null)
     {
         var exact=PinnedContext.Exact(context);
         if(frame.ContextId!=exact.ContextId||snapshot.Id!=frame.Id||snapshot.ValuationAt!=frame.At||
@@ -154,7 +154,7 @@ public static partial class CustomCurves
             .Select(price=>price.ContractObservation!).Distinct().ToImmutableArray();
         if(!observationLookups.IsEmpty&&snapshot.MarketCutoff!=frame.At)
             throw new MarketDataException("contract_observation_context","This source consumer requires an explicit market cutoff equal to the valuation instant.");
-        var observationSamples=await ContractObservationSamples.Read(connection,database,data,frame,exact,observationLookups,ct,retained);
+        var observationSamples=await ContractObservationSamples.Read(connection,database,data,frame,exact,observationLookups,ct,retained,sourceHistories);
         ContractObservationPricing? observationPricing=null;
         if(!observationSamples.IsEmpty)
         {

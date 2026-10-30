@@ -294,7 +294,11 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var combined=new RiskWork(work.Sum(w=>w.PositionCount),work.Sum(w=>w.UniqueValuations),work.Sum(w=>w.UniqueMarketContracts),1+2*bumps.Length,
             work.Sum(w=>w.UnitPricerCalls),work.Sum(w=>w.RebuiltCurveNodes)+prepared.MaterializationWork.RebuiltCurveNodes,
             work.Sum(w=>w.ReusedCurveNodes)+prepared.MaterializationWork.ReusedCurveNodes)
-            {QuantityApplications=work.Sum(w=>w.QuantityApplications),PreparationScenarioCount=work.Sum(w=>w.PreparationScenarioCount)+prepared.MaterializationScenarioCount,
+            {CurveGraphEvaluatedNodes=work.Sum(w=>w.CurveGraphEvaluatedNodes),CurveGraphReusedReads=work.Sum(w=>w.CurveGraphReusedReads),
+             UniqueInstruments=work.Sum(w=>w.UniqueInstruments),VolumeComputations=work.Sum(w=>w.VolumeComputations),
+             UniqueSideCalculations=work.Sum(w=>w.UniqueSideCalculations),ResolvedCurveMonths=work.Sum(w=>w.ResolvedCurveMonths),
+             ReusedCurveMonths=work.Sum(w=>w.ReusedCurveMonths),CalibratedBlocks=work.Sum(w=>w.CalibratedBlocks),ReusedBlocks=work.Sum(w=>w.ReusedBlocks),
+             QuantityApplications=work.Sum(w=>w.QuantityApplications),PreparationScenarioCount=work.Sum(w=>w.PreparationScenarioCount)+prepared.MaterializationScenarioCount,
              RowEvaluations=work.Sum(w=>w.RowEvaluations),ScheduleGraphEvaluatedNodes=work.Sum(w=>w.ScheduleGraphEvaluatedNodes),ScheduleGraphReusedReads=work.Sum(w=>w.ScheduleGraphReusedReads)};
         ct.ThrowIfCancellationRequested();
         return new(prepared.SnapshotId,prepared.Context,prepared.Policy,ModelContracts(groups.SelectMany(g=>g.Group.Contracts)),prepared.Positions,
@@ -365,7 +369,11 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         // Graph reads and affected nodes have distinct counters from materialized
         // curve receipts; report the actual graph work in ConnectedScenarios.
         var work=new RiskWork(w.PositionCount,w.UniqueValuations,w.UniqueMarketContracts,w.ScenarioCount,w.UnitPricerCalls,0,0)
-            {QuantityApplications=w.QuantityApplications,PreparationScenarioCount=w.PreparationScenarioCount,
+            {CurveGraphEvaluatedNodes=run.GraphWork.EvaluatedNodes,CurveGraphReusedReads=run.GraphWork.ReusedReads,
+             UniqueInstruments=w.UniqueInstruments,VolumeComputations=w.VolumeComputations,
+             UniqueSideCalculations=w.UniqueSideCalculations,ResolvedCurveMonths=w.ResolvedCurveMonths,ReusedCurveMonths=w.ReusedCurveMonths,
+             CalibratedBlocks=w.CalibratedBlocks,ReusedBlocks=w.ReusedBlocks,
+             QuantityApplications=w.QuantityApplications,PreparationScenarioCount=w.PreparationScenarioCount,
              RowEvaluations=w.RowEvaluations,ScheduleGraphEvaluatedNodes=w.ScheduleGraphEvaluatedNodes,ScheduleGraphReusedReads=w.ScheduleGraphReusedReads};
         return new(market,groups,work,new(market.Snapshot.Definitions,scenario.Plan.ManifestId,scenario.Id,scenario.ParentId,scenario.Depth,run.GraphWork,market.Preparation),axes);
     }

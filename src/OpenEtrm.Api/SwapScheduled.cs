@@ -171,7 +171,7 @@ public sealed partial class SwapStore
     }
     private async Task<FinancialSwapValue> ScheduledPrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrument,CancellationToken ct)=>
         (await ScheduledPriceDetail(connection,data,frame,body,instrument,ct)).Value;
-    private async Task<(FinancialSwapValue Value,ScheduledResolution Resolved)> ScheduledPriceDetail(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrument,CancellationToken ct,RetainedScheduleStore? schedules=null)
+    private async Task<(FinancialSwapValue Value,ScheduledResolution Resolved)> ScheduledPriceDetail(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrument,CancellationToken ct,RetainedScheduleStore? schedules=null,ContractObservationSamples.History? sourceHistories=null)
     {
         (data,frame)=await ScheduledMarket(connection,data,frame,body.DefinitionRevisionId,ct);
         var resolved=ResolveScheduled(data,body,instrument);var snapshot=data.Snapshot(frame);
@@ -180,7 +180,7 @@ public sealed partial class SwapStore
         var mapping=body.Discounting==true?await Discount(connection,data,frame,resolved.Instrument.Currency,ct):null;
         if(frame.ContextId is not {} contextId)throw Error("swap_context","Pricing requires the exact retained context.");
         var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
-        var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),ct);
+        var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),ct,sourceHistories:sourceHistories);
         var evaluated=resolved.Instrument switch {
             ScheduledFinancialSwap swap=>FinancialSwapValuation.Evaluate(swap,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct),
             CrossCommodityScheduledSwap cross=>FinancialSwapValuation.Evaluate(cross,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct),

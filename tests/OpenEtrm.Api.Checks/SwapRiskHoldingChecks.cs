@@ -166,13 +166,19 @@ internal static class SwapRiskHoldingChecks
             var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
                 SwapStore.Convention,ZeroRateCurve.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
             var pinned=frame with{ContextId=current.ContextId};
+            var missingFixing=leftOut with{Reason="index_fixing_missing"};
+            var prepared=await new PortfolioValuation(database).Prepare(connection,data,pinned,data.Snapshot(pinned),current,
+                [request.Id("bookId")],policy,[],[missingFixing],ct);
+            Check("a risk run retains the exact missing-published-fixing exclusion and values the remaining held scope",
+                prepared.Excluded.SequenceEqual([missingFixing])&&prepared.Positions.Where(position=>position.InstrumentType=="financial_swap")
+                    .Select(position=>position.TradeId).Order().SequenceEqual(holdings.Skip(1).Select(holding=>holding.Row.Id("trade_id")).Order()));
             try
             {
                 await new PortfolioValuation(database).Prepare(connection,data,pinned,data.Snapshot(pinned),current,[request.Id("bookId")],policy,[],
-                    [leftOut with{Reason="index_fixing_missing"}],ct);
-                throw new Exception("A risk run left out a position for a reason that is not position-specific.");
+                    [leftOut with{Reason="index_fixing_definition"}],ct);
+                throw new Exception("A risk run left out a position for a malformed fixing definition.");
             }
-            catch(MarketDataException error)when(error.Code=="risk_contract"){Check("a risk run refuses to leave out a position for a reason that is not position-specific",true);}
+            catch(MarketDataException error)when(error.Code=="risk_contract"){Check("a risk run refuses to leave out a position for a malformed fixing definition",true);}
         });
         var retained=JsonSerializer.Deserialize<ScheduleContext>(request.GetProperty("earlierContext"),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         await Read(async(connection,data,ct)=>

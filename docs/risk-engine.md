@@ -353,3 +353,19 @@ existing-close worker integration, generated-close integration, and connected
 portfolio regressions with synthetic inputs on disposable PostgreSQL databases.
 Independent review covered scope authorization, retained inputs, numerical work
 counting and publication fences.
+
+Work reports preserve the same volume computations, unique side calculations,
+resolved curve months, calibrated blocks and interval row counts through native
+and connected execution. `rebuiltCurveNodes` and `reusedCurveNodes` count native
+curve receipts; connected execution does not manufacture those receipts.
+`curveGraphEvaluatedNodes` and `curveGraphReusedReads` retain the connected graph's
+actual work, including base preparation, in portfolio and durable close reports.
+These are separate from schedule graph node/read counters. The twelve-month
+lease fixture requires at least 72 curve graph evaluations (24 base source
+factors plus their 48 signed shocks); graph structure may add further work.
+
+When unavailable prices require position-level qualification, one holdings read
+reuses complete dated-source history only within that authorized operation and
+exact definition, certified context and valuation instant. Individual observations
+are still selected separately. Retained jobs bypass this reuse and load their
+exact admitted pins; failed reads are not retained.

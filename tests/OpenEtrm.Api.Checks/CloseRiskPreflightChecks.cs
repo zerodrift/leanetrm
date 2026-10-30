@@ -45,6 +45,16 @@ internal static class CloseRiskPreflightChecks
             var graph=ConnectedScenario.Base(ConnectedCurves.Compile(export.Definitions,[..bindings.Values],market.Build.Graph.Plan.Context,new Bindings()));
             var connected=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(graph,market.Snapshot),bindings,[portfolio],market.Build);
             var counted=RiskEngine.IntervalWork(connected);
+            if(selected.Length==2&&selected[0]==selected[1])
+            {
+                // One shared monthly scope, four sides and 721 DST-aware hours;
+                // energy and certificate prices each resolve one curve month,
+                // with one shaped energy block and no certificate calibration.
+                var calculated=RiskEngine.CalculateExact(connected,[],RiskEngine.ExactNumericalPolicy).Work;
+                Equal(calculated.UniqueInstruments,1);Equal(calculated.VolumeComputations,1);
+                Equal(calculated.UniqueSideCalculations,4);Equal(calculated.RowEvaluations,4*721);
+                Equal(calculated.ResolvedCurveMonths,2);Equal(calculated.CalibratedBlocks,1);
+            }
             Equal(RiskEngine.IntervalWork(connected,[]).RowScenarios,counted.Rows);
             var unheld=market.Model.QuoteFactors(market.Snapshot).First(factor=>!connected.Factors.Any(held=>held.Input==factor.Input));
             Equal(PortfolioValuation.NativeWork(connected,[unheld.Input]).RowScenarios,counted.Rows);

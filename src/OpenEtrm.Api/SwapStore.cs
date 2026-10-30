@@ -562,6 +562,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var unvalued=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),string>();
   var identities=new Dictionary<Guid,((DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId) Key,FinancialSwapInstrument Instrument)>();
   var schedules=new RetainedScheduleStore(database);
+  var sourceHistories=new ContractObservationSamples.History();
   var unvaluedRows=ImmutableArray.CreateBuilder<(JsonElement Row,string Reason)>();
   // A scheduled swap, or one whose settlement lifecycle is under way, is valued for its own binding.
   var bindingValuations=0;
@@ -576,7 +577,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    if(settlement.GetProperty("occurrences").GetArrayLength()!=0)
    {
     bindingValuations++;LifecycleEvaluation? lifecycle=null;string? reason=null;
-    try{lifecycle=await EvaluateLifecycle(connection,data,frame,row,terms,settlement,ct,schedules);}
+    try{lifecycle=await EvaluateLifecycle(connection,data,frame,row,terms,settlement,ct,schedules,sourceHistories);}
     catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){reason=error.Code;}
     instrument=lifecycle?.Instrument??(await ResolveRetained(connection,source,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
     held=lifecycle is null?new(null,null,reason,"Active",null):new(Exact(lifecycle.Value.RemainingValue),null,null,"Active",LifecycleValue(lifecycle.Value));
@@ -584,7 +585,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    else if(terms.Scheduled is not null)
    {
     bindingValuations++;FinancialSwapValue? value=null;ScheduledResolution? resolved=null;string? reason=null;
-    try{var priced=await ScheduledPriceDetail(connection,data,frame,terms,id,ct,schedules);value=priced.Value;resolved=priced.Resolved;}
+    try{var priced=await ScheduledPriceDetail(connection,data,frame,terms,id,ct,schedules,sourceHistories);value=priced.Value;resolved=priced.Resolved;}
     catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){reason=error.Code;}
     instrument=resolved?.Instrument??(await ResolveRetained(connection,source,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
     held=value is null?new(null,null,reason,"Projection",null):new(Exact(value.ExactPresentValue),null,null,"Projection",null);

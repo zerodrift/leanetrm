@@ -49,7 +49,44 @@ internal static class SideObservationCompatibilityChecks
         CheckContractObservationInput();
         CheckContractObservationResolution();
         CheckContractObservationCorrections();
+        CheckSourceHistoryReuse().GetAwaiter().GetResult();
         Console.WriteLine("PASS Side observation compatibility: all six explicit authoring pairs; monthly/daily publication roles remain distinct; missing or unsupported metadata and finer cadence reject");
+    }
+
+    private static async Task CheckSourceHistoryReuse()
+    {
+        var data=new AdmissionFixture().Data();var other=new AdmissionFixture().Data();
+        var at=new DateTimeOffset(2048,4,1,16,0,0,TimeSpan.Zero);
+        var context=new ScheduleContext("2048-04-01",1,at.AddDays(1).ToString("O"),Guid.NewGuid());
+        var frame=new InputFrame(Guid.NewGuid(),"Synthetic history",at,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,context.ContextId);
+        var history=new ContractObservationSamples.History();var loads=0;
+        Task<PreviewData> Load(PreviewData selected){loads++;return Task.FromResult(selected);}
+        var first=await history.Read(data.DefinitionRevision,frame,context,false,()=>Load(data));
+        var repeated=await history.Read(data.DefinitionRevision,frame,context,false,()=>Load(data));
+        if(loads!=1||!ReferenceEquals(first,repeated))throw new Exception("A single authorized holdings operation reread the same complete source history.");
+        await history.Read(other.DefinitionRevision,frame,context,false,()=>Load(other));
+        await history.Read(data.DefinitionRevision,frame with{At=at.AddHours(1)},context,false,()=>Load(data));
+        var next=context with{ContextId=Guid.NewGuid()};
+        await history.Read(data.DefinitionRevision,frame with{ContextId=next.ContextId},next,false,()=>Load(data));
+        await history.Read(data.DefinitionRevision,frame,context with{KnownAt=at.AddDays(2).ToString("O")},false,()=>Load(data));
+        if(loads!=5)throw new Exception("Source history crossed an exact definition, instant or certified knowledge boundary.");
+        // Exact retained pins must bypass the broader current-history entry even
+        // at the same context; two distinct manifests each load their own pins.
+        await history.Read(data.DefinitionRevision,frame,context,true,()=>Load(data));
+        await history.Read(data.DefinitionRevision,frame,context,true,()=>Load(other));
+        if(loads!=7)throw new Exception("A retained source manifest reused current history or another manifest's pins.");
+        await new ContractObservationSamples.History().Read(data.DefinitionRevision,frame,context,false,()=>Load(data));
+        if(loads!=8)throw new Exception("Source histories escaped their owning operation.");
+        var failedFrame=frame with{At=at.AddHours(2)};
+        try{await history.Read(data.DefinitionRevision,failedFrame,context,false,()=>Task.FromException<PreviewData>(new InvalidOperationException("Synthetic failed read")));}
+        catch(InvalidOperationException){}
+        await history.Read(data.DefinitionRevision,failedFrame,context,false,()=>Load(data));
+        if(loads!=9)throw new Exception("A failed source history read was retained.");
+        try{await history.Read(data.DefinitionRevision,frame with{ContextId=Guid.NewGuid()},context,false,()=>Load(data));
+            throw new Exception("A mismatched certified source context was accepted.");}
+        catch(MarketDataException error)when(error.Code=="contract_observation_source"){}
+        if(loads!=9)throw new Exception("A mismatched context reached the source-history loader.");
+        Console.WriteLine("PASS source history reuse: one load per exact operation/context/definition/instant; retained pins remain independent");
     }
 
     private static void CheckContractObservationCorrections()
