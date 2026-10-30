@@ -139,7 +139,12 @@ def run_stage_checks(query, manifest):
     runtime(f"SELECT security.append_side_schedule_edges('{catalog}','{request}','{schedule}',{literal(edges)});")
     roots=[dict(name='cash',row=2,measure='contractual_amount',sequence=0),dict(name='pv',row=6,measure='pv',sequence=1)]
     runtime(f"SELECT security.append_side_schedule_aux('{catalog}','{request}','{schedule}','roots',{literal(roots)});")
+    from check_booked_side_programs import append_program,check_literal_program,literal_program,install_stage_prerequisite
+    runtime(reject(seal,'side_schedule_missing'))
+    program=literal_program(header,rows,roots)
+    check_literal_program(runtime,query,catalog,request,schedule,program,reject)
     runtime(seal);runtime(seal)
+    runtime(append_program(catalog,request,schedule,json.dumps(program,separators=(',',':'))))
     assert state()['sealedManifest']=='a'*64, 'Retries require the exact immutable content seal, independently of chunk presence'
     runtime(append_rows(rows));runtime(chunk)
     runtime(f"SELECT security.seal_side_schedule_request('{catalog}','{request}','[]'::jsonb);")
@@ -152,6 +157,52 @@ def run_stage_checks(query, manifest):
         invalid_schedule=runtime(begin.replace(request,invalid_request).replace(literal(header),literal(invalid_header)))
         def scoped(statement):return statement.replace(request,invalid_request).replace(schedule,invalid_schedule)
         return scoped,invalid_schedule
+    def complete_program_fixture(name,values,named,geometries=()):
+        scoped,identifier=stage_graph(name,rowCount=len(values),rootCount=len(named),gridCount=len(geometries))
+        if geometries:
+            runtime(scoped(f"SELECT security.append_side_schedule_grids('{catalog}','{request}','{schedule}',{literal(geometries)});"))
+        runtime(scoped(append_rows(values)))
+        runtime(scoped(f"SELECT security.append_side_schedule_edges('{catalog}','{request}','{schedule}',{literal(edges)});"))
+        runtime(scoped(f"SELECT security.append_side_schedule_aux('{catalog}','{request}','{schedule}','roots',{literal(named)});"))
+        operation=query(f"SELECT request_id FROM trading.side_schedules WHERE id='{identifier}';")
+        return operation,identifier
+    def unreadable_program(name,values,named,geometries=(),code='side_schedule_program'):
+        operation,identifier=complete_program_fixture(name,values,named,geometries)
+        content=query(f"SELECT trading.side_program_document('{catalog}','{identifier}')::text;")
+        runtime(reject(append_program(catalog,operation,identifier,content),code))
+        assert query(f"SELECT count(*) FROM trading.side_schedule_programs WHERE schedule_id='{identifier}';")=='0', \
+            'Invalid structure or a typed seal failure must roll back the executable insert'
+    unreadable_program('synthetic_empty_program_key',[dict(r,key='') if r['ordinal']==0 else r for r in rows],roots)
+    unreadable_program('synthetic_empty_program_root',rows,[dict(r,name='') if r['name']=='cash' else r for r in roots])
+    unreadable_program('synthetic_empty_program_measure',rows,[dict(r,measure='') if r['name']=='cash' else r for r in roots])
+    unreadable_program('synthetic_duplicate_program_pv',rows,[dict(r,measure='pv') for r in roots])
+    unreadable_program('synthetic_orphan_program_row',rows+[row(7,'quantity_literal','quantity','source',dict(numerator='1',denominator='1'))],roots)
+    unreadable_program('synthetic_unguarded_program_source',rows+[row(7,'discount','factor','source',dict(policy='context_required_v1'))],
+        roots+[dict(name='unconsumed_factor',row=7,measure='factor',sequence=2)])
+    incomplete,incomplete_id=stage_graph('synthetic_incomplete_executable')
+    incomplete_request=query(f"SELECT request_id FROM trading.side_schedules WHERE id='{incomplete_id}';")
+    content=query(f"SELECT trading.side_program_document('{catalog}','{incomplete_id}')::text;")
+    runtime(reject(append_program(catalog,incomplete_request,incomplete_id,content),'side_schedule_program'))
+    bad_source=[dict(r,operation='price_lookup',parameters=dict(selection='interval_attribute_lookup_v1')) if r['ordinal']==1 else r for r in rows]
+    unreadable_program('synthetic_atomic_program_source_failure',bad_source,roots,code='side_schedule_sources')
+    from concurrent.futures import ThreadPoolExecutor
+    for conflicting in (False,True):
+        name='synthetic_program_seal_race_'+str(conflicting)
+        operation,identifier=complete_program_fixture(name,rows,roots)
+        exact=literal_program(dict(header,economicIdentity=json.dumps({'contract':name})),rows,roots)
+        first_payload=json.dumps(exact,separators=(',',':'))
+        other_payload=json.dumps(exact,indent=1) if conflicting else first_payload
+        def attempt(payload):
+            try:runtime(append_program(catalog,operation,identifier,payload));return 'sealed'
+            except RuntimeError as error:
+                if 'side_schedule_program_conflict' not in str(error):raise
+                return 'conflict'
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes=list(executor.map(attempt,(first_payload,other_payload)))
+        assert sorted(outcomes)==(['conflict','sealed'] if conflicting else ['sealed','sealed']), \
+            'Concurrent retries admit one exact artifact and reject different bytes'
+        assert query(f"SELECT (SELECT count(*) FROM trading.side_schedule_programs WHERE schedule_id='{identifier}')::text||':'||(SELECT count(*) FROM trading.side_schedule_seals WHERE schedule_id='{identifier}')::text;")=='1:1'
+    print('PASS booked program sealing: unreadable/incomplete artifacts refuse, typed failures roll back bytes and concurrent retries retain one seal',flush=True)
     # Four delivery cells use one retained geometry and seven vector/scalar
     # operations. Delivery cardinality must not manufacture SQL operation rows.
     vector,vector_id=stage_graph('synthetic_four_cell_block_v2',gridCount=1)
@@ -161,17 +212,23 @@ def run_stage_checks(query, manifest):
     grid=dict(ordinal=0,key='delivery/2021-01',clock=dict(revision=dict(catalogId=reference,revisionId=revision),code=clock),
         month='2021-01-01',firstRowOrdinal=0,origin='2021-01-01T00:00:00Z',stepTicks=36000000000,axisCount=4,
         selection=[0,1,2,3],lengths=[1,1,1,1],operatingDays=[day]*4,localMinutes=[0,60,120,180],occurrences=[1]*4)
+    unreadable_program('synthetic_unused_program_grid',rows,roots,[grid])
     grid_append=f"SELECT security.append_side_schedule_grids('{catalog}','{request}','{schedule}',{literal([grid])});"
     runtime(vector(grid_append));runtime(vector(grid_append))
     assert runtime(vector(f"SELECT cardinality(selection) FROM security.read_side_schedule_grids({typed_scope},0,1);"))=='4'
     assert runtime(f"SELECT count(*) FROM trading.side_schedule_grids WHERE schedule_id='{vector_id}';")=='0', \
         'Unpublished vector geometry must remain private to its authorized request'
     vector_rows=[dict(r,grid=0,deliveryFrom=None,deliveryTo=None,interval=None) if r['ordinal'] in (0,2,4,5) else dict(r) for r in rows]
-    vector_rows[5]=dict(vector_rows[5],occurrenceKey=None,termsDigest=None)
+    vector_rows[5]=dict(vector_rows[5],occurrenceKey=None,termsDigest=None,
+        parameters=dict(vector_rows[5]['parameters'],lifecycle='interval_payment_v1',measure='value_excluding_overdue_v1'))
     vector_rows[6]=dict(vector_rows[6],operation='sum_cells')
+    unreadable_program('synthetic_oversized_program_grid',vector_rows,roots,[dict(grid,axisCount=2147483647)])
     runtime(vector(append_rows(vector_rows)))
     runtime(vector(f"SELECT security.append_side_schedule_edges('{catalog}','{request}','{schedule}',{literal(edges)});"))
     runtime(vector(f"SELECT security.append_side_schedule_aux('{catalog}','{request}','{schedule}','roots',{literal(roots)});"))
+    vector_header=dict(header,economicIdentity=json.dumps({'contract':'synthetic_four_cell_block_v2'}),gridCount=1)
+    vector_request=query(f"SELECT request_id FROM trading.side_schedules WHERE id='{vector_id}';")
+    runtime(append_program(catalog,vector_request,vector_id,json.dumps(literal_program(vector_header,vector_rows,roots,[grid]),separators=(',',':'))))
     runtime(vector(seal));runtime(vector(seal))
     assert query(f"SELECT (SELECT count(*) FROM trading.side_schedule_grids WHERE schedule_id='{vector_id}')::text||':'||(SELECT count(*) FROM trading.side_schedule_rows WHERE schedule_id='{vector_id}')::text;")=='1:7'
     invalid_grid,invalid_grid_id=stage_graph('synthetic_misaligned_block_grid_v2',gridCount=1)
@@ -247,7 +304,7 @@ def run_stage_checks(query, manifest):
             fixing_index_code=fixing['index_code'],fixing_from=fixing['observation_from'],fixing_to=fixing['observation_to'],
             quote_code=fixing['quote_code'],coordinate='published_index_observations_v1',sequence_ordinal=3)]
     for mismatch in (False,True):
-        scoped,_=stage_graph('synthetic_fixing_window_'+str(mismatch),family='floating',bindingCount=4)
+        scoped,scoped_schedule=stage_graph('synthetic_fixing_window_'+str(mismatch),family='floating',bindingCount=4)
         proposed=[dict(r) for r in lookup_rows]
         if mismatch:
             from datetime import date,timedelta
@@ -256,6 +313,9 @@ def run_stage_checks(query, manifest):
         runtime(scoped(f"SELECT security.append_side_schedule_edges('{catalog}','{request}','{schedule}',{literal(edges)});"))
         runtime(scoped(f"SELECT security.append_side_schedule_aux('{catalog}','{request}','{schedule}','bindings',{literal(bindings)});"))
         runtime(scoped(f"SELECT security.append_side_schedule_aux('{catalog}','{request}','{schedule}','roots',{literal(roots)});"))
+        if not mismatch:
+            scoped_request=query(f"SELECT request_id FROM trading.side_schedules WHERE id='{scoped_schedule}';")
+            install_stage_prerequisite(runtime,query,catalog,scoped_request,scoped_schedule)
         runtime(reject(scoped(seal),'side_schedule_sources') if mismatch else scoped(seal))
     for mismatched in (False,True):
         operation=str(uuid4());name='synthetic_quantity_subselection_'+str(mismatched)
@@ -284,6 +344,7 @@ def run_stage_checks(query, manifest):
             write('append_side_schedule_aux','roots',output_roots)
             write('append_side_schedule_outputs','sets',[dict(name='quantity',unit=unit,shapeIdentity='synthetic_full_geometry_v2')])
             write('append_side_schedule_outputs','members',[dict(set='quantity',root='quantity')])
+            install_stage_prerequisite(runtime,query,catalog,operation,identifier)
             runtime(f"SELECT security.seal_side_schedule('{catalog}','{operation}','{identifier}','{'a'*64}');")
         composition=f"SELECT security.seal_side_schedule_request('{catalog}','{operation}',{literal(links)});"
         runtime(reject(composition,'side_schedule_ports') if mismatched else composition)
@@ -326,6 +387,7 @@ def run_stage_checks(query, manifest):
             write('append_side_schedule_aux','roots',named)
             write('append_side_schedule_outputs','sets',[dict(name='quantity',unit=unit,shapeIdentity='synthetic_full_geometry_v2')])
             write('append_side_schedule_outputs','members',sources)
+            install_stage_prerequisite(runtime,query,catalog,operation,identifier)
             runtime(f"SELECT security.seal_side_schedule('{catalog}','{operation}','{identifier}','{'a'*64}');")
         composition=f"SELECT security.seal_side_schedule_request('{catalog}','{operation}',{literal([dict(target=1,port=port,source=0,output='quantity')])});"
         runtime(reject(composition,'side_schedule_ports') if refused else composition)
@@ -354,6 +416,8 @@ def run_temporal_checks(url,query,manifest):
     frames=client.call('workspace')['frames']
     later=next(f for f in frames if f['at'].startswith('2020-12-18'))
     earlier=next(f for f in frames if f['at'].startswith('2020-12-15'))
+    from check_booked_side_programs import capture_context
+    before_programs=capture_context(query,manifest,'2020-12-18')
     def context(frame):return dict(snapshotId=frame['id'],knowledgeMode='current',convention='independent_side_financial_swap_v2')
     catalog=client.call('swaps/catalog',context(later))
     primary=next(i for i in catalog['indices'] if i['curve']=='base_forward')
@@ -367,8 +431,25 @@ def run_temporal_checks(url,query,manifest):
         return client.call('swaps/book',body)
     first=book(later,secondary,True)
     second=book(earlier,primary,False)
+    specification=next(q['specification'] for q in primary['quantityChoices'] if q['specification']['code']==primary['quantityCode'])
+    fixed_periods=[];floating_periods=[]
+    for start,end,amount,price in (('2021-01-01','2021-02-01','10','3'),('2021-02-01','2021-03-01','20','4')):
+        fixed_periods.append(dict(amount=amount,floating=None,fixed=dict(price=price,currency=primary['currencyCode'],deliveryFrom=start,deliveryTo=end,paymentSchedule=payment)))
+        floating_periods.append(dict(amount=amount,fixed=None,floating=dict(settlement=dict(mode='curve_target',index=None,projectionPolicy=None),
+            curve=primary['curve'],index=primary['index'],currency=primary['currencyCode'],deliveryFrom=start,deliveryTo=end,
+            paymentSchedule=payment,resetFrequency='monthly',averagingMethod='none',spread='0')))
+    def schedule_side(periods):
+        return dict(basis='period_total',quantity=specification,amount=None,allocation=None,
+                    priceApplication='period_average_times_quantity_v1',power=None,periods=periods)
+    whole=client.call('swaps/book',{**context(later),**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],
+        'definitionRevisionId':primary['definitionRevisionId'],'commodity':primary['commodity'],'quantity':None,'fixedCoefficient':None,
+        'discounting':False,'fixed':None,'floating':None,'swapType':'scheduled_financial_swap','firstCoefficient':'-1',
+        'scheduled':dict(implementation='whole_term_scheduled_financial_swap_v1',first=schedule_side(fixed_periods),second=schedule_side(floating_periods))})
     side=query(f"SELECT count(DISTINCT fixed_side_id) FROM trading.swap_instruments WHERE instrument_id IN('{first['instrumentId']}','{second['instrumentId']}');")
     assert side=='1','The identical fixed Side must remain shared across independent floating markets'
     editor=client.call('swaps/editor',dict(context=context(earlier),tradeId=second['tradeId'],revision=None))
     assert editor['valuation']['presentValue'] is not None,'The earlier effective trade must read its shared complete retained graph'
     print('PASS retained schedule temporal reuse: a later-first shared Side reads under the earlier independent market boundary',flush=True)
+    return [dict(instrumentId=first['instrumentId'],asOf=later['at'],fixedUnitPv='3'),
+            dict(instrumentId=second['instrumentId'],asOf=earlier['at'],fixedUnitPv='3'),
+            dict(instrumentId=whole['instrumentId'],asOf=later['at'],minimumPayments=2)],before_programs

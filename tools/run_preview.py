@@ -286,16 +286,18 @@ def main():
             check_ppa_side_schedule_schema(query)
             from check_retained_side_schedules import run_checks as check_retained_side_schedules
             check_retained_side_schedules(query)
+            from check_booked_side_programs import run_schema_checks as check_booked_program_schema
+            check_booked_program_schema(query)
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
             reference,market,manifest=prepare_execution(reference,market,manifest)
         if args.index_fixing_check:
             from check_index_fixings import prepare as prepare_index_fixings
             reference,market,manifest=prepare_index_fixings(reference,market,manifest)
-        if args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check:
+        if args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check:
             from interval_curve_fixture import prepare as prepare_interval_curves
             reference,market,security,manifest=prepare_interval_curves(reference,market,security,manifest)
-        if args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check:
+        if args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check:
             from ppa_fixture import prepare as prepare_ppa
             reference,market,security,manifest=prepare_ppa(reference,market,security,manifest)
             if not args.check:
@@ -303,7 +305,7 @@ def main():
                 demo_instants={day+'T16:00:00' for day,*_ in EXECUTIONS}
                 manifest['frames']=[frame for frame in manifest['frames'] if frame['at'][:19] in demo_instants]
 
-        if args.ppa_bookings_check:
+        if args.ppa_bookings_check or args.retained_schedule_check:
             from ppa_bookings_fixture import prepare as prepare_ppa_bookings
             reference,market,security,manifest=prepare_ppa_bookings(reference,market,security,manifest)
             if args.close_risk_check:
@@ -517,7 +519,12 @@ def main():
             if args.retained_schedule_check:
                 from check_retained_side_schedules import run_stage_checks,run_temporal_checks
                 run_stage_checks(query,manifest)
-                run_temporal_checks(url,query,manifest)
+                booked_program_instruments,before_programs=run_temporal_checks(url,query,manifest)
+                from check_booked_side_programs import run_direct_read_checks,run_authority_checks,book_native_programs
+                booked_program_instruments+=book_native_programs(url,manifest)
+                booked_program_items=run_direct_read_checks(query,manifest,temporary,dotnet,app_env,booked_program_instruments,
+                    ('fixed','floating','power','certificate','capacity'))
+                run_authority_checks(query,manifest,booked_program_items[0],before_programs)
             elif args.demo_instruments_check:
                 from check_demo_instruments import run_checks
                 worker_env=prepare_risk_worker()
