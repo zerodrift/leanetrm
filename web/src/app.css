@@ -873,6 +873,11 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .draft-curves .draft-chart .standard-chart-plot{height:200px}
 /* The row the panel shows: marked as a hovered row is, and by a bar at its edge. */
 .table-workspace .standard-data-grid .tabulator-row.open-row{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+/* The selected row keeps its bar once the panel closes. */
+.table-workspace .standard-data-grid .tabulator-row.selected-row{box-shadow:inset 3px 0 0 var(--accent)}
+/* Rows kept on screen while the Blotter is read again: dimmed, with the reason below them. */
+.standard-data-grid.stale .tabulator-tableholder{opacity:.6}
+.table-stale-note{margin:6px 0 0;font-size:12.5px;color:var(--text-2)}
 /* A row brought into view, as a position opened by a booking is, comes to rest with room around it, not flush with an edge. */
 .table-workspace .standard-data-grid .tabulator-row{scroll-margin-block:24px}
 

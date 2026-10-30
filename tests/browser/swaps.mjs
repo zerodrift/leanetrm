@@ -149,6 +149,8 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  // Whatever else the fixture holds, a book that holds swaps in two currencies states two subtotals, and each reads apart.
  const headerTexts="[...document.querySelectorAll('#desk-positions .tabulator-group')].map(h=>h.textContent)";
  await evaluate('window.__secondCurrency=true');await click('#futures-refresh');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
+ // A new read keeps the trader's place in the rows, beside the swap just booked; the headers read here are drawn from the top.
+ await evaluate("(async()=>{document.querySelector('#desk-positions .tabulator-tableholder').scrollTop=0;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));})()");
  await check('a group header holding two subtotals reads each apart',groupHeadersReadApart({twoSubtotals:true}),headerTexts);
  await evaluate('window.__secondCurrency=false');await click('#futures-refresh');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
  await check('swap booking facts are server-owned while memo remains editable',"(()=>{const b=window.__swaps.filter(r=>r.path==='/api/swaps/book').at(-1).body;return !('traderId' in b)&&!('tradeDate' in b)&&!('executedAt' in b)&&b.memo==='Synthetic swap memo <plain text>';})()");

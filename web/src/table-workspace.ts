@@ -1,4 +1,4 @@
-import {renderDataGrid} from './data-grid.js';
+import {gridIdentity,renderDataGrid,type GridHandle} from './data-grid.js';
 
 type Choice=readonly [string,string];
 // note: a line of the consumer's own under the toolbar, such as why one of its actions is not offered.
@@ -86,12 +86,31 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
     if(axis){target.ondragover=event=>{event.preventDefault();};target.ondrop=event=>{event.preventDefault();const key=event.dataTransfer?.getData('text/plain');if(key&&options.dimensions.some(d=>d[0]===key)){const before=(event.target as HTMLElement).closest<HTMLElement>('label');move(key,target,before?.parentElement===target?before:undefined);}};}
   }
   function setPivot(dimensions:string[],measures:string[],splitBy:string[]=[]){fillChoices(fields.querySelector('#'+options.key+'-dimensions')!,options.dimensions,dimensions.filter(d=>!splitBy.includes(d)),()=>{});fillChoices(fields.querySelector('#'+options.key+'-split-dimensions')!,options.dimensions,splitBy,()=>{});fillChoices(fields.querySelector('#'+options.key+'-measures')!,options.measures,measures,()=>{});}
-  let grid:ReturnType<typeof renderDataGrid>|undefined;
+  type GridArguments=Parameters<typeof renderDataGrid> extends [HTMLElement,...infer Rest]?Rest:never;
+  // The grid on screen, and what it was built for (gridIdentity).
+  let grid:GridHandle|undefined,identity='';
+  // Builds the grid afresh: for its first rows, or rows of another kind, such as a pivot's in place of trade rows.
+  function render(...[key,scope,headers,rows,numeric,isBusy,gridOptions]:GridArguments){
+    grid?.destroy();
+    const built={...gridOptions,toolbarHost:filters};
+    grid=renderDataGrid(content,key,scope,headers,rows,numeric,isBusy,built);identity=gridIdentity(key,scope,headers,numeric,built);
+    return grid;
+  }
   return {
-    clear(){grid?.destroy();grid=undefined;content.replaceChildren();definition.replaceChildren();definition.hidden=true;},
+    clear(){grid?.destroy();grid=undefined;identity='';content.replaceChildren();definition.replaceChildren();definition.hidden=true;},
     describe(axes:{label:string;values:string[]}[]){definition.replaceChildren(...axes.map(axis=>{const group=node('div'),label=node('span',axis.label);group.append(label,...(axis.values.length?axis.values:['None']).map(value=>node('strong',value)));return group;}));definition.hidden=!axes.length;},
     busy(value:boolean){content.inert=value;},
-    render(...[key,scope,headers,rows,numeric,isBusy,gridOptions]:Parameters<typeof renderDataGrid> extends [HTMLElement,...infer Rest]?Rest:never){grid?.destroy();grid=renderDataGrid(content,key,scope,headers,rows,numeric,isBusy,{...gridOptions,toolbarHost:filters});return grid;},
+    /**
+     * Changes the grid on screen in place when it was built for the same key, scope and columns, so the person keeps their place in it;
+     * otherwise builds it afresh.
+     */
+    update(...[key,scope,headers,rows,numeric,isBusy,gridOptions]:GridArguments){
+      const next={...gridOptions,toolbarHost:filters};
+      if(!grid||gridIdentity(key,scope,headers,numeric,next)!==identity)return render(key,scope,headers,rows,numeric,isBusy,gridOptions);
+      void grid.reconfigure(rows,next);return grid;
+    },
+    /** Marks the rows on screen as no longer stating the current read, with the reason, or clears the mark (null). */
+    stale(reason:string|null){grid?.markStale(reason);},
     columns(choices:readonly Choice[],selected:string[],change:(values:string[])=>void,required:string[]=[]){fillChoices(columnChoices,choices,selected,change,required);},
     pivot:setPivot,
     closeMenus(){for(const menu of menus)menu.open=false;},

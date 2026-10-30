@@ -357,6 +357,8 @@ export function quantityText(row:Pick<DeskRow,'instrumentType'|'quantity'|'quant
   if(row.quantity===null){if(row.quantityNote===null)throw Error('A position without a quantity must say why.');return row.quantityNote;}
   return row.instrumentType==='future'?signedText(row.quantity,format):minus(format(row.quantity));
 }
+/** The grid's key of a position's row: its trade and binding. Its revision is row data, so an amended trade keeps its row. */
+export const rowKey=(position:{tradeId:string;bindingId:string})=>position.tradeId+':'+position.bindingId;
 /**
  * The position rows: instrument pill, market and delivery, size with lots or the swap's direction, price and mark in their unit,
  * and value with its measure, or the reason the close cannot value it. A valued position states its value, and a valued
