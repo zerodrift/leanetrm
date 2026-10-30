@@ -55,7 +55,6 @@ export function setupReferenceEditor(options:Options){
   historyPanel.id='reference-history';historyPanel.append(node('h3','History'),historyList,earlier);
   // The question asked before a move gives up unsaved edits (askInPanel), above the editor's controls.
   const prompt=node('div','','side-panel-prompt reference-edit-prompt');prompt.id=options.host.id+'-prompt';prompt.setAttribute('role','alertdialog');prompt.setAttribute('aria-label','Unsaved changes');prompt.hidden=true;
-  options.host.tabIndex=-1;
   container.append(prompt,actions,reason,pendingPanel,review,historyPanel);
   const storageKey=()=>`openetrm.reference.request.${options.identity()}`;
   function retain(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The exact request remains in memory. */}sync();}
@@ -69,13 +68,19 @@ export function setupReferenceEditor(options:Options){
   const fieldLabel=(table:string,code:string,key:string)=>{const label=shown?.catalogs.get(table)?.fields.find(f=>f.key===key)?.label??key;return table===shown?.table&&code===shown.code?label:`${label} (${code})`;};
   const edited=()=>slots.some(slot=>value(slot)!==slot.from);
   // Asks whether a move may give up the unsaved edits: false means the person kept them. A retained request is not among them, for it
-  // survives a move. A question already open takes focus again rather than asking twice.
+  // survives a move. A question already open takes focus again rather than asking twice. The page takes focus only while it asks, and
+  // focus then returns to the control that asked.
   async function leave(){
     if(!edited())return true;
     if(question){prompt.querySelector<HTMLElement>('button.secondary')?.focus();return false;}
-    const asking=question=new AbortController();
+    const asking=question=new AbortController(),trigger=document.activeElement as HTMLElement|null;
+    options.host.tabIndex=-1;
     try{return await askInPanel(options.host,{text:'These reference details have unsaved edits. Leaving discards them.',keep:'Keep editing',go:'Discard edits'})(asking.signal);}
-    finally{if(question===asking)question=undefined;}
+    finally{
+      if(question===asking)question=undefined;
+      options.host.removeAttribute('tabindex');
+      if(trigger&&trigger!==document.body&&trigger.isConnected)trigger.focus({preventScroll:true});
+    }
   }
   // The changed items in the page's order, each with only its changed fields.
   function changes(){
