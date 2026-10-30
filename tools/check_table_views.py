@@ -48,7 +48,7 @@ def run_checks(url, query):
           listed['Earlier view']['version'] == earlier_version and listed['Earlier view']['layout']['version'] == 3 and 'rowGroup' not in listed['Earlier view']['layout'])
     trader.call('table-views/blotter', {'layout': {**layout, 'name': 'Earlier view'}, 'expectedVersion': None}, expected=409)
     replaced = trader.call('table-views/blotter', {'layout': {**layout, 'name': 'Earlier view'}, 'expectedVersion': earlier_version})
-    check('saving it again under the version it was stored with replaces it', replaced['version'] != earlier_version and replaced['layout']['version'] == 5 and
+    check('saving it again under the version it was stored with replaces it', replaced['version'] != earlier_version and replaced['layout']['version'] == 6 and
           replaced in other_browser.call('table-views/blotter'))
     trader.call('table-views/blotter/delete', {'name': 'Earlier view', 'expectedVersion': replaced['version']})
     discarded_version = store_earlier('Discarded view')
