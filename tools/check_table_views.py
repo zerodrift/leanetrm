@@ -14,9 +14,9 @@ def run_checks(url, query):
     def client(profile):
         c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': profile}); return c
     trader = client('trader'); other_browser = client('trader'); viewer = client('viewer')
-    layout = dict(version=5, name='Account view', sidebar=False, mode='trades', rowGroup='book', columns=['book','quantity','unit'],
+    layout = dict(version=6, name='Account view', sidebar=False, mode='trades', rowGroup='book', columns=['book','quantity','unit'],
                   bookIds=[], portfolioIds=[], groupBy=[], measures=[], query='Jan', columnFilters={}, splitBy=[],
-                  grid=dict(order=[], widths={}, sort=[]), chart=dict(visible=False, measure='quantity', kind='bar'))
+                  grid=dict(order=[], widths={}, sort=[]), panes=dict(layout=dict(kind='split', direction='column', ratio=0.06, children=[dict(kind='group', tabs=['summary'], active='summary'), dict(kind='split', direction='column', ratio=0.6, children=[dict(kind='group', tabs=['grid'], active='grid'), dict(kind='split', direction='column', ratio=0.5, children=[dict(kind='group', tabs=['details'], active='details'), dict(kind='group', tabs=['charts'], active='charts')])])]), collapsed=['details']), chart=dict(visible=False, measure='quantity', kind='bar'))
     check('account starts without saved layouts', trader.call('table-views/blotter') == [])
     saved = trader.call('table-views/blotter', {'layout': layout, 'expectedVersion': None})
     check('layout follows account into a separate browser session', other_browser.call('table-views/blotter') == [saved])

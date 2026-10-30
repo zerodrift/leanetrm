@@ -84,7 +84,10 @@ export function collapse(l:DockLayout):DockLayout{
   return {kind:'group',tabs:groups.flatMap(g=>g.tabs),active:groups[0].active};
 }
 
-function parse(saved:unknown,depth:number,rules:DockRules):DockLayout|null{
+/** How a saved ratio becomes a split's: the number to keep, or null to refuse the layout. */
+type RatioPolicy=(ratio:number,rules:DockRules)=>number|null;
+
+function parse(saved:unknown,depth:number,rules:DockRules,ratioOf:RatioPolicy):DockLayout|null{
   if(typeof saved!=='object'||saved===null)return null;
   const s=saved as Record<string,unknown>;
   if(s.kind==='group'){
@@ -96,9 +99,10 @@ function parse(saved:unknown,depth:number,rules:DockRules):DockLayout|null{
   const {direction,ratio,children}=s;
   if((direction!=='row'&&direction!=='column')||typeof ratio!=='number'||!Number.isFinite(ratio))return null;
   if(!Array.isArray(children)||children.length!==2)return null;
-  const a=parse(children[0],depth+1,rules);
-  const b=parse(children[1],depth+1,rules);
-  return a&&b?{kind:'split',direction,ratio:clamp(ratio,rules),children:[a,b]}:null;
+  const kept=ratioOf(ratio,rules);
+  const a=parse(children[0],depth+1,rules,ratioOf);
+  const b=parse(children[1],depth+1,rules,ratioOf);
+  return a&&b&&kept!==null?{kind:'split',direction,ratio:kept,children:[a,b]}:null;
 }
 
 /** `a` with `tab` collapsed or expanded again; a fixed tab (the Blotter's positions grid) never collapses. */
@@ -126,15 +130,26 @@ export function moveArrangement(a:Arrangement,tab:string,target:{group:number;ed
   return {layout,collapsed:without(a,[...from.tabs,...(target.edge==='centre'?to.tabs:[])])};
 }
 
-/** An arrangement saved by an earlier visit (untrusted storage) if it is well formed, holds exactly these tabs once each and collapses
- *  none of the fixed ones; else `fallback`. */
-export function restoreArrangement(saved:unknown,tabs:readonly string[],rules:DockRules,fallback:Arrangement):Arrangement{
-  if(typeof saved!=='object'||saved===null)return fallback;
+/** The arrangement `saved` holds if it is well formed, holds exactly these tabs once each and collapses none of the fixed ones, else null. */
+function arrangementOf(saved:unknown,tabs:readonly string[],rules:DockRules,ratioOf:RatioPolicy):Arrangement|null{
+  if(typeof saved!=='object'||saved===null)return null;
   const {layout:raw,collapsed}=saved as Record<string,unknown>;
-  const layout=parse(raw,0,rules);
-  if(!layout||!Array.isArray(collapsed))return fallback;
+  const layout=parse(raw,0,rules,ratioOf);
+  if(!layout||!Array.isArray(collapsed))return null;
   const held=groupsOf(layout).flatMap(g=>g.tabs);
   const same=held.length===tabs.length&&new Set(held).size===held.length&&held.every(t=>tabs.includes(t));
   const shelved=collapsed.every(t=>typeof t==='string'&&tabs.includes(t)&&!rules.fixed.includes(t))&&new Set(collapsed).size===collapsed.length;
-  return same&&shelved?{layout,collapsed:collapsed as string[]}:fallback;
+  return same&&shelved?{layout,collapsed:collapsed as string[]}:null;
+}
+
+/** An arrangement saved by an earlier visit (untrusted storage) if it is well formed, else `fallback`. A ratio out of range is clamped. */
+export function restoreArrangement(saved:unknown,tabs:readonly string[],rules:DockRules,fallback:Arrangement):Arrangement{
+  return arrangementOf(saved,tabs,rules,(ratio,r)=>clamp(ratio,r))??fallback;
+}
+
+/** An arrangement a caller validates rather than repairs (a saved view): refused, not clamped or replaced, when malformed or a ratio is out of range. */
+export function parseArrangement(saved:unknown,tabs:readonly string[],rules:DockRules):Arrangement{
+  const a=arrangementOf(saved,tabs,rules,(ratio,r)=>ratio>=r.ratioRange[0]&&ratio<=r.ratioRange[1]?ratio:null);
+  if(!a)throw new Error('Invalid saved pane arrangement.');
+  return a;
 }

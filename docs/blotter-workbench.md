@@ -92,7 +92,7 @@ The redesign fails, even if it renders, if any of these happen:
   defaults, exact decimal strings are the values, synthetic data, TDD.
 - The constraints of blotter-desk.md stay, including D162 close selection,
   D190/D191 page reporting and the page-performance target (architecture §8).
-- Saved views: `BlotterView` in `web/src/blotter-layout.ts` (version 5) is
+- Saved views: `BlotterView` in `web/src/blotter-layout.ts` (version 6) is
   saved to the account through `table-views/blotter`. Earlier versions are
   never migrated; they are listed by name and saved again (existing rule).
 - Reuse before writing new code: the dock model and dock drawing
