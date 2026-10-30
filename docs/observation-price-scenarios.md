@@ -373,7 +373,7 @@ Post-expiry carry requires both the selected source policy and the curve's expli
 final-settlement rule. Missing final evidence refuses; earlier daily observations
 keep their own prices.
 
-Migrations 0130–0131 add the closed executable source operation and exact-version
+Migrations 0131–0132 add the closed executable source operation and exact-version
 authoring relationships. They use existing price observations. SQL sealing and
 managed loading check the same source, role, series, quote and expiry contracts.
 
@@ -440,7 +440,7 @@ projection contracts; independent review findings were resolved.
 
 ### Retained risk and financial cash
 
-Migration 0132 extends the existing risk sample tables with the explicit consumer
+Migration 0133 extends the existing risk sample tables with the explicit consumer
 kind and a flag for an observation fixing exactly at valuation time. Historical
 samples, current fixed observations and current live projections remain distinct,
 even when they refer to the same dated contract. SQL admission checks samples

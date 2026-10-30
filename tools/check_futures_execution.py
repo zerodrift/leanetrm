@@ -30,6 +30,11 @@ INSERT INTO ref_data.futures_execution_policies(catalog_id,revision_id,series_co
 
 def run_checks(url,query,manifest):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'});w=c.call('workspace')
+    # The futures product page's read returns its contracts' execution eligibility exactly as the references hold it.
+    product=c.call('reference/futures-product?code=test_gas_future')
+    held=[p for p in w['references']['futures_execution_policies'] if p['series_code'] in {s['code'] for s in product['series']}]
+    canonical=lambda rows:sorted(json.dumps(r,sort_keys=True) for r in rows)
+    assert held and canonical(product['executionPolicies'])==canonical(held),'The product read must return its contracts\' execution policies'
     frame=next(f for f in w['frames'] if f['at'].startswith('2020-12-18'))
     context={'snapshotId':frame['id'],'convention':w['futuresConvention'],'knowledgeMode':'current'}
     catalog=c.call('futures/catalog',context);future=catalog['contracts'][0]

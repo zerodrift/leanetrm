@@ -420,8 +420,8 @@ qualification remains open.
 - A model capability version explicitly selects `fixed`, whose sourced identifier
   is documented as not repointed, or `alias`, approving the provider's alias policy
   (D213). Existing versions remain immutable. New model edits require an explicit
-  identifier policy; migration 0134 removes the fixed-only command overload and
-  column default (D263). Omitted policies are refused.
+  identifier policy; migration 0135 removes the fixed-only command overload and
+  column default (D264). Omitted policies are refused.
   Either policy accepts only the requested name and its explicit served list; an
   unlisted snapshot is not automatically approved. A returned alias does not prove
   which underlying weights ran. Calls retain the requested identity, capability

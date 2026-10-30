@@ -1426,3 +1426,17 @@ authorized direct reads require the selected publication/context and current
 source access. The migration refuses any existing retained schedules and requires
 an explicit rebooking release. It performs no read-time backfill or compatibility
 conversion. See [the storage contract and qualification boundary](../docs/booked-side-programs.md).
+
+## Reference display history
+
+Migration `0130_reference_display_history.sql` adds the read-only
+`security.reference_display_history(uuid,uuid,text,text)` behind a reference
+item's History (D263). It returns `{versions,truncated}`: the item's latest 20
+applied display versions, newest first, each with its version, item, applied time,
+the author's current workspace display name and the fields its edit changed, and
+whether earlier versions exist. A futures product's history includes its
+contracts' label edits. The function re-proves the reference actor after reading,
+returns no versions under a historical context and, in working data, refuses a
+caller holding neither `WriteReferenceData` nor `SealReferenceData`. It writes
+nothing and changes no table. As a new migration it stops automatic hosted
+updates until the operator qualifies a new baseline (D135).

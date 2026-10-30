@@ -1,4 +1,5 @@
 """Qualify display authoring through the same authorized operations as the UI."""
+from urllib.parse import urlencode
 from uuid import uuid4
 from preview_client import PreviewClient
 
@@ -35,88 +36,138 @@ def run_checks(url,query):
     price=client.call('evaluate',price_request)
     historical=client.call('market/context',{'effectiveOn':'2020-12-18','mode':'current','selection':'latest_correction'})['context']
     client.call('market/current',{})
+    # The commit saves and applies in one transaction: it needs both grants.
     editor=client.call('reference/editor?table=units')
-    assert editor['canEdit'] and not editor['canApply']
+    assert not editor['canEdit'] and 'canApply' not in editor, 'Write without Seal cannot commit a display edit'
     assert client.call('reference/editor?table=units&code=megawatt_hour')['item']['code']=='megawatt_hour'
     assert client.call('reference/editor?table=units&code=',expected=422)['code']=='reference_edit'
     source=editor['sourceRevision']
     original=next(r for r in client.call('reference/catalog?table=units')['rows'] if r['code']=='megawatt_hour')['symbol']
-    save={'operationId':str(uuid4()),'table':'units','code':'megawatt_hour','sourceRevisionId':source['revisionId'],'baseRevisionId':editor['baseRevisionId'],'values':{'symbol':original+' sample'}}
-    for symbol in ['x'*81,'\U0001f4a1'*81,'\u00a0','\u2003','\u202f','\u3000','x\x85','\x01']:
-        invalid={**save,'operationId':str(uuid4()),'values':{'symbol':symbol}}
-        assert client.call('reference/save',invalid,expected=422)['code']=='reference_edit'
-    assert client.call('reference/save',{**save,'values':{'factor_numerator':'2'}},expected=422)['code']=='reference_edit'
-    saved=client.call('reference/save',save)
-    assert client.call('reference/save',save)==saved
-    assert client.call('workspace/catalog')['referenceDisplay']==before['referenceDisplay']
-    apply={'operationId':str(uuid4()),'table':'units','sourceRevisionId':source['revisionId'],'revisionId':saved['revisionId'],'expectedVersion':editor['displayVersion']}
-    client.call('reference/apply',apply,expected=403)
+    edits=lambda:query('SELECT count(*) FROM ref_data.display_edits;')
+    commit={'operationId':str(uuid4()),'table':'units','code':'megawatt_hour','sourceRevisionId':source['revisionId'],'baseRevisionId':editor['baseRevisionId'],
+            'expectedVersion':editor['displayVersion'],'values':{'symbol':original+' sample'}}
+    recorded=edits()
+    assert client.call('reference/commit',commit,expected=403)['code']=='access_denied'
+    assert edits()==recorded and client.call('workspace/catalog')['referenceDisplay']==before['referenceDisplay'], 'A denied commit must not retain its draft'
+    # The session token that reference/commit accepted is scoped to matched API
+    # endpoints, so its refusal proves the retired paths no longer map.
+    for retired in ['reference/save','reference/apply']:
+        assert client.call(retired,commit,expected=400)['code']=='request_token'
     client.call('profile',{'profile':'approver'})
-    applied=client.call('reference/apply',apply)
-    assert client.call('reference/apply',apply)==applied
-    current=client.call('workspace/catalog')
-    assert current['references']==before['references'] and current['definitions']==before['definitions']
-    display=current['unitReferenceDisplay']
-    assert display['sourceRevision']==source and display['displayRevision']['revisionId']==saved['revisionId']
-    assert display['references']['units']==[{'code':'megawatt_hour','symbol':original+' sample'}]
-    converted=client.call('units/convert',{'value':'2','from':'test_power_quantity','to':'test_power_quantity','decimalPlaces':None,'tieRule':None})
-    assert converted['value']=='2' and converted['formatted']=='2 '+original+' sample'
-    assert converted['target']['revision']==source
-    after_price=client.call('evaluate',price_request)
-    assert after_price['points']==price['points'] and after_price['numericalPolicy']==price['numericalPolicy']
-    client.call('reference/apply',{**apply,'operationId':str(uuid4())},expected=409)
-    client.call('market/context',{'effectiveOn':historical['effectiveOn'],'knownAt':historical['knownAt'],'mode':'at','selection':'latest_correction'})
-    past=client.call('workspace/catalog')
-    assert past['referenceDisplay'] is None and past['unitReferenceDisplay'] is None
-    assert not client.call('reference/editor?table=units')['canApply']
-    assert client.call('reference/apply',{**apply,'operationId':str(uuid4()),'expectedVersion':applied['version']},expected=422)['code']=='historical_read_only'
-    client.call('market/current',{})
-    # Restore through another reviewed version; immutable audit records stay retained.
-    client.call('profile',{'profile':'editor'})
-    editor=client.call('reference/editor?table=units')
-    restored=client.call('reference/save',{**save,'operationId':str(uuid4()),'baseRevisionId':editor['baseRevisionId'],'values':{'symbol':original}})
+    assert not client.call('reference/editor?table=units')['canEdit'], 'Seal without Write cannot commit a display edit'
+    grant="INSERT INTO security.role_permissions SELECT id,'WriteReferenceData' FROM security.roles WHERE code='market_data_approver';"
+    revoke="DELETE FROM security.role_permissions WHERE permission='WriteReferenceData' AND role_id=(SELECT id FROM security.roles WHERE code='market_data_approver');"
+    query(grant)
+    try:
+        committer=client.call('reference/editor?table=units')
+        assert committer['canEdit'] and committer['baseRevisionId']==editor['baseRevisionId'] and committer['displayVersion']==editor['displayVersion']
+        for symbol in ['x'*81,'\U0001f4a1'*81,'\u00a0','\u2003','\u202f','\u3000','x\x85','\x01']:
+            assert client.call('reference/commit',{**commit,'operationId':str(uuid4()),'values':{'symbol':symbol}},expected=422)['code']=='reference_edit'
+        assert client.call('reference/commit',{**commit,'operationId':str(uuid4()),'values':{'factor_numerator':'2'}},expected=422)['code']=='reference_edit'
+        assert edits()==recorded
+        committed=client.call('reference/commit',commit)
+        assert committed=={'revisionId':commit['operationId'],'displayRevisionId':commit['operationId'],'version':editor['displayVersion']+1}
+        recorded=edits()
+        assert client.call('reference/commit',commit)==committed and edits()==recorded, 'An exact retry returns its first outcome and writes nothing'
+        assert client.call('reference/commit',{**commit,'values':{'symbol':original+' other'}},expected=409)['code']=='reference_conflict'
+        assert client.call('reference/commit',{**commit,'expectedVersion':commit['expectedVersion']+1},expected=409)['code']=='reference_conflict', 'The same id with only another expected version is a conflict'
+        # Committing the values already applied records nothing and returns the current version (D238), also on retry.
+        current_version={'revisionId':committed['displayRevisionId'],'displayRevisionId':committed['displayRevisionId'],'version':committed['version']}
+        unchanged={**commit,'operationId':str(uuid4()),'baseRevisionId':committed['displayRevisionId'],'expectedVersion':committed['version'],'values':{'symbol':original+' sample'}}
+        assert client.call('reference/commit',unchanged)==current_version and client.call('reference/commit',unchanged)==current_version and edits()==recorded, 'An unchanged commit must write nothing'
+        assert client.call('reference/editor?table=units')['displayVersion']==committed['version']
+        assert client.call('reference/commit',{**unchanged,'operationId':str(uuid4()),'values':{'code':'megawatt_hour'}},expected=422)['code']=='reference_edit', 'Only display fields can be committed, unchanged or not'
+        assert client.call('reference/commit',{**unchanged,'operationId':commit['operationId']},expected=409)['code']=='reference_conflict', 'A used id with another body is a conflict even when it changes nothing'
+        assert client.call('reference/commit',{**unchanged,'operationId':str(uuid4()),'baseRevisionId':editor['baseRevisionId'],'expectedVersion':editor['displayVersion'],'values':{'symbol':original}},expected=409)['code']=='reference_conflict', 'An unchanged commit from a stale version is a conflict'
+        assert edits()==recorded
+        stale={**commit,'operationId':str(uuid4()),'baseRevisionId':committed['displayRevisionId'],'values':{'symbol':original+' stale'}}
+        assert client.call('reference/commit',stale,expected=409)['code']=='reference_conflict'
+        assert edits()==recorded, 'A stale version must roll back its saved draft'
+        current=client.call('workspace/catalog')
+        assert current['references']==before['references'] and current['definitions']==before['definitions']
+        display=current['unitReferenceDisplay']
+        assert display['sourceRevision']==source and display['displayRevision']['revisionId']==committed['revisionId']
+        assert display['references']['units']==[{'code':'megawatt_hour','symbol':original+' sample'}]
+        read=client.call('reference/editor?table=units&code=megawatt_hour');history=read['versions']
+        assert read['historyTruncated'] is False
+        assert {k:v for k,v in history[0].items() if k not in ['recordedAt','author']}=={'version':committed['version'],'table':'units','code':'megawatt_hour','changes':{'symbol':original+' sample'}} \
+            and history[0]['author'], 'History lists the item\'s applied display versions with their author and changed fields'
+        assert client.call('reference/editor?table=units')['versions']==[], 'History belongs to one item'
+        converted=client.call('units/convert',{'value':'2','from':'test_power_quantity','to':'test_power_quantity','decimalPlaces':None,'tieRule':None})
+        assert converted['value']=='2' and converted['formatted']=='2 '+original+' sample'
+        assert converted['target']['revision']==source
+        after_price=client.call('evaluate',price_request)
+        assert after_price['points']==price['points'] and after_price['numericalPolicy']==price['numericalPolicy']
+        client.call('market/context',{'effectiveOn':historical['effectiveOn'],'knownAt':historical['knownAt'],'mode':'at','selection':'latest_correction'})
+        past=client.call('workspace/catalog')
+        assert past['referenceDisplay'] is None and past['unitReferenceDisplay'] is None
+        assert not client.call('reference/editor?table=units')['canEdit']
+        assert client.call('reference/commit',{**stale,'expectedVersion':committed['version']},expected=422)['code']=='historical_read_only'
+        client.call('market/current',{})
+        assert edits()==recorded
+
+        def commit_metadata(table,code,values):
+            client.call('profile',{'profile':'approver'})
+            draft=client.call('reference/editor?table='+table)
+            return client.call('reference/commit',{'operationId':str(uuid4()),'table':table,'code':code,'sourceRevisionId':draft['sourceRevision']['revisionId'],
+                'baseRevisionId':draft['baseRevisionId'],'expectedVersion':draft['displayVersion'],'values':values})
+
+        # Restore through another committed version; immutable audit records stay retained.
+        commit_metadata('units','megawatt_hour',{'symbol':original})
+        assert client.call('workspace/catalog')['unitReferenceDisplay']['references']==before['unitReferenceDisplay']['references']
+        supplementary='\U0001f4a1'*80
+        commit_metadata('units','megawatt_hour',{'symbol':supplementary})
+        converted=client.call('units/convert',{'value':'2','from':'test_power_quantity','to':'test_power_quantity','decimalPlaces':None,'tieRule':None})
+        assert converted['value']=='2' and converted['formatted']=='2 '+supplementary
+        assert converted['target']['revision']==source, 'Unicode display formatting changed the exact quantity reference'
+        commit_metadata('units','megawatt_hour',{'symbol':original})
+
+        precise={'name':'Synthetic precise facility','latitude':'12.123456789012345678','longitude':'-45.987654321098765432'}
+        commit_metadata('locations','test_facility_a',precise)
+        displayed=client.call('workspace/catalog')['referenceDisplay']['references']['locations']
+        selected=next(r for r in displayed if r['code']=='test_facility_a')
+        assert selected['latitude']==precise['latitude'] and selected['longitude']==precise['longitude'],'Applied display coordinates must preserve exact decimal strings too.'
+        selected=client.call('reference/editor?table=locations&code=test_facility_a')['item']
+        commit_metadata('locations','test_facility_a',{'name':'Synthetic renamed facility','latitude':selected['latitude'],'longitude':selected['longitude']})
+        renamed=client.call('reference/editor?table=locations&code=test_facility_a')['item']
+        assert renamed['latitude']==precise['latitude'] and renamed['longitude']==precise['longitude']
+        commit_metadata('locations','test_facility_a',{key:point[key] for key in ['name','latitude','longitude']})
+
+        def navigation_categories():
+            client.call('profile',{'profile':'viewer'})
+            return {curve['code']:curve['category'] for curve in client.call('workspace/navigation')['curves']}
+        listed=navigation_categories()
+        assert None in listed.values(),'The fixture needs an interest-rate curve, which has no commodity'
+        power=next(category for category in listed.values() if category and category['code']=='test_power')
+        commit_metadata('commodities','test_power',{'name':'Synthetic relabelled power'})
+        relabelled={**power,'name':'Synthetic relabelled power'}
+        assert navigation_categories()=={code:relabelled if category==power else category for code,category in listed.items()},'A commodity label must rename only its own curves'
+        commit_metadata('commodities','test_power',{'name':power['name']})
+        assert navigation_categories()==listed
+        print('PASS reference HTTP: an applied commodity label renames only its own curves; interest-rate curves have no commodity',flush=True)
+
+        product=client.call('reference/catalog?table=futures_products')['rows'][0]
+        def product_display():
+            return client.call('reference/futures-product?'+urlencode({'code':product['code']}))['referenceDisplay']
+        assert product_display()['references'].get('futures_products') is None
+        relabelled='Synthetic "relabelled" \\ future'
+        commit_metadata('futures_products',product['code'],{'name':relabelled})
+        assert product_display()['references']['futures_products']==[{'code':product['code'],'name':relabelled}], 'The product read must show its committed display label'
+        def search_labels(text):
+            return [h['label'] for h in client.call('reference/search?'+urlencode({'q':text}))['hits'] if h['table']=='futures_products' and h['code']==product['code']]
+        assert search_labels('"relabelled" \\')==[relabelled], 'Search must match and show the applied display label, quotes and backslashes literally'
+        assert search_labels(product['name'])==[], 'The original label must no longer find a relabelled item in working data'
+        client.call('market/context',{'effectiveOn':historical['effectiveOn'],'knownAt':historical['knownAt'],'mode':'at','selection':'latest_correction'})
+        assert search_labels(product['name'])==[product['name']] and search_labels(relabelled)==[], 'A historical context searches its original labels'
+        client.call('market/current',{})
+        commit_metadata('futures_products',product['code'],{'name':product['name']})
+        assert product_display()['references'].get('futures_products') is None
+    finally:
+        query(revoke)
     client.call('profile',{'profile':'approver'})
-    client.call('reference/apply',{**apply,'operationId':str(uuid4()),'revisionId':restored['revisionId'],'expectedVersion':editor['displayVersion']})
-    assert client.call('workspace/catalog')['unitReferenceDisplay']['references']==before['unitReferenceDisplay']['references']
-
-    def apply_metadata(table,code,values):
-        client.call('profile',{'profile':'editor'})
-        draft=client.call('reference/editor?table='+table)
-        saved=client.call('reference/save',{'operationId':str(uuid4()),'table':table,'code':code,'sourceRevisionId':draft['sourceRevision']['revisionId'],'baseRevisionId':draft['baseRevisionId'],'values':values})
-        client.call('profile',{'profile':'approver'})
-        client.call('reference/apply',{'operationId':str(uuid4()),'table':table,'sourceRevisionId':draft['sourceRevision']['revisionId'],'revisionId':saved['revisionId'],'expectedVersion':draft['displayVersion']})
-
-    supplementary='\U0001f4a1'*80
-    apply_metadata('units','megawatt_hour',{'symbol':supplementary})
-    converted=client.call('units/convert',{'value':'2','from':'test_power_quantity','to':'test_power_quantity','decimalPlaces':None,'tieRule':None})
-    assert converted['value']=='2' and converted['formatted']=='2 '+supplementary
-    assert converted['target']['revision']==source, 'Unicode display formatting changed the exact quantity reference'
-    apply_metadata('units','megawatt_hour',{'symbol':original})
-
-    precise={'name':'Synthetic precise facility','latitude':'12.123456789012345678','longitude':'-45.987654321098765432'}
-    apply_metadata('locations','test_facility_a',precise)
-    displayed=client.call('workspace/catalog')['referenceDisplay']['references']['locations']
-    selected=next(r for r in displayed if r['code']=='test_facility_a')
-    assert selected['latitude']==precise['latitude'] and selected['longitude']==precise['longitude'],'Applied display coordinates must preserve exact decimal strings too.'
-    selected=client.call('reference/editor?table=locations&code=test_facility_a')['item']
-    apply_metadata('locations','test_facility_a',{'name':'Synthetic renamed facility','latitude':selected['latitude'],'longitude':selected['longitude']})
-    renamed=client.call('reference/editor?table=locations&code=test_facility_a')['item']
-    assert renamed['latitude']==precise['latitude'] and renamed['longitude']==precise['longitude']
-    apply_metadata('locations','test_facility_a',{key:point[key] for key in ['name','latitude','longitude']})
-
-    def navigation_categories():
-        client.call('profile',{'profile':'viewer'})
-        return {curve['code']:curve['category'] for curve in client.call('workspace/navigation')['curves']}
-    listed=navigation_categories()
-    assert None in listed.values(),'The fixture needs an interest-rate curve, which has no commodity'
-    power=next(category for category in listed.values() if category and category['code']=='test_power')
-    apply_metadata('commodities','test_power',{'name':'Synthetic relabelled power'})
-    relabelled={**power,'name':'Synthetic relabelled power'}
-    assert navigation_categories()=={code:relabelled if category==power else category for code,category in listed.items()},'A commodity label must rename only its own curves'
-    apply_metadata('commodities','test_power',{'name':power['name']})
-    assert navigation_categories()==listed
-    print('PASS reference HTTP: an applied commodity label renames only its own curves; interest-rate curves have no commodity',flush=True)
+    assert not client.call('reference/editor?table=units')['canEdit']
+    client.call('reference/commit',{**commit,'operationId':str(uuid4())},expected=403)
     client.call('profile',{'profile':'viewer'})
     assert not client.call('reference/editor?table=units')['canEdit']
-    client.call('reference/save',{**save,'operationId':str(uuid4())},expected=403)
-    print('PASS reference HTTP: immutable display save/replay/review/apply, exact unit identities and PV unchanged, stale selection rejected, historical original metadata, current authority and reviewed restore',flush=True)
+    client.call('reference/commit',{**commit,'operationId':str(uuid4())},expected=403)
+    print('PASS reference HTTP: one-step display commit needs Write and Seal, replays its first outcome, rejects conflicting and stale requests atomically, keeps unit identities and PV, original historical metadata, product display labels and retired save/apply routes',flush=True)

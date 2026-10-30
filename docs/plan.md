@@ -1453,7 +1453,7 @@ the managed generator and booking retains the resulting source relationships.
 Daily official settlements and explicit final carry feed connected valuation,
 interactive and queued risk, and financial cash determination. Retained risk jobs
 replay admitted observation evidence; determined cash does not demand obsolete
-source prices. Migration 0132 distinguishes fixed observations from live samples,
+source prices. Migration 0133 distinguishes fixed observations from live samples,
 even when both use the same observation record. The bounded consumer still
 requires full-month calendar-day arithmetic observations. Automated-close source evidence,
 broader source/calendar combinations and the general booked-program
@@ -1462,14 +1462,14 @@ execution cutover remain separate work; see the scenario matrix.
 
 ### Executable contract cutover
 
-D263 authorizes removing superseded executable contracts rather than preserving
+D264 authorizes removing superseded executable contracts rather than preserving
 compatibility readers. Current inputs must state current terms explicitly; obsolete
 records require explicit replacement/rebooking instead of silent conversion.
 
 The executable cutover removes the older fixed-total futures pricing convention,
 synthetic execution qualification without policy rows, model edits without an
 identifier policy, cash-only discount providers, and projection-only floating-side
-authoring. Migrations 0133–0135 retire the obsolete SQL writer and enforce the
+authoring. Migrations 0134–0136 retire the obsolete SQL writer and enforce the
 current execution-policy and dated-source admission contracts. Each dated indexed
 lookup requires its fixing binding; contract observations retain their individual
 fixing instants without the obsolete side-wide boundary. Existing incompatible
