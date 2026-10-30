@@ -31,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const quiet="document.querySelector('#error').hidden";
  // A fresh load at an item's address, once its page and editor controls are shown.
  const open=async address=>{await command('Page.navigate',{url:'about:blank'});await command('Page.navigate',{url:url+'/#reference/'+address});
-  await wait(`(document.querySelector('#reference-edit-actions')||!document.querySelector('#error').hidden)&&${idle}`);};
+  await wait(`(document.querySelector('#reference-edit-actions')||document.querySelector('#error')?.hidden===false)&&${idle}`);};
  const save=async()=>{await click('#reference-edit-save');await click('#reference-edit-confirm');};
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
 
