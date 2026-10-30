@@ -325,3 +325,15 @@ are validated before inspection. The browser renders server-returned prices and 
 This view does not replay arbitrary aggregated outputs, daily-delivery panels or
 published recipe outputs across historical contexts. Cross-revision continuous
 histories and adjusted roll series remain separate work.
+
+
+## Component labels
+
+Graph cards and the inspector show an icon and a written label for the backend's
+output type: Curve, Contract selection, Date sequence, Price panel or Curve output.
+An individual exact member in a source or mapping has a separate Dated contract
+icon and label. Source cards also show the catalog's curve kind in words, alongside
+the existing kind badge (including Interest rate when supplied by the catalog).
+These labels distinguish object shape from financial kind; they do not infer an
+asset class from a name or introduce rate-curve operators that the backend does
+not support. Browser code only presents the supplied types.

@@ -1,3 +1,4 @@
+import {componentTypeBadge} from './curve-component-types.js';
 import {offersComponentHistory,setupComponentHistory,type HistoryCatalog} from './component-history-view.js';
 import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,type PublishedSourceReference,type PreviewSummary,type ConnectableTarget,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,previewTiles,recipeStateLabel,knownCurveRejection,curveFieldVisible,editCurveParameters,nextDynamicPort,removeCurveConnection,contractObjects,connectableTargets,contractTargets,pickContract,missingContractInputs,contractPort,connectableSources} from './custom-curve-model.js';
 import {renderRegularTable} from './regular-table.js';
@@ -420,7 +421,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
     const item=el('li'),orphan=row.source===null,text=orphan?'Fixed contract · Source disconnected':'Fixed contract · '+contractName(row.source,row.contractId);
     const open=button('','',()=>{menuTrigger=open;contractMenu(node.id,row.index,placeOf(open));}),weight=el('b',row.weight===''?'Weight needed':row.weight),meta=el('small',`${row.sourcePort.replaceAll('_',' ')||'no source'} · output ${row.outputPosition??'—'}`);
     open.className='custom-curve-row-open';open.setAttribute('aria-haspopup','menu');open.setAttribute('aria-expanded','false');open.setAttribute('aria-label',`${text} · weight ${row.weight||'not entered'}`);
-    const words=el('span');words.append(el('span',text),meta);open.append(words,weight);withMenu(open,at=>contractMenu(node.id,row.index,at));
+    const words=el('span');words.append(el('span',text),meta);words.prepend(componentTypeBadge('contract'));open.append(words,weight);withMenu(open,at=>contractMenu(node.id,row.index,at));
     item.dataset.contractRow=String(row.index);if(shown&&shown.source===row.source&&shown.contract===row.contractId)item.classList.add('shown');
     if(orphan||!row.contractId)item.classList.add('incomplete');if(row.weight==='')weight.className='missing';
     const dot=el('span');dot.className='custom-curve-dot'+(orphan?'':' filled');item.append(dot,open);list.append(item);}
@@ -433,12 +434,12 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
    if(open){const list=el('ul');list.id='custom-curve-listed-'+node.id;list.className='custom-curve-listed';list.setAttribute('aria-label','Contracts of '+node.id);
     for(const contract of contracts){const item=el('li'),back=()=>cardOf(node.id)?.querySelector<HTMLElement>(`[data-contract-id="${CSS.escape(contract.id)}"] button`)?.focus({preventScroll:true});
      const pick=button(contract.label,'',()=>{if(editAllowed())startConnect(node.id,{contract:contract.id},back);else{menuTrigger=pick;listedMenu(node.id,contract.id,placeOf(pick));}});
-     item.dataset.contractId=contract.id;pick.className='custom-curve-pick';pick.setAttribute('aria-haspopup','menu');pick.setAttribute('aria-expanded','false');pick.setAttribute('aria-label',`Fixed contract ${contract.label}`+(editAllowed()?', connect to a contract mapping':''));
+     pick.prepend(componentTypeBadge('contract'));item.dataset.contractId=contract.id;pick.className='custom-curve-pick';pick.setAttribute('aria-haspopup','menu');pick.setAttribute('aria-expanded','false');pick.setAttribute('aria-label',`Fixed contract ${contract.label}`+(editAllowed()?', connect to a contract mapping':''));
      if(shown?.source===node.id&&shown.contract===contract.id)item.classList.add('shown');if(connected(node.id,contract.id))item.classList.add('connected');
      if(editAllowed())pick.onpointerdown=event=>beginWire(event,node.id,contract.id,back);withMenu(pick,at=>listedMenu(node.id,contract.id,at));item.append(pick);list.append(item);}
     card.append(list);list.scrollTop=listScroll.get(node.id)??0;list.addEventListener('scroll',()=>{listScroll.set(node.id,list.scrollTop);drawWires();},{passive:true});}
   }
-  card.append(el('small',(operator?.outputType??'Value')+(definition.output===node.id?' · Curve output':'')));
+  if(operator){const type=el('div');type.className='custom-curve-type-row';type.append(componentTypeBadge(operator.outputType));if(kind)type.append(el('span',kindLabel(kind)));card.append(type);}
   return card;
  }
  /** Draws the cards; a card without a kept position is placed by the measured heights of the rendered cards, so placed cards never overlap. */
@@ -537,7 +538,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   if(!Object.keys(node.inputs).length)section.append(el('p','Add curve connections below, then enter their weights.'));
   properties.append(section);
  }
- function renderInspector(){properties.replaceChildren();const node=definition.nodes.find(n=>n.id===selectedNode);if(!node){properties.append(el('p','Select a graph card to edit its properties.'));return;}const operator=catalog?.operators.find(op=>op.kind===node.kind);properties.append(el('h4',nodeTitle(node)),el('p',operator?.description??''));
+ function renderInspector(){properties.replaceChildren();const node=definition.nodes.find(n=>n.id===selectedNode);if(!node){properties.append(el('p','Select a graph card to edit its properties.'));return;}const operator=catalog?.operators.find(op=>op.kind===node.kind);properties.append(el('h4',nodeTitle(node)),el('p',operator?.description??''));if(operator){const type=el('div');type.className='custom-curve-type-row';type.append(componentTypeBadge(operator.outputType));const kind=ingredientKind(node);if(kind)type.append(kindBadge(kind),el('span',kindLabel(kind)));properties.append(type);}
   if(offersComponentHistory(catalog,definition,node)){const inspect=button('View component history','custom-curve-component-history',()=>{historyView.choose(node.id);dock.show('history');});inspect.dataset.readOnlyAction='true';properties.append(inspect);}
   for(const spec of operator?.fields??[]){if(!curveFieldVisible(spec,node.parameters))continue;if(spec.type==='contract_weights'){renderWeights(node,spec);continue;}if(spec.type==='panel_weights'){renderPanelWeights(node,spec);continue;}const choices=choicesFor(spec),currentValue=fieldValue(node,spec),id='custom-curve-property-'+spec.key;let control:HTMLInputElement|HTMLSelectElement;
    if(choices.length||['select','curve','calendar','schedule','published_source'].includes(spec.type)){const select=el('select');select.id=id;option(select,'','Choose…');choices.forEach((choice,index)=>option(select,String(index),choice.label));const index=choices.findIndex(choice=>JSON.stringify(choice.value)===JSON.stringify(currentValue));select.value=index<0?'':String(index);if(currentValue!==undefined&&index<0){option(select,'retained','Retained value · '+pretty(currentValue));select.value='retained';}select.onchange=()=>{if(o.busy()||!editAllowed())return;const value=select.value;if(value==='retained')return;changeParameter(node.id,spec.key,value===''?null:choices[Number(value)].value);};control=select;
