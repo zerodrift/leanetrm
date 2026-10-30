@@ -40,6 +40,12 @@ work, delivered in small reviewable commits; the existing qualification records
 do not establish completion of this amendment. See [the execution contract and
 checks](side-plans.md).
 
+The [executable storage checkpoint](booked-side-programs.md) connects booking to
+an immutable program artifact and adds an authorized direct loader. Migration
+0129 requires explicit rebooking. Production input adapters and switching booked
+pricing to that loader remain separate integration steps; this checkpoint alone
+does not remove the existing read-time valuation preparation.
+
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.
 Heat-rate examples use the existing typed factor contract and independent

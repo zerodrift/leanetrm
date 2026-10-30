@@ -58,7 +58,7 @@ internal sealed record RetainedScheduleStage(Guid RequestId,ImmutableArray<Guid>
 
 // Content batches have independent authorization/transactions. Only Lock and
 // Publish run inside the transaction that saves the trade revision.
-internal sealed class RetainedScheduleStore
+internal sealed partial class RetainedScheduleStore
 {
     private readonly PreviewDatabase? database;
     private readonly Dictionary<Guid,ScheduleDefinition> readSchedules=[];
@@ -89,6 +89,7 @@ internal sealed class RetainedScheduleStore
         var ids=ImmutableArray.CreateBuilder<Guid>();
         var envelope=JsonSerializer.Serialize(command,Json);
         var curveKinds=new Dictionary<(DefinitionRevision,string),bool>();
+        var programs=new Dictionary<string,byte[]>(StringComparer.Ordinal);
         var verifiedChunks=new Dictionary<Guid,Dictionary<(string Part,int First),(int Count,string Digest)>>();
         async Task<T> Authorized<T>(Func<NpgsqlConnection,CancellationToken,Task<T>> work)
             =>await(database??throw Error("Staging requires an authenticated database adapter.")).WithIdentity(profile,permission,work,cancellation);
@@ -119,6 +120,21 @@ internal sealed class RetainedScheduleStore
         for(var slot=0;slot<preparation.Schedules.Count;slot++)
         {
             var definition=preparation.Schedules[slot];
+            if(!programs.TryGetValue(definition.Manifest,out var program))
+            {
+                var executable=BookedSideProgram.Compile(definition);
+                executable.RequirePublication(definition);
+                programs.Add(definition.Manifest,program=executable.Write());
+            }
+            async Task StoreProgram(Guid schedule)
+            {
+                await Authorized(async(connection,ct)=>
+                {
+                    await using var query=ScheduleStore.Command(connection,
+                        "SELECT security.seal_side_schedule_program($1,$2,$3,$4)",Catalog,request,schedule,program);
+                    await query.ExecuteNonQueryAsync(ct);return true;
+                });
+            }
             var fixingKeys=definition.Bindings.Any(b=>b.Kind=="index_fixing")?
                 definition.Bindings.Where(b=>b.Kind is "index" or "quote").ToDictionary(b=>(b.Row,b.Port)):null;
             var header=JsonSerializer.Serialize(new{definition.Family,definition.EconomicIdentity,definition.PricingBindingIdentity,
@@ -140,6 +156,7 @@ internal sealed class RetainedScheduleStore
             if(OptionalText(state,"sealedManifest") is {} sealedManifest)
             {
                 if(sealedManifest!=definition.Manifest)throw Error("The immutable schedule seal differs from the generated content.");
+                await StoreProgram(id);
                 // A seal follows the complete typed readback below. Its exact
                 // content remains immutable across retries and side reuse.
                 continue;
@@ -199,11 +216,7 @@ internal sealed class RetainedScheduleStore
             async Task Access(Func<NpgsqlConnection,CancellationToken,Task> work)
             {await Authorized(async(connection,ct)=>{await work(connection,ct);return true;});}
             await VerifyContent(Access,id,request,definition,cancellation);
-            await Authorized(async(connection,ct)=>
-            {
-                await using var query=ScheduleStore.Command(connection,"SELECT security.seal_side_schedule($1,$2,$3,$4)",Catalog,request,id,definition.Manifest);
-                await query.ExecuteNonQueryAsync(ct);return true;
-            });
+            await StoreProgram(id);
         }
         await Authorized(async(connection,ct)=>
         {

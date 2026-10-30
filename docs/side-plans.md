@@ -305,7 +305,10 @@ resolved sibling ports, requested coverage and the complete context/scenario.
   samples and evaluated values are not part of the reusable definition.
 - Equal executable contents do not establish PV reuse across contexts
   ([schedules](schedules-and-contract-sequences.md#shared-immutable-data-composition-and-the-fast-path)).
-- This record adds no table beyond D258's.
+- The executable storage checkpoint adds one artifact record per retained
+  schedule, alongside D258's typed FK/audit tables. See
+  [booked programs](booked-side-programs.md) for admission, direct loading and
+  the explicit rebooking boundary.
 
 The first executable-format slice has a booking-time compiler, a closed byte
 format and an in-place reader. Checks cover dated whole-term payments and native
