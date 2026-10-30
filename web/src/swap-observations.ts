@@ -4,7 +4,7 @@ export type ReferenceKey={revision:{catalogId:string;revisionId:string};code:str
 export type SamplingChoice={resetFrequency:string;averagingMethod:string;label:string;requiresObservationCalendar:boolean;requiresQuantityWeights:boolean};
 export type ObservationRow={from:string;to:string;quantitySpecification:ReferenceKey};
 export type ObservationSchedule={implementation:'side_observation_schedule_v1';calendar:ReferenceKey|null;quantities:{from:string;to:string;quantity:{value:string;specification:ReferenceKey}}[]|null};
-export type ObservationOptions={deliveryPeriods:DeliveryPeriod[];context:unknown;asOf:string;indices:{definitionRevisionId:string;curve:string;index:string}[];samplings:SamplingChoice[];
+export type ObservationOptions={deliveryPeriods:DeliveryPeriod[];context:unknown;asOf:string;indices:{definitionRevisionId:string;curve:string;index:string}[];samplings:SamplingChoice[];selectedSampling?:SamplingChoice|null;
  observationCalendars:{reference:ReferenceKey;name:string;from:string;to:string}[];observations:ObservationRow[]|null;
  availability:{code:string;message:string}|null;customProjectionUnavailableReason:string|null;
  choices:{definitionRevisionId:string;curve:string;index:string;resetFrequency:string;averagingMethod:string;available:boolean;reasons:{code:string;message:string}[]}[]};

@@ -88,6 +88,12 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
  const input=(host:HTMLElement,label:string,type='text',value='')=>{const n=node('input');n.type=type;n.value=value;if(type==='text')n.inputMode='decimal';field(host,label,n);return n;};
  const select=(host:HTMLElement,label:string,choices:readonly {value:string;label:string}[],value='')=>{const n=node('select');n.append(new Option('Choose…',''),...choices.map(c=>new Option(publicText(c.label),c.value)));n.value=value;field(host,label,n);return n;};
  const button=(host:HTMLElement,label:string,work:()=>Promise<void>|void)=>{const n=node('button',label);n.type='button';n.onclick=()=>void run(work);host.append(n);return n;};
+ // Serialize side compatibility reads across periods. The host action gate ignores
+ // concurrent actions while busy; an edited period must not lose its refresh.
+ let observationQueue=Promise.resolve();
+ function refreshObservations(work:()=>Promise<void>){
+  observationQueue=observationQueue.then(()=>run(work));
+ }
  async function run(work:()=>Promise<void>|void){await options.act(async()=>{error.textContent='';try{await work();}catch(e){invalidate();error.textContent=(e as Error).message;if((e as {code?:string}).code==='access_denied'){reset();options.onDenied();}}});sync();}
  const invalidate=()=>{renderChangeReview(changeReview,null);generation++;prepared=undefined;confirm.checked=false;visibleValuation=undefined;visibleQuantities=undefined;review.replaceChildren();confirmation.hidden=true;};
  product.append(node('h3','Product and commodity'),node('p','Author complete monthly periods. Stubs, irregular periods, non-monthly payment aggregation and arbitrary daily/hourly quantity profiles are unsupported. Existing single-payment contracts retain their original terms.'));
@@ -139,7 +145,7 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
    read=()=>({amount:amount.value||null,floating:null,fixed:{price:pricing.value==='par'?null:price.value,currency:settlementIndex()?.currencyCode??'',deliveryFrom:from,deliveryTo:to,paymentSchedule:pay.read()}});
   }else{
    const editor=mountScheduledFloatingEditor({host:card,from,to,initial:saved?.floating,indices:()=>available(slot),context:()=>({...context(),knowledgeMode:'retained',contextId:catalog?.context.contextId}),
-    enabled:()=>!detail||detail.canAmend,busy:options.busy,api:options.api,run:work=>void run(work),changed:invalidate,quoteChanged:()=>syncFixedQuotes(true)});
+    enabled:()=>!detail||detail.canAmend,busy:options.busy,api:options.api,run:refreshObservations,changed:invalidate,quoteChanged:()=>syncFixedQuotes(true)});
    const pay=paymentEditor(card,saved?.floating?.paymentSchedule);syncPayment=()=>{pay.sync();editor.sync();};
    refreshPeriod=editor.refresh;disposePeriod=editor.dispose;applyTerms=async(value,requireCurrent)=>{if(value.observations)await editor.apply(value.observations);requireCurrent();if(value.price!==undefined)editor.setSpread(value.price);if(value.payment)pay.restore(value.payment);};bulkRead=groups=>({...(groups.includes('observations')?{observations:editor.read()}:{}),...(groups.includes('price')?{price:editor.spread()}:{}),...(groups.includes('payment')?{payment:pay.read()}:{})});
    read=()=>({amount:amount.value||null,fixed:null,floating:{...editor.read(),paymentSchedule:pay.read()}});

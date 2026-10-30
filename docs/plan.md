@@ -1390,6 +1390,16 @@ terms. Existing preview cashflows remain the valuation review. Publishing econom
 index changes, selecting newer versions for existing contracts, bulk impact
 analysis and a separate forecast-configuration migration remain future work.
 
+
+Side observation entry now connects commodity-scoped index choices and observation
+conventions in both directions for single-period and scheduled tickets. Period
+qualification shares required source/fixing checks with delivery-date availability;
+missing due actuals cannot remain offered as a usable selected plan. Entered
+incompatible terms stay visible without an automatic replacement, and required
+calendar controls remain available for repair. This is an extension of the D216
+compatibility controls, not contract-relative sampling: durable side selectors,
+flexible roll rules and observation-date/contract-delivery separation remain work.
+
 Operational limits (P42, proposed): move each operating value out of code into
 explicit, versioned configuration, keeping its ceiling fixed, and state each value
 once. See [operational limits](operational-limits.md) for the complete inventory. In

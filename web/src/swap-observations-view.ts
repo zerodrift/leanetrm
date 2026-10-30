@@ -75,10 +75,10 @@ export function setupSwapObservationControls(options:{prefix:string;enabled:()=>
  return{reset,restore,refresh,sync,
   calendar:()=>options.choice()?.requiresObservationCalendar?(retained?.calendar??(calendar.value?JSON.parse(calendar.value):undefined)):undefined,
   read(){const choice=options.choice();if(!choice)throw Error('Choose an explicit observation sampling rule.');
-   if(choice.requiresObservationCalendar||choice.requiresQuantityWeights){
-    if(pending||!current||requestKey!==JSON.stringify(options.request()))throw Error('Refresh the compatible observation plan before pricing.');
-    if(current.availability)throw Error(current.availability.message);
-   }
+   if(pending||!current||requestKey!==JSON.stringify(options.request()))throw Error('Refresh the compatible observation plan before pricing.');
+   if(current.availability)throw Error(current.availability.message);
+   if(!current.samplings.some(mode=>mode.resetFrequency===choice.resetFrequency&&mode.averagingMethod===choice.averagingMethod))throw Error('Choose an available observation convention for the selected index and period.');
+   if(!current.observations)throw Error('Resolve the complete observation plan before pricing.');
    return observationScheduleInput(choice,calendar.value?JSON.parse(calendar.value):null,rows,inputs.map(input=>input.value));
   },
  };
