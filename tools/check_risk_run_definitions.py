@@ -34,7 +34,7 @@ def run_checks(url, query, browsers):
         session.call('profile', {'profile': 'risk'})
 
     frame = next(f for f in risk.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
-    catalog = risk.call('futures/catalog', {'snapshotId': frame['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'})
+    catalog = risk.call('futures/catalog', {'snapshotId': frame['id'], 'convention': 'contract_lot_execution_pnl_v2', 'knowledgeMode': 'current'})
     books = sorted(b['id'] for b in catalog['books'])
     unit = next(c['priceUnit'] for c in catalog['contracts'])
     other_unit = {**unit, 'multiplier': '100'}
