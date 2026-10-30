@@ -3119,19 +3119,23 @@ The market dashboard's first phase ([market-dashboard.md](market-dashboard.md),
 D263 to D265) adds a Dashboard page under a new Overview navigation group for
 accounts with `ReadMarketData`. Its layout is one account-owned record (migration
 0130), saved idempotently against an expected version and shown as a Board grid
-or the four fixed Morning sections without losing a widget. Latest levels shows
-the backend's front contract, price and unit for 1 to 12 curves from one
-curve-shapes read, with a refusal tile for a curve the close does not return or
+or the four fixed Morning sections without losing a widget. Board widgets move and
+size one step at a time from keyboard-accessible controls. Opening the page makes
+one curve-shapes read for every Latest levels and Price chart widget, and a layout
+edit keeps the drawn widgets. Latest levels shows
+the backend's front contract, price and unit for 1 to 12 curves, with a refusal tile for a curve the close does not return or
 price. Price chart draws a contract's history under the named
 `exact_snapshot_pins_v1` policy. Positions by month shows the delta ladder of a
 saved risk run definition's latest completed run (migrations 0131 and 0132): a
 definition holds exact books, a preset and an explicit size per exact price unit
 in immutable versions; Run now queues it at a retained context in parts of at
-most sixteen shocks; and a run counts at a knowledge cutoff only through
+most sixteen shocks, and the widget follows the parts and reads the run when they
+finish; the widget reads in the page's own context, states a newer completed run,
+lists tied runs for the person to choose one; and a run counts at a knowledge cutoff only through
 certified commit receipts. Each widget states its source, observation time and
-Latest, Newer available or Historical state from backend fields, and renders
+Latest, Newer available, Valued at an earlier close, Chosen run or Historical
+state from backend fields, and close footers follow a newer close found later, and renders
 inside its own error boundary. A past or unapplied context makes the page read
 only, with no Run now. Provider widgets, intraday prices, agent cards, close
-lateness, Blotter use of definitions and Board drag and resize remain in
-[plan.md](plan.md). The page's benchmark p95 is 1,090 ms against a one-second
-budget, recorded as a finding in the dashboard document.
+lateness, Blotter use of definitions and Board drag remain in
+[plan.md](plan.md). The page's benchmark result is in the dashboard document.

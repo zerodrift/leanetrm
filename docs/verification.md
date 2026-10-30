@@ -2950,38 +2950,30 @@ per contract MW; side prices remain identified separately.
 
 ## Market dashboard phase 1 (D263 to D265)
 
-`tools/run_preview.py --check --browser-check` passed on 2026-10-30 on macOS
-26.6.2 arm64 with .NET 10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and
-Chrome 156, with 958 owned browser checks. They include 18 Dashboard checks in
-the risk suite's browser: one widget of each kind added through Add widget, the
-same widgets under Board, Morning and Board again, the saved layout after a
-reload, a new definition saved with no prefilled size, Run now completed by the
-owned risk worker and shown as a ladder, no internal identifiers on the page, a
-past context that refuses each widget until a close is chosen and is then read
-only with no Run now, historical freshness, a configured curve missing from the
-close's read as a refusal tile beside rendered widgets, and no page overflow at
-390 pixels. The standard fixture returns every listed curve at each close, so
-that check removes one curve from the browser's copy of the curve-shapes reply.
+`tools/check_all.py` passed on 2026-10-30 on macOS 26.6.2 arm64 with .NET
+10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 156, except that one
+live-calculation browser run stopped at the Blotter side panel's "keyboard focus
+on a button of the panel's head" check, which passed when run again; the steps
+after it then passed. The standard browser run includes 32 Dashboard checks in
+the risk suite's browser: widgets added, arranged and reloaded with no extra
+curve read, Run now followed until the widget reads the finished run, a Board
+widget moved and sized from the keyboard, a curve the catalog lacks refused by
+the backend in its own tile, close footers turned to Newer available when a
+newer close is found, a newer completed run stated at an earlier close in
+working data, tied runs listed and one chosen, and a past context read only.
+The HTTP checks cover the latest-run states (`none` with an incomplete run,
+`earlier_close`, `newer_available`, a tie with versions and receipt known times,
+`chosen`, `risk_run_choice`), and a managed check covers the part limit. The
+checks are listed in [market-dashboard.md](market-dashboard.md#verification).
 
-Driving the page in a browser found and fixed three defects: changing the close
-or applying a context left the widgets showing the previous close, the Run now
-status and the tie, newer and incomplete notes showed internal run identifiers,
-and the page status read "Choose a curve to get started." on the Dashboard. The
-check failed on the identifier before the fix.
+The page benchmark measured the Dashboard at p50 754 ms and p95 847 ms, under
+the one-second budget (1,065 and 1,090 ms before one shared curve read, a
+Positions read in the page's own context and drawn widgets kept across layout
+edits); workload and requests are in
+[market-dashboard.md](market-dashboard.md#page-benchmark).
 
-The same command had stopped with a 403 from `/api/bootstrap` once the preview's
-64 sessions were in use: the run takes under ten minutes, so no session expires,
-and the new layout and definition HTTP checks had opened seven. They now share
-two sessions and the Dashboard shares the risk suite's browser; the run peaks at
-63 sessions. The commit before the dashboard work passed the same command once
-and twice stopped at a pre-existing Blotter check, "inline detail leaves page
-controls available and takes keyboard focus", which also stopped one run on
-this branch.
-
-The page benchmark seeds a three-widget layout with one completed five-part run
-and measured the Dashboard at p50 1,065 ms and p95 1,090 ms, over the one-second
-budget; the other pages stayed under it. Workload, requests and limits are in
-[market-dashboard.md](market-dashboard.md#page-benchmark). The HTTP checks for
-layouts, definitions, Run now and the latest run, and the web unit tests, are
-listed there. Adversarial review of the temporal, asynchronous and authorization
-changes has not yet been done.
+**Not measured:** a definition's run creation and each part's terminal state
+commit under the knowledge publication lock (730849102), which every working
+context capture also takes. Worker finish latency for definition parts under
+concurrent context captures has not been measured; it must be measured before a
+hosted release.

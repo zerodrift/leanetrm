@@ -1251,8 +1251,10 @@ Extend only after the baseline contracts are demonstrated:
     agent tasks exist.
   - Lateness of an expected close against its business calendar.
   - Running a saved risk run definition from the Blotter.
-  - Refreshing the Positions ladder when a run it queued completes.
-  - Moving and resizing widgets on the Board.
+  - Dragging widgets on the Board; the page moves and sizes them one step at a
+    time.
+  - Measuring publication-lock contention from definition runs before a hosted
+    release (verification.md).
 - Live feed adapters and their entitlement/provenance controls.
 - Settlement workflows, richer administration and deployment hardening.
 
