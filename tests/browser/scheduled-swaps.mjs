@@ -24,7 +24,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);
   await wait(`document.activeElement===document.querySelector(${JSON.stringify(selector)})`);
   await command('Input.insertText',{text});
-  await wait(`document.querySelector(${JSON.stringify(selector)}).value===${JSON.stringify(text)}`);
+  try{await wait(`document.querySelector(${JSON.stringify(selector)}).value===${JSON.stringify(text)}`);}
+  catch(error){
+   const state=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)}),active=document.activeElement;return{value:n?.value,connected:n?.isConnected,disabled:n?.disabled,fieldsetDisabled:n?.closest('fieldset')?.disabled,selection:[n?.selectionStart,n?.selectionEnd],focus:[active?.id,active?.tagName],documentFocused:document.hasFocus(),visibility:document.visibilityState,busy:document.body.getAttribute('aria-busy'),error:document.querySelector('#scheduled-swap-editor [role=alert]')?.textContent};})()`);
+   throw Error(error.message+' · typing state '+JSON.stringify(state),{cause:error});
+  }
  };
  // The panel shows a position: a row is pressed, after the search leaves only that row.
  async function openRow(reference){

@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--position-qualification"]){await PositionQualificationChecks.Run();return;}
 if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
 if(args is ["--booked-programs",var bookedProgramsFixture]){await BookedProgramStorageChecks.Run(bookedProgramsFixture);return;}
 if(args is ["--ppa-blotter-admission"]){await PpaBlotterAdmissionChecks.Run();return;}
@@ -93,6 +94,7 @@ if (args is ["--schedules"])
 }
 
 BookedScheduleLookupChecks.Run();
+await PositionQualificationChecks.Run();
 SideObservationCompatibilityChecks.Run();
 ContractObservationAuthoringChecks.Run();
 TradePartyChecks.Run();
