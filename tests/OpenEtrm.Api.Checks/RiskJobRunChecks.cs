@@ -33,6 +33,13 @@ static class RiskJobRunChecks
         Require(RiskJobs.ScopeFrame(books,portfolios).ToJsonString()==JsonSerializer.Serialize(new{bookIds=books,portfolioIds=portfolios},RiskJobs.Json)
                 &&RiskJobs.ScopeFrame(books,[]).ToJsonString()==JsonSerializer.Serialize(new{bookIds=books,portfolioIds=Array.Empty<Guid>()},RiskJobs.Json),
             "A job's frame keeps the books and portfolios its run was asked for, in the order chosen, and an empty choice as empty.");
-        Console.WriteLine("PASS risk job runs: a queued part states its run, its part and the run's part count, each checked before it is retained, and every job its books and portfolios");
+        // A definition's run takes its shocks in order, a holdings request's worth to a part; more than its parts can take is refused before anything is queued.
+        var largest=Enumerable.Range(0,RiskJobRun.MaxParts*PortfolioRiskPreview.MaxHoldingsBumps).ToImmutableArray();
+        var parts=RiskRunDefinitions.Parts(largest);
+        Require(parts.Length==RiskJobRun.MaxParts&&parts.All(p=>p.Length==PortfolioRiskPreview.MaxHoldingsBumps)&&parts.SelectMany(p=>p).SequenceEqual(largest)
+                &&RiskRunDefinitions.Parts([..Enumerable.Range(0,PortfolioRiskPreview.MaxHoldingsBumps+1)]).Select(p=>p.Length).SequenceEqual([PortfolioRiskPreview.MaxHoldingsBumps,1]),
+            "A definition's shocks are split in order into parts of at most a holdings request's shocks.");
+        Require(Code(()=>RiskRunDefinitions.Parts(largest.Add(0)))=="risk_definition_targets","A definition shocking more than one run takes is refused.");
+        Console.WriteLine("PASS risk job runs: a queued part states its run, its part and the run's part count, each checked before it is retained, and every job its books and portfolios; a definition's run is split into parts and refused over the part limit");
     }
 }

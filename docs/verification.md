@@ -2947,3 +2947,33 @@ entry. Desktop and 390-pixel screenshots were inspected. Standard interactive
 startup also seeds all 37 bindings successfully; its owned database was removed
 on shutdown. A frontend regression prevents a fabricated single PPA price unit
 per contract MW; side prices remain identified separately.
+
+## Market dashboard phase 1 (D265 to D267)
+
+`tools/check_all.py` passed on 2026-10-30 on macOS 26.6.2 arm64 with .NET
+10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 156, except that one
+live-calculation browser run stopped at the Blotter side panel's "keyboard focus
+on a button of the panel's head" check, which passed when run again; the steps
+after it then passed. The standard browser run includes 32 Dashboard checks in
+the risk suite's browser: widgets added, arranged and reloaded with no extra
+curve read, Run now followed until the widget reads the finished run, a Board
+widget moved and sized from the keyboard, a curve the catalog lacks refused by
+the backend in its own tile, close footers turned to Newer available when a
+newer close is found, a newer completed run stated at an earlier close in
+working data, tied runs listed and one chosen, and a past context read only.
+The HTTP checks cover the latest-run states (`none` with an incomplete run,
+`earlier_close`, `newer_available`, a tie with versions and receipt known times,
+`chosen`, `risk_run_choice`), and a managed check covers the part limit. The
+checks are listed in [market-dashboard.md](market-dashboard.md#verification).
+
+The page benchmark measured the Dashboard at p50 754 ms and p95 847 ms, under
+the one-second budget (1,065 and 1,090 ms before one shared curve read, a
+Positions read in the page's own context and drawn widgets kept across layout
+edits); workload and requests are in
+[market-dashboard.md](market-dashboard.md#page-benchmark).
+
+**Not measured:** a definition's run creation and each part's terminal state
+commit under the knowledge publication lock (730849102), which every working
+context capture also takes. Worker finish latency for definition parts under
+concurrent context captures has not been measured; it must be measured before a
+hosted release.

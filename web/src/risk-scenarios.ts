@@ -1,6 +1,6 @@
 /** Presentation transport only. Targets, units and containment policies are
  * offered by the backend; membership resolution and shock arithmetic stay there. */
-export type ScenarioTarget={id:string;label:string;coordinate:string;kind:string;unit:string;factor:{coordinate:string;target:Record<string,unknown>}};
+export type ScenarioTarget={id:string;label:string;coordinate:string;kind:string;unit:string;priceUnit:unknown;factor:{coordinate:string;target:Record<string,unknown>}};
 export type ScenarioShift={factor:ScenarioTarget['factor'];size:string;convention:string};
 export function scenarioShift(target:ScenarioTarget|undefined,size:string,convention:string,bucket?:{from:string;to:string}):ScenarioShift{
  if(!target)throw Error('Choose an available scenario target.');
