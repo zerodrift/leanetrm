@@ -20,6 +20,8 @@ internal static class FuturesChecks
             contract.DeliveryTo, contract.Expiry, quote.Quantity, ExactDecimal.Parse("40"), LotBasis.FixedTotal, first,"cash");
         FuturesMarketBinding Side(FuturesSeriesSpecification? terms = null, string settlement = "cash") =>
             new(Guid.NewGuid(), new(f.C("future"), f.K(1)), contract, terms ?? series, quote, settlement, FuturesMarketBinding.Implementation);
+        Check("obsolete fixed-total execution implementation is refused",()=>
+            Reject("futures_convention",()=>new FuturesMarketBinding(Guid.NewGuid(),new(f.C("future"),f.K(1)),contract,series,quote,"cash","fixed_total_cash_execution_pnl_v1")));
         var side = Side(); var instrument = side;
         var bookA = Guid.NewGuid(); var bookB = Guid.NewGuid();
         Trade Trade(Guid book, string lots, string execution, DateTimeOffset? at = null) => new(Guid.NewGuid(), book,
@@ -218,10 +220,10 @@ internal static class FuturesChecks
         });
         Check("execution price uses the contract trading tick without implicit rounding", () =>
             Reject("futures_execution", () => Trade(bookA, "1", "3.001")));
-        Check("fixed-total cash terms and identical lot/quote bases are required", () =>
+        Check("lot resolution and declared settlement method are required", () =>
         {
-            Reject("futures_convention", () => Side(series with { LotBasis = LotBasis.PerDeliveryDay }));
-            Reject("futures_convention", () => Side(series with { LotQuantity = f.R("power_quantity") }));
+            Reject("futures_lot", () => Side(series with { LotBasis = LotBasis.PerDeliveryDay }));
+            Reject("futures_lot", () => Side(series with { LotQuantity = f.R("power_quantity") }));
             Reject("futures_convention", () => Side(settlement: "physical"));
         });
         Check("first trading is inclusive and expiry is exclusive for execution and valuation", () =>

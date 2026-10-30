@@ -1,9 +1,10 @@
 """D220: a close that cannot value some positions reports each one and leaves it out of valuation totals and risk runs.
 
 The fixture is the seeded standard example with the custom-curve closes through Dec 31, 2020. By then the
-seeded January future has expired, and the closes after Dec 18 pin neither the standard curves nor the
-discount rates the monthly swaps need. The daily swap bundle publishes its prices and due fixings at Dec 31
-only, so the daily swaps share their book totals with monthly swaps the close cannot value. One synthetic
+seeded January future has expired. The monthly swaps' January index fixes at Dec 31 noon, but this
+fixture publishes no such fixing; these swaps must report index_fixing_missing. The closes after Dec 18
+also pin neither the standard projection curves nor their discount rates. The daily swap bundle publishes
+its prices and due fixings at Dec 31 only, so the daily swaps share their book totals with monthly swaps the close cannot value. One synthetic
 future on the custom monthly NG curve, observed at every close, is booked here to do the same for futures.
 Curve shapes state per contract what a curve at that close cannot price, where reading the curve fails.
 A scheduled swap (D214) on the standard monthly curve is booked last, so the counts above stay the seeded example's.
@@ -18,7 +19,7 @@ from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
 from seed_preview_positions import BOOKS
 
-REASONS = ('source_expired', 'missing_observation')
+REASONS = ('source_expired', 'missing_observation', 'index_fixing_missing')
 TRADES = {'mode': 'trades', 'bookIds': [], 'portfolioIds': [], 'groupBy': [], 'measures': [], 'pivotConvention': None}
 BY_BOOK = {**TRADES, 'mode': 'pivot', 'groupBy': ['book'], 'measures': ['presentValue', 'executionPnl', 'tradeCount'],
            'pivotConvention': 'trading_blotter_totals_v1'}
@@ -136,8 +137,8 @@ def run_checks(url, session=None):
     check('the January future, expired on Dec 28, 2020, is reported expired rather than failing the read',
           len(expired) == 8 and all(r['unavailableReason'] == 'source_expired' for r in expired))
     monthly = [r for r in rows if r['curve'] in ('base_forward', 'hub_power')]
-    check('monthly swaps without their discount rates at this close are reported as missing observations',
-          len(monthly) == 8 and all(r['unavailableReason'] == 'missing_observation' for r in monthly))
+    check('monthly swaps require their due Dec 31 noon index fixing, which this close does not publish',
+          len(monthly) == 8 and all(r['unavailableReason'] == 'index_fixing_missing' for r in monthly))
     daily = [r for r in rows if r['curve'] in ('daily_gas', 'daily_power')]
     check('daily swaps whose bundle publishes this close are valued',
           len(daily) == 8 and all(r['unavailableReason'] is None and r['presentValue'] is not None for r in daily))
@@ -366,8 +367,8 @@ def run_scheduled_checks(session):
           and before['contractIdentityKind'] == 'scheduled_swap_instrument'
           and before['quantity'] is None and before['mark'] is None and before['markMinusPrice'] is None)
     seeded = {r['unavailableReason'] for r in late['holdings'] if r['curve'] == 'base_forward' and r['tradeId'] != booked['tradeId']}
-    check('at Dec 31, 2020 it is unvalued for the reason the seeded monthly swaps on its curve are',
-          seeded == {'missing_observation'} and after['unavailableReason'] == 'missing_observation')
+    check('at Dec 31, the scheduled February projection is missing, while seeded January-only swaps lack their due index fixing',
+          seeded == {'index_fixing_missing'} and after['unavailableReason'] == 'missing_observation')
     check('it then has blank mark, mark minus price, P&L and PV, never zero',
           all(after[f] is None for f in ('mark', 'markMinusPrice', 'executionPnl', 'presentValue')))
     check('it keeps the facts it was booked with: its direction, its months\' envelope, their shared fixed price and no single quantity',

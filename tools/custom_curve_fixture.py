@@ -25,7 +25,8 @@ def prepare(reference,market,manifest,*,daily_lifecycle=False):
         cid=key('e',100+ordinal);sid=key('e',1000+ordinal)
         refs.extend([f"INSERT INTO ref_data.futures_series VALUES({R},'{series}','custom_ng_future','{year}-{month:02d}','synthetic','{start}','{end}');",
                      f"INSERT INTO ref_data.futures_milestones VALUES({R},'{series}','first_trading','known','2020-01-01','2020-01-01 00:00:00+00','test_utc','fixture');",
-                     f"INSERT INTO ref_data.futures_milestones VALUES({R},'{series}','last_trading','known','{expiry}','{expiry} 15:30:00+00','test_utc','fixture');"])
+                     f"INSERT INTO ref_data.futures_milestones VALUES({R},'{series}','last_trading','known','{expiry}','{expiry} 15:30:00+00','test_utc','fixture');",
+                     f"INSERT INTO ref_data.futures_execution_policies(catalog_id,revision_id,series_code,implementation,eligibility_rule,eligible_from,source_date_offset_seconds,source_date_tzdb_version,price_role,price_source_code,evidence_source_code) VALUES({R},'{series}','contract_lot_execution_pnl_v2','source_first_trade_instant_v1','2020-01-01 00:00:00+00',NULL,NULL,'daily_settlement','fixture','fixture');"])
         definitions.extend([f"INSERT INTO market_data.contracts VALUES({M},'{cid}',{R},'future','{start}','{end}','{expiry} 15:30:00+00','{series}');",
                             f"INSERT INTO market_data.series VALUES({M},'{sid}','custom_ng_monthly_{ordinal}',{R},'{cid}','test_gas_outright',NULL);",
                             f"INSERT INTO market_data.curve_members VALUES({M},'ng_monthly','{cid}',{ordinal});"])

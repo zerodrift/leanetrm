@@ -220,7 +220,18 @@ app.Use(async (context,next)=>
             _ => (500,"preview_error","The preview could not complete the operation.")
         };
         if(e is PostgresException pg)app.Logger.LogWarning("Database operation rejected: {SqlState}",pg.SqlState);
-        if (status==500) app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
+        if (status==500)
+        {
+            app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
+            var inner=e.InnerException;
+            for(var depth=0;inner is not null&&depth<4;inner=inner.InnerException,depth++)
+            {
+                app.Logger.LogError("Preview operation failed: {ErrorType}",inner.GetType().Name);
+                if(inner is PostgresException nested)app.Logger.LogWarning("Database operation rejected: {SqlState}",nested.SqlState);
+            }
+            foreach(var codeLocation in PreviewFailureDiagnostics.Codes(e))
+                app.Logger.LogError("Preview failure code: {CodeLocation}",codeLocation);
+        }
         context.Response.StatusCode=status;
         // A role refusal also names the role and permission as fields, so a page never parses its message.
         object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
@@ -1193,6 +1204,9 @@ api.MapPost("/swaps/settlement/status",(HttpContext c,FuturesStatusRequest body)
  await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.swap_operation_status($1,$2)::text",database.Manifest.CatalogId,body.OperationId);
  return Results.Ok(JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!));
 },c.RequestAborted)));
+api.MapPost("/swaps/contract-observation-preview",(HttpContext c,SwapContractObservationPreviewRequest body)=>FuturesRead(c,
+ body.Context??throw new MarketDataException("swap_context","Supply the selected observation context."),
+ (connection,data,frame,ct)=>swapStore.ContractObservationPreview(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/observation-options",(HttpContext c,SwapObservationOptionsRequest body)=>FuturesRead(c,
  body.Context??throw new MarketDataException("swap_context","Supply the selected observation context."),
  (connection,data,frame,ct)=>swapStore.ObservationOptions(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));

@@ -66,7 +66,9 @@ public sealed partial class SwapStore
             var custom = projection is {} c ? new CustomCurveProjectionBinding(c.CatalogId,c.CurveId,c.Version,c.OutputNode,c.Position,c.Selection,c.Implementation) : null;
             var references = SwapObservationCompatibility.PreviewReferences(bundle,curve,
                 settlement,quote,start,end,mode,calendar,custom);
-            if (projection is not null)
+            if (projection is not null && references.Fixings.All(fixing => fixing.FixingAt <= selectedFrame.At))
+                await CustomCurves.RequireFixedProjection(connection,database,bundle,selectedFrame,projection,PriceUnit.FromQuote(quote),references.Observations,ct);
+            else if (projection is not null)
             {
                 var revision = bundle.DefinitionRevision.RevisionId;
                 if (!publishedByRevision.TryGetValue(revision,out var published))
@@ -201,6 +203,7 @@ public sealed partial class SwapStore
             catch (MarketDataException error) { unavailable = new(error.Code, error.Message); }
         }
         return new { indices, samplings, selectedSampling = selectedMode is {} selectedAveraging ? SwapObservationCompatibility.Mode(selectedAveraging) : null, deliveryPeriods, observationCalendars = calendars, observations, availability = unavailable,
+            qualifiedCustomProjection = observations is not null && unavailable is null ? input.CustomProjection : null,
             customProjectionUnavailableReason = customUnavailable, choices };
     }
 }

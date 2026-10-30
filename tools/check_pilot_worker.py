@@ -34,7 +34,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     pair=trader.call('swaps/book',{**swap_context,**trade_booking(),'operationId':str(uuid4()),'bookId':books[0],
         'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'quantity':'10','firstCoefficient':'-1','swapType':'financial_floating_floating',
         'firstFloating':floating,'floating':{**floating,'spread':'0.2'},'discounting':False})
-    future_context={**swap_context,'convention':'fixed_total_cash_execution_pnl_v1'}
+    future_context={**swap_context,'convention':'contract_lot_execution_pnl_v2'}
     future=next(c for c in trader.call('futures/catalog',future_context)['contracts'] if c['curve']=='future' and c['deliveryFrom']=='2021-01-01')
     future_trade=trader.call('futures/book',{**future_context,**trade_booking(),'operationId':str(uuid4()),'bookId':books[0],
         'curve':'future','contractId':future['id'],'lots':'2','executionPrice':'2.9'})

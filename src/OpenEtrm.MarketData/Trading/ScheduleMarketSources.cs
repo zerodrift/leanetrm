@@ -17,10 +17,11 @@ public sealed partial class ScheduleMarketSources
     private readonly ImmutableArray<IndexPriceLookup> dated;
     private readonly ImmutableArray<PriceSettlementSelection> selections;
     private readonly VolumeContext? volumeContext;
+    private readonly ContractObservationPricing? contractObservations;
 
     public ScheduleMarketSources(ResolvedCalculationContext context,CurveBuild basis,
         IntervalReferenceData? reference,IntervalReadData? read,IntervalKnowledgePolicy knowledgePolicy,
-        PendingActualsPolicy pending,ImmutableArray<IndexPriceLookup> dated,ImmutableArray<PriceSettlementSelection> selections)
+        PendingActualsPolicy pending,ImmutableArray<IndexPriceLookup> dated,ImmutableArray<PriceSettlementSelection> selections,ContractObservationPricing? contractObservations=null)
     {
         if(context is null||basis is null||basis.Scenario.Depth!=0||!Enum.IsDefined(pending)||dated.IsDefault||selections.IsDefault||
             dated.Any(value=>value is null)||selections.Any(value=>value is null)||
@@ -36,7 +37,7 @@ public sealed partial class ScheduleMarketSources
             pair.Key.Revision!=reference.Definitions||pair.Value.ValuationAt!=context.ValuationAt||pair.Value.KnownAt!=context.KnownAt)))
             throw Invalid("Native source definitions and prepared curves must retain the exact context coordinates.");
         this.context=context;this.basis=basis;this.reference=reference;this.read=read;this.pending=pending;
-        this.dated=dated;this.selections=selections;
+        this.dated=dated;this.selections=selections;this.contractObservations=contractObservations;
         if(reference is not null)volumeContext=new(reference.Definitions,reference.Reference,context.ValuationAt,context.KnownAt,pending);
     }
 
@@ -100,6 +101,9 @@ public sealed partial class ScheduleMarketSources
                             Set(cell,ScheduleNumber.Parse(factor.DiscountFactor.ToString()),default);break;
                         case "asset_capacity":
                             Set(cell,Capacity(instruction,grid,cell),new(VolumeState.Contractual,SchedulePriceFacts.None));break;
+                        case ContractObservationScheduleSource.Operation:
+                            var sampled=ContractObservation(instruction,market);
+                            Set(cell,new(sampled.Price.NumeratorValue,sampled.Price.DenominatorValue),new(null,sampled.State));break;
                         case "price_lookup":
                             var price=grid is null?Dated(instruction,market):Native(instruction,grid,cell,program.Document.Family,resolver!,nativePriceAttribute);
                             Set(cell,new(price.Price.NumeratorValue,price.Price.DenominatorValue),new(null,price.State));break;

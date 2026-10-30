@@ -19,6 +19,7 @@ static class ModelProviderChecks
 
     public static async Task Run()
     {
+        ExplicitIdentifierPolicy();
         await AdditionalProviderChecks.Run();
         await TextCall();
         await CachedToolLoop();
@@ -31,6 +32,21 @@ static class ModelProviderChecks
         await ServedModel();
         await RefusedBeforeSending();
         CheckEndpoint();
+    }
+
+    static void ExplicitIdentifierPolicy()
+    {
+        var options=new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        try
+        {
+            _=JsonSerializer.Deserialize<EditModelRequest>("{}",options);
+            throw new Exception("An omitted identifier policy must refuse the retired fixed-only command.");
+        }
+        catch(JsonException){}
+        foreach(var policy in new[]{"fixed","alias"})
+            Require(JsonSerializer.Deserialize<EditModelRequest>(JsonSerializer.Serialize(new{identifierPolicy=policy}),options)!.IdentifierPolicy==policy,
+                "an explicit identifier policy survives command binding");
+        Console.WriteLine("PASS model edit requires explicit identifier policy");
     }
 
     static async Task TextCall()

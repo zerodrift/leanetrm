@@ -9,7 +9,7 @@ def run_checks(url, query, manifest, client=None):
     c = client or PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'trader'})
     frame = next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
     context = {'snapshotId': frame['id'], 'convention': 'independent_side_financial_swap_v2', 'knowledgeMode': 'current'}
-    future_context = {**context, 'convention': 'fixed_total_cash_execution_pnl_v1'}
+    future_context = {**context, 'convention': 'contract_lot_execution_pnl_v2'}
     futures = c.call('futures/catalog', future_context)
     member = futures['contracts'][0]
     c.call('profile',{'profile':'viewer'})
@@ -57,7 +57,7 @@ def run_checks(url, query, manifest, client=None):
      SET SESSION AUTHORIZATION preview_runtime; SELECT security.use_context('{token}');
      DO $$ BEGIN
       PERFORM security.book_futures_with_parties('{manifest['catalogId']}','{uuid4()}','{future_body['bookId']}','{manifest['revisionId']}',
-       '{collision['curve']}','{collision['id']}','2020-12-18T16:00:00Z',NULL,1,3,'fixed_total_cash_execution_pnl_v1',NULL,NULL,NULL,'{booking_json}'::jsonb);
+       '{collision['curve']}','{collision['id']}','2020-12-18T16:00:00Z',NULL,1,3,'contract_lot_execution_pnl_v2',NULL,NULL,NULL,'{booking_json}'::jsonb);
       RAISE EXCEPTION 'Expected canonical identity collision rejection';
      EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'futures_identity' THEN RAISE; END IF; END $$;
      ROLLBACK;""")

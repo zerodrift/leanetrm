@@ -7,7 +7,7 @@ def run_checks(Client, check):
     risk = Client(); risk.bootstrap(); risk.call('profile', {'profile': 'risk'})
     workspace = risk.call('workspace')
     frame = next(f for f in workspace['frames'] if f['at'].startswith('2020-12-18'))
-    context = {'snapshotId': frame['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'}
+    context = {'snapshotId': frame['id'], 'convention': 'contract_lot_execution_pnl_v2', 'knowledgeMode': 'current'}
     holdings = risk.call('futures/holdings', context)
     retained = {**context, 'knowledgeMode': 'retained', 'contextId': holdings['context']['contextId']}
     risk_context = {**retained, 'convention': 'trading_workspace_v1'}

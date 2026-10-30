@@ -17,6 +17,13 @@ internal static class ScheduleMarketSourceChecks
         var factors=new ExplicitDiscounting(ExactDecimal.Parse("0.9"),DiscountFactorSource.Explicit);
         var result=sources.Evaluate(program,swap.Floating.Id,market,factors);
         Equal(result.PresentValue.ToExactString(),"2.925");
+        // Standalone stored programs have the same admission boundary as API
+        // booking: a dated scalar price cannot discard its actual-fixing source.
+        var definition=ScheduleDefinitionCompiler.Generate(swap.Floating);
+        Reject("side_schedule_definition",()=>new ScheduleDefinition(definition.SideId,definition.Family,definition.EconomicIdentity,
+            definition.PricingBindingIdentity,definition.SchemaVersion,definition.GeneratorVersion,definition.Rows,definition.Edges,
+            [..definition.Bindings.Where(binding=>binding.Port!="fixing")],definition.Roots,definition.Ports,definition.Grids));
+
         Reject("side_market_sources",()=>sources.Evaluate(BookedSideProgram.Compile(new ScheduleProgramFixture().Definition()),Guid.NewGuid(),market,factors));
         foreach(var minutes in new[]{60,15})
         {

@@ -123,7 +123,7 @@ internal static class SideModelOracleChecks
         foreach (var actualCount in new[] { 0, 15 })
         {
             var snapshot = actualCount == 0 ? daily.Snapshot : daily.WithActuals(actualCount);
-            var swap = daily.Swap(indexed: true);
+            var swap = daily.Swap();
             foreach (var (scenario, market) in Scenarios(daily.Model, daily.Model.Build(snapshot, swap.DependenciesAt(snapshot))))
                 record("daily-actuals-" + actualCount, scenario, swap.PV(new SideValuationContext(market, discount)));
         }
@@ -137,8 +137,10 @@ internal static class SideModelOracleChecks
         var model = f.Model(curves: f.Curves.Add(powerCurve));
         var snapshot = f.Snapshot(); snapshot = snapshot with { Selections = snapshot.Selections.Add(f.Select(5, QuoteKind.Outright, "power_out", "50")) };
         FloatingSide Floating(QuoteSpecification quote, CurveKey curve, ContractKey key, ReferenceKey index) => new(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(index), quote, new(one, quote.Quantity), new(2041, 1, 1), new(2041, 2, 1),
-            Fixture.Utc("2040-12-31T00:00:00Z"), Fixture.Utc("2041-02-18T00:00:00Z"), FloatingAveraging.MonthlyIndexPrice,
-            [new(new(curve, key), f.Contracts.Single(c => c.Key == key))], FloatingSide.Implementation);
+            [new(index,quote.Key,new(2041,1,1),new(2041,2,1),Fixture.Utc("2040-12-31T00:00:00Z"),
+                key==f.K(5)?f.S(7):key==f.K(2)?f.S(8):throw new InvalidOperationException("No fixing series declared for this oracle contract."),f.R("source"),IndexFixing.SupportedImplementation)],
+            Fixture.Utc("2041-02-18T00:00:00Z"), FloatingAveraging.MonthlyIndexPrice,
+            [new(new(curve, key), f.Contracts.Single(c => c.Key == key))], FloatingSide.IndexedImplementation);
         var power = WholeTermSideFixtures.Floating([Floating(powerQuote,powerCurve.Key,f.K(5),f.R("power_index"))],[new(1,1)]);
         var gas = WholeTermSideFixtures.Floating([Floating(gasQuote,f.C("base_forward"),f.K(2),f.R("index"))],[new(1,1)]);
         var converter = new UnitConverter([..f.Quantities.Select(q => new UnitDefinition(q.Unit, q.Dimension, q.Unit.Code))], [], f.Quantities);
@@ -160,8 +162,8 @@ internal static class SideModelOracleChecks
             var dates = mode is FloatingAveraging.ObservationArithmetic or FloatingAveraging.CalendarDaysPrevious or FloatingAveraging.CalendarDaysNext;
             var projections = dates ? ImmutableArray.Create(f.Projections[0], f.Projections[4], f.Projections[6]) :
                 mode == FloatingAveraging.QuantityWeighted ? [..f.Projections.Select((p, n) => p with { AveragingQuantity = new(D((n + 1).ToString(CultureInfo.InvariantCulture)), f.Quote.Quantity) })] : f.Projections;
-            var floating = new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.Base.R("index")), f.Quote, f.Unit, from, f.To, Fixture.Utc("2048-05-01T00:00:00Z"), f.Payment,
-                mode, projections, FloatingSide.Implementation, dates ? calendar : null, new(D("0.125"), f.Quote));
+            var floating = new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.Base.R("index")), f.Quote, f.Unit, from, f.To, f.Fixings(projections), f.Payment,
+                mode, projections, FloatingSide.IndexedImplementation, dates ? calendar : null, new(D("0.125"), f.Quote));
             var swap = new FinancialSwapInstrument(Guid.NewGuid(), [new(fixedSide, D("-1")), new(floating, D("1"))], FinancialSwapInstrument.Implementation, false);
             foreach (var (scenario, build) in Scenarios(f.Model, f.Model.Build(f.Snapshot, swap.DependenciesAt(f.Snapshot))))
                 record("observations-with-spread-" + mode, scenario, swap.PV(new SideValuationContext(build, new ExplicitDiscounting(D("1"), DiscountFactorSource.Undiscounted))));
@@ -290,8 +292,9 @@ internal static class SideModelOracleChecks
         var paymentAt = PpaAcceptanceFixture.At("2031-12-10T00:00:00Z");
         var unit = new Quantity(D("1"), f.Energy.Key);
         var fixedSide = new FixedSide(Guid.NewGuid(), new(D("40"), quote), unit, f.Month, f.Month.AddMonths(1), paymentAt, FixedSide.Implementation, quote);
-        var floating = new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R("synthetic_energy_index")), quote, unit, f.Month, f.Month.AddMonths(1), f.From, paymentAt,
-            FloatingAveraging.MonthlyIndexPrice, [new(new(f.C("synthetic_energy"), contract.Key), contract)], FloatingSide.Implementation);
+        var floating = new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(f.R("synthetic_energy_index")), quote, unit, f.Month, f.Month.AddMonths(1),
+            [new(f.R("synthetic_energy_index"),quote.Key,f.Month,f.Month.AddMonths(1),f.From,factor.Input.Series,factor.Source,IndexFixing.SupportedImplementation)],paymentAt,
+            FloatingAveraging.MonthlyIndexPrice, [new(new(f.C("synthetic_energy"), contract.Key), contract)], FloatingSide.IndexedImplementation);
         var swap = new FinancialSwapInstrument(Guid.NewGuid(), [new(fixedSide, D("-1")), new(floating, D("1"))], FinancialSwapInstrument.Implementation, false);
         var book = Guid.NewGuid();
         var trades = new[]

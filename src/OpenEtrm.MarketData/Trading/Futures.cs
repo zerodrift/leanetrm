@@ -9,9 +9,8 @@ public enum FuturesSettlementState { Unprocessed = 1 }
 // own retained state and conventions; this contract never substitutes zero VM.
 public sealed record FuturesMarketBinding
 {
-    public const string Implementation = "fixed_total_cash_execution_pnl_v1";
-    public const string GeneralImplementation = "contract_lot_execution_pnl_v2";
-    public static bool Supported(string? implementation)=>implementation is Implementation or GeneralImplementation;
+    public const string Implementation = "contract_lot_execution_pnl_v2";
+    public static bool Supported(string? implementation)=>implementation == Implementation;
     public string Convention { get; }
     public CurveRequest Market { get; }
     public MarketContract Contract { get; }
@@ -28,9 +27,8 @@ public sealed record FuturesMarketBinding
     {
         if (contract is null || series is null || quote is null)
             throw Error("futures_definition", "Explicit dated contract, series and quote terms are required.");
-        if (!Supported(implementation) || settlementMethod != series.SettlementMethod ||
-            implementation == Implementation && (settlementMethod != "cash" || series.LotBasis != LotBasis.FixedTotal || series.LotQuantity != series.QuoteQuantity || quote.Kind != QuoteKind.Outright))
-            throw Error("futures_convention", "Select the supported fixed-total cash convention with identical lot and quote quantity bases.");
+        if (!Supported(implementation) || settlementMethod != series.SettlementMethod)
+            throw Error("futures_convention", "Select the current contract-lot execution convention and the exact series settlement method.");
         var from=eligibleFrom??series.FirstTradingAt;
         if(from is not {} resolved||!TradingInstant.IsSupported(resolved)||resolved>=contract.Expiry||series.FirstTradingAt is {} sourceFirst&&resolved<sourceFirst)
             throw Error("futures_definition","Explicit qualified eligibility is required when the source first-trading instant is unknown.");
@@ -250,8 +248,6 @@ public static class FuturesHoldings
             !SameInputs(snapshot,market.Snapshot) || !market.Scenario.IsBase || market.NumericalPolicy != CurveModel.NumericalPolicy ||
             !TradingInstant.IsSupported(snapshot.ValuationAt))
             throw FuturesMarketBinding.Error("futures_context", "Use distinct trades and a matching pinned snapshot, definition revision and numerical policy.");
-        if(implementation==FuturesMarketBinding.Implementation && trades.SelectMany(t=>t.Instruments).Any(p=>FuturesExecution.Require(p).Instrument.Series.LotBasis!=LotBasis.FixedTotal||FuturesExecution.Require(p).Instrument.Series.SettlementMethod!="cash"))
-            throw FuturesMarketBinding.Error("futures_convention","The selected legacy convention supports only fixed-total cash futures.");
         var sides = new Dictionary<Guid,FuturesMarketBinding>();
         var instruments = new Dictionary<Guid,FuturesContract>();
         var aliases = new Dictionary<Guid,Guid>();

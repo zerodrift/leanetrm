@@ -19,8 +19,9 @@ public sealed record FloatingSidePeriod(
     [property:IdentityField]CustomCurveProjectionBinding? CustomProjection,[property:IdentityField]ExactRatio Allocation,
     [property:IdentityField]string ObservationImplementation)
 {
+    [IdentityField]public ImmutableArray<ContractObservationLookup> ContractObservations { get; init; }=[];
     [IdentityField]public CurveKey ProjectionCurve=>Projections[0].Market.Curve;
-    [IdentityField]public ImmutableArray<FloatingObservation> ObservationSchedule=>[..Projections.Select(p=>new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity))];
+    [IdentityField]public ImmutableArray<FloatingObservation> ObservationSchedule=>!ContractObservations.IsDefaultOrEmpty?[..ContractObservations.Select(o=>new FloatingObservation(o.From,o.To,null))]:[..Projections.Select(p=>new FloatingObservation(p.Contract.DeliveryFrom,p.Contract.DeliveryTo,p.AveragingQuantity))];
 }
 
 // Date and observation parameters describe all rows; they are not child sides.

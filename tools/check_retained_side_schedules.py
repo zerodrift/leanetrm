@@ -317,6 +317,29 @@ def run_stage_checks(query, manifest):
             scoped_request=query(f"SELECT request_id FROM trading.side_schedules WHERE id='{scoped_schedule}';")
             install_stage_prerequisite(runtime,query,catalog,scoped_request,scoped_schedule)
         runtime(reject(scoped(seal),'side_schedule_sources') if mismatch else scoped(seal))
+    obsolete=[]
+    for variant in ('missing_fixing','first_fixing_marker'):
+        proposed=[dict(row) for row in lookup_rows]
+        selected_bindings=bindings[:-1] if variant=='missing_fixing' else bindings
+        if variant=='first_fixing_marker':
+            proposed[5]=dict(proposed[5],parameters=dict(proposed[5]['parameters'],firstFixingAt='2020-12-31T12:00:00.0000000+00:00'))
+        scoped,scoped_schedule=stage_graph('synthetic_obsolete_'+variant,family='floating',bindingCount=len(selected_bindings))
+        runtime(scoped(append_rows(proposed)))
+        runtime(scoped(f"SELECT security.append_side_schedule_edges('{catalog}','{request}','{schedule}',{literal(edges)});"))
+        runtime(scoped(f"SELECT security.append_side_schedule_aux('{catalog}','{request}','{schedule}','bindings',{literal(selected_bindings)});"))
+        runtime(scoped(f"SELECT security.append_side_schedule_aux('{catalog}','{request}','{schedule}','roots',{literal(roots)});"))
+        scoped_request=query(f"SELECT request_id FROM trading.side_schedules WHERE id='{scoped_schedule}';")
+        # Derive bytes from the same staged rows: this must fail source admission,
+        # not a deliberately mismatched bytecode or a missing artifact.
+        content=query(f"SELECT trading.side_program_document('{catalog}','{scoped_schedule}')::text;")
+        try:
+            runtime(reject(append_program(catalog,scoped_request,scoped_schedule,content),'side_schedule_sources'))
+        except RuntimeError as error:
+            if 'expected rejection' not in str(error):
+                raise
+            obsolete.append(variant+': '+str(error))
+    assert not obsolete, 'Obsolete dated programs passed sealing: '+str(obsolete)
+    print('PASS dated source sealing refuses coherent bytes with absent fixing or obsolete first-fixing timestamp',flush=True)
     for mismatched in (False,True):
         operation=str(uuid4());name='synthetic_quantity_subselection_'+str(mismatched)
         output_roots=roots+[dict(name='quantity',row=0,measure='schedule_quantity',sequence=2)]
