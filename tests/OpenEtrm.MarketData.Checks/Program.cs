@@ -3,6 +3,7 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--schedule-market-sources"]){ScheduleMarketSourceChecks.Run();return;}
 if(args is ["--schedule-input-batch"]){await ScheduleInputBatchChecks.Run();return;}
 if(args is ["--booked-side-program"]){BookedSideProgramChecks.Run();return;}
 if(args is ["--schedule-program-execution"]){ScheduleProgramExecutionChecks.Run();return;}
@@ -90,6 +91,7 @@ if (args.Length > 0)
 
 await ScheduleInputBatchChecks.Run();
 BookedSideProgramChecks.Run();
+ScheduleMarketSourceChecks.Run();
 ScheduleProgramExecutionChecks.Run();
 ScheduleProgramDemandChecks.Run();
 SideModelOracleChecks.Run();

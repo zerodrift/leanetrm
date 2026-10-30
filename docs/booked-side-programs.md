@@ -85,3 +85,56 @@ These checks qualify storage and direct loading. They do not establish the live
 pricing cutover, production source eligibility, new settlement capabilities,
 largest-workload budgets or production throughput. Existing valuation adapters
 remain until the next integration passes independent numerical and end-to-end checks.
+
+## Dynamic-source checkpoint
+
+`ScheduleMarketSources` binds demanded program columns to the existing price,
+quantity and discount resolvers. It receives no Side terms and creates no
+replacement schedule graph. The caller supplies the resolved price-graph context,
+exact base snapshot, native reference/read data and explicit knowledge and
+pending-actuals policies. Context identity includes the manifest; scenarios must
+retain that context and the base snapshot. Native indexed prices additionally
+require the authorized instrument attribute, checked against the exact quantity
+specification and supported price cadence.
+
+The adapter resolves dated index prices, native energy prices, certificate and
+monthly capacity prices, raw asset volumes, daily capacity versions and explicit
+payment factors. It preserves base/scenario demand lanes and rejects missing or
+ambiguous metadata. Fixed native prices need no unrelated price curves. Physical
+assignments retain their exact quote multiplier and adjustment; capacity uses
+individual operating days, including daylight-saving boundaries.
+
+`BookedScheduleLookups.Dated` obtains dated metadata from an authorized exact
+market/reference read. Fixing publication instants come from qualified
+`index_fixing_observations`, not contract expiry or observations. Stored index,
+quote, delivery, series, source and implementation bindings must agree. The
+existing database direct-load check exercises this decoder while normalized
+schedule-content reads are disabled.
+
+The focused `--schedule-market-sources` check covers independent dated and native
+values, hourly/quarter-hour quantities, mixed fixed/projected observations,
+symmetric shocks, missing due fixings, conflicting publication metadata,
+historical delivered values, changing daily capacity, source identity and context
+refusals, explicit indexed attribute/cadence admission and cancellation.
+
+This is source-resolution qualification, not the application pricing cutover.
+Sibling-quantity composition, partial amendment coverage, complete source receipts,
+bounded concurrent database input reads, custom-output execution integration,
+portfolio/worker parity and workload qualification remain required. The existing
+application valuation adapters still run. The new adapter explicitly refuses a
+sibling source without its composition adapter; it never regenerates that source.
+No production deployment or schema installation is qualified by this checkpoint.
+
+## Futures and OTC forward lookup boundaries
+
+| Consumer | Selected price | Transition and exposure |
+| --- | --- | --- |
+| Futures holding | Exact futures series and explicit curve/member/quote binding | The current value is execution P&L and open-mark exposure. Valuation refuses at expiry; settlement PV and variation-margin processing remain unsupported. |
+| OTC indexed forward or swap | Exact model-owned Forward constituent on an outright index curve, or the explicitly selected custom projection | At the qualified fixing publication instant, the selected final index fixing replaces the projection. A missing due fixing refuses. Fixed observations retain frozen lineage and no live quote risk. |
+| Futures upstream of an OTC curve | Only the curve's declared dependency and exact constituent mapping | `RequireLive` refuses an expired source. Explicit `FreezeFinalFuture` consumes its final contract settlement, which stops live upstream exposure. This does not supply the OTC index's own fixing. |
+
+An indexed lookup cannot substitute a futures contract for its forward contract.
+An outright mark has no inferred basis or upstream exposure. Futures lot/quote
+scaling and execution basis remain separate from discounted OTC cash flows.
+The standalone managed forward contract has no persisted forward booking ticket;
+existing booked OTC consumers are the supported sided swap contracts.
