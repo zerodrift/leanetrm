@@ -1,9 +1,12 @@
 // Browser checks receive an owned target from run_preview.py, never an arbitrary URL.
 import {X509Certificate,createHash} from 'node:crypto';
-import {spawn} from 'node:child_process';
+import {execFile,spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,stat} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
+import {promisify} from 'node:util';
+
+const execute=promisify(execFile);
 
 export const idle="document.body?.getAttribute('aria-busy')==='false'&&(!document.querySelector('#futures-page:not([hidden])')||document.querySelector('#futures-page').dataset.pricingState!=='pending')";
 // Phone emulation widens window.innerWidth to fit overflowing content, so a page's width is
@@ -87,6 +90,29 @@ export async function stopOwnedBrowser(chrome,primaryError,grace=5000){
       },grace);
       signal('SIGTERM');
     });
+  }catch(error){
+    if(primaryError)throw new AggregateError([primaryError,error],'Browser check failed and owned browser cleanup failed.',{cause:primaryError});
+    throw error;
+  }
+}
+
+// For a browser spawned with detached:true, whose process group ID is its own PID: its helpers can outlive it and keep
+// writing into the profile, so its caller removes the profile only after the whole group has stopped.
+export async function stopOwnedBrowserGroup(chrome,primaryError,grace=5000){
+  const group=chrome.pid;
+  const members=async()=>{
+    const {stdout}=await execute('ps',['-axo','pid=,pgid=,stat='],{timeout:5000});
+    return stdout.split('\n').map(line=>line.trim().split(/\s+/)).filter(parts=>parts.length===3&&Number(parts[1])===group&&!parts[2].startsWith('Z'));
+  };
+  try{
+    await stopOwnedBrowser(chrome,undefined,grace);
+    for(const signal of ['SIGTERM','SIGKILL']){
+      if(!(await members()).length)return;
+      // macOS refuses to signal a group whose remaining members are already exiting; the listing below decides.
+      try{process.kill(-group,signal);}catch(error){if(!['ESRCH','EPERM'].includes(error.code))throw error;}
+      for(const until=performance.now()+grace;performance.now()<until;await delay(50))if(!(await members()).length)return;
+    }
+    throw Error('Owned browser process group did not stop; retain its profile.');
   }catch(error){
     if(primaryError)throw new AggregateError([primaryError,error],'Browser check failed and owned browser cleanup failed.',{cause:primaryError});
     throw error;

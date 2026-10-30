@@ -6,7 +6,7 @@ import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join,resolve,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {waitForBrowserPage,stopOwnedBrowser} from '../../tests/browser/owned-browser.mjs';
+import {waitForBrowserPage,stopOwnedBrowserGroup} from '../../tests/browser/owned-browser.mjs';
 
 const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const available=await access(browser).then(()=>true,()=>false);
@@ -24,7 +24,7 @@ test('time chart and overlay controls in the real chart library',{skip:!availabl
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const directory=await mkdtemp(join(tmpdir(),'openetrm-chart-'));
- const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore'});
+ const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore',detached:true});
  let ws;
  try{
   ws=new WebSocket(await waitForBrowserPage(directory,chrome));await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
@@ -64,5 +64,5 @@ test('time chart and overlay controls in the real chart library',{skip:!availabl
   assert.equal(await evaluate("strokes.some(s=>s.color==='#2a78d6'&&s.path?.length===2&&s.path[0][0]==='moveTo'&&s.path[1][0]==='lineTo'&&s.path[0][1]<s.path[1][1]&&s.path[0][2]===s.path[1][2])"),true,'an overlay with just two available values draws its line');
   await evaluate('view.dispose()');
   assert.equal(await evaluate("document.querySelector('#host').children.length"),0);
- }finally{ws?.close();await stopOwnedBrowser(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
+ }finally{ws?.close();await stopOwnedBrowserGroup(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
 });
