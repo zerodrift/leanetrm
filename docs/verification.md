@@ -2947,3 +2947,41 @@ entry. Desktop and 390-pixel screenshots were inspected. Standard interactive
 startup also seeds all 37 bindings successfully; its owned database was removed
 on shutdown. A frontend regression prevents a fabricated single PPA price unit
 per contract MW; side prices remain identified separately.
+
+## Market dashboard phase 1 (D263 to D265)
+
+`tools/run_preview.py --check --browser-check` passed on 2026-10-30 on macOS
+26.6.2 arm64 with .NET 10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and
+Chrome 156, with 958 owned browser checks. They include 18 Dashboard checks in
+the risk suite's browser: one widget of each kind added through Add widget, the
+same widgets under Board, Morning and Board again, the saved layout after a
+reload, a new definition saved with no prefilled size, Run now completed by the
+owned risk worker and shown as a ladder, no internal identifiers on the page, a
+past context that refuses each widget until a close is chosen and is then read
+only with no Run now, historical freshness, a configured curve missing from the
+close's read as a refusal tile beside rendered widgets, and no page overflow at
+390 pixels. The standard fixture returns every listed curve at each close, so
+that check removes one curve from the browser's copy of the curve-shapes reply.
+
+Driving the page in a browser found and fixed three defects: changing the close
+or applying a context left the widgets showing the previous close, the Run now
+status and the tie, newer and incomplete notes showed internal run identifiers,
+and the page status read "Choose a curve to get started." on the Dashboard. The
+check failed on the identifier before the fix.
+
+The same command had stopped with a 403 from `/api/bootstrap` once the preview's
+64 sessions were in use: the run takes under ten minutes, so no session expires,
+and the new layout and definition HTTP checks had opened seven. They now share
+two sessions and the Dashboard shares the risk suite's browser; the run peaks at
+63 sessions. The commit before the dashboard work passed the same command once
+and twice stopped at a pre-existing Blotter check, "inline detail leaves page
+controls available and takes keyboard focus", which also stopped one run on
+this branch.
+
+The page benchmark seeds a three-widget layout with one completed five-part run
+and measured the Dashboard at p50 1,065 ms and p95 1,090 ms, over the one-second
+budget; the other pages stayed under it. Workload, requests and limits are in
+[market-dashboard.md](market-dashboard.md#page-benchmark). The HTTP checks for
+layouts, definitions, Run now and the latest run, and the web unit tests, are
+listed there. Adversarial review of the temporal, asynchronous and authorization
+changes has not yet been done.

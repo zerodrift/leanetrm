@@ -3114,3 +3114,24 @@ Positions on this curve, Bollinger bands and the other follow-ups remain in
 [plan.md](plan.md). Verification is the backend numerical checks, the web unit
 tests, the markets desk browser checks at 1440 and 390 pixels and the page
 benchmark.
+
+The market dashboard's first phase ([market-dashboard.md](market-dashboard.md),
+D263 to D265) adds a Dashboard page under a new Overview navigation group for
+accounts with `ReadMarketData`. Its layout is one account-owned record (migration
+0130), saved idempotently against an expected version and shown as a Board grid
+or the four fixed Morning sections without losing a widget. Latest levels shows
+the backend's front contract, price and unit for 1 to 12 curves from one
+curve-shapes read, with a refusal tile for a curve the close does not return or
+price. Price chart draws a contract's history under the named
+`exact_snapshot_pins_v1` policy. Positions by month shows the delta ladder of a
+saved risk run definition's latest completed run (migrations 0131 and 0132): a
+definition holds exact books, a preset and an explicit size per exact price unit
+in immutable versions; Run now queues it at a retained context in parts of at
+most sixteen shocks; and a run counts at a knowledge cutoff only through
+certified commit receipts. Each widget states its source, observation time and
+Latest, Newer available or Historical state from backend fields, and renders
+inside its own error boundary. A past or unapplied context makes the page read
+only, with no Run now. Provider widgets, intraday prices, agent cards, close
+lateness, Blotter use of definitions and Board drag and resize remain in
+[plan.md](plan.md). The page's benchmark p95 is 1,090 ms against a one-second
+budget, recorded as a finding in the dashboard document.

@@ -3,7 +3,7 @@
 // nothing is re-derived here. A definition is configured only from the books the page can read and the exact price units the risk
 // catalog states for what its preset shocks, each with a size the person enters (never prefilled).
 import {deltaLadder,type Ladder} from './delta-ladder.js';
-import {curveName} from './market-view.js';
+import {curveName,displayInstant} from './market-view.js';
 import {freshnessFooter,type Freshness} from './freshness.js';
 import {PendingCommand} from './pending-command.js';
 import {presetTargets,type Preset,type PresetCatalog} from './risk-presets.js';
@@ -132,15 +132,12 @@ function viewElement(view:PositionsView,zone:string){
   const body=node('div');
   if('refusal' in view)return refusalNote(Error(view.refusal));
   if('none' in view){body.append(node('p','muted',noRunYet));return body;}
-  if('tie' in view){
-    body.append(node('p','',`Completed runs share the latest valuation time, so none is shown. ${view.tie.length} runs are tied:`));
-    const list=node('ul');
-    for(const run of view.tie)list.append(node('li','',`Run ${run.runId} · valued ${run.valuationAt}`));
-    body.append(list);return body;
-  }
+  // Runs are named by their valuation time; their ids are internal.
+  const valued=(run:RunRef)=>displayInstant(run.valuationAt,zone);
+  if('tie' in view){body.append(node('p','',`${view.tie.length} completed runs share the latest valuation time, ${valued(view.tie[0])}, so none is shown.`));return body;}
   body.append(ladderElement(view.ladder),node('p','fine-print',freshnessFooter(view.freshness,zone)));
-  if(view.newer)body.append(node('p','positions-note',`A newer completed run is available: ${view.newer.runId}, valued ${view.newer.valuationAt}.`));
-  if(view.incomplete)body.append(node('p','positions-note',`A newer run did not complete: ${view.incomplete.runId}, valued ${view.incomplete.valuationAt}; part ${view.incomplete.failedParts.join(', ')} failed or was cancelled.`));
+  if(view.newer)body.append(node('p','positions-note',`A newer completed run is available, valued ${valued(view.newer)}.`));
+  if(view.incomplete)body.append(node('p','positions-note',`A newer run valued ${valued(view.incomplete)} did not complete: part ${view.incomplete.failedParts.join(', ')} failed or was cancelled.`));
   return body;
 }
 
@@ -171,8 +168,8 @@ export function setupPositions(api:Api){
         const command=pending.command??pending.begin(`risk/definitions/${definition.definitionId}/run`,{version:definition.version,context:(await retainedContext(market,api)).context});
         const previouslyUncertain=pending.sending();
         try{
-          const queued=await api<{runId:string;jobs:unknown[]}>(command.path,{...command.body,requestId:command.operationId});
-          pending.clear();status.textContent=`Run ${queued.runId} is queued in ${queued.jobs.length} part${queued.jobs.length===1?'':'s'}. Reload the widget when it has finished.`;
+          const queued=await api<{jobs:unknown[]}>(command.path,{...command.body,requestId:command.operationId});
+          pending.clear();status.textContent=`The run is queued in ${queued.jobs.length} part${queued.jobs.length===1?'':'s'}. Reload the widget when it has finished.`;
         }catch(error){
           pending.failed((error as {code?:string}).code,previouslyUncertain);
           status.textContent=pending.command?`${messageOf(error)} Run now again to retry the same request.`:messageOf(error);

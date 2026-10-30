@@ -8,26 +8,32 @@ def client(url, profile):
     c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': profile}); return c
 
 
-def account(url, login, roles):
-    """A session of a new synthetic account, created by an administrator."""
-    session = client(url, 'admin')
+def account(url, login, roles, session=None):
+    """A session of a new synthetic account, created by an administrator: a new session, or the given one switched to them."""
+    if session is None:
+        session = client(url, 'admin')
+    else:
+        session.call('profile', {'profile': 'admin'})
     session.call('admin/create', dict(operationId=str(uuid4()), login=login, name='Synthetic ' + login.replace('_', ' '), kind='human', roles=roles))
     session.call('profile', {'profile': login})
     return session
 
 
-def run_checks(url, query):
+def run_checks(url, query, browsers):
+    """browsers: two sessions of the preview, which these checks switch to their own users."""
     passed = 0
     def check(name, condition=True):
         nonlocal passed
         assert condition, name
         passed += 1
         print('PASS ' + name, flush=True)
-    risk = client(url, 'risk'); other_browser = client(url, 'risk'); trader = client(url, 'trader')
-    other_account = account(url, 'synthetic_risk_colleague', ['risk_analyst'])
+    # The second browser of the account later becomes the other account, then the trader.
+    risk, other_browser = browsers
+    for session in browsers:
+        session.call('profile', {'profile': 'risk'})
 
-    frame = next(f for f in trader.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
-    catalog = trader.call('futures/catalog', {'snapshotId': frame['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'})
+    frame = next(f for f in risk.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
+    catalog = risk.call('futures/catalog', {'snapshotId': frame['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'})
     books = sorted(b['id'] for b in catalog['books'])
     unit = next(c['priceUnit'] for c in catalog['contracts'])
     other_unit = {**unit, 'multiplier': '100'}
@@ -82,14 +88,16 @@ def run_checks(url, query):
                refused(sizes=[size({**unit, 'currency': {**unit['currency'], 'code': 'no_such_currency'}}, '1')])])
           and len(other_browser.call('risk/definitions')) == 2)
 
+    other_account = account(url, 'synthetic_risk_colleague', ['risk_analyst'], other_browser)
+    check('another account sees none of these definitions', other_account.call('risk/definitions') == [])
+    save(other_account, 409, definitionId=saved['definitionId'], expectedVersion=2)
+
+    trader = other_account
+    trader.call('profile', {'profile': 'trader'})
     save(risk, 403, bookIds=[str(uuid4())])
     save(trader, 403)
-    check('a book the account cannot trade-read, or an account without RunScenario, is refused')
-
-    check('another account sees none of these definitions', other_account.call('risk/definitions') == []
-)
-    save(other_account, 409, definitionId=saved['definitionId'], expectedVersion=2)
     trader.call('risk/definitions', expected=403)
+    check('a book the account cannot trade-read, or an account without RunScenario, is refused')
 
     print(f'{passed} risk run definition checks passed.', flush=True)
 

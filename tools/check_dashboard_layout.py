@@ -1,7 +1,6 @@
 """Account-owned dashboard layouts against a disposable synthetic preview."""
 from copy import deepcopy
 from uuid import uuid4
-from preview_client import PreviewClient
 
 
 def widget(kind, config, x, y):
@@ -9,16 +8,17 @@ def widget(kind, config, x, y):
                 morning=dict(section='prices_positions', order=x + y))
 
 
-def run_checks(url, query):
+def run_checks(url, query, browsers):
+    """browsers: two sessions of the preview, which these checks switch to their own users."""
     passed = 0
     def check(name, condition=True):
         nonlocal passed
         assert condition, name
         passed += 1
         print('PASS ' + name, flush=True)
-    def client(profile):
-        c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': profile}); return c
-    trader = client('trader'); other_browser = client('trader'); admin = client('admin')
+    trader, other_browser = browsers
+    for session in browsers:
+        session.call('profile', {'profile': 'trader'})
     layout = dict(version=1, arrangement='board', widgets=[
         widget('latest_levels', dict(curves=['ng_henry_hub', 'power_ercot_north']), 0, 0),
         widget('price_chart', dict(curve='ng_henry_hub', contractId=str(uuid4())), 4, 0),
@@ -64,7 +64,8 @@ def run_checks(url, query):
           [(w['id'], w['config']) for w in morning['layout']['widgets']] == [(w['id'], w['config']) for w in layout['widgets']]
           and morning['layout']['arrangement'] == 'morning' and morning['version'] != saved['version'] and other_browser.call('dashboard/layout') == morning)
 
-    admin.call('dashboard/layout', expected=403)
-    save(admin, layout, status=403)
+    other_browser.call('profile', {'profile': 'admin'})
+    other_browser.call('dashboard/layout', expected=403)
+    save(other_browser, layout, status=403)
     check('an account without ReadMarketData cannot read or save')
     print(f'{passed} account dashboard-layout checks passed.', flush=True)
