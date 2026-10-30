@@ -21,6 +21,8 @@ public enum ObservationReadScope { FactHistory, ExactPins }
 public sealed record ReferencePage(string Table,ImmutableArray<JsonElement> Rows,
     ImmutableDictionary<string,ImmutableArray<JsonElement>> References,int Offset,int PageSize,int MaximumOffset,bool HasMore,string Search,
     ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
+public sealed record ReferenceHit(string Table,string Code,string Label,string? ProductCode);
+public sealed record ReferenceSearch(string Query,ImmutableArray<ReferenceHit> Hits,bool Truncated);
 public sealed record PreviewSwapMarket(Guid RevisionId,PreviewSeedFrame[] Frames);
 public sealed record PreviewSequenceCoverage(string Curve, DateTimeOffset From, DateTimeOffset To, DateTimeOffset ExampleAt);
 public sealed record PreviewExample(DateTimeOffset At,string Curve);
@@ -406,21 +408,61 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         }
         return(new(manifest.ReferenceCatalogId,manifest.ReferenceRevisionId),manifest.RevisionId);
     }
+    // Current read authority over a table's exact reference revision and proof that the
+    // selected sealed definition revision names that revision; reads repeat it after reading.
+    public async Task<(ReferenceRevision Revision,Guid Definition)> ReferenceScope(NpgsqlConnection connection,string table,CancellationToken ct)
+    {
+        var (revision,definition)=ReferenceSource(Manifest,table);
+        await using(var access=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData')",revision.CatalogId))
+            if(!Equals(await access.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+        var visible=await Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT reference_catalog_id,reference_revision_id FROM market_data.revisions WHERE catalog_id=$1 AND id=$2 AND state='sealed')t",[Manifest.CatalogId,definition],ct);
+        if(visible.Length!=1||visible[0].Id("reference_catalog_id")!=revision.CatalogId||visible[0].Id("reference_revision_id")!=revision.RevisionId)
+            throw new MarketDataException(UnitTables.Contains(table)?"unit_catalog":"reference_catalog","The exact reference catalog is unavailable in this context.");
+        return(revision,definition);
+    }
+
+    // Searchable categories in workspace order, with the column naming each row and the
+    // futures product it belongs to. Identifiers come only from this list.
+    private static readonly (string Table,string Label,string? Product)[] SearchTables=
+    [
+        ("futures_products","name","code"),("futures_series","series_label","product_code"),("price_index_definitions","code",null),
+        ("exchanges","name",null),("clearing_houses","name",null),("interest_rate_definitions","code",null),("sources","code",null),
+        ("commodities","name",null),("units","symbol",null),("currencies","name",null),("measurement_bases","code",null),
+        ("quantity_specifications","code",null),("value_specifications","code",null),("locations","name",null),
+        ("location_types","description",null),("calendars","code",null),("clock_rules","code",null),("quote_specifications","code",null),
+        ("settlement_targets","code",null),("delivery_profiles","code",null)
+    ];
+    private const int SearchHitsPerTable=10,SearchHitLimit=60;
+    public async Task<ReferenceSearch> SearchReferences(NpgsqlConnection connection,string query,CancellationToken ct)
+    {
+        if(string.IsNullOrWhiteSpace(query)||query.Length>160)
+            throw new MarketDataException("reference_search","Enter search text of 1 to 160 characters.");
+        // Tables can resolve to different exact revisions; each distinct source is proven once.
+        var scoped=SearchTables.Select(t=>t.Table).DistinctBy(table=>ReferenceSource(Manifest,table)).ToArray();
+        async Task ProveScopes(){foreach(var table in scoped)await ReferenceScope(connection,table,ct);}
+        await ProveScopes();
+        // Search is literal, including SQL wildcard characters; each table reads one row past its cap.
+        var selects=SearchTables.Select((t,i)=>$"""
+            (SELECT {i} position,'{t.Table}' category,code::text code,{t.Label}::text label,{t.Product??"NULL"}::text product_code
+             FROM ref_data.{t.Table} r WHERE catalog_id=${2*i+2} AND revision_id=${2*i+3}
+               AND strpos(lower(row_to_json(r)::text),lower($1))>0
+             ORDER BY {t.Label},code LIMIT {SearchHitsPerTable+1})
+            """);
+        var revisions=SearchTables.Select(t=>ReferenceSource(Manifest,t.Table).Revision).SelectMany(r=>new object[]{r.CatalogId,r.RevisionId});
+        var found=await Rows(connection,$"SELECT row_to_json(t)::text FROM({string.Join(" UNION ALL ",selects)})t ORDER BY position,label,code",
+            [query,..revisions],ct);
+        var hits=found.Select(r=>new ReferenceHit(r.Text("category"),r.Text("code"),r.Text("label"),r.OptionalText("product_code")))
+            .GroupBy(h=>h.Table).SelectMany(g=>g.Take(SearchHitsPerTable)).ToArray();
+        await ProveScopes();
+        return new(query,[..hits.Take(SearchHitLimit)],hits.Length<found.Length||hits.Length>SearchHitLimit);
+    }
+
     public async Task<ReferencePage> ReadReferencePage(NpgsqlConnection connection,string table,int offset,string? search,CancellationToken ct)
     {
         search??="";
         if(!ReferenceTables.Contains(table)||offset is <0 or >ReferenceMaximumOffset||search.Length>160)
             throw new MarketDataException("reference_page",$"Choose a supported reference table, an offset from 0 to {ReferenceMaximumOffset} and search text up to 160 characters.");
-        var (revision,definition)=ReferenceSource(Manifest,table);
-        async Task RequireReferenceAccess()
-        {
-            await using var access=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData')",revision.CatalogId);
-            if(!Equals(await access.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
-        }
-        await RequireReferenceAccess();
-        var visible=await Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT reference_catalog_id,reference_revision_id FROM market_data.revisions WHERE catalog_id=$1 AND id=$2 AND state='sealed')t",[Manifest.CatalogId,definition],ct);
-        if(visible.Length!=1||visible[0].Id("reference_catalog_id")!=revision.CatalogId||visible[0].Id("reference_revision_id")!=revision.RevisionId)
-            throw new MarketDataException(UnitTables.Contains(table)?"unit_catalog":"reference_catalog","The exact reference catalog is unavailable in this context.");
+        var (revision,definition)=await ReferenceScope(connection,table,ct);
         const int pageSize=200;
         // Table and key identifiers come only from the fixed public catalog.
         // Search is literal, including SQL wildcard characters, and never runs
@@ -446,7 +488,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             references[target]=references.TryGetValue(target,out var existing)
                 ? existing.Concat(linked).DistinctBy(row=>row.GetProperty("code").GetString()).ToImmutableArray():linked;
         }
-        await RequireReferenceAccess();
+        await ReferenceScope(connection,table,ct);
         return new(table,rows,references.ToImmutable(),offset,pageSize,ReferenceMaximumOffset,found.Length>pageSize,search,revision,definition);
     }
 

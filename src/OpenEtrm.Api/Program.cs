@@ -829,6 +829,11 @@ api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,se
     return Results.Ok(new {page.Table,page.Rows,page.References,page.Offset,page.PageSize,page.MaximumOffset,page.HasMore,page.Search,page.ReferenceRevision,page.DefinitionRevisionId,referenceDisplay,
         tables=PreviewDatabase.ReferenceTables,referenceScope="selected_table",context=session.MarketContext,profile=session.Profile});
 },c.RequestAborted))));
+api.MapGet("/reference/search",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    var found=await marketReads.SearchReferences(connection,Pin(session),c.Request.Query["q"].ToString(),ct);
+    return Results.Ok(new {found.Query,found.Hits,found.Truncated,context=session.MarketContext,profile=session.Profile});
+},c.RequestAborted))));
 api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
     await Pin(session).Bind(connection,database.Manifest.CatalogId,ct);

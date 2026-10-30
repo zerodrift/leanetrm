@@ -2,6 +2,12 @@
 from urllib.parse import urlencode
 from uuid import UUID
 
+SEARCH_TABLES = {
+    'futures_products', 'futures_series', 'price_index_definitions', 'exchanges', 'clearing_houses',
+    'interest_rate_definitions', 'sources', 'commodities', 'units', 'currencies', 'measurement_bases',
+    'quantity_specifications', 'value_specifications', 'locations', 'location_types', 'calendars',
+    'clock_rules', 'quote_specifications', 'settlement_targets', 'delivery_profiles'}
+
 
 def run_checks(c, check):
     c.call('profile', {'profile': 'viewer'})
@@ -112,6 +118,23 @@ def run_checks(c, check):
                   {'table': 'currencies', 'search': 'x' * 161}]:
         c.call('reference/catalog?' + urlencode(query), expected=422)
     check('reference page rejects unsupported table and unbounded requests')
+
+    product = references['futures_products'][0]
+    found = c.call('reference/search?' + urlencode({'q': product['name'].upper()}))
+    check('reference search finds a futures product by case-insensitive name',
+          {'table': 'futures_products', 'code': product['code'], 'label': product['name'],
+           'productCode': product['code']} in found['hits'])
+    series = next(r for r in references['futures_series'] if r['product_code'] == product['code'])
+    hit = next(h for h in c.call('reference/search?' + urlencode({'q': series['series_label']}))['hits']
+               if h['table'] == 'futures_series')
+    check('reference search links a futures series to its product', hit['productCode'] == series['product_code'])
+    check('reference search treats SQL wildcard characters literally across categories',
+          c.call('reference/search?' + urlencode({'q': '%_'}))['hits'] == [])
+    check('reference search refuses blank and unbounded text',
+          all(c.call('reference/search?' + urlencode({'q': bad}), expected=422)['code'] == 'reference_search'
+              for bad in ['', ' ' * 3, 'x' * 161]))
+    check('reference search covers only code-keyed categories and futures series',
+          all(h['table'] in SEARCH_TABLES for h in c.call('reference/search?q=a')['hits']))
     c.call('profile', {'profile': 'admin'})
     c.call('reference/catalog?table=currencies', expected=403)
     check('reference page rechecks current read authority')

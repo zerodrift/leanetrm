@@ -111,6 +111,12 @@ public sealed class MarketReads(PreviewDatabase database)
         return await database.ReadReferencePage(connection,table,offset,search,ct);
     }
 
+    public async Task<ReferenceSearch> SearchReferences(NpgsqlConnection connection,PinnedContext pin,string query,CancellationToken ct)
+    {
+        await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        return await database.SearchReferences(connection,query,ct);
+    }
+
     // The pinned frame and the data its own observations select, for the date of the pin's context.
     async Task<(InputFrame Frame,PreviewData Data)> Pinned(NpgsqlConnection connection,PinnedContext pin,CancellationToken ct)
     {
