@@ -55,14 +55,18 @@ the other market pages, and adds a Board / Morning switch.
   knowledge in working data, or the selected historical context. The read
   names the definition, so the widget makes one request per draw. A newer
   completed run beyond the selected close, and a newer run that did not
-  complete, are stated, also when no run is shown. A run valued at an earlier
-  close than the selected one says "Valued at an earlier close". Completed runs
-  tied at one valuation time are listed, each with its version and the time it
-  became known; the person picks one with Show this run, which is then labelled
-  "Chosen run" until the next read, and nothing about the choice is stored.
-  **Run now** captures the page's context, queues the definition there, follows
-  its parts and reads the widget again once every part has finished; a retry
-  after a lost reply resends the same request id. A new definition is built from
+  complete, are stated, also when no run is shown ("No completed run at or
+  before this close" when a newer one exists). A run valued at an earlier close
+  than the selected one says "Valued at an earlier close". Completed runs tied
+  at one valuation time are listed in the order they were created, each as
+  "Run N of M · version V · known <time to the second>"; the person picks one
+  with Show this run, which is then labelled "Chosen run" (and "valued at an
+  earlier close" when it is) until the next read, and nothing about the choice
+  is stored. **Run now** captures the page's context, queues the definition
+  there and follows its parts, less often as time passes, for at most three
+  minutes; it reads the widget again once every part has finished, or else says
+  the run is still running and to Reload. A retry after a lost reply resends the
+  same request id. Leaving the page releases every widget and stops following. A new definition is built from
   the readable books, a preset (Shock every held contract or Parallel shift) and
   a shock size for each exact price unit the risk catalog states for what the
   preset shocks; no size is prefilled.
@@ -71,7 +75,10 @@ the other market pages, and adds a Board / Morning switch.
   close), Valued at an earlier close or Chosen run (Positions) or Historical in
   a past context. Latest levels adds "Intraday not configured". When the page
   later finds a newer close (on focus or opening a page), the Latest levels and
-  Price chart footers say Newer available without reading again.
+  Price chart footers say Newer available without reading again; a footer is
+  re-stated only for the close and context its figures were read at. Changing
+  the close or context clears the widgets before the dashboard is read again,
+  so a read that fails leaves no earlier figures under the new label.
 - **Historical context.** In a past or unapplied context the page is read only:
   every edit control and Run now is unavailable. A context applied with no close
   chosen refuses each widget with "Choose a market date above."; choosing a close
@@ -121,12 +128,16 @@ arm64.
   as in the market-dates check) and sees both close footers turn to Newer
   available when a focus finds the newest close, with no read; at that earlier
   close in working data sees the newer completed run stated, runs there and sees
-  "Newer available", runs again and chooses one of the two tied runs, shown as
-  "Chosen run"; selects the newest close again; applies a past effective date and
+  "Newer available", runs again, finds the two tied runs listed with distinct
+  text and labels, and chooses one, shown as "Chosen run"; selects the newest
+  close while the dashboard's layout read is made to fail and finds no earlier
+  figures left under the new close, then reloads; applies a past effective date and
   checks the read-only page; and checks the page fits 390 pixels.
 
-Driving the page found two defects, both fixed with a check: a configured curve
-the navigation does not name left its Latest levels widget reading forever, and
+Driving the page found three defects, each fixed with a check: a close
+change whose layout read failed left the earlier close's figures under the new
+close's footer (seen failing before the fix); a configured curve the
+navigation does not name left its Latest levels widget reading forever; and
 re-stating the close footers threw while no close was chosen, which left the
 page busy after a past context was applied.
 

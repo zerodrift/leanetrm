@@ -1,9 +1,9 @@
 import {displayInstant} from './market-view.js';
 
 // What a widget's footer states, all of it from backend fields. A widget never judges freshness itself.
-export type Freshness={state:'latest'|'newer_available'|'earlier_close'|'chosen'|'historical'|'not_yet_available'|'failed';observedAt:string|null;source:string;reason?:string};
+export type Freshness={state:'latest'|'newer_available'|'earlier_close'|'chosen'|'chosen_earlier_close'|'historical'|'not_yet_available'|'failed';observedAt:string|null;source:string;reason?:string};
 
-const states:Record<Freshness['state'],string>={latest:'Latest',newer_available:'Newer available',earlier_close:'Valued at an earlier close',chosen:'Chosen run',
+const states:Record<Freshness['state'],string>={latest:'Latest',newer_available:'Newer available',earlier_close:'Valued at an earlier close',chosen:'Chosen run',chosen_earlier_close:'Chosen run · valued at an earlier close',
  historical:'Historical',not_yet_available:'Not yet available',failed:'Failed'};
 
 export function freshnessFooter(f:Freshness,zone:string):string{

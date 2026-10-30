@@ -287,8 +287,12 @@ def run_now_checks(url, query, run_worker):
     chosen = [latest(risk, daily, at(risk, '2020-12-17')[0], runId=r) for r in (on17, again)]
     check('one of the tied runs, chosen explicitly, is shown as chosen; nothing else can be chosen',
           [c['state'] for c in chosen] == ['chosen', 'chosen'] and [c['run']['runId'] for c in chosen] == [on17, again]
+          and [c['valuedBefore'] for c in chosen] == [False, False]
           and all(latest(risk, daily, at(risk, day)[0], 422, runId=r)['code'] == 'risk_run_choice'
                   for day, r in (('2020-12-17', on16), ('2020-12-17', str(uuid4())), ('2020-12-16', on16))))
+    later = latest(risk, daily, at(risk, '2020-12-18')[0], runId=again)
+    check('a tied run chosen at a later close says it was valued at an earlier close',
+          later['state'] == 'chosen' and later['run']['runId'] == again and later['valuedBefore'] is True)
 
     reader = account(url, 'synthetic_definition_reader', ['risk_analyst'])
     readable = save(reader, 'held_curves', [size(label, '0.1') for label in labels])

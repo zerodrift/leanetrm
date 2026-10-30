@@ -172,7 +172,7 @@ public static class RiskRunDefinitions
     // The definition's latest completed run in the view: of the runs known at its cutoff whose every part completed by then, the one
     // with the greatest valuation time at or before the view's close. A tie is refused, listing the tied runs; the caller may then choose
     // one of them, and only one of them. The newest later run with a failed or cancelled part is named, and in current knowledge so is a
-    // completed run valued after the close. A run valued before the close is said to be. Each part is read under current authority.
+    // completed run valued after the close. A run valued before the close is said to be (`valuedBefore`), a chosen one too. Each part is read under current authority.
     public static async Task<object> Latest(NpgsqlConnection connection,Guid catalogId,Guid definitionId,TradingView view,Guid? chosen,CancellationToken ct)
     {
         KnownRun[] runs;
@@ -200,7 +200,8 @@ public static class RiskRunDefinitions
         var parts=new List<object>();
         foreach(var jobId in await PartJobs(connection,shown.RunId,ct))
             parts.Add(await RiskJobs.Read(connection,catalogId,jobId,ct,expectedConvention:PortfolioRiskPreview.Convention));
-        return new{state=chosen is not null?"chosen":shown.ValuationAt<at?"earlier_close":newer is not null?"newer_available":"latest",definition,
+        var valuedBefore=shown.ValuationAt<at;
+        return new{state=chosen is not null?"chosen":valuedBefore?"earlier_close":newer is not null?"newer_available":"latest",valuedBefore,definition,
             run=new{shown.RunId,shown.Version,shown.ValuationAt,shown.KnownAt,parts},stated.newer,stated.incomplete};
     }
 

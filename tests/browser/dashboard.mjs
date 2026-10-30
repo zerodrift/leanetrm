@@ -7,7 +7,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // The curve-shapes reads the page makes, and the workspace calendar ending a date early while a check asks: showing that to the app stands
   // in for a close that becomes available during a session, as the market-dates check does. Every other reply is the backend's own.
   await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.__shapeReads=[];const send=window.fetch;window.fetch=async(input,init)=>{
-    const path=String(input);let response=await send(input,init);
+    const path=String(input);
+    // A layout read the check asks to fail, as a lost connection would.
+    if(path==='/api/dashboard/layout'&&!init?.body&&window.__failLayoutRead)return new Response(JSON.stringify({code:'request_failed',message:'Synthetic failed layout read.'}),{status:503,headers:{'Content-Type':'application/json'}});
+    let response=await send(input,init);
     if(path==='/api/market/curve-shapes'&&response.ok)window.__shapeReads.push({curves:JSON.parse(init.body).curves,shapes:(await response.clone().json()).curves});
     if(path==='/api/market/dates'&&sessionStorage.getItem('hideNewestDate')&&response.ok){
       const body=JSON.parse(init.body),data=await response.json();
@@ -131,20 +134,28 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "[document.querySelector('.level-tiles-footer').textContent,document.querySelector('.price-chart').innerText]");
   // At this earlier close in working data, the run valued at the newest close is a newer completed run than any shown here.
   await check('in working data at an earlier close, the newer completed run is stated though no run is shown yet',
-    `${positions}.textContent.includes('No completed run yet')&&${positions}.textContent.includes('A newer completed run is available')`,`${positions}.innerText`);
+    `${positions}.textContent.includes('No completed run at or before this close')&&${positions}.textContent.includes('A newer completed run is available')`,`${positions}.innerText`);
   await runNow();
   await check('a run at the earlier close is shown as Newer available, with the newer run stated',
     `!!${positions}.querySelector('.positions-table tbody tr')&&/Risk run · .+ · Newer available$/m.test(${positions}.innerText)&&${positions}.textContent.includes('A newer completed run is available')`,`${positions}.innerText`);
   // Run again at the same close: two completed runs share the latest valuation time, and the person chooses which to show.
   await runNow();
   await check('two completed runs at one valuation time are listed, each with its version and known time, and none is shown',
-    `${positions}.textContent.includes('2 completed runs share the latest valuation time')&&${positions}.querySelectorAll('.positions-tie li').length===2&&[...${positions}.querySelectorAll('.positions-tie li')].every(li=>/^Version \\d+ · known /.test(li.textContent))&&!${positions}.querySelector('.positions-table')`,`${positions}.innerText`);
+    `(()=>{const items=[...${positions}.querySelectorAll('.positions-tie li')].map(li=>li.firstChild.textContent),labels=[...${positions}.querySelectorAll('.positions-tie button')].map(b=>b.getAttribute('aria-label'));
+      return ${positions}.textContent.includes('2 completed runs share the latest valuation time')&&items.length===2&&items.every((text,i)=>text.startsWith('Run '+(i+1)+' of 2 · version ')&&/ known .+:\\d\\d:\\d\\d/.test(text))
+        &&new Set(items).size===2&&new Set(labels).size===2&&!${positions}.querySelector('.positions-table');})()`,`${positions}.innerText`);
   await evaluate(`${positions}.querySelector('.positions-tie li:last-child button').click()`);await wait(read);
   await check('the run chosen from the tie is shown as the chosen run, never as Latest',
     `!!${positions}.querySelector('.positions-table tbody tr')&&/Risk run · .+ · Chosen run$/m.test(${positions}.innerText)&&!/· Latest$/m.test(${positions}.innerText)&&${positions}.textContent.includes('You chose this run')`,`${positions}.innerText`);
 
-  // Newer close available selects the newest close, which the page reads again.
-  await click('#market-date-badge button');
+  // Newer close available selects the newest close. When the dashboard's read then fails, no figure read at the earlier close is left
+  // under the newest close's label; Reload reads every widget at it.
+  await evaluate('window.__failLayoutRead=true');await click('#market-date-badge button');
+  await wait("document.querySelector('#market-date-badge').textContent==='Latest close'");
+  await check('a failed read after a close change leaves no figures of the earlier close under the new close\'s label',
+    "!document.querySelector('#error').hidden&&document.querySelectorAll('#dashboard-widgets .level-tile,#dashboard-widgets .price-chart,#dashboard-widgets .positions,#dashboard-widgets .fine-print').length===0",
+    "({error:document.querySelector('#error').textContent,widgets:document.querySelector('#dashboard-widgets').innerText})");
+  await evaluate('window.__failLayoutRead=false');await click('#dashboard-reload');
   await wait(`document.querySelector('#market-date-badge').textContent==='Latest close'&&document.querySelectorAll('.level-tile').length===2&&${read}`);
   await check('selecting the newer close reads every widget at it, and the run valued there is the latest again',
     `/· Latest · Intraday not configured$/.test(document.querySelector('.level-tiles-footer').textContent)&&/Risk run · .+ · Latest$/m.test(${positions}.innerText)`,`${positions}.innerText`);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deltaLadder} from '../dist/delta-ladder.js';
-import {positionsView,runNowOffered,noRunYet,sizeUnits,definitionTerms,barWidths,readLatest,pageContext,runFinished} from '../dist/dashboard-positions.js';
+import {positionsView,runNowOffered,noRunYet,sizeUnits,definitionTerms,barWidths,readLatest,pageContext,runFinished,tiedRunLabel,followDelay,noRunAtClose} from '../dist/dashboard-positions.js';
 import {setCurveNames,curveName} from '../dist/market-view.js';
 
 setCurveNames([{code:'future',name:'Gas futures'}]);
@@ -53,15 +53,38 @@ test('working data reads in current knowledge; a historical view in its selected
 
 test('none reads "No completed run yet" with Run now offered, and keeps a newer or incomplete run',()=>{
   const incomplete={runId:'r3',valuationAt:'2021-01-15T22:00:00Z',failedParts:[1]};
-  assert.deepEqual(positionsView({state:'none',definition,newer:null,incomplete}),{none:true,newer:null,incomplete});
+  assert.deepEqual(positionsView({state:'none',definition,newer:null,incomplete}),{none:noRunYet,newer:null,incomplete});
   assert.equal(noRunYet,'No completed run yet');assert.equal(runNowOffered(false),true);
+});
+
+test('with a newer completed run beyond the close, none says there is no run at or before this close',()=>{
+  const newer={runId:'r2',valuationAt:'2021-01-16T21:00:00Z'};
+  assert.deepEqual(positionsView({state:'none',definition,newer,incomplete:null}),{none:noRunAtClose,newer,incomplete:null});
+  assert.equal(noRunAtClose,'No completed run at or before this close');
 });
 
 test('a chosen run and a run valued at an earlier close keep their own freshness, also in a historical view',()=>{
   for(const state of ['chosen','earlier_close']){
-    assert.equal(positionsView({state,definition,run,newer:null,incomplete:null}).freshness.state,state);
-    assert.equal(positionsView({state,definition,run,newer:null,incomplete:null},true).freshness.state,state);
+    assert.equal(positionsView({state,definition,run,valuedBefore:state==='earlier_close',newer:null,incomplete:null}).freshness.state,state);
+    assert.equal(positionsView({state,definition,run,valuedBefore:state==='earlier_close',newer:null,incomplete:null},true).freshness.state,state);
   }
+});
+
+test('a chosen run valued at an earlier close also says so',()=>{
+  assert.equal(positionsView({state:'chosen',definition,run,valuedBefore:true,newer:null,incomplete:null}).freshness.state,'chosen_earlier_close');
+});
+
+test('tied runs read as distinct: their place in the list, version and known time to the second',()=>{
+  const runs=[{runId:'r1',version:3,valuationAt:'x',knownAt:'2021-01-15T21:05:07Z'},{runId:'r2',version:3,valuationAt:'x',knownAt:'2021-01-15T21:05:07Z'}];
+  const labels=runs.map((r,i)=>tiedRunLabel(r,i,runs.length,'UTC'));
+  assert.equal(new Set(labels).size,2);
+  assert.match(labels[0],/^Run 1 of 2 · version 3 · known .*9:05:07/);
+});
+
+test('a queued run is followed with growing waits that stop after a bound',()=>{
+  const waits=[];for(let attempt=0;followDelay(attempt)!==null;attempt++)waits.push(followDelay(attempt));
+  assert.ok(waits.length>3&&waits.length<20);assert.equal(waits[0],1000);
+  assert.ok(waits.every((w,i)=>i===0||w>=waits[i-1]));assert.ok(waits.reduce((a,b)=>a+b,0)<=5*60*1000);
 });
 
 test('a run has finished when every part is completed, failed or cancelled',()=>{

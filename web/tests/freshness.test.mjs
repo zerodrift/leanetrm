@@ -35,3 +35,7 @@ test('a chosen run and a run valued at an earlier close are worded as such, neve
   assert.match(chosen,/Chosen run$/);assert.match(earlier,/Valued at an earlier close$/);
   for(const words of [chosen,earlier])assert.doesNotMatch(words,/Latest/);
 });
+
+test('a chosen run valued at an earlier close says both',()=>{
+  assert.match(freshnessFooter({state:'chosen_earlier_close',observedAt:null,source:'Risk run'},'UTC'),/Chosen run · valued at an earlier close$/);
+});

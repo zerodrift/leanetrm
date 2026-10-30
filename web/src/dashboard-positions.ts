@@ -23,9 +23,9 @@ type Stated={definition:DefinitionName;newer:RunRef|null;incomplete:IncompleteRu
 /** The latest-run read as the backend answers it; a tie is its 409 refusal, read into the same shape. */
 export type Latest=
   ({state:'none'}&Stated)|{state:'tie';definition:DefinitionName;runs:TiedRun[]}|
-  ({state:'latest'|'newer_available'|'earlier_close'|'chosen';run:{runId:string;version:number;valuationAt:string;knownAt:string;parts:{result?:Pick<RiskReport,'factors'>}[]}}&Stated);
+  ({state:'latest'|'newer_available'|'earlier_close'|'chosen';valuedBefore:boolean;run:{runId:string;version:number;valuationAt:string;knownAt:string;parts:{result?:Pick<RiskReport,'factors'>}[]}}&Stated);
 export type PositionsView=
-  {ladder:Ladder;freshness:Freshness;newer:RunRef|null;incomplete:IncompleteRun|null}|{none:true;newer:RunRef|null;incomplete:IncompleteRun|null}|{tie:TiedRun[]}|{refusal:string};
+  {ladder:Ladder;freshness:Freshness;newer:RunRef|null;incomplete:IncompleteRun|null}|{none:string;newer:RunRef|null;incomplete:IncompleteRun|null}|{tie:TiedRun[]}|{refusal:string};
 type SizeUnit={label:string;priceUnit:unknown};
 type Definition={definitionId:string;version:number;name:string;preset:'held_contracts'|'held_curves';bookIds:string[]};
 type Directory={context:{contextId:string};books:{id:string;name:string}[]};
@@ -34,6 +34,8 @@ type Context=PageContext&{knowledgeMode:'retained';contextId:string};
 type Job={state:string};
 
 export const noRunYet='No completed run yet';
+/** With a newer completed run beyond the close, there is a run, just not one at or before this close. */
+export const noRunAtClose='No completed run at or before this close';
 // The presets a definition can store and the catalog preset each shocks.
 const presets:Record<Definition['preset'],{label:string;catalog:Preset}>={held_contracts:{label:'Shock every held contract',catalog:'held'},held_curves:{label:'Parallel shift',catalog:'parallel'}};
 const missingResult='A part of the latest run has no result, so its ladder is not shown. Run it again.';
@@ -46,11 +48,12 @@ export const runNowOffered=(historical:boolean)=>!historical;
  * view calls its latest run Historical; a chosen run or one valued at an earlier close keeps saying so.
  */
 export function positionsView(latest:Latest,historical=false):PositionsView{
-  if(latest.state==='none')return {none:true,newer:latest.newer,incomplete:latest.incomplete};
+  if(latest.state==='none')return {none:latest.newer?noRunAtClose:noRunYet,newer:latest.newer,incomplete:latest.incomplete};
   if(latest.state==='tie')return {tie:latest.runs};
   try{
     const reports=latest.run.parts.map(part=>part.result??(()=>{throw Error(missingResult);})());
-    const state=historical&&(latest.state==='latest'||latest.state==='newer_available')?'historical':latest.state;
+    const state=latest.state==='chosen'&&latest.valuedBefore?'chosen_earlier_close'
+      :historical&&(latest.state==='latest'||latest.state==='newer_available')?'historical':latest.state;
     return {ladder:deltaLadder(reports,'delta',curveName),freshness:{state,observedAt:latest.run.valuationAt,source:'Risk run'},
       newer:latest.newer,incomplete:latest.incomplete};
   }catch(error){return {refusal:error instanceof Error?error.message:'The latest run could not be shown.'};}
@@ -74,6 +77,15 @@ export async function readLatest(api:Api,definitionId:string,context:unknown,run
     throw error;
   }
 }
+
+/** A tied run in the list, told apart by its place, version and known time to the second. */
+export const tiedRunLabel=(run:TiedRun,index:number,count:number,zone:string)=>
+  `Run ${index+1} of ${count} · version ${run.version} · known ${displayInstant(run.knownAt,zone,true)}`;
+
+// The waits between reads of a queued run's parts: one second, growing to fifteen, three minutes in all; then the widget stops following.
+const followDelays=[1000,1000,2000,2000,4000,4000,8000,8000,...Array<number>(10).fill(15000)];
+/** How long to wait before the given read of a queued run's parts, or null once the widget stops following it. */
+export const followDelay=(attempt:number)=>followDelays[attempt]??null;
 
 /** A run has finished once every part is completed, failed or cancelled. */
 export const runFinished=(states:readonly string[])=>states.every(state=>state==='completed'||state==='failed'||state==='cancelled');
@@ -155,15 +167,15 @@ function viewElement(view:PositionsView,zone:string,choose:(run:TiedRun)=>void){
   const valued=(run:RunRef)=>displayInstant(run.valuationAt,zone);
   if('tie' in view){
     const list=node('ul','positions-tie');
-    list.append(...view.tie.map(run=>{
-      const item=node('li','',`Version ${run.version} · known ${displayInstant(run.knownAt,zone)} `),show=node('button','secondary','Show this run') as HTMLButtonElement;
-      show.type='button';show.setAttribute('aria-label',`Show the version ${run.version} run known ${displayInstant(run.knownAt,zone)}`);show.onclick=()=>choose(run);
-      item.append(show);return item;
+    list.append(...view.tie.map((run,index)=>{
+      const label=tiedRunLabel(run,index,view.tie.length,zone),item=node('li'),show=node('button','secondary','Show this run') as HTMLButtonElement;
+      show.type='button';show.setAttribute('aria-label',`Show ${label}`);show.onclick=()=>choose(run);
+      item.append(document.createTextNode(label),show);return item;
     }));
-    body.append(node('p','',`${view.tie.length} completed runs share the latest valuation time, ${valued(view.tie[0])}. Choose the run to show; Reload asks again.`),list);
+    body.append(node('p','',`${view.tie.length} completed runs share the latest valuation time, ${valued(view.tie[0])}, listed in the order they were created. Choose the run to show; Reload asks again.`),list);
     return body;
   }
-  if('none' in view)body.append(node('p','muted',noRunYet));
+  if('none' in view)body.append(node('p','muted',view.none));
   else body.append(ladderElement(view.ladder),node('p','fine-print',freshnessFooter(view.freshness,zone)));
   if(view.newer)body.append(node('p','positions-note',`A newer completed run is available, valued ${valued(view.newer)}.`));
   if(view.incomplete)body.append(node('p','positions-note',`A newer run valued ${valued(view.incomplete)} did not complete: part ${view.incomplete.failedParts.join(', ')} failed or was cancelled.`));
@@ -174,9 +186,6 @@ export function setupPositions(api:Api){
   // The request a Run now sends is kept per definition until its outcome is known, so a retry after a lost reply carries the same request id.
   const runs=new Map<string,PendingCommand>();
   const pendingRun=(definitionId:string)=>runs.get(definitionId)??runs.set(definitionId,new PendingCommand(code=>!!code&&knownRejections.has(code))).get(definitionId)!;
-
-  // How often a queued run's parts are read until each has finished.
-  const followEvery=1000;
 
   /** The widget's body, and what stops it following a queued run. */
   function body(config:Extract<WidgetContent,{kind:'positions'}>['config'],market:DashboardMarket):{body:HTMLElement;dispose:()=>void}{
@@ -197,18 +206,21 @@ export function setupPositions(api:Api){
         if(runId)content.append(node('p','positions-note','You chose this run from those sharing the latest valuation time. Reload to choose again.'));
       }catch(error){if(current===reading)content.replaceChildren(refusalNote(error));}
     }
-    // A queued run's parts are read until each has finished, then the widget reads its latest run again.
-    function follow(jobs:readonly {jobId:string}[]){
+    // A queued run's parts are read, less often as time passes, until each has finished; then the widget reads its latest run again. A run
+    // still unfinished when the waits run out is left for the person to Reload.
+    function follow(jobs:readonly {jobId:string}[],attempt=0){
       clearTimeout(following);
+      const wait=followDelay(attempt);
+      if(wait===null){status.textContent='The run is still running. Reload the widget to read it once it has finished.';return;}
       following=setTimeout(async()=>{
         if(disposed)return;
         try{
           const states=await Promise.all(jobs.map(job=>api<Job>(`portfolio/risk/jobs/${job.jobId}`).then(read=>read.state)));
           if(disposed)return;
-          if(!runFinished(states)){follow(jobs);return;}
+          if(!runFinished(states)){follow(jobs,attempt+1);return;}
           status.textContent='';await load();
         }catch(error){if(!disposed)status.textContent=`${messageOf(error)} Reload the widget to read the run.`;}
-      },followEvery);
+      },wait);
     }
     run.onclick=async()=>{
       if(!definition)return;
