@@ -36,6 +36,7 @@ test('freshness is latest, newer_available or historical from the close badge, w
   assert.deepEqual(levelsFreshness('latest',at,'Evening close'),{state:'latest',observedAt:at,source:'Evening close'});
   assert.equal(levelsFreshness('newer',at,'Evening close').state,'newer_available');
   assert.equal(levelsFreshness('historical',at,'Evening close').state,'historical');
+  assert.equal(levelsFreshness('selected',at,'Evening close').state,'newer_available','an earlier close is not a past knowledge context');
   assert.equal(levelsFreshness('latest',at).source,'Settlement close','a close without a label is named for what it is');
   assert.throws(()=>levelsFreshness('choose',at,'x'),/close/);
 });

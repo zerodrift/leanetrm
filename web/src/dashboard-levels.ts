@@ -33,13 +33,13 @@ export function levelsTiles(shapes:ReadonlyMap<string,CurveShape|string>,configC
 }
 
 /**
- * The freshness of the close a widget reads at: Latest or Newer available from the close's badge, Historical in a historical context
- * (and for an earlier close that nothing has superseded since it was selected). No close chosen has no freshness to state. The instant is
+ * The freshness of the close a widget reads at: Latest or Newer available from the close's badge (an earlier close that was selected is
+ * Newer available, since a newer one exists), Historical only in a past knowledge context. No close chosen has no freshness to state. The instant is
  * the close's, as the backend states it; its source is the close's own label.
  */
 export function levelsFreshness(badge:CloseBadge|'historical',closeAt:string,label?:string|null):Freshness{
   if(badge==='choose')throw Error('Choose a close to read the dashboard at.');
-  const state={latest:'latest',newer:'newer_available',selected:'historical',historical:'historical'}[badge] as Freshness['state'];
+  const state={latest:'latest',newer:'newer_available',selected:'newer_available',historical:'historical'}[badge] as Freshness['state'];
   return {state,observedAt:closeAt,source:label||'Settlement close'};
 }
 export function closeFreshness(market:DashboardMarket):Freshness{
