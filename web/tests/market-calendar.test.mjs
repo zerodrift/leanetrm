@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {calendarMonth,shiftCalendarMonth,closesOnDate,uniqueClose} from '../dist/market-calendar.js';
+import {calendarMonth,shiftCalendarMonth,closesOnDate,uniqueClose,unavailableClosesMessage} from '../dist/market-calendar.js';
 
 const catalog={timeZone:'America/Chicago',curve:'synthetic_curve',selectionPolicy:'exact_snapshot_no_close_substitution_v1',minDate:'2024-02-03',maxDate:'2024-02-06',dates:[
  {date:'2024-02-03',frames:[{id:'one',at:'2024-02-04T01:00:00Z',name:'First close',businessDateUTC:'2024-02-04'}]},
@@ -16,4 +16,15 @@ test('availability uses server dates including a supplied weekend and preserves 
 });
 test('multiple closes never implicitly select the first or latest snapshot',()=>{
  assert.equal(uniqueClose(catalog,'2024-02-06'),undefined);assert.equal(uniqueClose(catalog,'2024-02-04'),undefined);assert.equal(closesOnDate(catalog,'2024-02-06')[1].id,'three');
+});
+
+
+test('a calendar with no closes explains its backend refusals instead of giving selection instructions',()=>{
+ const empty={...catalog,dates:[],minDate:null,maxDate:null,unavailable:[{date:'2024-02-03',reason:'source_expired'},{date:'2024-02-04',reason:'missing_observation'}]};
+ const message=unavailableClosesMessage(empty);
+ assert.match(message,/No complete close/);assert.match(message,/expired/);assert.match(message,/missing/);
+ assert.doesNotMatch(message,/Select an available date/);
+ assert.equal(unavailableClosesMessage(catalog),'');
+ assert.match(unavailableClosesMessage({...empty,unavailable:[]}),/No complete close/);
+ assert.doesNotMatch(unavailableClosesMessage({...empty,unavailable:[{date:'2024-02-03',reason:'unknown_internal_code'}]}),/unknown_internal_code/);
 });
