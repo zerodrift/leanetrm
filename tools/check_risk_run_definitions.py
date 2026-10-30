@@ -1,5 +1,6 @@
 """Saved risk run definitions against a disposable synthetic preview."""
 import json
+from datetime import datetime
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
 
@@ -49,7 +50,7 @@ def run_checks(url, query, browsers):
     saved = save(risk)
     check('a definition is saved with exact books, preset and sizes',
           saved['version'] == 1 and saved['name'] == 'Gas desk shift' and saved['bookIds'] == books and saved['preset'] == 'held_curves'
-          and saved['sizes'] == [dict(unit=unit, size='0.01')] and saved['knownFrom'] and other_browser.call('risk/definitions') == [saved])
+          and saved['sizes'] == [dict(unit=unit, size='0.01')] and saved['savedAt'] and other_browser.call('risk/definitions') == [saved])
 
     revised = save(risk, definitionId=saved['definitionId'], expectedVersion=1, name='Gas desk shift, wider', preset='held_contracts',
                    bookIds=books[:1], sizes=[size(unit, '0.02'), size(other_unit, '1.5')])
@@ -208,8 +209,12 @@ def run_now_checks(url, query, run_worker):
         current = {'snapshotId': initial_frame(session.call('workspace'), day)['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
         read = session.call('portfolio/risk/catalog', {'context': current, 'bookIds': [], 'portfolioIds': []})
         return current, {**current, 'knowledgeMode': 'retained', 'contextId': read['context']['contextId']}
-    def latest(session, definition, context, status=200):
-        return session.call(f"risk/definitions/{definition['definitionId']}/latest", {'context': context}, expected=status)
+    def latest(session, definition, context, status=200, **choice):
+        return session.call(f"risk/definitions/{definition['definitionId']}/latest", {'context': context, **choice}, expected=status)
+    def known(run_id):
+        """When a run became known: its latest certified receipt, of its creation or of a part's terminal state."""
+        return datetime.fromisoformat(query(f"""SELECT to_char(max(k.known_from) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US+00:00')
+            FROM risk.definition_run_publications p JOIN risk.definition_run_receipts k USING(catalog_id,publication_order,publication_xid) WHERE p.run_id='{run_id}';"""))
     def ran(session, definition, day):
         return run(session, definition, context=at(session, day)[1])['runId']
     def valued(day):
@@ -224,7 +229,18 @@ def run_now_checks(url, query, run_worker):
           and shown['run']['parts'] == parts and [p['run']['part'] for p in parts] == list(range(1, len(parts) + 1))
           and all(p['state'] == 'completed' and p['result']['factors'] for p in parts)
           and shown['newer'] is None and shown['incomplete'] is None and first['runId'] not in json.dumps(shown)
+          and shown['definition'] == dict(name=shocked['name'], version=shocked['version'])
           and latest(risk, shocked, retained)['state'] == 'none')
+
+    failing = save(risk, 'held_curves', [size(label, '0.1') for label in labels])
+    failed = run(risk, failing, context=at(risk, '2020-12-18')[1])
+    risk.call(f"portfolio/risk/jobs/{failed['jobs'][0]['jobId']}/cancel", {})
+    drain()
+    nothing = latest(risk, failing, at(risk, '2020-12-18')[0])
+    check('a definition whose only run did not complete shows no run and names the incomplete one',
+          nothing['state'] == 'none' and 'run' not in nothing and nothing['newer'] is None
+          and nothing['incomplete'] == dict(runId=failed['runId'], valuationAt=valued('2020-12-18'), failedParts=[1])
+          and nothing['definition'] == dict(name=failing['name'], version=failing['version']))
 
     daily = save(risk, 'held_curves', [size(label, '0.1') for label in labels])
     on15 = ran(risk, daily, '2020-12-15'); drain()
@@ -232,14 +248,16 @@ def run_now_checks(url, query, run_worker):
     on16 = ran(risk, daily, '2020-12-16'); drain()
     past = latest(risk, daily, before16)
     check('a run known after the knowledge cutoff is not visible',
-          past['state'] == 'latest' and past['run']['runId'] == on15 and past['run']['valuationAt'] == valued('2020-12-15')
+          past['state'] == 'earlier_close' and past['run']['runId'] == on15 and past['run']['valuationAt'] == valued('2020-12-15')
           and latest(risk, daily, at(risk, '2020-12-16')[0])['run']['runId'] == on16)
     earlier = latest(risk, daily, at(risk, '2020-12-15')[0])
     hidden = latest(risk, daily, before17)
     check('a newer completed run beyond the selected effective time is stated',
           earlier['state'] == 'newer_available' and earlier['run']['runId'] == on15
           and earlier['newer'] == dict(runId=on16, valuationAt=valued('2020-12-16'))
-          and hidden['state'] == 'latest' and hidden['run']['runId'] == on15 and hidden['newer'] is None and on16 not in json.dumps(hidden))
+          and hidden['state'] == 'earlier_close' and hidden['run']['runId'] == on15 and hidden['newer'] is None and on16 not in json.dumps(hidden))
+    check('a run valued at the selected close is the latest; one valued at an earlier close says so',
+          latest(risk, daily, at(risk, '2020-12-16')[0])['state'] == 'latest' and past['run']['valuationAt'] < valued('2020-12-16'))
 
     on17 = ran(risk, daily, '2020-12-17')
     _, while_queued = at(risk, '2020-12-17')
@@ -261,8 +279,16 @@ def run_now_checks(url, query, run_worker):
 
     again = ran(risk, daily, '2020-12-17'); drain()
     tie = latest(risk, daily, at(risk, '2020-12-17')[0], 409)
-    check('two completed runs at the same valuation time are refused',
-          tie['code'] == 'risk_run_tie' and tie['runs'] == [dict(runId=r, valuationAt=valued('2020-12-17')) for r in (on17, again)])
+    check('two completed runs at the same valuation time are refused, each named by its version, valuation and known time from its receipts',
+          tie['code'] == 'risk_run_tie' and [{k: r[k] for k in ('runId', 'version', 'valuationAt')} for r in tie['runs']]
+          == [dict(runId=r, version=daily['version'], valuationAt=valued('2020-12-17')) for r in (on17, again)]
+          and [datetime.fromisoformat(r['knownAt']) for r in tie['runs']] == [known(on17), known(again)] and known(on17) < known(again)
+          and tie['definition'] == dict(name=daily['name'], version=daily['version']))
+    chosen = [latest(risk, daily, at(risk, '2020-12-17')[0], runId=r) for r in (on17, again)]
+    check('one of the tied runs, chosen explicitly, is shown as chosen; nothing else can be chosen',
+          [c['state'] for c in chosen] == ['chosen', 'chosen'] and [c['run']['runId'] for c in chosen] == [on17, again]
+          and all(latest(risk, daily, at(risk, day)[0], 422, runId=r)['code'] == 'risk_run_choice'
+                  for day, r in (('2020-12-17', on16), ('2020-12-17', str(uuid4())), ('2020-12-16', on16))))
 
     reader = account(url, 'synthetic_definition_reader', ['risk_analyst'])
     readable = save(reader, 'held_curves', [size(label, '0.1') for label in labels])

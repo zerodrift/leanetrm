@@ -13,7 +13,8 @@ CREATE TABLE risk.run_definition_versions (
  catalog_id uuid NOT NULL, definition_id uuid NOT NULL, version integer NOT NULL CHECK(version>=1),
  name text NOT NULL CHECK(btrim(name)<>'' AND length(name)<=80),
  preset text NOT NULL CHECK(preset IN('held_contracts','held_curves')),
- known_from ref_data.instant NOT NULL,
+ -- When the version was saved, by the database clock: shown to the person, never a knowledge time (D265).
+ saved_at ref_data.instant NOT NULL,
  PRIMARY KEY(catalog_id,definition_id,version), FOREIGN KEY(catalog_id,definition_id) REFERENCES risk.run_definitions(catalog_id,id)
 );
 CREATE TABLE risk.run_definition_books (
@@ -34,7 +35,6 @@ CREATE TABLE risk.run_definition_sizes (
 );
 CREATE TABLE risk.definition_runs (
  run_id uuid PRIMARY KEY, catalog_id uuid NOT NULL, definition_id uuid NOT NULL, version integer NOT NULL, context_id uuid NOT NULL,
- created_at ref_data.instant NOT NULL,
  FOREIGN KEY(catalog_id,definition_id,version) REFERENCES risk.run_definition_versions(catalog_id,definition_id,version),
  FOREIGN KEY(catalog_id,context_id) REFERENCES trading.contexts(catalog_id,context_id)
 );

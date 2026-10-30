@@ -226,7 +226,7 @@ app.Use(async (context,next)=>
         object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
             ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
         if(e is CloseRiskInputsException closeRisk)body=new{code,message,affectedBindings=closeRisk.AffectedBindings};
-        if(e is RiskRunTieException tie)body=new{code,message,runs=tie.Runs};
+        if(e is RiskRunTieException tie)body=new{code,message,definition=tie.Definition,runs=tie.Runs};
         await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
     }
     // Binding refuses a body or query value it cannot read, and a body over the limit, with a bare status before any
@@ -1266,7 +1266,7 @@ api.MapPost("/risk/definitions/{id:guid}/run",(HttpContext c,Guid id,RunRiskDefi
     }));
 api.MapPost("/risk/definitions/{id:guid}/latest",(HttpContext c,Guid id,LatestRiskRun body)=>TradingRead(c,
     body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
-    (connection,view,ct)=>tradeReads.LatestRiskRun(connection,view,id,ct),scenario:true,expectedConvention:TradingBlotter.Convention));
+    (connection,view,ct)=>tradeReads.LatestRiskRun(connection,view,id,body.RunId,ct),scenario:true,expectedConvention:TradingBlotter.Convention));
 api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking or amending.");

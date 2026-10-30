@@ -19,13 +19,18 @@ public sealed record SaveRiskRunDefinition(Guid RequestId,Guid? DefinitionId,int
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RunRiskDefinition(Guid RequestId,int Version,FuturesReadRequest Context);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record LatestRiskRun(FuturesReadRequest Context);
+// The latest run of a definition at a context, or the tied run the caller chose explicitly.
+public sealed record LatestRiskRun(FuturesReadRequest Context,Guid? RunId=null);
 public sealed record RiskRunAt(Guid RunId,DateTimeOffset ValuationAt);
+// A run tied for the latest, told apart from the others by its version and when it became known.
+public sealed record TiedRiskRun(Guid RunId,int Version,DateTimeOffset ValuationAt,DateTimeOffset KnownAt);
+public sealed record RiskDefinitionName(string Name,int Version);
 // Completed runs of one definition tied for the latest: none is chosen for the caller.
-public sealed class RiskRunTieException(ImmutableArray<RiskRunAt> runs):Exception("Completed runs of this definition share the latest valuation time. Choose one of them explicitly.")
+public sealed class RiskRunTieException(RiskDefinitionName definition,ImmutableArray<TiedRiskRun> runs):Exception("Completed runs of this definition share the latest valuation time. Choose one of them explicitly.")
 {
     public const string Code="risk_run_tie";
-    public ImmutableArray<RiskRunAt> Runs{get;}=runs;
+    public RiskDefinitionName Definition{get;}=definition;
+    public ImmutableArray<TiedRiskRun> Runs{get;}=runs;
 }
 
 // Saved setups for risk runs. A definition keeps what to shock (books and a preset) and by how much (a size per price unit);
@@ -33,8 +38,6 @@ public sealed class RiskRunTieException(ImmutableArray<RiskRunAt> runs):Exceptio
 public static class RiskRunDefinitions
 {
     private const int MaxBooks=4096,MaxSizes=64,MaxNameLength=80;
-    // The most bumps one holdings request takes, so the most in one part of a run.
-    private const int PartBumps=16;
     private static readonly string[] Presets=["held_contracts","held_curves"];
     private static MarketDataException Invalid()=>new("risk_definition","Supply a name, at least one book, a supported preset and one positive size for each distinct price unit.");
     private static MarketDataException Conflict()=>new("risk_definition_conflict","This definition changed. Refresh before saving it.");
@@ -59,7 +62,7 @@ public static class RiskRunDefinitions
     }
 
     private const string VersionJson="""
-        json_build_object('definitionId',v.definition_id,'version',v.version,'name',v.name,'preset',v.preset,'knownFrom',v.known_from,
+        json_build_object('definitionId',v.definition_id,'version',v.version,'name',v.name,'preset',v.preset,'savedAt',v.saved_at,
          'bookIds',(SELECT coalesce(json_agg(b.book_id ORDER BY b.book_id),'[]') FROM risk.run_definition_books b WHERE(b.catalog_id,b.definition_id,b.version)=(v.catalog_id,v.definition_id,v.version)),
          'sizes',(SELECT coalesce(json_agg(json_build_object('size',s.size::text,'unit',json_build_object('multiplier',s.multiplier::text,
            'currency',json_build_object('revision',json_build_object('catalogId',s.reference_catalog_id,'revisionId',s.revision_id),'code',s.currency_code),
@@ -72,7 +75,7 @@ public static class RiskRunDefinitions
     public static async Task<JsonElement> List(NpgsqlConnection connection,Guid catalogId,CancellationToken ct)
     {
         await using var command=new NpgsqlCommand($"""
-            SELECT coalesce(json_agg({VersionJson}::json ORDER BY v.known_from DESC,v.definition_id),'[]')::text
+            SELECT coalesce(json_agg({VersionJson}::json ORDER BY v.saved_at DESC,v.definition_id),'[]')::text
             FROM risk.run_definition_versions v WHERE v.catalog_id=$1
              AND v.version=(SELECT max(l.version) FROM risk.run_definition_versions l WHERE(l.catalog_id,l.definition_id)=(v.catalog_id,v.definition_id))
             """,connection);
@@ -119,8 +122,13 @@ public static class RiskRunDefinitions
         return await Remember(connection,request.RequestId,hash,(string)(await read.ExecuteScalarAsync(ct))!,ct);
     }
 
+    // A run's shocks in order, a holdings request's worth to each part (D222). More than a run's parts take is refused.
+    public static ImmutableArray<T[]> Parts<T>(ImmutableArray<T> shocks)=>shocks.Length<=RiskJobRun.MaxParts*PortfolioRiskPreview.MaxHoldingsBumps
+        ?[..shocks.Chunk(PortfolioRiskPreview.MaxHoldingsBumps)]
+        :throw new MarketDataException("risk_definition_targets",$"The definition's books hold more than the {RiskJobRun.MaxParts*PortfolioRiskPreview.MaxHoldingsBumps} targets one run shocks. Choose fewer books.");
+
     // Run now: queues the held targets the version's preset shocks in its books at an exact retained context, each bumped by the size
-    // for its price unit, in parts of sixteen (D222) that are the jobs of one run. A refusal queues nothing.
+    // for its price unit, in parts that are the jobs of one run. A refusal queues nothing.
     public static async Task<JsonElement> Run(NpgsqlConnection connection,PreviewManifest manifest,PortfolioRiskPreview calculator,
         PreviewData data,InputFrame frame,Guid definitionId,RunRiskDefinition request,CancellationToken ct)
     {
@@ -135,9 +143,9 @@ public static class RiskRunDefinitions
         var unsized=held.Where(h=>!sizes.ContainsKey(h.Axis.Unit)).Select(h=>h.Unit).Distinct().ToArray();
         if(unsized.Length>0)throw new MarketDataException("risk_definition_size",
             $"The definition has no shock size for {string.Join(", ",unsized)}. Add a size for each and save a new version.");
-        var parts=held.Select(h=>(h.Axis.Request,sizes[h.Axis.Unit])).Chunk(PartBumps).ToArray();
+        var parts=Parts([..held.Select(h=>(h.Axis.Request,sizes[h.Axis.Unit]))]);
         var runId=Guid.NewGuid();
-        await Execute(connection,"INSERT INTO risk.definition_runs VALUES($1,$2,$3,$4,$5,clock_timestamp())",ct,runId,manifest.CatalogId,definitionId,request.Version,contextId);
+        await Execute(connection,"INSERT INTO risk.definition_runs VALUES($1,$2,$3,$4,$5)",ct,runId,manifest.CatalogId,definitionId,request.Version,contextId);
         var jobs=new List<object>();
         foreach(var (part,index) in parts.Select((part,index)=>(part,index+1)))
         {
@@ -162,9 +170,10 @@ public static class RiskRunDefinitions
     }
 
     // The definition's latest completed run in the view: of the runs known at its cutoff whose every part completed by then, the one
-    // with the greatest valuation time at or before the view's close. A tie is refused. The newest later run with a failed or cancelled
-    // part is named, and in current knowledge so is a completed run valued after the close. Each part is read under current authority.
-    public static async Task<object> Latest(NpgsqlConnection connection,Guid catalogId,Guid definitionId,TradingView view,CancellationToken ct)
+    // with the greatest valuation time at or before the view's close. A tie is refused, listing the tied runs; the caller may then choose
+    // one of them, and only one of them. The newest later run with a failed or cancelled part is named, and in current knowledge so is a
+    // completed run valued after the close. A run valued before the close is said to be. Each part is read under current authority.
+    public static async Task<object> Latest(NpgsqlConnection connection,Guid catalogId,Guid definitionId,TradingView view,Guid? chosen,CancellationToken ct)
     {
         KnownRun[] runs;
         await using(var history=new NpgsqlCommand("SELECT risk.definition_run_history($1,$2,$3)::text",connection))
@@ -172,23 +181,37 @@ public static class RiskRunDefinitions
             history.Parameters.AddWithValue(catalogId);history.Parameters.AddWithValue(definitionId);history.Parameters.AddWithValue(view.Context.ContextId!.Value);
             runs=JsonSerializer.Deserialize<KnownRun[]>((string)(await history.ExecuteScalarAsync(ct))!,RiskJobs.Json)!;
         }
+        var definition=await Name(connection,catalogId,definitionId,ct);
         var at=view.Frame.At;
         var eligible=runs.Where(r=>r.ValuationAt<=at).ToArray();
         var completed=eligible.Where(r=>r.Completed).ToArray();
-        if(completed.Length==0)return new{state="none"};
-        var latest=completed.MaxBy(r=>r.ValuationAt)!;
-        var tied=completed.Where(r=>r.ValuationAt==latest.ValuationAt).OrderBy(r=>r.CreatedKnownFrom).ToArray();
-        if(tied.Length>1)throw new RiskRunTieException([..tied.Select(r=>new RiskRunAt(r.RunId,r.ValuationAt))]);
-        var incomplete=eligible.Where(r=>!r.FailedParts.IsEmpty&&r.Recency.CompareTo(latest.Recency)>0).MaxBy(r=>r.Recency);
         var newer=view.Working?runs.Where(r=>r.Completed&&r.ValuationAt>at).MaxBy(r=>r.Recency):null;
-        await RequireBooks(connection,catalogId,(await Version(connection,catalogId,definitionId,latest.Version,ct)).BookIds,ct);
-        var parts=new List<object>();
-        foreach(var jobId in await PartJobs(connection,latest.RunId,ct))
-            parts.Add(await RiskJobs.Read(connection,catalogId,jobId,ct,expectedConvention:PortfolioRiskPreview.Convention));
-        return new{state=newer is null?"latest":"newer_available",
-            run=new{latest.RunId,latest.Version,latest.ValuationAt,latest.KnownAt,parts},
-            newer=newer is null?null:new RiskRunAt(newer.RunId,newer.ValuationAt),
+        var latest=completed.MaxBy(r=>r.ValuationAt);
+        var tied=completed.Where(r=>r.ValuationAt==latest?.ValuationAt).OrderBy(r=>r.CreatedKnownFrom).ToArray();
+        var shown=chosen is {} runId?(tied.Length>1?tied.SingleOrDefault(r=>r.RunId==runId):null)
+                ??throw new MarketDataException("risk_run_choice","Choose one of the completed runs tied for the latest at this context.")
+            :tied.Length>1?throw new RiskRunTieException(definition,[..tied.Select(r=>new TiedRiskRun(r.RunId,r.Version,r.ValuationAt,r.KnownAt))])
+            :latest;
+        var incomplete=eligible.Where(r=>!r.FailedParts.IsEmpty&&(shown is null||r.Recency.CompareTo(shown.Recency)>0)).MaxBy(r=>r.Recency);
+        var stated=new{newer=newer is null?null:new RiskRunAt(newer.RunId,newer.ValuationAt),
             incomplete=incomplete is null?null:new{incomplete.RunId,incomplete.ValuationAt,incomplete.FailedParts}};
+        if(shown is null)return new{state="none",definition,stated.newer,stated.incomplete};
+        await RequireBooks(connection,catalogId,(await Version(connection,catalogId,definitionId,shown.Version,ct)).BookIds,ct);
+        var parts=new List<object>();
+        foreach(var jobId in await PartJobs(connection,shown.RunId,ct))
+            parts.Add(await RiskJobs.Read(connection,catalogId,jobId,ct,expectedConvention:PortfolioRiskPreview.Convention));
+        return new{state=chosen is not null?"chosen":shown.ValuationAt<at?"earlier_close":newer is not null?"newer_available":"latest",definition,
+            run=new{shown.RunId,shown.Version,shown.ValuationAt,shown.KnownAt,parts},stated.newer,stated.incomplete};
+    }
+
+    // The name and latest version of one of the account's definitions.
+    private static async Task<RiskDefinitionName> Name(NpgsqlConnection connection,Guid catalogId,Guid definitionId,CancellationToken ct)
+    {
+        await using var command=new NpgsqlCommand("SELECT name,version FROM risk.run_definition_versions WHERE(catalog_id,definition_id)=($1,$2) ORDER BY version DESC LIMIT 1",connection);
+        command.Parameters.AddWithValue(catalogId);command.Parameters.AddWithValue(definitionId);
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct)?new(reader.GetString(0),reader.GetInt32(1))
+            :throw new MarketDataException("risk_definition_version","Choose a saved version of one of your definitions.");
     }
 
     private static async Task<Guid[]> PartJobs(NpgsqlConnection connection,Guid runId,CancellationToken ct)

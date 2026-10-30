@@ -1426,3 +1426,45 @@ authorized direct reads require the selected publication/context and current
 source access. The migration refuses any existing retained schedules and requires
 an explicit rebooking release. It performs no read-time backfill or compatibility
 conversion. See [the storage contract and qualification boundary](../docs/booked-side-programs.md).
+
+## Market dashboard
+
+Migration `0130_dashboard_layouts.sql` stores one Market Dashboard layout per
+account and workspace in `presentation.dashboard_layouts` (D263), with its saves'
+request replay in `presentation.dashboard_layout_requests`. Both tables force row
+security: `security.dashboard_identity()` admits only the human actor of the
+current request context holding `ReadMarketData`, and each row is visible and
+writable only by its own account. A layout is at most 24,000 bytes of JSON naming
+curves, contracts and definitions; the API validates its shape. The runtime role
+may update a layout in place and only insert requests. As a new migration it stops
+automatic hosted updates until the operator qualifies a new baseline (D135).
+
+Migration `0131_risk_run_definitions.sql` stores saved risk run definitions
+(D264): `risk.run_definitions` owned by one account, immutable
+`risk.run_definition_versions` (name, preset and `saved_at`, the database clock at
+the save, never a knowledge time), `risk.run_definition_books` with exact foreign
+keys to `trading.books`, and `risk.run_definition_sizes`, one positive size per
+exact price unit as foreign keys into reference currencies and quantity
+specifications. `risk.definition_runs` records each run's version and retained
+context, and `risk.definition_run_jobs` the job of each of its at most 256 parts.
+`risk.definition_identity()` admits only a human actor holding `RunScenario`;
+definitions and requests are visible to their owner, and versions, books, sizes,
+runs and run jobs through their definition or run. Every table refuses update and
+delete. As a new migration it stops automatic hosted updates until the operator
+qualifies a new baseline (D135).
+
+Migration `0132_risk_run_knowledge.sql` makes a definition's runs known only
+through certified commit receipts (D265). Deferred constraint triggers publish a
+run's creation, and each of its parts reaching `completed`, `failed` or
+`cancelled`, into `risk.definition_run_publications` at commit under the knowledge
+publication lock (730849102); other risk jobs publish nothing. It wraps
+`security.capture_date_context` (renaming the previous wrapper
+`security.capture_pre_definition_run_context`) so that capturing a context
+certifies each publication's commit time into immutable
+`risk.definition_run_receipts`, as pilot reports are (0057); a risk worker never
+certifies. `risk.definition_run_history(uuid,uuid,uuid)` returns a definition's
+runs known at a context's cutoff, and only to the definition's owner with
+`ReadMarketData`. Worker finishes and cancellations of definition parts now commit
+under the publication lock; contention with concurrent context captures is not yet
+measured (docs/verification.md). As a new migration it stops automatic hosted
+updates until the operator qualifies a new baseline (D135).
