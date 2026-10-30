@@ -248,28 +248,7 @@ internal sealed partial class RetainedScheduleStore
         if(!ReferenceEquals(readConnection,connection)||readContext!=context||readAt!=asOf)
         {readSchedules.Clear();readConnection=connection;readContext=context;readAt=asOf;}
         var cacheable=context is not null&&asOf is not null;
-        // Membership visibility and every current source authority are checked
-        // on every instrument read, including when its immutable content is shared.
-        // A report may continue with other instruments after this exact missing-artifact
-        // refusal. PostgreSQL exceptions abort the transaction, so restore only this
-        // read's savepoint; permission, cancellation and integrity failures still escape.
-        const string savepoint="retained_schedule_admission";
-        async Task Savepoint(string sql)
-        {await using var command=ScheduleStore.Command(connection,sql);await command.ExecuteNonQueryAsync(cancellation);}
-        if(recoverMissing)await Savepoint("SAVEPOINT "+savepoint);
-        ImmutableArray<JsonElement> metadata;
-        try
-        {
-            metadata=await ReadRows(connection,"SELECT security.read_instrument_side_schedule_headers($1,$2,$3,$4)::text",
-                [Catalog,instrument,(object?)context??DBNull.Value,(object?)asOf??DBNull.Value],cancellation);
-        }
-        catch(PostgresException error)when(error.SqlState=="P0001"&&error.MessageText=="side_schedule_missing")
-        {
-            if(recoverMissing){await Savepoint("ROLLBACK TO SAVEPOINT "+savepoint);await Savepoint("RELEASE SAVEPOINT "+savepoint);}
-            throw new MarketDataException("side_schedule_missing","The booked instrument has no complete retained schedule and must be rebooked.");
-        }
-        if(recoverMissing)await Savepoint("RELEASE SAVEPOINT "+savepoint);
-        if(metadata.IsEmpty)throw new MarketDataException("side_schedule_missing","The booked instrument has no retained schedule and must be rebooked.");
+        var metadata=await ReadHeaders(connection,instrument,context,asOf,cancellation,recoverMissing);
         var result=ImmutableDictionary.CreateBuilder<Guid,ScheduleDefinition>();
         var retainedIds=new Dictionary<Guid,Guid>();
         Task Current(Func<NpgsqlConnection,CancellationToken,Task> work)=>work(connection,cancellation);
@@ -292,6 +271,54 @@ internal sealed partial class RetainedScheduleStore
         }
         return result.ToImmutable();
     }
+    private async Task<ImmutableArray<JsonElement>> ReadHeaders(NpgsqlConnection connection,Guid instrument,
+        Guid? context,DateTimeOffset? asOf,CancellationToken cancellation,bool recoverMissing=false,bool contentIdentity=false)
+    {
+        // Membership visibility and every current source authority are checked
+        // on every instrument read, including when its immutable content is shared.
+        // A report may continue with other instruments after this exact missing-artifact
+        // refusal. PostgreSQL exceptions abort the transaction, so restore only this
+        // read's savepoint; permission, cancellation and integrity failures still escape.
+        const string savepoint="retained_schedule_admission";
+        async Task Savepoint(string sql)
+        {await using var command=ScheduleStore.Command(connection,sql);await command.ExecuteNonQueryAsync(cancellation);}
+        if(recoverMissing)await Savepoint("SAVEPOINT "+savepoint);
+        ImmutableArray<JsonElement> metadata;
+        try
+        {
+            var query=contentIdentity
+                ?"SELECT (h.value||m.value)::text FROM security.read_instrument_side_schedule_headers($1,$2,$3,$4) m(value) CROSS JOIN LATERAL security.read_side_schedule_header($1,(m.value->>'schedule_id')::uuid,NULL,$2,$3,$4) h(value) ORDER BY (m.value->>'slot')::integer"
+                :"SELECT security.read_instrument_side_schedule_headers($1,$2,$3,$4)::text";
+            metadata=await ReadRows(connection,query,
+                [Catalog,instrument,(object?)context??DBNull.Value,(object?)asOf??DBNull.Value],cancellation);
+        }
+        catch(PostgresException error)when(error.SqlState=="P0001"&&error.MessageText=="side_schedule_missing")
+        {
+            if(recoverMissing){await Savepoint("ROLLBACK TO SAVEPOINT "+savepoint);await Savepoint("RELEASE SAVEPOINT "+savepoint);}
+            throw new MarketDataException("side_schedule_missing","The booked instrument has no complete retained schedule and must be rebooked.");
+        }
+        if(recoverMissing)await Savepoint("RELEASE SAVEPOINT "+savepoint);
+        if(metadata.IsEmpty)throw new MarketDataException("side_schedule_missing","The booked instrument has no retained schedule and must be rebooked.");
+        return metadata;
+    }
+    internal async Task RequireCurrent(NpgsqlConnection connection,SidedInstrument instrument,Guid context,
+        DateTimeOffset asOf,CancellationToken cancellation)
+    {
+        var metadata=await ReadHeaders(connection,instrument.Id,context,asOf,cancellation,contentIdentity:true);
+        if(metadata.Length!=instrument.Sides.Length)throw Error("Current retained membership differs from resolved holdings.");
+        for(var slot=0;slot<metadata.Length;slot++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var side=instrument.Sides[slot].Side;var expected=side.RetainedSchedule;
+            var header=metadata[slot];
+            if(expected is null||header.GetProperty("slot").GetInt32()!=slot||header.Id("side_id")!=side.Id||
+                header.Text("manifest")!=expected.Manifest||header.Text("family")!=expected.Family||
+                header.Text("economic_identity")!=expected.EconomicIdentity||header.Text("pricing_binding_identity")!=expected.PricingBindingIdentity||
+                header.Text("schema_version")!=expected.SchemaVersion||header.Text("generator_version")!=expected.GeneratorVersion)
+                throw Error("Current retained content differs from resolved holdings.");
+        }
+    }
+
     private async Task VerifyContent(ReadAccess authorized,
         Guid schedule,Guid request,ScheduleDefinition expected,CancellationToken cancellation)
     {

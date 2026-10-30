@@ -64,11 +64,37 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     def managed(mode):subprocess.run([str(dotnet),'run',*(['--no-build'] if mode=='--swap-risk-holdings-expired' else []),'--project','tests/OpenEtrm.Api.Checks','--',mode,str(fixture)],cwd=repository,env=environment,check=True,timeout=90)
     managed('--swap-risk-holdings')
     managed('--portfolio-risk-scope')
+    _reuse_reference_revocation(query,manifest,managed,fixture)
     _read_trades_expiry(query,manifest,psql,environment,managed,frame,editor['context'])
     scope={key:manifest[key] for key in ['catalogId','tenantId','workspaceId']}
     query(f"DELETE FROM security.market_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{scope['catalogId']}','{scope['tenantId']}','{scope['workspaceId']}');")
     try:managed('--swap-risk-holdings-denied')
     finally:query(f"INSERT INTO security.market_catalog_scopes VALUES('{scope['catalogId']}','{scope['tenantId']}','{scope['workspaceId']}');")
+
+
+def _reuse_reference_revocation(query,manifest,managed,fixture):
+    from concurrent.futures import ThreadPoolExecutor
+    ready,release=Path(str(fixture)+'.reuse-ready'),Path(str(fixture)+'.reuse-release')
+    reference=manifest['referenceCatalogId'];tenant=manifest['tenantId'];workspace=manifest['workspaceId']
+    mode=query(f"SELECT access_mode FROM security.reference_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{reference}','{tenant}','{workspace}');")
+    assert mode in ('owner','read_only'),mode
+    revoked=False
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        reading=pool.submit(managed,'--swap-risk-reuse-revoked')
+        try:
+            deadline=time.monotonic()+30
+            while not ready.exists():
+                if reading.done():reading.result()
+                assert time.monotonic()<deadline,'Cached holdings did not reach the owned fallback boundary'
+                time.sleep(.02)
+            query(f"DELETE FROM security.reference_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{reference}','{tenant}','{workspace}');")
+            revoked=True
+            release.write_text('released')
+            reading.result(timeout=20)
+        finally:
+            release.write_text('released')
+            if revoked:query(f"INSERT INTO security.reference_catalog_scopes VALUES('{reference}','{tenant}','{workspace}','{mode}');")
+            ready.unlink(missing_ok=True);release.unlink(missing_ok=True)
 
 
 def _read_trades_expiry(query,manifest,psql,environment,managed,frame,context):
