@@ -137,7 +137,9 @@ same display overlay as the category read, so a product page shows applied label
 
 A commit retains its operation identifier and exact request payload for both its
 saved version and its activation; an exact retry returns the first outcome and the
-same identifier with different values is `reference_conflict`. The UI
+same identifier with different values is `reference_conflict`. A commit whose
+values are already applied records nothing, so its retry after a later commit is
+refused with `reference_conflict` instead of replaying the no-op answer. The UI
 retains an unconfirmed request across reloads and retries it before allowing a new
 change. Retries recheck current authority; an earlier successful receipt does not
 grant continued access. A denied retry after an uncertain response does not prove

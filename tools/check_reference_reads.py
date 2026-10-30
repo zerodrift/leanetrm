@@ -138,8 +138,9 @@ def run_checks(c, check):
     named = lambda table: {r['code']: r for r in references[table]}
     exchanges, locations, units, currencies = named('exchanges'), named('locations'), named('units'), named('currencies')
     def summary(p):
-        lot = None if p['contract_size'] is None or p['lot_unit_code'] is None else (
-            f"{p['contract_size']} {units[p['lot_unit_code']]['symbol']}" + (' per delivery hour' if p['lot_basis'] == 'per_delivery_hour' else ''))
+        basis = {'fixed_total': '', 'per_delivery_day': ' per delivery day', 'per_delivery_hour': ' per delivery hour'}
+        lot = None if p['contract_size'] is None or p['lot_unit_code'] is None or p['lot_basis'] not in basis else (
+            f"{p['contract_size']} {units[p['lot_unit_code']]['symbol']}{basis[p['lot_basis']]}")
         quote = None if p['quote_currency_code'] is None or p['quote_unit_code'] is None else (
             f"{currencies[p['quote_currency_code']]['display_code']}/{units[p['quote_unit_code']]['symbol']}")
         return [{'label': 'Exchange', 'value': exchanges[p['exchange_code']]['name']},

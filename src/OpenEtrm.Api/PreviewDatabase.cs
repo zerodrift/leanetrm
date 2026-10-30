@@ -441,7 +441,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
           jsonb_build_object('label','Exchange','value',(SELECT x.name FROM ref_data.exchanges x WHERE(x.catalog_id,x.revision_id,x.code)=(r.catalog_id,r.revision_id,r.exchange_code))),
           jsonb_build_object('label','Location','value',(SELECT l.name FROM ref_data.locations l WHERE(l.catalog_id,l.revision_id,l.code)=(r.catalog_id,r.revision_id,r.location_code))),
           jsonb_build_object('label','Lot size','value',r.contract_size::text||' '||(SELECT u.symbol FROM ref_data.units u WHERE(u.catalog_id,u.revision_id,u.code)=(r.catalog_id,r.revision_id,r.lot_unit_code))
-            ||CASE WHEN r.lot_basis='per_delivery_hour' THEN ' per delivery hour' ELSE '' END),
+            ||CASE r.lot_basis WHEN 'fixed_total' THEN '' WHEN 'per_delivery_day' THEN ' per delivery day' WHEN 'per_delivery_hour' THEN ' per delivery hour' END),
           jsonb_build_object('label','Quote unit','value',(SELECT c.display_code FROM ref_data.currencies c WHERE(c.catalog_id,c.revision_id,c.code)=(r.catalog_id,r.revision_id,r.quote_currency_code))
             ||'/'||(SELECT u.symbol FROM ref_data.units u WHERE(u.catalog_id,u.revision_id,u.code)=(r.catalog_id,r.revision_id,r.quote_unit_code))))
         """;
