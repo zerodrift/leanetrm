@@ -166,12 +166,32 @@ def run_authority_checks(query,manifest,entry,before_context):
         return f"DO $$BEGIN {statement};RAISE EXCEPTION 'Expected executable read refusal';EXCEPTION WHEN SQLSTATE '{code}' THEN {exact} END$$;"
     for identifier in (instrument,str(uuid4())):
         runtime_query(query,manifest,refused(read(identifier)),profile='viewer')
+    runtime_query(query,manifest,refused(f"PERFORM security.read_instrument_side_programs('{catalog}','{instrument}',NULL,NULL)"))
     runtime_query(query,manifest,refused(read(context=before_context)))
+    unpublished=query(f"""SELECT p.schedule_id FROM trading.side_schedule_programs p WHERE p.catalog_id='{catalog}'
+        AND NOT EXISTS(SELECT 1 FROM trading.side_schedule_publications v WHERE(v.catalog_id,v.schedule_id)=(p.catalog_id,p.schedule_id))
+        ORDER BY p.schedule_id LIMIT 1;""")
+    assert unpublished, 'Visibility qualification requires a complete sealed unpublished program'
+    published=entry['sides'][0]['scheduleId']
+    bind=f"SELECT security.use_market_context('{catalog}','{selected}');SELECT security.use_trading_context('{catalog}','{at}');"
+    visibility=f"SELECT jsonb_build_array((SELECT count(*) FROM trading.side_schedule_programs WHERE schedule_id='{published}'),(SELECT count(*) FROM trading.side_schedule_programs WHERE schedule_id='{unpublished}'));"
+    permissive='CREATE POLICY synthetic_program_allow ON trading.side_schedule_programs FOR SELECT TO openetrm_runtime USING(true);'
+    assert json.loads(runtime_query(query,manifest,bind+visibility,prefix=permissive,commit=False))==[1,0], \
+        'The same bound context must see a published program and hide sealed staging, even with an extra permissive policy'
     withdrawal=f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{manifest['referenceCatalogId']}';"
     runtime_query(query,manifest,refused(read()),prefix=withdrawal,commit=False)
     floor=f"SELECT trading.record_history_boundary('{catalog}','{uuid4()}','{selected}');"
     runtime_query(query,manifest,refused(read(context=before_context),'P0001','trading_history_archived'),prefix=floor,commit=False)
     query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;{refused(read())}ROLLBACK;")
+    before=query('SELECT count(*) FROM trading.side_schedule_programs;')
+    migration=Path(__file__).resolve().parents[1]/'db/migrations/0129_booked_side_programs.sql'
+    try:
+        query(migration.read_text())
+    except RuntimeError as error:
+        if 'side_schedule_program_rebooking_required' not in str(error):raise
+    else:
+        raise AssertionError('Installing the executable format over retained schedules must require explicit rebooking')
+    assert query('SELECT count(*) FROM trading.side_schedule_programs;')==before, 'A refused installation must retain every existing program'
     print('PASS booked program authority: hidden/unknown scope, pre-publication knowledge, revoked source, archive floor and unclaimed worker refuse',flush=True)
 
 
