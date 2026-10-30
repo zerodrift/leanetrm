@@ -140,6 +140,12 @@ test('group teardown stops helpers that outlive the browser before its profile i
   const browser=spawn(process.execPath,['-e',`require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(helper)},process.argv[1]],{stdio:'ignore'});process.on('SIGTERM',()=>process.exit(0));process.stdout.write('ready');setInterval(()=>{},1000)`,directory],{stdio:['ignore','pipe','ignore'],detached:true});
   t.after(async()=>{try{process.kill(-browser.pid,'SIGKILL');}catch{}await rm(directory,{recursive:true,force:true});});
   await once(browser.stdout,'data');
+  const state=join(directory,'Default','state'),until=performance.now()+5000;
+  while(performance.now()<until){
+    try{await stat(state);break;}catch(error){if(error.code!=='ENOENT')throw error;}
+    await delay(10);
+  }
+  await stat(state); // The helper is writing before shutdown; readiness timeout must fail the check.
   await stopOwnedBrowserGroup(browser,undefined,200);
   await rm(directory,{recursive:true,force:true});
   await delay(100);
