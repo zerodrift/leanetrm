@@ -49,6 +49,13 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "return card&&b.firstElementChild.classList.contains('commodity-dot')&&b.textContent===name+b.querySelector('small').textContent&&(card.dataset.state==='priced'?line?.getAttribute('aria-hidden')==='true'&&!!line.querySelector('path'):!line);});})()");
   await check('a curve\'s dot on the board and in the library share its commodity color',
    "[...document.querySelectorAll('.market-card')].every(card=>{const row=[...document.querySelectorAll('.curve-button')].find(b=>b.querySelector('span').textContent===card.querySelector('.market-card-open').textContent);return row.querySelector('.commodity-dot').style.getPropertyValue('--commodity')===card.querySelector('.commodity-dot').style.getPropertyValue('--commodity');})");
+  // The backend names each curve's kind (curve_kinds_v1); the badge carries its label as the accessible name and tooltip.
+  await check('each card and library row shows the backend\'s curve kind as a badge named by its label, a settlement curve as Market settlement',
+   "(async()=>{const kinds=new Map((await(await fetch('/api/workspace/navigation')).json()).curves.map(c=>[c.code,c.kind])),cards=[...document.querySelectorAll('.market-card')];"+
+   "const badges=cards.map(card=>[card,card.querySelector('.market-card-head .curve-kind[role=img]')]),row=card=>[...document.querySelectorAll('.curve-button')].find(b=>b.querySelector('span').textContent===card.querySelector('.market-card-open').textContent);"+
+   "return cards.length>0&&badges.every(([card,badge])=>badge&&badge.dataset.kind===kinds.get(card.dataset.curve)&&badge.getAttribute('aria-label').length>0&&badge.title===badge.getAttribute('aria-label')&&badge.querySelector('svg[aria-hidden=true]')&&row(card).querySelector('.curve-kind').getAttribute('aria-label')===badge.getAttribute('aria-label'))&&"+
+   "badges.some(([,badge])=>badge.dataset.kind==='market_settlement'&&badge.getAttribute('aria-label')==='Market settlement');})()",
+   "[...document.querySelectorAll('.market-card')].map(c=>[c.dataset.curve,c.querySelector('.curve-kind')?.getAttribute('aria-label')])");
   await evaluate('window.scrollTo(0,0)');await shot('markets-board-desktop');
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');
   await check('the board fits a 390px screen without page-wide horizontal scrolling',fitsWidth);
@@ -84,6 +91,9 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
   await check('choosing a card opens its curve as the library does: one evaluate, the curve shown and selected in the library, the board put away',
    "window.__evaluates===1&&document.querySelector('#market-board').hidden&&!document.querySelector('#curve-detail').hidden&&document.querySelector('#curve-title').textContent==='Local power forwards'&&"+
    "document.querySelector('.curve-button[aria-pressed=true] span')?.textContent==='Local power forwards'&&document.querySelector('#curve-chart canvas')&&document.querySelector('#error').hidden");
+  await check('the curve\'s header shows the same kind badge as its card',
+   "(async()=>{const curve=(await(await fetch('/api/workspace/navigation')).json()).curves.find(c=>c.name==='Local power forwards'),badge=document.querySelector('#curve-kind-badge .curve-kind-md[role=img]'),row=document.querySelector('.curve-button[aria-pressed=true] .curve-kind');"+
+   "return badge&&badge.dataset.kind===curve.kind&&badge.getAttribute('aria-label').length>0&&badge.getAttribute('aria-label')===row.getAttribute('aria-label');})()");
   await check('the selected curve\'s tiles state the evaluate summary: its contract count, front contract and exact front price',
    "(async()=>{const tiles=[...document.querySelectorAll('#curve-summary .desk-tile')].map(t=>[t.querySelector('.desk-tile-label').textContent,t.querySelector('.kpi-figure').textContent]);"+
    "return tiles.length===4&&tiles.map(t=>t[0]).join('|')==='Contracts|Front contract|Front price|Settlement'&&!document.querySelector('#curve-summary').hidden&&tiles[0][1]===document.querySelector('#build-info').textContent.split(' ')[0];})()",

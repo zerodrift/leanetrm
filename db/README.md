@@ -1389,3 +1389,30 @@ differs from the reviewed definition. Apply the migration before the API and web
 assets: the earlier API never offers `read_jobs`, and this release's API records the
 `job_access` access, which the earlier schema refuses. As a new migration it stops
 automatic hosted updates until the operator qualifies a new baseline (D135).
+
+Migration `0128_agent_curve_drafts.sql` is the database groundwork for the page
+assistant's custom-curve drafts (D260). It adds
+`market_data.custom_curve_generation_savers`, which records who saved each draft
+generation (`person`, or `assistant` with its turn and step, the step checked at
+commit), whose `saved_by` the risk worker reads as it reads curve versions, under its
+live service authority, never the actor, turn or step; `security.custom_curve_saver(uuid,uuid,integer,text,uuid,integer)`, the actor its insert policy
+admits; `security.custom_curve_agent_writable(uuid,uuid,integer,uuid)`, the
+assistant's scope; `save_custom_curve_draft` to the agent tools, needing
+`ReadMarketData` and `WriteMarketDefinitions`; and a `draft` navigation target for a
+save step that recorded the assistant as a saver. It
+adds `DraftCustomCurves`, held only by the agent reader role, and
+`security.claim_custom_curve_draft`, through which an agent context, fenced by
+`assistant.fenced_turn` with its turn's token and the current worker generation, claims the one curve version a step of its turn saves (a new curve only while the
+catalog holds fewer than 64, counting curves the agent cannot see), locking the
+turn and the version until it commits; each author policy of the ordinary save's
+tables gains an agent twin that requires that claim and the agent's current
+authority, `security.custom_curve_visible` shows a claimed draft to its agent, and
+a deferred constraint trigger on each of those tables checks every agent write at
+commit. A guard refuses the migration if `assistant.agent_tools()`,
+`assistant.is_navigation_target(assistant.turns,jsonb)` or
+`security.custom_curve_visible(uuid,uuid,integer)` differs from the reviewed
+definition, if a policy it twins does not name the author permission exactly once
+(the twin copies the rest of the policy as installed), or if a tool other than
+`save_custom_curve_draft` needs `WriteMarketDefinitions`. Existing drafts have no saver record, so the
+assistant may not change them. As a new migration it stops automatic hosted updates
+until the operator qualifies a new baseline (D135).

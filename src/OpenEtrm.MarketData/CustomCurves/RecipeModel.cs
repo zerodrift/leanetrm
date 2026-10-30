@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using OpenEtrm.MarketData.Risk;
 
@@ -17,7 +19,13 @@ public sealed record RecipeNode(string Id,string Kind,ImmutableDictionary<string
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PublishedRecipeReference? PublishedSource=null,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<RecipePanelWeight> PanelWeights=default);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record RecipeDefinition(string Code,string Name,ImmutableArray<RecipeNode> Nodes,string Output);
+public sealed record RecipeDefinition(string Code,string Name,ImmutableArray<RecipeNode> Nodes,string Output)
+{
+    // Whether `other` states this same graph: its code, name, output and each node's content, in any order of statement.
+    public bool SameGraph(RecipeDefinition other)=>JsonNode.DeepEquals(Evidence(),other.Evidence());
+    JsonNode Evidence()=>JsonSerializer.SerializeToNode(new{Code,Name,Output,
+        Nodes=Nodes.OrderBy(n=>n.Id,StringComparer.Ordinal).Select(ConnectedRecipeDeclaration.NodeEvidence).ToArray()})!;
+}
 public sealed record RecipeContract(MarketContract Contract,DateTimeOffset EligibleFrom);
 public sealed record RecipeSample(DateOnly Date,DateTimeOffset At,ContractKey Contract,UnitPrice Price,
     ImmutableArray<ObservationKey> Observations,ImmutableArray<QuoteFactor> Factors,bool Fixed);

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readsPhrase,grantOutcome,grantItem,inForceRow,historyRow,knownGrantRejection,grantMessage,keptRevoke,keptNote} from '../dist/agent-grants.js';
+import {readsPhrase,grantPhrase,grantOutcome,grantItem,inForceRow,historyRow,knownGrantRejection,grantMessage,keptRevoke,keptNote} from '../dist/agent-grants.js';
 
 const vendors=[{code:'anthropic',name:'Anthropic'},{code:'openai',name:'OpenAI'}];
 const model={vendor:'anthropic',identifier:'model-one',displayName:'Model one'};
@@ -17,6 +17,18 @@ test('what a grant reads is named from a closed set, in a fixed order; anything 
   assert.equal(readsPhrase([]),'no workspace data');
   assert.throws(()=>readsPhrase(['ManageAccess']),/agent grants are inconsistent/);
   assert.throws(()=>readsPhrase(['ReadTrades','ReadTrades']),/agent grants are inconsistent/);
+});
+
+test('a grant whose tools save curve drafts says so plainly, beside what it reads (D260)',()=>{
+  const drafts=['ReadMarketData','WriteMarketDefinitions'];
+  assert.equal(readsPhrase(drafts),'market data');
+  assert.equal(grantPhrase(drafts),'read market data and save curve drafts you could save yourself');
+  assert.equal(grantPhrase(['ReadMarketData','ReadTrades']),'read trades and market data');
+  assert.equal(grantItem({...grant,permissions:drafts},vendors,instant).reads,'Reads market data and saves curve drafts you could save yourself');
+  assert.equal(inForceRow({operationId:'o1',delegator:'Synthetic editor',agentName:'Curve guide',version:1,...model,permissions:drafts,
+    grantedAt:'2026-10-20T12:00:00Z',expiresAt:'2026-10-27T12:00:00Z'},vendors,instant)[3],'market data; saves curve drafts you could save yourself');
+  assert.throws(()=>grantPhrase(['WriteMarketDefinitions','WriteMarketDefinitions']),/agent grants are inconsistent/);
+  assert.throws(()=>grantPhrase(['SealMarketDefinitions']),/agent grants are inconsistent/);
 });
 
 test("a person's grant names its agent and version, model, reads and term, and its Revoke names the agent",()=>{

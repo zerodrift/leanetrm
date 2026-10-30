@@ -2,12 +2,13 @@ import {publicText,marketTypeName,type MarketType} from './market-view.js';
 import type {Context} from './date-editor.js';
 import {validFrameCatalog,type FrameCatalog} from './frame-catalog.js';
 import type {LiveSelection} from './live-context.js';
+import {isCurveKind,kindsVersion,type CurveKind} from './curve-kinds.js';
 
 export type FrameSummary={id:string;name:string;at:string;originCloseId?:string|null};
 export type NavigationCategory={code:string;name:string};
-// A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it.
-export type NavigationCurve={code:string;name:string;marketType:MarketType;category:NavigationCategory|null};
-export type MarketNavigation={kind:'market_navigation';profile:string;context:Context|null;live?:LiveSelection|null;
+// A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it. Its kind is the backend's (D259).
+export type NavigationCurve={code:string;name:string;marketType:MarketType;category:NavigationCategory|null;kind:CurveKind};
+export type MarketNavigation={kind:'market_navigation';kindsVersion:typeof kindsVersion;profile:string;context:Context|null;live?:LiveSelection|null;
  definitionRevision:{catalogId:string;revisionId:string};referenceRevision:{catalogId:string;revisionId:string};
  futuresConvention:string;example:{at:string;curve:string}|null;initialFrameIds:string[];
  frames:FrameSummary[];curveNames:{code:string;name:string}[];curves:NavigationCurve[];frameCatalog?:FrameCatalog};
@@ -15,12 +16,12 @@ export type MarketNavigation={kind:'market_navigation';profile:string;context:Co
 export function validateMarketNavigation(value:MarketNavigation){
  const text=(value:unknown)=>typeof value==='string'&&value.length>0;
  const revision=(value:MarketNavigation['definitionRevision'])=>value&&text(value.catalogId)&&text(value.revisionId);
- if(!value||value.kind!=='market_navigation'||!text(value.profile)||!text(value.futuresConvention)||
+ if(!value||value.kind!=='market_navigation'||value.kindsVersion!==kindsVersion||!text(value.profile)||!text(value.futuresConvention)||
   !revision(value.definitionRevision)||!revision(value.referenceRevision)||
   value.context!==null&&(!value.context||!text(value.context.contextId)||!text(value.context.effectiveOn)||!text(value.context.knownAt))||
   value.live!=null&&(!value.context||!text(value.live.id)||!Number.isSafeInteger(value.live.generation)||value.live.generation<1||value.live.policy!=='selected_facts_latest_committed_corrections_v1')||
   value.example!==null&&(!value.example||!text(value.example.at)||!text(value.example.curve))||
-  !Array.isArray(value.curves)||value.curves.some(c=>!c||!text(c.code)||!text(c.name)||!['futures','forwards','mixed','rates'].includes(c.marketType)||
+  !Array.isArray(value.curves)||value.curves.some(c=>!c||!text(c.code)||!text(c.name)||!['futures','forwards','mixed','rates'].includes(c.marketType)||!isCurveKind(c.kind)||
    (c.marketType==='rates'?c.category!==null:!c.category||!text(c.category.code)||!text(c.category.name)))||
   new Set(value.curves.map(c=>c.code)).size!==value.curves.length||conflictingLabels(value.curves)||
   !Array.isArray(value.curveNames)||value.curveNames.some(c=>!c||!text(c.code)||!text(c.name))||

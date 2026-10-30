@@ -21,6 +21,22 @@ internal static class CustomCurveChecks
             Node("dates","dates",[("mode","prior_calendar")]),
             Node("sample","sample",ports:[("selection","select"),("dates","dates")]),
             Node("mean","mean",[("axis","dates")],[("values","sample")]),Node("out","output",ports:[("values","mean")])],"out");
+        // A graph is the same in any statement order of its nodes, and differs by its code, name, output or any node's content.
+        var weight=new RecipePanelWeight("left","0.5");
+        if(!definition.SameGraph(definition with{Nodes=[..definition.Nodes.Reverse()]}))throw new Exception("Node order changed a saved graph.");
+        foreach(var (label,other) in new[]{("code",definition with{Code="ng_other"}),("name",definition with{Name="Synthetic renamed"}),
+            ("output",definition with{Output="mean"}),("parameter",definition with{Nodes=definition.Nodes.SetItem(4,definition.Nodes[4] with{Parameters=definition.Nodes[4].Parameters.SetItem("axis","contracts")})}),
+            ("port",definition with{Nodes=definition.Nodes.SetItem(5,definition.Nodes[5] with{Inputs=definition.Nodes[5].Inputs.SetItem("values","sample")})}),
+            ("weights",definition with{Nodes=definition.Nodes.SetItem(4,definition.Nodes[4] with{PanelWeights=[weight]})}),
+            ("kind",definition with{Nodes=definition.Nodes.SetItem(4,definition.Nodes[4] with{Kind="sum"})}),
+            ("added node",definition with{Nodes=definition.Nodes.Add(Node("spare","dates",[("mode","context")]))}),
+            ("removed node",definition with{Nodes=definition.Nodes.RemoveAt(2)}),
+            ("contract weights",definition with{Nodes=definition.Nodes.SetItem(4,definition.Nodes[4] with{ContractWeights=[new(1,"values",Guid.Empty,"1")]})}),
+            ("published source",definition with{Nodes=definition.Nodes.SetItem(0,definition.Nodes[0] with{PublishedSource=new(Guid.Empty,Guid.Empty,1,"out")})}),
+            // The selection and its dates trade ids, with every port rewired to match: the same shape, a different graph.
+            ("swapped ids",definition with{Nodes=[definition.Nodes[0],definition.Nodes[1] with{Id="dates"},definition.Nodes[2] with{Id="select"},
+                definition.Nodes[3] with{Inputs=definition.Nodes[3].Inputs.SetItem("selection","dates").SetItem("dates","select")},..definition.Nodes[4..]]})})
+            if(definition.SameGraph(other))throw new Exception($"A changed {label} read as the same saved graph.");
         var context=new ResolvedCalculationContext(Guid.NewGuid(),"synthetic-recipe-cases",At(28),At(28),At(28),At(28));
         (RecipeInputs Inputs,ImmutableArray<ConnectedRecipeSample> Samples) Supply(ImmutableArray<MarketContract> members,ImmutableArray<DateOnly> dates,
             Func<DateTimeOffset,MarketContract,string> price,bool daily=false)

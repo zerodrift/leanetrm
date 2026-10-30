@@ -17,6 +17,7 @@ static class AgentToolChecks
     public static void Run()
     {
         CurvePreparation();
+        CurveDrafts();
         JobReads();
         PpaBookReads();
         TurnPins();
@@ -43,6 +44,84 @@ static class AgentToolChecks
         Require(Code(()=>CustomCurves.RequireFrameContext(frame with{At=frame.At.AddDays(1)},context))=="custom_curve_definition",
             "matching context identity cannot disguise a different effective frame date");
         Console.WriteLine("PASS agent curves: catalog and explicit preparation tool contracts");
+    }
+
+    // Save curve draft (D260): the preparation's input with the assistant's own draft named or null, a current-only write with
+    // a frame under the permissions the database lists, keyed by its turn and step, refused before any claim when the pin is
+    // historical or the page reports that curve open with unsaved edits; its target opens the draft it saved.
+    static void CurveDrafts()
+    {
+        Require(AgentTools.Offered(["save_custom_curve_draft","prepare_custom_curve","read_custom_curves"]).Select(t=>t.Name)
+                .SequenceEqual(["read_custom_curves","prepare_custom_curve","save_custom_curve_draft"]),"Save curve draft is offered after curve preparation");
+        const string Curve="c7000000-0000-0000-0000-000000000005";
+        const string Input="""{"code":"synthetic_blend","name":"Synthetic blend","engine":"custom_curve_recipe_v2","formula":"output = output(values=@input)","curveId":null}""";
+        var created=AgentTools.Parse("save_custom_curve_draft",Json(Input));
+        var revised=AgentTools.Parse("save_custom_curve_draft",Json(Input.Replace("\"curveId\":null",$"\"curveId\":\"{Curve}\"")));
+        Require(created.Operation.Id=="custom_curves.save_draft_v1"&&created.Operation.Needs==ToolNeeds.CurrentOnlyFrame
+            &&created.Arguments==new SaveCurveArguments(new("synthetic_blend","Synthetic blend","output = output(values=@input)","custom_curve_recipe_v2"),null)
+            &&revised.Arguments is SaveCurveArguments{CurveId:{} named}&&named==Guid.Parse(Curve),
+            "Save curve draft takes the preparation's input and names the assistant's own draft to revise, or null for a new curve");
+        foreach(var invalid in new[]{Input.Replace(",\"curveId\":null",""),Input.Replace("\"curveId\":null","\"curveId\":\"C7000000-0000-0000-0000-000000000005\""),
+            Input.Replace("\"curveId\":null","\"curveId\":\"synthetic\""),Input.Replace("custom_curve_recipe_v2","unknown"),Input.Replace("}",",\"publish\":true}")})
+            Require(Code(()=>AgentTools.Parse("save_custom_curve_draft",Json(invalid)))=="tool_arguments_invalid",$"save_custom_curve_draft refuses {invalid}");
+        var tool=AgentTools.Tools.Single(t=>t.Name=="save_custom_curve_draft");
+        Require(tool.Permissions.SequenceEqual(["ReadMarketData","WriteMarketDefinitions"])&&tool.Description.Contains("prepare_custom_curve",StringComparison.Ordinal)
+            &&tool.Description.Contains("never publishes",StringComparison.OrdinalIgnoreCase),
+            "Save curve draft is listed with the permissions the database lists for it and tells the model to prepare first and that it never publishes");
+
+        // Its key is the turn and step (D238): the request and a new curve's identity are the same for a retried step only.
+        var turn=Guid.Parse("a1000000-0000-0000-0000-000000000001");
+        Require(AgentTools.NameUuid(Guid.Parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8"),"python.org")==Guid.Parse("886313e1-3b8a-5372-9b90-0c9aee199e5d"),
+            "a name-based identity is RFC 4122 version 5");
+        var (request,curve)=AgentTools.DraftKeys(turn,3);
+        Require(AgentTools.DraftKeys(turn,3)==(request,curve)&&request!=curve&&AgentTools.DraftKeys(turn,4).Request!=request
+            &&AgentTools.DraftKeys(Guid.NewGuid(),3).Request!=request&&request==AgentTools.NameUuid(turn,"3"),
+            "a save's request identity is UUIDv5(turn, step), and a new curve's identity follows from the same key");
+
+        // The page report says which curve is open and whether it has unsaved edits (D260).
+        foreach(var selection in new[]{"""{"curve":null,"unsaved":false}""",$$"""{"curve":"{{Curve}}","unsaved":true}"""})
+        {
+            PageReports.Require(Json(Report("custom_curves",selection)));
+            Require(PageReports.Dispatch(Json(Report("custom_curves",selection))) is {Call.Operation.Id:"custom_curves.catalog_v1"},$"Curve builder reports {selection}");
+        }
+        foreach(var selection in new[]{"{}","""{"curve":null}""","""{"curve":"synthetic","unsaved":false}""","""{"curve":null,"unsaved":"no"}""",
+            """{"curve":null,"unsaved":false,"code":"x"}"""})
+            Require(Code(()=>PageReports.Require(Json(Report("custom_curves",selection))))=="page_report_invalid",$"ask refuses the Curve builder report {selection}");
+        var id=Guid.Parse(Curve);
+        Require(PageReports.HoldsUnsaved(Json(Report("custom_curves",$$"""{"curve":"{{Curve}}","unsaved":true}""")),id)
+            &&!PageReports.HoldsUnsaved(Json(Report("custom_curves",$$"""{"curve":"{{Curve}}","unsaved":false}""")),id)
+            &&!PageReports.HoldsUnsaved(Json(Report("custom_curves","""{"curve":null,"unsaved":true}""")),id)
+            &&!PageReports.HoldsUnsaved(Json(Report("curves","""{"view":"curves","curve":null}""")),id),
+            "only a report of that very curve open with unsaved edits holds it");
+
+        // Refused before any claim or read: a historical pin, and the curve open with unsaved edits; the texts are fixed.
+        var historical=Pin("retained",Guid.NewGuid(),Working with{ContextId=Guid.NewGuid()});
+        TurnReads Reads(TurnPin pin,string report)=>new(pin,new("agent",Guid.NewGuid()),Json(report),["save_custom_curve_draft"],turn,TimeSpan.FromSeconds(15));
+        var save=(SaveCurveArguments)revised.Arguments;
+        Require(AgentTools.DraftRefusal(Reads(historical,Report("custom_curves","""{"curve":null,"unsaved":false}""")),save)=="historical_read_only"
+            &&AgentTools.DraftRefusal(Reads(Pin("current",Guid.NewGuid(),Working),Report("custom_curves",$$"""{"curve":"{{Curve}}","unsaved":true}""")),save)=="custom_curve_open_unsaved"
+            &&AgentTools.DraftRefusal(Reads(Pin("current",Guid.NewGuid(),Working),Report("custom_curves",$$"""{"curve":"{{Curve}}","unsaved":false}""")),save) is null,
+            "a historical pin refuses historical_read_only and the curve open with unsaved edits custom_curve_open_unsaved, before any claim");
+        foreach(var code in new[]{"historical_read_only","custom_curve_open_unsaved","custom_curve_agent_scope","custom_curve_agent_claimed","custom_curve_catalog_limit","custom_curve_conflict",
+            "delegation_denied","agent_runtime_unavailable"})
+            Require(AgentTools.Text(code)!=AgentTools.GenericText,$"{code} carries its own fixed text");
+        Require(AgentTools.ClassifySave(new PostgresException("new row violates row-level security policy","ERROR","ERROR","42501"))==("delegation_denied",ToolStepEnd.Refusal)
+            &&AgentTools.ClassifySave(new PostgresException("delegation_denied","ERROR","ERROR","42501"))==("delegation_denied",ToolStepEnd.Refusal)
+            &&AgentTools.ClassifySave(new PostgresException("duplicate key value violates unique constraint","ERROR","ERROR","23505"))==("custom_curve_conflict",ToolStepEnd.Refusal)
+            &&AgentTools.ClassifySave(new MarketDataException("custom_curve_agent_scope","x"))==("custom_curve_agent_scope",ToolStepEnd.Refusal)
+            &&AgentTools.ClassifySave(new OperationCanceledException())==(null,ToolStepEnd.Interrupted),
+            "a save losing its authority at a write or at commit is delegation_denied, and a code held by a draft it cannot see is a conflict naming nothing");
+
+        // Its target opens the draft it saved; an unchanged draft names Curve builder.
+        var step=new JsonObject{["turnId"]=turn.ToString(),["step"]=3};
+        var saved=NavigationTargets.Issue(revised,new JsonObject{["status"]="saved_draft",["draft"]=step.DeepClone()},2);
+        var unchanged=NavigationTargets.Issue(revised,new JsonObject{["status"]="unchanged_draft"},2);
+        Require(saved is [{Handle:"n2",Target:{Page:"custom_curves",Kind:"draft",Label:"Saved curve draft: Synthetic blend"}} draft]&&JsonNode.DeepEquals(draft.Target.Selection,step)
+            &&unchanged is [{Handle:"n2",Target:{Page:"custom_curves",Kind:"page",Selection:null,Label:"Curve builder"}}],
+            "a saved draft issues a draft target naming its turn and step, and an unchanged one Curve builder");
+        var writes=new TurnWrites(turn,[1,2,3,4,5,6,7,8]);
+        Require(writes.ToString()=="TurnWrites"&&!JsonSerializer.Serialize(writes).Contains("AQIDBAUGBwg",StringComparison.Ordinal),"the turn's writes never show its token");
+        Console.WriteLine("PASS agent curves: Save curve draft's contract, keys, page report, refusals before any claim, classification and draft target");
     }
 
     static readonly Guid Catalog=Guid.Parse("c1000000-0000-0000-0000-000000000001");
@@ -107,7 +186,7 @@ static class AgentToolChecks
             "a version's switched-on tools are offered in the fixed order, Navigate after the read tools, a version without tools offers none, "+
             "and Show card is not offered");
         var permissions=AgentTools.Tools.ToDictionary(t=>t.Name,t=>string.Join(",",t.Permissions));
-        Require(permissions.Count==10&&permissions["read_jobs"]=="ReadJobs"&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
+        Require(permissions.Count==11&&permissions["save_custom_curve_draft"]=="ReadMarketData,WriteMarketDefinitions"&&permissions["read_jobs"]=="ReadJobs"&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
             &&permissions["read_trades"]=="ReadMarketData,ReadTrades"&&permissions["read_trade_parties"]=="ReadMarketData,ReadTradeParties"
             &&permissions["read_schedules"]=="ReadMarketData"&&permissions["read_reference_data"]=="ReadMarketData"&&permissions["navigate"]=="",
             "each tool reads under exactly the permissions the database lists for it (assistant.agent_tools), and Navigate needs none of its own");
@@ -122,11 +201,11 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v7"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
+        Require(RuntimeSet.Turns=="turns_v9"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
             &&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
-            "turns_v7 bounds a tool read by its agent version's time per read, at most 30 seconds, and its turn's deadline (D245), gives no command of a read less, bounds tool results and keeps a workspace's turns below its agent pools");
+            "turns_v9 bounds a tool read by its agent version's time per read, at most 30 seconds, and its turn's deadline (D245), gives no command of a read less, bounds tool results and keeps a workspace's turns below its agent pools");
         Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
-            "require every member they state, and their permissions; turns_v7 bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
+            "require every member they state, and their permissions; turns_v9 bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";
@@ -671,7 +750,7 @@ static class AgentToolChecks
             "numbered across the turn, each a page report its page reads, labeled with the page and what it shows");
 
         var names=new Dictionary<string,string>{["curves"]="Curves & prices",["contract_definitions"]="Contract definitions",["schedules"]="Schedules",
-            ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter",["custom_curves"]="Custom curves",
+            ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter",["custom_curves"]="Curve builder",
             ["jobs"]="Jobs & Infrastructure"};
         Require(PageReports.Navigable.Order().SequenceEqual(names.Keys.Order())
             &&names.All(n=>NavigationTargets.Page(n.Key) is {Kind:"page",Selection:null} target&&target.Page==n.Key&&target.Label==n.Value),

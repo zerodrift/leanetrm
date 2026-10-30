@@ -21,6 +21,11 @@ def run_checks(c, check, query, manifest):
         interval_contracts = {row['contract_id'] for row in definitions['contract_intervals']}
         commodities = {row['code']: row['name'] for row in references['commodities']}
         expected = []
+        # D259: a market curve's kind follows its stored rule and, for a direct curve, its role.
+        def curve_kind(curve):
+            if curve['rule'] == 'direct':
+                return {'daily_settlement': 'market_settlement', 'trader_mark': 'trader_mark'}[curve['direct_role']]
+            return {'add': 'basis_spread', 'scale_add': 'scaled'}[curve['rule']]
         for curve in definitions['curves']:
             members = [row['contract_id'] for row in definitions['curve_members']
                        if row['curve_code'] == curve['code']]
@@ -31,8 +36,8 @@ def run_checks(c, check, query, manifest):
                 raise AssertionError('Fixture curve has no explicit supported classification')
             kind = 'mixed' if len(kinds) == 2 else {'future': 'futures', 'forward': 'forwards'}[next(iter(kinds))]
             expected.append({'code': curve['code'], 'name': curve['name'], 'marketType': kind,
-                             'category': {'code': curve['commodity_code'], 'name': commodities[curve['commodity_code']]}})
-        expected += [{'code': curve['code'], 'name': curve['name'], 'marketType': 'rates', 'category': None}
+                             'category': {'code': curve['commodity_code'], 'name': commodities[curve['commodity_code']]}, 'kind': curve_kind(curve)})
+        expected += [{'code': curve['code'], 'name': curve['name'], 'marketType': 'rates', 'category': None, 'kind': 'interest_rate'}
                      for curve in definitions['rate_curves']]
         revision = definitions['revisions'][0]
         return (sorted(nav['curves'], key=lambda r: r['code']) == sorted(expected, key=lambda r: r['code'])
@@ -43,10 +48,10 @@ def run_checks(c, check, query, manifest):
                 and nav['curveNames'] == c.call('curve-names'))
 
     check('navigation explicitly contains only its directory and frame-summary contract',
-          set(navigation) == {'kind', 'profile', 'context', 'definitionRevision', 'referenceRevision',
+          set(navigation) == {'kind', 'kindsVersion', 'profile', 'context', 'definitionRevision', 'referenceRevision',
                               'example', 'futuresConvention', 'initialFrameIds', 'frames', 'curveNames', 'curves','referenceDisplay','frameCatalog','live'}
           and navigation['live'] is None
-          and navigation['kind'] == 'market_navigation'
+          and navigation['kind'] == 'market_navigation' and navigation['kindsVersion'] == 'curve_kinds_v1'
           and all(set(frame) == {'id', 'name', 'at','originCloseId'} and frame['originCloseId'] is None for frame in navigation['frames']))
     # PPA-only configured frames consume retained session capacity but are not listed here.
     ppa_frames = sum(bool(frame.get('ppaBundle')) for frame in manifest['frames'])

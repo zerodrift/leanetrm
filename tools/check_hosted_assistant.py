@@ -162,7 +162,7 @@ def run_checks(Client, provision, query, manifest, fake, trap, origin, tls, keys
     fake.respond(stream(tool_use(identifier, [('toolu_hosted_curve', 'prepare_custom_curve', arguments)])),
                  stream(tool_use(identifier, [('toolu_hosted_review', 'navigate', {'page': None, 'target': 'n1'})])),
                  stream(recording(identifier, text='Review the proposed curve.')))
-    proposed = ask(administrator, {'page': 'custom_curves', 'selection': {}})
+    proposed = ask(administrator, {'page': 'custom_curves', 'selection': {'curve': None, 'unsaved': False}})
     assert ended(proposed['id']) == 'completed:-'
     target = json.loads(query(f"SELECT payload->'target' FROM assistant.turn_events WHERE turn_id='{proposed['id']}' AND kind='navigation';"))
     header_frames = administrator.bootstrap()['frames']

@@ -70,7 +70,7 @@ its stored events after a sequence, read in their own request context with the r
 recheck, then each piece of answer text the worker publishes once its publication
 recheck has committed, with every other event, steps included, read the same way,
 through to the turn's terminal event, with resume, heartbeats, one stream per turn and
-the refusals §8 lists; the runtime set is `turns_v7` (D193, D239, D245). `ReadModelUsage` reads usage
+the refusals §8 lists; the runtime set is `turns_v9` (D193, D239, D245, D260). `ReadModelUsage` reads usage
 through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and the
 exact cost of priced calls by model, user or agent over a half-open range of local dates
 in a zone prefilled from Profile, a call falling on the day whose bounds hold its start,
@@ -346,7 +346,10 @@ audit as history.
   permission its switched-on tools need; a database check enforces it
   (`agent_role_lacks_permission`, naming role and permission).
 - A new **agent reader** role holds exactly `ReadMarketData`, `ReadTrades` and
-  `ReadTradeParties`, and from migration 0119 `ReadJobs` (D241). A database check allows it only on agent principals and allows
+  `ReadTradeParties`, from migration 0119 `ReadJobs` (D241), and from migration 0128
+  `DraftCustomCurves`, the agent's own authority to save a custom-curve draft it
+  claimed for a step of its turn while its delegator holds `WriteMarketDefinitions`
+  (D260); no other role holds it, and the role never holds `WriteMarketDefinitions`. A database check allows it only on agent principals and allows
   agent principals no other role. The migration fails, never revokes silently, if an
   agent principal already holds another role.
 - Creating an agent is one `ManageAgents` security-definer operation: the principal,
@@ -645,7 +648,7 @@ The tool set is fixed; each tool is switched on per agent version.
 | Reference data | Read reference data | `ReadMarketData` | Pinned |
 | Entities & counterparties | Read trade parties | `ReadTradeParties`, `ReadMarketData` | Pinned |
 | Blotter rows and holdings | Read trades | `ReadTrades`, `ReadMarketData` | Pinned |
-| Custom curves | Read custom curves | `ReadMarketData` | Pinned saved library; unsaved edits are not sent |
+| Curve builder | Read custom curves | `ReadMarketData` | Pinned saved library; unsaved edits are not sent |
 | Jobs & Infrastructure | Read jobs | `ReadJobs` | Current operational records; refused under a historical view |
 | PPA bookings: the inspected PPA, or the listed book's PPA trades (D250) | Read trades | `ReadTrades`, `ReadMarketData` | Pinned, not the page's own market inputs and cutoff; not a Navigate page |
 | The Blotter's Risk report and its trade rows under the Risk lens, a new trade entered in the Blotter's panel, Delivery prices, Interval series, Users & access, Settings › AI | none | | Not supported |
@@ -679,7 +682,9 @@ The tool set is fixed; each tool is switched on per agent version.
   `trades.trade_v1`; `trade_parties.versions_v1`; `schedules.library_v1`,
   `tou_products_v1` and `power_hours_v1`; and `reference_data.table_v1`; from `turns_v4`
   each result also carries the handles of the targets it issues, and Navigate's
-  operation is `navigation.target_v1`. Contract definitions are read with the schedule
+  operation is `navigation.target_v1`; `turns_v5` adds the curve catalog and
+  preparation, `turns_v6` the job reads, and `turns_v9` `custom_curves.save_draft_v1`,
+  the one write (D260). Contract definitions are read with the schedule
   library, under the one bind a request makes, so the page and the tool share that read.
   A result names its operation, the knowledge it was read at (the pinned context and
   cutoff, or for current-only definitions the read instant) and the frame it consumed,
@@ -1471,7 +1476,7 @@ accesses join the turn's replay checks, including calendars of exact older
 schedule versions. Dependency evidence identifies work, not PV exposure.
 
 Navigate may follow a preparation's issued handle to a `proposal` target on
-Custom curves. Its selection contains only the turn ID and successful step
+Curve builder. Its selection contains only the turn ID and successful step
 ordinal; SQL validates both against the same turn's preparation record. It never
 auto-opens. **Review proposed curve** protects unsaved edits, then the owner
 operation revalidates the original engine, inputs/context and current source
@@ -1483,6 +1488,61 @@ The same owner operation runs in preview and hosted modes, under the current
 human's sign-in session. A fresh authorized sign-in may review an earlier
 completed proposal; a stale application session cannot.
 Unknown/other-owner/non-preparation steps reject. Reopening no longer readable
-sources rejects. No agent write tool, agent-run portfolio risk or new conversation
-artifact table is introduced. Custom curves' Looking at describes the saved
-library and ingredients; unsaved graph/formula edits stay in the editor.
+sources rejects. Preparation itself writes nothing, and no agent-run portfolio risk
+or conversation artifact table is introduced. Curve builder's Looking at describes
+the saved library and ingredients; unsaved graph/formula edits stay in the editor.
+Its page report is `{curve, unsaved}`: the saved curve it has open, or null, and
+whether it holds unsaved edits.
+
+**Curve drafts (D260).** D260 supersedes D193's "no agent write" for one tool:
+`custom_curves.save_draft_v1` (`save_custom_curve_draft`), in runtime set
+`turns_v9`, saves a draft through the person's own Save operation. Migration 0128
+lists it with `ReadMarketData` and `WriteMarketDefinitions`, records who saved each
+draft generation (a person, or the assistant with its turn and step), limits the
+assistant to a new curve or a draft whose latest generation it saved in the same
+conversation (`security.custom_curve_agent_writable`), and adds a `draft` target:
+exactly the turn ID and a successful save step of that turn. The assistant never
+publishes, changes activations or overwrites a person's generation, and refuses
+under a historical or As-of pin (`historical_read_only`). The agent writes under
+its own `DraftCustomCurves` (§5.4) with its delegator's current
+`WriteMarketDefinitions`, only the curve version it claimed with its turn's token
+for a step of its running turn; each claim saves exactly one new generation,
+recorded as that successful step's, and every agent write is rechecked at commit.
+
+The tool takes the preparation's code, name, engine and formula, with `curveId`
+null for a new curve or the curve id an earlier save returned. Its description
+tells the model to prepare and report key values first, to save only when the
+person asked for a curve to be set up or saved, and that it never publishes. The
+worker runs it in this order:
+
+1. A historical pin refuses `historical_read_only`, and a page report naming that
+   curve with `unsaved:true` refuses `custom_curve_open_unsaved`, before any claim.
+2. The curve's exact sources, calendars and schedules are resolved at the turn's
+   pinned context, as preparation reads them.
+3. One transaction on one connection, under the agent's context holding only
+   `ReadMarketData`: the claim (`custom_curve_agent_scope`,
+   `custom_curve_catalog_limit` for a new curve once the catalog holds 64,
+   counting curves the agent cannot see, `custom_curve_agent_claimed`,
+   `agent_runtime_unavailable`), the store's save
+   with `CurveDraftSaver.Assistant`, its saver row and `record_tool_step` for the
+   successful step. References that differ from step 2 refuse
+   `custom_curve_conflict`; a raw 42501 at a write or a `delegation_denied` at
+   commit refuses `delegation_denied`; a code held by a draft the agent cannot
+   see (23505) refuses `custom_curve_conflict`, naming nothing of it.
+4. Any refusal rolls the whole transaction back, and the worker records the
+   refused step as any other. A record the database does not take (a cancel
+   requested, a publication refused) is such a refusal.
+
+The request identity is UUIDv5(turn, step), and a new curve's identity is
+name-based on the same key. The worker never retries a save step; a re-run of the
+same key returns its first outcome from the store's receipt before writing while
+the draft is still the assistant's, since the claim precedes the replay (D238). A second save in a turn is a new step and a
+new generation. A save identical to the current generation writes nothing and
+returns `unchanged_draft`; it has no saver row of its own, so its target is Curve
+builder rather than a `draft` target. A saved draft's result carries the curve
+(id, code, name, kind, version, generation, `savedBy`) and its `draft` target
+`{turnId, step}`, labelled "Saved curve draft: <name>". The panel shows it as
+**Open saved draft**, never moves the page by itself, and opens it through
+`assistant/curve-draft`, which returns the curve and version that step saved as
+the person's own context can read it, behind the page's ordinary leave prompt.
+The turn's token reaches only the claim and the step record.

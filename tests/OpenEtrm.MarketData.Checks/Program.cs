@@ -56,6 +56,7 @@ if(args is ["--interval-resolver-reuse"]){IntervalResolverReuseChecks.Run();retu
 if(args is ["--interval-resolver-benchmark",var resolverOutput]){IntervalResolverBenchmark.Run(resolverOutput);return;}
 
 if(args is ["--custom-curves"]){CustomCurveChecks.Run();return;}
+if(args is ["--curve-kinds"]){CurveKindChecks.Run();return;}
 if(args is ["--exact-curve-prices"]){ExactCurvePriceChecks.Run();return;}
 if(args is ["--curve-engine-cutover"]){CurveEngineCutoverChecks.Run();return;}
 if(args is ["--connected-curves"]){ConnectedCurveChecks.Run();return;}
@@ -100,6 +101,7 @@ IntervalScheduleChecks.Run();
 IntervalDataChecks.Run();
 PowerHoursChecks.Run();
 CustomCurveChecks.Run();
+CurveKindChecks.Run();
 ExactCurvePriceChecks.Run();
 var passed = PpaConnectedChecks.Run()+CrossCommoditySwapChecks.Run()+PpaBenchmark.CheckWorkloads()+ScheduledSwapChecks.Run()+SwapSettlementChecks.Run()+SettlementDeterminationChecks.Run()+SwapLifecycleChecks.Run()+SwapNetSettlementChecks.Run()+SwapContractBridgeChecks.Run();
 void Check(string label, Action run) { run(); passed++; Console.WriteLine($"PASS {label}"); }
@@ -345,7 +347,8 @@ Check("raw history enforces scoped identity and finite UTC event times", () =>
 Check("common roles grant exact capabilities without implicit administration", () =>
 {
     Equal(CommonRoles.Templates.Length, 7);
-    Equal(string.Join(",", CommonRoles.Templates.Single(r => r.Code == "agent_reader").Permissions.Order()), "ReadMarketData,ReadTrades,ReadTradeParties,ReadJobs");
+    Equal(string.Join(",", CommonRoles.Templates.Single(r => r.Code == "agent_reader").Permissions.Order()), "ReadMarketData,ReadTrades,ReadTradeParties,ReadJobs,DraftCustomCurves");
+    Equal(string.Join(",", CommonRoles.Templates.Where(r => r.Permissions.Contains(Permission.DraftCustomCurves)).Select(r => r.Code)), "agent_reader");
     Equal(string.Join(",", CommonRoles.Templates.Where(r => r.Permissions.Contains(Permission.ReadJobs)).Select(r => r.Code)),
         string.Join(",", CommonRoles.Templates.Where(r => r.Permissions.Contains(Permission.RunJobs)).Select(r => r.Code).Append("agent_reader")));
     Equal(string.Join(",", CommonRoles.Templates.Where(r => r.Permissions.Contains(Permission.UseAgents)).Select(r => r.Code)), "trader,risk_analyst,market_data_editor");

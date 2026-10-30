@@ -53,8 +53,11 @@ static class NavigationTargets
         return call switch
         {
             {Operation.Id:"market_data.curves_v1"}=>Filter(Market("curves",null)),
-            {Operation.Id:"custom_curves.catalog_v1"}=>new("custom_curves",null,"page","Custom curves"),
+            {Operation.Id:"custom_curves.catalog_v1"}=>new("custom_curves",null,"page","Curve builder"),
             {Operation.Id:"custom_curves.prepare_v1",Arguments:PrepareCurveArguments prepared}=>new("custom_curves",result["proposal"]!.DeepClone().AsObject(),"proposal",$"Review proposed curve: {prepared.Name}"),
+            // A saved draft opens at its step (D260); a draft the save left unchanged has no step of its own to open, so Curve builder lists it.
+            {Operation.Id:"custom_curves.save_draft_v1",Arguments:SaveCurveArguments saved}=>result["draft"] is JsonObject draft
+                ?new("custom_curves",draft.DeepClone().AsObject(),"draft",$"Saved curve draft: {saved.Curve.Name}"):Page("custom_curves"),
             {Operation.Id:"market_data.curve_v1",Arguments:CurveArguments curve}=>Curve(curve.Curve),
             {Operation.Id:"market_data.observations_v1",Arguments:CurveArguments curve}=>Filter(Market("observations",curve.Curve),$"inputs of curve {curve.Curve}"),
             {Operation.Id:"market_data.contract_definitions_v1"}=>Filter(Market("contract_definitions",null)),

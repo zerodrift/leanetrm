@@ -1,12 +1,13 @@
 using System.Collections.Immutable;
 using Npgsql;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.Api;
 
 public sealed record NavigationCategory(string Code,string Name);
 // A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it.
-public sealed record NavigationCurve(string Code,string Name,string MarketType,NavigationCategory? Category);
+public sealed record NavigationCurve(string Code,string Name,string MarketType,NavigationCategory? Category,string Kind);
 public sealed record NavigationFrame(Guid Id,string Name,DateTimeOffset At,Guid? OriginCloseId=null);
 public sealed record NavigationRead(DefinitionRevision DefinitionRevision,ReferenceRevision ReferenceRevision,
     ImmutableArray<NavigationCurve> Curves,ImmutableArray<CurveName> CurveNames,ReferenceDisplayData? ReferenceDisplay=null);
@@ -15,6 +16,7 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
     ImmutableArray<NavigationFrame> Frames,ImmutableArray<CurveName> CurveNames,ImmutableArray<NavigationCurve> Curves,ReferenceDisplayData? ReferenceDisplay=null)
 {
     public string Kind=>"market_navigation";
+    public string KindsVersion=>CurveKinds.Version;
     public FrameCatalogInfo? FrameCatalog{get;init;}
     public object? Live{get;init;}
 
@@ -36,7 +38,7 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
                 LEFT JOIN visible_intervals i ON i.contract_id=m.contract_id
                 WHERE m.catalog_id=$1 AND m.revision_id=$2 GROUP BY m.curve_code)
             SELECT c.code,c.name,c.commodity_code,r.name,coalesce(m.total,0),coalesce(m.matched,0),
-                coalesce(m.futures,0),coalesce(m.forwards,0)
+                coalesce(m.futures,0),coalesce(m.forwards,0),c.rule,c.direct_role
             FROM market_data.curves c LEFT JOIN members m ON m.curve_code=c.code
                 LEFT JOIN ref_data.commodities r ON(r.catalog_id,r.revision_id,r.code)=($3,$4,c.commodity_code)
             WHERE c.catalog_id=$1 AND c.revision_id=$2 AND coalesce(m.intervals,0)=0 ORDER BY c.code
@@ -49,12 +51,12 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
                 if(reader.IsDBNull(3)||total==0||reader.GetInt64(5)!=total||futures+forwards!=total)
                     throw Invalid();
                 var kind=futures==total?"futures":forwards==total?"forwards":"mixed";
-                curves.Add(new(reader.GetString(0),reader.GetString(1),kind,new(reader.GetString(2),reader.GetString(3))));
+                curves.Add(new(reader.GetString(0),reader.GetString(1),kind,new(reader.GetString(2),reader.GetString(3)),PreviewData.CurveKind(reader.GetString(8),reader.IsDBNull(9)?null:reader.GetString(9))));
             }
         }
         await using(var command=ScheduleStore.Command(connection,"SELECT code,name FROM market_data.rate_curves WHERE catalog_id=$1 AND revision_id=$2 ORDER BY code",manifest.CatalogId,manifest.RevisionId))
         await using(var reader=await command.ExecuteReaderAsync(ct))
-            while(await reader.ReadAsync(ct))curves.Add(new(reader.GetString(0),reader.GetString(1),"rates",null));
+            while(await reader.ReadAsync(ct))curves.Add(new(reader.GetString(0),reader.GetString(1),"rates",null,CurveKinds.InterestRate));
         if(curves.Any(c=>string.IsNullOrWhiteSpace(c.Name)||c.Category is {} category&&string.IsNullOrWhiteSpace(category.Name))||curves.Select(c=>c.Code).Distinct().Count()!=curves.Count)
             throw Invalid();
         return curves.ToImmutable();
