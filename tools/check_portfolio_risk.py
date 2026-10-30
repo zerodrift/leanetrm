@@ -23,7 +23,8 @@ def financial(report):
         for field in fields:
             value = work.pop(field)
             assert type(value) is int and value >= 0, (field, value)
-    physical(result['work'], ('rebuiltCurveNodes', 'reusedCurveNodes'))
+    physical(result['work'], ('rebuiltCurveNodes', 'reusedCurveNodes',
+                              'curveGraphEvaluatedNodes', 'curveGraphReusedReads'))
     for scenario in result['connectedScenarios']:
         physical(scenario['work'], ('evaluatedNodes', 'reusedReads', 'affectedNodes', 'traversedAffectedEdges'))
     return result

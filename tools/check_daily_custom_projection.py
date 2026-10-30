@@ -114,7 +114,11 @@ def run_checks(url, manifest, query, run_worker):
     assert query(f"SELECT count(*) FROM trading.custom_curve_projection_bindings WHERE curve_id='{saved['id']}';")=='1'
     client.call('profile',{'profile':'risk'})
     run_worker();result=client.call('portfolio/risk/jobs/'+job['id'])
-    assert result['state']=='completed' and financial(result['result'])==financial(report)
+    assert result['state']=='completed', result
+    assert financial(result['result'])==financial(report), {
+        'immediateWork': report['work'], 'workerWork': result['result']['work'],
+        'immediateGraphWork': [scenario['work'] for scenario in report['connectedScenarios']],
+        'workerGraphWork': [scenario['work'] for scenario in result['result']['connectedScenarios']]}
     assert query(f"SELECT count(*) FROM risk.job_custom_curves WHERE job_id='{job['id']}' AND position IS NULL AND selection='exact_delivery_interval_v1';")=='1'
     client.call('profile',{'profile':'trader'})
     later=initial_frame(client.call('workspace/navigation'),'2021-01-02')
