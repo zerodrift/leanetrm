@@ -11,10 +11,8 @@ public sealed record ReferenceDisplayData(ReferenceRevision SourceRevision,Refer
     ImmutableDictionary<string,ImmutableArray<JsonElement>> References);
 public sealed record ReferenceEditField(string Key,string Label,string Kind,[property:JsonRequired]int MaxLength,bool Nullable=false);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record ReferenceSaveRequest(Guid OperationId,string Table,string Code,Guid SourceRevisionId,Guid BaseRevisionId,
-    Dictionary<string,string?> Values);
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record ReferenceApplyRequest(Guid OperationId,string Table,Guid SourceRevisionId,Guid RevisionId,int ExpectedVersion);
+public sealed record ReferenceCommitRequest(Guid OperationId,string Table,string Code,Guid SourceRevisionId,Guid BaseRevisionId,
+    [property:JsonRequired]int ExpectedVersion,Dictionary<string,string?> Values);
 
 // Only display metadata is editable. The economic reference rows supplied to
 // pricers are never replaced by these rows or by their new revision keys.
@@ -45,11 +43,12 @@ public static class ReferenceEditors
             catch(JsonException){throw Error("reference_edit","The reference editor field contract is incomplete. Reload after its metadata is qualified.");}
             if(fields.IsDefault||fields.Any(f=>f is null||f.MaxLength is <1 or >300))throw Error("reference_edit","The reference editor field bounds are invalid.");
         }
+        // Applying seals a display revision, so sealed edits are exactly the applied versions.
         var versions=display is not null&&(write||seal)?await PreviewDatabase.Rows(connection,"""
             SELECT row_to_json(t)::text FROM(
              SELECT e.revision_id,e.base_revision_id,e.table_name,e.item_code,e.request->'values' AS changes,r.state,e.recorded_at
              FROM ref_data.display_edits e JOIN ref_data.revisions r ON(r.catalog_id,r.id)=(e.catalog_id,e.revision_id)
-             WHERE e.catalog_id=$1 AND e.source_revision_id=$2 AND e.table_name=$3 ORDER BY e.recorded_at DESC,e.revision_id LIMIT 20)t
+             WHERE e.catalog_id=$1 AND e.source_revision_id=$2 AND e.table_name=$3 AND r.state='sealed' ORDER BY e.recorded_at DESC,e.revision_id LIMIT 20)t
             """,[source.CatalogId,source.RevisionId,table],ct):ImmutableArray<JsonElement>.Empty;
         JsonElement? item=null;
         if(code is not null&&fields.Length>0)
@@ -60,29 +59,27 @@ public static class ReferenceEditors
             item=found[0];
         }
         return new{table,sourceRevision=source,baseRevisionId=display?.DisplayRevision.RevisionId??source.RevisionId,
-            displayVersion=display?.Version??0,fields,canEdit=display is not null&&write&&fields.Length>0,
-            canApply=display is not null&&seal,versions,display,item,
-            reason=display is null?"Historical references retain their original labels and are read-only.":fields.Length==0?"This category contains financial terms or provenance. Its current consumer is retained; qualified economic authoring is not available in this editor.":"Save an immutable metadata version, review it, then explicitly apply its display changes to current curves. Financial terms and trade references retain their original versions."};
+            displayVersion=display?.Version??0,fields,canEdit=display is not null&&write&&seal&&fields.Length>0,versions,display,item,
+            reason=display is null?"Historical references retain their original labels and are read-only.":fields.Length==0?"This category contains financial terms or provenance. Its current consumer is retained; qualified economic authoring is not available in this editor.":"Confirm the listed display changes to save and apply them to current curves in one step; this needs both Write and Seal reference data. Financial terms and trade references retain their original versions."};
     }
-    public static async Task<JsonElement> Save(NpgsqlConnection connection,PreviewManifest manifest,ReferenceSaveRequest request,CancellationToken ct)
+    // Save and apply share one transaction and operation id, so an exact retry
+    // replays both first outcomes and any refusal leaves no unapplied draft.
+    public static async Task<JsonElement> Commit(NpgsqlConnection connection,PreviewManifest manifest,ReferenceCommitRequest request,CancellationToken ct)
     {
         var source=Source(manifest,request.Table);
-        if(request.OperationId==Guid.Empty||request.SourceRevisionId!=source.RevisionId||request.BaseRevisionId==Guid.Empty||
+        if(request.OperationId==Guid.Empty||request.SourceRevisionId!=source.RevisionId||request.BaseRevisionId==Guid.Empty||request.ExpectedVersion<0||
             string.IsNullOrWhiteSpace(request.Code)||request.Code.Length>64||request.Values is null||request.Values.Count is <1 or >64||
             // Transport bound: one Unicode scalar may occupy two UTF-16 code
             // units. The canonical SQL field policy enforces exact scalar limits.
             request.Values.Any(p=>p.Key.Length>64||p.Value?.Length>600))
-            throw Error("reference_edit","Choose a reference row and its supported display fields. Identity and financial terms are read-only.");
-        return await Execute(connection,"SELECT security.save_reference_display_edit($1,$2,$3,$4,$5,$6,$7::jsonb)::text",
+            throw Error("reference_edit","Choose a reference row, its supported display fields and its current display version. Identity and financial terms are read-only.");
+        var saved=await Execute(connection,"SELECT security.save_reference_display_edit($1,$2,$3,$4,$5,$6,$7::jsonb)::text",
             [source.CatalogId,source.RevisionId,request.BaseRevisionId,request.OperationId,request.Table,request.Code,JsonSerializer.Serialize(request.Values,Json)],ct);
-    }
-    public static async Task<JsonElement> Apply(NpgsqlConnection connection,PreviewManifest manifest,ReferenceApplyRequest request,CancellationToken ct)
-    {
-        var source=Source(manifest,request.Table);
-        if(request.OperationId==Guid.Empty||request.SourceRevisionId!=source.RevisionId||request.RevisionId==Guid.Empty||request.ExpectedVersion<0)
-            throw Error("reference_edit","Review a saved metadata version and its current display version before applying it.");
-        return await Execute(connection,"SELECT security.apply_reference_display($1,$2,$3,$4,$5)::text",
-            [source.CatalogId,source.RevisionId,request.RevisionId,request.OperationId,request.ExpectedVersion],ct);
+        if(saved.GetProperty("revisionId").GetGuid()!=request.OperationId)throw Error("reference_conflict","The saved display version does not match this request. Reload before editing.");
+        var applied=await Execute(connection,"SELECT security.apply_reference_display($1,$2,$3,$4,$5)::text",
+            [source.CatalogId,source.RevisionId,request.OperationId,request.OperationId,request.ExpectedVersion],ct);
+        return JsonSerializer.SerializeToElement(new{revisionId=request.OperationId,displayRevisionId=applied.GetProperty("displayRevisionId").GetGuid(),
+            version=applied.GetProperty("version").GetInt32()},Json);
     }
     static async Task<JsonElement> Execute(NpgsqlConnection connection,string sql,object[] values,CancellationToken ct)
     {

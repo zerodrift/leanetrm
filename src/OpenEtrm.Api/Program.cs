@@ -839,7 +839,8 @@ api.MapGet("/reference/search",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,ses
 api.MapGet("/reference/futures-product",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
     var read=await marketReads.FuturesProduct(connection,Pin(session),c.Request.Query["code"].ToString(),ct);
-    return Results.Ok(new {read.Product,read.Series,read.Milestones,read.ExecutionPolicies,read.References,read.ReferenceRevision,context=session.MarketContext,profile=session.Profile});
+    var referenceDisplay=await ReferenceEditors.Display(connection,read.ReferenceRevision,ct);
+    return Results.Ok(new {read.Product,read.Series,read.Milestones,read.ExecutionPolicies,read.References,read.ReferenceRevision,referenceDisplay,context=session.MarketContext,profile=session.Profile});
 },c.RequestAborted))));
 api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
@@ -849,15 +850,15 @@ api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,ses
 },c.RequestAborted))));
 Task<IResult> ReferenceMutation(HttpContext c,string permission,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> work)=>Locked(c,session=>
 {
-    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before saving or applying reference display changes.");
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before committing reference display changes.");
     return database.WithIdentity<IResult>(Profile(session),permission,async(connection,ct)=>
     {
         c.Items["reference_attempted"]=true;
         return Results.Ok(await work(connection,ct));
     },c.RequestAborted);
 });
-api.MapPost("/reference/save",(HttpContext c,ReferenceSaveRequest body)=>ReferenceMutation(c,"WriteReferenceData",(connection,ct)=>ReferenceEditors.Save(connection,database.Manifest,body,ct)));
-api.MapPost("/reference/apply",(HttpContext c,ReferenceApplyRequest body)=>ReferenceMutation(c,"SealReferenceData",(connection,ct)=>ReferenceEditors.Apply(connection,database.Manifest,body,ct)));
+// The route holds Write; the apply function enforces Seal in the same transaction.
+api.MapPost("/reference/commit",(HttpContext c,ReferenceCommitRequest body)=>ReferenceMutation(c,"WriteReferenceData",(connection,ct)=>ReferenceEditors.Commit(connection,database.Manifest,body,ct)));
 api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async session=>
 {
     var pin=Pin(session,body.SnapshotId);

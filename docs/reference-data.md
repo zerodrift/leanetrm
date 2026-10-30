@@ -74,25 +74,26 @@ location-type descriptions, unit symbols, exchange and clearing-house names,
 futures-product names and futures-contract labels. Stable codes, relationships,
 units, ratios, contract terms and other financial values are read-only. The other
 categories remain inspectable because they have the current consumers listed
-above; this editor does not promise financial-term authoring for them.
+above; this editor does not promise financial-term authoring for them. Calendar-day
+descriptions stay read-only because those rows have no code key.
 
-Saving requires scoped `WriteReferenceData` and reading the original sealed
-reference version. It creates a new immutable draft from the currently applied
-display version, or from the original version when no display change is active.
-The editor reloads the selected row and its exact base version before editing.
-A save changes one item; unpublished drafts cannot be chained. The saved review
-shows that item's supplied fields and the server-recorded time in the user's
-time zone. Optional coordinates are transported as exact decimal strings, with
-both coordinates required together and no browser rounding.
+Committing requires both scoped `WriteReferenceData` and `SealReferenceData`
+and reading the original sealed reference version. The editor reloads the selected
+row and its exact base version, lists the changed fields for confirmation, then
+sends one `POST /reference/commit` (D261). In one transaction it saves a new
+immutable metadata version from the currently applied display version, or from
+the original version when no display change is active, and applies it. A commit
+changes one item. Optional coordinates are transported as exact decimal strings,
+with both coordinates required together and no browser rounding.
 
-Applying is a separate operation requiring scoped `SealReferenceData`. It locks
-the target before proving that every retained key and non-display value equals
-the original source. Extra economic rows also fail this proof. The source,
-current display version and draft base must still match the reviewed request;
-concurrent or stale changes require a fresh edit. Successful apply seals the
+Applying locks the target before proving that every retained key and non-display
+value equals the original source. Extra economic rows also fail this proof. The
+source, current display version and base must still match the confirmed request;
+concurrent or stale changes require a fresh edit. Any refusal rolls back the
+whole commit, so no unapplied draft remains. A successful commit seals the
 metadata version and appends an exact source/display revision relationship in
-the current workspace. The same user can save and apply when their current grants
-permit both operations; this is explicit review, not mandatory dual control.
+the current workspace. The editor's History lists the applied display versions
+with their changed fields and server-recorded time in the user's time zone.
 
 Current curve navigation, reference presentation and the unit converter consume
 a separate display overlay scoped to the original exact reference version.
@@ -108,9 +109,12 @@ No market bundle, observation, quote, unit conversion ratio or booked trade is
 rewritten or copied as part of applying labels. An updated symbol changes
 formatting, while the underlying amount and conversion remain identical.
 Historical contexts keep their original metadata and cannot inspect later edit
-requests or apply current display changes.
+requests or commit current display changes. The futures-product read returns the
+same display overlay as the category read, so a product page shows applied labels.
 
-Save and apply retain operation identifiers and exact request payloads. The UI
+A commit retains its operation identifier and exact request payload for both its
+saved version and its activation; an exact retry returns the first outcome and the
+same identifier with different values is `reference_conflict`. The UI
 retains an unconfirmed request across reloads and retries it before allowing a new
 change. Retries recheck current authority; an earlier successful receipt does not
 grant continued access. A denied retry after an uncertain response does not prove
@@ -118,7 +122,7 @@ that the original transaction rolled back. Financial-term editing, requalificati
 of existing prices and financial curve migration require a separate workflow.
 The initial authoring bounds are 100,000 copied reference rows per version and
 64 authored versions per source revision and workspace; the editor lists the
-latest 20 saved versions. Reaching a bound raises `reference_limit` and does not
+latest 20 applied versions. Reaching a bound raises `reference_limit` and does not
 prune historical versions or create a partial copy.
 
 Unit symbols must contain a non-whitespace character, contain no C0/C1 controls and use
