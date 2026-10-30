@@ -31,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   for(const slot of [0,1]){await evaluate(`document.querySelectorAll('#scheduled-swap-editor .scheduled-side-columns>.instrument-side')[${slot}].querySelector('button').click()`);await wait(idle);}
   for(let n=0;n<months;n++){
    await evaluate(`for(const slot of [0,1]){const p=document.querySelectorAll('#scheduled-swap-editor .scheduled-side-columns>.instrument-side')[slot].querySelectorAll('.scheduled-period')[${n}];p.querySelector('[data-role=period-amount]').value='100';const price=p.querySelector('[data-role=fixed-price]');if(price)price.value=${JSON.stringify(n===0?'3':'4')};}`);
-   const index=JSON.stringify([catalog.indices.find(i=>i.curve===curve).definitionRevisionId,curve,catalog.indices.find(i=>i.curve===curve).index]);await label(1,n,'Index and projection curve',index);await label(1,n,'Price settlement','curve_target');await label(1,n,'Reset frequency',curve==='daily_gas'?'daily':'monthly');
+   const index=JSON.stringify([catalog.indices.find(i=>i.curve===curve).definitionRevisionId,curve,catalog.indices.find(i=>i.curve===curve).index]);await label(1,n,'Projected price source','ordinary');await label(1,n,'Index and projection curve',index);await label(1,n,'Price settlement','curve_target');await label(1,n,'Price observation frequency',curve==='daily_gas'?'daily':'monthly');
    for(const slot of [0,1]){await evaluate(`${period(slot,n)}.querySelector('button').click()`);await wait(idle);}
   }
  }

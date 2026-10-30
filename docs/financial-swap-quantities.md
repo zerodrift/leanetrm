@@ -162,6 +162,22 @@ quantities remain exact, retained terms. Every floating period can independently
 select a compatible exact published custom projection. Unsupported retained terms
 stay locked rather than being simplified.
 
+Side entry narrows the index/curve catalog by the selected commodity. Price
+observation frequency and averaging choices then constrain eligible indices;
+choosing an index constrains those same conventions. Scheduled periods consume
+the managed compatibility response even before an index is selected. Delivery
+coverage, required actual fixings and supported custom projection mappings qualify
+the selected period through the same operation used for selectable dates.
+Incomplete choices remain authoring candidates, not executable schedules.
+
+Unavailable entered or booked observation selections remain visible and require
+an explicit replacement. Required calendar controls remain available to repair an
+invalid calendar. All observation modes require a fresh, successful compatibility
+response before submission, including monthly and ordinary daily modes. Changing
+an index does not replace the selected forecast source with the ordinary curve.
+These controls do not add contract-relative futures sampling or nearby-offset
+booking; the separate contract-sequence preview remains outside this contract.
+
 A common-term edit explicitly selects a source, target periods and quantity,
 price/spread, payment and/or observation/projection groups. Review names affected
 periods before Apply. Unselected values and delivery dates remain independent.

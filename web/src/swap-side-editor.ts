@@ -47,8 +47,8 @@ export function arrangeSwapSections(){
    delivery.append(document.getElementById(prefix+'-commodity')!.parentElement!);
    const spread=document.getElementById(prefix+'-spread')!,label=root.querySelector(`label[for="${prefix}-spread"]`)!;
    const price=document.createElement('div');price.append(label,spread);root.append(price);
-   delivery.append(document.getElementById(prefix+'-index')!.parentElement!);
-   for(const suffix of ['reset-frequency','projection','averaging','fixing-convention'])observations.append(document.getElementById(prefix+'-'+suffix)!.parentElement!);
+   for(const suffix of ['reset-frequency','averaging','index','projection'])delivery.append(document.getElementById(prefix+'-'+suffix)!.parentElement!);
+   observations.append(document.getElementById(prefix+'-fixing-convention')!.parentElement!);
   }
   for(const suffix of ['from','to'])delivery.append(document.getElementById(`swap-${side}-${suffix}`)!.parentElement!);
   observations.append(root.querySelector('.side-payment-rule')!);

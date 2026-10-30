@@ -56,6 +56,33 @@ public sealed partial class SwapStore
         if (input.DefinitionRevisionId is {} exact && markets.All(market => market.Data.DefinitionRevision.RevisionId != exact))
             throw Error("swap_definition", "The selected exact definition is unavailable in this context.");
 
+        // Candidate controls, selectable periods and the selected plan share the same
+        // source/fixing qualification. A structural match is not a usable price input.
+        var publishedByRevision = new Dictionary<Guid, ImmutableArray<CustomCurves.PublishedProjectionChoice>>();
+        async Task<PlannedSideObservationReferences> Qualify(PreviewData bundle, InputFrame selectedFrame,
+            JsonElement curve, PriceSettlementSelection settlement, QuoteSpecification quote, DateOnly start, DateOnly end,
+            FloatingAveraging mode, SwapObservationCalendar? calendar, CustomCurveProjectionInput? projection)
+        {
+            var custom = projection is {} c ? new CustomCurveProjectionBinding(c.CatalogId,c.CurveId,c.Version,c.OutputNode,c.Position,c.Selection,c.Implementation) : null;
+            var references = SwapObservationCompatibility.PreviewReferences(bundle,curve,
+                settlement,quote,start,end,mode,calendar,custom);
+            if (projection is not null)
+            {
+                var revision = bundle.DefinitionRevision.RevisionId;
+                if (!publishedByRevision.TryGetValue(revision,out var published))
+                {
+                    published = await CustomCurves.ProjectionChoices(connection,database,bundle,selectedFrame,ct);
+                    publishedByRevision.Add(revision,published);
+                }
+                if (!published.Any(choice => choice.Reference == projection && choice.Unit == PriceUnit.FromQuote(quote) &&
+                    (projection.Selection == CustomCurveProjectionBinding.SupportedSelection ||
+                     references.Observations.All(observation => choice.Deliveries.Contains(new(observation.From,observation.To))))))
+                    throw Error("custom_projection", "The exact published projection is unavailable or does not cover this observation plan.");
+            }
+            RequireObservationInputs(bundle,selectedFrame,references,settlement,custom is not null,ct);
+            return references;
+        }
+
         var choices = new List<SideObservationChoice>();
         var candidates = new List<(PreviewData Data, InputFrame Frame, JsonElement Curve, string Index, QuoteSpecification Quote)>();
         foreach (var market in markets)
@@ -93,7 +120,8 @@ public sealed partial class SwapStore
                         if (from is {} f && to is {} t && (!mode.RequiresObservationCalendar || input.ObservationCalendar is not null))
                         {
                             var calendar = mode.RequiresObservationCalendar ? ObservationCalendar(bundle, input.ObservationCalendar!.Value) : null;
-                            _ = SwapObservationCompatibility.PreviewReferences(bundle,curve,selection!,quotes[0],f,t,mode.Averaging,calendar);
+                            var projection = input.Curve == curve.Text("code") && (input.Index is null || input.Index == index) ? input.CustomProjection : null;
+                            _ = await Qualify(bundle, market.Frame, curve, selection!, quotes[0], f, t, mode.Averaging, calendar, projection);
                         }
                     }
                     catch (MarketDataException error) { reasons = [new(error.Code, error.Message)]; }
@@ -137,22 +165,14 @@ public sealed partial class SwapStore
             var months = candidate.Data.Contracts.Where(contract => members.Contains(contract.Key.Id) &&
                     contract.Kind == ContractKind.Forward && contract.DeliveryFrom.Year < 9999)
                 .Select(contract => new DateOnly(contract.DeliveryFrom.Year,contract.DeliveryFrom.Month,1)).Distinct().Order();
-            var published = input.CustomProjection is null ? ImmutableArray<CustomCurves.PublishedProjectionChoice>.Empty :
-                await CustomCurves.ProjectionChoices(connection,database,candidate.Data,candidate.Frame,ct);
             foreach (var month in months)
             {
                 ct.ThrowIfCancellationRequested();
                 try
                 {
                     var calendar = input.ObservationCalendar is {} key ? ObservationCalendar(candidate.Data,key) : null;
-                    var settlement=PriceSettlementInputs.Resolve(candidate.Data,candidate.Curve,candidate.Quote,input.Settlement);
-                    var custom = input.CustomProjection is {} c ? new CustomCurveProjectionBinding(c.CatalogId,c.CurveId,c.Version,c.OutputNode,c.Position,c.Selection,c.Implementation) : null;
-                    var references = SwapObservationCompatibility.PreviewReferences(candidate.Data,candidate.Curve,
-                        settlement,candidate.Quote,month,month.AddMonths(1),periodMode,calendar,custom);
-                    if (input.CustomProjection is {} projection && !published.Any(choice => choice.Reference == projection &&
-                        choice.Unit == PriceUnit.FromQuote(candidate.Quote) && (projection.Selection == CustomCurveProjectionBinding.SupportedSelection ||
-                        references.Observations.All(observation => choice.Deliveries.Contains(new(observation.From,observation.To)))))) continue;
-                    RequireObservationInputs(candidate.Data,candidate.Frame,references,settlement,custom is not null,ct);
+                    _ = await Qualify(candidate.Data,candidate.Frame,candidate.Curve,PriceSettlementInputs.Resolve(candidate.Data,candidate.Curve,candidate.Quote,input.Settlement),candidate.Quote,
+                        month,month.AddMonths(1),periodMode,calendar,input.CustomProjection);
                     var mode = SwapObservationCompatibility.Mode(periodMode);
                     deliveryPeriods.Add(new(mode.ResetFrequency,mode.AveragingMethod,Date(month),Date(month.AddMonths(1))));
                 }
@@ -170,18 +190,8 @@ public sealed partial class SwapStore
             try
             {
                 var calendar = input.ObservationCalendar is {} key ? ObservationCalendar(candidate.Data, key) : null;
-                var settlement=PriceSettlementInputs.Resolve(candidate.Data,candidate.Curve,candidate.Quote,input.Settlement);
-                CustomCurveProjectionBinding? custom = input.CustomProjection is {} c ? new(c.CatalogId, c.CurveId, c.Version, c.OutputNode, c.Position, c.Selection, c.Implementation) : null;
-                var references = SwapObservationCompatibility.PreviewReferences(candidate.Data, candidate.Curve,
-                    settlement,candidate.Quote,deliveryFrom,deliveryTo,averaging,calendar,custom);
-                if (input.CustomProjection is {} selectedProjection)
-                {
-                    var published = await CustomCurves.ProjectionChoices(connection, database, candidate.Data, candidate.Frame, ct);
-                    if (!published.Any(choice => choice.Reference == selectedProjection && choice.Unit == PriceUnit.FromQuote(candidate.Quote) &&
-                        (selectedProjection.Selection == CustomCurveProjectionBinding.SupportedSelection ||
-                         references.Observations.All(observation => choice.Deliveries.Contains(new(observation.From, observation.To))))))
-                        throw Error("custom_projection", "The exact published projection is unavailable or does not cover this observation plan.");
-                }
+                var references = await Qualify(candidate.Data,candidate.Frame,candidate.Curve,PriceSettlementInputs.Resolve(candidate.Data,candidate.Curve,candidate.Quote,input.Settlement),candidate.Quote,
+                    deliveryFrom,deliveryTo,averaging,calendar,input.CustomProjection);
                 observations = references.Observations.Select((observation, ordinal) => new
                 {
                     from = Date(observation.From), to = Date(observation.To), quantitySpecification = candidate.Quote.Quantity,
@@ -190,7 +200,7 @@ public sealed partial class SwapStore
             }
             catch (MarketDataException error) { unavailable = new(error.Code, error.Message); }
         }
-        return new { indices, samplings, deliveryPeriods, observationCalendars = calendars, observations, availability = unavailable,
+        return new { indices, samplings, selectedSampling = selectedMode is {} selectedAveraging ? SwapObservationCompatibility.Mode(selectedAveraging) : null, deliveryPeriods, observationCalendars = calendars, observations, availability = unavailable,
             customProjectionUnavailableReason = customUnavailable, choices };
     }
 }
