@@ -130,6 +130,7 @@ app.Use(async (context,next)=>
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
             MarketDataException m when m.Code=="reference_conflict" => (409,m.Code,m.Message),
+            MarketDataException m when m.Code=="reference_item" => (404,m.Code,m.Message),
             PostgresException p when p.SqlState=="P0001" && p.MessageText=="reference_conflict" => (409,p.MessageText,"This reference version or display selection changed. Reload before editing."),
             PostgresException p when p.SqlState=="P0001" && p.MessageText is "reference_edit" or "reference_limit" or "reference_economic_change" => (422,p.MessageText,"Supply supported display fields within the authoring limits. Financial terms must remain identical before display activation."),
             PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/tou-products") => (409,"tou_conflict","This TOU product changed or its code already exists. Reload before editing."),
@@ -826,10 +827,22 @@ api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,se
     var requestedOffset=c.Request.Query["offset"].ToString();
     if(!int.TryParse(c.Request.Query.ContainsKey("offset")?requestedOffset:"0",System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var offset))
         throw new MarketDataException("reference_page",$"Choose an offset from 0 to {PreviewDatabase.ReferenceMaximumOffset}.");
-    var page=await marketReads.References(connection,Pin(session),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),ct);
+    var page=await marketReads.References(connection,Pin(session),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),
+        c.Request.Query.TryGetValue("code",out var code)?code.ToString():null,ct);
     var referenceDisplay=await ReferenceEditors.Display(connection,page.ReferenceRevision,ct);
     return Results.Ok(new {page.Table,page.Rows,page.References,page.Offset,page.PageSize,page.MaximumOffset,page.HasMore,page.Search,page.ReferenceRevision,page.DefinitionRevisionId,referenceDisplay,
         tables=PreviewDatabase.ReferenceTables,referenceScope="selected_table",context=session.MarketContext,profile=session.Profile});
+},c.RequestAborted))));
+api.MapGet("/reference/search",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    var found=await marketReads.SearchReferences(connection,Pin(session),c.Request.Query["q"].ToString(),ct);
+    return Results.Ok(new {found.Query,found.Hits,found.Truncated,context=session.MarketContext,profile=session.Profile});
+},c.RequestAborted))));
+api.MapGet("/reference/futures-product",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    var read=await marketReads.FuturesProduct(connection,Pin(session),c.Request.Query["code"].ToString(),ct);
+    var referenceDisplay=await ReferenceEditors.Display(connection,read.ReferenceRevision,ct);
+    return Results.Ok(new {read.Product,read.Series,read.Milestones,read.ExecutionPolicies,read.References,read.ReferenceRevision,referenceDisplay,context=session.MarketContext,profile=session.Profile});
 },c.RequestAborted))));
 api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
@@ -839,15 +852,15 @@ api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,ses
 },c.RequestAborted))));
 Task<IResult> ReferenceMutation(HttpContext c,string permission,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> work)=>Locked(c,session=>
 {
-    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before saving or applying reference display changes.");
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before committing reference display changes.");
     return database.WithIdentity<IResult>(Profile(session),permission,async(connection,ct)=>
     {
         c.Items["reference_attempted"]=true;
         return Results.Ok(await work(connection,ct));
     },c.RequestAborted);
 });
-api.MapPost("/reference/save",(HttpContext c,ReferenceSaveRequest body)=>ReferenceMutation(c,"WriteReferenceData",(connection,ct)=>ReferenceEditors.Save(connection,database.Manifest,body,ct)));
-api.MapPost("/reference/apply",(HttpContext c,ReferenceApplyRequest body)=>ReferenceMutation(c,"SealReferenceData",(connection,ct)=>ReferenceEditors.Apply(connection,database.Manifest,body,ct)));
+// The route holds Write; the apply function enforces Seal in the same transaction.
+api.MapPost("/reference/commit",(HttpContext c,ReferenceCommitRequest body)=>ReferenceMutation(c,"WriteReferenceData",(connection,ct)=>ReferenceEditors.Commit(connection,database.Manifest,body,ct)));
 api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async session=>
 {
     var pin=Pin(session,body.SnapshotId);

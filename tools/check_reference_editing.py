@@ -105,6 +105,22 @@ def run_checks(query, manifest):
     save(operation_id=second, base=operation, values={'name':'Synthetic second label'})
     assert json.loads(call('approver', f"SELECT security.apply_reference_display('{catalog}','{source}','{second}','{uuid4()}',1)::text"))['version'] == 2
     assert json.loads(call('viewer', f"SELECT security.reference_display_state('{catalog}','{source}')::text"))['references']['currencies'] == [{'code':'usd','name':'Synthetic second label'}]
+    # History names the applied versions of one item, newest first, with the author who saved each edit and only
+    # its changed fields; unapplied drafts, other items and historical contexts list nothing. In working data only
+    # people who may write or seal reference data read it (D263); a reader is refused.
+    history = lambda table, code, bound=None, profile='editor': json.loads(call(profile, f"SELECT security.reference_display_history('{catalog}','{source}','{table}','{code}')::text", bound=bound))
+    author = query(f"SELECT display_name FROM security.workspace_memberships WHERE principal_id='{editor}' AND workspace_id='{workspace}';")
+    listed = history('currencies','usd')
+    assert listed['truncated'] is False and history('currencies','usd',profile='approver') == listed, listed
+    assert [{k:v for k,v in h.items() if k!='recordedAt'} for h in listed['versions']] == [
+        {'version':2,'table':'currencies','code':'usd','author':author,'changes':{'name':'Synthetic second label'}},
+        {'version':1,'table':'currencies','code':'usd','author':author,'changes':{'name':'Synthetic revised dollar'}}], listed
+    assert all(isinstance(h['recordedAt'],str) for h in listed['versions']) and listed['versions'][0]['recordedAt']>=listed['versions'][1]['recordedAt']
+    none = {'versions':[],'truncated':False}
+    assert history('currencies','eur') == none and history('commodities','usd') == none
+    assert history('currencies','usd', bound=context) == none
+    rejected(lambda: history('currencies','usd', profile='viewer'), 'reference_denied')
+    assert history('currencies','usd', bound=context, profile='viewer') == none
 
     # A second workspace may read the catalog but cannot discover this
     # workspace's drafts or adopt its activation target.
@@ -155,6 +171,15 @@ def run_checks(query, manifest):
     assert query(f"SELECT state FROM ref_data.revisions WHERE catalog_id='{catalog}' AND id='{expiring}';") == 'draft'
     assert json.loads(call('viewer', f"SELECT security.reference_display_state('{catalog}','{source}')::text"))['version'] == 2
     assert query(f"SELECT name FROM ref_data.currencies WHERE catalog_id='{catalog}' AND revision_id='{source}' AND code='usd';") == original
+    # History lists the latest 20 applied versions and says when earlier ones are not listed.
+    base = second
+    for version in range(3, 22):
+        step = str(uuid4())
+        save(operation_id=step, base=base, values={'name': f'Synthetic label {version}'})
+        call('approver', f"SELECT security.apply_reference_display('{catalog}','{source}','{step}','{uuid4()}',{version-1})")
+        base = step
+        listed = history('currencies','usd')
+        assert [h['version'] for h in listed['versions']] == list(range(version, max(version-20, 0), -1)) and listed['truncated'] == (version > 20), listed
     print('PASS reference metadata: immutable rows, compatibility proof, stale/revoked retries, workspace/history isolation and expiry after locks', flush=True)
 
 
