@@ -1426,3 +1426,14 @@ accepts P42:
 7. Settings pages for the installation limits and sign-in policy.
 
 The pilot's next schema window applies 0122 (D256) over its hotfixed `pin_turn`.
+
+
+D261's first local slice resolves exact-contract and prompt-offset authoring terms
+at each observation fixing instant into concrete dated contract receipts. It
+shares the expiry resolver with date shortcuts and accepts explicitly supplied
+earlier roll boundaries without changing exchange expiry. The authorized
+observation-contract preview uses the same managed resolver. Remaining work is
+loading exact daily futures settlements and official final settlements under the
+selected historical context, normalized side/schedule
+persistence and admission, retained pricing of those dated references, and guided
+ticket controls. Current swap booking continues to reject unsupported terms.

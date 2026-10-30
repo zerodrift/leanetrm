@@ -44,22 +44,8 @@ public sealed class ContractSequence
     }
     internal ContractSequenceEntry Resolve(int position, DateTimeOffset at)
     {
-        if (!FiniteUtc(at)) throw new MarketDataException("sequence_context", "Supply a finite UTC valuation instant.");
-        if (at < From || at >= To) throw new MarketDataException("sequence_coverage", "The selected instant is outside this schedule's known coverage.");
-        // First expiry strictly greater than context: at the boundary the next entry is current.
-        var low = 0; var high = Entries.Length;
-        while (low < high)
-        {
-            var middle = low + (high - low) / 2;
-            if (Entries[middle].Contract.Expiry <= at) low = middle + 1; else high = middle;
-        }
-        var target = (long)low + position - 1;
-        if (position <= 0 || target >= Entries.Length)
-            throw new MarketDataException("sequence_horizon", "The requested relative contract is beyond the supplied horizon.");
-        for (var i = low; i <= target; i++)
-            if (Entries[i].EligibleFrom > at)
-                throw new MarketDataException("sequence_ineligible", "An expected contract is not yet eligible; it cannot be skipped.");
-        return Entries[(int)target];
+        if(position<=0||position>Entries.Length)throw new MarketDataException("sequence_horizon", "Select a positive sequence position.");
+        return ObservationContractSelector.Prompt(position-1,ContractRollRule.AtExpiry()).Select(this,at);
     }
     private static bool FiniteUtc(DateTimeOffset value) => value.Offset == TimeSpan.Zero && value > DateTimeOffset.MinValue && value.Year < 9999;
     private static void Fail(string message) => throw new MarketDataException("sequence_definition", message);
