@@ -111,6 +111,12 @@ public sealed class MarketReads(PreviewDatabase database)
         return await database.ReadReferencePage(connection,table,offset,search,code,ct);
     }
 
+    public async Task<FuturesProductRead> FuturesProduct(NpgsqlConnection connection,PinnedContext pin,string code,CancellationToken ct)
+    {
+        await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        return await database.ReadFuturesProduct(connection,code,ct);
+    }
+
     public async Task<ReferenceSearch> SearchReferences(NpgsqlConnection connection,PinnedContext pin,string query,CancellationToken ct)
     {
         await pin.Bind(connection,database.Manifest.CatalogId,ct);

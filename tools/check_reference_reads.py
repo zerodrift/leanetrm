@@ -71,7 +71,7 @@ def run_checks(c, check):
         'exchanges': ['exchange_code'], 'clearing_houses': ['clearing_house_code'],
         'sources': ['source_code'], 'futures_products': ['product_code'],
         'futures_series': ['series_code'], 'clock_rules': ['clock_code', 'market_clock_code'],
-        'calendars': ['calendar_code', 'trading_calendar_code'],
+        'calendars': ['calendar_code', 'trading_calendar_code', 'delivery_calendar_code', 'settlement_calendar_code'],
         'quantity_specifications': ['quantity_code', 'numerator_quantity_code', 'denominator_quantity_code'],
         'measurement_bases': ['basis_code'], 'price_index_definitions': ['index_a_code', 'index_b_code']}
     for table in references:
@@ -146,6 +146,28 @@ def run_checks(c, check):
               for bad in ['', ' ' * 3, 'x' * 161]))
     check('reference search covers only code-keyed categories and futures series',
           all(h['table'] in SEARCH_TABLES for h in c.call('reference/search?q=a')['hits']))
+    read = c.call('reference/futures-product?' + urlencode({'code': product['code']}))
+    check('futures product read returns the exact product row', read['product'] == product)
+    check('futures product read returns its contracts in delivery order',
+          canonical(read['series']) == canonical([r for r in references['futures_series'] if r['product_code'] == product['code']])
+          and [r['code'] for r in read['series']] == [r['code'] for r in sorted(
+              read['series'], key=lambda r: (r['delivery_from'] is None, r['delivery_from'] or '', r['code']))])
+    codes = {r['code'] for r in read['series']}
+    check('futures product read returns its contracts\' dates and execution eligibility',
+          canonical(read['milestones']) == canonical([r for r in references['futures_milestones'] if r['series_code'] in codes])
+          and canonical(read['executionPolicies']) ==
+          canonical([r for r in references['futures_execution_policies'] if r['series_code'] in codes]))
+    linked = {'exchanges': ['exchange_code'], 'clearing_houses': ['clearing_house_code'],
+              'commodities': ['commodity_code'], 'locations': ['location_code'], 'currencies': ['quote_currency_code'],
+              'units': ['lot_unit_code', 'quote_unit_code'], 'clock_rules': ['market_clock_code'],
+              'calendars': ['trading_calendar_code', 'delivery_calendar_code', 'settlement_calendar_code']}
+    check('futures product read links exact-revision rows for every code the product names',
+          read['references']['exchanges'][0]['code'] == product['exchange_code']
+          and all(canonical(read['references'].get(table, [])) ==
+                  canonical([r for r in references[table] if r['code'] in {product.get(k) for k in columns}])
+                  for table, columns in linked.items()))
+    check('futures product read reports an absent product as not found',
+          c.call('reference/futures-product?code=absent_code', expected=404)['code'] == 'reference_item')
     c.call('profile', {'profile': 'admin'})
     c.call('reference/catalog?table=currencies', expected=403)
     check('reference page rechecks current read authority')
@@ -169,3 +191,13 @@ def run_scope_checks(c, check, query, manifest):
         query(f"INSERT INTO security.reference_catalog_scopes VALUES('{catalog}','{tenant}','{workspace}','{mode}');")
     check('the restored exact reference scope is read under a fresh capability',
           bool(c.call('reference/catalog?table=currencies')['rows']))
+    c.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})
+    try:
+        pinned = c.call('workspace/navigation')['referenceRevision']
+        page = c.call('reference/catalog?table=futures_products')
+        read = c.call('reference/futures-product?' + urlencode({'code': page['rows'][0]['code']}))
+        check('historical futures product read uses the context\'s pinned reference revision',
+              read['referenceRevision'] == pinned == page['referenceRevision']
+              and read['context'] == page['context'] and read['context'] is not None)
+    finally:
+        c.call('market/current', {})

@@ -836,6 +836,11 @@ api.MapGet("/reference/search",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,ses
     var found=await marketReads.SearchReferences(connection,Pin(session),c.Request.Query["q"].ToString(),ct);
     return Results.Ok(new {found.Query,found.Hits,found.Truncated,context=session.MarketContext,profile=session.Profile});
 },c.RequestAborted))));
+api.MapGet("/reference/futures-product",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    var read=await marketReads.FuturesProduct(connection,Pin(session),c.Request.Query["code"].ToString(),ct);
+    return Results.Ok(new {read.Product,read.Series,read.Milestones,read.ExecutionPolicies,read.References,read.ReferenceRevision,context=session.MarketContext,profile=session.Profile});
+},c.RequestAborted))));
 api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
     await Pin(session).Bind(connection,database.Manifest.CatalogId,ct);

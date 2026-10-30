@@ -21,6 +21,8 @@ public enum ObservationReadScope { FactHistory, ExactPins }
 public sealed record ReferencePage(string Table,ImmutableArray<JsonElement> Rows,
     ImmutableDictionary<string,ImmutableArray<JsonElement>> References,int Offset,int PageSize,int MaximumOffset,bool HasMore,string Search,
     ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
+public sealed record FuturesProductRead(JsonElement Product,ImmutableArray<JsonElement> Series,ImmutableArray<JsonElement> Milestones,
+    ImmutableArray<JsonElement> ExecutionPolicies,ImmutableDictionary<string,ImmutableArray<JsonElement>> References,ReferenceRevision ReferenceRevision);
 public sealed record ReferenceHit(string Table,string Code,string Label,string? ProductCode);
 public sealed record ReferenceSearch(string Query,ImmutableArray<ReferenceHit> Hits,bool Truncated);
 public sealed record PreviewSwapMarket(Guid RevisionId,PreviewSeedFrame[] Frames);
@@ -482,8 +484,18 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         var rows=found.Take(pageSize).ToImmutableArray();
         var references=ImmutableDictionary.CreateBuilder<string,ImmutableArray<JsonElement>>();
         references.Add(table,rows);
-        // Names for inspector cells are exact-version linked rows, not labels
-        // borrowed from the business catalog or a preceding page/context.
+        await LinkReferences(connection,revision,rows,references,ct);
+        await ReferenceScope(connection,table,ct);
+        // Absence is reported only after current authority is proven again.
+        if(code is not null&&rows.IsEmpty)throw ReferenceItemMissing();
+        return new(table,rows,references.ToImmutable(),offset,pageSize,ReferenceMaximumOffset,found.Length>pageSize,search,revision,definition);
+    }
+
+    // Names for linked codes are exact-version rows of the same revision, not labels
+    // borrowed from the business catalog or a preceding page/context.
+    private static async Task LinkReferences(NpgsqlConnection connection,ReferenceRevision revision,ImmutableArray<JsonElement> rows,
+        ImmutableDictionary<string,ImmutableArray<JsonElement>>.Builder references,CancellationToken ct)
+    {
         foreach(var (target,columns) in ReferenceLabels)
         {
             var codes=columns.SelectMany(column=>Codes(rows,column)).Distinct().ToArray();
@@ -492,10 +504,37 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             references[target]=references.TryGetValue(target,out var existing)
                 ? existing.Concat(linked).DistinctBy(row=>row.GetProperty("code").GetString()).ToImmutableArray():linked;
         }
-        await ReferenceScope(connection,table,ct);
+    }
+
+    private const int FuturesSeriesLimit=1000;
+    private static readonly string[] FuturesProductTables=["futures_products","futures_series","futures_milestones","futures_execution_policies"];
+    // One futures product with its contracts, their dates and execution eligibility, all from one exact revision.
+    public async Task<FuturesProductRead> ReadFuturesProduct(NpgsqlConnection connection,string code,CancellationToken ct)
+    {
+        async Task<ReferenceRevision> ProveScopes()
+        {
+            var revisions=new HashSet<ReferenceRevision>();
+            foreach(var table in FuturesProductTables)revisions.Add((await ReferenceScope(connection,table,ct)).Revision);
+            if(revisions.Count!=1)throw new MarketDataException("reference_catalog","A futures product and its contracts must share one exact reference revision.");
+            return revisions.Single();
+        }
+        var revision=await ProveScopes();
+        Task<ImmutableArray<JsonElement>> Read(string table,string filter,object codes,string order)=>Rows(connection,
+            $"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{table} WHERE catalog_id=$1 AND revision_id=$2 AND {filter} ORDER BY {order})t",
+            [revision.CatalogId,revision.RevisionId,codes],ct);
+        var product=await Read("futures_products","code=$3",code,"code");
+        var series=product.IsEmpty?[]:await Read("futures_series","product_code=$3",code,$"delivery_from,code LIMIT {FuturesSeriesLimit+1}");
+        if(series.Length>FuturesSeriesLimit)
+            throw new MarketDataException("reference_limit",$"A futures product read is limited to {FuturesSeriesLimit} contracts.");
+        var codes=Codes(series,"code").ToArray();
+        var milestones=codes.Length==0?[]:await Read("futures_milestones","series_code=ANY($3::text[])",codes,ReferenceKey("futures_milestones"));
+        var policies=codes.Length==0?[]:await Read("futures_execution_policies","series_code=ANY($3::text[])",codes,ReferenceKey("futures_execution_policies"));
+        var references=ImmutableDictionary.CreateBuilder<string,ImmutableArray<JsonElement>>();
+        await LinkReferences(connection,revision,product,references,ct);
+        await ProveScopes();
         // Absence is reported only after current authority is proven again.
-        if(code is not null&&rows.IsEmpty)throw ReferenceItemMissing();
-        return new(table,rows,references.ToImmutable(),offset,pageSize,ReferenceMaximumOffset,found.Length>pageSize,search,revision,definition);
+        if(product.IsEmpty)throw ReferenceItemMissing();
+        return new(product[0],series,milestones,policies,references.ToImmutable(),revision);
     }
 
     private static MarketDataException ReferenceItemMissing()=>new("reference_item","The reference item does not exist in this context's exact revision.");
@@ -508,7 +547,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         ("locations",["location_code"]),("location_types",["type_code"]),
         ("exchanges",["exchange_code"]),("clearing_houses",["clearing_house_code"]),
         ("sources",["source_code","qualification_source_code"]),("futures_products",["product_code"]),("futures_series",["series_code"]),
-        ("clock_rules",["clock_code","market_clock_code"]),("calendars",["calendar_code","trading_calendar_code"]),
+        ("clock_rules",["clock_code","market_clock_code"]),("calendars",["calendar_code","trading_calendar_code","delivery_calendar_code","settlement_calendar_code"]),
         ("quantity_specifications",["quantity_code","numerator_quantity_code","denominator_quantity_code"]),
         ("measurement_bases",["basis_code"]),("price_index_definitions",["index_a_code","index_b_code"])
     ];
