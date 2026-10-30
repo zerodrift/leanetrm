@@ -199,15 +199,26 @@ public sealed partial class SwapStore
         catch(MarketDataException){throw Error(code,"Supply an explicit UTC instant at microsecond precision for the cash or correction due date.");}
     }
 
+    private Task<ImmutableArray<JsonElement>> QuantityPeriodBounds(NpgsqlConnection connection,JsonElement row,CancellationToken ct) =>
+        PreviewDatabase.Rows(connection,"""
+         WITH intervals AS MATERIALIZED (
+          SELECT value FROM jsonb_array_elements(security.read_swap_power_quantity_intervals($1,$2,$3))
+         )
+         SELECT jsonb_build_object('slot',(value->>'slot')::integer,'period',(value->>'period')::integer,
+          'starts',min((value->>'start')::timestamptz),'ends',max((value->>'end')::timestamptz))::text
+         FROM intervals GROUP BY (value->>'slot')::integer,(value->>'period')::integer
+         ORDER BY (value->>'slot')::integer,(value->>'period')::integer
+         """,[manifest.CatalogId,row.Id("trade_id"),int.Parse(row.Text("revision"),CultureInfo.InvariantCulture)],ct);
+
     private async Task<ImmutableArray<SwapPeriodCompletion>> SettlementCompletions(NpgsqlConnection connection,JsonElement row,SidedInstrument instrument,CancellationToken ct)
     {
-        var sources=instrument is ScheduledFinancialSwap or CrossCommodityScheduledSwap?await PreviewDatabase.Rows(connection,"""
-         SELECT jsonb_build_object('slot',a.slot,'basis',a.basis,'ends',
-          (SELECT jsonb_object_agg(p.period_ordinal::text,p.completion) FROM
-           (SELECT period_ordinal,max(ends_at) completion FROM trading.swap_power_quantity_intervals
-            WHERE(catalog_id,trade_id,revision,slot)=(a.catalog_id,a.trade_id,a.revision,a.slot) GROUP BY period_ordinal)p))::text
-         FROM trading.swap_quantity_authoring a WHERE(a.catalog_id,a.trade_id,a.revision)=($1,$2,$3)
+        var scheduled=instrument is ScheduledFinancialSwap or CrossCommodityScheduledSwap;
+        var sources=scheduled?await PreviewDatabase.Rows(connection,"""
+         SELECT jsonb_build_object('slot',slot,'basis',basis)::text
+         FROM trading.swap_quantity_authoring WHERE(catalog_id,trade_id,revision)=($1,$2,$3)
          """,[manifest.CatalogId,row.Id("trade_id"),int.Parse(row.Text("revision"),CultureInfo.InvariantCulture)],ct):[];
+        var bounds=sources.Any(source=>source.Text("basis")=="selected_interval_power")
+            ?await QuantityPeriodBounds(connection,row,ct):[];
         return instrument.Sides.SelectMany((membership,slot)=>((SidePaymentSchedule)membership.Side.GenerateSchedule()).Payments.Select(plan=>
         {
             if(instrument is ScheduledFinancialSwap or CrossCommodityScheduledSwap)
@@ -216,9 +227,11 @@ public sealed partial class SwapStore
                 if(source.Text("basis")=="factor_of_first_side_v1")source=One(sources.Where(s=>int.Parse(s.Text("slot"),CultureInfo.InvariantCulture)==0));
                 if(source.Text("basis")=="selected_interval_power")
                 {
-                    if(source.GetProperty("ends").ValueKind!=JsonValueKind.Object||!source.GetProperty("ends").TryGetProperty(plan.Key.Ordinal.ToString(CultureInfo.InvariantCulture),out var end))
+                    var period=bounds.Where(bound=>bound.Text("slot")==source.Text("slot")&&
+                        int.Parse(bound.Text("period"),CultureInfo.InvariantCulture)==plan.Key.Ordinal).ToArray();
+                    if(period.Length!=1)
                         throw Error("settlement_completion","Every clocked quantity period requires its retained final delivery interval.");
-                    return new SwapPeriodCompletion(slot,plan.DeliveryFrom,plan.DeliveryTo,SchedulePreview.ParseAt(end.GetString()),"retained_quantity_interval_end_v1");
+                    return new SwapPeriodCompletion(slot,plan.DeliveryFrom,plan.DeliveryTo,period[0].Instant("ends"),"retained_quantity_interval_end_v1");
                 }
             }
             return new SwapPeriodCompletion(slot,plan.DeliveryFrom,plan.DeliveryTo,

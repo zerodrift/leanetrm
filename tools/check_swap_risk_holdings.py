@@ -33,8 +33,10 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     earlier=client.call('swaps/editor',{'context':context,'tradeId':first['tradeId'],'revision':None})['context']
     client.call('swaps/amend',{**body,'operationId':str(uuid4()),'tradeId':first['tradeId'],'expectedRevision':1,'effectiveAt':frame['at'],'reason':'Synthetic risk quantity correction','quantity':'200'})
     daily=next(index for index in catalog['indices'] if index['curve']=='daily_gas')
-    daily_trade=book_swap({**body,'bookId':unsupported_book,'discounting':False,'definitionRevisionId':daily['definitionRevisionId'],
-               'floating':{**body['floating'],'curve':daily['curve'],'index':daily['index'],'resetFrequency':'daily','averagingMethod':'arithmetic'}})
+    daily_terms={**body,'bookId':book,'discounting':False,'definitionRevisionId':daily['definitionRevisionId'],
+               'floating':{**body['floating'],'curve':daily['curve'],'index':daily['index'],'resetFrequency':'daily','averagingMethod':'arithmetic'}}
+    daily_trade=book_swap(daily_terms)
+    client.call('swaps/amend',{**daily_terms,'bookId':unsupported_book,'operationId':str(uuid4()),'tradeId':daily_trade['tradeId'],'expectedRevision':1,'effectiveAt':frame['at'],'reason':'Synthetic book transfer'})
     future_context={**context,'convention':'contract_lot_execution_pnl_v2'}
     future=client.call('futures/catalog',future_context)['contracts'][0]
     future_terms={'curve':future['curve'],'contractId':future['id'],'lots':'2','executionPrice':'2.9'}

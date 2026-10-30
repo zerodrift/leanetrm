@@ -229,6 +229,16 @@ risk database check keeps a real `risk.bind` transaction open while independentl
 renewing and cancelling it, and verifies stale-token and cancellation-first
 publication refusal. No lease, input-loading or calculation deadline is extended.
 
+Migration 0138 permits risk workers to read retained swap quantity intervals
+through the same authorized reader as interactive requests, with current attempt
+fencing before and after the read. Settlement and contract-bridge bounds use
+those exact intervals; private unguarded entry points are not granted to workers.
+Risk holdings select the latest RLS-visible trade revision before applying book
+scope and loading its terms. Historical trade reads retain all visible revisions;
+a book transfer cannot resurrect the prior revision in its former book. A selected
+revision missing required joined records refuses the read rather than silently
+omitting that holding; the completeness check uses the same SQL statement.
+
 Worker reads use a fresh transaction-local authority context for the retained
 actor and delegation. Loading and publication transactions are short; CPU
 calculation runs outside them. Current authority and retained authorization

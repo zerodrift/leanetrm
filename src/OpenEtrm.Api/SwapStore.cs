@@ -288,10 +288,23 @@ public sealed partial class SwapStore(PreviewDatabase database)
  {
   var input=row.GetProperty(key);return input.ValueKind==JsonValueKind.Null?null:JsonSerializer.Deserialize<SwapPaymentInput>(input.GetRawText(),new JsonSerializerOptions(JsonSerializerDefaults.Web));
  }
- private async Task<ImmutableArray<JsonElement>> Rows(NpgsqlConnection connection,Guid? trade,CancellationToken ct)
+ // Reduce only the risk materialization path: RLS-visible latest revisions are
+ // selected before book scope, so an older book cannot resurrect a moved trade.
+ // History callers retain every visible revision and the same exact projections.
+ internal async Task<ImmutableArray<JsonElement>> Rows(NpgsqlConnection connection,Guid? trade,CancellationToken ct,ImmutableArray<Guid>? latestBooks=null)
  {
   var rows=await PreviewDatabase.Rows(connection,"""
-  SELECT row_to_json(v)::text FROM(
+  WITH visible_revisions AS MATERIALIZED(
+   SELECT r.* FROM trading.swap_trade_revisions r
+   WHERE r.catalog_id=$1 AND($2::uuid IS NULL OR r.trade_id=$2)
+  ), latest_revisions AS MATERIALIZED(
+   SELECT DISTINCT ON(catalog_id,trade_id) * FROM visible_revisions WHERE $3::boolean
+   ORDER BY catalog_id,trade_id,revision DESC
+  ), selected_revisions AS MATERIALIZED(
+   SELECT * FROM visible_revisions WHERE NOT $3::boolean
+   UNION ALL
+   SELECT * FROM latest_revisions WHERE cardinality($4::uuid[])=0 OR book_id=ANY($4::uuid[])
+  ), rendered AS MATERIALIZED(
    SELECT r.*,facts.booker_id,facts.booker_version,facts.booker_name,facts.booker_login,facts.executed_at AS booked_at,facts.trade_date AS booking_date,facts.implementation AS booking_implementation,facts.label_captured_at AS booker_label_captured_at,le.code AS legal_entity_code,le.name AS legal_entity_name,cp.code AS counterparty_code,cp.name AS counterparty_name,trdr.code AS trader_code,trdr.name AS trader_name,tr.reference_number AS trade_reference,ir.reference_number AS instrument_reference,k.known_from AS recorded_at,
     coalesce(i.fixed_side_id,i.first_floating_side_id,i.scheduled_first_id) AS fixed_side_id,i.first_floating_side_id,coalesce(i.floating_side_id,i.scheduled_second_id) AS floating_side_id,i.fixed_coefficient,i.discounting,i.implementation,
     i.scheduled_first_id,i.scheduled_second_id,i.second_quantity_numerator,i.second_quantity_denominator,
@@ -314,7 +327,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
     (SELECT jsonb_build_object('catalogId',p.catalog_id,'curveId',p.curve_id,'version',p.version,'outputNode',p.output_node,'position',p.position,'selection',p.selection,'implementation',p.implementation) FROM trading.custom_curve_projection_bindings p WHERE(p.catalog_id,p.id)=(s.catalog_id,s.custom_projection_id)) AS custom_projection,
     (SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(f.catalog_id,f.payment_rule_id)) AS fixed_payment_rule,
     (SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(s.catalog_id,s.payment_rule_id)) AS floating_payment_rule
-   FROM trading.swap_trade_revisions r JOIN trading.swap_instruments i ON(i.catalog_id,i.instrument_id)=(r.catalog_id,r.instrument_id)
+   FROM selected_revisions r JOIN trading.swap_instruments i ON(i.catalog_id,i.instrument_id)=(r.catalog_id,r.instrument_id)
    LEFT JOIN LATERAL(
     SELECT f.fixed_price,f.delivery_from,f.delivery_to,f.payment_at,f.payment_rule_id,f.catalog_id,f.id FROM trading.swap_fixed_sides f WHERE(f.catalog_id,f.id)=(i.catalog_id,i.fixed_side_id)
     UNION ALL
@@ -337,8 +350,20 @@ public sealed partial class SwapStore(PreviewDatabase database)
    JOIN trading.instrument_references ir ON(ir.catalog_id,ir.instrument_id)=(r.catalog_id,r.instrument_id)
    JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order)
    WHERE r.catalog_id=$1 AND($2::uuid IS NULL OR r.trade_id=$2) ORDER BY r.trade_id,r.revision
-  )v
-  """,[manifest.CatalogId,trade is {} id?id:DBNull.Value],ct);
+  )
+  SELECT payload FROM(
+   SELECT row_to_json(v)::text AS payload,trade_id,revision FROM rendered v
+   UNION ALL
+   SELECT json_build_object('__missing_swap_revision',true)::text,NULL::uuid,NULL::integer
+  WHERE $3::boolean AND EXISTS(
+   SELECT 1 FROM selected_revisions required WHERE NOT EXISTS(
+    SELECT 1 FROM rendered actual WHERE(actual.catalog_id,actual.trade_id,actual.revision,actual.binding_id)=
+     (required.catalog_id,required.trade_id,required.revision,required.binding_id)))
+  )result ORDER BY trade_id,revision
+  """,[manifest.CatalogId,trade is {} id?id:DBNull.Value,latestBooks.HasValue,latestBooks.GetValueOrDefault().IsDefault?Array.Empty<Guid>():latestBooks.GetValueOrDefault().ToArray()],ct);
+  // A visible selected parent cannot disappear through a separately authorized
+  // required child join. Compare exact keys in the same statement/snapshot.
+  if(rows.Any(row=>row.TryGetProperty("__missing_swap_revision",out _)))throw new PreviewDeniedException();
   TradeAnnotations.RequireFacts(rows);
   return await ObservationSchedules(connection,rows,ct);
  }

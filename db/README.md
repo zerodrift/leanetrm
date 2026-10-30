@@ -1453,3 +1453,16 @@ unchanged. `tools/check_risk_jobs_db.py` verifies both controls with the actual
 bound transaction held open, along with stale-token and cancellation-first
 result refusal. This additive migration requires the usual operator-qualified
 schema baseline (D135).
+
+## Worker reads of retained swap quantity intervals
+
+Migration `0138_swap_quantity_worker_read.sql` exposes the existing exact retained
+quantity reader to risk workers through a guarded wrapper. The wrapper checks
+`risk.require_worker_attempt()` before and after reading; the original reader
+retains its trade visibility, exact reference, child provenance and post-read
+authority checks and is no longer directly executable by runtime or worker roles.
+Settlement completion and contract bridges aggregate this reader's interval
+bounds, avoiding a raw per-interval RLS scan. The scheduled fixture checks both
+sides' independent London DST bounds, unbound access, stale and expired leases,
+cancellation and revoked reference authority. This schema addition requires an
+operator-qualified baseline (D135); it changes no worker deadlines.

@@ -253,6 +253,9 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
             assert c.call('swaps/quantity-schedule',dict(context=context,tradeId=power_saved['tradeId'],revision=1),expected=403)['code']=='access_denied'
         finally:
             query('GRANT EXECUTE ON FUNCTION security.read_swap_power_quantity_intervals(uuid,uuid,integer) TO openetrm_runtime;')
+    if query and run_worker is not None:
+        from check_swap_quantity_worker import run as check_quantity_worker
+        check_quantity_worker(url,query,manifest,f['at'],power_saved['tradeId'])
     print('PASS retained power quantity read: 2930 exact intervals fit the normal request deadline; unbound authority refuses',flush=True)
     assert retained['quantityInputs'][1]['periods'][1]['deliveryHours']=='720'
     new_york=next(q['reference'] for q in catalog['scheduledOptions']['clocks'] if q['reference']['code']=='synthetic_new_york')

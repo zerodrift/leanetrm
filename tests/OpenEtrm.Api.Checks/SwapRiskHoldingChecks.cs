@@ -100,6 +100,16 @@ internal static class SwapRiskHoldingChecks
         }
         catch(PostgresException error)when(error.SqlState=="42501"&&guardReached)
         {Console.WriteLine("PASS portfolio reuse: reference revocation refuses previously resolved holdings under the same certified context");}
+        await database.WithIdentity("risk","RunScenario",async(connection,ct)=>
+        {
+            await Bind(connection,ct);
+            await using(var visible=ScheduleStore.Command(connection,"SELECT count(*) FROM trading.swap_trade_revisions WHERE catalog_id=$1",database.Manifest.CatalogId))
+                if((long)(await visible.ExecuteScalarAsync(ct))!<3)throw new Exception("The missing-reference regression requires visible retained parent revisions.");
+            try{await new SwapStore(database).Rows(connection,null,ct,[request.Id("bookId")]);}
+            catch(PreviewDeniedException)
+            {Console.WriteLine("PASS scoped swap rows: visible parents with hidden exact reference children refuse instead of omitting holdings");return true;}
+            throw new Exception("Visible selected swap revisions disappeared through a reference join without refusal.");
+        },CancellationToken.None);
     }
 
     public static async Task Run(string path,bool denied,bool expired=false)
@@ -178,6 +188,14 @@ internal static class SwapRiskHoldingChecks
             var pinned=frame with{ContextId=current.ContextId};
             var holdings=await store.ReadRiskHoldings(connection,data,pinned,[request.Id("bookId")],excluded:[],ct,frozen);
             var expected=request.GetProperty("holdings").EnumerateArray().ToArray();
+            var scopedRows=await store.Rows(connection,null,ct,[request.Id("bookId")]);
+            Check("risk row materialization contains only the three latest visible scoped bindings",scopedRows.Length==3&&
+                scopedRows.All(row=>expected.Any(e=>e.Id("tradeId")==row.Id("trade_id")&&e.Text("revision")==row.Text("revision"))));
+            var historicalRows=await store.Rows(connection,request.Id("amendedTradeId"),ct);
+            Check("trade history still materializes both visible amendment revisions",historicalRows.Length==2&&historicalRows.Select(row=>row.Text("revision")).SequenceEqual(new[]{"1","2"}));
+            var outsideRows=await store.Rows(connection,null,ct,[request.Id("unsupportedBookId")]);
+            Check("book scope follows latest revision and retains the transferred daily trade only in its destination",outsideRows.Length==1&&outsideRows[0].Id("trade_id")==request.GetProperty("actualCases")[0].Id("tradeId")&&outsideRows[0].Text("revision")=="2");
+
             Check("actual persisted latest revisions retain their external quantities and exact references",holdings.Length==3&&holdings.All(holding=>
             {
                 var row=expected.Single(e=>e.Id("tradeId")==holding.Row.Id("trade_id"));
