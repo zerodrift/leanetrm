@@ -3,7 +3,7 @@
 // context-menu key or Shift+F10); a divider resizes a split; a group's collapse button puts its shown tab away to a one-line bar. The
 // arrangement is this viewer's presentation state: the caller restores it into `initial` and stores what `changed` hears.
 // A narrow page shows every tab in one group and leaves the saved arrangement for when the page is wide again.
-import {type Arrangement,type DockLayout,type DockRules,type DropEdge,type Group,type Split,collapse,groupsOf,moveTab,resize,select,splitsOf,toggleCollapsed} from './dock-model.js';
+import {type Arrangement,type DockLayout,type DockRules,type DropEdge,type Group,type Split,collapse,groupsOf,moveArrangement,moveTab,resize,showTab,splitsOf,toggleCollapsed} from './dock-model.js';
 import {menuKey,placeOf,setupMenu,type MenuItem} from './context-menu.js';
 import {tabAfterKey} from './side-panel.js';
 
@@ -161,8 +161,8 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   }
   function move(tab:string,target:{group:number;edge:DropEdge}){
     if(narrow)return;
-    const next=moveTab(saved.layout,tab,target,rules);if(next===saved.layout)return;
-    apply({layout:next,collapsed:saved.collapsed});buttons.get(tab)!.focus({preventScroll:true});
+    const next=moveArrangement(saved,tab,target,rules);if(next===saved)return;
+    apply(next);buttons.get(tab)!.focus({preventScroll:true});
   }
   /** Puts away or brings back the pane showing `tab`; the button that did it, now drawn the other way, keeps focus. */
   function toggle(tab:string){
@@ -184,10 +184,8 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
 
   /** Shows a tab, bringing back its pane if it was put away, in the group that holds it. */
   function reveal(id:string){
-    const group=groupsOf(shown.layout).find(g=>g.tabs.includes(id));
-    if(!group)return;
-    const collapsed=shown.collapsed.includes(id)&&group.active===id?shown.collapsed.filter(t=>t!==id):shown.collapsed;
-    if(group.active!==id||collapsed!==shown.collapsed)apply({layout:select(shown.layout,id),collapsed});
+    const next=showTab(shown,id);
+    if(JSON.stringify(next)!==JSON.stringify(shown))apply(next);
   }
   /** Replaces the arrangement with one the caller chose (a reset, a restore); `changed` is not told. */
   function set(next:Arrangement){saved=next;shown=narrow?flat(saved):saved;render();}

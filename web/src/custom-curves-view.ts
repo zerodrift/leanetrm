@@ -193,8 +193,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   selection:()=>{validate();return {definition:clone(definition),snapshotId:o.source().snapshotId,...(selected&&!dirty?{id:selected.id,version:selected.version}:{})};}});
  const dockHost=el('div');dockHost.id='custom-curves-dock';
  const dockTabs=['outputs','graph','configuration','versions','lineage','history'],dockKey='openetrm.custom-curves.layout.v1';
- const dockRules:DockRules={maxDepth:2,fixed:[],ratioRange:[0.2,0.8]},dockDefault={layout:defaultLayout(dockTabs,'outputs'),collapsed:[]};
- // The arrangement is this viewer's presentation state in this browser only; storage that cannot be read or written leaves it to this visit.
+ const dockRules:DockRules={maxDepth:2,fixed:dockTabs,ratioRange:[0.2,0.8]},dockDefault={layout:defaultLayout(dockTabs,'outputs'),collapsed:[]};
+ // Every tab is fixed: Curve builder's panes do not collapse. The arrangement is this viewer's presentation state in this browser only; storage that cannot be read or written leaves it to this visit.
  const dockSaved=()=>{try{const raw=localStorage.getItem(dockKey);return raw===null?undefined:JSON.parse(raw);}catch{return undefined;}};
  const dock=setupDock(dockHost,{narrow:o.narrow,label:'Curve views',rules:dockRules,initial:restoreArrangement(dockSaved(),dockTabs,dockRules,dockDefault),
   changed:a=>{try{localStorage.setItem(dockKey,JSON.stringify(a));}catch{/* The arrangement lasts this visit. */}},shown:id=>{if(id==='graph')remeasure();},tabs:[{id:'outputs',label:'Outputs',body:outputs},{id:'graph',label:'Graph',body:graphTab},

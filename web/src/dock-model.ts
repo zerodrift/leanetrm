@@ -108,6 +108,24 @@ export function toggleCollapsed(a:Arrangement,tab:string,rules:DockRules):Arrang
   return {layout:a.layout,collapsed:a.collapsed.includes(tab)?a.collapsed.filter(t=>t!==tab):[...a.collapsed,tab]};
 }
 
+/** Collapse belongs to what a group shows: `dropped` tabs (those a group stops showing, and a tab being shown) stay collapsed no longer. */
+const without=(a:Arrangement,dropped:readonly string[]):string[]=>a.collapsed.filter(t=>!dropped.includes(t));
+
+/** Shows `tab` in its group, expanded. The group's other tabs lose any collapse, so choosing one later shows it open. */
+export function showTab(a:Arrangement,tab:string):Arrangement{
+  const group=groupsOf(a.layout).find(g=>g.tabs.includes(tab));
+  return group?{layout:select(a.layout,tab),collapsed:without(a,group.tabs)}:a;
+}
+
+/** `moveTab` on an arrangement: the moved tab arrives expanded, the group it leaves (which shows a neighbour now) and, for a centre drop,
+ *  the group it joins (which shows the moved tab) keep no collapse. */
+export function moveArrangement(a:Arrangement,tab:string,target:{group:number;edge:DropEdge},rules:DockRules):Arrangement{
+  const layout=moveTab(a.layout,tab,target,rules);
+  if(layout===a.layout)return a;
+  const groups=groupsOf(a.layout),from=groups.find(g=>g.tabs.includes(tab))!,to=groups[target.group];
+  return {layout,collapsed:without(a,[...from.tabs,...(target.edge==='centre'?to.tabs:[])])};
+}
+
 /** An arrangement saved by an earlier visit (untrusted storage) if it is well formed, holds exactly these tabs once each and collapses
  *  none of the fixed ones; else `fallback`. */
 export function restoreArrangement(saved:unknown,tabs:readonly string[],rules:DockRules,fallback:Arrangement):Arrangement{

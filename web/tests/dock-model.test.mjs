@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {collapse,defaultLayout,moveTab,resize,restoreArrangement,select,splitsOf,toggleCollapsed} from '../dist/dock-model.js';
+import {collapse,defaultLayout,moveTab,resize,moveArrangement,restoreArrangement,select,showTab,splitsOf,toggleCollapsed} from '../dist/dock-model.js';
 
 const tabs=['outputs','graph','configuration','versions','lineage'];
 const rules={maxDepth:2,fixed:[],ratioRange:[0.2,0.8]};
@@ -195,4 +195,36 @@ test('restoreArrangement clamps the ratio to the rules\' range',()=>{
  const make=r=>restoreArrangement({layout:split('row',group(['a']),group(['b']),r),collapsed:[]},names,wide,fallback).layout.ratio;
  assert.equal(make(0.01),0.05);assert.equal(make(0.99),0.95);
  assert.equal(resize(split('row',group(['a']),group(['b'])),0,0.01,wide).ratio,0.05);
+});
+
+test('showing a tab whose pane was put away brings it back, and a group that changes tab keeps no stale collapse',()=>{
+ const names=['outputs','graph','lineage'],a={layout:defaultLayout(names,'outputs'),collapsed:['outputs']};
+ // Revealing the shown, collapsed tab expands it.
+ assert.deepEqual(showTab(a,'outputs'),{layout:a.layout,collapsed:[]});
+ // Revealing another tab drops the old tab's collapse: selecting Outputs again later shows it open.
+ const graph=showTab(a,'graph');
+ assert.equal(graph.layout.active,'graph');assert.deepEqual(graph.collapsed,[]);
+ assert.deepEqual(showTab(graph,'outputs').collapsed,[]);
+ // Another group's collapse is untouched, and an unknown tab changes nothing.
+ const two=moveArrangement({layout:defaultLayout(names,'outputs'),collapsed:[]},'lineage',{group:0,edge:'right'},rules);
+ const away={layout:two.layout,collapsed:['lineage']};
+ assert.deepEqual(showTab(away,'graph').collapsed,['lineage']);
+ assert.equal(showTab(away,'retired'),away);
+});
+
+test('moving a put-away tab, or a tab into a group, leaves no stale collapse',()=>{
+ const names=['outputs','graph','lineage'];
+ const split2=moveArrangement({layout:defaultLayout(names,'outputs'),collapsed:[]},'lineage',{group:0,edge:'right'},rules); // [outputs,graph] | [lineage]
+ // A collapsed tab dropped on another group's centre arrives expanded.
+ const away={layout:split2.layout,collapsed:['lineage']};
+ const into=moveArrangement(away,'lineage',{group:0,edge:'centre'},rules);
+ assert.deepEqual(into.layout.tabs,['outputs','graph','lineage']);assert.equal(into.layout.active,'lineage');assert.deepEqual(into.collapsed,[]);
+ // A collapsed tab dropped on an edge arrives expanded, alone.
+ const edge=moveArrangement({layout:defaultLayout(names,'outputs'),collapsed:['outputs']},'outputs',{group:0,edge:'right'},rules);
+ assert.deepEqual(edge.collapsed,[]);
+ // The group a tab leaves, which now shows a neighbour, keeps no collapse of its old tab.
+ const left=moveArrangement({layout:defaultLayout(names,'outputs'),collapsed:['outputs']},'graph',{group:0,edge:'right'},rules);
+ assert.deepEqual(left.collapsed,[]);
+ // A move that changes nothing returns the arrangement as it was.
+ assert.equal(moveArrangement(away,'lineage',{group:1,edge:'centre'},rules),away);
 });
