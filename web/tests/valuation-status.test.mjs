@@ -8,6 +8,12 @@ test('each position-specific status reads in plain words for the instrument it c
  assert.equal(valuationReason('source_expired','heat_rate'),'Past marking cutoff');
  for(const instrumentType of ['future','financial_swap','heat_rate'])assert.equal(valuationReason('missing_observation',instrumentType),'Missing price at this close');
 });
+test('a missing due index fixing is explicit for indexed swap sides, with no status fallback',()=>{
+ for(const instrumentType of ['financial_swap','heat_rate'])
+  assert.equal(valuationReason('index_fixing_missing',instrumentType),'Missing published index fixing');
+ for(const instrumentType of ['future','ppa'])
+  assert.throws(()=>valuationReason('index_fixing_missing',instrumentType),{message:'The Blotter returned an unknown valuation status.'});
+});
 test('a PPA booked under other reference or definition versions than the close reads in plain words, and only for a PPA',()=>{
  assert.equal(valuationReason('other_definition_versions','ppa'),'Booked under other reference data versions');
  for(const instrumentType of ['future','financial_swap','heat_rate'])
