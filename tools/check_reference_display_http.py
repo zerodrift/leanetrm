@@ -78,8 +78,10 @@ def run_checks(url,query):
         display=current['unitReferenceDisplay']
         assert display['sourceRevision']==source and display['displayRevision']['revisionId']==committed['revisionId']
         assert display['references']['units']==[{'code':'megawatt_hour','symbol':original+' sample'}]
-        history=client.call('reference/editor?table=units')['versions']
-        assert history[0]['revision_id']==committed['revisionId'] and all(v['state']=='sealed' for v in history), 'History lists applied display versions only'
+        history=client.call('reference/editor?table=units&code=megawatt_hour')['versions']
+        assert {k:v for k,v in history[0].items() if k not in ['recordedAt','author']}=={'version':committed['version'],'table':'units','code':'megawatt_hour','changes':{'symbol':original+' sample'}} \
+            and history[0]['author'], 'History lists the item\'s applied display versions with their author and changed fields'
+        assert client.call('reference/editor?table=units')['versions']==[], 'History belongs to one item'
         converted=client.call('units/convert',{'value':'2','from':'test_power_quantity','to':'test_power_quantity','decimalPlaces':None,'tieRule':None})
         assert converted['value']=='2' and converted['formatted']=='2 '+original+' sample'
         assert converted['target']['revision']==source

@@ -78,12 +78,17 @@ above; this editor does not promise financial-term authoring for them. Calendar-
 descriptions stay read-only because those rows have no code key.
 
 Committing requires both scoped `WriteReferenceData` and `SealReferenceData`
-and reading the original sealed reference version. The editor reloads the selected
-row and its exact base version, lists the changed fields for confirmation, then
-sends one `POST /reference/commit` (D261). In one transaction it saves a new
-immutable metadata version from the currently applied display version, or from
-the original version when no display change is active, and applies it. A commit
-changes one item. Optional coordinates are transported as exact decimal strings,
+and reading the original sealed reference version. No seeded role holds both
+permissions; an administrator assigns both roles to people who edit labels.
+An item's page has one **Edit** button that turns its display fields into inputs
+in place; the code and financial fields stay as text. Save lists the changed
+fields for confirmation, then sends one `POST /reference/commit` (D261) from the
+item's exact base version. On a futures product's page one Edit covers the
+product name and every contract label; each changed item is its own commit,
+sent in order, and the first refusal stops the rest, which stay unsent in the
+form. In one transaction a commit saves a new immutable metadata version from
+the currently applied display version, or from the original version when no
+display change is active, and applies it. A commit changes one item. Optional coordinates are transported as exact decimal strings,
 with both coordinates required together and no browser rounding.
 
 Applying locks the target before proving that every retained key and non-display
@@ -92,8 +97,9 @@ source, current display version and base must still match the confirmed request;
 concurrent or stale changes require a fresh edit. Any refusal rolls back the
 whole commit, so no unapplied draft remains. A successful commit seals the
 metadata version and appends an exact source/display revision relationship in
-the current workspace. The editor's History lists the applied display versions
-with their changed fields and server-recorded time in the user's time zone.
+the current workspace. An item's History lists its applied display versions
+with their changed fields, author and server-recorded time in the user's time
+zone; the page header shows the current display version.
 
 Current curve navigation, reference presentation and the unit converter consume
 a separate display overlay scoped to the original exact reference version.

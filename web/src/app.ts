@@ -597,7 +597,7 @@ function referenceValue(r:Row,key:string,read:ReferenceRows){
   if(/^-?\d+(\.\d+)?$/.test(value)||['name','symbol','display_code','source_series_code','zone_name','series_label','delivery_from','delivery_to','event_date','date','locator','evidence'].includes(key))return value;
   return friendly(value);
 }
-function clearReference(){referencePage=undefined;shownReference='';referenceEditor.setPage(undefined);unitConverter.reset();$('reference').replaceChildren();text('reference-page-status','');$('reference-item').replaceChildren();$('reference-item').hidden=true;$('reference-list').hidden=false;}
+function clearReference(){referencePage=undefined;shownReference='';referenceEditor.reset();unitConverter.reset();$('reference').replaceChildren();text('reference-page-status','');$('reference-item').replaceChildren();$('reference-item').hidden=true;$('reference-list').hidden=false;}
 const referenceSections=()=>dataSections(Object.keys(data().references)).flatMap(g=>g.sections);
 // The chosen category, shown as its group and tab, with its list or one of its items (`listed`). One no longer available is an
 // error, and the next opening starts on Currencies.
@@ -632,23 +632,25 @@ async function openReferenceItem(address:ReferenceAddress){
   if((keylessCategories as readonly string[]).includes(table))throw Error('Rows of this category have no page of their own. Choose the category to list them.');
   if(from)referenceReturn={table:from.table,search:from.search,offset:from.offset};
   referenceTable=table;const section=referenceCategory(false),owner=data(),context=historicalContext()??null;
-  const heading={list:{name:section.name,address:listAddress(table,search)},facts:(revision:ReferenceRevision)=>[['Reference revision',revision.revisionId],['As of',context?`${displayDate(context.effectiveOn)}${context.knownAt?`, as known at ${instant(context.knownAt)}`:''}`:'Working data']] as const};
+  // The editor adds the item's display version to these facts once it has read it.
+  const heading={list:{name:section.name,address:listAddress(table,search)},facts:[['As of',context?`${displayDate(context.effectiveOn)}${context.knownAt?`, as known at ${instant(context.knownAt)}`:''}`:'Working data']] as const};
   const current=()=>workspace===owner&&!contextDirty&&page==='reference'&&referenceTable===table;
   try{
     if(table==='futures_products'){
       const read=await api<FuturesProductRead&{context:Context|null;profile:string}>('reference/futures-product?'+new URLSearchParams({code}));
       if(!current()||!sameReferenceRead(owner,table,read,context)||read.product?.code!==code||![read.series,read.milestones,read.executionPolicies].every(Array.isArray)||!read.references)
         throw Error('The futures product is missing or inconsistent. Refresh and try again.');
-      renderFuturesProduct($('reference-item'),read,{list:heading.list,facts:heading.facts(read.referenceRevision),instant});
+      renderFuturesProduct($('reference-item'),read,{list:heading.list,facts:heading.facts,instant});
     }else{
       const read=await api<ReferencePage>('reference/catalog?'+new URLSearchParams({table,code}));
       if(!current()||!sameReferencePage(owner,table,read,context)||read.rows.length!==1||read.rows[0].code!==code)
         throw Error('The reference item is missing or inconsistent. Refresh and try again.');
       const [row]=displayReferenceRows(table,read.rows,read.referenceDisplay,read.referenceRevision);
       const addressable=(linked:string|undefined)=>linked!==undefined&&referenceSections().some(s=>s.value===linked);
-      renderReferenceItem($('reference-item'),{list:heading.list,title:referenceLabel(row),facts:[['Code',code],...heading.facts(read.referenceRevision)]},
-        publicColumns([row]).map(c=>({label:c.name,value:referenceValue(row,c.key,read),...(row[c.key]!==null&&addressable(linkedTables[c.key])?{linkTo:{table:linkedTables[c.key],code:String(row[c.key])}}:{})})));
+      renderReferenceItem($('reference-item'),{list:heading.list,title:referenceLabel(row),facts:[['Code',code],...heading.facts]},
+        publicColumns([row]).map(c=>({label:c.name,value:referenceValue(row,c.key,read),editField:c.key,...(row[c.key]!==null&&addressable(linkedTables[c.key])?{linkTo:{table:linkedTables[c.key],code:String(row[c.key])}}:{})})));
     }
+    await referenceEditor.show(table,code,context);
   }catch(error){clearReference();throw error;}
   $('reference-list').hidden=true;
   addressReference(address);
@@ -689,7 +691,6 @@ function renderReference(){
   // A row opens its item's page; rows of a category without codes have none.
   const open=(keylessCategories as readonly string[]).includes(selected)?undefined:(index:number)=>void act(()=>openReferenceItem({table:selected,code:String(rows[index].code),...shown.search?{search:shown.search}:{}}));
   table('reference',columns.map(c=>c.name),displayRows.map(r=>columns.map(c=>referenceValue(r,c.key,shown))),[],undefined,open);
-  referenceEditor.setPage({...referencePage,rows:displayRows});
   const filter=$('reference').querySelector<HTMLInputElement>('.table-search')!;filter.placeholder='Filter this page…';filter.setAttribute('aria-label','Filter this page');
   text('reference-page-status',rows.length?`Rows ${offset+1}–${offset+rows.length}${hasMore?canAdvanceReference()?' · more available':' · Refine your search to see more results.':''}`:'No rows on this page.');
 }
@@ -935,9 +936,11 @@ const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>admi
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
 const jobs=setupJobs({api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone});
-const referenceEditor=setupReferenceEditor({host:$('reference-editor'),api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,onDenied:clearReference,onApplied:async()=>{
- const selected=select('snapshot').value,offset=referencePage?.offset??0,search=referencePage?.search??'';
- await reload(selected);await loadReference(offset,search);if(result)renderPrices();
+// A committed label changes current curves' names and units as well as the item's page: the market is read again, as after a correction,
+// and so is the page.
+const referenceEditor=setupReferenceEditor({host:$('reference-item'),api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,onCommitted:async()=>{
+ const address=parseReferenceAddress(shownReference),selected=select('snapshot').value;
+ clearPrices();await reload(selected);if(address)await openReferenceItem(address);
 }});
 const power=setupPowerView({api,act,zone:()=>prefs.timeZone,name:curveName,source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');const f=frame();return {snapshotId:f.id,curve,name:instant(f.at)};}});
 const unitConverter=setupUnitConverter({api,act,busy:()=>busy});

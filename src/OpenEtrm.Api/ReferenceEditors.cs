@@ -43,13 +43,10 @@ public static class ReferenceEditors
             catch(JsonException){throw Error("reference_edit","The reference editor field contract is incomplete. Reload after its metadata is qualified.");}
             if(fields.IsDefault||fields.Any(f=>f is null||f.MaxLength is <1 or >300))throw Error("reference_edit","The reference editor field bounds are invalid.");
         }
-        // Applying seals a display revision, so sealed edits are exactly the applied versions.
-        var versions=display is not null&&(write||seal)?await PreviewDatabase.Rows(connection,"""
-            SELECT row_to_json(t)::text FROM(
-             SELECT e.revision_id,e.base_revision_id,e.table_name,e.item_code,e.request->'values' AS changes,r.state,e.recorded_at
-             FROM ref_data.display_edits e JOIN ref_data.revisions r ON(r.catalog_id,r.id)=(e.catalog_id,e.revision_id)
-             WHERE e.catalog_id=$1 AND e.source_revision_id=$2 AND e.table_name=$3 AND r.state='sealed' ORDER BY e.recorded_at DESC,e.revision_id LIMIT 20)t
-            """,[source.CatalogId,source.RevisionId,table],ct):ImmutableArray<JsonElement>.Empty;
+        // History: the item's applied display versions, read by those who may edit labels.
+        var versions=display is not null&&code is not null&&(write||seal)
+            ?await Execute(connection,"SELECT security.reference_display_history($1,$2,$3,$4)::text",[source.CatalogId,source.RevisionId,table,code],ct)
+            :JsonSerializer.SerializeToElement(Array.Empty<object>());
         JsonElement? item=null;
         if(code is not null&&fields.Length>0)
         {

@@ -1518,6 +1518,19 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .item-section{margin-top:20px}
 .item-section h3{font-size:13px;margin:0 0 8px}
 .product-contracts{overflow-x:auto;max-width:100%;border:1px solid var(--border);border-radius:var(--radius-sm)}
+/* Edit on an item's page: its controls under the header, inputs in place of the display values, and the confirmation and History beneath. */
+.reference-editor{margin:0 0 16px;font-size:13px}
+.reference-editor .item-actions{display:flex;flex-wrap:wrap;gap:8px}
+.reference-editor h3{font-size:13px;margin:0 0 8px}
+.reference-editor>section,.reference-edit-pending{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.reference-edit-review ul,.reference-history ol{margin:0 0 8px;padding-left:18px}
+.reference-edit-review li,.reference-history li{overflow-wrap:anywhere}
+.reference-history dl{margin:2px 0 8px}
+.reference-history dl div{display:flex;gap:6px}
+.reference-history dd{margin:0}
+.reference-item [data-edit-field] input{width:100%;min-width:8em;box-sizing:border-box;font:inherit}
+.reference-item [data-edit-field] small{display:block;font-size:11px;font-weight:normal;color:var(--text-3)}
+.reference-item .permanent{font-size:11px;color:var(--text-3)}
 .delivery-overlays{width:fit-content;min-width:min(420px,100%);max-width:100%;margin-bottom:12px}
 .delivery-chart{min-width:0}
 .delivery-chart .time-chart-tools input{width:120px}

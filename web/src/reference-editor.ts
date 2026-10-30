@@ -1,105 +1,174 @@
-import {trackEdits} from './edit-tracking.js';
+import {PendingCommand,type RequestCommand} from './pending-command.js';
+import {node,pair} from './reference-detail.js';
 type Row=Record<string,unknown>;
 type Revision={catalogId:string;revisionId:string};
-type Page={table:string;referenceRevision:Revision;rows:readonly Row[];context?:unknown};
 type Field={key:string;label:string;kind:'text'|'decimal';nullable:boolean;maxLength:number};
-type Version={revision_id:string;base_revision_id:string;table_name:string;item_code:string;changes:Record<string,string|null>;state:string;recorded_at:string};
-type Catalog={table:string;sourceRevision:Revision;baseRevisionId:string;displayVersion:number;fields:Field[];canEdit:boolean;canApply:boolean;versions:Version[];reason:string;display:{sourceRevision:Revision;references:Record<string,Row[]>}|null;item:Row|null};
-type Pending={path:'reference/save'|'reference/apply';body:Record<string,unknown>;uncertain:boolean};
-type Options={host:HTMLElement;api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;instant:(at:string)=>string;onApplied:()=>Promise<void>;onDenied?:()=>void};
+type Version={version:number;table:string;code:string;recordedAt:string;author:string;changes:Record<string,string|null>};
+type Catalog={table:string;sourceRevision:Revision;baseRevisionId:string;displayVersion:number;fields:Field[];canEdit:boolean;versions:Version[];reason:string;item:Row|null};
+type Outcome={revisionId?:string;displayRevisionId?:string;version?:number};
+type Options={host:HTMLElement;api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;instant:(at:string)=>string;onCommitted:()=>Promise<void>};
+// An input Edit put in place of a shown value: the item and field it edits, what it replaced and the value it started from.
+type Slot={table:string;code:string;field:Field;element:HTMLElement;replaced:Node[];input:HTMLInputElement;from:string|null};
+type Change={table:string;code:string;values:Record<string,string|null>;slots:Slot[]};
 
 export function knownReferenceRejection(code:string|undefined):boolean{
   return !!code&&['reference_edit','reference_conflict','reference_economic_change','reference_limit','historical_read_only','access_denied','request_format','request_too_large','request_token'].includes(code);
 }
-// Presentation only: the backend supplies fields, rights, retained versions and
-// activation proof. Inputs remain strings, including exact optional coordinates.
+// A retained commit from browser storage, restored exactly and as uncertain; anything else, the retired save and apply requests
+// among them, is discarded. Browser storage never grants authority.
+export function restoreReferenceRequest(value:unknown):RequestCommand|undefined{
+  if(!value||typeof value!=='object'||Array.isArray(value))return;
+  const saved=value as Record<string,unknown>;
+  if(saved.path!=='reference/commit'||typeof saved.operationId!=='string'||!saved.operationId||!saved.body||typeof saved.body!=='object'||Array.isArray(saved.body))return;
+  return {operationId:saved.operationId,path:saved.path,body:structuredClone(saved.body as Record<string,unknown>),uncertain:true};
+}
+const inconsistent=()=>Error('The reference details changed. Refresh before editing.');
+const text=(value:unknown)=>value===null||value===undefined?'':String(value);
+
+// Presentation only: Edit turns the shown item's display fields, which the backend's descriptor names, into inputs in place on its page;
+// Save lists the changed fields and, once confirmed, commits each changed item in turn (the backend edits one item per operation),
+// stopping at the first refusal with the later edits kept unsent in the form. A request whose outcome is unknown is retained, exactly,
+// for Retry, and blocks a new edit. Inputs remain strings, including exact optional coordinates.
 export function setupReferenceEditor(options:Options){
-  const node=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const result=document.createElement(tag);if(text!==undefined)result.textContent=text;return result;};
-  let page:Page|undefined,catalog:Catalog|undefined,scope='',generation=0,selectedVersion:Version|undefined,pending:Pending|undefined;
-  const host=options.host,open=node('button','Edit display details'),content=node('div'),status=node('p'),pendingPanel=node('div');
-  open.type='button';open.className='secondary';content.hidden=true;status.setAttribute('role','status');
-  const rowLabel=node('label','Reference item'),rows=node('select'),form=node('form'),inputs=node('div'),save=node('button','Save new version');
-  rows.id='reference-edit-row';rowLabel.htmlFor=rows.id;save.type='submit';save.id='reference-edit-save';
-  const versionLabel=node('label','Saved versions'),versions=node('select'),review=node('div'),apply=node('button','Apply display changes to current curves');
-  versions.id='reference-edit-version';versionLabel.htmlFor=versions.id;apply.type='button';apply.id='reference-edit-apply';
-  const retry=node('button','Retry retained request'),pendingMessage=node('p');retry.type='button';retry.id='reference-edit-retry';
-  const edits=trackEdits(form);
-  pendingPanel.append(pendingMessage,retry);form.append(rowLabel,rows,inputs,save);content.append(status,form,versionLabel,versions,review,apply);host.replaceChildren(open,pendingPanel,content);
+  const button=(label:string,id:string,className='secondary')=>{const b=node('button',label,className);b.type='button';b.id=id;return b;};
+  const pending=new PendingCommand(knownReferenceRejection);
+  let generation=0,shown:{table:string;code:string;catalogs:Map<string,Catalog>}|undefined,slots:Slot[]=[],permanent:HTMLElement|undefined;
+  // The display version the next commit builds on, which each confirmed commit advances; whether one was made since Edit.
+  let chain={base:'',version:0},committed=false,reviewing=false;
+  const edit=button('Edit','reference-edit',''),history=button('History','reference-history-open'),save=button('Save','reference-edit-save',''),cancel=button('Cancel','reference-edit-cancel');
+  const actions=node('div','','item-actions'),reason=node('p','','fine-print'),container=node('div','','reference-editor');
+  actions.id='reference-edit-actions';reason.id='reference-edit-reason';actions.append(edit,history,save,cancel);
+  const pendingPanel=node('div','','reference-edit-pending'),pendingMessage=node('p'),retry=button('Retry retained request','reference-edit-retry');
+  pendingPanel.id='reference-edit-pending';pendingPanel.setAttribute('role','status');pendingPanel.append(pendingMessage,retry);
+  const review=node('section','','reference-edit-review'),reviewList=node('ul'),confirm=button('Save and apply','reference-edit-confirm',''),back=button('Back to editing','reference-edit-back');
+  review.id='reference-edit-review';review.append(node('h3','Confirm these display changes'),reviewList,node('p','They apply to current curves at once. Codes and financial terms keep their original versions.','fine-print'),confirm,back);
+  const historyPanel=node('section','','reference-history'),historyList=node('ol');
+  historyPanel.id='reference-history';historyPanel.append(node('h3','History'),historyList);
+  container.append(actions,reason,pendingPanel,review,historyPanel);
   const storageKey=()=>`openetrm.reference.request.${options.identity()}`;
-  function retain(){try{if(pending)sessionStorage.setItem(storageKey(),JSON.stringify(pending));else sessionStorage.removeItem(storageKey());}catch{/* The exact request remains in memory. */}sync();}
-  function restore(){pending=undefined;try{const raw=sessionStorage.getItem(storageKey());if(raw){const p=JSON.parse(raw);if(['reference/save','reference/apply'].includes(p.path)&&p.body&&typeof p.body.operationId==='string')pending={...p,uncertain:true};}}catch{/* Browser storage never grants authority. */}}
-  function text(value:unknown){return value===null||value===undefined?'':String(value);}
-  function selectedRow(){return page?.rows.find(r=>text(r.code)===rows.value);}
-  function drawFields(){
-    inputs.replaceChildren();edits.clear();const row=catalog?.item;if(!row||!catalog||text(row.code)!==rows.value)return;
-    if(catalog.fields.some(field=>!Number.isSafeInteger(field.maxLength)||field.maxLength<1))throw Error('Reference field limits are unavailable. Reload reference details before editing.');
-    for(const field of catalog.fields){const wrapper=node('div'),label=node('label',field.label),input=node('input');input.name=field.key;input.id='reference-edit-'+field.key;label.htmlFor=input.id;
-      input.type='text';input.value=text(row[field.key]);input.required=!field.nullable;if(field.kind==='decimal')input.inputMode='decimal';
-      // Native maxlength counts UTF16 units. The backend validates Unicode scalars.
-      const limit=node('small',`Maximum ${field.maxLength} characters.`);limit.id=input.id+'-limit';input.setAttribute('aria-describedby',limit.id);wrapper.append(label,input,limit);inputs.append(wrapper);}
-    sync();
+  function retain(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The exact request remains in memory. */}sync();}
+  function restore(){
+    pending.clear();
+    try{const raw=sessionStorage.getItem(storageKey());if(raw){pending.command=restoreReferenceRequest(JSON.parse(raw));if(!pending.command)sessionStorage.removeItem(storageKey());}}catch{/* Browser storage never grants authority. */}
   }
-  function drawReview(){
-    review.replaceChildren();selectedVersion=catalog?.versions.find(v=>v.revision_id===versions.value);
-    if(selectedVersion&&catalog){review.append(node('p',`Saved ${options.instant(selectedVersion.recorded_at)} · ${selectedVersion.state}. Financial definitions keep their original versions.`));const list=node('dl');
-      for(const [key,value]of Object.entries(selectedVersion.changes)){list.append(node('dt',catalog.fields.find(f=>f.key===key)?.label??key),node('dd',value===null?'Not supplied':value));}review.append(list);}
-    sync();
-  }
-  function draw(){
-    if(!catalog||!page)return;
-    status.textContent=catalog.reason;form.hidden=!catalog.fields.length;versionLabel.hidden=versions.hidden=!catalog.versions.length;
-    const oldCode=rows.value;rows.replaceChildren(new Option('Choose a reference item…',''),...page.rows.filter(r=>typeof r.code==='string').map(r=>new Option(`${text(r.name??r.symbol??r.series_label??r.description??r.code)} (${text(r.code)})`,text(r.code))));
-    rows.value=[...rows.options].some(o=>o.value===oldCode)?oldCode:'';
-    const previous=versions.value;versions.replaceChildren(new Option('Choose a saved version to review…',''),...catalog.versions.map(v=>new Option(`${v.item_code} · ${options.instant(v.recorded_at)} · ${v.state}`,v.revision_id)));
-    versions.value=[...versions.options].some(o=>o.value===previous)?previous:'';
-    drawFields();drawReview();
-  }
-  async function load(code=rows.value){
-    const owner=page,identity=options.identity(),request=++generation;if(!owner)return;
-    catalog=undefined;content.hidden=false;status.textContent='Loading display-edit permissions and versions…';form.hidden=true;versions.hidden=true;versionLabel.hidden=true;review.replaceChildren();sync();
-    try{const next=await options.api<Catalog>('reference/editor?'+new URLSearchParams({table:owner.table,...code?{code}:{}}));
-      if(request!==generation||identity!==options.identity())return;
-      if(next.table!==owner.table||next.sourceRevision.catalogId!==owner.referenceRevision.catalogId||next.sourceRevision.revisionId!==owner.referenceRevision.revisionId||!Array.isArray(next.fields)||!Array.isArray(next.versions))throw Error('The reference version changed. Refresh before editing.');
-      catalog=next;draw();
-    }catch(error){if(request!==generation||identity!==options.identity())return;catalog=undefined;form.hidden=true;review.replaceChildren();versions.replaceChildren();status.textContent='Reference editing is unavailable. Refresh the page before trying again.';if((error as {code?:string}).code==='access_denied')options.onDenied?.();sync();throw error;}
-  }
-  async function send(){
-    const command=pending,identity=options.identity();if(!command)return;
-    const wasUncertain=command.uncertain;command.uncertain=true;retain();
-    let outcome:{revisionId?:string;state?:string;displayRevisionId?:string;version?:number};
-    try{
-      outcome=await options.api<typeof outcome>(command.path,command.body);
-      if(identity!==options.identity()||pending!==command)return;
-      const confirmed=command.path==='reference/save'
-        ?outcome.revisionId===command.body.operationId&&outcome.state==='draft'
-        :outcome.displayRevisionId===command.body.revisionId&&typeof command.body.expectedVersion==='number'&&outcome.version===command.body.expectedVersion+1;
-      if(!confirmed)throw Object.assign(Error('The reference change has an unconfirmed response. Retry its retained request.'),{code:'reference_outcome_unknown'});
-    }catch(error){
-      if(identity!==options.identity()||pending!==command)return;const code=(error as {code?:string}).code;
-      if(!wasUncertain&&knownReferenceRejection(code)){pending=undefined;retain();}
-      else{command.uncertain=true;retain();}
-      if(code==='access_denied'){catalog=undefined;content.hidden=true;options.onDenied?.();}sync();throw error;
+  const main=()=>shown?.catalogs.get(shown.table);
+  const editable=()=>[...shown?.catalogs.values()??[]].some(c=>c.canEdit&&c.fields.length>0);
+  const value=(slot:Slot)=>slot.field.nullable&&slot.input.value===''?null:slot.input.value;
+  const fieldLabel=(table:string,code:string,key:string)=>{const label=shown?.catalogs.get(table)?.fields.find(f=>f.key===key)?.label??key;return table===shown?.table&&code===shown.code?label:`${label} (${code})`;};
+  // The changed items in the page's order, each with only its changed fields.
+  function changes(){
+    const found=new Map<string,Change>();
+    for(const slot of slots){
+      if(value(slot)===slot.from)continue;
+      const key=JSON.stringify([slot.table,slot.code]),change=found.get(key)??{table:slot.table,code:slot.code,values:{},slots:[]};
+      change.values[slot.field.key]=value(slot);change.slots.push(slot);found.set(key,change);
     }
-    // The write is confirmed. A failed presentation refresh must remain visible
-    // without converting that known result back into an uncertain mutation.
-    pending=undefined;retain();
-    if(command.path==='reference/apply')await options.onApplied();
-    else{await load();if(outcome.revisionId&&catalog){versions.value=outcome.revisionId;drawReview();}}
+    return [...found.values()];
   }
-  async function mutate(path:Pending['path'],body:Record<string,unknown>){if(pending)throw Error('Retry the retained reference request before starting another change.');pending={path,body:{...body,operationId:crypto.randomUUID()},uncertain:false};retain();await send();}
-  open.onclick=()=>void options.act(()=>load());rows.onchange=()=>void options.act(()=>load(rows.value));versions.onchange=drawReview;retry.onclick=()=>void options.act(send);
-  form.onsubmit=event=>{event.preventDefault();void options.act(async()=>{if(!catalog?.canEdit||!page||!selectedRow()||text(catalog.item?.code)!==rows.value)throw Error('Choose an editable reference item.');const values:Record<string,string|null>={};for(const field of catalog.fields){const value=(inputs.querySelector(`[name="${field.key}"]`)as HTMLInputElement).value;values[field.key]=field.nullable&&value===''?null:value;}
-    await mutate('reference/save',{table:page.table,code:rows.value,sourceRevisionId:catalog.sourceRevision.revisionId,baseRevisionId:catalog.baseRevisionId,values});});};
-  apply.onclick=()=>void options.act(async()=>{if(!catalog?.canApply||!page||!selectedVersion)throw Error('Review an available saved metadata version first.');await mutate('reference/apply',{table:page.table,sourceRevisionId:catalog.sourceRevision.revisionId,revisionId:selectedVersion.revision_id,expectedVersion:catalog.displayVersion});});
+  function startEdit(){
+    const owner=shown;if(!owner||!editable()||pending.command)throw Error('These reference details cannot be edited here.');
+    for(const element of options.host.querySelectorAll<HTMLElement>('[data-edit-field]')){
+      const table=element.dataset.editTable??owner.table,code=element.dataset.editCode??owner.code,catalog=owner.catalogs.get(table),field=catalog?.fields.find(f=>f.key===element.dataset.editField);
+      if(!catalog?.canEdit||!field)continue;
+      const own=table===owner.table&&code===owner.code,shownValue=own?catalog.item?.[field.key]:element.dataset.editValue;
+      if(shownValue!==null&&typeof shownValue!=='string')throw inconsistent();
+      const from:string|null=shownValue;
+      const input=node('input'),limit=node('small',`Maximum ${field.maxLength} characters.`);
+      input.type='text';input.name=field.key;input.id=own?'reference-edit-'+field.key:`reference-edit-${table}-${code}-${field.key}`;input.value=text(from);input.required=!field.nullable;
+      input.setAttribute('aria-label',fieldLabel(table,code,field.key));if(field.kind==='decimal')input.inputMode='decimal';
+      // Native maxlength counts UTF16 units. The backend validates Unicode scalars.
+      limit.id=input.id+'-limit';input.setAttribute('aria-describedby',limit.id);
+      slots.push({table,code,field,element,replaced:[...element.childNodes],input,from:field.nullable&&from===''?null:from});element.replaceChildren(input,limit);
+    }
+    if(main()!.fields.some(f=>!slots.some(s=>s.table===owner.table&&s.code===owner.code&&s.field.key===f.key))){endEdit();throw inconsistent();}
+    const code=[...options.host.querySelectorAll('.item-facts div')].find(d=>d.querySelector('dt')?.textContent==='Code')?.querySelector('dd');
+    if(code){permanent=node('span','Permanent','permanent');code.append(' ',permanent);}
+    chain={base:main()!.baseRevisionId,version:main()!.displayVersion};committed=false;historyPanel.hidden=true;slots[0]?.input.focus();sync();
+  }
+  // Puts the shown values back in place of the inputs.
+  function endEdit(){
+    for(const slot of slots)slot.element.replaceChildren(...slot.replaced);
+    slots=[];permanent?.previousSibling?.remove();permanent?.remove();permanent=undefined;reviewing=false;reviewList.replaceChildren();sync();
+  }
+  function showReview(){
+    const list=changes();if(!list.length)throw Error('Change a label before saving.');
+    reviewList.replaceChildren(...list.flatMap(c=>c.slots.map(s=>node('li',`${fieldLabel(c.table,c.code,s.field.key)}: ${s.from??'Not supplied'} → ${value(s)??'Not supplied'}`))));
+    reviewing=true;sync();confirm.focus();
+  }
+  // Sends the retained request; a confirmed commit advances the chain and becomes the starting value of the inputs it changed.
+  async function send(){
+    const command=pending.command,identity=options.identity();if(!command)return;
+    const wasUncertain=pending.sending();retain();
+    let outcome:Outcome;
+    try{
+      outcome=await options.api<Outcome>(command.path,{...command.body,operationId:command.operationId});
+      if(identity!==options.identity()||pending.command!==command)return;
+      if(outcome.revisionId!==command.operationId||outcome.displayRevisionId!==command.operationId||outcome.version!==(command.body.expectedVersion as number)+1)
+        throw Object.assign(Error('The reference change has an unconfirmed response. Retry its retained request.'),{code:'reference_outcome_unknown'});
+    }catch(error){
+      if(identity===options.identity()&&pending.command===command){pending.failed((error as {code?:string}).code,wasUncertain);retain();}
+      throw error;
+    }
+    pending.clear();retain();committed=true;chain={base:outcome.displayRevisionId!,version:outcome.version!};
+    const values=command.body.values as Record<string,string|null>;
+    for(const slot of slots)if(slot.table===command.body.table&&slot.code===command.body.code&&slot.field.key in values)slot.from=values[slot.field.key];
+  }
+  // Once nothing is left to send, the page is read again and shows what was committed.
+  async function settle(){if(slots.length&&changes().length){sync();return;}endEdit();await options.onCommitted();}
+  async function commitAll(){
+    const owner=generation;reviewing=false;
+    for(const change of changes()){
+      const catalog=shown!.catalogs.get(change.table)!;
+      pending.begin('reference/commit',{table:change.table,code:change.code,sourceRevisionId:catalog.sourceRevision.revisionId,baseRevisionId:chain.base,expectedVersion:chain.version,values:change.values});
+      await send();if(owner!==generation)return;
+    }
+    await settle();
+  }
+  function drawHistory(){
+    historyList.replaceChildren(...(main()?.versions??[]).map(v=>{
+      const item=node('li'),when=node('time',options.instant(v.recordedAt)),changed=node('dl');when.dateTime=v.recordedAt;
+      for(const [key,next] of Object.entries(v.changes))changed.append(pair(fieldLabel(v.table,v.code,key),next??'Not supplied'));
+      item.append(when,` · ${v.author} · display version ${v.version}`,changed);return item;
+    }));
+  }
+  edit.onclick=()=>void options.act(async()=>startEdit());
+  cancel.onclick=()=>void options.act(async()=>{endEdit();if(committed)await options.onCommitted();});
+  save.onclick=()=>void options.act(async()=>showReview());
+  back.onclick=()=>{reviewing=false;sync();save.focus();};
+  confirm.onclick=()=>void options.act(commitAll);
+  retry.onclick=()=>void options.act(async()=>{await send();if(!pending.command)await settle();});
+  history.onclick=()=>{historyPanel.hidden=!historyPanel.hidden;if(!historyPanel.hidden)drawHistory();sync();};
   function sync(){
-    open.disabled=options.busy()||!page||!!pending;pendingPanel.hidden=!pending;pendingMessage.textContent=pending?'A reference change has an unconfirmed outcome. Retry the same retained request to reconcile it; a new change is blocked.':'';retry.disabled=options.busy()||!pending;
-    rows.disabled=options.busy()||!!pending||!catalog?.canEdit;save.disabled=options.busy()||!!pending||!catalog?.canEdit||!selectedRow()||!catalog?.item;
-    for(const input of inputs.querySelectorAll<HTMLInputElement>('input'))input.disabled=options.busy()||!!pending||!catalog?.canEdit;
-    versions.disabled=options.busy()||!!pending;apply.hidden=!selectedVersion;apply.disabled=options.busy()||!!pending||!catalog?.canApply;
+    const busy=options.busy(),editing=slots.length>0;
+    edit.hidden=!editable()||editing;edit.disabled=busy||!!pending.command;
+    history.hidden=editing||!main()?.versions.length;history.setAttribute('aria-expanded',String(!historyPanel.hidden));
+    save.hidden=cancel.hidden=!editing;save.disabled=cancel.disabled=busy||!!pending.command||reviewing;
+    for(const slot of slots)slot.input.disabled=busy||!!pending.command||reviewing;
+    review.hidden=!reviewing;confirm.disabled=back.disabled=busy||!!pending.command;
+    reason.textContent=shown&&!editable()?main()!.reason:'';reason.hidden=!reason.textContent;
+    pendingPanel.hidden=!pending.command;retry.disabled=busy||!pending.command;
+    pendingMessage.textContent=pending.command?`A change to ${text(pending.command.body.table)} ${text(pending.command.body.code)} has an unconfirmed outcome. Retry the same retained request to reconcile it; a new change is blocked.`:'';
   }
+  function reset(){generation++;endEdit();shown=undefined;historyPanel.hidden=true;historyList.replaceChildren();container.remove();restore();sync();}
   restore();sync();
-  return{setPage(next:Page|undefined){const nextScope=next?JSON.stringify([options.identity(),next.table,next.referenceRevision,next.context??null]):'';const same=nextScope===scope&&!!next;page=next;if(same){sync();return;}scope=nextScope;generation++;catalog=undefined;selectedVersion=undefined;content.hidden=true;inputs.replaceChildren();edits.clear();rows.replaceChildren();versions.replaceChildren();review.replaceChildren();sync();},
-    reset(){generation++;scope='';page=undefined;catalog=undefined;selectedVersion=undefined;content.hidden=true;inputs.replaceChildren();edits.clear();rows.replaceChildren();versions.replaceChildren();review.replaceChildren();restore();sync();},sync,
+  return{
+    // Reads the item's editor details (with its contracts' for a futures product) and places the controls and display version on its page.
+    async show(table:string,code:string,context:unknown){
+      reset();const request=generation,identity=options.identity();
+      const read=(t:string,c?:string)=>options.api<Catalog>('reference/editor?'+new URLSearchParams({table:t,...c===undefined?{}:{code:c}}));
+      const [item,series]=await Promise.all([read(table,code),table==='futures_products'?read('futures_series'):undefined]);
+      if(request!==generation||identity!==options.identity())return;
+      const catalogs=new Map<string,Catalog>([[table,item],...series?[['futures_series',series] as const]:[]]);
+      for(const [t,c] of catalogs)
+        if(c.table!==t||!Array.isArray(c.fields)||!Array.isArray(c.versions)||!Number.isSafeInteger(c.displayVersion)||c.fields.some(f=>!Number.isSafeInteger(f.maxLength)||f.maxLength<1)
+          ||c.sourceRevision.revisionId!==item.sourceRevision.revisionId||c.baseRevisionId!==item.baseRevisionId||c.displayVersion!==item.displayVersion||context!==null&&c.canEdit)throw inconsistent();
+      if(item.fields.length&&text(item.item?.code)!==code)throw inconsistent();
+      const facts=options.host.querySelector('.item-facts');if(!facts)throw inconsistent();
+      shown={table,code,catalogs};
+      facts.append(pair('Display version',item.displayVersion?String(item.displayVersion):'Original'));facts.after(container);sync();
+    },
+    reset,sync,
     // Display edits not yet saved, or a change whose outcome is unconfirmed.
-    unsaved:()=>!!pending||edits.edited()&&!content.hidden};
+    unsaved:()=>!!pending.command||slots.some(slot=>value(slot)!==slot.from)
+  };
 }

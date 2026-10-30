@@ -105,6 +105,17 @@ def run_checks(query, manifest):
     save(operation_id=second, base=operation, values={'name':'Synthetic second label'})
     assert json.loads(call('approver', f"SELECT security.apply_reference_display('{catalog}','{source}','{second}','{uuid4()}',1)::text"))['version'] == 2
     assert json.loads(call('viewer', f"SELECT security.reference_display_state('{catalog}','{source}')::text"))['references']['currencies'] == [{'code':'usd','name':'Synthetic second label'}]
+    # History names the applied versions of one item, newest first, with the author who saved each edit and only
+    # its changed fields; unapplied drafts, other items and historical contexts list nothing.
+    history = lambda table, code, bound=None: json.loads(call('viewer', f"SELECT security.reference_display_history('{catalog}','{source}','{table}','{code}')::text", bound=bound))
+    author = query(f"SELECT display_name FROM security.workspace_memberships WHERE principal_id='{editor}' AND workspace_id='{workspace}';")
+    listed = history('currencies','usd')
+    assert [{k:v for k,v in h.items() if k!='recordedAt'} for h in listed] == [
+        {'version':2,'table':'currencies','code':'usd','author':author,'changes':{'name':'Synthetic second label'}},
+        {'version':1,'table':'currencies','code':'usd','author':author,'changes':{'name':'Synthetic revised dollar'}}], listed
+    assert all(isinstance(h['recordedAt'],str) for h in listed) and listed[0]['recordedAt']>=listed[1]['recordedAt']
+    assert history('currencies','eur') == [] and history('commodities','usd') == []
+    assert history('currencies','usd', bound=context) == []
 
     # A second workspace may read the catalog but cannot discover this
     # workspace's drafts or adopt its activation target.
