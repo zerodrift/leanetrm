@@ -66,6 +66,16 @@ evidence, publication and revision records stay out of the category menu; their
 foreign-key and history responsibilities remain in place. Removing a menu item
 does not authorize deleting a retained or referenced record.
 
+The page's search box searches every category the person may read through
+`GET /reference/search`. It matches each item's code and name (for example a
+unit's symbol or a contract's label) literally and case-insensitively, after
+trimming surrounding spaces; it never matches other columns, identifiers or
+serialized text. In working data it matches and shows applied display labels,
+and a historical context keeps the original labels. Each category lists at most
+10 hits and the whole search 60, with a note when more exist. A futures product's
+hit carries a one-line summary of its exchange, location, lot size and quote unit,
+built by the backend from rows of the product's own revision.
+
 ## Editing metadata and applying current display changes
 
 The Reference data editor supports display metadata for nine existing categories:
@@ -97,9 +107,16 @@ source, current display version and base must still match the confirmed request;
 concurrent or stale changes require a fresh edit. Any refusal rolls back the
 whole commit, so no unapplied draft remains. A successful commit seals the
 metadata version and appends an exact source/display revision relationship in
-the current workspace. An item's History lists its applied display versions
-with their changed fields, author and server-recorded time in the user's time
-zone; the page header shows the current display version.
+the current workspace. Committing values that the current display version already
+holds records nothing and returns that version (D238). An item's History lists
+its latest 20 applied display versions with their changed fields, author and
+server-recorded time in the user's time zone, and says when earlier versions are
+not listed. The author is shown by the member's current workspace display name,
+not the name held when the edit was made. Only people holding
+`WriteReferenceData` or `SealReferenceData` read History, which
+`security.reference_display_history` enforces; a reader sees none. The page
+header shows the current display version. Moving away from an item with unsaved
+edits, by a link, a tab or another page, asks before discarding them.
 
 Current curve navigation, reference presentation and the unit converter consume
 a separate display overlay scoped to the original exact reference version.
@@ -129,7 +146,9 @@ of existing prices and financial curve migration require a separate workflow.
 The initial authoring bounds are 100,000 copied reference rows per version and
 64 authored versions per source revision and workspace; the editor lists the
 latest 20 applied versions. Reaching a bound raises `reference_limit` and does not
-prune historical versions or create a partial copy.
+prune historical versions or create a partial copy. Because a commit changes one
+item, a product-page Save that changes the product name and 11 contract labels
+uses 12 of the 64 versions, each with its own full copy of the reference rows.
 
 Unit symbols must contain a non-whitespace character, contain no C0/C1 controls and use
 at most 80 Unicode scalar values, matching managed amount labels. Supplementary

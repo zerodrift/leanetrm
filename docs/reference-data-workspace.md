@@ -1,9 +1,17 @@
 # Reference data workspace, specification corrections and assisted lookup
 
-Status: proposed design, not implemented. Three separately plannable phases.
-Phase 1 is presentation plus two read operations. Phases 2 and 3 add a write
-path and an agent capability, and require decision records, independent
-adversarial review and the checks named below before publication.
+Status: Phase 1 implemented (D261); Phases 2 and 3 are proposed designs, not
+implemented. Three separately plannable phases. Phase 1 is presentation plus
+read operations. Phases 2 and 3 add a write path and an agent capability, and
+require decision records, independent adversarial review and the checks named
+below before publication.
+
+Phase 1 deviates from this text in two ways. History is read only by people
+holding `WriteReferenceData` or `SealReferenceData`, since author names are not
+readable by the runtime role; readers see no History. Reading History with its
+authors needed one read-only SQL function, `security.reference_display_history`
+in migration 0130, so Phase 1 adds a schema head that needs the usual hosted
+schema release window.
 
 ## Why
 
