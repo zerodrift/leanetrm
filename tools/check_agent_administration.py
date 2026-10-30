@@ -149,9 +149,10 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
           roles_holding('UseAgents') == 'market_data_editor,risk_analyst,trader'
           and query("SELECT bool_and(EXISTS(SELECT 1 FROM security.role_permissions d WHERE d.role_id=p.role_id AND d.permission='CreateDelegations')) "
                     "FROM security.role_permissions p WHERE p.permission='UseAgents';") == 't')
-    check('the agent reader role holds exactly ReadJobs, ReadMarketData, ReadTrades and ReadTradeParties',
+    check('the agent reader role holds exactly DraftCustomCurves, ReadJobs, ReadMarketData, ReadTrades and ReadTradeParties, and no other role '
+          'holds DraftCustomCurves (D260)', roles_holding('DraftCustomCurves') == 'agent_reader' and
           query(f"SELECT r.code||' '||r.name||' '||string_agg(p.permission,',' ORDER BY p.permission) FROM security.roles r JOIN security.role_permissions p "
-                f"ON p.role_id=r.id WHERE r.id='{READER}' GROUP BY r.code,r.name;") == 'agent_reader Agent reader ReadJobs,ReadMarketData,ReadTradeParties,ReadTrades')
+                f"ON p.role_id=r.id WHERE r.id='{READER}' GROUP BY r.code,r.name;") == 'agent_reader Agent reader DraftCustomCurves,ReadJobs,ReadMarketData,ReadTradeParties,ReadTrades')
     # The guard holds even for the owner: a human never holds the agent reader role, and an agent holds no other.
     human, agent = contexts.administrator, uuid4()
     member = (f"INSERT INTO security.principals VALUES('{agent}','agent',true);"
@@ -468,7 +469,13 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
           and (lacking['role'], lacking['permission']) == ('Market data editor', 'ReadTrades'))
     refused_save('agent_role_lacks_permission', expectedVersion=current['version'], allowedRoles=['agent_reader'])
     check('the agent reader role is never an allowed role')
-    narrower = admin.call(f'{AGENTS}/save', save_body(current, tools=['read_market_data'], allowedRoles=['market_data_editor']))
+    drafting = ['read_custom_curves', 'prepare_custom_curve', 'save_custom_curve_draft']
+    lacking = refused_save('agent_role_lacks_permission', expectedVersion=current['version'], tools=drafting, allowedRoles=['trader'])
+    drafter = admin.call(f'{AGENTS}/save', save_body(current, tools=drafting, allowedRoles=['market_data_editor']))
+    check('saving curve drafts needs market-definition authoring as well as market data: a role without it is refused, one with it is allowed (D260)',
+          (lacking['role'], lacking['permission']) == ('Trader', 'WriteMarketDefinitions')
+          and drafter['newest']['tools'] == sorted(drafting) and drafter['newest']['allowedRoles'] == ['market_data_editor'])
+    narrower = admin.call(f'{AGENTS}/save', save_body(drafter, tools=['read_market_data'], allowedRoles=['market_data_editor']))
     tool_free = admin.call(f'{AGENTS}/save', save_body(narrower, tools=[], allowedRoles=[]))
     check("a version whose tools need only what its roles hold saves, and so does one that switches no tool on or allows no role yet",
           narrower['newest']['allowedRoles'] == ['market_data_editor'] and tool_free['newest']['tools'] == []
@@ -579,7 +586,7 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
               'navigate': [], 'read_current_page': [], 'read_market_data': ['ReadMarketData'], 'read_reference_data': ['ReadMarketData'],
               'read_schedules': ['ReadMarketData'], 'read_trade_parties': ['ReadMarketData', 'ReadTradeParties'],
               'read_trades': ['ReadMarketData', 'ReadTrades'], 'read_custom_curves': ['ReadMarketData'], 'prepare_custom_curve': ['ReadMarketData'],
-              'read_jobs': ['ReadJobs']})
+              'read_jobs': ['ReadJobs'], 'save_custom_curve_draft': ['ReadMarketData', 'WriteMarketDefinitions']})
     check("the directory names every supported vendor and the runtime set's bounds on instructions and grants",
           listing['vendors'] == [{'code': 'anthropic', 'name': 'Anthropic'}, {'code': 'openai', 'name': 'OpenAI'}, {'code': 'google', 'name': 'Google'},
                                  {'code': 'xai', 'name': 'xAI'}, {'code': 'meta', 'name': 'Meta'}]

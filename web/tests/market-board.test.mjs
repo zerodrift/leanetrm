@@ -8,10 +8,10 @@ import {setCurveNames} from '../dist/market-view.js';
 
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url)));
 const curves=[
- {code:'gas_forward',name:'Gas forward',marketType:'forwards',category:{code:'test_gas',name:'Synthetic gas'}},
- {code:'gas_futures',name:'Gas futures',marketType:'futures',category:{code:'test_gas',name:'Synthetic gas'}},
- {code:'power_forward',name:'Power forward',marketType:'forwards',category:{code:'test_power',name:'Synthetic power'}},
- {code:'usd_rates',name:'USD rates',marketType:'rates',category:null},
+ {code:'gas_forward',name:'Gas forward',marketType:'forwards',category:{code:'test_gas',name:'Synthetic gas'},kind:'weighted_blend'},
+ {code:'gas_futures',name:'Gas futures',marketType:'futures',category:{code:'test_gas',name:'Synthetic gas'},kind:'market_settlement'},
+ {code:'power_forward',name:'Power forward',marketType:'forwards',category:{code:'test_power',name:'Synthetic power'},kind:'basis_spread'},
+ {code:'usd_rates',name:'USD rates',marketType:'rates',category:null,kind:'interest_rate'},
 ];
 const navigation={kind:'market_navigation',profile:'viewer',context:null,curves,curveNames:curves.map(({code,name})=>({code,name}))};
 setCurveNames(navigation.curveNames);
@@ -103,12 +103,14 @@ class Element{
  get textContent(){return this._text+this.children.map(c=>c.textContent).join('');}
  set textContent(value){this._text=value;this.children=[];}
  setAttribute(k,v){this.attributes[k]=v;}
+ getAttribute(k){return this.attributes[k]??null;}
  append(...items){this.children.push(...items);}
  replaceChildren(...items){this.children=items;}
 }
+const dom={createElement:tag=>new Element(tag),createElementNS:(_,tag)=>new Element(tag),createTextNode:text=>new Text(text)};
 const walk=(e,found=[])=>{found.push(e);for(const c of e.children??[])if(c instanceof Element)walk(c,found);return found;};
 test('a card\'s button is disabled while the page is busy, as the library\'s rows are',()=>{
- globalThis.document={createElement:tag=>new Element(tag),createTextNode:text=>new Text(text)};
+ globalThis.document=dom;
  try{
   const board=marketBoard(navigation,all,new Map([['gas_forward','Curve shape unavailable · the curve read failed']]));
   for(const busy of [true,false]){
@@ -117,5 +119,14 @@ test('a card\'s button is disabled while the page is busy, as the library\'s row
    assert.equal(buttons.length,board.flatMap(g=>g.cards).length);
    assert.ok(buttons.every(b=>b.disabled===busy));
   }
+ }finally{delete globalThis.document;}
+});
+
+test('each card shows the backend\'s curve kind as a badge named by its label beside the curve\'s name',()=>{
+ globalThis.document=dom;
+ try{
+  const target=new Element('div');renderBoard(target,marketBoard(navigation,all,new Map()),()=>{},false);
+  const kinds=walk(target).filter(e=>e.className==='market-card').map(item=>{const head=item.children[0],badge=walk(head).find(e=>e.attributes.role==='img');return [item.dataset.curve,badge?.getAttribute('aria-label')];});
+  assert.deepEqual(kinds.sort(),[['gas_forward','Weighted blend'],['gas_futures','Market settlement'],['power_forward','Basis / spread'],['usd_rates','Interest rate']]);
  }finally{delete globalThis.document;}
 });

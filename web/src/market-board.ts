@@ -7,6 +7,7 @@ import {navigationCurveKind,navigationGroups,type MarketNavigation,type Navigati
 import {curveName,deliveryLabel,marketTypeName} from './market-view.js';
 import {drawSparkline} from './mini-chart-view.js';
 import {kpi,node} from './tiles.js';
+import {kindBadge,type CurveKind} from './curve-kinds.js';
 
 /** The most curves one curve-shapes read names (the backend's limit). */
 export const curvesPerRead=64;
@@ -19,8 +20,11 @@ type BoardFilters={by:'commodity'|'marketType';commodity:string|null;type:string
 export type CardFigures={state:'unread'}|{state:'failed';reason:string}|{state:'rates'}
   |{state:'priced';unit:string;front:{delivery:string;price:string};count:string;line:Extract<Sparkline,{state:'drawn'}>}
   |{state:'unavailable';unit:string|null;count:string|null;reason:string};
-/** A card: its curve's code and name, its market type, its commodity and market type together, its commodity color, and its figures. */
-export type BoardCard={curve:string;name:string;type:string;kind:string;color:string|null;figures:CardFigures};
+/**
+ * A card: its curve's code and name, its market type, its commodity and market type together, the backend's curve kind, its commodity
+ * color, and its figures.
+ */
+export type BoardCard={curve:string;name:string;type:string;kind:string;curveKind:CurveKind;color:string|null;figures:CardFigures};
 export type BoardGroup={key:string;name:string;cards:BoardCard[]};
 
 const contracts=(count:number)=>`${count} ${count===1?'contract':'contracts'}`;
@@ -46,7 +50,7 @@ function figures(shape:CurveShape|string,name:string):CardFigures{
 }
 function card(curve:NavigationCurve,colors:ReadonlyMap<string,string>,shape:CurveShape|string|undefined):BoardCard{
   const name=curveName(curve.code);
-  return {curve:curve.code,name,type:marketTypeName(curve.marketType),kind:navigationCurveKind(curve),color:curve.category?colors.get(curve.category.code)!:null,
+  return {curve:curve.code,name,type:marketTypeName(curve.marketType),kind:navigationCurveKind(curve),curveKind:curve.kind,color:curve.category?colors.get(curve.category.code)!:null,
     figures:curve.marketType==='rates'?{state:'rates'}:shape===undefined?{state:'unread'}:figures(shape,name)};
 }
 /** The board's cards, in the library's groups and order under the library's filters, from the shapes read so far at the close. */
@@ -111,7 +115,7 @@ export function renderBoard(target:HTMLElement,groups:readonly BoardGroup[],open
       const item=node('li','market-card'),head=node('div','market-card-head'),title=node('h4','market-card-name'),button=node('button','market-card-open',card.name);
       item.dataset.curve=card.curve;item.dataset.state=card.figures.state;
       button.type='button';button.disabled=busy;button.onclick=()=>open(card.curve);title.append(button);
-      head.append(commodityDot(card),title);
+      head.append(commodityDot(card),kindBadge(card.curveKind),title);
       item.append(head,node('p','market-card-kind',card.kind),...cardBody(card));
       return item;
     }));

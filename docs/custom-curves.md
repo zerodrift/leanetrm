@@ -1,6 +1,6 @@
 # Custom curve recipes
 
-The local Custom curves workspace authors versioned graphs and previews their
+The local Curve builder page authors versioned graphs and previews their
 computed values. Published versions are immutable. Visual editing and the formula
 representation use the same managed validation and execution operation.
 Exact source curves, published custom outputs, calendars and published
@@ -84,7 +84,7 @@ current source access, then opens an unpriced draft under the current header,
 showing its origin dates. It never installs old prices under that header or
 switches it implicitly. Ordinary Preview prices under the selected header; Save
 and Publish retain their existing human authoring permissions. The assistant's
-Custom curves page report describes saved ingredients, not unsaved graph edits.
+Curve builder page report describes saved ingredients, not unsaved graph edits.
 These tools do not run portfolio risk or interpret dependency counts as exposure.
 
 The three starting recipes are:

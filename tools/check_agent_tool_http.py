@@ -297,13 +297,13 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
                   'market_data.contract_definitions_v1', 'reference_data.table_v1', 'schedules.library_v1', 'schedules.tou_products_v1',
                   'schedules.power_hours_v1', 'trade_parties.versions_v1', 'trades.blotter_v1', 'trades.blotter_v1', 'trades.trade_v1', 'trades.trade_v1']
     check("a step records its tool, operation, the request's input, the instant it read, after its call's close and before the next "
-          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v7",
+          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v9",
           [(s['tool'], s['operation'], s['input'], s['code']) for s in recorded] == [(r[1], o, r[2], None) for r, o in zip(first + second, operations)]
           and [s['access'] for s in recorded] == [market] * 9 + [parties] + [trades] * 4
           and all(at(loop[0]['closed']) <= at(s['read_at']) <= at(loop[1]['started']) for s in recorded[:3])
           and all(at(loop[1]['closed']) <= at(s['read_at']) <= at(loop[2]['started']) for s in recorded[3:])
           and [e['payload'] for e in events if e['kind'] == 'step'] == [{'ordinal': n, 'tool': s['tool']} for n, s in enumerate(recorded, start=1)]
-          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v7', recorded)
+          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v9', recorded)
     grant_id = delegation(turn)
     contexts_read = issued(grant_id)
     check("each read runs in one request context of its own, issued to the agent's principal under the turn's grant on the agent pools, "
@@ -790,9 +790,13 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     fake.respond(stream(tool_use(model_name, [('toolu_curve_1', 'read_custom_curves', {}), ('toolu_curve_2', 'prepare_custom_curve', proposal_input)])),
                  stream(tool_use(model_name, [('toolu_curve_3', 'navigate', {'page': None, 'target': 'n2'})])),
                  stream(recording(model_name, text='Review the proposed draft.')))
-    prepared, events = settled(ask(agent_state=curve_agent, report={'page': 'custom_curves', 'selection': {}})['turn'])
+    prepared, events = settled(ask(agent_state=curve_agent, report={'page': 'custom_curves', 'selection': {'curve': None, 'unsaved': False}})['turn'])
     recorded = steps(prepared)
     result = answers(requests(since)[-1])['toolu_curve_2']
+    catalog = answers(requests(since)[-1])['toolu_curve_1'][0]['result']
+    check('the agent catalog names each curve by its kind and the version that classified it',
+          catalog['kindsVersion'] == 'curve_kinds_v1' and {r['code']: r['kind'] for r in catalog['sources']}['future'] == 'market_settlement'
+          and all(r['kind'] in ('prompt_contract', 'custom') for r in catalog['recipes']), catalog)
     check('the agent catalog and curve preparation use real pinned backend operations and issue an explicit proposal target without saving',
           prepared['state'] == 'completed' and [r['operation'] for r in recorded] == ['custom_curves.catalog_v1', 'custom_curves.prepare_v1', 'navigation.target_v1']
           and all(r['code'] is None for r in recorded) and result[1] is False
@@ -828,6 +832,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
               and all(e['payload'] == {'hidden': 'access_changed'} for e in hidden_events if e['kind'] in ('text', 'navigation')))
     finally:
         query("INSERT INTO security.reference_catalog_scopes SELECT * FROM json_populate_recordset(NULL::security.reference_catalog_scopes,'" + scopes.replace("'", "''") + "'::json);")
+    check_curve_drafts(check, query, fake, admin, trader, agent, grant, ask, settled, steps, requests, answers, model_name, definition, formula)
     check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settled, steps, requests, answers, model_name)
     check_ppa_reads(check, query, fake, trader, agent, grant, ask, settled, steps, requests, answers, model_name, booking['books'][0]['id'], trades)
     for release in stalled:
@@ -844,6 +849,48 @@ JOBS = {'view': 'jobs', 'job': None, 'page': 0, 'before': None}
 RECEIPT_TERMS = {'kind', 'name', 'operation', 'dueAt', 'expiresAt', 'intervalSeconds', 'timeZone', 'misfire', 'overlap', 'timeoutSeconds',
                  'maximumAttempts', 'profileId', 'profileVersion', 'id', 'action', 'expectedVersion'}
 JOB_ACCESS = [{'access': 'job_access', 'permission': 'ReadJobs', 'market': None, 'reference': None}]
+
+
+def check_curve_drafts(check, query, fake, admin, trader, agent, grant, ask, settled, steps, requests, answers, model_name, definition, formula):
+    """Save curve draft through the worker (D260): a market data editor asks from Curve builder; the agent prepares, saves a draft
+    whose successful step commits with it, and requests its draft target, which the editor opens by its turn and step."""
+    drafter = agent('curve drafting', tools=('read_custom_curves', 'prepare_custom_curve', 'save_custom_curve_draft', 'navigate'), roles=('market_data_editor',))
+    admin.call('profile', {'profile': 'editor'})
+    try:
+        grant(admin, drafter)
+        drafted = {**definition, 'code': 'synthetic_agent_draft_http', 'name': 'Synthetic agent draft'}
+        curve = {'code': drafted['code'], 'name': drafted['name'], 'engine': 'custom_curve_recipe_v2', 'formula': formula}
+        since = len(fake.received)
+        fake.respond(stream(tool_use(model_name, [('toolu_draft_1', 'prepare_custom_curve', curve), ('toolu_draft_2', 'save_custom_curve_draft', {**curve, 'curveId': None})])),
+                     stream(tool_use(model_name, [('toolu_draft_3', 'navigate', {'page': None, 'target': 'n2'})])),
+                     stream(recording(model_name, text='The draft is saved.')))
+        builder = {'page': 'custom_curves', 'selection': {'curve': None, 'unsaved': False}}
+        working = {'mode': 'current', 'contextId': None, 'frameId': initial_frame(admin.call('workspace/navigation'), '2020-12-18')['id']}
+        saved, events = settled(ask(admin, drafter, builder, working)['turn'], admin)
+        recorded = steps(saved)
+        result = answers(requests(since)[-1])['toolu_draft_2']
+        draft = result[0]['result']
+        target = next(e['payload']['target'] for e in events if e['kind'] == 'navigation')
+        check('Save curve draft saves the prepared curve as the assistant\'s draft, its successful step recorded with it, and its target, which '
+              'Navigate requests, opens that draft at its step without moving the page',
+              saved['state'] == 'completed' and [(r['operation'], r['code']) for r in recorded]
+              == [('custom_curves.prepare_v1', None), ('custom_curves.save_draft_v1', None), ('navigation.target_v1', None)]
+              and result[1] is False and draft['status'] == 'saved_draft' and draft['curve']['savedBy'] == 'assistant'
+              and draft['draft'] == {'turnId': saved['id'], 'step': 2}
+              and query(f"SELECT generation||':'||saved_by||':'||step FROM market_data.custom_curve_generation_savers WHERE turn_id='{saved['id']}';") == '1:assistant:2'
+              and target == {**target, 'page': 'custom_curves', 'kind': 'draft', 'selection': {'turnId': saved['id'], 'step': 2},
+                             'label': 'Saved curve draft: Synthetic agent draft'}, (saved, recorded, result, target))
+        opened = admin.call('assistant/curve-draft', target['selection'])
+        listed = next(r for r in admin.call('custom-curves')['recipes'] if r['id'] == opened['id'])
+        check('the editor opens the draft by its turn and step, and the library shows the assistant saved it, naming neither turn nor step',
+              opened == {'id': draft['curve']['id'], 'version': 1} and listed['saver'] == {'savedBy': 'assistant'} and listed['state'] == 'draft', (opened, listed))
+        trader.call('assistant/curve-draft', target['selection'], expected=422)
+        admin.call('assistant/curve-draft', {**target['selection'], 'step': 1}, expected=422)
+        check('a draft target opens nothing for a person who cannot read the draft, nor at a step that saved none')
+    finally:
+        admin.call('profile', {'profile': 'admin'})
+        # The browser checks expect an editor to have no agent to use.
+        admin.call('settings/ai/agents/retire', {'operationId': str(uuid4()), 'agentId': drafter['id'], 'expectedVersion': drafter['version']})
 
 
 def history(job_id):
@@ -888,7 +935,7 @@ def check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settle
           granted['permissions'] == ['ReadJobs'], granted)
     check('the agent reader role holds ReadJobs and none of the permissions that change jobs or infrastructure',
           query("SELECT string_agg(permission,',' ORDER BY permission) FROM security.role_permissions WHERE role_id="
-                "(SELECT id FROM security.roles WHERE code='agent_reader');") == 'ReadJobs,ReadMarketData,ReadTradeParties,ReadTrades')
+                "(SELECT id FROM security.roles WHERE code='agent_reader');") == 'DraftCustomCurves,ReadJobs,ReadMarketData,ReadTradeParties,ReadTrades')
 
     fake.respond(stream(tool_use(model_name, [('toolu_jobs_1', 'read_current_page', {}), ('toolu_jobs_2', 'read_jobs', history(mine['id'])),
                                               ('toolu_jobs_3', 'read_jobs', history(theirs['id'])),

@@ -7,6 +7,8 @@ if(args is ["--booked-programs",var bookedProgramsFixture]){await BookedProgramS
 if(args is ["--ppa-blotter-admission"]){await PpaBlotterAdmissionChecks.Run();return;}
 if(args is ["--position-facts"]){TradePositionFactsChecks.Run();return;}
 if(args is ["--swap-settlement-agent",var settlementAgentFixture]){await SwapSettlementAgentChecks.Run(settlementAgentFixture);return;}
+if(args is ["--custom-curve-savers",var curveSaverFixture]){await CustomCurveSaverChecks.Run(curveSaverFixture);return;}
+if(args is ["--custom-curve-tool",var curveToolFixture]){await CustomCurveToolChecks.Run(curveToolFixture);return;}
 if(args is ["--reference-intake"]){await ReferenceCaptureChecks.Run();await ReferenceImportChecks.Run();return;}
 if(args is ["--reference-import-plan",var referenceOutput]){await ReferenceImportChecks.Run(referenceOutput);return;}
 if(args is ["--swap-change-review"]){SwapChangeReviewChecks.Run();return;}

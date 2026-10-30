@@ -36,11 +36,12 @@ import {validateMarketNavigation,navigationGroups,navigationCategories,navigatio
 import {navigationGroups as sidebarGroups,pageGroup,pageAvailable,firstPage} from './navigation-groups.js';
 import {setupAssistant} from './assistant-panel.js';
 import {pageReport,webPage,type PageState,type PageContext,type Place} from './assistant-pages.js';
-import {readPages,type TargetContext} from './assistant-events.js';
+import {readPages,type Target,type TargetContext} from './assistant-events.js';
 import {readCurveShapes} from './curve-shapes.js';
 import type {CurveShape} from './desk-model.js';
 import {commodityDot,librarySparkline,marketBoard,renderBoard,shapeReads} from './market-board.js';
 import {renderTile} from './tiles.js';
+import {kindBadge} from './curve-kinds.js';
 import {panelPlacement} from './side-panel.js';
 import {answeredOverlays,type OverlayCatalog,type OverlayRequest,type OverlaySeries} from './time-chart.js';
 import {type ContractHistory,type RevisionPolicy,revisionPolicies,historyBasis,historyChart,knownAtText,setupContractPanel} from './contract-panel.js';
@@ -133,7 +134,7 @@ async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
  }
  return payload;
 }
-function pageStatus(){return page==='delivery'?'Delivery prices · selected delivery dates and knowledge cutoff.':page==='ppa'?'PPA bookings · exact selected inputs and certified knowledge.':page==='interval-series'?'Interval data · working data, known at the chosen time.':page==='interval-curves'?'Hourly / sub-hourly prices · marks from the selected market date; shapes and actuals known at the chosen time.':page==='custom-curves'?'Custom curves · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant settings · current authority.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:select('snapshot').value?'Choose a curve to get started.':'Choose a curve and a market date to get started.';}
+function pageStatus(){return page==='delivery'?'Delivery prices · selected delivery dates and knowledge cutoff.':page==='ppa'?'PPA bookings · exact selected inputs and certified knowledge.':page==='interval-series'?'Interval data · working data, known at the chosen time.':page==='interval-curves'?'Hourly / sub-hourly prices · marks from the selected market date; shapes and actuals known at the chosen time.':page==='custom-curves'?'Curve builder · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant settings · current authority.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:select('snapshot').value?'Choose a curve to get started.':'Choose a curve and a market date to get started.';}
 const errorMessage=(error:unknown)=>error instanceof Error?error.message:'Something went wrong. Please refresh the page.';
 // `keepNotice` is for work that completes a change the person has already made, as reading a changed effective date's end-of-day
 // knowledge does: what that change said, such as that it cleared a risk run, stays on screen.
@@ -210,7 +211,7 @@ async function setPage(next:string){
   // about and that nothing can return to: the Blotter is read afresh when they come back to it.
   if(page==='futures'&&next!=='futures')futures.leavePage();
   page=next;$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures';$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next);$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('curve-date-editor').hidden=next!=='configuration';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin';$('ai-page').hidden=next!=='ai';$('no-access-page').hidden=true;
-  text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='jobs'?'Jobs & Infrastructure':next==='custom-curves'?'Custom curves':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='interval-curves'?'Curves & prices':next==='parties'?'Entities & counterparties':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='market'?'Curves & prices':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules':'Reference data');
+  text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='jobs'?'Jobs & Infrastructure':next==='custom-curves'?'Curve builder':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='interval-curves'?'Curves & prices':next==='parties'?'Entities & counterparties':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='market'?'Curves & prices':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules':'Reference data');
   for(const name of ['market','custom-curves','delivery','interval-series','interval-curves','power','reference','configuration','schedules','admin','ai','parties','jobs'])$('nav-'+name).classList.toggle('active',next===name||(name==='market'&&next==='interval-curves'));
   renderBlotterViews();
   text('status',pageStatus());syncControls();
@@ -373,14 +374,14 @@ function renderBrowse(){
   const owner=directory();
   $('curves').replaceChildren(...groups.map(group=>{const section=el('details'),key=prefs.browseBy+'|'+group.key;section.className='curve-group';section.open=!prefs.collapsedCurveGroups.includes(key);section.append(el('summary',group.name));
     section.ontoggle=()=>{if(!section.isConnected||navigation!==owner)return;const closed=prefs.collapsedCurveGroups.includes(key);if(closed===!section.open)return;prefs.collapsedCurveGroups=section.open?prefs.collapsedCurveGroups.filter(k=>k!==key):[...prefs.collapsedCurveGroups,key].slice(-64);persist();};
-    // The name and type are the row's text; the commodity dot and the curve's sparkline beside them are decorative.
-    group.cards.forEach(c=>{const button=el('button'),line=librarySparkline(c);button.className='curve-button'+(c.curve===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.curve===curve));button.append(commodityDot(c),el('span',c.name),el('small',c.type),...(line?[line]:[]));button.onclick=()=>chooseCurve(c.curve);section.append(button);});return section;}));
+    // The kind badge, name and type are the row's text; the commodity dot and the curve's sparkline beside them are decorative.
+    group.cards.forEach(c=>{const button=el('button'),line=librarySparkline(c);button.className='curve-button'+(c.curve===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.curve===curve));button.append(commodityDot(c),kindBadge(c.curveKind),el('span',c.name),el('small',c.type),...(line?[line]:[]));button.onclick=()=>chooseCurve(c.curve);section.append(button);});return section;}));
   if(!groups.length)$('curves').append(el('p','No curves match these choices.'));
 }
 function renderContext(){
   const example=directory().example;$('example').hidden=!example;text('example-help',example?`${curveName(example.curve)} · ${instant(example.at)}`:'No market inputs have been imported.');renderLayout();renderBrowse();renderMarketBoard();$('curve-detail').hidden=!curve||!workspace;
   $('curve-power').hidden=!curve||!workspace?.powerCurveCodes.includes(curve);
-  if(curve&&workspace){const c=selectedCurve(),listed=listedCurve(),kind=listed.marketType;renderSummary();text('curve-kind',navigationCurveKind(listed));text('curve-title',curveName(curve));
+  if(curve&&workspace){const c=selectedCurve(),listed=listedCurve(),kind=listed.marketType;renderSummary();text('curve-kind',navigationCurveKind(listed));text('curve-title',curveName(curve));$('curve-kind-badge').replaceChildren(kindBadge(listed.kind,'md'));
     const specification=kind==='rates'?row('interest_rate_definitions','code',val(c,'interest_rate_code'),true):undefined;
     text('unit',specification?`${val(row('currencies','code',val(specification,'currency_code'),true),'display_code')} · % per year`:unit(val(c,'quote_code')));
     text('chart-title',kind==='rates'?'Zero-rate curve':kind==='futures'?'Futures curve':kind==='forwards'?'Forward curve':'Mixed curve');
@@ -830,10 +831,11 @@ $('follow-live').onclick=()=>leaving(async()=>{
  contextDirty=false;connectLive(selected.live);lastLiveUpdate=selected;liveUpdates?.offer({...selected,generation:selected.live.generation});
 },'keeps');
 $('live-retry').onclick=()=>{if(liveStream?.readyState===EventSource.CLOSED&&navigation?.live){liveStream=undefined;connectLive(navigation.live);}else if(lastLiveUpdate)liveUpdates?.offer({...lastLiveUpdate,generation:lastLiveUpdate.live.generation},true);};
-// The side panels of Curves & prices and Custom curves dock beside the page when the main area has the room and the assistant is closed.
-const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
+// The contract panel of Curves & prices docks beside the page when the main area has the room and the assistant is closed; Curve builder
+// shows its views' tab groups side by side only from a main area this wide (curve-dock.ts).
+const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)'),dockedGroupsFrom=960;
 const panelDocked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
-const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScopeChanged:invalidateMarketDates,unsavedChanged:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},docked:panelDocked,sheet:()=>phone.matches&&!$('custom-curves-page').hidden,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
+const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,marketScopeChanged:invalidateMarketDates,unsavedChanged:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),draft:text=>assistant.draft(text)},busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
 // The hidden select remains the shared exact-frame adapter consumed by the
 // existing pricing, trading and knowledge-context widgets. The calendar is its UI.
 const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
@@ -926,7 +928,8 @@ function pageState():PageState{
     case 'futures':return {page,...futures.report()};
     case 'jobs':return {page,job:jobs.shown()};
     case 'ppa':return {page,...ppa.shown()};
-    case 'configuration':case 'schedules':case 'delivery':case 'custom-curves':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':return {page};
+    case 'custom-curves':return {page,...customCurves.report()};
+    case 'configuration':case 'schedules':case 'delivery':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':return {page};
     default:throw Error('This page could not load. Please refresh.');
   }
 }
@@ -955,16 +958,24 @@ function unsaved(){
   }
 }
 // Opens a target's page with what it selects: the curve directory, a curve or its inputs, a reference table, a party
-// kind, a Blotter view or a trade. A page target, and a view the page shows by itself, open as navigation opens them.
-async function showTarget(report:string,selection:Record<string,unknown>|null){
+// kind, a Blotter view or a trade, or on Curve builder a proposed curve or a draft the assistant saved. A page target, and a
+// view the page shows by itself, Curve builder's report among them, open as navigation opens them.
+async function showTarget(report:string,selection:Record<string,unknown>|null,kind?:Target['kind']){
   const next=webPage(report);
   if(!selection)return showPage(next);
   // What a target names is checked before the page changes, so a target the page cannot show leaves it as it was.
   switch(report){
     case 'custom_curves':{
-      if(!Object.keys(selection).length)return showPage('custom-curves');
+      if(kind!=='proposal'&&kind!=='draft')return showPage('custom-curves');
       const scope=()=>JSON.stringify([marketSelection(),historicalContext()?.contextId]);
       const requested=scope(),editor=customCurves.guard();
+      if(kind==='draft'){
+        const draft=await api<{id:string;version:number}>('assistant/curve-draft',selection);
+        if(requested!==scope())throw Error('The account or financial context changed. Open the saved draft again.');
+        await setPage('custom-curves');await customCurves.load();
+        if(requested!==scope())throw Error('The account or financial context changed. Open the saved draft again.');
+        customCurves.openSaved(draft,editor);return;
+      }
       const proposal=await api<Parameters<typeof customCurves.openPrepared>[0]>('assistant/curve-proposal',selection);
       if(requested!==scope())throw Error('The account or financial context changed. Review the proposed curve again.');
       await setPage('custom-curves');await customCurves.load();
@@ -1047,8 +1058,9 @@ function tableName(code:string){
 $('assistant-hide').onclick=()=>{prefs.assistantHidden=true;persist();assistant.sync();};
 const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,api,root:apiRoot,identity:()=>administrationScope+':'+currentProfile,zone:()=>prefs.timeZone,
   available:()=>can('UseAgents'),pageBusy:()=>busy,act,place,names:()=>({curve:curveName,table:tableName}),
-  trade:()=>futures.report().trade?.reference,unsaved,open:target=>showTarget(target.page,target.selection),
-  go:async target=>{if(target.kind!=='proposal')await selectContext(target.context);await showTarget(target.page,target.selection);},restore:restorePlace});
+  trade:()=>futures.report().trade?.reference,unsaved,open:target=>showTarget(target.page,target.selection,target.kind),
+  // A proposed curve or a saved draft opens under the header the page shows (D260).
+  go:async target=>{if(target.kind!=='proposal'&&target.kind!=='draft')await selectContext(target.context);await showTarget(target.page,target.selection,target.kind);},restore:restorePlace});
 // Coming back to the window asks whether a newer close arrived while it was away.
 window.addEventListener('focus',()=>void recheckNewestClose());
 // A reload, closing the tab and going back leave the page without the panel's own question, so the browser asks while the panel holds an

@@ -37,7 +37,7 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
             Schedules=References.Schedules.OrderBy(s=>s.Node,StringComparer.Ordinal).Select(s=>new{s.Node,s.CatalogId,s.ScheduleId,s.Version,
                 s.EngineVersion,s.KnownFrom,s.PublicationOrder,s.Selection,s.Origin,s.First,s.Count,s.Occurrences,
                 Calendar=s.Calendar is {} calendar?CalendarEvidence(calendar):null}).ToArray()}};
-    static JsonObject NodeEvidence(RecipeNode node)
+    internal static JsonObject NodeEvidence(RecipeNode node)
     {
         var result=JsonSerializer.SerializeToNode(new{node.Id,node.Kind,
             ContractWeights=node.ContractWeights.IsDefault?[]:node.ContractWeights.OrderBy(w=>w.OutputPosition).ThenBy(w=>w.SourcePort,StringComparer.Ordinal).ThenBy(w=>w.ContractId).ToArray(),

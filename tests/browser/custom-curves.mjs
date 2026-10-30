@@ -2,49 +2,94 @@ import {sideSession} from './side-session.mjs';
 
 /** Browser behavior over the same authorized custom-curve operations used by agents. */
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,fitsWidth,url}){
- const discardAsked=async()=>{if(await evaluate("!document.querySelector('#custom-curves-panel-prompt').hidden"))await click('#custom-curves-panel-prompt button:not(.secondary)');};
+ // The focus checks need focus events to reach the page, as in a focused window.
+ await command('Emulation.setFocusEmulationEnabled',{enabled:true});
+ const discardAsked=async()=>{if(await evaluate("!document.querySelector('#custom-curves-page-prompt').hidden"))await click('#custom-curves-page-prompt button:not(.secondary)');};
+ // The curve's views are tabs in a dock (curve-dock.ts): `tab` reads one of them, `groups` the tabs each group shows, in order.
+ const tab=id=>`document.querySelector('#custom-curves-dock-${id}')`,body=id=>`document.querySelector('#${id==='versions'?'curve-activation':'custom-curves-tab-'+id}')`;
+ const groups="[...document.querySelectorAll('#custom-curves-dock .dock-group')].map(g=>[...g.querySelectorAll('[role=tab]')].map(t=>t.textContent))";
+ const press=async(key,modifiers=0)=>{const codes={Escape:27,Enter:13,ArrowDown:40,ArrowUp:38,ArrowRight:39,F10:121,ContextMenu:93};for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,modifiers,windowsVirtualKeyCode:codes[key],...(type==='keyDown'&&key==='Enter'?{text:'\r',unmodifiedText:'\r'}:{})});await wait(idle);};
+ // HTML drag and drop, as the page receives it: one transfer carried from the dragged tab to the drop zone.
+ const startDrag=id=>evaluate(`(()=>{const data=new DataTransfer();window.dockDrop=(node,type)=>node.dispatchEvent(new DragEvent(type,{bubbles:true,cancelable:true,dataTransfer:data}));window.dockDrop(document.querySelector('#custom-curves-dock-${id}'),'dragstart');})()`);
+ const dropOn=(id,group,edge)=>evaluate(`(()=>{const zone=document.querySelector('#custom-curves-dock .dock-group[data-group="${group}"] .dock-zone[data-edge=${edge}]');for(const type of ['dragenter','dragover','drop'])window.dockDrop(zone,type);window.dockDrop(document.querySelector('#custom-curves-dock-${id}'),'dragend');})()`);
+ const menuOn=async id=>{await evaluate(`document.querySelector('#custom-curves-dock-${id}').focus()`);await press('F10',8);};
+ const dockMenu="[...document.querySelectorAll('.dock-menu:not([hidden]) [role=menuitem]')].map(item=>item.textContent)";
  const pickTemplate=async code=>{await set('#custom-curves-template',code);await discardAsked();};
  await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.customAuthoringReads=[];{const original=window.fetch;window.fetch=(input,init)=>{window.customAuthoringReads.push(new URL(typeof input==='string'?input:input.url,location.href).pathname);return original(input,init);};}`});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  await persona('editor');
  const selectedClose=await evaluate("[...document.querySelector('#snapshot').options].find(option=>option.textContent.includes('Dec 18')&&option.textContent.includes('4:00')).value");
- await set('#snapshot',selectedClose);await wait(idle);await click('#nav-custom-curves');
+ await set('#snapshot',selectedClose);await wait(idle);await evaluate("localStorage.removeItem('openetrm.custom-curves.layout.v1')");await click('#nav-custom-curves');
+ await check('the page is named Curve builder in the navigation and the page title',"document.querySelector('#nav-custom-curves').getAttribute('aria-label')==='Curve builder'&&document.querySelector('#nav-custom-curves .nav-text').textContent==='Curve builder'&&document.querySelector('#page-title').textContent==='Curve builder'&&document.querySelector('#custom-curves-page').getAttribute('aria-label')==='Curve builder'");
+ await check('with no curve open the main area offers the assistant, New curve and the templates',"(()=>{const start=document.querySelector('#custom-curves-start');return !start.hidden&&document.querySelector('#custom-curves-dock').hidden&&document.querySelector('#custom-curves-start-ask').textContent==='Ask the assistant to set up a curve'&&!document.querySelector('#custom-curves-start-ask').hidden&&!document.querySelector('#custom-curves-start-new').disabled&&start.querySelector('[data-template=ng_prompt]')&&document.querySelector('#custom-curves-ask').textContent==='Ask the assistant to set up a curve';})()");
+ await click('#custom-curves-start-ask');
+ await check('asking the assistant opens it with a question to start from',"!document.querySelector('#assistant-panel').hidden&&document.querySelector('#assistant-question').value==='Help me set up a new curve in the Curve builder: prepare it and show me its key values, then save it as a draft.'");
+ await evaluate("document.querySelector('#assistant-question').value=''");await click('#assistant-close');
  await check('custom curve editor loads backend operation and template catalogs',"!document.querySelector('#custom-curves-page').hidden&&document.querySelector('#custom-curves-template option[value=ng_prompt]')&&document.querySelectorAll('#custom-curves-operators button').length>=5");
  await pickTemplate('ng_prompt');
+ await check('a curve opens as one tab group on Outputs, with a Preview call to action and no preview run',`JSON.stringify(${groups})==='[["Outputs","Graph","Configuration","Versions","Lineage"]]'&&${tab('outputs')}.getAttribute('aria-selected')==='true'&&!${body('outputs')}.hidden&&${body('graph')}.hidden&&!document.querySelector('#custom-curves-outputs-empty').hidden&&!document.querySelector('#custom-curves-outputs-preview').disabled&&document.querySelector('#custom-curves-result').hidden&&document.querySelector('#custom-curves-start').hidden&&document.querySelector('#custom-curves-heading').textContent.includes('NG prompt')`,groups);
+ await evaluate(`${tab('outputs')}.focus()`);await press('ArrowRight');
+ await check('the arrow keys move between a group’s tabs',`${tab('graph')}.getAttribute('aria-selected')==='true'&&document.activeElement===${tab('graph')}&&!${body('graph')}.hidden&&${body('outputs')}.hidden`);
  await check('prompt template creates a connected editable graph',"document.querySelectorAll('.custom-curve-node').length>=4&&document.querySelectorAll('.custom-curve-wires path').length>=3");
- const widest="(()=>{const width=selector=>{const node=document.querySelector(selector);return node&&!node.hidden?node.getBoundingClientRect().width:0;},graph=width('.custom-curve-centre');return graph>width('#custom-curves-rail')&&graph>width('#custom-curves-panel');})()";
- await check('the panel stays closed when the page opens a curve, and the graph is the widest region',"document.querySelector('#custom-curves-panel').hidden&&document.querySelector('#custom-curves-toggle-panel').getAttribute('aria-expanded')==='false'&&document.querySelector('#custom-curves-heading').textContent.includes('NG prompt')&&"+widest);
+ await click('#custom-curves-dock-outputs');
  await click('.custom-curve-node[data-node-id=select] p');
- await check('selecting a graph card opens Selected operation in the docked panel',"(()=>{const panel=document.querySelector('#custom-curves-panel');return !panel.hidden&&panel.dataset.placement==='docked'&&panel.contains(document.querySelector('#custom-curves-properties'))&&document.querySelector('#custom-curves-panel-tabs-operation').getAttribute('aria-selected')==='true'&&!document.querySelector('#custom-curves-inspector').hidden&&document.querySelector('#custom-curve-property-count')?.value==='1';})()");
- await check('with the panel docked the graph is still the widest region',widest);
- await click('#custom-curves-panel-tabs-details');
- await check('Details holds the code, name and template in the panel',"(()=>{const details=document.querySelector('#custom-curves-details');return !details.hidden&&document.querySelector('#custom-curves-inspector').hidden&&['#custom-curves-code','#custom-curves-name','#custom-curves-template'].every(id=>details.contains(document.querySelector(id)));})()");
- await click('#custom-curves-panel-tabs-operation');
+ const width=selector=>`document.querySelector('${selector}').getBoundingClientRect().width`;
+ await check('selecting a graph card shows Graph, its selected operation beside the board, and the board is the widest region',`${tab('graph')}.getAttribute('aria-selected')==='true'&&!document.querySelector('#custom-curves-inspector').hidden&&${body('graph')}.contains(document.querySelector('#custom-curves-properties'))&&document.querySelector('#custom-curves-inspector').getBoundingClientRect().left>=document.querySelector('#custom-curves-graph').getBoundingClientRect().right&&document.querySelector('#custom-curve-property-count')?.value==='1'&&${width('#custom-curves-graph')}>${width('#custom-curves-rail')}&&${width('#custom-curves-graph')}>${width('#custom-curves-inspector')}`);
+ await click('#custom-curves-dock-configuration');
+ await check('Configuration holds the code, name, template and ingredients with their kind badges',`(()=>{const configuration=${body('configuration')};const items=[...document.querySelectorAll('#custom-curves-ingredients li')];return !configuration.hidden&&${body('graph')}.hidden&&['#custom-curves-code','#custom-curves-name','#custom-curves-template','#curve-blend'].every(id=>configuration.contains(document.querySelector(id)))&&items.length===1&&items[0].querySelector('.curve-kind[role=img]')?.getAttribute('aria-label')?.length>0;})()`,"[...document.querySelectorAll('#custom-curves-ingredients li')].map(li=>li.innerHTML)");
+ await click('#custom-curves-dock-graph');
  await evaluate("[...document.querySelectorAll('#custom-curves-operators button')].find(button=>button.textContent==='Curve lookup').click()");
  await check('lookup choices start blank and expose typed panel and date inputs',"['axis','method','maxGapDays','leftBoundary','rightBoundary','implementation','output'].every(key=>document.querySelector('#custom-curve-property-'+key)?.value==='')&&document.querySelector('select[data-input-port=values]')&&document.querySelector('select[data-input-port=dates]')");
  await set('#custom-curve-property-axis','0');await set('#custom-curve-property-method','4');await set('#custom-curve-property-maxGapDays','31');
  await set('#custom-curve-property-leftBoundary','0');await set('#custom-curve-property-rightBoundary','0');await set('#custom-curve-property-implementation','0');await set('#custom-curve-property-output','0');
  await set('select[data-input-port=values]','sample');await set('select[data-input-port=dates]','dates');
  await check('lookup settings and connections are editable through backend metadata',"document.querySelector('#custom-curve-property-maxGapDays').value==='31'&&document.querySelector('.custom-curve-node[data-node-id=lookup_1]').textContent.includes('Linear price')&&document.querySelectorAll('.custom-curve-wires path').length>=5");
- await pickTemplate('ng_prompt');
+ await pickTemplate('ng_prompt');await click('#custom-curves-dock-graph');
 
- await check('custom curve side panels have independent accessible collapse controls',"[['rail','rail-body'],['panel','panel']].every(([name,region])=>{const control=document.querySelector('#custom-curves-toggle-'+name),panel=document.querySelector('#custom-curves-'+region);return control&&panel&&control.getAttribute('aria-controls')===panel.id&&control.getAttribute('aria-expanded')==='true'&&!panel.hidden;})");
+ await check('the saved-curve rail has an accessible collapse control',"(()=>{const control=document.querySelector('#custom-curves-toggle-rail'),rail=document.querySelector('#custom-curves-rail-body');return control.getAttribute('aria-controls')===rail.id&&control.getAttribute('aria-expanded')==='true'&&!rail.hidden;})()");
  await evaluate("window.customGraphWidth=document.querySelector('#custom-curves-graph').getBoundingClientRect().width;window.customGraphNodes=document.querySelectorAll('.custom-curve-node').length");
  await click('#custom-curves-toggle-rail');
- await check('collapsing the saved curves and operations expands the graph while keeping properties available',"document.querySelector('#custom-curves-rail-body').hidden&&!document.querySelector('#custom-curves-panel').hidden&&document.querySelector('#custom-curves-toggle-rail').getAttribute('aria-expanded')==='false'&&document.querySelector('#custom-curves-graph').getBoundingClientRect().width>window.customGraphWidth+80");
- await evaluate("window.customGraphWidth=document.querySelector('#custom-curves-graph').getBoundingClientRect().width");await click('#custom-curves-toggle-panel');
- await check('hiding both side panels gives their space to the same editable graph',"document.querySelector('#custom-curves-rail-body').hidden&&document.querySelector('#custom-curves-panel').hidden&&document.querySelector('#custom-curves-graph').getBoundingClientRect().width>window.customGraphWidth+150&&document.querySelectorAll('.custom-curve-node').length===window.customGraphNodes");
+ await check('collapsing the saved curves gives their width to the same editable graph while keeping properties available',"document.querySelector('#custom-curves-rail-body').hidden&&!document.querySelector('#custom-curves-inspector').hidden&&document.querySelector('#custom-curves-toggle-rail').getAttribute('aria-expanded')==='false'&&document.querySelector('#custom-curves-graph').getBoundingClientRect().width>window.customGraphWidth+80&&document.querySelectorAll('.custom-curve-node').length===window.customGraphNodes");
  await click('#custom-curves-fit');await evaluate("document.querySelector('#custom-curves-graph').scrollIntoView({block:'center'})");await shot('custom-curves-expanded-graph');
  await click('#custom-curves-toggle-rail');
- await check('restoring the rail leaves the property panel collapsed',"!document.querySelector('#custom-curves-rail-body').hidden&&document.querySelector('#custom-curves-panel').hidden");
- await evaluate("document.querySelector('#custom-curves-toggle-panel').focus()");
- await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
- await check('keyboard activation restores properties without losing focus',"!document.querySelector('#custom-curves-panel').hidden&&!document.querySelector('#custom-curves-inspector').hidden&&document.activeElement?.id==='custom-curves-toggle-panel'&&document.querySelector('#custom-curves-toggle-panel').getAttribute('aria-expanded')==='true'","({hidden:document.querySelector('#custom-curves-panel').hidden,focus:document.activeElement?.id,expanded:document.querySelector('#custom-curves-toggle-panel').getAttribute('aria-expanded')})");
- await evaluate("document.querySelector('#custom-curves-properties select,#custom-curves-properties input').focus()");
- await command('Emulation.setDeviceMetricsOverride',{width:1100,height:1100,deviceScaleFactor:1,mobile:false});await wait("document.querySelector('#custom-curves-panel').dataset.placement==='overlay'");
- await check('a panel that loses the room to dock stays open as an overlay with focus inside it',"!document.querySelector('#custom-curves-panel').hidden&&document.querySelector('#custom-curves-panel').contains(document.activeElement)","({hidden:document.querySelector('#custom-curves-panel').hidden,focus:document.activeElement?.id||document.activeElement?.localName})");
- await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});await wait("document.querySelector('#custom-curves-panel').dataset.placement==='docked'");
+ await check('restoring the rail shows the saved curves again',"!document.querySelector('#custom-curves-rail-body').hidden&&document.querySelector('#custom-curves-toggle-rail').getAttribute('aria-expanded')==='true'");
+ // Docking: a tab dragged onto a group's edge splits the group; the arrangement survives a reload until Reset layout.
+ await click('#custom-curves-dock-outputs');await evaluate("document.querySelector('.custom-curve-desk').scrollIntoView({block:'start'})");await shot('custom-curves-workspace');
+ await startDrag('configuration');
+ await check('dragging a tab shows the centre and edge drop zones of its group',"(()=>{const zones=[...document.querySelectorAll('#custom-curves-dock .dock-group[data-group=\"0\"] .dock-zone')];return document.querySelector('#custom-curves-dock').hasAttribute('data-dragging')&&zones.map(z=>z.dataset.edge).sort().join()==='bottom,centre,left,right,top'&&zones.every(z=>z.getBoundingClientRect().width>0&&z.getBoundingClientRect().height>0);})()");
+ await dropOn('configuration',0,'right');
+ const sideBySide=`(()=>{const [a,b]=[...document.querySelectorAll('#custom-curves-dock .dock-group')].map(g=>g.getBoundingClientRect());return JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage"],["Configuration"]]'&&b.left>=a.right&&Math.abs(a.top-b.top)<1;})()`;
+ await check('dropping Configuration on the right edge shows two groups side by side, each showing its tab',`${sideBySide}&&!${body('configuration')}.hidden&&!${body('outputs')}.hidden&&!document.querySelector('#custom-curves-dock').hasAttribute('data-dragging')`,groups);
+ await evaluate("document.querySelector('.custom-curve-desk').scrollIntoView({block:'start'})");await shot('custom-curves-side-by-side');
+ // The template's graph is an unsaved edit, which the browser would ask about on reload; a blank new curve holds none.
+ await click('#custom-curves-new');await discardAsked();
+ const before=await evaluate('performance.timeOrigin');await command('Page.reload');await wait(`performance.timeOrigin!==${before}&&document.querySelectorAll('.curve-button').length>0&&${idle}`);
+ await persona('editor');await set('#snapshot',selectedClose);await wait(idle);await click('#nav-custom-curves');await pickTemplate('ng_prompt');
+ await check('a reload keeps the arrangement',sideBySide,groups);
+ await click('#custom-curves-reset-layout');
+ await check('Reset layout returns to one group on Outputs and forgets the arrangement',`JSON.stringify(${groups})==='[["Outputs","Graph","Configuration","Versions","Lineage"]]'&&${tab('outputs')}.getAttribute('aria-selected')==='true'&&localStorage.getItem('openetrm.custom-curves.layout.v1')===null`,groups);
+ await menuOn('graph');
+ await check('a tab’s menu opens from the keyboard with the moves it offers',`JSON.stringify(${dockMenu})===JSON.stringify(['Move to new group right','Move to new group below','Move to group…'])&&document.activeElement?.textContent==='Move to new group right'&&document.querySelector('.dock-menu [aria-disabled]')?.textContent==='Move to group…'`,dockMenu);
+ await press('ArrowDown');await press('Enter');
+ await check('Move to new group below, from the keyboard, splits the group above and below with focus on the moved tab',`(()=>{const [a,b]=[...document.querySelectorAll('#custom-curves-dock .dock-group')].map(g=>g.getBoundingClientRect());return JSON.stringify(${groups})==='[["Outputs","Configuration","Versions","Lineage"],["Graph"]]'&&b.top>=a.bottom&&Math.abs(a.left-b.left)<1&&document.activeElement===${tab('graph')};})()`,groups);
+ await menuOn('lineage');await press('ArrowUp');await press('Enter');
+ await check('Move to group… lists the other groups',`JSON.stringify(${dockMenu})==='["Group 2 · Graph"]'`,dockMenu);
+ await press('Enter');
+ await check('choosing a group moves the tab into it and shows it there',`JSON.stringify(${groups})==='[["Outputs","Configuration","Versions"],["Graph","Lineage"]]'&&${tab('lineage')}.getAttribute('aria-selected')==='true'&&!${body('lineage')}.hidden&&!${body('outputs')}.hidden`,groups);
+ await evaluate("document.querySelector('#custom-curves-dock .dock-divider').focus()");await press('ArrowDown');
+ await check('a divider resizes its split from the keyboard',"document.querySelector('#custom-curves-dock .dock-divider').getAttribute('aria-valuenow')==='55'&&JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).ratio===0.55");
+ // A divider dragged with the pointer keeps the share where it is let go; a cancelled drag keeps the arrangement as it was.
+ const divider="document.querySelector('#custom-curves-dock .dock-divider')",stored="JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).ratio";
+ const grab=async dy=>{const a=await evaluate(`(()=>{const r=${divider}.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};})()`);
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...a});await command('Input.dispatchMouseEvent',{type:'mousePressed',...a,button:'left',buttons:1,clickCount:1});
+  for(let step=1;step<=6;step++)await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:a.x,y:a.y+dy*step/6,button:'left',buttons:1});return {x:a.x,y:a.y+dy};};
+ let at=await grab(120);await command('Input.dispatchMouseEvent',{type:'mouseReleased',...at,button:'left',buttons:0,clickCount:1});await wait(idle);
+ await check('dragging a divider with the pointer keeps the share where it is let go',`${stored}>0.55&&${stored}<=0.8&&${divider}.getAttribute('aria-valuenow')===String(Math.round(${stored}*100))`,`[${stored},${divider}.getAttribute('aria-valuenow')]`);
+ await evaluate(`window.dockRatio=${stored}`);
+ at=await grab(-150);await evaluate(`${divider}.dispatchEvent(new PointerEvent('pointercancel',{bubbles:true,pointerId:1,clientX:0,clientY:0}))`);await command('Input.dispatchMouseEvent',{type:'mouseReleased',...at,button:'left',buttons:0,clickCount:1});await wait(idle);
+ await check('a cancelled divider drag keeps the arrangement as it was',`${stored}===window.dockRatio&&${divider}.getAttribute('aria-valuenow')===String(Math.round(window.dockRatio*100))`,`[${stored},window.dockRatio,${divider}.getAttribute('aria-valuenow')]`);
+ await click('#custom-curves-reset-layout');await click('.custom-curve-node[data-node-id=select] p');
  await check('templates open a configurable operation rather than only output wiring',"document.querySelector('#custom-curves-properties input:not([type=checkbox]),#custom-curves-properties select:not([data-input-port])')&&!document.querySelector('#custom-curves-properties input:not([type=checkbox]),#custom-curves-properties select:not([data-input-port])').disabled");
  await click('.custom-curve-node[data-node-id=select] p');
  await check('clicking the body of a contract-selection card exposes its editable fields',"document.querySelector('#custom-curve-property-count')?.value==='1'&&!document.querySelector('#custom-curve-property-count').disabled&&document.querySelector('.custom-curve-node[data-node-id=select]').classList.contains('selected')");
@@ -52,9 +97,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowUp',code:'ArrowUp',windowsVirtualKeyCode:38});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowUp',code:'ArrowUp',windowsVirtualKeyCode:38});
  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
  await check('native numeric editing and Tab preserve focus on the next inspector field',"document.activeElement?.id==='custom-curve-property-count'&&document.querySelector('#custom-curve-property-first').value==='2'");
- await set('#custom-curve-property-first','1');
+ await set('#custom-curve-property-first','1');await click('#custom-curves-dock-outputs');
  await evaluate(`window.customCurveRequests=[];{const previous=window.fetch;window.fetch=async(...args)=>{const response=await previous(...args);if(String(args[0]).includes('/custom-curves/')){const payload=await response.clone().json().catch(()=>null);window.customCurveRequests.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null,status:response.status,payload});if(String(args[0]).endsWith('/custom-curves/save')&&window.dropCustomSave){window.dropCustomSave=false;throw Error('Synthetic lost response');}if(String(args[0]).endsWith('/custom-curves/publish')&&window.dropCustomPublish){window.dropCustomPublish=false;throw Error('Synthetic lost publication response');}}return response;};}`);
- await click('#custom-curves-preview');
+ await evaluate("document.querySelector('#custom-curves-outputs-preview').focus()");await click('#custom-curves-outputs-preview');
+ await check('a preview run from the call to action keeps focus on its result',"document.activeElement===document.querySelector('#custom-curves-result')");
  await check('fresh-navigation custom authoring previews without hydrating the pricing workspace',"window.customAuthoringReads.includes('/api/custom-curves')&&window.customAuthoringReads.includes('/api/custom-curves/preview')&&!window.customAuthoringReads.includes('/api/workspace/catalog')&&!window.customAuthoringReads.includes('/api/evaluate')&&!document.querySelector('#custom-curves-result').hidden&&document.querySelector('#error').hidden");
  await check('preview sends the graph and displays backend-returned prices',"window.customCurveRequests.some(r=>r.path.endsWith('/custom-curves/preview')&&r.body.definition.code==='ng_prompt'&&r.body.snapshotId&&r.status===200)&&!document.querySelector('#custom-curves-result').hidden&&document.querySelectorAll('#custom-curves-values tbody tr').length>0&&document.querySelector('#error').hidden");
  await evaluate("window.customPromptPreview=window.customCurveRequests.find(r=>r.path.endsWith('/custom-curves/preview')).payload");
@@ -82,6 +128,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('a concurrent draft change rejects stale editing',"!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-pending').hidden");
  await click('#custom-curves-reload');await discardAsked();await set('#custom-curves-name','Synthetic browser prompt');await click('#custom-curves-save');
  await check('Reload library refreshes the selected draft generation before the next save',"(()=>{const request=window.customCurveRequests.filter(request=>request.path.endsWith('/custom-curves/save')).at(-1);return request.status===200&&request.body.generation===window.concurrentCurve.generation&&document.querySelector('#error').hidden;})()");
+ // Opening a curve shows Outputs in whichever group holds it, whatever tab was chosen before; the arrangement is kept.
+ await click('#custom-curves-dock-configuration');await click('#custom-curves-library [data-recipe]:not([aria-current])');await discardAsked();
+ await check('opening another curve shows Outputs with its Preview call to action',`${tab('outputs')}.getAttribute('aria-selected')==='true'&&!${body('outputs')}.hidden&&${body('configuration')}.hidden&&!document.querySelector('#custom-curves-outputs-empty').hidden`);
  await persona('approver');await click('#example');await click('#nav-custom-curves');
  await evaluate("{const choice=[...document.querySelectorAll('#custom-curves-library [data-recipe]')].find(item=>item.textContent.includes('Synthetic browser prompt'));if(!choice)throw Error('Saved draft is missing');choice.click();}");await wait(idle);
  await evaluate('window.dropCustomPublish=true');await click('#custom-curves-publish');
@@ -98,12 +147,16 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('date sequences remain editable graph references',"document.querySelector('#custom-curves-properties').querySelectorAll('input,select').length>0&&document.querySelectorAll('.custom-curve-node').length>=5");
  await click('#custom-curves-preview');
  await check('moving-average template keeps twelve separately evaluated tenors',"document.querySelectorAll('#custom-curves-values tbody tr').length===12&&document.querySelector('#error').hidden");
- await click('#custom-curves-panel-close');await click('#custom-curves-fit');
+ await click('#custom-curves-dock-graph');await click('#custom-curves-toggle-side');
+ await check('hiding the operations gives the board their width',"document.querySelector('#custom-curves-side').hidden&&document.querySelector('#custom-curves-toggle-side').getAttribute('aria-expanded')==='false'&&document.querySelector('#custom-curves-toggle-side').textContent==='Show operations'");
+ await click('#custom-curves-fit');
  // The zoom depends on the board's width, which differs by platform (scrollbars, fonts), so the check does not name a percentage: Fit must use the whole
  // width the board has, and the card titles it leaves must still be legible at the rendered size.
- await check('with the panel closed the twelve-tenor graph fits the board and its card titles stay legible',"(()=>{const board=document.querySelector('#custom-curves-graph'),canvas=document.querySelector('.custom-curve-canvas'),card=document.querySelector('.custom-curve-node'),scale=card.getBoundingClientRect().width/card.offsetWidth,title=parseFloat(getComputedStyle(card.querySelector('.custom-curve-node-handle')).fontSize)*scale,used=canvas.getBoundingClientRect().width;return Math.abs(used-(board.clientWidth-24))<=2&&title>=7;})()","(()=>{const card=document.querySelector('.custom-curve-node'),board=document.querySelector('#custom-curves-graph');return {zoom:document.querySelector('.custom-curve-zoom').textContent,board:board.clientWidth,canvas:document.querySelector('.custom-curve-canvas').getBoundingClientRect().width,title:parseFloat(getComputedStyle(card.querySelector('.custom-curve-node-handle')).fontSize)*card.getBoundingClientRect().width/card.offsetWidth};})()");
+ await check('with the operations hidden the twelve-tenor graph fits the board and its card titles stay legible',"(()=>{const board=document.querySelector('#custom-curves-graph'),canvas=document.querySelector('.custom-curve-canvas'),card=document.querySelector('.custom-curve-node'),scale=card.getBoundingClientRect().width/card.offsetWidth,title=parseFloat(getComputedStyle(card.querySelector('.custom-curve-node-handle')).fontSize)*scale,used=canvas.getBoundingClientRect().width;return Math.abs(used-(board.clientWidth-24))<=2&&title>=7;})()","(()=>{const card=document.querySelector('.custom-curve-node'),board=document.querySelector('#custom-curves-graph');return {zoom:document.querySelector('.custom-curve-zoom').textContent,board:board.clientWidth,canvas:document.querySelector('.custom-curve-canvas').getBoundingClientRect().width,title:parseFloat(getComputedStyle(card.querySelector('.custom-curve-node-handle')).fontSize)*card.getBoundingClientRect().width/card.offsetWidth};})()");
  await check('fit graph places every operation within the bounded canvas',"(()=>{const board=document.querySelector('#custom-curves-graph').getBoundingClientRect();return [...document.querySelectorAll('.custom-curve-node')].every(node=>{const rect=node.getBoundingClientRect();return rect.left>=board.left&&rect.right<=board.right&&rect.top>=board.top&&rect.bottom<=board.bottom;});})()");await evaluate("document.querySelector('.custom-curve-desk').scrollIntoView({block:'start'})");await shot('custom-curves-desktop');
- await click('.custom-curve-node[data-node-id=select] button');await set('#custom-curve-property-count','2');
+ await click('.custom-curve-node[data-node-id=select] button');
+ await check('selecting a card shows the operations again',"!document.querySelector('#custom-curves-side').hidden&&document.querySelector('#custom-curves-toggle-side').getAttribute('aria-expanded')==='true'");
+ await set('#custom-curve-property-count','2');
  await check('editing a node invalidates its previous values',"document.querySelector('#custom-curves-result').hidden");
  await click('#custom-curves-preview');
  await check('the edited graph changes the backend-computed curve',"document.querySelectorAll('#custom-curves-values tbody tr').length===2&&document.querySelector('#error').hidden");
@@ -139,16 +192,22 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await evaluate("document.querySelector('.custom-curve-desk').scrollIntoView({block:'start'})");await shot('custom-curves-weighted');
  await click('#custom-curves-save');await click('#custom-curves-reload');await discardAsked();await click('.custom-curve-node[data-node-id=select] button');
  await check('saved weighted definitions retain their exact contract references and weight text',`document.querySelector('[aria-label="Weight for connection 2"]').value==='-0.200000000000000001'&&document.querySelectorAll('.curve-contract-row').length===2&&document.querySelector('#error').hidden`);
+ // The backend names each saved curve's and source's kind (D259): weighted contract connections that feed a later step are no blend.
+ await check('the saved connections curve is listed as a Custom graph with a badge so named, in its header too, and each source card shows its curve\'s kind',
+  "(async()=>{const catalog=await(await fetch('/api/custom-curves')).json(),entry=document.querySelector('#custom-curves-library [aria-current=true]'),badge=entry?.querySelector('.curve-kind[role=img]'),head=document.querySelector('#custom-curves-kind .curve-kind-md'),sources=[...document.querySelectorAll('.custom-curve-node[data-kind=source]')];"+
+  "return catalog.recipes.find(r=>r.definition.code==='synthetic_browser_weighted').kind==='custom'&&badge?.getAttribute('aria-label')==='Custom graph'&&badge.title==='Custom graph'&&!!badge.querySelector('svg[aria-hidden=true]')&&entry.getAttribute('aria-label').includes('Custom graph')&&"+
+  "entry.closest('.custom-curve-kind-group').querySelector('.custom-curve-kind-name').textContent==='Custom graph'&&head?.getAttribute('aria-label')==='Custom graph'&&sources.length===2&&sources.every(card=>{const code=window.customWeightedDefinition.nodes.find(n=>n.id===card.dataset.nodeId).parameters.curve,kind=catalog.sources.find(s=>s.code===code).kind,shown=card.querySelector('.custom-curve-node-handle .curve-kind');return shown?.dataset.kind===kind&&shown.getAttribute('aria-label').length>0;});})()",
+  "(()=>{const entry=document.querySelector('#custom-curves-library [aria-current=true]');return {entry:entry?.getAttribute('aria-label'),head:document.querySelector('#custom-curves-kind .curve-kind')?.getAttribute('aria-label'),sources:[...document.querySelectorAll('.custom-curve-node[data-kind=source] .curve-kind')].map(b=>b.dataset.kind)};})()");
  await click('#custom-curves-mode-formula');await check('formula roundtrip retains typed contract mappings and multiple source ports',"document.querySelector('#custom-curves-formula').value.includes('contractWeights=')&&document.querySelector('#custom-curves-formula').value.includes('source_b=@other')&&document.querySelector('#custom-curves-formula').value.includes('-0.200000000000000001')");
  // Graph objects: contract rows, arrows and listed source contracts, edited directly on the graph through the same definition edits.
  const centre=async selector=>{const point=await evaluate(`(()=>{const node=document.querySelector(${JSON.stringify(selector)});node.scrollIntoView({block:'center',inline:'center'});const r=node.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;return node.contains(document.elementFromPoint(x,y))&&{x,y};})()`);if(!point)throw Error('Missing or covered: '+selector);return point;};
- // An arrow is right-clicked at a visible point along its line, where no card covers it.
- const onWire=async key=>{const point=await evaluate(`(()=>{const wire=document.querySelector('.custom-curve-wire[data-wire="${key}"]'),line=wire.querySelector('.wire-line');wire.scrollIntoView({block:'center',inline:'center'});const length=line.getTotalLength(),matrix=line.getScreenCTM();
-  for(const share of [.5,.4,.6,.3,.7,.2,.8,.1,.9,.05,.95]){const p=line.getPointAtLength(length*share),x=Math.round(matrix.a*p.x+matrix.c*p.y+matrix.e),y=Math.round(matrix.b*p.x+matrix.d*p.y+matrix.f);if([[0,0],[3,0],[-3,0],[0,3],[0,-3]].every(([dx,dy])=>wire.contains(document.elementFromPoint(x+dx,y+dy))))return {x,y};}return null;})()`);if(!point)throw Error('Arrow '+key+' is covered');return point;};
+ // An arrow is right-clicked at a visible point along its line, where no card covers it: a point whose neighbours, up to 3 pixels away
+ // and within the arrow's hit area at the graph's zoom (14 units wide), are on the arrow too.
+ const onWire=async key=>{const point=await evaluate(`(()=>{const wire=document.querySelector('.custom-curve-wire[data-wire="${key}"]'),line=wire.querySelector('.wire-line');wire.scrollIntoView({block:'center',inline:'center'});const length=line.getTotalLength(),matrix=line.getScreenCTM(),r=Math.max(1,Math.min(3,Math.floor(7*matrix.a)-1));
+  for(const share of [.5,.4,.6,.3,.7,.2,.8,.1,.9,.05,.95]){const p=line.getPointAtLength(length*share),x=Math.round(matrix.a*p.x+matrix.c*p.y+matrix.e),y=Math.round(matrix.b*p.x+matrix.d*p.y+matrix.f);if([[0,0],[r,0],[-r,0],[0,r],[0,-r]].every(([dx,dy])=>wire.contains(document.elementFromPoint(x+dx,y+dy))))return {x,y};}return null;})()`);if(!point)throw Error('Arrow '+key+' is covered');return point;};
  const rightClick=async selector=>{const wire=/^wire:(.+)$/.exec(selector),{x,y}=wire?await onWire(wire[1]):await centre(selector);
   await command('Input.dispatchMouseEvent',{type:'mouseMoved',x,y});await wait(idle);
   const under=await evaluate(`document.elementFromPoint(${x},${y})?.closest('[data-wire],[data-node-id]')?.outerHTML.slice(0,90)`);if(wire&&!under?.includes(`data-wire="${wire[1]}"`))throw Error('Pointer is not on '+selector+': '+under);for(const type of ['mousePressed','mouseReleased'])await command('Input.dispatchMouseEvent',{type,x,y,button:'right',buttons:type==='mousePressed'?2:0,clickCount:1});await wait(idle);};
- const press=async(key,modifiers=0)=>{const codes={Escape:27,Enter:13,ArrowDown:40,ArrowUp:38,F10:121,ContextMenu:93};for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,modifiers,windowsVirtualKeyCode:codes[key],...(type==='keyDown'&&key==='Enter'?{text:'\r',unmodifiedText:'\r'}:{})});await wait(idle);};
  const dragTo=async(from,to)=>{const a=await centre(from);await command('Input.dispatchMouseEvent',{type:'mouseMoved',...a});await command('Input.dispatchMouseEvent',{type:'mousePressed',...a,button:'left',buttons:1,clickCount:1});
   const b=await evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(to)})?.getBoundingClientRect();return r&&{x:r.left+r.width/2,y:r.top+r.height/2};})()`);if(!b)throw Error('No connect target '+to);
   for(let step=1;step<=8;step++)await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:a.x+(b.x-a.x)*step/8,y:a.y+(b.y-a.y)*step/8,button:'left',buttons:1});
@@ -163,10 +222,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await rightClick('wire:select#1');
  await check('a contract arrow menu offers editing its weight',`JSON.stringify(${menuItems})===JSON.stringify(['Change source…','Edit weight','Remove arrow'])`,menuItems);
  await choose('Edit weight');
- await check('Edit weight opens the mapping with that connection’s weight focused',"!document.querySelector('#custom-curves-panel').hidden&&document.activeElement?.getAttribute('aria-label')==='Weight for connection 2'");
+ await check('Edit weight opens the mapping with that connection’s weight focused',`!${body('graph')}.hidden&&`+"document.activeElement?.getAttribute('aria-label')==='Weight for connection 2'");
  await set('[aria-label="Weight for connection 2"]','-0.25');
  await check('a weight edited from its arrow shows on the contract row exactly as typed',"document.querySelector('.custom-curve-node[data-node-id=select] [data-contract-row=\"1\"]').textContent.includes('-0.25')&&document.querySelector('.custom-curve-wire[data-wire=\"select#1\"]').getAttribute('aria-label').includes('weight -0.25')");
- await click('#custom-curves-preview');await check('the edited weighted curve previews before its arrows are edited',"!document.querySelector('#custom-curves-result').hidden&&document.querySelector('#error').hidden","document.querySelector('#error').textContent");
+ await click('#custom-curves-preview');await check('the edited weighted curve previews before its arrows are edited, on Outputs',`!document.querySelector('#custom-curves-result').hidden&&!${body('outputs')}.hidden&&document.querySelector('#error').hidden`,"document.querySelector('#error').textContent");
+ await click('#custom-curves-dock-graph');
  await rightClick('wire:sample|dates');
  await check('right-clicking an arrow opens its menu',`JSON.stringify(${menuItems})===JSON.stringify(['Change source…','Change target port…','Remove arrow'])&&document.activeElement?.getAttribute('role')==='menuitem'`,menuItems);
  await choose('Remove arrow');
@@ -252,15 +312,29 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('#custom-curves-mode-formula');await check('published source formula preserves the structured version/output binding',"document.querySelector('#custom-curves-formula').value.includes('published_source(')&&document.querySelector('#custom-curves-formula').value.includes('publishedSource={')&&document.querySelector('#custom-curves-formula').value.includes('all_output_points_v1')");
  await click('#custom-curves-compile');await click('#custom-curves-mode-visual');await click('#custom-curves-preview');
  await evaluate("document.querySelector('.custom-curve-desk').scrollIntoView({block:'start'})");await shot('custom-curves-published-source');
- await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate("document.querySelector('.custom-curve-centre').scrollIntoView({block:'start'})");
+ // A narrow page shows every tab in one group and leaves the saved arrangement for when the page is wide again.
+ await menuOn('configuration');await press('Enter');
+ const split=`JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage"],["Configuration"]]'`;
+ await check('a split arrangement is saved before the page narrows',split,groups);
+ await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait(`document.querySelectorAll('#custom-curves-dock .dock-group').length===1&&${idle}`);
+ await menuOn('outputs');
+ await check('at phone width a tab’s menu says why it offers no moves',`JSON.stringify(${dockMenu})==='["Arrange groups on a wider page"]'&&!!document.querySelector('.dock-menu [aria-disabled]')&&document.activeElement===document.querySelector('.dock-menu [aria-disabled]')`,dockMenu);
+ await press('Escape');
+ await check('Escape closes a menu that offers nothing and returns focus to its tab',`document.querySelector('.dock-menu').hidden&&document.activeElement===${tab('outputs')}&&${tab('outputs')}.getAttribute('aria-expanded')==='false'`,"[document.querySelector('.dock-menu').hidden,document.activeElement?.id]");
+ await check('at phone width the split shows as one group with every tab',`JSON.stringify(${groups})==='[["Outputs","Graph","Versions","Lineage","Configuration"]]'&&!document.querySelector('#custom-curves-dock .dock-divider')`,groups);
+ for(const id of ['outputs','graph','versions','lineage','configuration']){await click('#custom-curves-dock-'+id);await check(`at phone width the ${id} tab is reachable`,`!${body(id)}.hidden&&${body(id)}.getBoundingClientRect().width>0`);}
+ await check('choosing tabs at phone width leaves the saved arrangement unchanged',`JSON.parse(localStorage.getItem('openetrm.custom-curves.layout.v1')).kind==='split'`);
+ await click('#custom-curves-dock-graph');await evaluate("document.querySelector('.custom-curve-centre').scrollIntoView({block:'start'})");
  await check('custom curve graph and tables scroll within a narrow viewport',fitsWidth);await shot('custom-curves-mobile');
- await click('#custom-curves-panel-close');await click('#custom-curves-toggle-rail');await evaluate("document.querySelector('#custom-curves-graph').scrollIntoView({block:'start'})");await check('collapsed mobile panels preserve the graph without page overflow',"document.querySelector('#custom-curves-rail-body').hidden&&document.querySelector('#custom-curves-panel').hidden&&"+fitsWidth+"&&document.querySelectorAll('.custom-curve-node').length>0");await shot('custom-curves-mobile-collapsed');await click('#custom-curves-toggle-rail');await click('#custom-curves-toggle-panel');
- await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
+ await click('#custom-curves-toggle-rail');await evaluate("document.querySelector('#custom-curves-graph').scrollIntoView({block:'start'})");await check('a collapsed mobile rail preserves the graph without page overflow',"document.querySelector('#custom-curves-rail-body').hidden&&"+fitsWidth+"&&document.querySelectorAll('.custom-curve-node').length>0");await shot('custom-curves-mobile-collapsed');await click('#custom-curves-toggle-rail');
+ await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});await wait(`document.querySelectorAll('#custom-curves-dock .dock-group').length===2&&${idle}`);
+ await check('wide again, the saved split returns',split,groups);
+ await click('#custom-curves-reset-layout');
 
- // Leaving unsaved edits asks first, in the panel, through the Blotter's leave question (D235).
- const question="document.querySelector('#custom-curves-panel-prompt')",asking=`!${question}.hidden&&${question}.textContent.includes('unsaved edits')&&!document.querySelector('#custom-curves-panel').hidden`;
+ // Leaving unsaved edits asks first, above the curve's views, through the Blotter's leave question (D235).
+ const question="document.querySelector('#custom-curves-page-prompt')",asking=`!${question}.hidden&&${question}.textContent.includes('unsaved edits')`;
  const unloadAsks="(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;})()",onCurves="!document.querySelector('#custom-curves-page').hidden";
- const keep=()=>click('#custom-curves-panel-prompt button.secondary'),discard=(milliseconds)=>click('#custom-curves-panel-prompt button:not(.secondary)',milliseconds);
+ const keep=()=>click('#custom-curves-page-prompt button.secondary'),discard=(milliseconds)=>click('#custom-curves-page-prompt button:not(.secondary)',milliseconds);
  await click('#custom-curves-reload');await discardAsked();
  await check('nothing unsaved registers no unload question',`!${unloadAsks}`);
  await click('#nav-market');
@@ -269,6 +343,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('an unsaved edit registers the browser’s unload question',unloadAsks);
  await click('#nav-market');
  await check('a sidebar page asks before the unsaved edits are given up, and stays on the curve',`${onCurves}&&${asking}`);
+ await click('#custom-curves-new');
+ await check('a second request while the question is open shows the question again',`${asking}&&document.activeElement===document.querySelector('#custom-curves-page-prompt button.secondary')`);
  await keep();
  await check('keeping them leaves the edit exactly as it was',`${onCurves}&&${question}.hidden&&document.querySelector('#custom-curves-name').value==='Unsaved edit'&&${unloadAsks}`);
  await click('#nav-market');await discard();await wait(idle);
@@ -323,6 +399,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('#custom-curves-library [data-recipe]');
  await check('opening a library entry asks first',asking);await keep();
  await check('keeping the edits keeps the graph and its focus on the entry',`${question}.hidden&&document.querySelector('#custom-curves-name').value==='Replaced by a template'`);
+ await click('#custom-curves-dock-configuration');await evaluate("document.querySelector('#custom-curves-template').focus()");await set('#custom-curves-template','ng_average');await discard();
+ await check('discarding opens the template on Outputs, and focus moves from the control that asked, now put away, to the tab shown',`${question}.hidden&&document.activeElement===${tab('outputs')}&&document.querySelector('#custom-curves-template').value==='ng_average'`,"document.activeElement?.id||document.activeElement?.localName");
  await click('#custom-curves-new');await discard();
  await check('discarding New curve opens an empty draft',`${question}.hidden&&document.querySelectorAll('.custom-curve-node').length===0`);
  await persona('viewer');await click('#nav-custom-curves');
@@ -330,6 +408,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('read-only accounts receive an actionable explanation',"!document.querySelector('#custom-curves-access-note').hidden&&document.querySelector('#custom-curves-access-note').textContent.includes('read-only')&&document.querySelector('#custom-curves-access-note').textContent.includes('Preview access')");
  await evaluate("{const choice=[...document.querySelectorAll('#custom-curves-library [data-recipe]')].find(item=>item.textContent.includes('Synthetic browser prompt'));if(!choice)throw Error('Published curve is missing');choice.click();}");await wait(idle);
  await check('readers can inspect published recipes without mutation controls',"document.querySelectorAll('.custom-curve-node').length>=4&&document.querySelector('#custom-curves-save').disabled&&document.querySelector('#custom-curves-code').disabled");
+ await check('a person who may not use the assistant is not offered it',"document.querySelector('#custom-curves-ask').hidden&&document.querySelector('#custom-curves-start-ask').hidden");
+ await click('#custom-curves-dock-graph');
  await rightClick('wire:sample|selection');
  await check('a read-only account gets only View on an arrow',`JSON.stringify(${menuItems})==='["View"]'`,menuItems);
  await press('Escape');await rightClick('.custom-curve-node[data-kind=source] p');

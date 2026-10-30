@@ -86,3 +86,11 @@ test('a stream reads its events in sequence: one already read is a repeat, and o
   assert.equal(streamOrder(5,5),'repeat');assert.equal(streamOrder(5,2),'repeat');
   assert.equal(streamOrder(5,7),'gap');assert.equal(streamOrder(0,1),'next');
 });
+
+test('a saved curve draft is a draft target on Curve builder naming exactly its turn and step, and Save curve draft is a step the panel reads (D260)',()=>{
+  const draft={page:'custom_curves',selection:{turnId,step:2},context,kind:'draft',label:'Saved curve draft: Synthetic blend'};
+  assert.deepEqual(frame('navigation','8',{ordinal:3,target:draft}).payload.target,draft);
+  assert.deepEqual(frame('step','6',{ordinal:2,tool:'save_custom_curve_draft'}).payload,{ordinal:2,tool:'save_custom_curve_draft'});
+  for(const wrong of [{...draft,page:'curves'},{...draft,selection:{turnId,step:0}},{...draft,selection:{turnId,step:2,curve:'x'}},{...draft,selection:null}])
+    assert.throws(()=>frame('navigation','8',{ordinal:3,target:wrong}),/stream sent an event the panel cannot read/);
+});

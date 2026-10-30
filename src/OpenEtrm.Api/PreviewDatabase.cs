@@ -4,6 +4,7 @@ using System.Text.Json;
 using OpenEtrm.Api.Presentation;
 using Npgsql;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
 
@@ -243,7 +244,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
         await Session();
         var result = await operation(connection, ct);
         await Session();
-        await transaction.CommitAsync(ct);
+        // A bounded transaction's commit is not cancelled: one cancelled in flight may still have been applied, and an agent's
+        // save could not say whether its draft and step landed. Its statement bound still limits the commit.
+        await transaction.CommitAsync(held is null?ct:CancellationToken.None);
         return result;
     }
 
@@ -662,7 +665,7 @@ public sealed class PreviewData
             }
             return new Curve(new(revision,code),R(c.Text("quote_code")),R(c.Text("location_code")),R(c.Text("profile_code")),
                 new(target.Text("kind") switch {"future_series"=>SettlementKind.FutureSeries,"index"=>SettlementKind.Index,"index_difference"=>SettlementKind.IndexDifference,_=>throw Unsupported()},target.OptionalText("index_a_code") is {} a?R(a):null,target.OptionalText("index_b_code") is {} b?R(b):null),
-                c.Text("rule") switch {"direct"=>CurveRule.Direct,"add"=>CurveRule.Add,"scale_add"=>CurveRule.ScaleAdd,_=>throw Unsupported()},members,
+                ParseRule(c.Text("rule")),members,
                 inputs.Where(i=>i.Text("slot")!="multiplier").Select(i=>new CurveInput(i.Text("slot") switch {"base"=>InputSlot.Base,"spread"=>InputSlot.Spread,_=>throw Unsupported()},new(revision,i.Text("source_curve_code")),i.Text("expiry_rule") switch {"require_live"=>SourceExpiryRule.RequireLive,"freeze_final_future"=>SourceExpiryRule.FreezeFinalFuture,_=>throw Unsupported()},
                     mappings[(code,i.Text("slot"))].Select(m=>new ConstituentMapping(K(m.Id("target_contract_id")),K(m.Id("source_contract_id")))).ToImmutableArray())).ToImmutableArray(),
                 c.OptionalText("direct_role") is {} directRole?ParseRole(directRole):null,c.OptionalText("direct_source_code") is {} directSource?R(directSource):null,multiplier)
@@ -734,6 +737,9 @@ public sealed class PreviewData
             row.Text("state") != "sealed")
             throw new MarketDataException("reference_pin_mismatch", "The persisted sealed bundle must match every exact manifest reference pin.");
     }
+    public static CurveRule ParseRule(string rule) => rule switch {"direct"=>CurveRule.Direct,"add"=>CurveRule.Add,"scale_add"=>CurveRule.ScaleAdd,_=>throw Unsupported()};
+    // The kind of a stored market curve from its rule and direct role.
+    public static string CurveKind(string rule,string? directRole)=>CurveKinds.Of(ParseRule(rule),directRole is null?null:ParseRole(directRole));
     public static ObservationRole ParseRole(string role) => role switch {"trader_mark"=>ObservationRole.TraderMark,"daily_settlement"=>ObservationRole.DailySettlement,"final_contract_settlement"=>ObservationRole.FinalContractSettlement,"parameter"=>ObservationRole.Parameter,"index_fixing"=>ObservationRole.IndexFixing,_=>throw Unsupported()};
     private static MarketDataException Unsupported()=>new("unsupported_definition","The selected definition uses an unsupported kind.");
     private static T Single<T>(IEnumerable<T> source)
