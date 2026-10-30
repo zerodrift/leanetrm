@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {knownReferenceRejection,restoreReferenceRequest} from '../dist/reference-editor.js';
+import {knownReferenceRejection,restoreReferenceRequest,commitOutcome} from '../dist/reference-editor.js';
 
 test('only refusals that prove nothing was written release a retained reference change',()=>{
   // A value past its field's limit is refused as reference_edit, or past the API's request size limit as request_too_large.
@@ -18,4 +18,14 @@ test('a reload restores only a retained commit, exactly and as uncertain',()=>{
   // Requests of the retired separate save and apply steps, and malformed receipts, are discarded.
   for(const value of [null,'text',[],{...saved,path:'reference/save'},{...saved,path:'reference/apply'},{...saved,operationId:''},{...saved,operationId:7},{...saved,body:null},{...saved,body:[]}])
     assert.equal(restoreReferenceRequest(value),undefined,JSON.stringify(value));
+});
+
+test('a commit confirms either its own new display version or, for values already applied, the version it was based on',()=>{
+  const id='00000000-0000-0000-0000-000000000001',base='00000000-0000-0000-0000-00000000000b';
+  const command={operationId:id,path:'reference/commit',body:{baseRevisionId:base,expectedVersion:3}};
+  assert.deepEqual(commitOutcome({revisionId:id,displayRevisionId:id,version:4},command),{base:id,version:4});
+  assert.deepEqual(commitOutcome({revisionId:base,displayRevisionId:base,version:3},command),{base,version:3});
+  for(const outcome of [{},{revisionId:id,displayRevisionId:id,version:3},{revisionId:id,displayRevisionId:base,version:4},{revisionId:base,displayRevisionId:base,version:4},
+    {revisionId:'other',displayRevisionId:'other',version:3},null])
+    assert.equal(commitOutcome(outcome,command),undefined,JSON.stringify(outcome));
 });

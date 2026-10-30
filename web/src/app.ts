@@ -10,7 +10,7 @@ import {setupIntervalCurves} from './interval-curves-view.js';
 import {setupJobs} from './jobs-view.js';
 import {setupReferenceEditor} from './reference-editor.js';
 import {setupReferenceNavigation,type ReferenceHit} from './reference-navigation.js';
-import {parseReferenceAddress,formatReferenceAddress,type ReferenceAddress} from './reference-address.js';
+import {parseReferenceAddress,formatReferenceAddress,referenceSelection,type ReferenceAddress} from './reference-address.js';
 import {setupPartyEditors} from './party-view.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {withNotice} from './notice-text.js';
@@ -164,6 +164,11 @@ async function act(work:()=>Promise<void>,{keepNotice=false}={}){
 // is asked about for every move, and always through its own leave, which also closes its forms.
 type Move='discards'|'closes'|'keeps';
 async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
+  if(page==='reference'){
+    if(move==='keeps'||!referenceEditor.editing())return true;
+    if(modal?.open)modal.close();
+    return referenceEditor.leave();
+  }
   if(page==='futures'){
     if(modal?.open&&futures.editing())modal.close();
     return futures.leave();
@@ -176,14 +181,15 @@ async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
   if(move==='discards')customCurves.discard();
   return true;
 }
-// Whether the page showing holds edits that a move to another page, context or account gives up: the Blotter's amendment, or a custom curve's unsaved edits.
-function holdsEdits(){return page==='futures'?futures.editing():page==='custom-curves'&&customCurves.holds('edits');}
+// Whether the page showing holds edits that a move to another page, context or account gives up: the Blotter's amendment, a custom curve's
+// unsaved edits or a reference item's.
+function holdsEdits(){return page==='futures'?futures.editing():page==='reference'?referenceEditor.editing():page==='custom-curves'&&customCurves.holds('edits');}
 // What the profile dialog does gives up what the Blotter holds, which is asked about with the dialog closed, for a modal dialog keeps the panel, and
 // the question, out of reach. Keeping the amendment leaves the dialog closed and nothing done, which is said, for a closed dialog looks like a done one.
 async function mayLeaveForDialog(notDone:string,move:Move='discards'){
   if(busy)return false;
   if(await mayLeave(move,$<HTMLDialogElement>('profile-dialog')))return true;
-  notice(page==='futures'?`${notDone}, because you kept the amendment you were editing.`:`${notDone} · your curve edits are unchanged.`);
+  notice(page==='futures'?`${notDone}, because you kept the amendment you were editing.`:`${notDone} · your ${page==='reference'?'reference':'curve'} edits are unchanged.`);
   return false;
 }
 // Runs `work` as an action, once the person has agreed to leave what the page holds. A discarded curve that the work then failed to leave is read again.
@@ -608,6 +614,8 @@ function referenceCategory(listed:boolean){
   return section;
 }
 const listAddress=(table:string,search:string):ReferenceAddress=>search?{table,search}:{table};
+// Field names on an item's own page, where the Code fact above names the item; elsewhere `name` is a list's Description column.
+const itemFieldNames:Record<string,string>={name:'Name',display_code:'Display code'};
 // The address of what the page shows. A move from a list, to another list or an item, is a new history entry; opening an address,
 // or the page from elsewhere, replaces the entry that led to it.
 function addressReference(address:ReferenceAddress){
@@ -635,22 +643,28 @@ async function openReferenceItem(address:ReferenceAddress){
   // The editor adds the item's display version to these facts once it has read it.
   const heading={list:{name:section.name,address:listAddress(table,search)},facts:[['As of',context?`${displayDate(context.effectiveOn)}${context.knownAt?`, as known at ${instant(context.knownAt)}`:''}`:'Working data']] as const};
   const current=()=>workspace===owner&&!contextDirty&&page==='reference'&&referenceTable===table;
+  // The display version the page read showed, which the editor's read must match.
+  let shownVersion=0;
   try{
     if(table==='futures_products'){
       const read=await api<FuturesProductRead&{context:Context|null;profile:string}>('reference/futures-product?'+new URLSearchParams({code}));
       if(!current()||!sameReferenceRead(owner,table,read,context)||read.product?.code!==code||![read.series,read.milestones,read.executionPolicies].every(Array.isArray)||!read.references)
         throw Error('The futures product is missing or inconsistent. Refresh and try again.');
       renderFuturesProduct($('reference-item'),read,{list:heading.list,facts:heading.facts,instant});
+      shownVersion=read.referenceDisplay?.version??0;
     }else{
       const read=await api<ReferencePage>('reference/catalog?'+new URLSearchParams({table,code}));
       if(!current()||!sameReferencePage(owner,table,read,context)||read.rows.length!==1||read.rows[0].code!==code)
         throw Error('The reference item is missing or inconsistent. Refresh and try again.');
       const [row]=displayReferenceRows(table,read.rows,read.referenceDisplay,read.referenceRevision);
       const addressable=(linked:string|undefined)=>linked!==undefined&&referenceSections().some(s=>s.value===linked);
+      // The Code fact above names the item, so its grid leaves the code out and calls its name Name.
       renderReferenceItem($('reference-item'),{list:heading.list,title:referenceLabel(row),facts:[['Code',code],...heading.facts]},
-        publicColumns([row]).map(c=>({label:c.name,value:referenceValue(row,c.key,read),editField:c.key,...(row[c.key]!==null&&addressable(linkedTables[c.key])?{linkTo:{table:linkedTables[c.key],code:String(row[c.key])}}:{})})));
+        publicColumns([row]).filter(c=>c.key!=='code').map(c=>({label:itemFieldNames[c.key]??c.name,value:referenceValue(row,c.key,read),editField:c.key,...(row[c.key]!==null&&addressable(linkedTables[c.key])?{linkTo:{table:linkedTables[c.key],code:String(row[c.key])}}:{})})));
+      shownVersion=read.referenceDisplay?.version??0;
     }
-    await referenceEditor.show(table,code,context);
+    if(!Number.isSafeInteger(shownVersion))throw Error('The reference item is missing or inconsistent. Refresh and try again.');
+    await referenceEditor.show(table,code,context,shownVersion);
   }catch(error){clearReference();throw error;}
   $('reference-list').hidden=true;
   addressReference(address);
@@ -664,8 +678,10 @@ async function openReferenceAddress(hash:string){
   throw Error('This address names no available reference category. Choose one from Reference data.');
 }
 type ReferenceSearch={query:string;hits:ReferenceHit[];truncated:boolean;context:Context|null;profile:string};
-async function searchReference(q:string){
+async function searchReference(text:string){
   if(contextDirty)throw Error('Apply the changed context first.');await loadWorkspace();
+  // The backend trims the text too and echoes what it searched.
+  const q=text.trim();
   const owner=data(),context=historicalContext()??null;
   const found=await api<ReferenceSearch>('reference/search?'+new URLSearchParams({q}));
   if(workspace!==owner||contextDirty||page!=='reference'||found.query!==q||!Array.isArray(found.hits)||typeof found.truncated!=='boolean'||found.profile!==owner.profile||JSON.stringify(found.context)!==JSON.stringify(context))
@@ -959,13 +975,23 @@ new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWi
 new MutationObserver(()=>{contractPanel.place();customCurves.place();}).observe(document.body,{attributes:true,attributeFilter:['class']});
 const touProducts=setupTouProducts(act,api,()=>busy,()=>prefs.timeZone,async()=>{power.reset();if(select('snapshot').value)await power.load();});
 const referenceNavigation=setupReferenceNavigation({host:$('reference-page'),groups:()=>dataSections(Object.keys(data().references)),
-  onSelect:table=>act(async()=>{referenceTable=table;$<HTMLInputElement>('reference-search').value='';await loadReference();}),
+  // A tab chosen while an item holds unsaved edits asks first; kept, the tabs show the item's category again.
+  onSelect:async table=>{
+    if(busy)return;
+    if(!await mayLeave()){referenceNavigation.select(referenceTable,false);return;}
+    await act(async()=>{referenceTable=table;$<HTMLInputElement>('reference-search').value='';await loadReference();});
+  },
   onSearch:q=>act(()=>searchReference(q))});
 // A reference address the person follows, types or returns to with Back opens what it names.
+// The address stays with the page shown, so that a reload opens what is on screen, while the person is asked about edits the
+// move would give up, and when it is not opened: another read is in progress, or the person kept their edits.
 window.addEventListener('hashchange',()=>{
   const hash=location.hash;
   if(!hash.startsWith('#reference')||page==='reference'&&hash===shownReference)return;
-  leaving(async()=>{if(contextDirty)await applyContext();await openReferenceAddress(hash);});
+  const restore=()=>{if(location.hash===hash)window.history.replaceState(null,'',page==='reference'?shownReference||hash:location.pathname+location.search);};
+  if(busy){restore();return;}
+  if(holdsEdits())restore();
+  void (async()=>{if(await mayLeave())await act(async()=>{if(contextDirty)await applyContext();await openReferenceAddress(hash);});else restore();})();
 });
 $('reference-search-form').onsubmit=event=>{event.preventDefault();void act(()=>loadReference(0,$<HTMLInputElement>('reference-search').value));};
 $('reference-previous').onclick=()=>void act(()=>loadReference(Math.max(0,referencePage!.offset-referencePage!.pageSize),referencePage!.search));
@@ -1021,7 +1047,7 @@ function pageState():PageState{
   switch(page){
     case 'market':return {page,curve:curve||null,tab:prefs.tab};
     case 'power':return {page,frame:!!select('snapshot').value};
-    case 'reference':return {page,table:referencePage?.table??'',search:referencePage?.search??''};
+    case 'reference':return {page,...referenceSelection(shownReference)};
     case 'parties':return {page,kind:select('party-kind').value};
     case 'futures':return {page,...futures.report()};
     case 'jobs':return {page,job:jobs.shown()};

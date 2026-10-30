@@ -13,3 +13,9 @@ export function parseReferenceAddress(hash:string):ReferenceAddress|undefined{
     return address;
   }catch{return undefined;}
 }
+// What the page at an address shows, as the assistant reads it: the category, with a list's search or an item's code as the
+// search that finds that item. An address naming no category shows nothing yet.
+export function referenceSelection(hash:string){
+  const address=parseReferenceAddress(hash);
+  return {table:address?.table??'',search:address?.code??address?.search??''};
+}

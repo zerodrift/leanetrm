@@ -4,7 +4,7 @@ import {groupReferenceHits} from '../dist/reference-navigation.js';
 import {referenceGroups} from '../dist/data-sections.js';
 import {parseReferenceAddress} from '../dist/reference-address.js';
 
-const hit=(table,code,label,productCode=null)=>({table,code,label,productCode});
+const hit=(table,code,label,productCode=null,summary=[])=>({table,code,label,productCode,summary});
 
 test('search hits are listed under their category names in tab order, each linking to its item',()=>{
   const grouped=groupReferenceHits([hit('locations','zone a/1','Zone A'),hit('currencies','test_currency_a','Test currency'),hit('locations','hub_b','Hub B')],referenceGroups);
@@ -24,4 +24,17 @@ test('a hit outside the offered categories or a contract without its product is 
   assert.throws(()=>groupReferenceHits([hit('currencies','c','C')],offered));
   assert.throws(()=>groupReferenceHits([hit('futures_series','s','S',null)],referenceGroups));
   assert.throws(()=>groupReferenceHits([hit('cash_rounding_conventions','x','X')],referenceGroups));
+});
+
+test('a hit shows its backend summary as one line, naming a term the summary does not supply',()=>{
+  const summary=[{label:'Exchange',value:'Synthetic exchange'},{label:'Location',value:null},{label:'Lot size',value:'40 MMBtu'},{label:'Quote unit',value:'USD/MMBtu'}];
+  const [futures]=groupReferenceHits([hit('futures_products','gas_future','Gas future','gas_future',summary)],referenceGroups);
+  assert.equal(futures.hits[0].summary,'Exchange: Synthetic exchange · Location: Not supplied · Lot size: 40 MMBtu · Quote unit: USD/MMBtu');
+  const [currencies]=groupReferenceHits([hit('currencies','test_currency_a','Test currency')],referenceGroups);
+  assert.equal(currencies.hits[0].summary,'');
+});
+
+test('a hit without its summary list, or with a malformed summary field, is refused',()=>{
+  for(const summary of [undefined,null,{},[{label:'Exchange'}],[{label:7,value:'x'}],[{label:'Exchange',value:7}]])
+    assert.throws(()=>groupReferenceHits([{table:'currencies',code:'c',label:'C',productCode:null,summary}],referenceGroups),undefined,JSON.stringify(summary));
 });

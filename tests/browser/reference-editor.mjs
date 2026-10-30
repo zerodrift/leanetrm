@@ -1,11 +1,15 @@
 import {sideSession} from './side-session.mjs';
 // Editing a reference item's display labels in place on its own page: one Edit, a confirmed Save that commits each changed item,
 // retained uncertain requests, exact coordinate strings, the futures product page's sequential commits, History and As-of contexts.
-export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){
+export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,fitsWidth,url}){
  await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.referenceRequests=[];{
   const original=window.fetch;window.fetch=async(...args)=>{
    const path=String(args[0]);
+   if(path.includes('/reference/search?')&&window.holdReferenceSearch){window.holdReferenceSearch=false;await new Promise(release=>{window.releaseReferenceSearch=release;});}
+   // An editor read answering for a later display version than the page read before it.
+   if(path.includes('/reference/editor?')&&window.laterEditorReads>0){window.laterEditorReads--;const read=await(await original(...args)).json();read.displayVersion++;
+    return new Response(JSON.stringify(read),{status:200,headers:{'Content-Type':'application/json'}});}
    if(path.includes('/reference/editor?')&&window.failReferenceRefresh){window.failReferenceRefresh=false;return new Response(JSON.stringify({code:'synthetic_refresh',message:'Synthetic reference refresh failure'}),{status:503});}
    const response=await original(...args);
    if(path.includes('/reference/')){
@@ -92,6 +96,39 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await open('units/megawatt_hour');
   await check('the restored label is committed',`${shown('symbol')}===${JSON.stringify(originalSymbol)}&&${quiet}`);
 
+  // A move within the page or to another page asks before giving up unsaved edits; keeping them keeps the item, its address and its inputs.
+  const prompt='#reference-item-prompt',keep=`document.querySelector('${prompt} button.secondary').click()`,discard=`document.querySelector('${prompt} button:not(.secondary)').click()`;
+  const kept=`location.hash==='#reference/units/megawatt_hour'&&document.querySelector('#reference-edit-symbol')?.value===${JSON.stringify(originalSymbol+' unsaved')}&&!${visible(prompt.slice(1))}`;
+  await click('#reference-edit');await set('#reference-edit-symbol',originalSymbol+' unsaved');
+  await evaluate("document.querySelector('#reference-item .breadcrumb a').click()");await wait(visible(prompt.slice(1)));
+  await check('following a link while editing asks before discarding the unsaved edits',`document.querySelector('${prompt}').textContent.includes('unsaved edits')&&location.hash==='#reference/units/megawatt_hour'`);
+  await evaluate(keep);await wait(idle);
+  await check('keeping the edits returns the address to the item and keeps its inputs',kept);
+  await evaluate("[...document.querySelectorAll('#reference-sections [role=tab]')].find(t=>t.textContent==='Unit conversions').click()");await wait(visible(prompt.slice(1)));
+  await evaluate(keep);await wait(idle);
+  await check('choosing another tab while editing asks, and keeping the edits keeps the item\'s tab',`${kept}&&document.querySelector('#reference-sections [aria-selected=true]').textContent==='Units'`);
+  await evaluate("document.querySelector('#nav-market').click()");await wait(visible(prompt.slice(1)));
+  await evaluate(keep);await wait(idle);
+  await check('opening another page while editing asks, and keeping the edits stays on the item',`${kept}&&!document.querySelector('#reference-page').hidden`);
+  await evaluate("document.querySelector('#reference-item .breadcrumb a').click()");await wait(visible(prompt.slice(1)));
+  await evaluate(discard);await wait(`location.hash==='#reference/units'&&document.querySelector('#reference tbody tr')&&${idle}`);
+  await check('discarding the edits follows the link to the list',`!document.querySelector('#reference-item input')&&${quiet}`);
+
+  // An address followed while a read is in progress is not opened, so the address returns to the page shown.
+  await open('units/megawatt_hour');
+  await evaluate('window.holdReferenceSearch=true');await set('#reference-search-all-text','gas');
+  await evaluate("document.querySelector('#reference-search-all').requestSubmit()");await wait('!!window.releaseReferenceSearch');
+  await evaluate("location.hash='#reference/units'");await evaluate('window.releaseReferenceSearch()');await wait(`!document.querySelector('#reference-search-hits').hidden&&${idle}`);
+  await check('an address followed during a read returns to the item shown',`location.hash==='#reference/units/megawatt_hour'&&${facts}.Code==='megawatt_hour'&&${quiet}`);
+  await check('search results show each hit\'s one-line summary from the backend',
+   `(()=>{const hit=window.referenceRequests.filter(r=>r.path.includes('/reference/search?')).at(-1).payload.hits.find(h=>h.table==='futures_products');
+    return hit&&[...document.querySelectorAll('#reference-search-hits li')].some(li=>li.textContent.includes(hit.label)&&li.querySelector('p')?.textContent===hit.summary.map(f=>f.label+': '+(f.value??'Not supplied')).join(' · '));})()`);
+
+  // The editor read must name the display version the page read showed; a later one means the page changed in between.
+  await evaluate("window.laterEditorReads=1;location.hash='#reference/locations/test_hub_a'");await wait(`!document.querySelector('#error').hidden&&${idle}`);
+  await check('an editor read of another display version than the page shows asks for a refresh and offers no Edit',
+   `document.querySelector('#error').textContent.includes('changed')&&!${visible('reference-edit')}`);
+
   const point={latitude:'41.123456789012345678',longitude:'-87.987654321098765432'};
   await open('locations/test_hub_a');
   const originalPoint=await evaluate(`(()=>{const item=${editorRead()}.item;return {name:item.name,latitude:item.latitude??'',longitude:item.longitude??''};})()`);
@@ -131,6 +168,23 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('the product History lists its own and its contracts\' label versions',`(()=>{const v=${editorRead()}.versions;return v.length>=3&&v.some(x=>x.table==='futures_products')&&v.some(x=>x.table==='futures_series')&&document.querySelectorAll('#reference-history li').length===v.length&&document.querySelector('#reference-history').textContent.includes('Contract label');})()`);
   await click('#reference-edit');await set('#reference-item h2 input',productName);for(const l of labels.slice(0,2))await set(cell(l.code),l.label);await save();
   await check('the original product labels are committed again',`document.querySelector('#reference-item h2').textContent===${JSON.stringify(productName)}&&${quiet}`);
+
+  // At phone width no view scrolls the page sideways; the monthly contracts scroll inside their own frame.
+  await command('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:1,mobile:true});
+  try{
+   await command('Page.navigate',{url:'about:blank'});await command('Page.navigate',{url:url+'/#reference/units'});await wait(`document.querySelector('#reference tbody tr')&&${idle}`);
+   await check('a category list fits a 375px screen',fitsWidth);
+   await set('#reference-search-all-text','gas');await submit('#reference-search-all');await wait(`!document.querySelector('#reference-search-hits').hidden&&${idle}`);
+   await check('search results fit a 375px screen',`${fitsWidth}&&document.querySelectorAll('#reference-search-hits li').length>0`);
+   await open('units/megawatt_hour');await click('#reference-edit');
+   await check('an item in Edit fits a 375px screen',`${fitsWidth}&&${editing}.length>0`);await click('#reference-edit-cancel');
+   await open('futures_products/'+encodeURIComponent(product));await click('#reference-history-open');
+   await check('the product page with History open fits a 375px screen',`${fitsWidth}&&${visible('reference-history')}&&document.querySelectorAll('#reference-history li').length>0`);
+   await click('#reference-edit');
+   await check('the product page in Edit fits a 375px screen and its contracts scroll within their frame',
+    `${fitsWidth}&&${editing}.length>1&&(f=>f.scrollWidth>f.clientWidth&&['auto','scroll'].includes(getComputedStyle(f).overflowX))(document.querySelector('#reference-item .product-contracts'))`);
+   await click('#reference-edit-cancel');
+  }finally{await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});}
 
   await click('#nav-market');await set('#date-context-on','2020-12-18');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
   await evaluate("location.hash='#reference/units/megawatt_hour'");await wait(`document.querySelector('#reference-edit-actions')&&${idle}`);
