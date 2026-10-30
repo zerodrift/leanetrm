@@ -116,6 +116,10 @@ values, hourly/quarter-hour quantities, mixed fixed/projected observations,
 symmetric shocks, missing due fixings, conflicting publication metadata,
 historical delivered values, changing daily capacity, source identity and context
 refusals, explicit indexed attribute/cadence admission and cancellation.
+Local verification on 2026-10-29 passed the full trading verification group
+(managed, frontend, stock-database and owned browser suites), the focused
+source checks and a final full managed rerun. Independent adversarial code
+review has no remaining material finding within this checkpoint.
 
 This is source-resolution qualification, not the application pricing cutover.
 Sibling-quantity composition, partial amendment coverage, complete source receipts,
