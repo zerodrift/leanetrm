@@ -1389,3 +1389,13 @@ differs from the reviewed definition. Apply the migration before the API and web
 assets: the earlier API never offers `read_jobs`, and this release's API records the
 `job_access` access, which the earlier schema refuses. As a new migration it stops
 automatic hosted updates until the operator qualifies a new baseline (D135).
+
+## Booked executable Side programs
+
+Migration `0129_booked_side_programs.sql` adds one immutable executable artifact
+per retained Side schedule. Exact-version relationships remain in the typed
+schedule tables. Program bytes and typed content seal in one transaction;
+authorized direct reads require the selected publication/context and current
+source access. The migration refuses any existing retained schedules and requires
+an explicit rebooking release. It performs no read-time backfill or compatibility
+conversion. See [the storage contract and qualification boundary](../docs/booked-side-programs.md).

@@ -1565,6 +1565,11 @@ survives an amendment of later periods. A retained schedule serves both.
   each financial or physical operation retains its own supported version and
   semantics. This does not authorize a generic scripting or matrix-expression
   language.
+- **Executable storage checkpoint.** One immutable artifact belongs to each
+  retained schedule, with complete typed correspondence checked before sealing.
+  Booking seals bytes and typed content atomically; direct loading reads the
+  authorized artifact without generators. The installation boundary and remaining
+  valuation integration are recorded in [booked programs](booked-side-programs.md).
 - **Evaluated row state (owner clarification, 2026-10-29).** Row state is resolved
   under the user's selected financial context, alongside prices and quantities;
   it is not a mutable field on the published schedule. Price selection (forward,
