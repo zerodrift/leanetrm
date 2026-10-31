@@ -49,7 +49,7 @@ booking and the installed snapshot foreign keys. It tests direct invalid
 mutations of a stored prompt term with rollback-only suspension of the immutable
 trigger, so FK failures cannot be confused with append-only policy rejection.
 The cases include nonexistent definitions, mismatched references and a different
-valid bundle than the owning period. Separate temporary probe tables exercise
+valid bundle than the owning period. Separate transaction-scoped probe tables exercise
 each installed FK independently, including wrong catalogs and child snapshot
 mismatches; these are isolated constraint tests, not application write paths.
 A stored observation also rejects substitution of another valid contract's

@@ -48,6 +48,7 @@ ROLLBACK;""")
 
 def check_snapshots(query):
     query("""BEGIN;
+CREATE SCHEMA observation_integrity_probe;
 DO $check$
 DECLARE item record; definition text; selected market_data.revisions;
  alternate_reference uuid='20000000-0000-0000-0000-000000889136';
@@ -67,28 +68,30 @@ BEGIN
   IF definition IS DISTINCT FROM 'FOREIGN KEY (catalog_id, definition_revision_id, reference_catalog_id, reference_revision_id) REFERENCES market_data.revisions(catalog_id, id, reference_catalog_id, reference_revision_id)'
   THEN RAISE EXCEPTION 'Retained observations require the exact definition/reference foreign key';END IF;
   -- Exercise each actual installed constraint independently of other ownership
-  -- constraints. The probe has no selected-contract FK that could hide a gap.
-  CREATE TEMP TABLE revision_probe(catalog_id uuid NOT NULL,definition_revision_id uuid NOT NULL,
-   reference_catalog_id uuid NOT NULL,reference_revision_id uuid NOT NULL,selected_contract_id uuid) ON COMMIT DROP;
-  EXECUTE 'ALTER TABLE pg_temp.revision_probe ADD CONSTRAINT snapshot_reference '||definition;
-  INSERT INTO revision_probe VALUES(selected.catalog_id,selected.id,selected.reference_catalog_id,selected.reference_revision_id,NULL);
+  -- constraints. PostgreSQL disallows temporary-to-permanent FKs, so these
+  -- ordinary tables live in a transaction-owned schema removed by rollback.
+  -- The probe has no selected-contract FK that could hide a gap.
+  CREATE TABLE observation_integrity_probe.revision_probe(catalog_id uuid NOT NULL,definition_revision_id uuid NOT NULL,
+   reference_catalog_id uuid NOT NULL,reference_revision_id uuid NOT NULL,selected_contract_id uuid);
+  EXECUTE 'ALTER TABLE observation_integrity_probe.revision_probe ADD CONSTRAINT snapshot_reference '||definition;
+  INSERT INTO observation_integrity_probe.revision_probe VALUES(selected.catalog_id,selected.id,selected.reference_catalog_id,selected.reference_revision_id,NULL);
   BEGIN
-   UPDATE revision_probe SET definition_revision_id=missing;
+   UPDATE observation_integrity_probe.revision_probe SET definition_revision_id=missing;
    RAISE EXCEPTION 'A nonexistent definition revision was admitted';
   EXCEPTION WHEN foreign_key_violation THEN NULL;END;
   BEGIN
-   UPDATE revision_probe SET catalog_id=missing;
+   UPDATE observation_integrity_probe.revision_probe SET catalog_id=missing;
    RAISE EXCEPTION 'A different definition catalog was admitted';
   EXCEPTION WHEN foreign_key_violation THEN NULL;END;
   BEGIN
-   UPDATE revision_probe SET reference_catalog_id=missing;
+   UPDATE observation_integrity_probe.revision_probe SET reference_catalog_id=missing;
    RAISE EXCEPTION 'A different reference catalog was admitted';
   EXCEPTION WHEN foreign_key_violation THEN NULL;END;
   BEGIN
-   UPDATE revision_probe SET reference_revision_id=alternate_reference;
+   UPDATE observation_integrity_probe.revision_probe SET reference_revision_id=alternate_reference;
    RAISE EXCEPTION 'An existing but mismatched reference revision was admitted';
   EXCEPTION WHEN foreign_key_violation THEN NULL;END;
-  DROP TABLE revision_probe;
+  DROP TABLE observation_integrity_probe.revision_probe;
  END LOOP;
 END $check$;
 ROLLBACK;""")
@@ -97,6 +100,7 @@ ROLLBACK;""")
 
 def check_parent_snapshots(query):
     query("""BEGIN;
+CREATE SCHEMA observation_integrity_probe;
 ALTER TABLE trading.swap_contract_observation_terms DISABLE TRIGGER immutable_record;
 DO $check$
 DECLARE item record; definition text; selected trading.swap_contract_observation_terms;
@@ -127,16 +131,16 @@ BEGIN
   IF definition IS DISTINCT FROM 'FOREIGN KEY (catalog_id, side_id, period_ordinal, definition_revision_id, reference_catalog_id, reference_revision_id) REFERENCES trading.'||item.parent_name||
    '(catalog_id, side_id, '||CASE WHEN item.parent_name='swap_side_periods' THEN 'ordinal' ELSE 'period_ordinal' END||', definition_revision_id, reference_catalog_id, reference_revision_id)'
   THEN RAISE EXCEPTION 'Parent snapshot relationship must retain every exact coordinate';END IF;
-  CREATE TEMP TABLE parent_probe(catalog_id uuid NOT NULL,side_id uuid NOT NULL,period_ordinal integer NOT NULL,
-   definition_revision_id uuid NOT NULL,reference_catalog_id uuid NOT NULL,reference_revision_id uuid NOT NULL) ON COMMIT DROP;
-  EXECUTE 'ALTER TABLE pg_temp.parent_probe ADD CONSTRAINT parent_snapshot '||definition;
-  INSERT INTO parent_probe VALUES(selected.catalog_id,selected.side_id,selected.period_ordinal,
+  CREATE TABLE observation_integrity_probe.parent_probe(catalog_id uuid NOT NULL,side_id uuid NOT NULL,period_ordinal integer NOT NULL,
+   definition_revision_id uuid NOT NULL,reference_catalog_id uuid NOT NULL,reference_revision_id uuid NOT NULL);
+  EXECUTE 'ALTER TABLE observation_integrity_probe.parent_probe ADD CONSTRAINT parent_snapshot '||definition;
+  INSERT INTO observation_integrity_probe.parent_probe VALUES(selected.catalog_id,selected.side_id,selected.period_ordinal,
    selected.definition_revision_id,selected.reference_catalog_id,selected.reference_revision_id);
   BEGIN
-   UPDATE parent_probe SET definition_revision_id=alternate_definition;
+   UPDATE observation_integrity_probe.parent_probe SET definition_revision_id=alternate_definition;
    RAISE EXCEPTION 'A child admitted a different valid parent snapshot';
   EXCEPTION WHEN foreign_key_violation THEN NULL;END;
-  DROP TABLE parent_probe;
+  DROP TABLE observation_integrity_probe.parent_probe;
  END LOOP;
 END $check$;
 ROLLBACK;""")

@@ -28,15 +28,9 @@ INSERT INTO ref_data.commodity_units VALUES('{catalog}','20000000-0000-0000-0000
 INSERT INTO ref_data.measurement_bases VALUES('{catalog}','20000000-0000-0000-0000-000000000099','energy','electricity','energy');
 INSERT INTO ref_data.quantity_specifications VALUES('{catalog}','20000000-0000-0000-0000-000000000099','synthetic_power_mwh','electricity','energy','mwh','energy');
 UPDATE ref_data.revisions SET state='sealed' WHERE catalog_id='{catalog}' AND id='20000000-0000-0000-0000-000000000099';""")
-    # Execute both real worker startup predicates against deliberately mixed roles.
-    # These identities must fail before a worker can consume privileged source assertions.
-    import re
-    worker=(ROOT/'src/OpenEtrm.Worker/Program.cs').read_text()
-    boundaries=re.findall(r"SELECT NOT\(rolsuper.*?FROM pg_roles WHERE rolname=current_user",worker,re.S)
-    assert len(boundaries)==2
-    query("CREATE ROLE synthetic_import_scheduler LOGIN INHERIT;GRANT openetrm_scheduler,openetrm_reference_importer TO synthetic_import_scheduler;")
-    for sql,login in zip(boundaries,['synthetic_import_scheduler','preview_reference_importer']):
-        assert query('SET SESSION AUTHORIZATION '+login+';'+sql+';')=='f', 'Worker accepted trusted reference-import authority'
+    # DatabaseLoginBoundaryChecks executes the shared worker login profiles in
+    # every check_all group, including rejection of importer membership for
+    # Runtime and inherited importer membership for Scheduler.
     plan_file=temporary/'reference-plan.json'
     subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--reference-import-plan',str(plan_file)],cwd=ROOT,env=environment,check=True,timeout=60)
     payload=json.loads(plan_file.read_text())
