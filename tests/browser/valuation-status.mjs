@@ -82,7 +82,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
         for(const r of h.querySelectorAll('.tabulator-row:not(.tabulator-group)'))seen.set(r.querySelector('.desk-reference').textContent,{chip:r.querySelector('[tabulator-field=c7] .desk-chip')?.textContent,reason:r.querySelector('[tabulator-field=c7] .desk-sub')?.textContent,up:r.querySelector('[tabulator-field=c8]').textContent});
         if(h.scrollTop+h.clientHeight>=h.scrollHeight-1)break;}
       h.scrollTop=0;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const rows=[...seen].filter(([,r])=>r.chip==='Left out');
-      return rows.length===left.length&&left.every(e=>seen.get(e.tradeReference)?.chip==='Left out')&&rows.some(([,r])=>r.reason==='Contract expired · awaiting settlement')&&rows.every(([,r])=>r.up==='');})()`);
+      // Each left-out row states its own reason, as the run bar names it beside its reference from the run's read.
+      const named=[...document.querySelectorAll('#desk-run-notes li')].find(p=>p.textContent.startsWith('Leaves out '))?.textContent??'';
+      return rows.length===left.length&&left.every(e=>seen.get(e.tradeReference)?.chip==='Left out')&&rows.every(([reference,r])=>!!r.reason&&named.includes(reference+' ('+r.reason+')'))&&rows.some(([,r])=>r.reason==='Contract expired · awaiting settlement')&&rows.every(([,r])=>r.up==='');})()`);
   await check('a book\'s header in the Risk lens says how many of its positions the run leaves out, by the book the run names for each',
     `(()=>{const left=${catalog}.excludedPositions,books=new Map(${table}.holdings.map(h=>[h.book,h.bookId])),headers=[...document.querySelectorAll('#desk-positions .tabulator-group')];return headers.length>0&&headers.every(h=>{const count=left.filter(e=>e.bookId===books.get(h.querySelector('.desk-group-label').textContent)).length,said=h.querySelector('.desk-group-left');return count?said?.textContent===' · '+count+' left out of this run':!said;})&&headers.some(h=>h.querySelector('.desk-group-left'));})()`,
     "[...document.querySelectorAll('#desk-positions .tabulator-group')].map(h=>h.textContent)");

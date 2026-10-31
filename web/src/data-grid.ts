@@ -94,9 +94,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   document.addEventListener('pointercancel',cancelGesture,true);
   document.addEventListener('scroll',cancelGesture,true);
   // Deferred row positioning must yield to a later focus move, including one inside the detail.
-  // The control in the open detail focused last, which a render that detaches the detail gives focus back to.
+  // The control in the open detail focused last, while focus stays in the detail: focus moving anywhere else forgets it.
   let focusVersion=0,lastDetailFocus:HTMLElement|undefined;
-  const focusChanged=(event:FocusEvent)=>{focusVersion++;if(event.target instanceof HTMLElement&&detail?.body.contains(event.target))lastDetailFocus=event.target;};
+  const focusChanged=(event:FocusEvent)=>{focusVersion++;lastDetailFocus=event.target instanceof HTMLElement&&detail?.body.contains(event.target)?event.target:undefined;};
   document.addEventListener('focusin',focusChanged,true);
   const field=(i:number)=>'c'+i;
   const ordered=(layout:GridLayout)=>[...layout.order.filter(k=>options.keys.includes(k)),...options.keys.filter(k=>!layout.order.includes(k))];
@@ -188,10 +188,14 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     if(held?.isConnected&&detail?.body.contains(held)&&!detail.body.hidden&&
       (active===null||active===document.body||active===document.documentElement))held.focus({preventScroll:true});
   }
-  let detailFocus:HTMLElement|undefined;
-  table.on('renderStarted',()=>{detailFocus=focusedDetail()??detailFocus;});
-  // Focus the person moved within the detail while the rows rendered, as an arrow key along its tabs does, is the focus restored.
-  table.on('renderComplete',()=>{const held=lastDetailFocus&&detail?.body.contains(lastDetailFocus)?lastDetailFocus:detailFocus;detailFocus=undefined;restoreDetailFocus(held);});
+  let detailFocus:HTMLElement|undefined,renderFocusVersion=0;
+  table.on('renderStarted',()=>{if(detailFocus===undefined){detailFocus=focusedDetail();renderFocusVersion=focusVersion;}});
+  // A render gives back only focus that was in the detail when it started: to where it then was, or, if the person moved it within the
+  // detail meanwhile (an arrow key along its tabs), to where they moved it. Focus that was elsewhere, as after a click on a header, stays.
+  table.on('renderComplete',()=>{
+    const started=detailFocus,moved=focusVersion!==renderFocusVersion&&lastDetailFocus&&detail?.body.contains(lastDetailFocus)?lastDetailFocus:undefined;
+    detailFocus=undefined;if(started)restoreDetailFocus(moved??started);
+  });
   // Focusing a prompt or a field can scroll the virtual viewport too. Capture
   // its focus before Tabulator handles that scroll and rebuilds the visible rows.
   // Focus the person moves meanwhile, as a tab key does, stands: an older control is never focused again over it.
@@ -290,6 +294,13 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Where the person scrolls to is the place a change of width keeps: by then the rows have already moved.
   const watchPlace=()=>{if(watching||!alive)return;watching=requestAnimationFrame(()=>{watching=0;if(alive&&ready&&!updating)lastPlace=capture();});};
   container.addEventListener('scroll',watchPlace,true);
+  // The person scrolling the rows themselves, by wheel, touch, the scrollbar or a paging key, supersedes a place still being restored
+  // and an opened row still being brought into view: where they scroll to stands.
+  let personScrolled=0;const personScrolls=()=>{placing++;personScrolled++;};
+  const scrollbarPress=(event:PointerEvent)=>{if(event.target===holder())personScrolls();};
+  const pagingKey=(event:KeyboardEvent)=>{if(['PageUp','PageDown','Home','End'].includes(event.key))personScrolls();};
+  container.addEventListener('wheel',personScrolls,{passive:true,capture:true});container.addEventListener('touchmove',personScrolls,{passive:true,capture:true});
+  container.addEventListener('pointerdown',scrollbarPress,true);container.addEventListener('keydown',pagingKey,true);
   // A header sort is the grid's own: its place is taken before it sorts and restored once it has drawn.
   let sortPlace:Place|undefined;
   table.on('dataSorting',()=>{if(ready&&alive&&!updating&&!sortPlace)sortPlace=capture();});
@@ -493,7 +504,10 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       }
       // The row opened is brought into view with its detail once the changes it waits for, such as a redraw for the detail's height, are
       // drawn: a short view could otherwise leave it out of the rows drawn. A row in view is left where it is.
+      const asked=personScrolled;
       if(changed&&at!==null)void built.then(()=>queue).then(frame).then(frame).then(()=>{
+        // A scroll of the person's own since the row opened stands.
+        if(asked!==personScrolled)return;
         const row=alive&&ready&&detail?.key===at?table.getRow(at)||undefined:undefined,view=holder();
         if(!row||!view||inView(row,view))return;
         // Scrolling draws the rows again, detaching the detail and focus in it: focus goes back where it was unless the person moved it.
@@ -530,7 +544,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     focusRow(index:number){const at=keyAt(index);if(at!==null)whenDrawn(at,row=>row.getElement().focus({preventScroll:true}));},
     /** Scrolls the row of a source index into view, in the grid and in the page, as far as it takes to show it, once the grid has drawn again. */
     revealRow(index:number){const at=keyAt(index);if(at!==null)whenDrawn(at,row=>row.getElement().scrollIntoView({block:'nearest'}));},
-    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',keepDetailFocusOnScroll,true);container.removeEventListener('scroll',watchPlace,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);document.removeEventListener('focusin',focusChanged,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',keepDetailFocusOnScroll,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);document.removeEventListener('focusin',focusChanged,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }
 export type GridHandle=ReturnType<typeof renderDataGrid>;
