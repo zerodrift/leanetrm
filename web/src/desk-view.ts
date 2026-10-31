@@ -32,7 +32,9 @@ export function renderSummaryStrip(host:HTMLElement,items:readonly StripItem[]){
     if(item.currency)entry.dataset.currency=item.currency;
     // An amount's title is the backend's exact amount in its currency; the strip shows its display text.
     if(item.exact!==undefined)value.title=publicText(`${item.exact} ${item.currency}`);
-    entry.append(node('span','strip-label',item.label),space(),value,...(item.currency?[space(),node('span','strip-currency',item.currency)]:[]),...(item.reason?[space(),node('span','strip-reason',item.reason)]:[]));
+    // A stale figure is flagged, its reason the flag's title: the panes' own notes say it in full, once.
+    const stale=item.state==='stale'?node('span','strip-stale','Stale'):undefined;if(stale&&item.reason)stale.title=publicText(item.reason);
+    entry.append(node('span','strip-label',item.label),space(),value,...(item.currency?[space(),node('span','strip-currency',item.currency)]:[]),...(stale?[space(),stale]:item.reason?[space(),node('span','strip-reason',item.reason)]:[]));
     return entry;
   }));
 }

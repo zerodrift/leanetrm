@@ -253,6 +253,8 @@
         </div>
       </div>
       <div id="blotter-pane-grid" class="blotter-pane blotter-pane-grid">
+        <div id="blotter-progress" class="blotter-progress" role="progressbar" aria-label="Valuing positions" hidden></div>
+        <p id="blotter-load-status" class="blotter-load-status" role="status" hidden><span id="blotter-load-text"></span><button id="blotter-retry" type="button" class="secondary" hidden>Retry</button></p>
         <div class="table-workspace-footer"><p id="futures-summary" role="status">Choose a market date above.</p><details class="blotter-scope"><summary>Calculation scope</summary><p class="field-help">Futures show execution P&amp;L; financial swaps show projected PV. These are separate measures. Blank values are unavailable. Futures PV and daily settlement remain separate work. Values use the selected saved market inputs; no live feed is connected.</p></details></div>
       </div>
       <div id="blotter-pane-details" class="blotter-pane"></div>

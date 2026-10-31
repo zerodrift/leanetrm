@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {summaryStripItems} from '../dist/desk-model.js';
+import {summaryStripItems,staleStripItems} from '../dist/desk-model.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
 // Stands in for the backend's display text: it keeps the exact value's own leading sign.
 const money=value=>value.replace(/^(-?)/,'$1#');
@@ -67,4 +67,10 @@ test('heat-rate and PPA values are items of their own, per currency, when the bo
  const summaries=structuredClone(fixture.summaries);
  for(const index of [0,1,3])for(const group of summaries[index].groups)if(group.instrumentType==='financial_swap'&&group.currency==='EUR')group.instrumentType='ppa';
  assert.deepEqual(items(summaries).filter(i=>i.label.startsWith('PPA')).map(i=>[i.label,i.currency,i.value]),[['PPA value excluding overdue cash','EUR','+#15']]);
+});
+test('a strip kept on screen while the Blotter is read again keeps every last value, each flagged stale with the reason',()=>{
+ const last=items(),reason='Reading the Blotter again · these values are from the previous read.',stale=staleStripItems(last,reason);
+ assert.deepEqual(stale.map(i=>[i.label,i.value,i.exact,i.currency,i.sign]),last.map(i=>[i.label,i.value,i.exact,i.currency,i.sign]));
+ assert.ok(stale.every(i=>i.state==='stale'&&i.reason===reason));
+ assert.equal(last[0].state,'complete');
 });

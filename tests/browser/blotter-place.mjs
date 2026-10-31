@@ -97,7 +97,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     const keeping=await numericFilter('(a,b)=>[">= "+(Number(a)<Number(b)?a:b),"<= "+(Number(a)<Number(b)?b:a)]');
     await kept(`filtering ${keeping.label} ${keeping.value}`,()=>set(`#desk-positions input[aria-label="Filter ${keeping.label}"]`,keeping.value));
     // What a read again keeps on screen is marked stale, with the reason, until the new values land.
-    const staleParts="['#desk-positions .standard-data-grid','#desk','#desk-charts','#futures-summary'].map(s=>document.querySelector(s)).filter(n=>n&&!n.hidden)";
+    const staleParts="['#desk-positions .standard-data-grid','#desk','#desk-charts','#blotter-chart-card','#futures-summary'].map(s=>document.querySelector(s)).filter(n=>n&&!n.hidden)";
     await kept('reading the Blotter again',async()=>{
       await evaluate("window.__placeHold=true;document.querySelector('#futures-refresh').click()");await wait("typeof window.__placeRelease==='function'");
       await check('while the Blotter is read again, its rows, summary strip, charts and summary stay on screen marked stale, each pane with the reason',
