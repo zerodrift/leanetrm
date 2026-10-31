@@ -104,6 +104,14 @@ public static class RiskWorker
         {
             failure=e switch{MarketDataException m=>m.Code,OperationCanceledException=>stopping.IsCancellationRequested?"worker_stopped":"risk_timeout",
                 PreviewDeniedException=>"risk_authority",PostgresException p when p.SqlState=="42501"=>"risk_authority",_=>"risk_job_failed"};
+            Exception? diagnostic=e;
+            for(var depth=0;diagnostic is not null&&depth<4;diagnostic=diagnostic.InnerException,depth++)
+            {
+                Console.Error.WriteLine($"RISK_FAILURE_TYPE {diagnostic.GetType().Name}");
+                if(diagnostic is PostgresException pg)Console.Error.WriteLine($"RISK_FAILURE_SQLSTATE {pg.SqlState}");
+            }
+            foreach(var location in PreviewFailureDiagnostics.Codes(e))
+                Console.Error.WriteLine($"RISK_FAILURE_CODE {location}");
         }
         finally{heartbeatStop.Cancel();await heartbeat;}
         // Calculation has stopped. A late cancellation may be acknowledged only

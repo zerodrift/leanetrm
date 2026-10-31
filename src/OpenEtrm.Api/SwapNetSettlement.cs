@@ -90,8 +90,7 @@ public sealed partial class SwapStore
         if(request.Preview is not{Context:{KnowledgeMode:"current",ContextId:null,Convention:Convention}} preview||request.OperationId==Guid.Empty||string.IsNullOrWhiteSpace(request.PreviewHash))
             throw Error("historical_read_only","Net settlement requires explicit current knowledge and a reviewed preview.");
         var payload=JsonSerializer.Serialize(request,RiskJobs.Json);
-        await using(var retry=ScheduleStore.Command(connection,"SELECT settlement_data.swap_command_status($1,$2,$3::jsonb)::text",manifest.CatalogId,request.OperationId,payload))
-            if(await retry.ExecuteScalarAsync(ct) is string prior)return JsonSerializer.Deserialize<JsonElement>(prior);
+        if(await SettlementCommandReplay.Read(connection,manifest.CatalogId,request.OperationId,payload,ct) is {} prior)return prior;
         var prepared=await WithBookingRead(connection,frame,(_,pinned)=>PrepareNet(connection,pinned,preview,ct),ct);
         if(prepared.Hash!=request.PreviewHash)throw Error("settlement_stale_preview","Settlement terms or balances changed; preview and review again.");
         var lines=JsonSerializer.Serialize(prepared.Allocations.Select(a=>new{determination=a.DeterminationId,amount=Exact(a.Amount)}),RiskJobs.Json);

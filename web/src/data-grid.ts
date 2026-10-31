@@ -328,12 +328,13 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   }
   // Virtual redraws can replace a row element between the two clicks. The
   // row key identifies the same position within this grid.
-  let doubleCandidate:string|undefined;
+  let doubleCandidate:string|undefined,completedDouble=false;
   const keyAtElement=(element:HTMLElement)=>{const row=table.getRows().find(row=>row.getElement()===element);return row?keyOf(row):undefined;};
   // A second native mousedown selects a word before dblclick. Keep text
   // selection available for drags and existing selections; suppress only that
   // automatic selection for a second click on the same eligible row.
   const secondMouseDown=(event:MouseEvent)=>{
+    completedDouble=false;
     const row=(event.target as Element).closest<HTMLElement>('.tabulator-row');
     if(options.onRowDoubleOpen&&event.detail===2&&row&&doubleCandidate!==undefined&&keyAtElement(row)===doubleCandidate&&safeRowGesture(event,row))event.preventDefault();
   };
@@ -349,12 +350,17 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Handle the eligible double click before the grid's cell handler, which
   // otherwise selects the whole cell even when mousedown was prevented. The row the first press chose is opened too.
   const doubleClick=(event:MouseEvent)=>{
+    if(event.type==='mouseup'&&event.detail!==2)return;
+    if(event.type==='dblclick'&&completedDouble){event.preventDefault();event.stopPropagation();completedDouble=false;return;}
     const target=(event.target as Element).closest<HTMLElement>('.tabulator-row'),candidate=doubleCandidate;doubleCandidate=undefined;
     if(!options.onRowDoubleOpen||!target||candidate===undefined||!safeRowGesture(event,target))return;
     if(keyAtElement(target)!==candidate)return;
     const index=keys.indexOf(candidate);if(index<0)return;
-    event.preventDefault();event.stopPropagation();options.onRowDoubleOpen(index);
+    event.preventDefault();event.stopPropagation();completedDouble=true;options.onRowDoubleOpen(index);
   };
+  // Cell formatting can replace the pressed descendant before release, so
+  // Chrome may omit dblclick. Complete the same safe row gesture on mouseup.
+  container.addEventListener('mouseup',doubleClick,true);
   container.addEventListener('dblclick',doubleClick,true);
   // A row's menu opens where it was asked for: at the pointer, or under the row when the keyboard asked (the context-menu key's own event).
   function openMenu(target:HTMLElement,at:{x:number;y:number}){const index=keys.indexOf(target.dataset.rowKey??'');if(index>=0)options.onRowMenu?.(index,at);}
@@ -520,7 +526,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       // The grid that was pressed is on the page already: only its rows are scrolled.
       whenDrawn(at,()=>undefined,undefined,(_row,view)=>{const top=view.getBoundingClientRect().top;return press>=top&&press<top+view.clientHeight;});
     },
-    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('contextmenu',rowMenu,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('pointerdown',pressed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('mouseup',doubleClick,true);container.removeEventListener('contextmenu',rowMenu,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('pointerdown',pressed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }
 export type GridHandle=ReturnType<typeof renderDataGrid>;

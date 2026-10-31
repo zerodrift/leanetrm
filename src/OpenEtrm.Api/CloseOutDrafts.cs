@@ -164,7 +164,7 @@ public sealed partial class SwapStore
                 throw CloseOutTerms.Refused($"{Period(period)} has no single {(slot==0?"fixed":"floating")} payment in the draft's valuation, so it cannot be closed by itself.");
         }
         // A one-period swap's price is the Blotter's own mark: the same holding row, of this one position (as for futures).
-        var held=scheduled is null?(await Holdings(connection,data,frame,[],[],ct,selected)).Rows.Single():(JsonElement?)null;
+        var held=scheduled is null?JsonSerializer.SerializeToElement((await Holdings(connection,data,frame,[],[],ct,selected)).Rows.Single()):(JsonElement?)null;
         if(held?.OptionalText("unavailableReason") is {} unvalued)throw CloseOutTerms.NoMark(unvalued);
         var periods=open.Select(n=>
         {

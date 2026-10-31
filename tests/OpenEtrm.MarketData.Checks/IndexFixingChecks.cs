@@ -17,6 +17,12 @@ internal static class IndexFixingChecks
         var at = daily.Fixings[1].FixingAt;
         var snapshot = daily.Snapshot(at, actuals: 2);
         var swap = daily.Swap();
+        Check("obsolete projection-only floating terms refuse rather than acquiring fixing policy", () =>
+        {
+            var indexed=daily.Floating();
+            Reject("index_fixing_definition",()=>new FloatingSide(indexed.Id,indexed.Settlement,indexed.Quote,indexed.UnitQuantity,
+                [..indexed.Periods.Select(period=>period with{Fixings=[],ObservationImplementation="prefixing_index_projection_v1"})]));
+        });
         Check("a raw row selector validates the complete fixing definition before consuming a selected value", () =>
         {
             var market = daily.Model.Build(snapshot, swap.DependenciesAt(snapshot));
@@ -181,15 +187,9 @@ internal static class IndexFixingChecks
             Equal(actual.Lineage.Single(), snapshot.Selections.Single(s => s.Input == new InputKey(daily.Series[0].Key, InputUse.FrozenFact)).Observation.Key);
             Reject("risk_factor", () => daily.Model.Scenarios(build, [bump with { Input = new(daily.Series[0].Key, InputUse.FrozenFact) }]).ToArray());
         });
-        Check("due payments retain lifecycle rejection and a target without fixing metadata refuses its expired mark", () =>
+        Check("due payments retain lifecycle rejection", () =>
         {
             Reject("side_payment_due", () => Value(daily, daily.Snapshot(daily.Payment, 3), swap));
-            var legacy = new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(daily.Base.R("index")), daily.Quote, new(ExactDecimal.Parse("1"), daily.Quote.Quantity),
-                daily.From, daily.To, daily.Fixings[0].FixingAt, daily.Payment, FloatingAveraging.CalendarDayArithmetic,
-                daily.Projections, FloatingSide.Implementation);
-            Reject("source_expired", () => legacy.DependenciesAt(snapshot));
-            Equal(DefinitionIdentity.For(legacy).Version, "FloatingSide_v8");
-            if (!legacy.Periods.Single().Fixings.IsEmpty || legacy.Periods.Single().ObservationImplementation!=FloatingSide.Implementation) throw new Exception("A projection-only schedule acquired fixing terms.");
             Equal(DefinitionIdentity.For(swap.Floating).Version, "FloatingSide_v8");
         });
         Check("new indexed economic identity includes the qualified schedule but excludes selected actual values", () =>

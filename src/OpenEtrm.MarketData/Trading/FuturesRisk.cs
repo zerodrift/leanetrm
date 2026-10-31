@@ -43,7 +43,7 @@ public static class FuturesRisk
         if(requests.IsEmpty)throw new MarketDataException("risk_position","Select at least one live holding for risk.");
         var basis=model.Build(snapshot,requests,cancellation);
         // Reuse the complete immutable-definition, lifecycle and manifest validation.
-        _=FuturesHoldings.Resolve(trades,snapshot,basis,FuturesMarketBinding.GeneralImplementation,cancellation);
+        _=FuturesHoldings.Resolve(trades,snapshot,basis,FuturesMarketBinding.Implementation,cancellation);
         var bindings=sides.GroupBy(s=>s.Instrument.Id).ToImmutableDictionary(g=>g.Key,g=>
         {
             var first=g.First();

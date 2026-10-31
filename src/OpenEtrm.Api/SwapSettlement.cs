@@ -5,6 +5,7 @@ using System.Text.Json;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.Rates;
 
 namespace OpenEtrm.Api;
@@ -87,8 +88,29 @@ public sealed partial class SwapStore
         var key = new PaymentOccurrenceKey(request.TradeId, existing.ValueKind == JsonValueKind.Undefined ? row.Id("binding_id") : existing.Id("origin_binding_id"),
             request.MembershipOrdinal, plan.DeliveryFrom, plan.DeliveryTo);
         var rounding = new SwapSettlementRounding(request.Currency, request.DecimalPlaces, CashTieRule.ToEven, request.RoundingPolicy);
+        var snapshot=data.Snapshot(frame);
+        var market=data.Model.Build(snapshot,[]);
+        var cashContext=new SideValuationContext(market,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted));
+        var sources=plan.Prices.Where(price=>price.ContractObservation is not null).Select(price=>price.ContractObservation!).Distinct().ToImmutableArray();
+        if(!sources.IsEmpty)
+        {
+            if(sources.Any(source=>source.FixingAt>frame.At))
+                throw Error("settlement_not_final","Every contractual source observation must be due before determining cash.");
+            if(snapshot.MarketCutoff!=frame.At)
+                throw Error("contract_observation_context","This source consumer requires an explicit market cutoff equal to the valuation instant.");
+            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,frame.ContextId??
+                throw Error("settlement_context","Supply the exact certified context."),ct)).Context;
+            var exact=PinnedContext.Exact(context);
+            var samples=await ContractObservationSamples.Read(connection,database,data,frame,exact,sources,ct);
+            var calculationContext=new ResolvedCalculationContext(exact.ContextId!.Value,
+                SettlementHash(new{snapshot.Id,snapshot.Definitions,sources,context=exact}),frame.At,
+                SchedulePreview.ParseAt(exact.KnownAt),frame.At,snapshot.MarketCutoff);
+            var pricing=ContractObservationPricing.Compile(samples,calculationContext,
+                new CustomCurves.PreparedBindings(sources.Select(source=>source.Market.Curve).ToHashSet(),calculationContext));
+            cashContext=cashContext.WithContractObservations(pricing,ConnectedScenario.Base(pricing.Plan,database.Calculations,ct));
+        }
         var calculation = SwapSettlement.Calculate(resolved.Instrument, request.MembershipOrdinal, request.PaymentOrdinal,
-            resolved.Quantity, key, data.Model.Build(data.Snapshot(frame), []), rounding);
+            resolved.Quantity, key, cashContext, rounding);
         var contractHash = SettlementHash(new{cashContract=calculation.ContractHash,completion,policy=SwapPeriodCompletion.Policy});
         if (existing.ValueKind != JsonValueKind.Undefined && existing.Text("contract_hash") != contractHash)
             throw Error("settlement_continuity", "Changed determined payment terms require an explicit qualified continuity mapping.");
@@ -118,9 +140,7 @@ public sealed partial class SwapStore
             request.CorrectionPolicy != "swap_explicit_correction_due_v1" || string.IsNullOrWhiteSpace(request.PreviewHash))
             throw Error("settlement_policy", "Explicitly enroll this swap under the supported due, per-period recognition, correction and currency-rounding policies.");
         var payload = JsonSerializer.Serialize(request, RiskJobs.Json);
-        await using (var retry = ScheduleStore.Command(connection, "SELECT settlement_data.swap_command_status($1,$2,$3::jsonb)::text",
-            manifest.CatalogId, request.OperationId, payload))
-            if (await retry.ExecuteScalarAsync(ct) is string prior) return JsonSerializer.Deserialize<JsonElement>(prior);
+        if (await SettlementCommandReplay.Read(connection, manifest.CatalogId, request.OperationId, payload, ct) is {} prior) return prior;
         var prepared = await WithBookingRead(connection, frame, (data, pinned) => PrepareSettlement(connection, data, pinned, preview, ct), ct);
         if (request.PreviewHash != prepared.PreviewHash) throw Error("settlement_stale_preview", "Final inputs or contractual terms changed; recalculate and review settlement.");
         var value = prepared.Calculation;
@@ -148,9 +168,7 @@ public sealed partial class SwapStore
         var amount = ExactDecimal.Parse(Required(request.Amount));
         var at = SettlementInstant(request.EffectiveAt,"settlement_cash_input");
         var payload = JsonSerializer.Serialize(request, RiskJobs.Json);
-        await using (var retry = ScheduleStore.Command(connection, "SELECT settlement_data.swap_command_status($1,$2,$3::jsonb)::text",
-            manifest.CatalogId, request.OperationId, payload))
-            if (await retry.ExecuteScalarAsync(ct) is string prior) return JsonSerializer.Deserialize<JsonElement>(prior);
+        if (await SettlementCommandReplay.Read(connection, manifest.CatalogId, request.OperationId, payload, ct) is {} prior) return prior;
         var context = await WithBookingRead(connection, frame, async (data, pinned) =>
         {
             _ = await SettlementState(connection, request.TradeId, ct);
@@ -177,15 +195,26 @@ public sealed partial class SwapStore
         catch(MarketDataException){throw Error(code,"Supply an explicit UTC instant at microsecond precision for the cash or correction due date.");}
     }
 
+    private Task<ImmutableArray<JsonElement>> QuantityPeriodBounds(NpgsqlConnection connection,JsonElement row,CancellationToken ct) =>
+        PreviewDatabase.Rows(connection,"""
+         WITH intervals AS MATERIALIZED (
+          SELECT value FROM jsonb_array_elements(security.read_swap_power_quantity_intervals($1,$2,$3))
+         )
+         SELECT jsonb_build_object('slot',(value->>'slot')::integer,'period',(value->>'period')::integer,
+          'starts',min((value->>'start')::timestamptz),'ends',max((value->>'end')::timestamptz))::text
+         FROM intervals GROUP BY (value->>'slot')::integer,(value->>'period')::integer
+         ORDER BY (value->>'slot')::integer,(value->>'period')::integer
+         """,[manifest.CatalogId,row.Id("trade_id"),int.Parse(row.Text("revision"),CultureInfo.InvariantCulture)],ct);
+
     private async Task<ImmutableArray<SwapPeriodCompletion>> SettlementCompletions(NpgsqlConnection connection,JsonElement row,SidedInstrument instrument,CancellationToken ct)
     {
-        var sources=instrument is ScheduledFinancialSwap or CrossCommodityScheduledSwap?await PreviewDatabase.Rows(connection,"""
-         SELECT jsonb_build_object('slot',a.slot,'basis',a.basis,'ends',
-          (SELECT jsonb_object_agg(p.period_ordinal::text,p.completion) FROM
-           (SELECT period_ordinal,max(ends_at) completion FROM trading.swap_power_quantity_intervals
-            WHERE(catalog_id,trade_id,revision,slot)=(a.catalog_id,a.trade_id,a.revision,a.slot) GROUP BY period_ordinal)p))::text
-         FROM trading.swap_quantity_authoring a WHERE(a.catalog_id,a.trade_id,a.revision)=($1,$2,$3)
+        var scheduled=instrument is ScheduledFinancialSwap or CrossCommodityScheduledSwap;
+        var sources=scheduled?await PreviewDatabase.Rows(connection,"""
+         SELECT jsonb_build_object('slot',slot,'basis',basis)::text
+         FROM trading.swap_quantity_authoring WHERE(catalog_id,trade_id,revision)=($1,$2,$3)
          """,[manifest.CatalogId,row.Id("trade_id"),int.Parse(row.Text("revision"),CultureInfo.InvariantCulture)],ct):[];
+        var bounds=sources.Any(source=>source.Text("basis")=="selected_interval_power")
+            ?await QuantityPeriodBounds(connection,row,ct):[];
         return instrument.Sides.SelectMany((membership,slot)=>((SidePaymentSchedule)membership.Side.GenerateSchedule()).Payments.Select(plan=>
         {
             if(instrument is ScheduledFinancialSwap or CrossCommodityScheduledSwap)
@@ -194,9 +223,11 @@ public sealed partial class SwapStore
                 if(source.Text("basis")=="factor_of_first_side_v1")source=One(sources.Where(s=>int.Parse(s.Text("slot"),CultureInfo.InvariantCulture)==0));
                 if(source.Text("basis")=="selected_interval_power")
                 {
-                    if(source.GetProperty("ends").ValueKind!=JsonValueKind.Object||!source.GetProperty("ends").TryGetProperty(plan.Key.Ordinal.ToString(CultureInfo.InvariantCulture),out var end))
+                    var period=bounds.Where(bound=>bound.Text("slot")==source.Text("slot")&&
+                        int.Parse(bound.Text("period"),CultureInfo.InvariantCulture)==plan.Key.Ordinal).ToArray();
+                    if(period.Length!=1)
                         throw Error("settlement_completion","Every clocked quantity period requires its retained final delivery interval.");
-                    return new SwapPeriodCompletion(slot,plan.DeliveryFrom,plan.DeliveryTo,SchedulePreview.ParseAt(end.GetString()),"retained_quantity_interval_end_v1");
+                    return new SwapPeriodCompletion(slot,plan.DeliveryFrom,plan.DeliveryTo,period[0].Instant("ends"),"retained_quantity_interval_end_v1");
                 }
             }
             return new SwapPeriodCompletion(slot,plan.DeliveryFrom,plan.DeliveryTo,
@@ -232,7 +263,7 @@ public sealed partial class SwapStore
     private sealed record LifecycleEvaluation(SidedInstrument Instrument,Quantity Quantity,SwapSettlementInputs Inputs,
         SwapLifecycleValue Value,JsonElement State);
     private async Task<LifecycleEvaluation> EvaluateLifecycle(NpgsqlConnection connection,PreviewData data,InputFrame frame,JsonElement row,
-        SwapWriteRequest terms,JsonElement state,CancellationToken ct,RetainedScheduleStore? schedules=null)
+        SwapWriteRequest terms,JsonElement state,CancellationToken ct,RetainedScheduleStore? schedules=null,ContractObservationSamples.History? sourceHistories=null)
     {
         (data,frame) = await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct);
         var resolved = await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules);
@@ -242,7 +273,8 @@ public sealed partial class SwapStore
         var mapping = enabled ? await Discount(connection,data,frame,resolved.Instrument.Currency,ct) : null;
         var discounting = new CurrencyDefaultDiscounting(inputs.DiscountKeys(resolved.Instrument,snapshot),snapshot,enabled,mapping);
         var context = (await new KnowledgeStore(manifest.CatalogId).Read(connection,frame.ContextId??throw Error("settlement_context","Supply the exact certified context."),ct)).Context;
-        var connected = await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),ct);
+        var connected = await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),ct,
+            activePrices:inputs.RequiredPrices(resolved.Instrument),sourceHistories:sourceHistories);
         return new(resolved.Instrument,resolved.Quantity,inputs,inputs.Evaluate(resolved.Instrument,
             connected.Valuation.PaymentContext(connected.Bindings,connected.Authority,discounting,ct)),state);
     }
@@ -287,7 +319,7 @@ public sealed partial class SwapStore
             request.BookIds.Distinct().Count()!=request.BookIds.Length||request.ContractChanges is not("reject_contract_changes_v1" or SwapContractBridge.Policy)||
             request.DuePolicy!="swap_due_nominal_v1"||request.RecognitionPolicy!="swap_completed_period_trading_pnl_v1")
             throw Error("settlement_bridge","Select explicit financial-swap scopes, due/recognition policies and the unchanged-contract bridge.");
-        var books=await new FuturesStore(manifest).Books(connection,ct);FuturesStore.ValidateScope(books,request.BookIds,[]);
+        var books=await BookScope.Read(connection,manifest.CatalogId,ct);BookScope.Validate(books,request.BookIds,[]);
         var allRows=await Rows(connection,null,ct);
         var heads=allRows.GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!).ToArray();
         var rows=heads.Where(r=>(request.TradeIds.IsEmpty||request.TradeIds.Contains(r.Id("trade_id")))&&(request.BookIds.IsEmpty||request.BookIds.Contains(r.Id("book_id"))));
@@ -371,7 +403,7 @@ public sealed partial class SwapStore
         value.Snapshot.MarketCutoff,
         prices = value.Evidence.Prices.Select(p => new
         {
-            price = ExactPrice(p.ExactPrice), p.ExactPrice.Unit, p.State, p.Term.Lookup, p.Term.Spread,
+            price = ExactPrice(p.ExactPrice), p.ExactPrice.Unit, p.State, p.Term.Lookup, p.Term.ContractObservation, p.Term.Spread,
             weight = p.Term.Weight.ToString(), lineage = p.Lineage.OrderBy(k => k.Id).ToImmutableArray()
         }),
         applications = value.Evidence.Applications.Select(a => new

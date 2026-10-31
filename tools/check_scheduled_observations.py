@@ -58,4 +58,6 @@ def run(c,context,manifest):
     result=c.call('swaps/preview',terms);saved=c.call('swaps/book',terms)
     retained=c.call('swaps/editor',dict(context=context,tradeId=saved['tradeId'],revision=None))
     assert retained['valuation']['presentValue']==result['valuation']['presentValue'] and retained['state']['terms']['scheduled']['second']['periods'][0]['floating']['customProjection']==projection
+    from check_scheduled_synthetic_sources import run as check_synthetic_sources
+    check_synthetic_sources(c,context,terms,definition,published,projection,saved)
     print('PASS scheduled custom projection uses an exact published binding through preview, booking and retained editing',flush=True)

@@ -3,10 +3,17 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--gas-market-selection"]){GasMarketSelectionChecks.Run();return;}
+if(args is ["--preview-failure-diagnostics"]){OpenEtrm.Api.Checks.PreviewFailureDiagnosticChecks.Run();return;}
+if(args is ["--position-qualification"]){await PositionQualificationChecks.Run();return;}
+
+if(args is ["--book-scope"]){BookScopeChecks.Run();return;}
+if(args is ["--database-login-boundaries",var boundaryConnectionFile,var boundaryTracking]){await DatabaseLoginBoundaryChecks.Run(boundaryConnectionFile,bool.Parse(boundaryTracking));return;}
 if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
 if(args is ["--booked-programs",var bookedProgramsFixture]){await BookedProgramStorageChecks.Run(bookedProgramsFixture);return;}
 if(args is ["--ppa-blotter-admission"]){await PpaBlotterAdmissionChecks.Run();return;}
 if(args is ["--position-facts"]){TradePositionFactsChecks.Run();return;}
+if(args is ["--swap-holding-markets",var holdingMarketFixture]){await SwapHoldingMarketChecks.Run(holdingMarketFixture);return;}
 if(args is ["--swap-settlement-agent",var settlementAgentFixture]){await SwapSettlementAgentChecks.Run(settlementAgentFixture);return;}
 if(args is ["--custom-curve-savers",var curveSaverFixture]){await CustomCurveSaverChecks.Run(curveSaverFixture);return;}
 if(args is ["--custom-curve-tool",var curveToolFixture]){await CustomCurveToolChecks.Run(curveToolFixture);return;}
@@ -16,6 +23,8 @@ if(args is ["--swap-change-review"]){SwapChangeReviewChecks.Run();return;}
 if(args is ["--whole-term-swaps"]){WholeTermSwapAssemblyChecks.Run();return;}
 if(args is ["--retained-schedule-limits"]){RetainedScheduleLimitChecks.Run();return;}
 if(args is ["--trading-read-selection"]){TradingReadSelectionChecks.Run();return;}
+if(args is ["--booked-schedule-lookups"]){BookedScheduleLookupChecks.Run();return;}
+if(args is ["--contract-observation-authoring"]){ContractObservationAuthoringChecks.Run();return;}
 if(args is ["--side-observation-compatibility"]){SideObservationCompatibilityChecks.Run();return;}
 if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();return;}
 if(args is ["--connected-samples"]){ConnectedSampleChecks.Run();return;}
@@ -26,6 +35,7 @@ if(args is ["--close-risk"]){CloseRiskChecks.Run();return;}
 if(args is ["--ppa-limits"]){PpaLimitChecks.Run();return;}
 if(args is ["--preview-data"]){PreviewDataChecks.Run();return;}
 if(args is ["--portfolio-risk-scope",var portfolioScopeFixture]){await SwapRiskHoldingChecks.Scope(portfolioScopeFixture);return;}
+if(args is ["--swap-risk-reuse-revoked",var reuseFixture]){await SwapRiskHoldingChecks.ReuseRevoked(reuseFixture);return;}
 if(args is ["--swap-risk-holdings",var swapRiskFixture]){await SwapRiskHoldingChecks.Run(swapRiskFixture,false);return;}
 if(args is ["--close-out-drafts",var closeOutFixture]){await CloseOutDraftChecks.Run(closeOutFixture);return;}
 if(args is ["--swap-risk-holdings-denied",var deniedSwapRiskFixture]){await SwapRiskHoldingChecks.Run(deniedSwapRiskFixture,true);return;}
@@ -58,6 +68,7 @@ if (args is ["--power-imports"])
 }
 if(args is ["--model-providers"]){await ModelProviderChecks.Run();return;}
 if(args is ["--turn-streams"]){await TurnStreamChecks.Run();return;}
+if(args is ["--blotter-stream"]){await BlotterStreamChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
@@ -71,12 +82,18 @@ if (args is ["--schedules"])
     TurnWorkerChecks.Run();
     AgentToolChecks.Run();
     await TurnStreamChecks.Run();
+    await BlotterStreamChecks.Run();
     PowerImportChecks.Run();
     SwapChangeReviewChecks.Run();
     WholeTermSwapAssemblyChecks.Run();
     RetainedScheduleLimitChecks.Run();
     TradingReadSelectionChecks.Run();
+    GasMarketSelectionChecks.Run();
     TradePositionFactsChecks.Run();
+    BookScopeChecks.Run();
+    BookedScheduleLookupChecks.Run();
+    SideObservationCompatibilityChecks.Run();
+    ContractObservationAuthoringChecks.Run();
     SchedulePreviewChecks.Run();
     DateWorkspaceChecks.Run();
     SchedulePublicationChecks.Run();
@@ -87,6 +104,11 @@ if (args is ["--schedules"])
     return;
 }
 
+BookedScheduleLookupChecks.Run();
+await PositionQualificationChecks.Run();
+OpenEtrm.Api.Checks.PreviewFailureDiagnosticChecks.Run();
+SideObservationCompatibilityChecks.Run();
+ContractObservationAuthoringChecks.Run();
 TradePartyChecks.Run();
 AmountJsonChecks.Run();
 PilotReportChecks.Run();
@@ -98,7 +120,7 @@ RiskJobRunChecks.Run();
 PpaLimitChecks.Run();
 
 var cat=Guid.NewGuid(); var revision=Guid.NewGuid(); var reference=Guid.NewGuid(); var referenceRevision=Guid.NewGuid();
-var manifest=new PreviewManifest("local-synthetic-preview",cat,revision,reference,referenceRevision,Guid.NewGuid(),Guid.NewGuid(),[],new(DateTimeOffset.UtcNow,"local_power"));
+var manifest=new PreviewManifest("local-synthetic-preview",cat,revision,reference,referenceRevision,Guid.NewGuid(),Guid.NewGuid(),[],new(DateTimeOffset.UtcNow,"local_power"),FuturesConvention:"contract_lot_execution_pnl_v2");
 var row=new Dictionary<string,object> { ["catalog_id"]=cat,["id"]=revision,["reference_catalog_id"]=reference,["reference_revision_id"]=referenceRevision,["state"]="sealed" };
 PreviewData.RequireBundlePin(manifest,JsonSerializer.SerializeToElement(row));
 Console.WriteLine("PASS exact persisted sealed bundle matches manifest");
@@ -138,7 +160,7 @@ if(args.Length==1)
     var definitions=Rows("definitions");var references=Rows("references");
     var observations=root.GetProperty("observations").EnumerateArray().Select(r=>r.Clone()).ToImmutableArray();
     var persisted=definitions["revisions"][0];
-    var realManifest=new PreviewManifest("local-synthetic-preview",persisted.Id("catalog_id"),persisted.Id("id"),persisted.Id("reference_catalog_id"),persisted.Id("reference_revision_id"),Guid.NewGuid(),Guid.NewGuid(),[],new(DateTimeOffset.UtcNow,"local_power"));
+    var realManifest=new PreviewManifest("local-synthetic-preview",persisted.Id("catalog_id"),persisted.Id("id"),persisted.Id("reference_catalog_id"),persisted.Id("reference_revision_id"),Guid.NewGuid(),Guid.NewGuid(),[],new(DateTimeOffset.UtcNow,"local_power"),FuturesConvention:"contract_lot_execution_pnl_v2");
     var f=root.GetProperty("frames").EnumerateArray().Single(f=>f.GetProperty("at").GetString()!.StartsWith("2020-12-18",StringComparison.Ordinal));
     var frame=new InputFrame(f.Id("id"),"Exact fixture",f.Instant("at"),f.GetProperty("observationIds").EnumerateArray().Select(id=>id.GetGuid()).ToImmutableArray(),
         f.GetProperty("curveContracts").EnumerateObject().ToImmutableDictionary(p=>p.Name,p=>p.Value.EnumerateArray().Select(id=>id.GetGuid()).ToImmutableArray()));

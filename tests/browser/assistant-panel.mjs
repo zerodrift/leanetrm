@@ -50,7 +50,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const notice=`${latest}?.querySelector('.assistant-target')`;
   const asks="window.__requests.filter(r=>r.path==='/api/assistant/turns/ask')";
   const looking="['#assistant-looking-page','#assistant-looking-shows','#assistant-looking-context'].map(s=>document.querySelector(s).textContent)";
-  // The Blotter's layout as the dock draws it: a pane is open when its body is shown, the shown tab of its group and not put away (D270).
+  // The Blotter's layout as the dock draws it: a pane is open when its body is shown, the shown tab of its group and not put away (D271).
   const drawnLayout=`JSON.stringify({pane:{details:${shown('#blotter-pane-details')},charts:${shown('#blotter-pane-charts')}},poppedOut:false})`;
   // Looking at's line for that layout.
   const drawnLine=`[${shown('#blotter-pane-details')}?'Details open':'Details closed',${shown('#blotter-pane-charts')}?'Charts open':'Charts closed','Main window'].join(' · ')`;

@@ -28,9 +28,10 @@ export type BoardCard={curve:string;name:string;type:string;kind:string;curveKin
 export type BoardGroup={key:string;name:string;cards:BoardCard[]};
 
 const contracts=(count:number)=>`${count} ${count===1?'contract':'contracts'}`;
-const unavailable=(reason:string,unit:string|null=null,count:string|null=null):CardFigures=>({state:'unavailable',unit,count,reason});
+const unavailable=(reason:string,unit:string|null=null,count:string|null=null):Extract<CardFigures,{state:'unavailable'}>=>({state:'unavailable',unit,count,reason});
 const inconsistent=unavailable('Curve shape unavailable · the curve read is inconsistent');
-function figures(shape:CurveShape|string,name:string):CardFigures{
+/** What a curve shape read states of a curve at the close: its front and line, or why the close cannot price it. Shared by the board's cards and the dashboard's tiles. */
+export function figures(shape:CurveShape|string,name:string):Exclude<CardFigures,{state:'unread'|'rates'}>{
   if(typeof shape==='string')return {state:'failed',reason:shape};
   const count=shape.contractCount,counted=typeof count==='number'&&Number.isSafeInteger(count)&&count>=0;
   // What the backend states of a curve whose view selects no contract, or whose contracts the close prices none of, in the board's words.

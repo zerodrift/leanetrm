@@ -38,7 +38,7 @@ static class HostedConfigurationChecks
         }
         finally{root.Delete(true);}
 
-        var manifest=new PreviewManifest("hosted-pilot",Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),[],null);
+        var manifest=new PreviewManifest("hosted-pilot",Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),[],null,FuturesConvention:"contract_lot_execution_pnl_v2");
         var digest=HostedAccess.TokenDigest(HostedAccess.NewToken());
         var signIn=new HostedSignIn(digest,DateTimeOffset.UtcNow.AddMinutes(12));
         var bound=new PreviewSession(manifest,signIn);

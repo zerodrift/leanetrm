@@ -20,7 +20,7 @@ def run_checks(url, query, manifest, psql, environment):
     frames = c.call('workspace')['frames']
     frame = next(f for f in frames if f['at'].startswith('2020-12-18'))
     earlier = next(f for f in frames if f['at'].startswith('2020-12-17'))
-    context = {'snapshotId': frame['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'}
+    context = {'snapshotId': frame['id'], 'convention': 'contract_lot_execution_pnl_v2', 'knowledgeMode': 'current'}
     catalog = c.call('futures/catalog', context)
     contract = next(k for k in catalog['contracts'] if k['deliveryFrom'] == '2021-01-01')
     book_a, book_b = [b['id'] for b in catalog['books']]
@@ -44,7 +44,7 @@ def run_checks(url, query, manifest, psql, environment):
     raw = query(f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT security.use_context('{token}'); "
                 f"SELECT security.amend_futures_with_parties('{manifest['catalogId']}','{uuid4()}','{trade['tradeId']}',1,'{book_b}','{manifest['revisionId']}',"
                 f"'{contract['curve']}','{contract['id']}','{frame['at']}','{frame['at']}',NULL,2,2.95,'Synthetic correction',"
-                f"'fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb); ROLLBACK;")
+                f"'contract_lot_execution_pnl_v2','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb); ROLLBACK;")
     check('raw amendment creates the same successor inside an isolated rollback', json.loads(raw)['revision'] == 2 and details()['state']['revision'] == 1)
     amended = c.call('futures/amend', change)
     check('amendment atomically creates revision two and a linked retained event', amended['revision'] == 2 and details()['state']['lots'] == '2' and len(details()['history']) == 2)
@@ -90,7 +90,7 @@ def run_checks(url, query, manifest, psql, environment):
     query(f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT security.use_context('{token}'); DO $$ BEGIN "
           f"PERFORM security.amend_futures_with_parties('{manifest['catalogId']}','{uuid4()}','{trade['tradeId']}',3,'{book_b}','{manifest['revisionId']}',"
           f"'{february['curve']}','{february['id']}','{contract['lastTrading']}','{contract['lastTrading']}',NULL,4,2.95,'Synthetic expired correction',"
-          f"'fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb); RAISE EXCEPTION 'Expected expired-head rejection'; "
+          f"'contract_lot_execution_pnl_v2','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb); RAISE EXCEPTION 'Expected expired-head rejection'; "
           "EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'futures_execution' THEN RAISE; END IF; END $$; ROLLBACK;")
     check('raw commit cannot use amendment to escape an expired prior contract', details()['state']['revision'] == 3)
     # Let the short-lived capability expire while a separate connection owns the
@@ -109,7 +109,7 @@ def run_checks(url, query, manifest, psql, environment):
         sql = (f"SET SESSION AUTHORIZATION preview_runtime; BEGIN; SELECT security.use_context('{token}'); "
                f"SELECT security.amend_futures_with_parties('{manifest['catalogId']}','{expired_operation}','{trade['tradeId']}',3,'{book_b}','{manifest['revisionId']}',"
                f"'{contract['curve']}','{contract['id']}','{frame['at']}','{frame['at']}',NULL,4,2.95,'Synthetic expired capability',"
-               f"'fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb); COMMIT;")
+               f"'contract_lot_execution_pnl_v2','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb); COMMIT;")
         blocked = subprocess.Popen([str(p) for p in psql]+['-v','VERBOSITY=verbose'], env={**environment, 'PGAPPNAME': 'amendment_expiry_waiter'}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         children.append(blocked); blocked.stdin.write(sql); blocked.stdin.close(); blocked.stdin = None
         for _ in range(100):

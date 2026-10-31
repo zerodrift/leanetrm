@@ -117,6 +117,25 @@ def fixture(root, current_schema=True, fixing_frames=False):
     market=market.replace('2020-12-18 16:01:00+00',now)
     # A separately observed all-in alternative demonstrates independent inputs.
     extra_market.append(f"INSERT INTO market_data.curves VALUES ({M},'local_power_all_in',{R},'test_power','test_hub_a','test_power_outright','test_uniform','test_power_target','direct','fixture','trader_mark');")
+    # Distinct delivery points can share a market hub while retaining their own path and adjustment.
+    extra_ref.append(f"INSERT INTO ref_data.location_types VALUES ({R},'synthetic_gas_zone','Synthetic gas zone');")
+    extra_ref.append(f"INSERT INTO ref_data.locations (catalog_id,revision_id,code,name,type_code,clock_code) VALUES ({R},'synthetic_gas_pipeline_b','Synthetic pipeline B','test_pipeline','test_utc');")
+    for letter in ['a','b','c']:
+        extra_ref.append(f"INSERT INTO ref_data.locations (catalog_id,revision_id,code,name,type_code,clock_code) VALUES ({R},'synthetic_gas_zone_{letter}','Synthetic zone {letter.upper()}','synthetic_gas_zone','test_utc');")
+    for letter in ['a','b','c','d','unpriced']:
+        extra_ref.append(f"INSERT INTO ref_data.locations (catalog_id,revision_id,code,name,type_code,clock_code) VALUES ({R},'synthetic_gas_point_{letter}','Synthetic delivery location {letter.upper()}','test_delivery_point','test_utc');")
+    for location in ['test_pipeline_a','synthetic_gas_pipeline_b','synthetic_gas_point_a','synthetic_gas_point_b','synthetic_gas_point_c','synthetic_gas_point_d','synthetic_gas_point_unpriced']:
+        extra_ref.append(f"INSERT INTO ref_data.commodity_locations VALUES ({R},'test_gas','{location}');")
+    extra_ref.append(f"DO $gas$ BEGIN IF to_regclass('ref_data.pipeline_zones') IS NOT NULL THEN INSERT INTO ref_data.pipeline_zones VALUES ({R},'test_pipeline_a','synthetic_gas_zone_a'),({R},'test_pipeline_a','synthetic_gas_zone_b'),({R},'synthetic_gas_pipeline_b','synthetic_gas_zone_c'); INSERT INTO ref_data.pipeline_delivery_points VALUES ({R},'test_pipeline_a','synthetic_gas_zone_a','synthetic_gas_point_a'),({R},'test_pipeline_a','synthetic_gas_zone_b','synthetic_gas_point_b'),({R},'synthetic_gas_pipeline_b','synthetic_gas_zone_c','synthetic_gas_point_c'),({R},'test_pipeline_a','synthetic_gas_zone_a','synthetic_gas_point_d'),({R},'test_pipeline_a','synthetic_gas_zone_a','synthetic_gas_point_unpriced'); END IF; END $gas$;")
+    for letter,pipe,zone in [('a','test_pipeline_a','a'),('b','test_pipeline_a','b'),('c','synthetic_gas_pipeline_b','c'),('d','test_pipeline_a','a'),('unpriced','test_pipeline_a','a')]:
+        extra_ref.append(f"DO $gas$ BEGIN IF to_regclass('ref_data.gas_delivery_conventions') IS NOT NULL THEN INSERT INTO ref_data.gas_delivery_conventions VALUES ({R},'{pipe}','synthetic_gas_zone_{zone}','synthetic_gas_point_{letter}','test_gas','test_utc',{60 if letter=='c' else 0}); END IF; END $gas$;")
+    for group,pipe,adjustment in [('a','test_pipeline_a','-0.1'),('b','synthetic_gas_pipeline_b','-0.3')]:
+        extra_market.append(f"DO $gas$ BEGIN IF to_regclass('market_data.gas_valuation_groups') IS NOT NULL THEN INSERT INTO market_data.gas_valuation_groups VALUES ({M},'synthetic_gas_group_{group}',{R},'{pipe}','test_gas','local_gas',{adjustment}); END IF; END $gas$;")
+    for letter,pipe,zone,group,group_adjustment,location_adjustment in [('a','test_pipeline_a','a','a','-0.1','0'),('b','test_pipeline_a','b','a','-0.1','-0.1'),('c','synthetic_gas_pipeline_b','c','b','-0.3','0'),('d','test_pipeline_a','a','a','-0.1','-0.05')]:
+        extra_market.append(f"DO $gas$ BEGIN IF to_regclass('market_data.gas_valuation_assignments') IS NOT NULL THEN INSERT INTO market_data.gas_valuation_assignments (catalog_id,revision_id,code,reference_catalog_id,reference_revision_id,pipeline_code,zone_code,point_code,product_code,curve_code,group_code,group_adjustment,location_adjustment) VALUES ({M},'synthetic_gas_value_{letter}',{R},'{pipe}','synthetic_gas_zone_{zone}','synthetic_gas_point_{letter}','test_gas','local_gas','synthetic_gas_group_{group}',{group_adjustment},{location_adjustment}); END IF; END $gas$;")
+    for code,pipe,zone,point,identifier,start,end in [('a_jan','test_pipeline_a','a','a','SYN-METER-A-JAN','2021-01-01','2021-02-01'),('a_feb','test_pipeline_a','a','a','SYN-METER-A-FEB','2021-02-01','2022-01-01'),('b','test_pipeline_a','b','b','SYN-METER-B','2021-01-01','2022-01-01'),('c','synthetic_gas_pipeline_b','c','c','SYN-METER-C','2021-01-01','2022-01-01')]:
+        extra_ref.append(f"DO $gas$ BEGIN IF to_regclass('ref_data.gas_meter_assignments') IS NOT NULL THEN INSERT INTO ref_data.gas_meter_assignments VALUES ({R},'synthetic_gas_meter_{code}','{pipe}','synthetic_gas_zone_{zone}','synthetic_gas_point_{point}','test_gas','{identifier}','test_gas_quantity','{start}','{end}'); END IF; END $gas$;")
+    extra_market.append(f"DO $gas$ BEGIN IF to_regclass('market_data.gas_usage_tariffs') IS NOT NULL THEN INSERT INTO market_data.gas_usage_tariffs VALUES ({M},'synthetic_gas_usage_a',{R},'test_pipeline_a','test_gas','test_gas_outright',0.12,'2021-01-01','2021-02-01'); END IF; END $gas$;")
     curves=[('future',1),('bridge_basis',2),('base_forward',2),('gas_basis',3),('local_gas',3),
             ('power_spread',4),('hub_power',4),('power_basis',5),('local_power',5),('local_power_all_in',5)]
     mappings=[('base_forward',2,'future',1,'bridge_basis'),('local_gas',3,'base_forward',2,'gas_basis'),
@@ -206,6 +225,17 @@ def fixture(root, current_schema=True, fixing_frames=False):
         partial=next(frame for frame in frames if frame['at']=='2021-01-15T08:00:00Z')
         frames.append({**partial,'at':'2021-01-15T09:00:00Z'})
     extra_ref.append(f"DO $$ BEGIN IF to_regclass('ref_data.futures_product_terms') IS NOT NULL THEN INSERT INTO ref_data.futures_product_terms VALUES({R},'test_gas_future','test_uniform',NULL); END IF; END $$;")
+    extra_ref.append(f"""DO $policy$ BEGIN
+ IF to_regclass('ref_data.futures_execution_policies') IS NOT NULL THEN
+  INSERT INTO ref_data.futures_execution_policies(catalog_id,revision_id,series_code,implementation,eligibility_rule,eligible_from,
+   source_date_offset_seconds,source_date_tzdb_version,price_role,price_source_code,evidence_source_code)
+  SELECT s.catalog_id,s.revision_id,s.code,'contract_lot_execution_pnl_v2','source_first_trade_instant_v1',m.event_at,
+   NULL,NULL,'daily_settlement','fixture','fixture'
+  FROM ref_data.futures_series s JOIN ref_data.futures_milestones m
+   ON(m.catalog_id,m.revision_id,m.series_code,m.milestone)=(s.catalog_id,s.revision_id,s.code,'first_trading')
+  WHERE(s.catalog_id,s.revision_id,s.product_code)=({R},'test_gas_future');
+ END IF;
+ END $policy$;""")
     market=market.replace('UPDATE ref_data.revisions SET', '\n'.join(extra_ref)+'\nUPDATE ref_data.revisions SET',1)
     extra_market.append(f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','2022-01-01');")
     market=market.replace('UPDATE market_data.revisions SET','\n'.join(extra_market)+'\nUPDATE market_data.revisions SET',1)
@@ -216,7 +246,7 @@ def fixture(root, current_schema=True, fixing_frames=False):
         tou=tou_products(CAT,R,clocks,now,lambda n:identity('d',n))
         market=market.rsplit('COMMIT;',1)[0]+'\n'.join(tou)+'\nCOMMIT;\n'
     manifest={'mode':'local-synthetic-preview','catalogId':CAT,'revisionId':REV,'referenceCatalogId':RCAT,'referenceRevisionId':RREV,
-              'tenantId':TENANT,'workspaceId':WORKSPACE,'frames':frames,
+              'tenantId':TENANT,'workspaceId':WORKSPACE,'frames':frames,'futuresConvention':'contract_lot_execution_pnl_v2',
               'schedules':[{'curve':'future','from':'2020-12-01T00:00:00Z','to':'2021-05-28T15:30:00Z','exampleAt':'2020-12-28T15:29:00Z'}],
               'example':{'at':'2020-12-18T16:00:00Z','curve':'local_power'},
               'unitCatalog':{'referenceRevisionId':RREV,'definitionRevisionId':REV}}

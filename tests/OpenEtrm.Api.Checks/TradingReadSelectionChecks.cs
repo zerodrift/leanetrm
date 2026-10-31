@@ -8,7 +8,7 @@ internal static class TradingReadSelectionChecks
     {
         var at=new DateTimeOffset(2031,11,1,0,0,0,TimeSpan.Zero);
         var manifest=new PreviewManifest("local-synthetic-preview",Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),
-            Guid.NewGuid(),Guid.NewGuid(),[],new(at,"synthetic_power"));
+            Guid.NewGuid(),Guid.NewGuid(),[],new(at,"synthetic_power"),FuturesConvention:"contract_lot_execution_pnl_v2");
         var session=new PreviewSession(manifest){Profile="trader"};
         var frame=new InputFrame(Guid.NewGuid(),"Synthetic read",at,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
         var request=new FuturesReadRequest(frame.Id,TradingBlotter.Convention,"current");

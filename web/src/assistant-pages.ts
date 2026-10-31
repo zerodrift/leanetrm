@@ -5,7 +5,7 @@ import {grantPhrase,type Vendor} from './agent-grants.js';
 import {readPages,type Step,type Ending,type Usage,type TargetContext} from './assistant-events.js';
 
 /**
- * What the Blotter shows of its panes and window, which its report states beside the selection (D270). A pane is open when it is the shown
+ * What the Blotter shows of its panes and window, which its report states beside the selection (D271). A pane is open when it is the shown
  * tab of its group in the panes as drawn and is not put away: one behind another tab of its group is not open. A narrow page draws every
  * pane in one group, so there only the pane that group shows is open (dock-model openTabs). `poppedOut`: the Blotter is in a window of its own.
  */
@@ -23,14 +23,14 @@ export type PageState=
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
-  |{page:'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'};
+  |{page:'dashboard'|'gas-setup'|'gas'|'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null}
   |{mode:'retained';contextId:string;effectiveOn:string;knownAtLabel:string;frameId:string|null;frameLabel:string|null}|{mode:'unapplied'};
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
-const unsupported:Record<string,string>={delivery:'delivery_prices','interval-series':'interval_series',
+const unsupported:Record<string,string>={dashboard:'dashboard','gas-setup':'gas_setup',gas:'physical_gas',delivery:'delivery_prices','interval-series':'interval_series',
   'interval-curves':'interval_curves',admin:'users_access',ai:'settings_ai'};
 // Pages the assistant reads but Navigate does not open (D250).
 const unopened:readonly string[]=['ppa'];
@@ -85,7 +85,7 @@ export function askKnowledge(context:PageContext){
 const pageNames:Record<string,string>={curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
   reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',delivery_prices:'Delivery prices',
   custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs & Infrastructure',users_access:'Users & access',
-  settings_ai:'AI',ppa:'PPA bookings'};
+  settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',ppa:'PPA bookings'};
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
 const counted=(n:number,noun:string)=>`${n} ${noun}${n===1?'':'s'}`;
 const joined=(names:string[])=>names.length>1?`${names.slice(0,-1).join(', ')} and ${names.at(-1)}`:names[0];

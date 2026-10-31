@@ -109,8 +109,8 @@ const futures=setupFutures({window:{kind:'popout',close:()=>bringBack(),example:
   narrow:()=>main.clientWidth<dockedGroupsFrom,canRunRisk:()=>can('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty:false,view:knowledge(),canBook:can('BookTrade')}),
   onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),failed,failureCleared:()=>{$('error').hidden=true;},notice,
   definitionRevision:()=>{if(!navigation)throw Error('The market navigation is still loading.');return navigation.definitionRevision.revisionId;},
-  // This window has no navigation of saved views, Curves & prices or PPA bookings: those are the main window's.
-  onViews:()=>undefined,curveListed:()=>false,openCurve:async()=>{throw Error('Curves & prices opens in the main window.');},newPpa:async()=>{throw Error('PPA bookings open in the main window.');},
+  // This window has no navigation of saved views, Curves & prices, PPA or physical gas bookings: those are the main window's.
+  onViews:()=>undefined,curveListed:()=>false,openCurve:async()=>{throw Error('Curves & prices opens in the main window.');},newPpa:async()=>{throw Error('PPA bookings open in the main window.');},newGas:async()=>{throw Error('Physical gas bookings open in the main window.');},
   source:()=>{
     if(!applied||!navigation)throw Error('The main window has not handed over the Blotter yet.');
     return {snapshotId:applied.snapshotId,convention:navigation.futuresConvention,...(applied.contextId===null?{}:{context:{contextId:applied.contextId}})};

@@ -8,7 +8,7 @@ using OpenEtrm.MarketData.Power;
 internal static class ScheduleProgramExecutionChecks
 {
     private static ScheduleNumber N(string text)=>ScheduleNumber.Parse(text);
-    private static ScheduleCellState State(VolumeState? quantity,RowPriceState? price)=>ScheduleCellState.From(quantity,price);
+    private static ScheduleCellState State(VolumeState? quantity,RowPriceState? price)=>ScheduleCellState.From(quantity,price) with{Stage=quantity is not null&&quantity!=VolumeState.Contractual?QuantityStage.Generated:null};
     private static BookedSideProgram Load(Side side)=>Load(ScheduleDefinitionCompiler.Generate(side));
     private static BookedSideProgram Load(ScheduleDefinition definition)
     {
@@ -62,8 +62,76 @@ internal static class ScheduleProgramExecutionChecks
                 (new ScheduleNumber((row.PaymentOrdinal==0?10:20)+shift,1),State(null,RowPriceState.Projected)));
             Equal(monthly.Execute(selection,"base",id,columns).PresentValue.ToExactString(),expected);
         }
-        Native();SeparateRows();MixedCells();MixedFacts();LargeCash();QuantityBounds();UnusedIntermediate();Refusals(fixedProgram,demand,fixedInputs);
+        Native();QuantityOutputs();Coverage();SeparateRows();MixedCells();MixedFacts();LargeCash();QuantityBounds();UnusedIntermediate();Refusals(fixedProgram,demand,fixedInputs);
         Console.WriteLine("PASS stored program execution: exact dated/native arithmetic, independent payments, scenario selection, excluded PV, numeric bounds and missing-input refusal");
+    }
+    private static void QuantityOutputs()
+    {
+        foreach(var minutes in new[]{60,15})
+        {
+            var f=new PpaAcceptanceFixture(minutes);var program=Load(f.Physical(volume:true).Memberships[0].Side);
+            var root=program.Document.Roots.First(root=>root.Measure=="schedule_quantity");
+            var row=program.Document.Instructions[root.Row].Output;var count=program.Document.Grids[row.Grid!.Value].CellCount;
+            var uses=Enumerable.Repeat(ScheduleInputLanes.None,count).ToArray();uses[1]=ScheduleInputLanes.Scenario;
+            var context=Context(f.From.AddDays(-1));
+            var demand=program.QuantityInputs(context,[new(root.Name,[..uses])]);
+            if(demand.Sources.Any(source=>program.Document.Instructions[source.Instruction].Output.Operation is "price_lookup" or "discount"))
+                throw new Exception("A sibling quantity must not require the source side's price or discount inputs.");
+            var inputs=Sources(program,demand,"base","up",(source,cell,_)=>source.Operation=="asset_capacity"?
+                (N("200"),State(VolumeState.Contractual,null)):
+                (new ScheduleNumber(50*minutes,60),State(VolumeState.Forecast,null)));
+            var result=program.Execute(demand,"base","up",inputs);var quantity=result.Values[root.Row].Scenario;
+            if(quantity.Values[1]!=new ScheduleNumber(minutes,240)||quantity.States[1].Quantity!=VolumeState.Forecast||
+                quantity.Presence.Count(p=>p==ScheduleCellPresence.Resolved)!=1||!result.RequestedOutputs.SequenceEqual([root.Name])||!result.QuantityOutputs.Single().Uses.SequenceEqual(uses))
+                throw new Exception("Quantity execution must retain exact normalized values, states, selected cells and named output evidence.");
+            Reject("side_schedule_program",()=>{_ =result.PresentValue;});
+            Reject("side_schedule_program",()=>program.QuantityInputs(context,[new("unknown",[..uses])]));
+            Reject("side_schedule_program",()=>program.QuantityInputs(context,[new(root.Name,[ScheduleInputLanes.Scenario])]));
+        }
+    }
+    private static void Coverage()
+    {
+        foreach(var minutes in new[]{60,15})
+        {
+            var f=new PpaAcceptanceFixture(minutes);var program=Load(f.Physical().Memberships[0].Side);
+            var context=Context(f.From.AddDays(-1));var bytes=program.Write();
+            var coverage=new DeliveryCoverage(f.From.AddHours(1),f.From.AddHours(3));
+            var demand=program.Inputs(context,coverage:coverage);
+            var columns=Sources(program,demand,"base","up",(row,_,id)=>row.Operation=="discount"?(N("0.9"),default):
+                (N(id=="up"?"43":"42"),State(null,RowPriceState.Projected)));
+            var result=program.Execute(demand,"base","up",columns);
+            Equal(result.PresentValue.ToExactString(),"77.4");
+            if(demand.Coverage!=coverage||result.Coverage!=coverage)throw new Exception("Execution evidence must retain the exact requested coverage.");
+            if(result.Contributions.Sum(c=>c.Amount.Presence.Count(p=>p==ScheduleCellPresence.Resolved))!=120/minutes)
+                throw new Exception("Amended coverage must expose only its selected native cash contributions.");
+            ExactMoney Value(DeliveryCoverage span)
+            {
+                var selected=program.Inputs(context,coverage:span);
+                return program.Execute(selected,"base","base",Sources(program,selected,"base","base",(row,_,_)=>
+                    row.Operation=="discount"?(N("0.9"),default):(N("42"),State(null,RowPriceState.Projected)))).PresentValue;
+            }
+            // The full November term includes the repeated daylight-saving hour.
+            Equal(Value(new(f.From,f.From.AddHours(2))).Add(Value(new(f.From.AddHours(2),f.To))).ToExactString(),"27253.8");
+            if(!bytes.SequenceEqual(program.Write()))throw new Exception("Coverage must not rewrite the booked program.");
+            Reject("ppa_segment_boundary",()=>program.Inputs(context,coverage:new(f.From.AddMinutes(1),f.From.AddHours(3))));
+            var absent=program.Inputs(context,coverage:new(f.To,f.To.AddHours(1)));
+            if(!absent.Sources.IsEmpty)throw new Exception("An excluded side period must not demand any market input.");
+            Equal(program.Execute(absent,"base","base",new Dictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>>()).PresentValue.ToExactString(),"0");
+        }
+        var split=new ScheduleProgramFixture();var definition=split.Definition();
+        var futureGrid=definition.Grids[0] with{Ordinal=1,Key="future_hours",Origin=split.From.AddHours(3)};
+        var separated=new ScheduleDefinition(definition.SideId,definition.Family,definition.EconomicIdentity,definition.PricingBindingIdentity,
+            definition.SchemaVersion,definition.GeneratorVersion,
+            definition.Rows.Select(row=>row.Ordinal==8?row with{Grid=1}:row).ToArray(),definition.Edges,definition.Bindings,definition.Roots,definition.Ports,
+            [definition.Grids[0],futureGrid]);
+        var payments=Load(separated);var futureOnly=payments.Inputs(split.Context,coverage:new(split.From.AddHours(3),split.From.AddHours(5)));
+        var values=Sources(payments,futureOnly,"base","up",(row,_,_)=>row.Operation=="discount"?(N("0.9"),default):(N("15"),State(null,RowPriceState.Estimated)));
+        var futureValue=payments.Execute(futureOnly,"base","up",values);
+        Equal(futureValue.PresentValue.ToExactString(),"13.5");
+        if(futureValue.HasOverdue||futureValue.CompletePresentValue is null||futureOnly.Sources.Any(source=>source.Uses.Any(use=>(use&ScheduleInputLanes.Base)!=0)))
+            throw new Exception("Excluded overdue contributions must not demand frozen inputs or make the selected future PV incomplete.");
+        var capacityFixture=new PpaAcceptanceFixture();var capacity=Load(capacityFixture.CapacityAgreement().Memberships[0].Side);
+        Reject("ppa_segment_boundary",()=>capacity.Inputs(Context(capacityFixture.From.AddDays(-1)),coverage:new(capacityFixture.From.AddDays(1),capacityFixture.To)));
     }
     private static void Native()
     {

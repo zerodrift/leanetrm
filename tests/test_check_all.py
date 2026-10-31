@@ -20,6 +20,14 @@ class CheckAllTests(unittest.TestCase):
     def setUp(self):
         self.enterContext(redirect_stdout(io.StringIO()))
 
+    def test_physical_gas_workflow_is_qualified_in_trading_partition(self):
+        commands=[]
+        run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))
+        gas=[c for c in commands if '--gas-daily-quantity-check' in c]
+        self.assertEqual(len(gas),1)
+        for argument in ('--gas-composition-check','--gas-setup-check','--browser-check','--browser'):
+            self.assertIn(argument,gas[0])
+
     def test_every_executable_check_project_is_restored_and_run(self):
         expected = {
             str(project.relative_to(ROOT))
@@ -51,6 +59,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--reference-import-check' in c for c in commands))
         self.assertTrue(any('--live-calculation-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('build' in c and 'src/OpenEtrm.Worker/OpenEtrm.Worker.csproj' in c for c in commands))
+        self.assertTrue(any('tools/check_database_login_boundaries.py' in c and '--no-build' in c for c in commands))
         self.assertTrue(any('tools/check_automation.py' in c and '--dotnet' in c for c in commands))
         self.assertIn(['node','--test','tests/browser/owned-browser.test.mjs'],commands)
         self.assertTrue(any('--draft-check' in c and '--browser-check' in c for c in commands))

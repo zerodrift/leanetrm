@@ -2,6 +2,7 @@ using OpenEtrm.MarketData.CustomCurves;
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.Gas;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -9,6 +10,7 @@ namespace OpenEtrm.MarketData.Trading;
 // schedule generator or replacement execution graph enters source resolution.
 public sealed partial class ScheduleMarketSources
 {
+    internal string BaseScenarioId=>basis.Pricing.ScenarioId;
     private readonly ResolvedCalculationContext context;
     private readonly CurveBuild basis;
     private readonly IntervalReferenceData? reference;
@@ -17,12 +19,26 @@ public sealed partial class ScheduleMarketSources
     private readonly ImmutableArray<IndexPriceLookup> dated;
     private readonly ImmutableArray<PriceSettlementSelection> selections;
     private readonly VolumeContext? volumeContext;
+    private readonly ContractObservationPricing? contractObservations;
+    private readonly ImmutableArray<GasValuationAssignment> gasAssignments=[];
 
     public ScheduleMarketSources(ResolvedCalculationContext context,CurveBuild basis,
         IntervalReferenceData? reference,IntervalReadData? read,IntervalKnowledgePolicy knowledgePolicy,
-        PendingActualsPolicy pending,ImmutableArray<IndexPriceLookup> dated,ImmutableArray<PriceSettlementSelection> selections)
+        PendingActualsPolicy pending,ImmutableArray<IndexPriceLookup> dated,ImmutableArray<PriceSettlementSelection> selections,
+        ImmutableArray<GasValuationAssignment> gasAssignments)
+        :this(context,basis,reference,read,knowledgePolicy,pending,dated,selections)
     {
-        if(context is null||basis is null||basis.Scenario.Depth!=0||!Enum.IsDefined(pending)||dated.IsDefault||selections.IsDefault||
+        if(gasAssignments.IsDefaultOrEmpty||gasAssignments.Any(a=>a is null)||
+            gasAssignments.Select(a=>(a.Key,a.From,a.To)).Distinct().Count()!=gasAssignments.Length)
+            throw Invalid("Gas sources require distinct qualified assignment definitions.");
+        this.gasAssignments=gasAssignments;
+    }
+
+    public ScheduleMarketSources(ResolvedCalculationContext context,CurveBuild basis,
+        IntervalReferenceData? reference,IntervalReadData? read,IntervalKnowledgePolicy knowledgePolicy,
+        PendingActualsPolicy pending,ImmutableArray<IndexPriceLookup> dated,ImmutableArray<PriceSettlementSelection> selections,ContractObservationPricing? contractObservations=null)
+    {
+        if(context is null||basis is null||basis.Scenario.Depth!=0||basis.Graph.Depth!=0||!Enum.IsDefined(pending)||dated.IsDefault||selections.IsDefault||
             dated.Any(value=>value is null)||selections.Any(value=>value is null)||
             knowledgePolicy is not(IntervalKnowledgePolicy.ResolvedCutoff or IntervalKnowledgePolicy.ValuationInstant)||
             knowledgePolicy==IntervalKnowledgePolicy.ValuationInstant&&context.KnownAt!=context.ValuationAt||
@@ -36,19 +52,49 @@ public sealed partial class ScheduleMarketSources
             pair.Key.Revision!=reference.Definitions||pair.Value.ValuationAt!=context.ValuationAt||pair.Value.KnownAt!=context.KnownAt)))
             throw Invalid("Native source definitions and prepared curves must retain the exact context coordinates.");
         this.context=context;this.basis=basis;this.reference=reference;this.read=read;this.pending=pending;
-        this.dated=dated;this.selections=selections;
+        this.dated=dated;this.selections=selections;this.contractObservations=contractObservations;
         if(reference is not null)volumeContext=new(reference.Definitions,reference.Reference,context.ValuationAt,context.KnownAt,pending);
     }
 
     public BookedSideEvaluation Evaluate(BookedSideProgram program,Guid sideId,CurveBuild scenario,
-        ISideDiscounting discounting,CancellationToken cancellation=default,ValuedAttribute? nativePriceAttribute=null)
+        ISideDiscounting discounting,CancellationToken cancellation=default,ValuedAttribute? nativePriceAttribute=null,DeliveryCoverage? coverage=null)
+        =>Evaluate((program??throw Invalid("Select an explicit stored Side program.")).Inputs(context,cancellation,coverage),sideId,scenario,discounting,
+            ImmutableDictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>>.Empty,cancellation,nativePriceAttribute);
+
+    // Input ports receive values only. This adapter never resolves another Side.
+    public BookedSideEvaluation Evaluate(ScheduleInputDemandSet demand,Guid sideId,CurveBuild scenario,
+        ISideDiscounting discounting,IReadOnlyDictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>> ports,
+        CancellationToken cancellation=default,ValuedAttribute? nativePriceAttribute=null)
     {
-        if(program is null||sideId==Guid.Empty||scenario is null||discounting is null||
-            scenario.Graph.Plan.Context!=context||!ReferenceEquals(scenario.Model,basis.Model)||!scenario.Snapshot.HasSameInputs(basis.Snapshot))
+        if(demand is null||demand.Context!=context||sideId==Guid.Empty||scenario is null||discounting is null||ports is null||
+            scenario.Graph.Plan.Context!=context||!ReferenceEquals(scenario.Graph.Plan,basis.Graph.Plan)||
+            !ReferenceEquals(scenario.PricingBindings,basis.PricingBindings)||!ReferenceEquals(scenario.Model,basis.Model)||!scenario.Snapshot.HasSameInputs(basis.Snapshot))
             throw Invalid("Execution requires the same selected model, snapshot and explicit discount provider.");
-        var demand=program.Inputs(context,cancellation);
+        var program=demand.Program;
         var baseId=basis.Pricing.ScenarioId;var scenarioId=scenario.Pricing.ScenarioId;
+        var evidence=ImmutableDictionary.CreateBuilder<ScheduleSourceCell,ScheduleSourceEvidence>();
         var inputs=new Dictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>>();
+        var requiredPorts=new Dictionary<ScheduleInputAddress,(ScheduleDefinitionRow Row,ImmutableArray<ScheduleInputLanes> Uses,ScheduleInputLanes Lanes)>();
+        foreach(var source in demand.Sources)
+        {
+            var instruction=program.Document.Instructions[source.Instruction];
+            if(!instruction.Bindings.Any(binding=>binding.Kind=="sibling_quantity"))continue;
+            foreach(var lane in new[]{ScheduleInputLanes.Base,ScheduleInputLanes.Scenario})
+            {
+                var selected=baseId==scenarioId?ScheduleInputLanes.Base|ScheduleInputLanes.Scenario:lane;
+                if(source.Uses.Any(use=>(use&selected)!=0))
+                    requiredPorts[new(source.Instruction,lane==ScheduleInputLanes.Base?baseId:scenarioId)]=(instruction.Output,source.Uses,selected);
+            }
+        }
+        if(!requiredPorts.Keys.ToHashSet().SetEquals(ports.Keys))
+            throw new MarketDataException("side_input_port","The instrument must supply exactly the demanded typed input columns.");
+        foreach(var (address,required) in requiredPorts)
+        {
+            var supplied=ports[address];
+            if(supplied is null||supplied.Context!=context||supplied.ScenarioId!=address.ScenarioId||supplied.Value is null)
+                throw new MarketDataException("side_input_port","An input port must belong to the exact context and scenario.");
+            supplied.Value.Require(required.Row,required.Uses.Length,required.Uses,required.Lanes,cancellation);
+        }
         var needsNativePrices=demand.Sources.Any(source=>program.Document.Instructions[source.Instruction].Output is{Operation:"price_lookup",Grid:not null});
         var baseResolver=!needsNativePrices||read is null?null:new IntervalPriceResolver(basis,read.Curves);
         var scenarioResolver=ReferenceEquals(scenario,basis)?baseResolver:!needsNativePrices||read is null?null:new IntervalPriceResolver(scenario,read.Curves,baseResolver);
@@ -73,6 +119,13 @@ public sealed partial class ScheduleMarketSources
                 var id=lane==ScheduleInputLanes.Base?baseId:scenarioId;
                 var address=new ScheduleInputAddress(source.Instruction,id);
                 if(inputs.ContainsKey(address))continue;
+                if(ports.TryGetValue(address,out var supplied))
+                {
+                    inputs.Add(address,supplied);
+                    for(var cell=0;cell<source.Uses.Length;cell++)
+                        if((source.Uses[cell]&selected)!=0)evidence.Add(new(source.Instruction,cell,id),new SchedulePortEvidence(supplied.Value.Values[cell],supplied.Value.States[cell]));
+                    continue;
+                }
                 var market=lane==ScheduleInputLanes.Base?basis:scenario;
                 var resolver=lane==ScheduleInputLanes.Base?baseResolver:scenarioResolver;
                 var row=instruction.Output;var count=source.Uses.Length;
@@ -83,7 +136,11 @@ public sealed partial class ScheduleMarketSources
                 if(row.Operation=="quantity_input")
                 {
                     var values=Volumes(instruction,grid,cells);
-                    for(var n=0;n<cells.Length;n++)Set(cells[n],new(values[n].Energy.NumeratorValue,values[n].Energy.DenominatorValue),new(values[n].State,SchedulePriceFacts.None));
+                    for(var n=0;n<cells.Length;n++)
+                    {
+                        Set(cells[n],new(values[n].Energy.NumeratorValue,values[n].Energy.DenominatorValue),new(values[n].State,SchedulePriceFacts.None){Stage=values[n].Stage});
+                        evidence.Add(new(source.Instruction,cells[n],id),new ScheduleVolumeEvidence(values[n]));
+                    }
                 }
                 else foreach(var cell in cells)
                 {
@@ -97,12 +154,20 @@ public sealed partial class ScheduleMarketSources
                                 if(factor.RateDefinition is null)throw new MarketDataException("side_payment_factors","Currency discounting requires its exact rate evidence.");
                                 factor.RateDefinition.Require(factor);
                             }
-                            Set(cell,ScheduleNumber.Parse(factor.DiscountFactor.ToString()),default);break;
+                            Set(cell,ScheduleNumber.Parse(factor.DiscountFactor.ToString()),default);
+                            evidence.Add(new(source.Instruction,cell,id),new ScheduleDiscountEvidence(factor));break;
                         case "asset_capacity":
-                            Set(cell,Capacity(instruction,grid,cell),new(VolumeState.Contractual,SchedulePriceFacts.None));break;
+                            var capacity=Capacity(instruction,grid,cell);
+                            Set(cell,capacity.Value,new(VolumeState.Contractual,SchedulePriceFacts.None));
+                            evidence.Add(new(source.Instruction,cell,id),capacity.Evidence);break;
+                        case ContractObservationScheduleSource.Operation:
+                            var sampled=ContractObservation(instruction,market);
+                            Set(cell,new(sampled.Price.NumeratorValue,sampled.Price.DenominatorValue),new(null,sampled.State));
+                            evidence.Add(new(source.Instruction,cell,id),sampled.Evidence);break;
                         case "price_lookup":
                             var price=grid is null?Dated(instruction,market):Native(instruction,grid,cell,program.Document.Family,resolver!,nativePriceAttribute);
-                            Set(cell,new(price.Price.NumeratorValue,price.Price.DenominatorValue),new(null,price.State));break;
+                            Set(cell,new(price.Price.NumeratorValue,price.Price.DenominatorValue),new(null,price.State));
+                            evidence.Add(new(source.Instruction,cell,id),price.Evidence);break;
                         default:throw Invalid("The program requested an unsupported dynamic source.");
                     }
                 }
@@ -112,7 +177,7 @@ public sealed partial class ScheduleMarketSources
                 {numbers[cell]=number;states[cell]=state;presence[cell]=ScheduleCellPresence.Resolved;}
             }
         }
-        return program.Execute(demand,baseId,scenarioId,inputs,cancellation);
+        return program.Execute(demand,baseId,scenarioId,inputs,cancellation) with{SourceReceipt=new(sideId,program.Identity,evidence.ToImmutable())};
     }
     private void RequireNative(ScheduleDefinitionGrid? grid)
     {

@@ -359,6 +359,26 @@ def run_correction_checks(query, manifest, c, frames):
     assert refused['code']=='close_swap_market_pins',refused
     c.call('profile',{'profile':'trader'})
     print('PASS a close cannot be registered from a snapshot whose separate swap-bundle selections it cannot record',flush=True)
+    # Exercise the stored row constraint independently of immutable-row triggers.
+    # The probe copies the real schema and a qualified row, and is rolled back.
+    query("""BEGIN;
+        CREATE TEMP TABLE obsolete_floating_probe (LIKE trading.swap_floating_sides INCLUDING CONSTRAINTS) ON COMMIT DROP;
+        INSERT INTO obsolete_floating_probe SELECT * FROM trading.swap_floating_sides WHERE custom_projection_id IS NULL LIMIT 1;
+        TRUNCATE obsolete_floating_probe;
+        DO $probe$ DECLARE refused_constraint text;BEGIN
+          IF NOT EXISTS(SELECT 1 FROM trading.swap_floating_sides WHERE custom_projection_id IS NULL) THEN RAISE EXCEPTION 'Missing current floating-side fixture';END IF;
+          BEGIN
+            INSERT INTO obsolete_floating_probe SELECT (jsonb_populate_record(NULL::trading.swap_floating_sides,
+              to_jsonb(s)||jsonb_build_object('implementation','prefixing_index_projection_v1'))).*
+              FROM trading.swap_floating_sides s WHERE custom_projection_id IS NULL LIMIT 1;
+            RAISE EXCEPTION 'Obsolete floating-side storage contract was accepted' USING ERRCODE='P0002';
+          EXCEPTION WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS refused_constraint=CONSTRAINT_NAME;
+            IF refused_constraint<>'swap_floating_sides_implementation_check1' THEN RAISE;END IF;
+          END;
+        END $probe$;ROLLBACK;""")
+    print('PASS current floating-side storage rejects the retired projection-only implementation',flush=True)
+
 
 
 def run_rls_checks(query,manifest):

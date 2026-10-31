@@ -66,9 +66,16 @@ public sealed partial class BookedSideProgram
                 var cash=ImmutableArray.CreateBuilder<ScheduleNumber>(count);var pv=ImmutableArray.CreateBuilder<ScheduleNumber>(count);
                 var states=ImmutableArray.CreateBuilder<ScheduleCellState>(count);var presence=ImmutableArray.CreateBuilder<ScheduleCellPresence>(count);
                 var classifications=ImmutableArray.CreateBuilder<ScheduleContributionState>(count);
+                var cashPresence=ImmutableArray.CreateBuilder<ScheduleCellPresence>(count);
                 for(var cell=0;cell<count;cell++)
                 {
                     cancellation.ThrowIfCancellationRequested();
+                    if(!demand.Contributions[row.Ordinal][cell])
+                    {
+                        cash.Add(default);pv.Add(default);states.Add(default);classifications.Add(default);
+                        cashPresence.Add(ScheduleCellPresence.NotDemanded);presence.Add(ScheduleCellPresence.OutsideMeasure);continue;
+                    }
+                    cashPresence.Add(ScheduleCellPresence.Resolved);
                     var holding=row.Parameters["lifecycle"]=="certificate_holding_v1"&&Document.Grids[row.Grid!.Value].EndTicks(cell)<=context.ValuationAt.Ticks;
                     var future=row.ValueAt>context.ValuationAt;var lane=holding||future?ScheduleInputLanes.Scenario:ScheduleInputLanes.Base;
                     var amount=Arg("amount",lane);var index=Index(amount,cell);
@@ -85,7 +92,7 @@ public sealed partial class BookedSideProgram
                     else{pv.Add(default);presence.Add(ScheduleCellPresence.OutsideMeasure);}
                 }
                 var selectedStates=states.MoveToImmutable();var selected=Column(pv.MoveToImmutable(),selectedStates,presence.MoveToImmutable());
-                contributions.Add(new(row.Ordinal,Column(cash.MoveToImmutable(),selectedStates,[..Enumerable.Repeat(ScheduleCellPresence.Resolved,count)]),selected,classifications.MoveToImmutable()));
+                contributions.Add(new(row.Ordinal,Column(cash.MoveToImmutable(),selectedStates,cashPresence.MoveToImmutable()),selected,classifications.MoveToImmutable()));
                 values[row.Ordinal]=new(selected,selected);continue;
             }
             ScheduleValueColumn Evaluate(ScheduleInputLanes lane)
@@ -112,7 +119,10 @@ public sealed partial class BookedSideProgram
                         var first=folded?0:Index(operand,cell);var end=folded?operand.Values.Length:first+1;
                         for(var n=first;n<end;n++)
                         {
-                            cancellation.ThrowIfCancellationRequested();state=Merge(state,operand.States[n]);
+                            cancellation.ThrowIfCancellationRequested();
+                            if(row.Operation is "quantity_add" or "quantity_sum_cells"&&state.Quantity is not null&&operand.States[n].Quantity is not null&&state.Stage!=operand.States[n].Stage)
+                                throw new MarketDataException("ppa_quantity_source","Combined quantity inputs must retain identical stages.");
+                            state=Merge(state,operand.States[n]);
                             if(operand.Presence[n]==ScheduleCellPresence.NotDemanded)absent=true;
                             else if(operand.Presence[n]==ScheduleCellPresence.OutsideMeasure)outside=true;
                             else
@@ -161,8 +171,19 @@ public sealed partial class BookedSideProgram
         }
         cancellation.ThrowIfCancellationRequested();
         var output=values[pvRoot].Scenario;
-        if(output.Presence.Any(presence=>presence!=ScheduleCellPresence.Resolved))throw Error("The side PV cannot omit a missing demanded input.");
-        return new(context,baseScenarioId,scenarioId,Document.ScheduleManifest,[..values],Document.Roots,contributions.ToImmutable());
+        if(demand.RequestedOutputs.Contains("pv")&&output.Presence.Any(presence=>presence!=ScheduleCellPresence.Resolved))throw Error("The side PV cannot omit a missing demanded input.");
+        foreach(var request in demand.QuantityOutputs)
+        {
+            var root=Document.Roots.Single(root=>root.Name==request.Output);
+            for(var cell=0;cell<request.Uses.Length;cell++)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if((request.Uses[cell]&ScheduleInputLanes.Base)!=0&&values[root.Row].Base.Presence[cell]!=ScheduleCellPresence.Resolved||
+                    (request.Uses[cell]&ScheduleInputLanes.Scenario)!=0&&values[root.Row].Scenario.Presence[cell]!=ScheduleCellPresence.Resolved)
+                    throw Error("A requested quantity output cannot omit a demanded value.");
+            }
+        }
+        return new(context,baseScenarioId,scenarioId,Document.ScheduleManifest,[..values],Document.Roots,contributions.ToImmutable()){Coverage=demand.Coverage,RequestedOutputs=demand.RequestedOutputs,QuantityOutputs=demand.QuantityOutputs};
     }
 
     private static int Index(ScheduleValueColumn column,int cell)=>column.Values.Length==1?0:cell;
@@ -195,6 +216,6 @@ public sealed partial class BookedSideProgram
             quantity=quantity is null?q:quantity==VolumeState.Estimated||q==VolumeState.Estimated?VolumeState.Estimated:
                 quantity==VolumeState.Forecast||q==VolumeState.Forecast?VolumeState.Forecast:
                 quantity==VolumeState.Metered||q==VolumeState.Metered?VolumeState.Metered:VolumeState.Contractual;
-        return new(quantity,current.Prices|next.Prices);
+        return new(quantity,current.Prices|next.Prices){Stage=current.Quantity is null?next.Stage:current.Stage};
     }
 }

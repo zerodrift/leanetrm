@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Numerics;
-using System.Security.Cryptography;
 using System.Text.Json;
 using OpenEtrm.MarketData.Power;
 
@@ -114,22 +113,10 @@ public sealed class ScheduleDefinition
     }
     private string Hash()
     {
-        using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        using var stream=new DigestStream(hash);using var writer=new Utf8JsonWriter(stream);
-        writer.WriteStartArray();
-        JsonSerializer.Serialize(writer,new{Family,EconomicIdentity,PricingBindingIdentity,SchemaVersion,GeneratorVersion},Json);
-        Write(Rows);Write(Edges);Write(Bindings);Write(Roots);Write(Ports);Write(Grids);
-        writer.WriteEndArray();writer.Flush();return Convert.ToHexStringLower(hash.GetHashAndReset());
-        void Write<T>(IEnumerable<T> values){writer.WriteStartArray();foreach(var value in values)JsonSerializer.Serialize(writer,value,Json);writer.WriteEndArray();}
-    }
-    private sealed class DigestStream(IncrementalHash hash):Stream
-    {
-        public override bool CanRead=>false;public override bool CanSeek=>false;public override bool CanWrite=>true;
-        public override long Length=>throw new NotSupportedException();public override long Position{get=>throw new NotSupportedException();set=>throw new NotSupportedException();}
-        public override void Flush(){}public override int Read(byte[] buffer,int offset,int count)=>throw new NotSupportedException();
-        public override long Seek(long offset,SeekOrigin origin)=>throw new NotSupportedException();public override void SetLength(long value)=>throw new NotSupportedException();
-        public override void Write(byte[] buffer,int offset,int count)=>hash.AppendData(buffer,offset,count);
-        public override void Write(ReadOnlySpan<byte> buffer)=>hash.AppendData(buffer);
+        using var writer = new ScheduleManifestWriter(this);
+        Write(Rows); Write(Edges); Write(Bindings); Write(Roots); Write(Ports); Write(Grids);
+        return writer.Complete();
+        void Write<T>(IEnumerable<T> values) { foreach (var value in values) writer.Append(value); }
     }
     internal static MarketDataException Error(string message)=>new("side_schedule_definition",message);
 }
@@ -140,6 +127,7 @@ public static class ScheduleOperations
     public static IReadOnlyDictionary<string,string[]> Parameters { get; }=new Dictionary<string,string[]>(StringComparer.Ordinal)
     {
         ["constant_price"]=["numerator","denominator"], ["price_lookup"]=["selection"],
+        [ContractObservationScheduleSource.Operation]=["selectionAt","sampleAt","observationOrdinal","expiryPolicy","implementation"],
         ["quantity_input"]=["stage"], ["quantity_literal"]=["numerator","denominator"],
         ["asset_capacity"]=["measure"], ["quantity_normalize"]=[],["quantity_add"]=[],
         ["quantity_scale"]=["numerator","denominator"],["quantity_transform"]=["numerator","denominator","implementation"],
@@ -150,13 +138,14 @@ public static class ScheduleOperations
         ["output_guard"]=["measure","lifecycle","pricePolicy","averaging","firstFixingAt","paymentRule","unadjustedPayment"]
     };
     public static ImmutableHashSet<string> BindingKinds { get; }=ImmutableHashSet.Create(StringComparer.Ordinal,
-        "contract_price","index_fixing","curve_interval","custom_output","quantity_source","asset","clock","calendar",
-        "rate_curve","sibling_quantity","quantity_unit","currency","location","index","quote");
+        "contract_price","index_fixing","settlement_source","curve_interval","custom_output","quantity_source","asset","clock","calendar",
+        "rate_curve","sibling_quantity","quantity_unit","currency","location","index","quote","gas_assignment","gas_product");
     public static void Require(ScheduleDefinitionRow row)
     {
         if(row.Operation is null||row.Parameters is null||!Parameters.TryGetValue(row.Operation,out var keys)||
             !row.Parameters.Keys.Order(StringComparer.Ordinal).SequenceEqual(keys.Order(StringComparer.Ordinal))||row.Parameters.Values.Any(value=>value is null))
             throw ScheduleDefinition.Error("A row has an unsupported operation or a missing/unknown parameter.");
+        if(row.Operation==ContractObservationScheduleSource.Operation)ContractObservationScheduleSource.Require(row);
         if(row.Parameters.TryGetValue("numerator",out var numerator))
         {
             var n=Integer(numerator);var d=Integer(row.Parameters["denominator"]);

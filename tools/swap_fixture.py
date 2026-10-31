@@ -44,7 +44,11 @@ def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=Fal
     emitted=set()
     # Separate final facts reuse the exact price series but have their own
     # index_fixing role. They cannot become shocked forward marks.
-    for sample,at in enumerate([*(['2021-01-01T08:00:00Z','2021-01-15T08:00:00Z','2021-01-31T08:00:00Z'] if fixing_frames else []),*closes]):
+    # The scheduled mixed-book risk checks also visit the exact daily fixing
+    # instant and the fully fixed January close. Give this retained bundle its
+    # own explicit observations there; a primary frame cannot supply them.
+    scheduled_closes = ['2021-01-15T16:00:00Z', '2021-02-01T08:00:00Z'] if scheduled_periods else []
+    for sample,at in enumerate([*(['2021-01-01T08:00:00Z','2021-01-15T08:00:00Z','2021-01-31T08:00:00Z'] if fixing_frames else []),*closes,*scheduled_closes]):
         pins=[]
         for number,sid,value,role in prices:
             oid=identity('7',6000000+sample*10000+number);pins.append(oid)

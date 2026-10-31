@@ -20,7 +20,7 @@ public sealed partial class TradingBlotter
     foreach(var row in rows)FutureTerms(row,data);
     break;
    case "financial_swap" or "heat_rate":
-    rows=(await swaps.Holdings(connection,data,frame,[],[],ct,selected)).Rows.Select(r=>JsonNode.Parse(r.GetRawText())!.AsObject()).ToArray();
+    rows=[..(await swaps.Holdings(connection,data,frame,[],[],ct,selected)).Rows];
     break;
    case "ppa":
     rows=(await PpaBlotter.Read(connection,database,data,frame,[],[],ct,selected)).ToArray();
@@ -42,7 +42,7 @@ public sealed partial class TradingBlotter
   row["quantitySpecification"]=JsonSerializer.SerializeToNode(quote.Quantity,Json);row["currencyReference"]=JsonSerializer.SerializeToNode(quote.Currency,Json);
   row["definitionRevisionId"]=manifest.RevisionId.ToString();row["instrumentType"]="future";row["presentValue"]=null;row["fixedPrice"]=null;row["direction"]=null;
  }
- private static void AmountFormats(JsonObject row,Dictionary<string,DealAmountFormats.Selection>? formats)
+ internal static void AmountFormats(JsonObject row,Dictionary<string,DealAmountFormats.Selection>? formats)
  {
   row["amountFormat"]=JsonSerializer.SerializeToNode(DealAmountFormats.Resolve(formats,"trade"),Json);
   row["fixedAmountFormat"]=JsonSerializer.SerializeToNode(DealAmountFormats.Resolve(formats,"fixed"),Json);

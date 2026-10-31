@@ -443,7 +443,7 @@ static class AgentToolChecks
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
+        var unsupported=new[]{"blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","gas_setup","physical_gas","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
                 .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs","ppa"}.Order()),
             "the closed set names one id per navigable view, with each coverage row the assistant reads and each it does not");
@@ -493,7 +493,7 @@ static class AgentToolChecks
         Console.WriteLine("PASS a request for a tool the version has not switched on is refused tool_not_enabled before any read");
     }
 
-    // The Blotter's page report may also say which of its panes are open and whether it is in a window of its own (D270), exactly
+    // The Blotter's page report may also say which of its panes are open and whether it is in a window of its own (D271), exactly
     // {pane:{details,charts},poppedOut}, on the pages the Blotter reports and no other. Read current page carries it with the read
     // the report dispatches, under turns_v10.
     static void BlotterLayouts()

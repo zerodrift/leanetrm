@@ -6,7 +6,7 @@ using OpenEtrm.Shared.Numerics;
 namespace OpenEtrm.Api;
 
 internal sealed record ResolvedFixedSwapPeriod(QuoteSpecification Quote,Quantity UnitQuantity,UnitPrice Price,FixedSidePeriod Period);
-internal sealed record ResolvedFloatingSwapPeriod(PriceSettlementSelection Settlement,QuoteSpecification Quote,Quantity UnitQuantity,FloatingSidePeriod Period);
+internal sealed record ResolvedFloatingSwapPeriod(PriceSettlementSelection? Settlement,QuoteSpecification Quote,Quantity UnitQuantity,FloatingSidePeriod Period);
 
 // Authoring resolves parameter records. Only the resulting whole-term definition
 // is a Side, so a generated payment period never acquires an independent side ID.
@@ -33,7 +33,9 @@ internal static class SwapScheduledAssembly
         Require(periods.Length,quantities);
         if(periods.IsDefaultOrEmpty || periods.Any(p=>p is null) || periods.Any(p=>p.Settlement!=periods[0].Settlement || p.Quote!=periods[0].Quote || p.UnitQuantity!=periods[0].UnitQuantity))
             throw new MarketDataException("swap_definition","Every floating period requires the same exact index, quote and external quantity basis.");
-        return new(id,periods[0].Settlement,periods[0].Quote,periods[0].UnitQuantity,[..periods.Select((p,n)=>p.Period with{Allocation=quantities[n]})]);
+        var resolved=periods.Select((p,n)=>p.Period with{Allocation=quantities[n]}).ToImmutableArray();
+        return periods[0].Settlement is {} settlement?new(id,settlement,periods[0].Quote,periods[0].UnitQuantity,resolved):
+            new(id,periods[0].Quote,periods[0].UnitQuantity,resolved);
     }
     private static void Require(int periods,ImmutableArray<ExactRatio> quantities)
     {

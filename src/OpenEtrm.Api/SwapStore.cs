@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Npgsql;
@@ -20,7 +21,7 @@ public sealed record SwapFixedInput(string? Price,string? Currency,string? Deliv
 public sealed record CustomCurveProjectionInput(Guid CatalogId,Guid CurveId,int Version,string OutputNode,
  [property:System.Text.Json.Serialization.JsonRequired]int? Position,string Selection,string Implementation);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record SwapFloatingInput(string? Curve,string? Index,string? Currency,string? DeliveryFrom,string? DeliveryTo,string? FirstFixingAt=null,string? PaymentAt=null,string? Averaging=null,SwapPaymentInput? PaymentSchedule=null,string? ResetFrequency=null,string? AveragingMethod=null,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]CustomCurveProjectionInput? CustomProjection=null,string? Spread=null,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]SwapObservationScheduleInput? ObservationSchedule=null,[property:System.Text.Json.Serialization.JsonRequired]PriceSettlementInput? Settlement=null);
+public sealed record SwapFloatingInput(string? Curve,string? Index,string? Currency,string? DeliveryFrom,string? DeliveryTo,string? FirstFixingAt=null,string? PaymentAt=null,string? Averaging=null,SwapPaymentInput? PaymentSchedule=null,string? ResetFrequency=null,string? AveragingMethod=null,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]CustomCurveProjectionInput? CustomProjection=null,string? Spread=null,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]SwapObservationScheduleInput? ObservationSchedule=null,[property:System.Text.Json.Serialization.JsonRequired]PriceSettlementInput? Settlement=null,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]SwapContractObservationsInput? ContractObservations=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapWriteRequest(Guid SnapshotId,string? Convention,string? KnowledgeMode,Guid OperationId,Guid BookId,string? ExecutedAt,
  string? Quantity,string? FixedCoefficient,bool? Discounting,SwapFixedInput? Fixed,SwapFloatingInput? Floating,
@@ -66,6 +67,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
  private void RequireWriteRules(PreviewData data,SwapWriteRequest body)
  {
   RequireSideKinds(body);
+  if(new[]{body.FirstFloating,body.Floating}.OfType<SwapFloatingInput>().Any(side=>side.ContractObservations is not null))
+   throw Error("contract_observation_scope","Contract observations require an explicit scheduled swap.");
   if(body.Floating?.Spread is null||body.FirstFloating is {} first&&first.Spread is null)throw Error("swap_input","Choose an explicit fixed spread on each floating side; use zero for no spread.");
   if(body.Floating is null||body.Fixed is {} a&&(a.PaymentAt is not null||a.PaymentSchedule is null)||
    new[]{body.FirstFloating,body.Floating}.OfType<SwapFloatingInput>().Any(b=>b.PaymentAt is not null||b.PaymentSchedule is null||b.Averaging is not null)||string.IsNullOrWhiteSpace(body.Commodity))
@@ -75,11 +78,13 @@ public sealed partial class SwapStore(PreviewDatabase database)
  }
  private FloatingSide ResolveFloating(PreviewData data,SwapFloatingInput b,string? commodity,Guid? id)
  {
+  if(b.ContractObservations is not null)throw Error("contract_observation_scope","Contract observations require an explicit scheduled swap.");
   var parameters=ResolveFloatingPeriod(data,b,commodity);
-  return new(id??Guid.NewGuid(),parameters.Settlement,parameters.Quote,parameters.UnitQuantity,[parameters.Period]);
+  return new(id??Guid.NewGuid(),parameters.Settlement!,parameters.Quote,parameters.UnitQuantity,[parameters.Period]);
  }
- private ResolvedFloatingSwapPeriod ResolveFloatingPeriod(PreviewData data,SwapFloatingInput b,string? commodity)
+ private ResolvedFloatingSwapPeriod ResolveFloatingPeriod(PreviewData data,SwapFloatingInput b,string? commodity,JsonElement? retained=null)
  {
+  if(b.ContractObservations is not null)return ResolveContractObservationPeriod(data,b,commodity,retained);
   var averaging=StoredAveraging(Sampling(b));
   var curve=One(data.Definitions["curves"].Where(c=>c.Text("code")==b.Curve));
   var target=One(data.References["settlement_targets"].Where(t=>t.Text("code")==curve.Text("settlement_target_code")));
@@ -203,10 +208,10 @@ public sealed partial class SwapStore(PreviewDatabase database)
     cashAmount=Exact(p.Cashflow.CashAmount),discountFactor=p.Discount.Factor.ToString(),presentValue=Exact(p.Cashflow.RequirePresentValue()),
     discountMappingId=p.Discount.MappingId,discountCurve=p.Discount.Curve,discountPolicy=p.Discount.InterpolationPolicy,pillars=p.Discount.Pillars,
     observationSchedule=ObservationInspection(p.Cashflow),
-    resets=p.Cashflow.Resets.Select(reset=>new{cashContribution=Exact(reset.CashContribution),fixingState=reset.Price.State.ToString(),fixingAt=reset.Price.Term.Lookup?.Fixing?.FixingAt,fixing=reset.Price.Term.Lookup?.Fixing,from=reset.Price.Term.Lookup is {} l?Date(l.Contract.DeliveryFrom):Date(p.Cashflow.Plan.DeliveryFrom),
-     to=reset.Price.Term.Lookup is {} e?Date(e.Contract.DeliveryTo):Date(p.Cashflow.Plan.DeliveryTo),weight=reset.Price.Term.Weight.ToString(),price=ExactPrice(reset.Price.ExactPrice),
+    resets=p.Cashflow.Resets.Select(reset=>new{cashContribution=Exact(reset.CashContribution),fixingState=reset.Price.State.ToString(),fixingAt=reset.Price.Term.ContractObservation?.FixingAt??reset.Price.Term.Lookup?.Fixing?.FixingAt,fixing=reset.Price.Term.Lookup?.Fixing,from=reset.Price.Term.ContractObservation is {} observation?Date(observation.From):reset.Price.Term.Lookup is {} l?Date(l.Contract.DeliveryFrom):Date(p.Cashflow.Plan.DeliveryFrom),
+     to=reset.Price.Term.ContractObservation is {} endObservation?Date(endObservation.To):reset.Price.Term.Lookup is {} e?Date(e.Contract.DeliveryTo):Date(p.Cashflow.Plan.DeliveryTo),weight=reset.Price.Term.Weight.ToString(),price=ExactPrice(reset.Price.ExactPrice),
      exactPrice=new{reset.Price.ExactPrice.Numerator,reset.Price.ExactPrice.Denominator},spread=reset.Price.Term.Spread?.Value.ToString(),
-     currency=reset.Price.ExactPrice.Unit.Currency,quantity=reset.Price.ExactPrice.Unit.Quantity,multiplier=reset.Price.ExactPrice.Unit.Multiplier.ToString(),lookup=reset.Price.Term.Lookup,lineage=reset.Price.Lineage})})})};
+     currency=reset.Price.ExactPrice.Unit.Currency,quantity=reset.Price.ExactPrice.Unit.Quantity,multiplier=reset.Price.ExactPrice.Unit.Multiplier.ToString(),lookup=reset.Price.Term.Lookup,contractObservation=reset.Price.Term.ContractObservation,lineage=reset.Price.Lineage})})})};
  private static string ExactPrice(ExactUnitPrice price)=>price.ToExactString();
  // Pay or receive fixed, from the stored membership coefficient of the fixed side: the first side of a fixed/floating swap,
  // whose periods are all fixed when it is scheduled. A swap of two floating sides has no fixed side to pay or receive.
@@ -271,7 +276,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    paymentCalendars=m.Data.References["calendars"].Select(c=>new{code=c.Text("code"),reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),from=c.Text("coverage_from"),to=c.Text("coverage_to")}).ToArray(),
    powerQuantities=m.Data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt"&&q.Text("dimension_code")=="power").Select(q=>new{specification=new ReferenceKey(m.Data.ReferenceRevision,q.Text("code")),unit="MW",commodity=q.Text("commodity_code")}).ToArray(),
    clocks=m.Data.References["clock_rules"].Select(c=>new{reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),label=c.OptionalText("iana_zone")??c.Text("code")}).ToArray()}).ToArray();
-  return new{books=await new FuturesStore(manifest).Books(connection,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),indices,referenceChoices,
+  return new{books=await BookScope.Read(connection,manifest.CatalogId,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),indices,referenceChoices,contractObservationSources=markets.SelectMany(m=>ContractObservationSources(m.Data)).ToArray(),
    commodities=markets.SelectMany(m=>m.Data.References["commodities"]).DistinctBy(c=>c.Text("code")).Select(c=>new{code=c.Text("code"),name=c.Text("name")}),
    paymentCalendars=markets.SelectMany(m=>m.Data.References["calendars"].Select(c=>new{definitionRevisionId=m.Data.DefinitionRevision.RevisionId,code=c.Text("code"),reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),from=c.Text("coverage_from"),to=c.Text("coverage_to")})),
    factorOptions=new{swapImplementation=CrossCommodityScheduledSwap.Implementation,factorImplementation=QuantityFactor.Implementation,unitConversionImplementation=UnitConverter.Implementation,quantityBasis="factor_of_first_side_v1"},
@@ -284,57 +289,15 @@ public sealed partial class SwapStore(PreviewDatabase database)
  {
   var input=row.GetProperty(key);return input.ValueKind==JsonValueKind.Null?null:JsonSerializer.Deserialize<SwapPaymentInput>(input.GetRawText(),new JsonSerializerOptions(JsonSerializerDefaults.Web));
  }
- private async Task<ImmutableArray<JsonElement>> Rows(NpgsqlConnection connection,Guid? trade,CancellationToken ct)
+ // Reduce only the risk materialization path: RLS-visible latest revisions are
+ // selected before book scope, so an older book cannot resurrect a moved trade.
+ // History callers retain every visible revision and the same exact projections.
+ internal async Task<ImmutableArray<JsonElement>> Rows(NpgsqlConnection connection,Guid? trade,CancellationToken ct,ImmutableArray<Guid>? latestBooks=null)
  {
-  var rows=await PreviewDatabase.Rows(connection,"""
-  SELECT row_to_json(v)::text FROM(
-   SELECT r.*,facts.booker_id,facts.booker_version,facts.booker_name,facts.booker_login,facts.executed_at AS booked_at,facts.trade_date AS booking_date,facts.implementation AS booking_implementation,facts.label_captured_at AS booker_label_captured_at,le.code AS legal_entity_code,le.name AS legal_entity_name,cp.code AS counterparty_code,cp.name AS counterparty_name,trdr.code AS trader_code,trdr.name AS trader_name,tr.reference_number AS trade_reference,ir.reference_number AS instrument_reference,k.known_from AS recorded_at,
-    coalesce(i.fixed_side_id,i.first_floating_side_id,i.scheduled_first_id) AS fixed_side_id,i.first_floating_side_id,coalesce(i.floating_side_id,i.scheduled_second_id) AS floating_side_id,i.fixed_coefficient,i.discounting,i.implementation,
-    i.scheduled_first_id,i.scheduled_second_id,i.second_quantity_numerator,i.second_quantity_denominator,
-    CASE WHEN i.scheduled_first_id IS NULL THEN NULL ELSE trading.scheduled_swap_terms(r.catalog_id,r.trade_id,r.revision,i.instrument_id) END AS scheduled_data,
-    f.fixed_price,f.delivery_from AS fixed_from,f.delivery_to AS fixed_to,f.payment_at AS fixed_payment,s.reference_catalog_id,s.reference_revision_id,s.spread AS floating_spread,
-    CASE WHEN i.scheduled_first_id IS NULL THEN(SELECT array_agg(p.contract_id ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE p.catalog_id=s.catalog_id AND p.side_id=s.id) ELSE(SELECT array_agg(p.contract_id ORDER BY p.ordinal) FROM trading.swap_period_projections p WHERE(p.catalog_id,p.side_id,p.period_ordinal)=(i.catalog_id,i.scheduled_second_id,0)) END AS projection_contracts,
-    CASE WHEN i.scheduled_first_id IS NULL THEN(SELECT array_agg(p.weight ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE p.catalog_id=s.catalog_id AND p.side_id=s.id) ELSE(SELECT array_agg(p.weight ORDER BY p.ordinal) FROM trading.swap_period_projections p WHERE(p.catalog_id,p.side_id,p.period_ordinal)=(i.catalog_id,i.scheduled_second_id,0)) END AS projection_weights,
-    q.currency_code AS quote_currency_code,q.commodity_code AS quote_commodity_code,
-    s.implementation AS floating_implementation,s.definition_revision_id,s.curve_code,s.index_code,s.settlement_mode,s.settlement_index_code,s.settlement_projection_policy,s.quote_code,s.delivery_from AS floating_from,s.delivery_to AS floating_to,s.first_fixing_at,s.payment_at AS floating_payment,s.averaging,s.custom_projection_id,s.observation_schedule_id,
-    NULL::jsonb AS observation_schedule,
-    (SELECT jsonb_build_object('curve',a.curve_code,'index',a.index_code,'settlement',jsonb_build_object('mode',a.settlement_mode,'index',CASE WHEN a.settlement_mode='override' THEN a.settlement_index_code END,'projectionPolicy',a.settlement_projection_policy),'currency',q.currency_code,'deliveryFrom',a.delivery_from,'deliveryTo',a.delivery_to,
-     'firstFixingAt',NULL,'paymentAt',NULL,
-     'paymentSchedule',(SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(a.catalog_id,a.payment_rule_id)),
-     'resetFrequency',CASE WHEN a.averaging='monthly_index_price' THEN 'monthly' ELSE 'daily' END,'averagingMethod',CASE a.averaging WHEN 'monthly_index_price' THEN 'none' WHEN 'calendar_day_arithmetic' THEN 'arithmetic' ELSE a.averaging END,'spread',a.spread::text,'observationSchedule',NULL,
-     'customProjection',(SELECT jsonb_build_object('catalogId',p.catalog_id,'curveId',p.curve_id,'version',p.version,'outputNode',p.output_node,'position',p.position,'selection',p.selection,'implementation',p.implementation) FROM trading.custom_curve_projection_bindings p WHERE(p.catalog_id,p.id)=(a.catalog_id,a.custom_projection_id)))
-     FROM trading.swap_floating_sides a JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(a.reference_catalog_id,a.reference_revision_id,a.quote_code) WHERE(a.catalog_id,a.id)=(i.catalog_id,i.first_floating_side_id)) AS first_floating,
-    a.first_fixing_at AS first_floating_fixing,a.custom_projection_id AS first_custom_projection_id,a.observation_schedule_id AS first_observation_schedule_id,
-    (SELECT array_agg(p.contract_id ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE(p.catalog_id,p.side_id)=(i.catalog_id,i.first_floating_side_id)) AS first_projection_contracts,
-    (SELECT array_agg(p.weight ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE(p.catalog_id,p.side_id)=(i.catalog_id,i.first_floating_side_id)) AS first_projection_weights,
-    (SELECT jsonb_build_object('catalogId',p.catalog_id,'curveId',p.curve_id,'version',p.version,'outputNode',p.output_node,'position',p.position,'selection',p.selection,'implementation',p.implementation) FROM trading.custom_curve_projection_bindings p WHERE(p.catalog_id,p.id)=(s.catalog_id,s.custom_projection_id)) AS custom_projection,
-    (SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(f.catalog_id,f.payment_rule_id)) AS fixed_payment_rule,
-    (SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(s.catalog_id,s.payment_rule_id)) AS floating_payment_rule
-   FROM trading.swap_trade_revisions r JOIN trading.swap_instruments i ON(i.catalog_id,i.instrument_id)=(r.catalog_id,r.instrument_id)
-   LEFT JOIN LATERAL(
-    SELECT f.fixed_price,f.delivery_from,f.delivery_to,f.payment_at,f.payment_rule_id,f.catalog_id,f.id FROM trading.swap_fixed_sides f WHERE(f.catalog_id,f.id)=(i.catalog_id,i.fixed_side_id)
-    UNION ALL
-    SELECT p.fixed_price,p.delivery_from,p.delivery_to,p.payment_at,p.payment_rule_id,p.catalog_id,p.id FROM trading.swap_side_periods p WHERE(p.catalog_id,p.side_id,p.ordinal)=(i.catalog_id,i.scheduled_first_id,0) AND p.kind='fixed'
-   )f ON true
-   JOIN LATERAL(
-    SELECT s.reference_catalog_id,s.reference_revision_id,s.spread,s.catalog_id,s.id,s.implementation,s.definition_revision_id,s.curve_code,s.index_code,s.settlement_mode,s.settlement_index_code,s.settlement_projection_policy,s.quote_code,
-     s.delivery_from,s.delivery_to,s.first_fixing_at,s.payment_at,s.averaging,s.custom_projection_id,s.observation_schedule_id,s.payment_rule_id FROM trading.swap_floating_sides s WHERE(s.catalog_id,s.id)=(i.catalog_id,i.floating_side_id)
-    UNION ALL
-    SELECT p.reference_catalog_id,p.reference_revision_id,p.spread,p.catalog_id,p.id,p.price_implementation,p.definition_revision_id,p.curve_code,p.index_code,p.settlement_mode,p.settlement_index_code,p.settlement_projection_policy,p.quote_code,
-     p.delivery_from,p.delivery_to,p.first_fixing_at,p.payment_at,p.averaging,p.custom_projection_id,p.observation_schedule_id,p.payment_rule_id FROM trading.swap_side_periods p WHERE(p.catalog_id,p.side_id,p.ordinal)=(i.catalog_id,i.scheduled_second_id,0) AND p.kind='floating'
-   )s ON true
-   JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(s.reference_catalog_id,s.reference_revision_id,s.quote_code)
-   LEFT JOIN trading.swap_floating_sides a ON(a.catalog_id,a.id)=(i.catalog_id,i.first_floating_side_id)
-   LEFT JOIN trading.booking_facts facts ON(facts.catalog_id,facts.trade_id)=(r.catalog_id,r.trade_id)
-   LEFT JOIN trading.legal_entities le ON(le.catalog_id,le.id,le.revision)=(r.catalog_id,r.legal_entity_id,r.legal_entity_revision)
-   LEFT JOIN trading.counterparties cp ON(cp.catalog_id,cp.id,cp.revision)=(r.catalog_id,r.counterparty_id,r.counterparty_revision)
-   LEFT JOIN trading.traders trdr ON(trdr.catalog_id,trdr.id,trdr.revision)=(r.catalog_id,r.trader_id,r.trader_revision)
-   JOIN trading.trade_references tr ON(tr.catalog_id,tr.trade_id)=(r.catalog_id,r.trade_id)
-   JOIN trading.instrument_references ir ON(ir.catalog_id,ir.instrument_id)=(r.catalog_id,r.instrument_id)
-   JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order)
-   WHERE r.catalog_id=$1 AND($2::uuid IS NULL OR r.trade_id=$2) ORDER BY r.trade_id,r.revision
-  )v
-  """,[manifest.CatalogId,trade is {} id?id:DBNull.Value],ct);
+  var rows=await PreviewDatabase.Rows(connection,"SELECT x::text FROM trading.read_swap_revisions($1,$2,$3,$4) x ORDER BY (x->>'trade_id')::uuid,(x->>'revision')::integer",[manifest.CatalogId,trade is {} id?id:DBNull.Value,latestBooks.HasValue,latestBooks.GetValueOrDefault().IsDefault?Array.Empty<Guid>():latestBooks.GetValueOrDefault().ToArray()],ct);
+  // A visible selected parent cannot disappear through a separately authorized
+  // required child join. Compare exact keys in the same statement/snapshot.
+  if(rows.Any(row=>row.TryGetProperty("__missing_swap_revision",out _)))throw new PreviewDeniedException();
   TradeAnnotations.RequireFacts(rows);
   return await ObservationSchedules(connection,rows,ct);
  }
@@ -348,11 +311,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    .OfType<Guid>().Distinct().ToArray();
   if(ids.Length==0)return rows;
   var schedules=await PreviewDatabase.Rows(connection,"""
-   SELECT jsonb_build_object('id',o.id,'terms',jsonb_build_object('implementation',o.implementation,
-    'calendar',CASE WHEN o.calendar_code IS NULL THEN NULL ELSE jsonb_build_object('revision',jsonb_build_object('catalogId',o.reference_catalog_id,'revisionId',o.reference_revision_id),'code',o.calendar_code) END,
-    'quantities',CASE WHEN o.averaging='quantity_weighted' THEN(SELECT jsonb_agg(jsonb_build_object('from',k.delivery_from,'to',k.delivery_to,'quantity',jsonb_build_object('value',trim_scale(q.amount)::text,'specification',jsonb_build_object('revision',jsonb_build_object('catalogId',q.reference_catalog_id,'revisionId',q.reference_revision_id),'code',q.quantity_code))) ORDER BY q.ordinal)
-     FROM trading.swap_observation_quantities q JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(q.catalog_id,q.definition_revision_id,q.contract_id) WHERE(q.catalog_id,q.schedule_id)=(o.catalog_id,o.id)) ELSE NULL END))::text
-   FROM trading.swap_observation_schedules o WHERE o.catalog_id=$1 AND o.id=ANY($2::uuid[])
+   SELECT x::text FROM trading.swap_observation_terms($1,$2) x
    """,[manifest.CatalogId,ids],ct);
   var byId=schedules.ToDictionary(row=>row.Id("id"),row=>row.GetProperty("terms"));
   JsonNode? Terms(Guid? id)=>id is {} key&&byId.TryGetValue(key,out var value)?JsonNode.Parse(value.GetRawText()):null;
@@ -387,7 +346,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    throw Error("payment_rule","The current fixed side requires its exact retained payment rule."):null;
   var floatingPayment=StoredPayment(row,"floating_payment_rule")??throw Error("payment_rule","The current floating side requires its exact retained payment rule.");
   if(row.Text("floating_implementation")!=FloatingSide.IndexedImplementation)
-   throw Error("swap_definition","The retained floating side is not a supported current observation contract.");
+   throw Error("swap_definition","The retained floating side uses an obsolete observation contract; rebook it with explicit published fixing terms.");
   return new(snapshot,Convention,"retained",Guid.Empty,row.Id("book_id"),row.Text("execution_at"),row.Text("quantity"),row.OptionalId("first_floating_side_id") is null?row.Text("fixed_coefficient"):null,row.GetProperty("discounting").GetBoolean(),
    row.OptionalId("first_floating_side_id") is null?new(row.Text("fixed_price"),row.Text("quote_currency_code"),row.Text("fixed_from"),row.Text("fixed_to"),null,fixedPayment):null,
    new(row.Text("curve_code"),row.Text("index_code"),row.Text("quote_currency_code"),row.Text("floating_from"),row.Text("floating_to"),null,
@@ -436,9 +395,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
    lifecycleEligible=terms.Scheduled is not null?ScheduledAmendmentEligible(ResolveScheduled((await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct)).Data,terms,row.Id("instrument_id")).Instrument,frame.At):frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at")};
  }
  private static object? CanonicalFloating(SwapFloatingInput? side)=>side is null?null:new{
-  curve=Required(side.Curve),index=Required(side.Index),currency=Required(side.Currency),from=Date(side.DeliveryFrom),to=Date(side.DeliveryTo),
+  curve=Required(side.Curve),index=side.ContractObservations is null?Required(side.Index):side.Index,currency=Required(side.Currency),from=Date(side.DeliveryFrom),to=Date(side.DeliveryTo),
   fixing=side.FirstFixingAt is {} fixing?SchedulePreview.ParseAt(fixing).ToUniversalTime():(DateTimeOffset?)null,payment=side.PaymentAt is {} payment?SchedulePreview.ParseAt(payment).ToUniversalTime():(DateTimeOffset?)null,
-  side.PaymentSchedule,averaging=Sampling(side),spread=ExactDecimal.Parse(side.Spread??"0").ToString(),side.CustomProjection,side.Settlement,
+  side.PaymentSchedule,averaging=Sampling(side),spread=ExactDecimal.Parse(side.Spread??"0").ToString(),side.CustomProjection,side.Settlement,side.ContractObservations,
   observationSchedule=side.ObservationSchedule is {} observation?observation with{
    Quantities=observation.Quantities is {} quantities?quantities.Select(row=>row with{Quantity=row.Quantity with{Value=ExactDecimal.Parse(row.Quantity.Value).ToString()}}).ToImmutableArray():null}:null};
  private async Task<SwapWriteRequest> BookingTerms(NpgsqlConnection connection,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
@@ -455,7 +414,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   RequireWriteRules(data,body);
   await TradeAnnotations.Validate(connection,manifest.CatalogId,body.TraderId,body.TraderRevision,body.Memo,SchedulePreview.ParseAt(body.ExecutedAt),ct);
   await TradeParties.Validate(connection,manifest.CatalogId,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision),SchedulePreview.ParseAt(body.ExecutedAt),ct);
-  if(SchedulePreview.ParseAt(body.ExecutedAt)>frame.At||!(await new FuturesStore(manifest).Books(connection,ct)).Any(b=>b.Id("id")==body.BookId))
+  if(SchedulePreview.ParseAt(body.ExecutedAt)>frame.At||!(await BookScope.Read(connection,manifest.CatalogId,ct)).Any(b=>b.Id("id")==body.BookId))
    throw Error("swap_input","Choose an available book and execution no later than As of.");
   SwapWriteRequest? booked=null;
   if(body.TradeId is {} trade)
@@ -513,44 +472,58 @@ public sealed partial class SwapStore(PreviewDatabase database)
  }
  private async Task ValidateBookingPrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct) =>
   _ = await WithBookingRead(connection,frame,(selected,pinned)=>Price(connection,selected,pinned,body,null,null,null,ct),ct);
- private async Task<T> WithBookingRead<T>(NpgsqlConnection connection,InputFrame frame,Func<PreviewData,InputFrame,Task<T>> read,CancellationToken ct)
- {
-  // Current-knowledge booking explicitly resolves a certified pricing view.
-  // Its temporary read binding must not turn the ensuing write into a historical write.
-  var context=(await new KnowledgeStore(manifest.CatalogId).Capture(connection,
-   new(Date(DateOnly.FromDateTime(frame.At.UtcDateTime)),null,"current"),ct)).Context;
-  await using(var savepoint=ScheduleStore.Command(connection,"SAVEPOINT connected_booking_price"))await savepoint.ExecuteNonQueryAsync(ct);
-  try
-  {
-   await PinnedContext.BindExact(connection,manifest.CatalogId,context,ct);
-   await using(var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",manifest.CatalogId,frame.At))
-    await trading.ExecuteNonQueryAsync(ct);
-   var pinned=frame with{ContextId=context.ContextId};
-   var selected=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
-   return await read(selected,pinned);
-  }
-  finally
-  {
-   await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT connected_booking_price; RELEASE SAVEPOINT connected_booking_price");
-   await restore.ExecuteNonQueryAsync(CancellationToken.None);
-  }
- }
+ private Task<T> WithBookingRead<T>(NpgsqlConnection connection,InputFrame frame,Func<PreviewData,InputFrame,Task<T>> read,CancellationToken ct)=>
+  TradingBookingRead.Run(database,connection,frame,read,ct);
  public async Task<JsonElement> Status(NpgsqlConnection connection,Guid operation,CancellationToken ct)
  {
   if(operation==Guid.Empty)throw Error("swap_input","A retained operation identity is required.");
   await using var command=ScheduleStore.Command(connection,"SELECT security.swap_operation_status($1,$2)::text",manifest.CatalogId,operation);
   return JsonSerializer.Deserialize<JsonElement>(await command.ExecuteScalarAsync(ct) is string text?text:"{\"found\":false}");
  }
- internal sealed record HoldingsResult(JsonElement[] Rows,int Valuations,int SupplementalMarketLoads,ImmutableArray<(JsonElement Row,string Reason)> Unvalued);
+ internal sealed record HoldingsResult(ImmutableArray<JsonObject> Rows,int Valuations,int SupplementalMarketLoads,ImmutableArray<(JsonElement Row,string Reason)> Unvalued);
  internal async Task<HoldingsResult> Holdings(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
  {
-  var books=await new FuturesStore(manifest).Books(connection,ct);FuturesStore.ValidateScope(books,bookIds,portfolioIds);
-  var rows=(await Rows(connection,selected?.TradeId,ct)).GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!).Where(r=>
-   (bookIds.IsEmpty||bookIds.Contains(r.Id("book_id")))&&(portfolioIds.IsEmpty||portfolioIds.Contains(One(books.Where(b=>b.Id("id")==r.Id("book_id"))).Id("portfolio_id")))).ToArray();
+  var run=await BlotterRun(connection,data,frame,bookIds,portfolioIds,ct,selected);
+  var rows=ImmutableArray.CreateBuilder<JsonObject>();
+  await foreach(var unit in run.Units(ct))rows.AddRange(unit);
+  return new(rows.ToImmutable(),run.Valuations,run.SupplementalMarketLoads,run.Unvalued);
+ }
+ // The Blotter's swaps and heat-rate swaps: each held trade's head revision in scope, read before any is valued.
+ internal async Task<SwapBlotterRun> BlotterRun(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
+ {
+  var books=await BookScope.Read(connection,manifest.CatalogId,ct);
+  var scope=BookScope.Select(books,bookIds,portfolioIds).Select(book=>book.Id("id")).ToHashSet();
+  var rows=(await Rows(connection,selected?.TradeId,ct)).GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!)
+   .Where(row=>scope.Contains(row.Id("book_id"))).ToArray();
   selected?.Require(rows);
   if(selected is not null&&rows.Any(r=>(r.Text("implementation")==CrossCommodityScheduledSwap.Implementation?"heat_rate":"financial_swap")!=selected.InstrumentType))
    throw TradePositionSelection.Unavailable();
-  var result=new List<JsonElement>();
+  return new(this,connection,data,frame,books,rows);
+ }
+ internal sealed class SwapBlotterRun(SwapStore store,NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<JsonElement> books,JsonElement[] rows):IBlotterProductRun
+ {
+  public int Positions=>rows.Length;
+  // Known once Units completes.
+  internal int Valuations{get;private set;}
+  internal int SupplementalMarketLoads{get;private set;}
+  internal ImmutableArray<(JsonElement Row,string Reason)> Unvalued{get;private set;}=[];
+  // Each held trade is one unit, in the order of its rows; the run's caches are shared by its trades.
+  public async IAsyncEnumerable<ImmutableArray<JsonObject>> Units([EnumeratorCancellation]CancellationToken ct)
+  {
+   var work=new Work();
+   await foreach(var unit in store.Value(connection,data,frame,books,rows,work,ct).WithCancellation(ct))
+   {
+    // Request-local work so far: each valuation attempted, whether or not the close could value it.
+    (Valuations,SupplementalMarketLoads,Unvalued)=(work.Valuations,work.SupplementalMarketLoads,work.Unvalued.ToImmutable());
+    yield return unit;
+   }
+  }
+ }
+ // The request-local work a run has done so far: valuations attempted, market loads beyond the context's own and positions left unvalued.
+ private sealed class Work{internal int Valuations;internal int SupplementalMarketLoads;internal readonly ImmutableArray<(JsonElement Row,string Reason)>.Builder Unvalued=ImmutableArray.CreateBuilder<(JsonElement Row,string Reason)>();}
+ private async IAsyncEnumerable<ImmutableArray<JsonObject>> Value(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<JsonElement> books,JsonElement[] rows,
+  Work work,[EnumeratorCancellation]CancellationToken ct)
+ {
   // This cache cannot outlive the authorized read operation. Economic identity
   // includes discounting and distinguishes unit work under this context.
   var markets=rows.Any(r=>r.Id("definition_revision_id")!=data.DefinitionRevision.RevisionId)?await database.ReadSwapMarkets(connection,frame,ct,data):[];
@@ -558,13 +531,15 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var unvalued=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),string>();
   var identities=new Dictionary<Guid,((DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId) Key,FinancialSwapInstrument Instrument)>();
   var schedules=new RetainedScheduleStore(database);
-  var unvaluedRows=ImmutableArray.CreateBuilder<(JsonElement Row,string Reason)>();
+  var sourceHistories=new ContractObservationSamples.History();
   // A scheduled swap, or one whose settlement lifecycle is under way, is valued for its own binding.
   var bindingValuations=0;
+  work.SupplementalMarketLoads=markets.IsEmpty?0:1;
   foreach(var row in rows)
   {
    var terms=Terms(data,row,frame.Id);var id=row.Id("instrument_id");
-   var source=data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId?data:One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId)).Data;
+   var market=data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId?(Data:data,Frame:frame):One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId));
+   var source=market.Data;
    var book=One(books.Where(b=>b.Id("id")==row.Id("book_id")));
    SidedInstrument instrument;HeldValue held;
    // D220: a position-specific failure leaves the position unvalued at the close, with that code; any other failure fails the read.
@@ -572,17 +547,17 @@ public sealed partial class SwapStore(PreviewDatabase database)
    if(settlement.GetProperty("occurrences").GetArrayLength()!=0)
    {
     bindingValuations++;LifecycleEvaluation? lifecycle=null;string? reason=null;
-    try{lifecycle=await EvaluateLifecycle(connection,data,frame,row,terms,settlement,ct,schedules);}
+    try{lifecycle=await EvaluateLifecycle(connection,source,market.Frame,row,terms,settlement,ct,schedules,sourceHistories);}
     catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){reason=error.Code;}
-    instrument=lifecycle?.Instrument??(await ResolveRetained(connection,source,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
+    instrument=lifecycle?.Instrument??(await ResolveRetained(connection,source,market.Frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
     held=lifecycle is null?new(null,null,reason,"Active",null):new(Exact(lifecycle.Value.RemainingValue),null,null,"Active",LifecycleValue(lifecycle.Value));
    }
    else if(terms.Scheduled is not null)
    {
     bindingValuations++;FinancialSwapValue? value=null;ScheduledResolution? resolved=null;string? reason=null;
-    try{var priced=await ScheduledPriceDetail(connection,data,frame,terms,id,ct,schedules);value=priced.Value;resolved=priced.Resolved;}
+    try{var priced=await ScheduledPriceDetail(connection,source,market.Frame,terms,id,ct,schedules,sourceHistories);value=priced.Value;resolved=priced.Resolved;}
     catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){reason=error.Code;}
-    instrument=resolved?.Instrument??(await ResolveRetained(connection,source,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
+    instrument=resolved?.Instrument??(await ResolveRetained(connection,source,market.Frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
     held=value is null?new(null,null,reason,"Projection",null):new(Exact(value.ExactPresentValue),null,null,"Projection",null);
    }
    else
@@ -608,11 +583,10 @@ public sealed partial class SwapStore(PreviewDatabase database)
     else held=new(null,null,unvalued[key],"Projection",null);
    }
    var holding=HoldingRow(source,row,book,terms,instrument,held);
-   if(held.Reason is {} unvaluedReason)unvaluedRows.Add((row,unvaluedReason));
-   result.Add(holding);
+   if(held.Reason is {} unvaluedReason)work.Unvalued.Add((row,unvaluedReason));
+   work.Valuations=values.Count+unvalued.Count+bindingValuations;
+   yield return [JsonNode.Parse(holding.GetRawText())!.AsObject()];
   }
-  // Request-local work: each valuation attempted, whether or not the close could value it.
-  return new(result.ToArray(),values.Count+unvalued.Count+bindingValuations,markets.IsEmpty?0:1,unvaluedRows.ToImmutable());
  }
  // What a held swap's valuation at the close states: its value, its mark when it has one curve price, or the position-specific
  // reason the close cannot value it; whether it is valued as a projection or by its settlement lifecycle, and that lifecycle's measures.

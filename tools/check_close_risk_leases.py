@@ -29,10 +29,13 @@ def check_work(work, cells, admission):
     assert work['calibratedBlocks'] == 2*months and work['reusedBlocks'] == 0, work
     assert work['scheduleGraphEvaluatedNodes'] > 0 and work['scheduleGraphReusedReads'] > 0, work
     assert work['resolvedCurveMonths'] == months and work['reusedCurveMonths'] == 0, work
-    # Native price admission is once per month. The shared connected graph
-    # evaluates each signed factor once and reuses the other factor roots.
-    assert work['rebuiltCurveNodes'] == 2*factors, work
-    assert work['reusedCurveNodes'] == 2*factors*(factors-1), work
+    # Connected execution creates no native curve receipts. Its own graph
+    # counters retain actual evaluations/reads, including base preparation.
+    assert work['rebuiltCurveNodes'] == work['reusedCurveNodes'] == 0, work
+    # Each of the 24 source factors is evaluated in base and its two shocks;
+    # unchanged roots are read again while pricing the remaining monthly cells.
+    assert work['curveGraphEvaluatedNodes'] >= 3*factors, work
+    assert work['curveGraphReusedReads'] > 0, work
 
 
 def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, environment):

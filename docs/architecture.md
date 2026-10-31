@@ -6,6 +6,21 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+Gas may use an explicitly configured independent market/reference selection;
+this keeps physical location setup separate from the primary power and financial
+inputs without rebasing their source identities or feeds.
+
+D269 adds the local [physical gas booking slice](physical-gas-side.md): fixed
+contractual delivery, independent consideration and optional usage fee, shared
+retained executable schedules, and an authorized preview/book/reopen ticket.
+Shared curve groups, point price adjustments, dated direct-meter schedule attribution
+and configured per-unit tariffs are wired into that bounded profile. The
+Gas delivery setup editor saves immutable drafts, previews resolution/coverage and
+publishes versioned economic settings; saved trades retain their setup pins. Usage fees
+have independent pay/receive directions. The fixed-quantity composition ticket now adds independently directed physical
+and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. Physical completion, operational PV and settlement remain work. Mixed-product blotter and risk
+scopes containing gas refuse until their complete integration is supported.
+
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.
 Heat-rate examples use the existing typed factor contract and independent
@@ -874,42 +889,31 @@ rather than serializing arbitrary runtime objects. Deriving a class does not
 permit loading tenant-provided executable code. Cache resolved schedules where
 their complete inputs agree instead of regenerating them for every `PV()` call.
 
-### 3.4 Explicit sibling-side references
+### 3.4 Instrument-owned connections between sides
 
-An instrument may have sibling sides in this form:
+Each Side declares typed input ports and named outputs. It has no reference to
+another Side and receives no peer resolver or instrument-PV callback. Only the
+instrument retains connections from an exact member's named output to another
+member's input. Reusing a Side under different connections does not modify its
+schedule or definition.
 
-```text
-Instrument
-  [0] OptionSide: references [1] and [2]
-  [1] FloatingSide
-  [2] FixedSide
-```
+For example, the instrument connects a delivery member's quantity output to a
+payment member's quantity input. The payment Side receives quantity values, units,
+cell states and their evidence; it does not know which member supplied them.
+Option extensions must use the same boundary for permitted inputs.
 
-The array indexes illustrate the relationship; persist stable typed references or
-semantic slots resolved to versioned memberships, never mutable array positions.
-An option side need not own or wrap the other sides structurally. It can consume
-their schedules, terms and permitted valuation inputs through its side context.
+Connections retain exact member identities, output names, input addresses and
+cell mappings. The instrument validates units, complete interval geometry,
+authority and acyclic dependency ordering. No connection is inferred from a
+Side's port label, role, array position or similarly shaped output. Connection
+identity, source program identities, requested cells, coverage and the complete
+context/scenario are calculation inputs.
 
-Declare those references so validation, dependency propagation, authorization and
-calculation identity can see them. Resolve reusable slot-based definitions in the
-selected instrument context. Resolved sibling versions, membership coefficients
-and relevant quantity transformations are part of that calculation's identity;
-the same side definition in a different sibling context is not automatically the
-same calculation.
-
-References are directed. Validate their ordering and reject dependency cycles,
-including a side that calls the total instrument PV while that total is waiting
-for its own PV. Reading a peer's independent base schedule/value is distinct from
-recursively asking for a value already controlled by the requesting side.
-
-Expose peer base valuation and final contributed valuation through distinct typed
-evaluation modes or separate context operations. Do not make a generic `PV()`
-silently mean one or the other depending on call order. The resolved execution
-plan specifies which value a dependency consumes.
-
-For options, sibling visibility alone does not define exercise or PV accounting.
-The future option contract in section 5.4 must distinguish additional obligations
-from exercise control of existing obligations before that product is enabled.
+Independent base outputs and final contributed values remain distinct typed
+outputs. The instrument specifies which output a connection consumes; call order
+cannot change its meaning. A Side cannot recursively request the instrument PV.
+Future option contracts still require explicit additional-obligation versus
+exercise-control accounting before that product is enabled.
 
 ### 3.5 Physical and financial composition
 
@@ -1584,15 +1588,15 @@ scenarios. Premium-style versus daily-margin settlement is contractual; it canno
 be inferred from the underlying being a future. None of this section claims an
 implemented option pricer or lifecycle.
 
-### 5.4 Future option sides with sibling visibility
+### 5.4 Future option sides with instrument-supplied inputs
 
 This is a proposed extension boundary, not an implemented option product or a
-settled accounting choice. Preserve the sibling topology in section 3.4.
+settled accounting choice. Preserve the instrument-owned connections in section 3.4.
 
-An option side retains explicit target-side bindings, payoff/strike terms,
+The instrument retains explicit target-member connections. An option side retains payoff/strike terms,
 exercise opportunities, settlement rules and model requirements. Its event plan
-includes contingent obligations and their exercise group. It can consume the
-target sides' schedules without turning those obligations into a duplicate set
+includes contingent obligations and their exercise group. It consumes permitted typed inputs supplied by the instrument without turning
+the underlying obligations into a duplicate set
 of active instrument cashflows.
 
 Distinguish at least two meanings:

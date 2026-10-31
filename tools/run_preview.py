@@ -16,6 +16,7 @@ from urllib.request import urlopen
 from uuid import uuid4
 from preview_fixture import fixture
 from owned_process import stop_owned_group
+from preview_diagnostics import print_failure_identifiers
 
 ROOT = Path(__file__).resolve().parents[1]
 # The sessions of the 64 a scope keeps that this process leaves free once the page-assistant checks have run: the
@@ -27,6 +28,12 @@ def main():
     from check_standalone import main as check_standalone
     check_standalone()
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--with-gas-quantity-dates',action='store_true',help='Include synthetic January working frames for daily gas quantity exploration')
+    parser.add_argument('--gas-quantity-benchmark',action='store_true',help='Measure owned daily gas quantity grids with authorized revision history')
+    parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
+    parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
+    parser.add_argument('--gas-setup-check',action='store_true',help='Qualify versioned gas setup authoring and trade pins')
+    parser.add_argument('--physical-gas-check',action='store_true',help='Qualify physical gas preview, durable schedules and booking UI operations')
     parser.add_argument('--demo-instruments-check',action='store_true',help='Verify mixed synthetic PPA and heat-rate bookings, blotter and risk')
     parser.add_argument('--pg-bin', type=Path, required=True, help='Installed stock PG16+ binaries')
     parser.add_argument('--dotnet', type=Path, required=True, help='Installed .NET SDK matching global.json')
@@ -44,6 +51,8 @@ def main():
     parser.add_argument('--ppa-check',action='store_true',help='Qualify isolated PPA quantity, normalization and location-reference consumers')
     parser.add_argument('--interval-curves-check',action='store_true',help='Qualify interval curves, shaping and resolution: storage, API and, with --browser-check, the screen')
     parser.add_argument('--interval-series-benchmark',action='store_true',help='Measure twenty-year interval series workloads in an owned fixture and print a JSON report')
+    parser.add_argument('--blotter-stream-benchmark',action='store_true',help='Time the streamed Blotter against trading/workspace in the seeded standard example, then with one twenty-year hourly PPA, and write a JSON report to --output')
+    parser.add_argument('--output',type=Path,help='The JSON report file of --blotter-stream-benchmark, outside the repository')
     parser.add_argument('--usage-benchmark',action='store_true',help='Measure a year of page-assistant usage at a stated volume in an owned fixture and print a JSON report')
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
@@ -100,11 +109,15 @@ def main():
         args.ppa_bookings_check = True
     if args.ppa_http_benchmark:
         args.ppa_bookings_check = True
+    if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
+    if args.gas_setup_check or args.gas_composition_check or args.gas_daily_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
-    if args.retained_schedule_check: args.check=True
-    fixing_frames=args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
-    if args.interval_series_benchmark or args.usage_benchmark:
-        if args.example != 'standard' or args.interval_series_benchmark and args.usage_benchmark or any(name.endswith('_check') and value for name,value in vars(args).items()):
+    if args.retained_schedule_check or args.physical_gas_check: args.check=True
+    fixing_frames=args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
+        parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
+    if args.interval_series_benchmark or args.usage_benchmark or args.blotter_stream_benchmark:
+        if args.example != 'standard' or args.interval_series_benchmark+args.usage_benchmark+args.blotter_stream_benchmark>1 or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
     if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
@@ -288,6 +301,9 @@ def main():
             if args.check and migration.name=='0116_remove_unused_cash_rounding.sql':
                 from check_cash_rounding_retirement import run_checks as check_cash_retirement
                 check_cash_retirement(query,migration.read_text())
+            if args.physical_gas_check and migration.name=='0142_physical_gas_bookings.sql':
+                from check_gas_upgrade import run_checks as check_gas_upgrade
+                check_gas_upgrade(query,ROOT,[reference,market,security,trading_fixture(manifest['catalogId'])])
             query(migration.read_text())
         if args.check:
             from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema
@@ -304,18 +320,18 @@ def main():
         if args.index_fixing_check:
             from check_index_fixings import prepare as prepare_index_fixings
             reference,market,manifest=prepare_index_fixings(reference,market,manifest)
-        if args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check:
+        if args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check or args.blotter_stream_benchmark:
             from interval_curve_fixture import prepare as prepare_interval_curves
             reference,market,security,manifest=prepare_interval_curves(reference,market,security,manifest)
-        if args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check:
+        if args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check or args.blotter_stream_benchmark:
             from ppa_fixture import prepare as prepare_ppa
             reference,market,security,manifest=prepare_ppa(reference,market,security,manifest)
             if not args.check:
                 from seed_preview_positions import EXECUTIONS
                 demo_instants={day+'T16:00:00' for day,*_ in EXECUTIONS}
-                manifest['frames']=[frame for frame in manifest['frames'] if frame['at'][:19] in demo_instants]
+                manifest['frames']=[frame for frame in manifest['frames'] if frame['at'][:19] in demo_instants or args.with_gas_quantity_dates and frame['at'][:10] in ('2021-01-01','2021-01-15','2021-01-31')]
 
-        if args.ppa_bookings_check or args.retained_schedule_check:
+        if args.ppa_bookings_check or args.retained_schedule_check or args.blotter_stream_benchmark:
             from ppa_bookings_fixture import prepare as prepare_ppa_bookings
             reference,market,security,manifest=prepare_ppa_bookings(reference,market,security,manifest)
             if args.close_risk_check:
@@ -388,9 +404,10 @@ def main():
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
-        if args.ppa_bookings_check:
+        if args.ppa_bookings_check or args.blotter_stream_benchmark:
             from ppa_bookings_fixture import trading as ppa_benchmark_books
             query(ppa_benchmark_books(manifest['catalogId']))
+        if args.ppa_bookings_check:
             from ppa_revision_fixture import install as install_ppa_revisions
             install_ppa_revisions(query,manifest)
         if args.power_actual_check:
@@ -529,12 +546,32 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.retained_schedule_check:
+            if args.physical_gas_check:
+                from check_physical_gas_preview import run_checks,run_shape_checks
+                gas_receipt=run_checks(url)
+                run_shape_checks(query,manifest,gas_receipt)
+                if args.gas_daily_quantity_check:
+                    from check_gas_daily_quantities import run_checks as check_gas_daily_quantities
+                    check_gas_daily_quantities(url,query,manifest)
+                    if args.gas_quantity_benchmark:
+                        from benchmark_gas_quantities import run as benchmark_gas_quantities
+                        benchmark_gas_quantities(url,query,manifest,child.pid)
+                if args.gas_composition_check:
+                    from check_gas_composition import run_checks as check_gas_composition
+                    check_gas_composition(url,query,manifest)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
+                if args.gas_setup_check:
+                    from check_gas_setup_editor import run_checks as check_gas_setup
+                    check_gas_setup(url)
+            elif args.retained_schedule_check:
                 from check_retained_side_schedules import run_stage_checks,run_temporal_checks
                 run_stage_checks(query,manifest)
                 booked_program_instruments,before_programs=run_temporal_checks(url,query,manifest)
                 from check_booked_side_programs import run_direct_read_checks,run_authority_checks,book_native_programs
-                booked_program_instruments+=book_native_programs(url,manifest)
+                booked_program_instruments+=book_native_programs(url,manifest,query)
                 booked_program_items=run_direct_read_checks(query,manifest,temporary,dotnet,app_env,booked_program_instruments,
                     ('fixed','floating','power','certificate','capacity'))
                 run_authority_checks(query,manifest,booked_program_items[0],before_programs)
@@ -596,6 +633,8 @@ def main():
                 check_risk_jobs_db(query,manifest,psql,env)
                 from check_portfolio_risk import run_supplemental_scope
                 run_supplemental_scope(Client,check,query,manifest,run_worker)
+                from check_risk_run_definitions import run_now_checks
+                run_now_checks(url,query,run_worker)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
@@ -605,6 +644,9 @@ def main():
             elif args.interval_series_benchmark:
                 from benchmark_interval_series import run_benchmark
                 print(json.dumps(run_benchmark(url,query,dotnet,child.pid),indent=2),flush=True)
+            elif args.blotter_stream_benchmark:
+                from benchmark_blotter_stream import run_benchmark as run_blotter_stream_benchmark
+                run_blotter_stream_benchmark(url,manifest,query,dotnet=dotnet,api_pid=child.pid,run_id=run_id,owned_root=temporary,output=args.output.resolve())
             elif args.usage_benchmark:
                 from benchmark_usage import run_benchmark as run_usage_benchmark
                 print(json.dumps(run_usage_benchmark(url,query,psql,manifest,app_env,dotnet,child.pid),indent=2),flush=True)
@@ -757,7 +799,7 @@ def main():
                         raise RuntimeError('Owned jobs browser checks failed')
             elif args.hosted_check:
                 from check_hosted_http import run_checks as check_hosted_http
-                check_hosted_http(temporary,manifest,query,dotnet,frozen_dll,app_env,args.browser if args.browser_check else None,url,run_id)
+                check_hosted_http(temporary,manifest,query,dotnet,frozen_dll,app_env,args.browser if args.browser_check else None,url,run_id,psql=psql,psql_environment=env)
             elif args.scheduled_swap_check:
                 from check_scheduled_swaps import run_checks as check_scheduled
                 worker_env=prepare_risk_worker()
@@ -767,6 +809,7 @@ def main():
                 from check_swap_settlement_agents import prepare as prepare_settlement_agent
                 agent_fixture=temporary/'settlement-agent.json'
                 agent_fixture.write_text(json.dumps(prepare_settlement_agent(query,settlement_fixture)))
+                subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--swap-holding-markets',str(agent_fixture)],cwd=ROOT,env=app_env,check=True,timeout=120)
                 subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--swap-settlement-agent',str(agent_fixture)],cwd=ROOT,env=app_env,check=True,timeout=120)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
@@ -937,6 +980,14 @@ def main():
                 workspace=run_checks(url,query,manifest,lambda views,trades:check_direct_reads(views,trades,dotnet,app_env,temporary),after_browser)
                 from check_table_views import run_checks as check_table_views
                 check_table_views(url,query)
+                # Preview sessions are capped, so the account checks below share two browser sessions, each switching them to its own users.
+                from preview_client import PreviewClient
+                browsers=[PreviewClient(url) for _ in range(2)]
+                for browser in browsers:browser.bootstrap()
+                from check_dashboard_layout import run_checks as check_dashboard_layout
+                check_dashboard_layout(url,query,browsers)
+                from check_risk_run_definitions import run_checks as check_risk_run_definitions
+                check_risk_run_definitions(url,query,browsers)
                 from check_schedule_storage import run_checks as check_schedule_storage
                 check_schedule_storage(query,psql,env,manifest)
                 from check_temporal_storage import run_checks as check_temporal_storage
@@ -1034,6 +1085,9 @@ def main():
         print('Stopping the owned preview.',flush=True)
         if args.check:
             raise
+    except Exception:
+        print_failure_identifiers(temporary/'app.log')
+        raise
     finally:
         if risk_worker_process is not None:
             try:

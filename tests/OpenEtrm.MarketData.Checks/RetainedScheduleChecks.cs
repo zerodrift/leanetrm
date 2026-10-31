@@ -7,6 +7,7 @@ internal static class RetainedScheduleChecks
 {
     internal static int Run()
     {
+        ScheduleManifestChecks.Run();
         CompactMonthlyBounds();
         CompactRetainedChecks.Run();
         var fixture=new CommodityLookupFixture(2,monthly:true);
@@ -153,9 +154,18 @@ internal static class RetainedScheduleChecks
     }
     private static void RejectUnusedFixingBindings()
     {
-        var fixture=new CommodityLookupFixture(31);var instrument=fixture.Swap(indexed:true);
+        var fixture=new CommodityLookupFixture(31);var instrument=fixture.Swap();
         var definitions=instrument.Sides.ToDictionary(member=>member.Side.Id,member=>ScheduleDefinitionCompiler.Generate(member.Side));
         var definition=definitions[instrument.Floating.Id];
+        Reject(()=>
+        {
+            var obsoleteRows=definition.Rows.Select(row=>row.Operation=="output_guard"?
+                row with{Parameters=row.Parameters.SetItem("firstFixingAt",instrument.Floating.Fixings[0].FixingAt.ToString("O"))}:row).ToArray();
+            var obsolete=new ScheduleDefinition(definition.SideId,definition.Family,definition.EconomicIdentity,definition.PricingBindingIdentity,
+                definition.SchemaVersion,definition.GeneratorVersion,obsoleteRows,definition.Edges,definition.Bindings,definition.Roots,definition.Ports,definition.Grids);
+            var attached=RetainedSideSchedules.Attach(instrument,definitions.ToDictionary(pair=>pair.Key,pair=>pair.Key==definition.SideId?obsolete:pair.Value));
+            _=attached.Sides[1].Side.GenerateSchedule();
+        });
         var unused=definition.Bindings.Where(binding=>binding.Kind=="index_fixing")
             .Select(binding=>binding with{Port="unused_fixing",Coordinate="unsupported_fixing_selection_v1"}).ToArray();
         if(unused.Length==0)throw new Exception("The dated regression requires final-index fixing bindings.");

@@ -15,7 +15,7 @@ static class RuntimeSet
     public const int MaxGrantDays=90;
     // turns_v7 bounds a tool read by its agent version's time per read and its turn's deadline (D245); turns_v9 adds Save curve
     // draft, whose step is recorded in its write's transaction (D260); turns_v10 has Read current page carry the Blotter's
-    // layout its page report states (D270). turns_v8 is reserved for the installation limits (P42).
+    // layout its page report states (D271). turns_v8 is reserved for the installation limits (P42).
     public const string Turns="turns_v10";
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;

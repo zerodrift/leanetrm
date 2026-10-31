@@ -317,6 +317,29 @@ def run_stage_checks(query, manifest):
             scoped_request=query(f"SELECT request_id FROM trading.side_schedules WHERE id='{scoped_schedule}';")
             install_stage_prerequisite(runtime,query,catalog,scoped_request,scoped_schedule)
         runtime(reject(scoped(seal),'side_schedule_sources') if mismatch else scoped(seal))
+    obsolete=[]
+    for variant in ('missing_fixing','first_fixing_marker'):
+        proposed=[dict(row) for row in lookup_rows]
+        selected_bindings=bindings[:-1] if variant=='missing_fixing' else bindings
+        if variant=='first_fixing_marker':
+            proposed[5]=dict(proposed[5],parameters=dict(proposed[5]['parameters'],firstFixingAt='2020-12-31T12:00:00.0000000+00:00'))
+        scoped,scoped_schedule=stage_graph('synthetic_obsolete_'+variant,family='floating',bindingCount=len(selected_bindings))
+        runtime(scoped(append_rows(proposed)))
+        runtime(scoped(f"SELECT security.append_side_schedule_edges('{catalog}','{request}','{schedule}',{literal(edges)});"))
+        runtime(scoped(f"SELECT security.append_side_schedule_aux('{catalog}','{request}','{schedule}','bindings',{literal(selected_bindings)});"))
+        runtime(scoped(f"SELECT security.append_side_schedule_aux('{catalog}','{request}','{schedule}','roots',{literal(roots)});"))
+        scoped_request=query(f"SELECT request_id FROM trading.side_schedules WHERE id='{scoped_schedule}';")
+        # Derive bytes from the same staged rows: this must fail source admission,
+        # not a deliberately mismatched bytecode or a missing artifact.
+        content=query(f"SELECT trading.side_program_document('{catalog}','{scoped_schedule}')::text;")
+        try:
+            runtime(reject(append_program(catalog,scoped_request,scoped_schedule,content),'side_schedule_sources'))
+        except RuntimeError as error:
+            if 'expected rejection' not in str(error):
+                raise
+            obsolete.append(variant+': '+str(error))
+    assert not obsolete, 'Obsolete dated programs passed sealing: '+str(obsolete)
+    print('PASS dated source sealing refuses coherent bytes with absent fixing or obsolete first-fixing timestamp',flush=True)
     for mismatched in (False,True):
         operation=str(uuid4());name='synthetic_quantity_subselection_'+str(mismatched)
         output_roots=roots+[dict(name='quantity',row=0,measure='schedule_quantity',sequence=2)]
@@ -348,6 +371,11 @@ def run_stage_checks(query, manifest):
             runtime(f"SELECT security.seal_side_schedule('{catalog}','{operation}','{identifier}','{'a'*64}');")
         composition=f"SELECT security.seal_side_schedule_request('{catalog}','{operation}',{literal(links)});"
         runtime(reject(composition,'side_schedule_ports') if mismatched else composition)
+        if not mismatched:
+            actual=json.loads(query(f"SELECT jsonb_agg(jsonb_build_array(input_row,output_root,input_cells,output_cells)) FROM trading.instrument_schedule_cells WHERE(catalog_id,request_id)=('{catalog}','{operation}');"))
+            assert actual==[[0,'quantity',[0,1],[1,2]]], 'Booking must retain exact selected output-to-input cell addresses'
+            runtime(composition)
+            assert query(f"SELECT count(*) FROM trading.instrument_schedule_cells WHERE(catalog_id,request_id)=('{catalog}','{operation}');")=='1', 'Retry must retain one exact mapping'
     def compose_blocks(name,source_grids,target_grids,refused=False):
         """Different storage partitions must describe the same exact logical cells."""
         operation=str(uuid4());port='synthetic_energy/0'
@@ -423,28 +451,67 @@ def run_temporal_checks(url,query,manifest):
     primary=next(i for i in catalog['indices'] if i['curve']=='base_forward')
     secondary=next(i for i in catalog['indices'] if i['curve']=='daily_gas')
     payment=dict(frequency='monthly',rule='days_after_period_end',days=18,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1')
+    def checked_booking(body):
+        signature='security.read_swap_publication(uuid,uuid,uuid)'
+        original=query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+        fragment="'economicIdentity',s.economic_identity,"
+        assert fragment in original
+        before=query('SELECT count(*) FROM trading.swap_trade_revisions;')
+        try:
+            query(original.replace(fragment,"'economicIdentity',s.economic_identity||'synthetic mismatch',"))
+            refused=client.call('swaps/book',body,expected=422)
+            assert refused['code']=='side_schedule_identity'
+            assert query('SELECT count(*) FROM trading.swap_trade_revisions;')==before
+            assert query(f"SELECT count(*) FROM trading.swap_trade_revisions WHERE operation_id='{body['operationId']}';")=='0'
+        finally:
+            query(original)
+        result=client.call('swaps/book',body)
+        assert client.call('swaps/book',body)==result, 'Restored swap publication must retain the first exact retry outcome'
+        return result
     def book(frame,index,daily):
         floating=dict(settlement=dict(mode='curve_target',index=None,projectionPolicy=None),curve=index['curve'],index=index['index'],currency=index['currencyCode'],deliveryFrom='2021-01-01',deliveryTo='2021-02-01',paymentSchedule=payment,resetFrequency='daily' if daily else 'monthly',averagingMethod='arithmetic' if daily else 'none',spread='0')
         body={**context(frame),**trade_booking(), 'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],
             'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'quantity':'10','fixedCoefficient':'-1','discounting':False,
             'fixed':dict(price='3',currency=index['currencyCode'],deliveryFrom='2021-01-01',deliveryTo='2021-02-01',paymentSchedule=payment),'floating':floating}
-        return client.call('swaps/book',body)
+        return checked_booking(body)
     first=book(later,secondary,True)
     second=book(earlier,primary,False)
     specification=next(q['specification'] for q in primary['quantityChoices'] if q['specification']['code']==primary['quantityCode'])
     fixed_periods=[];floating_periods=[]
     for start,end,amount,price in (('2021-01-01','2021-02-01','10','3'),('2021-02-01','2021-03-01','20','4')):
         fixed_periods.append(dict(amount=amount,floating=None,fixed=dict(price=price,currency=primary['currencyCode'],deliveryFrom=start,deliveryTo=end,paymentSchedule=payment)))
-        floating_periods.append(dict(amount=amount,fixed=None,floating=dict(settlement=dict(mode='curve_target',index=None,projectionPolicy=None),
+        floating_periods.append(dict(amount=str(int(amount)*3//2),fixed=None,floating=dict(settlement=dict(mode='curve_target',index=None,projectionPolicy=None),
             curve=primary['curve'],index=primary['index'],currency=primary['currencyCode'],deliveryFrom=start,deliveryTo=end,
             paymentSchedule=payment,resetFrequency='monthly',averagingMethod='none',spread='0')))
     def schedule_side(periods):
         return dict(basis='period_total',quantity=specification,amount=None,allocation=None,
                     priceApplication='period_average_times_quantity_v1',power=None,periods=periods)
-    whole=client.call('swaps/book',{**context(later),**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],
+    whole=checked_booking({**context(later),**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],
         'definitionRevisionId':primary['definitionRevisionId'],'commodity':primary['commodity'],'quantity':None,'fixedCoefficient':None,
         'discounting':False,'fixed':None,'floating':None,'swapType':'scheduled_financial_swap','firstCoefficient':'-1',
         'scheduled':dict(implementation='whole_term_scheduled_financial_swap_v1',first=schedule_side(fixed_periods),second=schedule_side(floating_periods))})
+    power=next(i for i in catalog['indices'] if i['curve']=='local_power_all_in' and i['definitionRevisionId']==primary['definitionRevisionId'])
+    def factor_side(index,amount,basis):
+        return dict(basis=basis,quantity=next(q['specification'] for q in index['quantityChoices'] if q['specification']['code']==index['quantityCode']),
+            amount=None,allocation=None,priceApplication='period_average_times_quantity_v1',power=None,
+            periods=[dict(amount=amount,fixed=None,floating=dict(settlement=dict(mode='curve_target',index=None,projectionPolicy=None),
+                curve=index['curve'],index=index['index'],currency=index['currencyCode'],deliveryFrom='2021-01-01',deliveryTo='2021-02-01',
+                paymentSchedule=payment,resetFrequency='monthly',averagingMethod='none',spread='0'))])
+    factor_first=factor_side(power,'10','period_total');factor_second=factor_side(primary,None,catalog['factorOptions']['quantityBasis'])
+    # 0.075 therm/kWh equals 7.5 MMBtu/MWh: both selected factor units differ from native units.
+    factor_reference=factor_first['quantity']['revision']
+    def factor_quantity(native,unit):
+        code=query(f"SELECT q.code FROM ref_data.quantity_specifications q JOIN ref_data.quantity_specifications n ON(n.catalog_id,n.revision_id,n.commodity_code,n.basis_code)=(q.catalog_id,q.revision_id,q.commodity_code,q.basis_code) WHERE(q.catalog_id,q.revision_id,n.code,q.unit_code)=('{factor_reference['catalogId']}','{factor_reference['revisionId']}','{native['code']}','{unit}');")
+        assert code and '\n' not in code
+        return dict(revision=factor_reference,code=code)
+    denominator=factor_quantity(factor_first['quantity'],'kilowatt_hour')
+    numerator=factor_quantity(factor_second['quantity'],'therm_it')
+    factor=checked_booking({**context(later),**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],
+        'definitionRevisionId':primary['definitionRevisionId'],'commodity':power['commodity'],'quantity':None,'fixedCoefficient':None,
+        'discounting':False,'fixed':None,'floating':None,'swapType':'scheduled_financial_swap','firstCoefficient':'-1',
+        'scheduled':dict(implementation=catalog['factorOptions']['swapImplementation'],first=factor_first,second=factor_second,
+            factor=dict(denominatorQuantity=denominator,numeratorQuantity=numerator,value='0.075',
+                implementation=catalog['factorOptions']['factorImplementation'],unitConversionImplementation=catalog['factorOptions']['unitConversionImplementation']))})
     side=query(f"SELECT count(DISTINCT fixed_side_id) FROM trading.swap_instruments WHERE instrument_id IN('{first['instrumentId']}','{second['instrumentId']}');")
     assert side=='1','The identical fixed Side must remain shared across independent floating markets'
     editor=client.call('swaps/editor',dict(context=context(earlier),tradeId=second['tradeId'],revision=None))
@@ -452,4 +519,6 @@ def run_temporal_checks(url,query,manifest):
     print('PASS retained schedule temporal reuse: a later-first shared Side reads under the earlier independent market boundary',flush=True)
     return [dict(instrumentId=first['instrumentId'],asOf=later['at'],fixedUnitPv='3'),
             dict(instrumentId=second['instrumentId'],asOf=earlier['at'],fixedUnitPv='3'),
-            dict(instrumentId=whole['instrumentId'],asOf=later['at'],minimumPayments=2)],before_programs
+            dict(instrumentId=whole['instrumentId'],asOf=later['at'],minimumPayments=2,secondRatio='3/2'),
+            dict(instrumentId=factor['instrumentId'],asOf=later['at'],secondRatio='15/2',factorValue='0.075',factorNumerator=numerator['code'],factorDenominator=denominator['code'],
+                firstUnit=power['quantityCode'],secondUnit=primary['quantityCode'])],before_programs

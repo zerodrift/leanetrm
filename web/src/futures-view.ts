@@ -80,7 +80,7 @@ const numericFields=['tradeCount','lots','quantity','executionPrice','mark','exe
 // At most this many curves are shaped in one read (market/curve-shapes).
 const curvesPerShapeRead=64;
 
-export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
+export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
   // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused; and
   // takes that away again once the person acts anew.
   failed:(error:unknown)=>void;failureCleared:()=>void;notice:(message:string)=>void;
@@ -287,7 +287,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // show, so that nothing leaves the person with no way to find out what became of it.
   const retained=get('futures-pending');
   // The head of the panel's New trade mode, which asks the page for the product the person chooses and for the PPA page.
-  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),ppa:()=>asked(options.newPpa),busy});
+  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),ppa:()=>asked(options.newPpa),gas:()=>asked(options.newGas),busy});
   // The forms belong to the panel's mode: when it moves to another, whatever they held is dropped (the person was asked first if they
   // held edits), and the page says what it now reports. A new trade is drawn as its head and what it says until its form is in the panel.
   let formsFor:PanelMode=null;

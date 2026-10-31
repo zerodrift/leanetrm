@@ -50,7 +50,7 @@ internal static class CommodityLookupChecks
         Check("far-future actuals and forecasts keep their original denominator and exact pins", () =>
         {
             var snapshot = f.WithActuals(15);
-            var swap = f.Swap(indexed: true);
+            var swap = f.Swap();
             var market = f.Model.Build(snapshot, swap.DependenciesAt(snapshot));
             var value = swap.PV(new SideValuationContext(market, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
             // Actuals20..34 sum405; remaining i7289..7304 sum168.744; fixed4*31=124.
@@ -164,7 +164,7 @@ internal sealed class CommodityLookupFixture
     public MarketSnapshot WithActuals(int count) => Snapshot with {
         Id = Guid.NewGuid(), ValuationAt = Fixing(count - 1).FixingAt, MarketCutoff = Fixing(count - 1).FixingAt,
         Selections = Snapshot.Selections.AddRange(Enumerable.Range(0, count).Select(Actual)) };
-    public FinancialSwapInstrument Swap(bool indexed = false, bool monthly = false, int? monthOrdinal = null)
+    public FinancialSwapInstrument Swap(bool monthly = false, int? monthOrdinal = null)
     {
         var first = monthly ? monthOrdinal ?? contracts.Length - 1 : firstMonth;
         var count = monthly ? 1 : 31;
@@ -174,11 +174,9 @@ internal sealed class CommodityLookupFixture
         var unit = new Quantity(ExactDecimal.Parse("1"), Quote.Quantity);
         var fixedSide = new FixedSide(Guid.NewGuid(), new(ExactDecimal.Parse("4"), Quote), unit, from, to, payment, FixedSide.Implementation, Quote);
         var projections = Enumerable.Range(first, count).Select(n => new SwapProjection(Request(n), contracts[n])).ToImmutableArray();
-        var floating = indexed
-            ? new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(R("local_index")), Quote, unit, from, to, Enumerable.Range(first - firstMonth, count).Select(Fixing).ToImmutableArray(), payment,
-                averaging, projections, FloatingSide.IndexedImplementation)
-            : new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(R("local_index")), Quote, unit, from, to, Fixing(first - firstMonth).FixingAt, payment,
-                averaging, projections, FloatingSide.Implementation);
+        var floating = new FloatingSide(Guid.NewGuid(), PriceSettlementSelection.CurveTarget(R("local_index")), Quote, unit, from, to,
+            Enumerable.Range(first - firstMonth, count).Select(Fixing).ToImmutableArray(), payment,
+            averaging, projections, FloatingSide.IndexedImplementation);
         return new(Guid.NewGuid(), [new(fixedSide, ExactDecimal.Parse("-1")), new(floating, ExactDecimal.Parse("1"))], FinancialSwapInstrument.Implementation, false);
     }
 }

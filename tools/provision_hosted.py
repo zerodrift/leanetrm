@@ -96,7 +96,7 @@ COMMIT;
         sql=sql.replace('UPDATE ref_data.revisions SET state=',reference_sql+'\nUPDATE ref_data.revisions SET state=',1)
         sql=sql.replace('COMMIT;',collection_sql+'\nCOMMIT;')
     manifest={'mode':'hosted-pilot','catalogId':c,'revisionId':m,'referenceCatalogId':r,'referenceRevisionId':rr,'tenantId':t,'workspaceId':w,
-              'frames':[],'example':None,'identityIssuer':origin+'/local','futuresConvention':'fixed_total_cash_execution_pnl_v1'}
+              'frames':[],'example':None,'identityIssuer':origin+'/local','futuresConvention':'contract_lot_execution_pnl_v2'}
     for name,content in [('seed.sql',sql),('manifest.json',json.dumps(manifest,indent=2)+'\n'),('owner-invitation.txt',origin+'/auth#invite='+token+'\n'),('installation.json',json.dumps({'installationId':installation,**ids},indent=2)+'\n')]:
         path=directory/name;path.write_text(content);path.chmod(0o600)
     credential_keys(directory,os.getuid(),os.getgid())

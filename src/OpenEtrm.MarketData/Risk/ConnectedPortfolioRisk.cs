@@ -14,6 +14,13 @@ public sealed record ConnectedRiskWork(int PositionCount,int UniqueValuations,in
 {
     public long UnitScenarioCandidates=>(long)UniqueValuations*ScenarioCount;
     public long ReusedUnitScenarioValues=>UnitScenarioCandidates-UnitPricerCalls;
+    public int UniqueInstruments{get;init;}=UniqueValuations;
+    public int VolumeComputations{get;init;}
+    public int UniqueSideCalculations{get;init;}
+    public int ResolvedCurveMonths{get;init;}
+    public int ReusedCurveMonths{get;init;}
+    public int CalibratedBlocks{get;init;}
+    public int ReusedBlocks{get;init;}
     public long RowEvaluations{get;init;}
     public long ScheduleGraphEvaluatedNodes{get;init;}
     public long ScheduleGraphReusedReads{get;init;}
@@ -143,12 +150,19 @@ public static partial class RiskEngine
         var groups=portfolios.Select((portfolio,n)=>new ConnectedBookRiskRun(prepared.Valuation.Snapshot.Id,numericalPolicy,contracts[n],bases[n].Totals,
             factors[n].ToImmutable(),new(portfolio.Positions.Length,contracts[n].Length,contracts[n].SelectMany(c=>c.Dependencies).Select(r=>r.Contract).Distinct().Count(),
                 1+2*bumps.Length,calls[n],applications[n],preparation)
-            {RowEvaluations=calculation.IntervalWork[n].Rows,ScheduleGraphEvaluatedNodes=calculation.IntervalWork[n].GraphNodes,ScheduleGraphReusedReads=calculation.IntervalWork[n].GraphReused},prepared.Scenario)
+            {UniqueInstruments=portfolio.Instruments.Length,VolumeComputations=portfolio.Setup.Interval?.VolumeComputations??0,
+             UniqueSideCalculations=calculation.IntervalWork[n].Sides,ResolvedCurveMonths=calculation.IntervalWork[n].Resolved,
+             ReusedCurveMonths=calculation.IntervalWork[n].Reused,CalibratedBlocks=calculation.IntervalWork[n].Calibrated,ReusedBlocks=calculation.IntervalWork[n].ReusedBlocks,
+             RowEvaluations=calculation.IntervalWork[n].Rows,ScheduleGraphEvaluatedNodes=calculation.IntervalWork[n].GraphNodes,ScheduleGraphReusedReads=calculation.IntervalWork[n].GraphReused},prepared.Scenario)
             {Detail=detail,BasePositions=BasePositions(portfolio,bases[n],detail),BaseMeasures=bases[n].BaseMeasures}).ToImmutableArray();
         cancellation.ThrowIfCancellationRequested();
         return new(prepared.Valuation.Snapshot.Id,groups,new(portfolios.Sum(p=>p.Positions.Length),contracts.Sum(c=>c.Length),
             contracts.SelectMany(c=>c).SelectMany(c=>c.Dependencies).Select(r=>r.Contract).Distinct().Count(),1+2*bumps.Length,calls.Sum(),applications.Sum(),preparation)
-            {RowEvaluations=calculation.IntervalWork.Sum(w=>w.Rows),ScheduleGraphEvaluatedNodes=calculation.IntervalWork.Sum(w=>w.GraphNodes),ScheduleGraphReusedReads=calculation.IntervalWork.Sum(w=>w.GraphReused)},graph);
+            {UniqueInstruments=portfolios.Sum(p=>p.Instruments.Length),
+             VolumeComputations=portfolios.Select(p=>p.Setup.Interval).OfType<IntervalValuationInputs>().Distinct(ReferenceEqualityComparer.Instance).Cast<IntervalValuationInputs>().Sum(inputs=>inputs.VolumeComputations),
+             UniqueSideCalculations=calculation.IntervalWork.Sum(w=>w.Sides),ResolvedCurveMonths=calculation.IntervalWork.Sum(w=>w.Resolved),
+             ReusedCurveMonths=calculation.IntervalWork.Sum(w=>w.Reused),CalibratedBlocks=calculation.IntervalWork.Sum(w=>w.Calibrated),ReusedBlocks=calculation.IntervalWork.Sum(w=>w.ReusedBlocks),
+             RowEvaluations=calculation.IntervalWork.Sum(w=>w.Rows),ScheduleGraphEvaluatedNodes=calculation.IntervalWork.Sum(w=>w.GraphNodes),ScheduleGraphReusedReads=calculation.IntervalWork.Sum(w=>w.GraphReused)},graph);
     }
     private static ConnectedScenarioReceipt Receipt(ConnectedScenario scenario)=>
         new(scenario.Id,scenario.ParentId,scenario.Depth,scenario.Plan.ManifestId,scenario.Shifts);

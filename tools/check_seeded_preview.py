@@ -16,7 +16,7 @@ def run_checks(url, run_id, owned_root):
     frames = sorted((f for f in workspace['frames'] if f['id'] in workspace['initialFrameIds']), key=lambda f: f['at'])
     check('all sample market dates are weekdays', all(datetime.fromisoformat(f['at']).weekday() < 5 for f in frames))
     check('the standard example contains December 15 through 18 only', [f['at'][:10] for f in frames] == ['2020-12-15','2020-12-16','2020-12-17','2020-12-18'])
-    view = {'snapshotId': frames[0]['id'], 'convention': 'fixed_total_cash_execution_pnl_v1', 'knowledgeMode': 'current'}
+    view = {'snapshotId': frames[0]['id'], 'convention': 'contract_lot_execution_pnl_v2', 'knowledgeMode': 'current'}
     earlier = client.call('futures/holdings', view)['context']
     first = seed_positions(url, run_id, owned_root, client)
     # A repeated load is a new loader run, so it seeds from a session of its own.

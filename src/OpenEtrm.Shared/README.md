@@ -25,6 +25,16 @@ without decimal rounding. Unit conversion and independently normalized financial
 swap memberships share this utility. Financial owners supply units, conventions
 and structured domain errors; the utility chooses none.
 
+## Exact signed ratios
+
+`Numerics.SignedRatio` owns reduced signed rational arithmetic. Addition uses a
+common denominator and multiplication cancels reciprocal factors before building
+intermediate products. `TryScaleToInteger` projects exactly at a caller-supplied
+positive scale and reports whether rounding would be required. Exact money,
+quantity, price and stored schedule values reuse this mechanism; their domain
+wrappers retain units, reference identities, bounds and structured errors. The
+shared primitive imposes no financial precision or range policy.
+
 ## Temporal payloads
 
 | Type | Contract |

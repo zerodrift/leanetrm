@@ -29,6 +29,10 @@ internal sealed record RetainedScheduleTerms(DefinitionRevision Definitions,Refe
             definitions.Add(definition.SideId==side.Id?definition:definition.WithSideId(side.Id));
         }
         RetainedScheduleLimits.Require(definitions);
+        if(Instrument is OpenEtrm.MarketData.Gas.PhysicalGasInstrument gas)
+            outputs.Add(new(0,"quantity",gas.UnitQuantity.Specification,DefinitionIdentity.For(gas.Delivery.Quantities).Canonical));
+        if(Instrument is OpenEtrm.MarketData.Gas.GasCompositionInstrument composition)
+            for(var n=0;n<composition.Physical.Length;n++)outputs.Add(new(n,"quantity",composition.UnitQuantity.Specification,DefinitionIdentity.For(composition.Physical[n].Side.Quantities).Canonical));
         if(Instrument is PpaInstrument ppa)
         {
             for(var slot=0;slot<ppa.Memberships.Length;slot++)
@@ -237,10 +241,10 @@ internal sealed partial class RetainedScheduleStore
         await using var query=ScheduleStore.Command(connection,"SELECT security.publish_side_schedules($1,$2,$3)",Catalog,request,instrument);
         await query.ExecuteNonQueryAsync(ct);
     }
-    internal async Task Publish(NpgsqlConnection connection,Guid request,CancellationToken ct)
+    internal async Task<Guid> Publish(NpgsqlConnection connection,Guid request,CancellationToken ct)
     {
         await using var query=ScheduleStore.Command(connection,"SELECT security.publish_operation_side_schedules($1,$2)",Catalog,request);
-        await query.ExecuteNonQueryAsync(ct);
+        return (Guid)(await query.ExecuteScalarAsync(ct))!;
     }
     internal async Task<ImmutableDictionary<Guid,ScheduleDefinition>> Load(NpgsqlConnection connection,Guid instrument,
         Guid? context,DateTimeOffset? asOf,CancellationToken cancellation,bool recoverMissing=false)
@@ -248,28 +252,7 @@ internal sealed partial class RetainedScheduleStore
         if(!ReferenceEquals(readConnection,connection)||readContext!=context||readAt!=asOf)
         {readSchedules.Clear();readConnection=connection;readContext=context;readAt=asOf;}
         var cacheable=context is not null&&asOf is not null;
-        // Membership visibility and every current source authority are checked
-        // on every instrument read, including when its immutable content is shared.
-        // A report may continue with other instruments after this exact missing-artifact
-        // refusal. PostgreSQL exceptions abort the transaction, so restore only this
-        // read's savepoint; permission, cancellation and integrity failures still escape.
-        const string savepoint="retained_schedule_admission";
-        async Task Savepoint(string sql)
-        {await using var command=ScheduleStore.Command(connection,sql);await command.ExecuteNonQueryAsync(cancellation);}
-        if(recoverMissing)await Savepoint("SAVEPOINT "+savepoint);
-        ImmutableArray<JsonElement> metadata;
-        try
-        {
-            metadata=await ReadRows(connection,"SELECT security.read_instrument_side_schedule_headers($1,$2,$3,$4)::text",
-                [Catalog,instrument,(object?)context??DBNull.Value,(object?)asOf??DBNull.Value],cancellation);
-        }
-        catch(PostgresException error)when(error.SqlState=="P0001"&&error.MessageText=="side_schedule_missing")
-        {
-            if(recoverMissing){await Savepoint("ROLLBACK TO SAVEPOINT "+savepoint);await Savepoint("RELEASE SAVEPOINT "+savepoint);}
-            throw new MarketDataException("side_schedule_missing","The booked instrument has no complete retained schedule and must be rebooked.");
-        }
-        if(recoverMissing)await Savepoint("RELEASE SAVEPOINT "+savepoint);
-        if(metadata.IsEmpty)throw new MarketDataException("side_schedule_missing","The booked instrument has no retained schedule and must be rebooked.");
+        var metadata=await ReadHeaders(connection,instrument,context,asOf,cancellation,recoverMissing);
         var result=ImmutableDictionary.CreateBuilder<Guid,ScheduleDefinition>();
         var retainedIds=new Dictionary<Guid,Guid>();
         Task Current(Func<NpgsqlConnection,CancellationToken,Task> work)=>work(connection,cancellation);
@@ -292,6 +275,54 @@ internal sealed partial class RetainedScheduleStore
         }
         return result.ToImmutable();
     }
+    private async Task<ImmutableArray<JsonElement>> ReadHeaders(NpgsqlConnection connection,Guid instrument,
+        Guid? context,DateTimeOffset? asOf,CancellationToken cancellation,bool recoverMissing=false,bool contentIdentity=false)
+    {
+        // Membership visibility and every current source authority are checked
+        // on every instrument read, including when its immutable content is shared.
+        // A report may continue with other instruments after this exact missing-artifact
+        // refusal. PostgreSQL exceptions abort the transaction, so restore only this
+        // read's savepoint; permission, cancellation and integrity failures still escape.
+        const string savepoint="retained_schedule_admission";
+        async Task Savepoint(string sql)
+        {await using var command=ScheduleStore.Command(connection,sql);await command.ExecuteNonQueryAsync(cancellation);}
+        if(recoverMissing)await Savepoint("SAVEPOINT "+savepoint);
+        ImmutableArray<JsonElement> metadata;
+        try
+        {
+            var query=contentIdentity
+                ?"SELECT (h.value||m.value)::text FROM security.read_instrument_side_schedule_headers($1,$2,$3,$4) m(value) CROSS JOIN LATERAL security.read_side_schedule_header($1,(m.value->>'schedule_id')::uuid,NULL,$2,$3,$4) h(value) ORDER BY (m.value->>'slot')::integer"
+                :"SELECT security.read_instrument_side_schedule_headers($1,$2,$3,$4)::text";
+            metadata=await ReadRows(connection,query,
+                [Catalog,instrument,(object?)context??DBNull.Value,(object?)asOf??DBNull.Value],cancellation);
+        }
+        catch(PostgresException error)when(error.SqlState=="P0001"&&error.MessageText=="side_schedule_missing")
+        {
+            if(recoverMissing){await Savepoint("ROLLBACK TO SAVEPOINT "+savepoint);await Savepoint("RELEASE SAVEPOINT "+savepoint);}
+            throw new MarketDataException("side_schedule_missing","The booked instrument has no complete retained schedule and must be rebooked.");
+        }
+        if(recoverMissing)await Savepoint("RELEASE SAVEPOINT "+savepoint);
+        if(metadata.IsEmpty)throw new MarketDataException("side_schedule_missing","The booked instrument has no retained schedule and must be rebooked.");
+        return metadata;
+    }
+    internal async Task RequireCurrent(NpgsqlConnection connection,SidedInstrument instrument,Guid context,
+        DateTimeOffset asOf,CancellationToken cancellation)
+    {
+        var metadata=await ReadHeaders(connection,instrument.Id,context,asOf,cancellation,contentIdentity:true);
+        if(metadata.Length!=instrument.Sides.Length)throw Error("Current retained membership differs from resolved holdings.");
+        for(var slot=0;slot<metadata.Length;slot++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var side=instrument.Sides[slot].Side;var expected=side.RetainedSchedule;
+            var header=metadata[slot];
+            if(expected is null||header.GetProperty("slot").GetInt32()!=slot||header.Id("side_id")!=side.Id||
+                header.Text("manifest")!=expected.Manifest||header.Text("family")!=expected.Family||
+                header.Text("economic_identity")!=expected.EconomicIdentity||header.Text("pricing_binding_identity")!=expected.PricingBindingIdentity||
+                header.Text("schema_version")!=expected.SchemaVersion||header.Text("generator_version")!=expected.GeneratorVersion)
+                throw Error("Current retained content differs from resolved holdings.");
+        }
+    }
+
     private async Task VerifyContent(ReadAccess authorized,
         Guid schedule,Guid request,ScheduleDefinition expected,CancellationToken cancellation)
     {
@@ -301,11 +332,9 @@ internal sealed partial class RetainedScheduleStore
         if(h.Text("family")!=expected.Family||h.Text("economic_identity")!=expected.EconomicIdentity||h.Text("pricing_binding_identity")!=expected.PricingBindingIdentity||
             h.Text("schema_version")!=expected.SchemaVersion||h.Text("generator_version")!=expected.GeneratorVersion||h.Text("manifest")!=expected.Manifest)
             throw Error("The staged schedule header differs from the generated contract.");
-        using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);using var stream=new DigestSink(hash);using var writer=new Utf8JsonWriter(stream);
-        writer.WriteStartArray();JsonSerializer.Serialize(writer,new{expected.Family,expected.EconomicIdentity,expected.PricingBindingIdentity,expected.SchemaVersion,expected.GeneratorVersion},Json);
+        using var writer = new ScheduleManifestWriter(expected);
         async Task Part<T>(string name,IReadOnlyList<T> values,Func<ScheduleFields,T> parse,Func<T,T,bool>? equal=null)
         {
-            writer.WriteStartArray();
             for(var offset=0;offset<values.Count;offset+=BatchRows)
             {
                 cancellation.ThrowIfCancellationRequested();var page=await WithRead(authorized,(connection,ct)=>ReadPage(connection,schedule,request,null,null,null,name,offset,parse,ct));
@@ -315,28 +344,17 @@ internal sealed partial class RetainedScheduleStore
                     cancellation.ThrowIfCancellationRequested();var value=page[n];
                     if(!(equal?.Invoke(value,values[offset+n])??EqualityComparer<T>.Default.Equals(value,values[offset+n])))
                         throw Error("A persisted logical row differs from the generated canonical content.");
-                    JsonSerializer.Serialize(writer,value,Json);
+                    writer.Append(value);
                 }
                 writer.Flush();
             }
-            writer.WriteEndArray();
         }
         var parameters=new Dictionary<string,ImmutableSortedDictionary<string,string>>(StringComparer.Ordinal);
         await Part("rows",expected.Rows,row=>ReadRow(row,parameters),(a,b)=>a.Parameters.SequenceEqual(b.Parameters)&&(a with{Parameters=b.Parameters})==b);
         await Part("edges",expected.Edges,ReadEdge);await Part("bindings",expected.Bindings,ReadBinding);
         await Part("roots",expected.Roots,ReadRoot);await Part("ports",expected.Ports,ReadPort);
         await Part("grids",expected.Grids,ReadGrid,SameGrid);
-        writer.WriteEndArray();writer.Flush();
-        if(Convert.ToHexStringLower(hash.GetHashAndReset())!=expected.Manifest)throw Error("The complete staged manifest differs from its retained content.");
-    }
-    private sealed class DigestSink(IncrementalHash hash):Stream
-    {
-        public override bool CanRead=>false;public override bool CanSeek=>false;public override bool CanWrite=>true;
-        public override long Length=>throw new NotSupportedException();public override long Position{get=>throw new NotSupportedException();set=>throw new NotSupportedException();}
-        public override void Flush(){}public override int Read(byte[] buffer,int offset,int count)=>throw new NotSupportedException();
-        public override long Seek(long offset,SeekOrigin origin)=>throw new NotSupportedException();public override void SetLength(long value)=>throw new NotSupportedException();
-        public override void Write(byte[] buffer,int offset,int count)=>hash.AppendData(buffer,offset,count);
-        public override void Write(ReadOnlySpan<byte> buffer)=>hash.AppendData(buffer);
+        if(writer.Complete()!=expected.Manifest)throw Error("The complete staged manifest differs from its retained content.");
     }
     private async Task<ScheduleDefinition> LoadContent(ReadAccess authorized,
         Guid schedule,Guid side,Guid? request,Guid? instrument,Guid? context,DateTimeOffset? asOf,CancellationToken cancellation)
@@ -456,7 +474,7 @@ internal sealed partial class RetainedScheduleStore
         if(binding.Reference is {} reference)
         {
             row["reference_catalog_id"]=reference.Revision.CatalogId;row["reference_revision_id"]=reference.Revision.RevisionId;
-            row[binding.Kind switch{"index_fixing"=>"source_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code","sibling_quantity"=>"quantity_code",_=>throw Error("This binding kind cannot carry a reference key.")}]=reference.Code;
+            row[binding.Kind switch{"index_fixing" or "settlement_source"=>"source_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code","sibling_quantity"=>"quantity_code","gas_assignment"=>"gas_assignment_code","gas_product"=>"gas_product_code",_=>throw Error("This binding kind cannot carry a reference key.")}]=reference.Code;
         }
         if(binding.Market is {} market)
         {
@@ -469,7 +487,7 @@ internal sealed partial class RetainedScheduleStore
         if(binding.Definitions is {} definitions)
         {
             row["source_catalog_id"]=definitions.CatalogId;row["definition_revision_id"]=definitions.RevisionId;
-            row[binding.Kind switch{"curve_interval"=>shaped is true?"shaped_curve_code":"curve_code","quantity_source"=>"quantity_source_code","asset"=>"asset_code",_=>throw Error("This binding kind cannot carry a definition key.")}]=binding.Code??throw Error("A definition binding requires its exact code.");
+            row[binding.Kind switch{"curve_interval"=>shaped is true?"shaped_curve_code":"curve_code","quantity_source"=>"quantity_source_code","asset"=>"asset_code","gas_assignment"=>"gas_assignment_code",_=>throw Error("This binding kind cannot carry a definition key.")}]=binding.Code??throw Error("A definition binding requires its exact code.");
         }
         if(binding.Kind=="custom_output")
         {
@@ -494,13 +512,13 @@ internal sealed partial class RetainedScheduleStore
     private static ScheduleDefinitionBinding ReadBinding(ScheduleFields row)
     {
         var kind=row.Text("kind");ReferenceKey? reference=null;CurveRequest? market=null;SeriesKey? series=null;DefinitionRevision? definitions=null;string? code=null;
-        var referenceCode=kind switch{"index_fixing"=>"source_code","sibling_quantity"=>"quantity_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code",_=>null};
+        var referenceCode=kind switch{"index_fixing" or "settlement_source"=>"source_code","sibling_quantity"=>"quantity_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code","gas_assignment"=>"gas_assignment_code","gas_product"=>"gas_product_code",_=>null};
         if(referenceCode is not null&&row.OptionalText(referenceCode) is {} value)reference=new(new(row.Id("reference_catalog_id"),row.Id("reference_revision_id")),value);
         if(row.OptionalId("contract_id") is {} contract)
         {var d=new DefinitionRevision(row.Id("source_catalog_id"),row.Id("definition_revision_id"));market=new(new(d,row.Text("curve_code")),new(d,contract));}
         if(row.OptionalId("series_id") is {} source)series=new(new(row.Id("source_catalog_id"),row.Id("definition_revision_id")),source);
-        if(kind is "curve_interval" or "quantity_source" or "asset")
-        {definitions=new(row.Id("source_catalog_id"),row.Id("definition_revision_id"));code=row.OptionalText(kind switch{"curve_interval"=>row.OptionalText("shaped_curve_code") is null?"curve_code":"shaped_curve_code","quantity_source"=>"quantity_source_code",_=>"asset_code"});}
+        if(kind is "curve_interval" or "quantity_source" or "asset" or "gas_assignment")
+        {definitions=new(row.Id("source_catalog_id"),row.Id("definition_revision_id"));code=row.OptionalText(kind switch{"curve_interval"=>row.OptionalText("shaped_curve_code") is null?"curve_code":"shaped_curve_code","quantity_source"=>"quantity_source_code","gas_assignment"=>"gas_assignment_code",_=>"asset_code"});}
         return new(row.Integer("row_ordinal"),row.Text("port"),kind,reference,market,series,row.OptionalId("custom_curve_id"),row.OptionalInteger("custom_version"),row.OptionalText("coordinate"),row.OptionalInteger("position"),definitions,code,row.OptionalId("custom_catalog_id"));
     }
 }

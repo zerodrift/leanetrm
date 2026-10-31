@@ -6,7 +6,7 @@ export type ObservationRow={from:string;to:string;quantitySpecification:Referenc
 export type ObservationSchedule={implementation:'side_observation_schedule_v1';calendar:ReferenceKey|null;quantities:{from:string;to:string;quantity:{value:string;specification:ReferenceKey}}[]|null};
 export type ObservationOptions={deliveryPeriods:DeliveryPeriod[];context:unknown;asOf:string;indices:{definitionRevisionId:string;curve:string;index:string}[];samplings:SamplingChoice[];selectedSampling?:SamplingChoice|null;
  observationCalendars:{reference:ReferenceKey;name:string;from:string;to:string}[];observations:ObservationRow[]|null;
- availability:{code:string;message:string}|null;customProjectionUnavailableReason:string|null;
+ availability:{code:string;message:string}|null;customProjectionUnavailableReason:string|null;qualifiedCustomProjection?:import('./swap-projections.js').CustomProjection|null;
  choices:{definitionRevisionId:string;curve:string;index:string;resetFrequency:string;averagingMethod:string;available:boolean;reasons:{code:string;message:string}[]}[]};
 type ObservationEvidence={price:string;exactPrice:unknown;cashContribution:string;fixingState:string;expectedPublication:string|null;fixing:unknown;lookup:unknown;lineage:unknown};
 export type ObservationInspection={implementation:string;resetFrequency:string;averagingMethod:string;averaging:string;denominator:string;deliveryFrom:string;deliveryTo:string;mappingRule:string;calendar:ReferenceKey|null;

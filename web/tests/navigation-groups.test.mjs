@@ -6,17 +6,18 @@ import {navigationGroups,pageGroup,pageAvailable,firstPage} from '../dist/naviga
 const allPages=navigationGroups.flatMap(g=>g.pages);
 const listed=permissions=>allPages.filter(page=>pageAvailable(page,permissions));
 
-test('every page belongs to exactly one group and Trading comes first',()=>{
+test('every page belongs to exactly one group and Overview comes first',()=>{
  const pages=navigationGroups.flatMap(g=>g.pages);
- assert.equal(new Set(pages).size,pages.length);assert.equal(navigationGroups[0].label,'Trading');
+ assert.equal(new Set(pages).size,pages.length);assert.equal(navigationGroups[0].label,'Overview');assert.equal(pageGroup('dashboard'),'Overview');
  assert.equal(pageGroup('parties'),'Settings');assert.equal(pageGroup('admin'),'Admin');assert.equal(pageGroup('jobs'),'Operations');
 });
 test('the groups and their pages keep the sidebar order',()=>{
  assert.deepEqual(navigationGroups.map(g=>[g.id,g.label,[...g.pages]]),[
-  ['trading','Trading',['futures']],
+  ['overview','Overview',['dashboard']],
+  ['trading','Trading',['futures','gas']],
   ['markets','Markets',['market','custom-curves','delivery','interval-series','interval-curves']],
   ['operations','Operations',['jobs']],
-  ['settings','Settings',['configuration','schedules','power','reference','parties']],
+  ['settings','Settings',['configuration','schedules','power','gas-setup','reference','parties']],
   ['admin','Admin',['admin','ai']]]);
 });
 test('PPA bookings is a Trading page the Blotter opens, not a sidebar entry',()=>{
@@ -49,14 +50,19 @@ test('market data outranks administration and the Blotter outranks plain market 
 });
 
 test('the sidebar lists each page for the permissions that open it',()=>{
- const market=['market','custom-curves','delivery','interval-series','interval-curves','configuration','schedules','power','reference'];
+ const market=['dashboard','market','custom-curves','delivery','interval-series','interval-curves','configuration','schedules','power','gas-setup','reference'];
  assert.deepEqual(listed(['ReadMarketData','RunJobs']).sort(),[...market,'jobs'].sort());
- assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','futures','parties'].sort());
- assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','futures'].sort());
+ assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','futures','gas','parties'].sort());
+ assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','futures','gas'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTradeParties']).sort(),[...market,'jobs','parties'].sort());
  assert.deepEqual(listed(['ManageAccess','ManageIdentities']),['jobs','admin']);
  assert.deepEqual(listed(['ManageAgents']),['jobs','ai']);
  assert.deepEqual(listed([]),['jobs']);
+});
+test('dashboard is listed for ReadMarketData accounts only',()=>{
+ assert.equal(pageAvailable('dashboard',['ReadMarketData']),true);
+ for(const other of [[],['ReadTrades'],['ManageAccess','ManageIdentities'],['RunJobs','ReadTradeParties']])assert.equal(pageAvailable('dashboard',other),false);
+ assert.equal(firstPage(['ReadMarketData']),'market');
 });
 test('a page the sidebar does not know is refused instead of listed',()=>{
  assert.throws(()=>pageAvailable('unknown',['ReadMarketData']),/could not load/);

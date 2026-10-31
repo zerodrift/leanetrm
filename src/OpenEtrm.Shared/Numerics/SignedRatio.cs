@@ -15,9 +15,14 @@ public readonly partial record struct SignedRatio : IComparable<SignedRatio>
 
     public SignedRatio(BigInteger numerator, BigInteger denominator)
     {
-        if (denominator.Sign <= 0) throw new ArgumentOutOfRangeException(nameof(denominator), "The denominator must be positive.");
+        RequireDenominator(denominator);
         var gcd = BigInteger.GreatestCommonDivisor(numerator, denominator);
         (this.numerator, this.denominator) = (numerator / gcd, denominator / gcd);
+    }
+
+    private static void RequireDenominator(BigInteger denominator)
+    {
+        if (denominator.Sign <= 0) throw new ArgumentOutOfRangeException(nameof(denominator), "The denominator must be positive.");
     }
 
     public static SignedRatio Zero { get; } = new(0, 1);
@@ -32,8 +37,30 @@ public readonly partial record struct SignedRatio : IComparable<SignedRatio>
     }
 
     public static SignedRatio Sum(IEnumerable<SignedRatio> terms) => terms.Aggregate(Zero, (sum, term) => sum + term);
-    public static SignedRatio operator +(SignedRatio a, SignedRatio b) => new(a.numerator * b.denominator + b.numerator * a.denominator, a.denominator * b.denominator);
-    public static SignedRatio operator *(SignedRatio a, SignedRatio b) => new(a.numerator * b.numerator, a.denominator * b.denominator);
+    public static SignedRatio operator +(SignedRatio a, SignedRatio b)
+    {
+        RequireDenominator(a.denominator); RequireDenominator(b.denominator);
+        var shared = BigInteger.GreatestCommonDivisor(a.denominator, b.denominator);
+        return new(a.numerator * (b.denominator / shared) + b.numerator * (a.denominator / shared),
+            a.denominator * (b.denominator / shared));
+    }
+    public static SignedRatio operator -(SignedRatio a, SignedRatio b) => a + new SignedRatio(-b.numerator, b.denominator);
+    public static SignedRatio operator *(SignedRatio a, SignedRatio b)
+    {
+        RequireDenominator(a.denominator); RequireDenominator(b.denominator);
+        // Cancel before multiplying: large reciprocal factors need not create large intermediates.
+        var left = BigInteger.GreatestCommonDivisor(a.numerator, b.denominator);
+        var right = BigInteger.GreatestCommonDivisor(b.numerator, a.denominator);
+        return new((a.numerator / left) * (b.numerator / right),
+            (a.denominator / right) * (b.denominator / left));
+    }
+    public bool TryScaleToInteger(BigInteger scale, out BigInteger value)
+    {
+        if (scale.Sign <= 0) throw new ArgumentOutOfRangeException(nameof(scale));
+        RequireDenominator(denominator);
+        value = BigInteger.DivRem(numerator * scale, denominator, out var remainder);
+        return remainder.IsZero;
+    }
     public static SignedRatio operator /(SignedRatio a, BigInteger divisor) => new(a.numerator, a.denominator * divisor);
     public int CompareTo(SignedRatio other) => (numerator * other.denominator).CompareTo(other.numerator * denominator);
 

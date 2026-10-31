@@ -246,7 +246,7 @@ the existing refresh path, and clear a risk run with a note, as today.
 
 ## Side panel
 
-The position details are now a docked pane, not an inline expansion: see [blotter-workbench.md](blotter-workbench.md) and D271.
+The position details are now a docked pane, not an inline expansion: see [blotter-workbench.md](blotter-workbench.md) and D272.
 
 Docked on the right beside the positions when the main area is wide enough. It
 becomes an overlay drawer below that width and while the assistant panel is

@@ -2947,3 +2947,135 @@ entry. Desktop and 390-pixel screenshots were inspected. Standard interactive
 startup also seeds all 37 bindings successfully; its owned database was removed
 on shutdown. A frontend regression prevents a fabricated single PPA price unit
 per contract MW; side prices remain identified separately.
+
+## Market dashboard phase 1 (D265 to D267)
+
+`tools/check_all.py` passed on 2026-10-30 on macOS 26.6.2 arm64 with .NET
+10.0.402, Node 24.22.0, stock PostgreSQL 16.14 and Chrome 156, except that one
+live-calculation browser run stopped at the Blotter side panel's "keyboard focus
+on a button of the panel's head" check, which passed when run again; the steps
+after it then passed. The standard browser run includes 32 Dashboard checks in
+the risk suite's browser: widgets added, arranged and reloaded with no extra
+curve read, Run now followed until the widget reads the finished run, a Board
+widget moved and sized from the keyboard, a curve the catalog lacks refused by
+the backend in its own tile, close footers turned to Newer available when a
+newer close is found, a newer completed run stated at an earlier close in
+working data, tied runs listed and one chosen, and a past context read only.
+The HTTP checks cover the latest-run states (`none` with an incomplete run,
+`earlier_close`, `newer_available`, a tie with versions and receipt known times,
+`chosen`, `risk_run_choice`), and a managed check covers the part limit. The
+checks are listed in [market-dashboard.md](market-dashboard.md#verification).
+
+The page benchmark measured the Dashboard at p50 754 ms and p95 847 ms, under
+the one-second budget (1,065 and 1,090 ms before one shared curve read, a
+Positions read in the page's own context and drawn widgets kept across layout
+edits); workload and requests are in
+[market-dashboard.md](market-dashboard.md#page-benchmark).
+
+**Not measured:** a definition's run creation and each part's terminal state
+commit under the knowledge publication lock (730849102), which every working
+context capture also takes. Worker finish latency for definition parts under
+concurrent context captures has not been measured; it must be measured before a
+hosted release.
+
+## Streamed Blotter valuation (2026-10-30)
+
+The [decision D268](decisions.md) streams the Blotter valuation. Local disposable
+PostgreSQL runs on synthetic data verify the contract. Checks added:
+
+- `tools/check_blotter_stream.py`, called from the mixed-instrument and the
+  valuation-status gates: frame order (`start`, `rows`, one terminal), the start
+  count equal to `trading/positions` total, rows and totals equal to
+  `trading/workspace` for the same context, a retained context named in `start`,
+  one frame per swap trade (`swap_units`) and per PPA trade (`ppa_units`), valued
+  rows before unvalued ones, and D220/D252 unvalued rows unchanged. In the
+  mixed-instrument gate, a lock on the interval-series values that only the PPA
+  valuation reads holds the run after `start` and every earlier position, so the
+  mid-run checks are deterministic: `gate_released` (`trading/positions` answers on
+  the same session while the stream waits), `profile_switch_mid_run_is_error_frame`
+  (the next frame is `access_denied` and no rows follow, which also makes
+  `error_frame_shape` read a real error frame) and `abort_releases_connection` (after a client abort, the run's backend leaves its
+  lock wait while the lock is still held, so the server stopped the run; the check
+  does not distinguish a pooled connection from a closed one, and the API logs no
+  error).
+- `tools/check_blotter_stream.py` `run_hosted_checks`, in the hosted gate: a
+  sign-in session that expires while the stream read waits before `start` is
+  refused with HTTP 403 `access_denied` by the stream's authority check (before
+  the fix the stream started and only its terminal frame failed). Sign-out cannot
+  be raced mid-run: it revokes under the security epoch and so waits for the run's
+  read transaction, then fails the final recheck.
+- `tests/OpenEtrm.Api.Checks` `BlotterStreamChecks`: the writer checks, plus a
+  deadline that has passed when `complete` is due (no bytes written, the error frame
+  is the one terminal frame), a deadline firing while `complete` is written (written
+  whole), and PPA bindings that are not grouped by trade (refused as a defect,
+  never reordered).
+- `tools/benchmark_blotter_stream.py` (`run_preview.py --blotter-stream-benchmark`):
+  `incremental` and the performance rule below.
+- `web/tests/blotter-stream.test.mjs`: 16 tests of the client reader and
+  `streamBlotter` (frame order, count and context rules, truncation, error frame
+  shape and an error frame before `start`, `start.asOf`, row entries, empty pivot
+  rows, the `complete` members, non-200 bodies, abort, including abort while a read
+  waits on a silent transport). The frontend suite passes 851 checks.
+
+Benchmark, one machine over loopback (macOS 26.6.2 arm64, 14 logical CPUs, 48 GiB,
+PostgreSQL 16.14, .NET 10.0.402 Debug build), 1 warm-up and 5 alternating samples
+at a retained 2020-12-18 context, 1 scenario, rerun after the review fixes:
+
+| | standard (33 positions, 1 book) | long PPA (34 positions, 2 books) |
+|---|---|---|
+| `trading/workspace` p50 | 1463 ms | 12023 ms |
+| stream first rows p50 | 686 ms | 670 ms |
+| stream complete p50 | 1625 ms | 12068 ms |
+| API RSS sampled peak | 1.40 GB | 4.75 GB |
+
+The standard workload has 4 swap, 1 futures, 2 heat-rate and 4 PPA unique contracts
+(1 futures contract, 24 swap trades, 12 swap valuations, 5 PPA bindings evaluated).
+The long workload adds one twenty-year hourly five-side PPA (175,320 intervals,
+876,600 row evaluations) and completes inside the unchanged 15-second deadline.
+
+Finding: in the long-PPA scope about 68% of the time (7.3 to 7.9 s) is the shared
+`PpaPortfolio.Prepare`; the long binding's own valuation is about 3.3 s. Every PPA
+frame waits for `Prepare`, so streaming improves time to first rows (futures and
+swaps arrive at about 0.7 s) and frees short PPA trades from waiting on the long
+one, but not the long trade's own time. Faster long schedules are separate work.
+
+Before the review fixes the streamed standard run completed in 1588 ms against a
+limit of 1419 ms x 1.1 + 50 ms = 1611 ms (12% p50 overhead, 24 ms margin). The fixes
+build `complete` without serializing and reparsing the rows and without copying its
+members. The rerun completes in 1625 ms against 1463 ms x 1.1 + 50 ms = 1659 ms: an
+11% p50 overhead, passing by 34 ms. The workspace p50 itself moved by 44 ms between
+the runs, so the margin is within machine noise; the rule was not loosened. The
+remaining overhead was not profiled; the final recheck's second read transaction and
+the per-frame authority checks are work `trading/workspace` does not do.
+
+Not qualified: no pilot-scale figure (the 25-trade pilot book was not measured), a
+Debug build on one machine with the client, API and database co-located, no cluster
+or concurrent-user load, and RSS reaches about 4.7 GB with the twenty-year PPA
+(the workspace path behaves the same).
+
+Full gate run (`tools/check_all.py`, 2026-10-30, at the reviewed head): every
+synthetic verification suite passed. That includes the 851 frontend checks, the 20
+HTTP stream checks and the standard-fixture owned-browser run (940 checks). Two
+earlier runs had each stopped on a keyboard-focus check in the side-panel browser
+checks (the focused element was `BODY`), at different checks. The rerun with the
+browser in focus passed them; those checks touch no file of this change.
+
+Known and unchanged: a profile switch from A to B and back to A
+between two frames passes the per-frame session check, and the stream completes
+under the selection it captured; the profile and its database rights are A's
+again, as in the progressive workspace.
+
+Remaining work: no HTTP check reaches the deadline path (the 15-second request
+deadline expiring after `start`, sent as a `request_cancelled` error frame); it
+needs fault injection of the deadline. The writer's handling of a deadline at
+`complete` is covered by the managed checks. No hosted check races a sign-in
+session ending between two rows frames; the hosted check covers the same
+authority check before `start`.
+
+Independent review (2026-10-30): an adversarial review of the whole branch found
+no critical issue and three important ones: the per-frame hosted session check,
+authorizing `start`, and the mid-run authority and abort checks in the regular
+gate. They were fixed in one wave with eight minor findings, and a scoped
+re-review found every finding addressed. Residual, non-blocking: the lock-waiter
+probe in the mixed gate matches any waiting backend, and the client module does
+not type-check the rights booleans in `start`.

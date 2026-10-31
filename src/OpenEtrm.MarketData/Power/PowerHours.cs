@@ -18,11 +18,12 @@ public sealed class PowerClock
         Zone=zone; Rules=zone.ToSerializedString();
         Fingerprint=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Rules))).ToLowerInvariant();
     }
-    public DateTimeOffset StartOfDay(DateOnly date)
+    public DateTimeOffset StartOfDay(DateOnly date) => AtLocal(date,TimeOnly.MinValue);
+    public DateTimeOffset AtLocal(DateOnly date,TimeOnly time)
     {
-        var local=date.ToDateTime(TimeOnly.MinValue,DateTimeKind.Unspecified);
+        var local=date.ToDateTime(time,DateTimeKind.Unspecified);
         if(Zone.IsInvalidTime(local)||Zone.IsAmbiguousTime(local))
-            throw new MarketDataException("clock_rule","The selected day needs an unambiguous midnight in the pinned clock.");
+            throw new MarketDataException("clock_rule","The selected local time must exist and be unambiguous in the pinned clock.");
         return new(local,Zone.GetUtcOffset(local));
     }
     public static PowerClock Capture(TimeZoneInfo zone) => new(zone ?? throw new ArgumentNullException(nameof(zone)));

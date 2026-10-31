@@ -56,6 +56,20 @@ class PreviewClient:
             raise AssertionError(f'{path}: expected {expected}, got {response.code}: {value.decode()}')
         return json.loads(value) if value else None
 
+    def stream(self, path, body, timeout=20):
+        """POST and yield each NDJSON frame as parsed; closing the generator closes the response (a client abort)."""
+        headers = {'Origin': self.url, 'Content-Type': 'application/json', 'X-Preview-CSRF': self.token}
+        request = Request(self.url+self.api_prefix+path, data=json.dumps(body).encode(), headers=headers, method='POST')
+        try:
+            response = self.opener.open(request, timeout=timeout)
+        except HTTPError as error:
+            raise AssertionError(f'{path}: expected a stream, got {error.code}: {error.read().decode()}') from None
+        with response:
+            if response.headers.get_content_type() != 'application/x-ndjson':
+                raise AssertionError(f'{path}: expected NDJSON, got {response.headers.get_content_type()}')
+            for line in response:
+                yield json.loads(line)
+
     def bootstrap(self):
         boot = self.call('bootstrap')
         self.token = boot['csrfToken']

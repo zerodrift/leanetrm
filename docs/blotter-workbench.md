@@ -2,8 +2,8 @@
 
 Status: implemented locally; not qualified for production. It builds on
 [blotter-desk.md](blotter-desk.md) and replaces that document's desk layout
-and position expansion. Its decisions are D271–D276 in
-[decisions.md](decisions.md) (the page report's layout is D270).
+and position expansion. Its decisions are D272–D277 in
+[decisions.md](decisions.md) (the page report's layout is D271).
 Local page performance: the Blotter p50/p95 was 555/618 ms against the 1000 ms
 budget on a synthetic fixture (24 trades, 16 swaps, 92 contracts, 12 curves,
 40 ms latency, 5 samples); that is a local figure, not a qualification.
@@ -323,8 +323,8 @@ scope here.
 
 ## Decisions recorded
 
-D271 (grid and details pane), D272 (saved layout), D273 (pop-out), D274
-(close-out drafts), D275 (first load), D276 (busy refusal). The original list:
+D272 (grid and details pane), D273 (saved layout), D274 (pop-out), D275
+(close-out drafts), D276 (first load), D277 (busy refusal). The original list:
 
 - The Blotter grid is built once and updated in place; destroying it is
   limited to the cases above.

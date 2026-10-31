@@ -44,7 +44,12 @@ public sealed partial class BookedSideProgram
         };
     }
     public BookedSideProgramDocument Document { get; }
-    private BookedSideProgram(BookedSideProgramDocument document)=>Document=document;
+    public BookedSideProgramIdentity Identity { get; }
+    private BookedSideProgram(BookedSideProgramDocument document,string? digest=null)
+    {
+        Document=document;
+        Identity=new(digest??Digest(Write()),document.ScheduleManifest,document.Family,document.EconomicIdentity,document.PricingBindingIdentity);
+    }
 
     public static BookedSideProgram Compile(ScheduleDefinition definition)
     {
@@ -107,7 +112,7 @@ public sealed partial class BookedSideProgram
             throw Error("The executable schedule does not belong to the selected published side and pricing bindings.");
         try{Validate(document);}
         catch(MarketDataException error)when(error.Code!="side_schedule_program"){throw Error(error.Message);}
-        return new(document);
+        return new(document,expected.ContentDigest);
     }
 
     // Checks the stored addresses in place. It neither constructs edges nor
@@ -144,7 +149,7 @@ public sealed partial class BookedSideProgram
             {
                 var lifecycle=row.Parameters["lifecycle"];
                 var dated=lifecycle=="undue_payment_v1";
-                if(lifecycle is not("undue_payment_v1" or "interval_payment_v1" or "interval_delivery_v1" or "certificate_holding_v1")||
+                if(lifecycle is not("undue_payment_v1" or "interval_payment_v1" or "interval_delivery_v1" or "certificate_holding_v1" or "future_gas_delivery_v1")||
                     row.ValueAt is not {} valueAt||!TradingInstant.IsSupported(valueAt)||row.Currency is null||
                     dated!=(row.Grid is null)||row.Parameters["measure"]!=(dated?"present_value_v1":"value_excluding_overdue_v1"))
                     throw Error("An output requires its explicit supported lifecycle, measure, value date and delivery shape.");
@@ -199,7 +204,7 @@ public sealed partial class BookedSideProgram
             throw Error("The executable schedule requires its complete named output addresses and one side PV root.");
     }
 
-    internal static bool IsInput(string operation)=>operation is "price_lookup" or "quantity_input" or "asset_capacity" or "discount";
+    internal static bool IsInput(string operation)=>operation is "price_lookup" or ContractObservationScheduleSource.Operation or "quantity_input" or "asset_capacity" or "discount";
 
     private static MarketDataException Error(string message)=>new("side_schedule_program",message);
 }

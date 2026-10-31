@@ -182,11 +182,10 @@ internal sealed partial class RetainedSideSchedule
             var averagingText=guard.Parameters["averaging"];
             var averaging=averagingText=="none"?(FloatingAveraging?)null:
                 Enum.TryParse<FloatingAveraging>(averagingText,out var convention)&&Enum.IsDefined(convention)?convention:throw Error("The retained averaging convention is unsupported.");
-            var fixingText=guard.Parameters["firstFixingAt"];
-            var firstFixing=fixingText=="none"?(DateTimeOffset?)null:DateTimeOffset.TryParse(fixingText,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out var instant)&&TradingInstant.IsSupported(instant)?instant:
-                throw Error("The retained first-fixing marker requires an exact supported UTC instant.");
+            if(guard.Parameters["firstFixingAt"]!="none")
+                throw Error("An obsolete side-wide fixing boundary requires rebooking with explicit observation fixings.");
             var unit=side switch{FixedSide fixedSide=>fixedSide.UnitQuantity,FloatingSide floating=>floating.UnitQuantity,_=>throw Error("The retained dated side family is unsupported.")};
-            if(terms.Any(term=>(term.FixedPrice?.Unit??PriceUnit.FromQuote(term.Lookup!.Quote))!=Unit(average))||
+            if(terms.Any(term=>(term.FixedPrice?.Unit??PriceUnit.FromQuote(term.ContractObservation?.Quote??term.Lookup!.Quote))!=Unit(average))||
                 applications.Any(application=>Unit(application)!=Unit(average))||Unit(average).Currency!=guard.Currency||Unit(average).Quantity!=unit.Specification)
                 throw Error("A retained dated average requires one exact quote unit matching its amount currency and quantity.");
             SwapObservationCalendar? observationCalendar=null;
@@ -198,13 +197,13 @@ internal sealed partial class RetainedSideSchedule
                 if(periods.Length!=1)throw Error("A retained dated obligation requires its exact side period for observation-calendar provenance.");
                 observationCalendar=periods[0].Calendar;
             }
-            var primitive=new ScheduleRow(side.Id,from,to,payment,guard.Currency!.Value,unit,firstFixing,averaging,observationCalendar,terms,
-                side is FixedSide?FixedSide.Implementation:terms.Any(term=>term.Lookup?.Fixing is not null)?FloatingSide.IndexedImplementation:FloatingSide.Implementation,
+            var primitive=new ScheduleRow(side.Id,from,to,payment,guard.Currency!.Value,unit,null,averaging,observationCalendar,terms,
+                side is FixedSide?FixedSide.Implementation:terms.Any(term=>term.ContractObservation is not null)?FloatingSide.ContractObservationImplementation:FloatingSide.IndexedImplementation,
                 [..applications.Select((row,n)=>new FloatingObservationApplication(row.ObservationFrom!.Value,row.ObservationTo!.Value,
                     Array.IndexOf(observationNodes,One(row.Ordinal,"input")),weights[n],mapping[0]))],mapping[0],generated,rule);
             payments.Add(new ScheduleRow(primitive,side.Id,guard.PaymentOrdinal!.Value,quantity).WithRetainedReference(Definition,root));
         }
-        var first=payments[0];return new(side.Id,first.Currency,first.UnitQuantity,side is FixedSide?FixedSide.Implementation:FloatingSide.Implementation,payments.ToImmutable());
+        var first=payments[0];return new(side.Id,first.Currency,first.UnitQuantity,side is FixedSide?FixedSide.Implementation:first.Prices.Any(term=>term.ContractObservation is not null)?FloatingSide.ContractObservationImplementation:FloatingSide.IndexedImplementation,payments.ToImmutable());
     }
     private SchedulePriceTerm PriceTerm(int node,ExactDecimal weight)
     {
@@ -215,6 +214,16 @@ internal sealed partial class RetainedSideSchedule
         {
             var input=Many(node,"input");if(input.Length!=2)throw Error("A retained price addition requires two explicit inputs.");
             spread=Price(Definition.Rows[input[1]]).ToUnitPriceExact();node=input[0];row=Definition.Rows[node];
+        }
+        if(row.Operation==ContractObservationScheduleSource.Operation)
+        {
+            if(side is not FloatingSide floating)throw Error("A retained contract observation requires a floating side.");
+            var sourceBindings=rowBindings.GetValueOrDefault(row.Ordinal)??[];
+            var market=Binding(row.Ordinal,"market").Market;
+            var candidates=floating.Periods.SelectMany(period=>period.ContractObservations).Where(lookup=>lookup.Market==market)
+                .Where(lookup=>ContractObservationScheduleSource.Read(row,sourceBindings,lookup.Contract,lookup.Quote)==lookup).Distinct().ToArray();
+            if(candidates.Length!=1)throw Error("The retained contract observation requires one exact admitted source; selection cannot be repeated on load.");
+            return new(weight,candidates[0],spread);
         }
         Require(row,"price_lookup");var lookup=Lookup(row);
         return new(weight,null,lookup,spread);
@@ -229,14 +238,13 @@ internal sealed partial class RetainedSideSchedule
             .Where(p=>p.projection.Market==market.Market&&floating.Index==index.Reference&&floating.Quote.Key==quote.Reference&&
                 p.projection.Contract.DeliveryFrom==row.ObservationFrom&&p.projection.Contract.DeliveryTo==row.ObservationTo&&
                 DefinitionIdentity.For(floating.Settlement).Canonical==row.Parameters["selection"])
-            .Where(p=>!bindings.TryGetValue((row.Ordinal,"fixing"),out var fixing)?p.period.Fixings.IsEmpty:
-                !p.period.Fixings.IsEmpty&&p.period.Fixings[p.n].Series==fixing.Series&&p.period.Fixings[p.n].Source==fixing.Reference&&p.period.Fixings[p.n].Implementation==fixing.Coordinate)
+            .Where(p=>bindings.TryGetValue((row.Ordinal,"fixing"),out var fixing)&&!p.period.Fixings.IsEmpty&&p.period.Fixings[p.n].Series==fixing.Series&&p.period.Fixings[p.n].Source==fixing.Reference&&p.period.Fixings[p.n].Implementation==fixing.Coordinate)
             .Where(p=>!bindings.TryGetValue((row.Ordinal,"projection"),out var projection)?p.period.CustomProjection is null:
                 p.period.CustomProjection is {} custom&&custom.CatalogId==projection.EntityCatalog&&custom.CurveId==projection.Entity&&custom.Version==projection.Version&&custom.OutputNode==projection.Coordinate&&custom.Position==projection.Position)
             .ToArray();
         if(selected.Length==0)throw Error("A retained observation must bind exact immutable contract, quote, index, fixing and projection definitions.");
         var value=selected[0];return new(floating.Settlement,floating.Quote,value.projection.Market,value.projection.Contract,value.projection.AveragingQuantity,
-            value.period.Fixings.IsEmpty?null:value.period.Fixings[value.n],value.period.CustomProjection);
+            value.period.Fixings[value.n],value.period.CustomProjection);
     }
     private ScheduleDefinitionRoot OutputRoot(string name,string measure)=>
         outputRoots.TryGetValue(name,out var root)&&root.Measure==measure?root:

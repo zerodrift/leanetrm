@@ -19,7 +19,8 @@ class CloseRiskWorkTests(unittest.TestCase):
                     uniqueSideCalculations=50, calibratedBlocks=24, reusedBlocks=0,
                     scheduleGraphEvaluatedNodes=1, scheduleGraphReusedReads=1,
                     resolvedCurveMonths=12, reusedCurveMonths=0,
-                    rebuiltCurveNodes=48, reusedCurveNodes=1104)
+                    rebuiltCurveNodes=0, reusedCurveNodes=0,
+                    curveGraphEvaluatedNodes=72, curveGraphReusedReads=1656)
         admission = dict(declaredRows=70272, declaredRowScenarios=3443328)
         check_work(work, cells, admission)
         # Neither extra evaluations nor missing reuse may pass qualification.
@@ -33,7 +34,9 @@ class CloseRiskWorkTests(unittest.TestCase):
         for field in admission:
             with self.subTest(field=field), self.assertRaises(AssertionError):
                 check_work(work, cells, {**admission, field: admission[field]+1})
-        for field in ('scheduleGraphEvaluatedNodes', 'scheduleGraphReusedReads'):
+        with self.assertRaises(AssertionError):
+            check_work({**work, 'curveGraphEvaluatedNodes': 71}, cells, admission)
+        for field in ('scheduleGraphEvaluatedNodes', 'scheduleGraphReusedReads', 'curveGraphReusedReads'):
             with self.subTest(field=field), self.assertRaises(AssertionError):
                 check_work({**work, field: 0}, cells, admission)
 
