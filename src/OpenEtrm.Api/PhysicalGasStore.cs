@@ -228,7 +228,7 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   await TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{
    var r=await Resolve(c,data,body,ct);_=await Value(c,data,pinned,r.Instrument,r.Assignment,r.Quantity,body.Direction=="receive"?1:-1,body.UsageFeeDirection switch{"pay"=>-1,"receive"=>1,_=>(int?)null},body.GasSetupId,null,ct);
    return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,r.Instrument);
-  },ct);
+  },ct,gasMarket:true);
  internal static async Task RequirePortfolioScope(NpgsqlConnection c,Guid catalog,ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,CancellationToken ct)
  {
   await using var q=ScheduleStore.Command(c,"SELECT security.require_supported_gas_portfolio_scope($1,$2::uuid[],$3::uuid[])",catalog,books.ToArray(),portfolios.ToArray());

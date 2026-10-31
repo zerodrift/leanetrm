@@ -434,3 +434,26 @@ Reference catalog qualification includes 208 exact-version projection and label
 checks. Path tables retain their composite primary-key ordering; gas product
 fields resolve commodity labels while futures product fields retain their own
 reference contract.
+
+## Independent gas market selection
+
+An installation may explicitly configure `gasMarket` with one sealed definition
+revision distinct from the primary market and dated observation/contract selections. Gas setup authoring, physical
+booking previews and retained schedule preparation use that revision and its exact
+reference version. This does not replace the primary financial or power market,
+redirect collection sources, or copy their operational series.
+
+Without this configuration, gas uses the primary market as before. With it, a
+missing or ambiguous dated selection refuses; primary price inputs are never a
+fallback. The selected certified knowledge cutoff and valuation instant still
+bind every read. A financial close does not certify the independent gas inputs.
+Explicit gas pins remain exact; a view already carrying the latest-correction
+policy resolves corrections only inside its certified cutoff. Daily quantity
+records continue to read their original retained contractual programs.
+
+Reopening a booked gas trade uses its visible retained definition header. Trades
+booked on the primary market continue to use their original source after gas is
+configured separately. Older independent gas revisions must retain their dated source selections in
+`retainedGasMarkets`. Booked reads select that source by the authorized instrument
+header, including its exact reference revision. Missing or ambiguous retained
+sources refuse explicitly; changing configuration does not rebook a trade.

@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--gas-market-selection"]){GasMarketSelectionChecks.Run();return;}
 if(args is ["--preview-failure-diagnostics"]){OpenEtrm.Api.Checks.PreviewFailureDiagnosticChecks.Run();return;}
 if(args is ["--position-qualification"]){await PositionQualificationChecks.Run();return;}
 if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
@@ -83,6 +84,7 @@ if (args is ["--schedules"])
     WholeTermSwapAssemblyChecks.Run();
     RetainedScheduleLimitChecks.Run();
     TradingReadSelectionChecks.Run();
+    GasMarketSelectionChecks.Run();
     TradePositionFactsChecks.Run();
     BookedScheduleLookupChecks.Run();
     SideObservationCompatibilityChecks.Run();

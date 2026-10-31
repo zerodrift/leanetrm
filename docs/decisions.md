@@ -1754,3 +1754,12 @@ without unused market loading, a bounded batch adapter with equivalent current
 authority and certified series/revision filters, and separately demand-loaded
 history pinned to the grid context. This changes no selection policies or PV.
 The [measured workload](gas-quantity-performance.md) records scope and limits.
+
+
+D269 reference-scope amendment: an explicitly configured gas market may select its
+own immutable definitions, exact reference revision and dated price pins. Gas
+setup authoring and booking preparation consume the same selection. Primary
+financial and power definitions, source identities and feeds remain independent.
+Missing or ambiguous gas dates refuse rather than borrowing primary inputs.
+This adds no operational quantity valuation or settlement behavior. See
+[physical gas](physical-gas-side.md#independent-gas-market-selection).

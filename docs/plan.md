@@ -4,6 +4,10 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+Gas may use an explicitly configured independent market/reference selection;
+this keeps physical location setup separate from the primary power and financial
+inputs without rebasing their source identities or feeds.
+
 D269 adds the local [physical gas booking slice](physical-gas-side.md): fixed
 contractual delivery, independent consideration and optional usage fee, shared
 retained executable schedules, and an authorized preview/book/reopen ticket.

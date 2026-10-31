@@ -6,6 +6,10 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+Gas may use an explicitly configured independent market/reference selection;
+this keeps physical location setup separate from the primary power and financial
+inputs without rebasing their source identities or feeds.
+
 D269 adds the local [physical gas booking slice](physical-gas-side.md): fixed
 contractual delivery, independent consideration and optional usage fee, shared
 retained executable schedules, and an authorized preview/book/reopen ticket.

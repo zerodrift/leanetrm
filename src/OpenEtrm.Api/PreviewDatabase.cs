@@ -12,7 +12,8 @@ namespace OpenEtrm.Api;
 
 public sealed record PreviewManifest(string Mode, Guid CatalogId, Guid RevisionId, Guid ReferenceCatalogId,
     Guid ReferenceRevisionId, Guid TenantId, Guid WorkspaceId, PreviewSeedFrame[] Frames,PreviewExample? Example,
-    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",[property:System.Text.Json.Serialization.JsonRequired]string FuturesConvention="",PreviewReferenceCatalog? ReferenceCatalog=null);
+    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",[property:System.Text.Json.Serialization.JsonRequired]string FuturesConvention="",PreviewReferenceCatalog? ReferenceCatalog=null,PreviewGasMarket? GasMarket=null,PreviewGasMarket[]? RetainedGasMarkets=null);
+public sealed record PreviewGasMarket(Guid RevisionId,PreviewSeedFrame[] Frames);
 public sealed record PreviewReferenceCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId,ImmutableArray<string> Tables);
 public sealed record PreviewUnitCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId);
 public sealed record UnitCatalogData(ReferenceRevision Revision,ImmutableDictionary<string,ImmutableArray<JsonElement>> References);
@@ -676,7 +677,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         market.Frames.SingleOrDefault(f=>f.At==frame.At)?.ObservationIds.ToImmutableArray();
 
     // The main market revision or an explicitly allow-listed supplemental swap bundle.
-    private bool DeclaredBundle(Guid revision)=>revision==Manifest.RevisionId||(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision);
+    private bool DeclaredBundle(Guid revision)=>revision==Manifest.RevisionId||revision==Manifest.GasMarket?.RevisionId||(Manifest.RetainedGasMarkets??[]).Any(m=>m.RevisionId==revision)||(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision);
 
     public async Task<Guid> Correct(NpgsqlConnection connection, Guid revision, Guid observationId, string value, CancellationToken ct)
     {
