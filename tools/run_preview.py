@@ -28,6 +28,7 @@ def main():
     from check_standalone import main as check_standalone
     check_standalone()
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--unified-trading-check',action='store_true',help='Verify the common trading workflow across futures, swaps, PPAs and gas')
     parser.add_argument('--with-gas-quantity-dates',action='store_true',help='Include synthetic January working frames for daily gas quantity exploration')
     parser.add_argument('--gas-quantity-benchmark',action='store_true',help='Measure owned daily gas quantity grids with authorized revision history')
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
@@ -108,6 +109,8 @@ def main():
         args.ppa_bookings_check = True
     if args.ppa_http_benchmark:
         args.ppa_bookings_check = True
+    if args.unified_trading_check:
+        args.demo_instruments_check=True;args.physical_gas_check=True
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.gas_setup_check or args.gas_composition_check or args.gas_daily_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
@@ -511,6 +514,11 @@ def main():
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':60}))
             config.chmod(0o600)
             return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
+        def risk_worker_runner():
+            worker_env=prepare_risk_worker()
+            def run():
+                subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+            return run
         if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
             from seed_preview_positions import seed_positions
             seed_positions(url,run_id,temporary)
@@ -542,7 +550,18 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.physical_gas_check:
+            if args.unified_trading_check:
+                from check_demo_instruments import run_checks as check_demo
+                run_demo_worker=risk_worker_runner()
+                check_demo(url,manifest,query,run_worker=run_demo_worker,owned_root=temporary,run_id=run_id,psql=psql,environment=env)
+                from check_physical_gas_preview import run_checks as check_single
+                check_single(url)
+                from check_gas_composition import run_checks as check_composed
+                check_composed(url,query,manifest,run_worker=run_demo_worker)
+                if args.browser_check:
+                    target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--unified-trading'],cwd=ROOT,env=env,check=True,timeout=240)
+            elif args.physical_gas_check:
                 from check_physical_gas_preview import run_checks,run_shape_checks
                 gas_receipt=run_checks(url)
                 run_shape_checks(query,manifest,gas_receipt)
@@ -554,7 +573,7 @@ def main():
                         benchmark_gas_quantities(url,query,manifest,child.pid)
                 if args.gas_composition_check:
                     from check_gas_composition import run_checks as check_gas_composition
-                    check_gas_composition(url,query,manifest)
+                    check_gas_composition(url,query,manifest,run_worker=risk_worker_runner())
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
@@ -573,9 +592,7 @@ def main():
                 run_authority_checks(query,manifest,booked_program_items[0],before_programs)
             elif args.demo_instruments_check:
                 from check_demo_instruments import run_checks
-                worker_env=prepare_risk_worker()
-                def run_demo_worker():
-                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                run_demo_worker=risk_worker_runner()
                 run_checks(url,manifest,query,run_worker=run_demo_worker,owned_root=temporary,run_id=run_id,psql=psql,environment=env)
                 if args.browser_check:
                     target=temporary/'browser-target.json'

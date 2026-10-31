@@ -6,7 +6,7 @@ from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
 
 
-def run_checks(url,query=None,manifest=None):
+def run_checks(url,query=None,manifest=None,run_worker=None):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
     frame=initial_frame(c.call('workspace'),'2020-12-18')
     context={'snapshotId':frame['id'],'convention':'physical_gas_fixed_quantity_v4','knowledgeMode':'current'}
@@ -35,6 +35,24 @@ def run_checks(url,query=None,manifest=None):
     assert sum(len(s['deliveryRows']) for s in reopened['valuation']['sides'])==62
     assert reopened['terms']['physicalSides']==body['physicalSides'], (reopened['terms']['physicalSides'],body['physicalSides'])
     assert c.call('gas/composition/status',{'operationId':body['operationId']})==booked
+    shared={**context,'convention':'trading_workspace_v1'}
+    facts=c.call('trading/positions',{'context':shared,'bookIds':[],'portfolioIds':[],'offset':0,'limit':64})
+    fact=next(p for p in facts['positions'] if p['tradeId']==booked['tradeId'])
+    assert fact['instrumentType']=='physical_gas' and fact['bindingId']==booked['instrumentId']
+    assert fact['bookedQuantity'] is None and fact['bookedUnit'] is None
+    view={'mode':'trades','bookIds':[],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}
+    report=c.call('trading/blotter',{'context':shared,'view':view})
+    holding=next(h for h in report['holdings'] if h['tradeId']==booked['tradeId'])
+    assert Decimal(holding['presentValue'])==64 and holding['quantity'] is None
+    assert holding['measure']=='gas_contractual_present_value'
+    retained={**shared,'knowledgeMode':'retained','contextId':report['context']['contextId']}
+    selected={'context':retained,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision'],'instrumentType':'physical_gas'}
+    assert c.call('trading/position',selected)['holding']==holding
+    terms=c.call('trading/gas',selected)
+    assert len(terms['physical'])==2 and len(terms['components'])==3
+    c.call('trading/position',{**selected,'revision':2},expected=422)
+    c.call('trading/position',{**selected,'bindingId':str(uuid4())},expected=422)
+    print('PASS gas shares blotter, exact individual selection and retained side terms; no receipt/delivery quantity double counting',flush=True)
     changed=deepcopy(body);changed['cashSides'][0]['stage']='receipt'
     assert Decimal(c.call('gas/composition/preview',changed)['presentValue'])==62
     changed['cashSides'][0]['direction']='receive'
@@ -71,5 +89,43 @@ def run_checks(url,query=None,manifest=None):
           RAISE EXCEPTION 'composition_missing_definition_accepted';
           EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'gas_definition' THEN RAISE;END IF;END;END $test$;""")
     c.call('gas/composition/book',{**body,'cashSides':[]},expected=409)
-    c.call('profile',{'profile':'risk'});c.call('gas/composition/book',{**body,'operationId':str(uuid4())},expected=403)
+    future_context={**context,'convention':'contract_lot_execution_pnl_v2'}
+    future_catalog=c.call('futures/catalog',future_context)
+    contract=next(k for k in future_catalog['contracts'] if k['curve']=='future')
+    future=c.call('futures/book',{**future_context,**trade_booking(),'operationId':str(uuid4()),'bookId':body['bookId'],'curve':contract['curve'],'contractId':contract['id'],'lots':'1','executionPrice':contract['mark']})
+    mixed=c.call('trading/blotter',{'context':shared,'view':view})
+    assert {'future','physical_gas'}<={r['instrumentType'] for r in mixed['holdings']}
+    assert next(r for r in mixed['holdings'] if r['tradeId']==future['tradeId'])['executionPnl']=='0'
+    if query is not None:
+        catalog_id=manifest['catalogId']
+        bind=f"SELECT security.use_market_context('{catalog_id}','{mixed['context']['contextId']}');SELECT security.use_trading_context('{catalog_id}','2020-12-18T16:00:00Z');"
+        scope=f"SELECT security.gas_position_scope('{catalog_id}','{{}}'::uuid[],'{{}}'::uuid[]);"
+        assert booked['tradeId'] in runtime_query(query,manifest,bind+scope)
+        runtime_query(query,manifest,f"""DO $test$ BEGIN BEGIN
+          PERFORM security.gas_position_scope('{catalog_id}','{{}}'::uuid[],'{{}}'::uuid[]);
+          RAISE EXCEPTION 'unbound_gas_scope_accepted';
+          EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'knowledge_coverage' THEN RAISE;END IF;END;END $test$;""")
+    c.call('profile',{'profile':'risk'})
+    risk=c.call('portfolio/risk/catalog',{'context':shared,'bookIds':[],'portfolioIds':[]})
+    assert any(e['tradeId']==booked['tradeId'] and e['bindingId']==booked['instrumentId'] and e['reason']=='physical_gas_risk_unavailable' for e in risk['excludedPositions'])
+    if run_worker is not None:
+        factor=risk['factors'][0]
+        request={'context':{**shared,'knowledgeMode':'retained','contextId':mixed['context']['contextId']},'bookIds':[],'portfolioIds':[],'bumps':[{'factor':factor['factor'],'size':'0.1','convention':risk['bumpConvention']}],
+                 'convention':risk['convention'],'numericalPolicy':risk['numericalPolicy'],'pricingPolicy':risk['pricingPolicy'],'stress':[]}
+        interactive=c.call('portfolio/risk',request)
+        job=c.call('portfolio/risk/jobs',{'requestId':str(uuid4()),'request':request});run_worker()
+        result=c.call('portfolio/risk/jobs/'+job['id'])
+        assert result['state']=='completed',result
+        assert result['result']['factors']==interactive['factors'] and result['result']['excludedPositions']==interactive['excludedPositions']
+        # A worker must reject missing admitted exclusions, not repair its manifest.
+        stored=json.loads(query(f"SELECT row_to_json(j) FROM risk.jobs j WHERE id='{job['id']}';"))
+        altered=deepcopy(stored['frame']);altered['excludedPositions']=[]
+        def literal(v):return "'"+json.dumps(v).replace("'","''")+"'::jsonb"
+        raw=runtime_query(query,manifest,f"SELECT security.use_market_context('{manifest['catalogId']}','{stored['context_id']}');SELECT security.use_trading_context('{manifest['catalogId']}','{stored['valuation_at']}');"+
+            f"SELECT risk.submit('{manifest['catalogId']}','{uuid4()}','{stored['context_id']}','{stored['revision_id']}','{stored['valuation_at']}',{literal(stored['request'])},{literal(altered)});",profile='risk')
+        malformed=json.loads(raw.splitlines()[-1]);run_worker()
+        failed=c.call('portfolio/risk/jobs/'+malformed['jobId'])
+        assert failed['state']=='failed' and failed['error']['code']=='risk_contract',failed
+        print('PASS mixed queued risk reproduces financial values and exact gas exclusions under the leased worker role',flush=True)
+    c.call('gas/composition/book',{**body,'operationId':str(uuid4())},expected=403)
     print('PASS gas composition: independent directions, 1000/980/20 conservation, receipt/delivery fee bases, retained book/reopen, replay and invalid links',flush=True)

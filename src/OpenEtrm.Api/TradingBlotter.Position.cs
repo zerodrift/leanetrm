@@ -25,6 +25,11 @@ public sealed partial class TradingBlotter
    case "ppa":
     rows=(await PpaBlotter.Read(connection,database,data,frame,[],[],ct,selected)).ToArray();
     break;
+   case "physical_gas":
+    var gas=await GasBlotter.Run(connection,database,frame,[],[],ct,selected);
+    var gasRows=new List<JsonObject>();await foreach(var unit in gas.Units(ct))gasRows.AddRange(unit);
+    rows=[..gasRows];
+    break;
    default:throw TradePositionSelection.Unavailable();
   }
   var matching=rows.Where(r=>Guid.Parse(r["tradeId"]!.GetValue<string>())==selected.TradeId&&

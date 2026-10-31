@@ -159,7 +159,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   `document.querySelector('#market-date-dialog').open&&document.querySelectorAll('.market-close-choice').length>=2&&document.querySelector('#market-date-closes h3')?.textContent.includes(window.newestLabel)&&document.querySelector('#snapshot').value===''&&${badge}.textContent==='Choose a close'&&document.querySelector('#error').hidden`,
   `JSON.stringify({open:document.querySelector('#market-date-dialog').open,choices:document.querySelectorAll('.market-close-choice').length,scope:document.querySelector('#market-date-scope').textContent,snapshot:document.querySelector('#snapshot').value,badge:${badge}.hidden?'(hidden)':${badge}.textContent,error:document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent})`);
  await click('.market-close-choice:nth-of-type(1)');
- await click('#market-date-close');await set('#custom-curves-template','ng_average');await click('#market-date-open');
+ await click('#market-date-close');await set('#custom-curves-template','ng_average');
+ // Full-history coverage uses the API's existing 20-second request deadline.
+ // Let it complete or refuse before checking coverage, with time for UI rendering.
+ try{await click('#market-date-open',30000);}
+ catch(error){
+  const state=await evaluate("({busy:document.body.getAttribute('aria-busy'),error:document.querySelector('#error').textContent,calendarOpen:document.querySelector('#market-date-dialog').open,pending:window.marketDateCalls.filter(p=>p.endsWith('/market/dates')).length-window.marketDateRequests.filter(r=>r.path.endsWith('/market/dates')).length,last:window.marketDateRequests.at(-1)?.status})");
+  throw Error(error.message+' · observed '+JSON.stringify(state),{cause:error});
+ }
  await check('custom curve availability validates its full history window in the backend',"(()=>{const request=window.marketDateRequests.at(-1);return request.body.curve===null&&request.body.definition.code==='ng_average'&&!request.payload.dates.some(d=>d.date==='2020-11-18')&&request.payload.dates.some(d=>d.date==='2020-12-17');})()");
  await evaluate("window.calendarGraphNodes=[...document.querySelectorAll('.custom-curve-node')].map(n=>n.dataset.nodeId).sort();window.graphClose=window.marketDateRequests.at(-1).payload.dates.find(d=>d.date==='2020-12-17').frames[0].id");
  await click('#market-date-grid button[data-date="2020-12-17"]');

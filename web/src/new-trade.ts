@@ -1,13 +1,12 @@
-// The side panel's New trade mode (blotter-desk.md, Side panel): a Future | Swap switch, the form of the product chosen, and the way
-// to PPA bookings, which are booked on their own page. Whether a new trade can be started at all is the backend's to say, from the
-// catalog it returned for this view and account; this module only words it.
+// Every supported booking type enters through the same trade panel. Product forms
+// retain their own explicit terms, native validation and recovery protocols.
 import {publicText} from './market-view.js';
 import {modeLabel,type PanelMode,type SidePanel} from './side-panel.js';
 
-export type NewProduct='futures'|'swaps';
+export type NewProduct='futures'|'swaps'|'ppa'|'gas';
 export type NewMode=Extract<PanelMode,{kind:'new'}>;
 /** The products a new trade can be of, in the order the switch lists them: none is chosen for the person. */
-export const newTradeProducts:readonly (readonly [NewProduct,string])[]=[['futures','Future'],['swaps','Swap']];
+export const newTradeProducts:readonly (readonly [NewProduct,string])[]=[['futures','Future'],['swaps','Swap'],['ppa','PPA'],['gas','Physical gas']];
 /** What holds New trade back while a request of the person's has no known outcome: it is settled before another is entered. */
 export const retainedBlock='A trade request is retained. Reconcile or retry it before creating another.';
 const noReason='Booking is not available in this view, and the backend did not say why.';
@@ -40,22 +39,22 @@ export function bookingFallback(state:{contextDirty:boolean;view:ReadView;canBoo
   return state.canBook?'Choose an As of date to book a trade.':'Your current role does not have Book Trade permission.';
 }
 
-const about:Readonly<Record<NewProduct,string>>={futures:'an exchange contract with a defined expiry',swaps:'fixed or floating prices on independent sides'};
+const about:Readonly<Record<NewProduct,string>>={futures:'an exchange contract with a defined expiry',swaps:'fixed or floating prices on independent sides',ppa:'power delivery and cash components on independent schedules',gas:'physical delivery, cash and fees on independent sides'};
 // A line on the product chosen, or on both while none is: the person is told what each is, and none is chosen for them.
-const aboutLine=(product:NewProduct|null)=>product===null?`Future: ${about.futures}. Swap: ${about.swaps}.`:`${about[product][0].toUpperCase()}${about[product].slice(1)}.`;
-const loading:Readonly<Record<NewProduct,string>>={futures:'Loading the futures contracts…',swaps:'Loading the swap choices…'};
-const chooseText='Choose Future or Swap to enter a new trade.';
+const aboutLine=(product:NewProduct|null)=>product===null?'Choose an instrument type. Each ticket keeps its own delivery, pricing and lifecycle terms.':`${about[product][0].toUpperCase()}${about[product].slice(1)}.`;
+const loading:Readonly<Record<NewProduct,string>>={futures:'Loading the futures contracts…',swaps:'Loading the swap choices…',ppa:'Loading PPA choices…',gas:'Loading physical gas choices…'};
+const chooseText='Choose an instrument type to enter a new trade.';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?:string){
   const element=document.createElement(tag);if(className)element.className=className;if(text!==undefined)element.textContent=publicText(text);return element;
 }
 
 /**
- * The panel's head and body for a new trade: the title, the switch of its product, a line on the product and the way to PPA bookings.
- * `choose` hears the product the person chose, `ppa` the wish to book a PPA. The form of the product is the page's to put in the
+ * The panel's head and body for a new trade: the title, the switch of its product, a line on the product and the selected product form.
+ * `choose` receives the selected product. The form of the product is the page's to put in the
  * panel's form part.
  */
-export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>void;ppa:()=>void;gas:()=>void;busy:()=>boolean}){
+export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>void;busy:()=>boolean}){
   const head=shell.element('head'),body=shell.element('body');
   const root=el('div','new-trade-head'),title=el('h2','side-panel-title'),switcher=el('div','product-switch'),note=el('p','field-help side-panel-note');
   const buttons=new Map<NewProduct,HTMLButtonElement>(newTradeProducts.map(([product,label])=>{
@@ -63,11 +62,8 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
   }));
   title.id='side-panel-title';switcher.id='new-trade-product';switcher.setAttribute('role','group');switcher.setAttribute('aria-label','Product');switcher.append(...buttons.values());
   note.id='new-trade-note';
-  const ppaLine=el('p','field-help side-panel-note'),ppa=el('button','text-button','Open PPA bookings');ppa.type='button';ppa.id='new-trade-ppa';ppa.onclick=()=>o.ppa();
-  ppaLine.append('Booking a power purchase agreement? ',ppa);
-  const gasLine=el('p','field-help side-panel-note'),gas=el('button','text-button','Open physical gas bookings');gas.type='button';gas.id='new-trade-gas';gas.onclick=()=>o.gas();gasLine.append(gas);
-  root.append(title,switcher,note,ppaLine,gasLine);
-  function sync(){for(const button of [...buttons.values(),ppa,gas])button.disabled=o.busy();}
+  root.append(title,switcher,note);
+  function sync(){for(const button of buttons.values())button.disabled=o.busy();}
   return {
     /**
      * Draws the head for a mode, with the switch showing its product, and the body with what the panel says until the form of that product

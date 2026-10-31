@@ -18,8 +18,7 @@ and configured per-unit tariffs are wired into that bounded profile. The
 Gas delivery setup editor saves immutable drafts, previews resolution/coverage and
 publishes versioned economic settings; saved trades retain their setup pins. Usage fees
 have independent pay/receive directions. The fixed-quantity composition ticket now adds independently directed physical
-and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. Physical completion, operational PV and settlement remain work. Mixed-product blotter and risk
-scopes containing gas refuse until their complete integration is supported.
+and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. The common Blotter now includes gas positions, exact retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses one product panel and each product’s existing authorized booking operations. Daily gas quantities open from the position and remain separate operational revisions. Mixed risk reports list exact gas exclusions while valuing supported positions; gas scenario risk, physical completion, operational PV and settlement remain work.
 
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.

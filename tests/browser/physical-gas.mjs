@@ -35,9 +35,12 @@ export async function run(actions){
  await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/gas/book'))window.gasBookResponse={status:response.status,body:await response.clone().json()};if(String(args[0]).endsWith('/gas/book')&&response.ok){sessionStorage.setItem('gas-browser-original',args[1].body);throw new TypeError('Synthetic lost accepted response');}return response;};}`);
  await click('#gas-book-submit');await wait(idle);
  await check('a lost accepted response retains the original request',"!document.querySelector('#gas-pending').hidden&&document.querySelector('#gas-quantity').disabled","({error:document.querySelector('#error').textContent,response:window.gasBookResponse,pending:document.querySelector('#gas-pending').hidden,disabled:document.querySelector('#gas-quantity').disabled})");
+ const savedBooking=await evaluate('window.gasBookResponse.body');
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-gas')&&!document.querySelector('#nav-gas').hidden&&"+idle);await chooseFrame();await click('#nav-gas');
  await wait("!document.querySelector('#gas-pending').hidden&&"+idle);await click('#gas-check');
- await check('reloading and checking status reopens the single retained booking',"document.querySelector('#gas-pending').hidden&&document.querySelector('#gas-result-title').textContent.includes('retained physical')&&document.querySelector('#gas-total').textContent==='Present value: 100 USD'","({error:document.querySelector('#error').textContent,pending:document.querySelector('#gas-pending').hidden,value:document.querySelector('#gas-total').textContent})");
+ await wait("document.querySelector('#position-details').textContent.includes('Physical gas trade')&&"+idle);
+ await check('recovery opens the gas trade in the shared position panel',"document.querySelector('#position-details').textContent.includes('Physical gas trade')");
+ await click('#nav-gas');await evaluate("document.querySelector('#gas-template').open=true");await set('#gas-trade-id',savedBooking.tradeId);await click('#gas-open');
  await check('reopened physical fields and daily quantities come from booked schedules',"document.querySelector('#gas-physical-details').textContent.includes('Synthetic zone A')&&document.querySelectorAll('#gas-delivery-rows tbody tr').length===31");
  const previous=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-17')).id;})()`);
  await set('#snapshot',previous);await wait(idle);

@@ -10,6 +10,11 @@ test('a separate trade window always reads the exact retained selection, without
  assert.deepEqual(positionWindowRequest(selection),{context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selection.context.contextId},
   tradeId:selection.tradeId,bindingId:selection.bindingId,revision:2,instrumentType:'ppa'});
 });
+test('gas windows retain their instrument binding and exact context like other positions',()=>{
+ const gas={...selection,instrumentType:'physical_gas'};
+ assert.deepEqual(readPositionWindowUrl(positionWindowUrl('https://example.invalid/',gas)),gas);
+ assert.deepEqual(positionWindowRequest(gas),{...positionWindowRequest(selection),instrumentType:'physical_gas'});
+});
 test('opening requests a separate popup without an opener, and a null browser result never becomes a false blocked warning',()=>{
  const calls=[];assert.doesNotThrow(()=>openPositionWindow('https://example.invalid/',selection,(...args)=>{calls.push(args);return null;}));
  assert.equal(calls.length,1);assert.equal(calls[0][1],'_blank');

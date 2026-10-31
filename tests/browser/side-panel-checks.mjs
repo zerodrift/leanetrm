@@ -1,6 +1,6 @@
 // Positions expand beneath their source row. New trade and Risk retain the side panel.
 // Exercise the same edits, context fencing and keyboard paths in each surface.
-import {chooseProduct,newTrade,startNewTrade} from './new-trade.mjs';
+import {chooseProduct,newTrade,startNewTrade,closeNewTrade} from './new-trade.mjs';
 const panel="(document.querySelector('#position-details')??{hidden:true})",side="document.querySelector('#side-panel')";
 const tiles="JSON.stringify([...document.querySelectorAll('.desk-tile')].map(t=>{const r=t.getBoundingClientRect();return [r.left+scrollX,r.top+scrollY,r.width,r.height].map(Math.round);}))";
 const rowSelector=kind=>`#desk-positions .tabulator-row:not(.tabulator-group):has(.desk-pill-${kind})`;
@@ -36,10 +36,16 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
 
   const held=reference=>`${rowsRead}.find(h=>h.tradeReference===${JSON.stringify(reference)})`;
   const shapeReads="window.__futuresResponses.filter(r=>r.path==='/api/market/curve-shapes').length";
+  const shapeRequests="window.__curveShapeRequests";
   const editorReads="window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').length";
   const open=async(kind,tab='curve')=>{await click(rowSelector(kind));await wait(`!${panel}.hidden&&${panelReference}===${referenceOf(kind)}&&document.activeElement===${panel}`);if(tab==='curve'){await click('#position-details-tabs-curve');await evaluate(`${panel}.focus()`);}};
   await settle(1440,900);
-  const futureReference=await evaluate(referenceOf('fut')),tilesBefore=await evaluate(tiles),shapesBefore=await evaluate(shapeReads),initialEditorReads=await evaluate(editorReads);
+  // Capture the baseline while the desk's shape read is still in flight.
+  // Its completion must not be mistaken for a new panel request.
+  await evaluate("window.__holdShapes=true;document.querySelector('#futures-refresh').click()");
+  await wait("typeof window.__releaseShapes==='function'&&"+redrawn(idle));
+  const futureReference=await evaluate(referenceOf('fut')),tilesBefore=await evaluate(tiles),shapeRequestsBefore=await evaluate(shapeRequests),initialEditorReads=await evaluate(editorReads);
+  await evaluate("window.__releaseShapes()");
   await open('fut','terms');
   await wait("!!document.querySelector('#position-details-body .side-panel-section')");
   await check('opening a position starts on its retained Terms and reads them once',`document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'&&${editorReads}===${initialEditorReads}+1`);
@@ -67,8 +73,8 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     `(()=>{const h=${held(futureReference)},delta=document.querySelector('#position-details .side-panel-delta'),value=document.querySelector('#position-details .side-panel-value .kpi-value');return document.querySelector('#position-details .side-panel-figure .side-panel-label').textContent==='Execution P&L'&&value.title===h.executionPnl+' '+h.currency&&(h.markMinusPrice===null?!delta:delta.querySelector('#position-details .side-panel-label').textContent==='Mark − executed'&&delta.title===h.markMinusPrice+' '+h.currency+'/'+h.unit&&delta.querySelector('b').textContent.replace(/^[+−]/,'').length>0);})()`,
     `document.querySelector('#position-details-head').innerText`);
   await check('the curve is the desk\'s own read of its market, with the delivery period marked, and it is not read again for the panel',
-    `${shapeReads}===${shapesBefore}&&document.querySelector('#position-details-body .chart-toolbar small').textContent==='Marked: delivery '+document.querySelector(${JSON.stringify(rowSelector('fut'))}+' [tabulator-field=c1] .desk-sub').textContent&&document.querySelector('#position-details-body .side-panel-facts').children.length>=3`,
-    `[${shapeReads},${shapesBefore},document.querySelector('#position-details-body .chart-toolbar').textContent]`);
+    `${shapeRequests}===${shapeRequestsBefore}&&document.querySelector('#position-details-body .chart-toolbar small').textContent==='Marked: delivery '+document.querySelector(${JSON.stringify(rowSelector('fut'))}+' [tabulator-field=c1] .desk-sub').textContent&&document.querySelector('#position-details-body .side-panel-facts').children.length>=3`,
+    `[${shapeRequests},${shapeRequestsBefore},document.querySelector('#position-details-body .chart-toolbar').textContent]`);
 
   // Keyboard: Escape closes the panel and gives focus back to the row; Enter on a focused row opens it again.
   await press('Escape','Escape',27);
@@ -411,18 +417,18 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await set('#date-context-on',otherDate);await wait(idle);
   await check('a change in the open time controls is made without a question when the form holds no edits',`${prompt}.hidden&&${contextNote}.includes('Context changed')&&document.querySelector('#trade-editing').hidden`,`[${prompt}.textContent,${contextNote}]`);
   await restoreBlotter();await click('#close-view-context');
-  // New trade for a PPA leaves the Blotter for the PPA bookings page.
+  // PPA entry shares the product panel and its unsaved-edit guard.
   await amend(refB);
   await startNewTrade({click,wait});await click('#new-trade-ppa');
-  await check('New trade for a PPA leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='PPA bookings'`,`[${prompt}.textContent,${title}]`);
-  await back();
+  await check('New trade for a PPA leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='Blotter'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#side-panel-form').contains(document.querySelector('#ppa-page'))`,`[${prompt}.textContent,${title}]`);
+  await closeNewTrade({click,evaluate,wait});await back();
   await newTrade({click,wait},'futures');await typeInto('#futures-lots','5');
   await click('#new-trade-ppa');await asks();
-  await check('New trade for a PPA, which leaves the Blotter, asks first, and keeping the edits leaves the Blotter and the new trade as they were',`${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&${newForm}&&document.querySelector('#futures-lots').value==='5'`,`[${prompt}.textContent,${title}]`);
+  await check('Switching to PPA asks first, and keeping edits preserves the current trade',`${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&${newForm}&&document.querySelector('#futures-lots').value==='5'`,`[${prompt}.textContent,${title}]`);
   await answer(0);
   await click('#new-trade-ppa');await asks();await answer(1);await wait(idle);
-  await check('and agreeing opens the PPA bookings page',`${title}==='PPA bookings'`,title);
-  await back();
+  await check('and agreeing opens the PPA form in the common workspace',`${title}==='Blotter'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#side-panel-form').contains(document.querySelector('#ppa-page'))`,title);
+  await closeNewTrade({click,evaluate,wait});await back();
   await check('the Blotter comes back without the form: it starts fresh',`${side}.hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#trade-editing').hidden`);
 
   // The form of a new trade is the panel's too: what is typed in it is an edit like an amendment's, and a switch of product, a closing of the

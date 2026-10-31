@@ -1,3 +1,4 @@
+import {productTickets} from './product-tickets.js';
 import {setupGasConfiguration} from './gas-setup-editor.js';
 import {setupPhysicalGas} from './physical-gas-editor.js';
 import {refreshContextPanels} from './context-view.js';
@@ -860,10 +861,7 @@ async function loadIdentity(initialAccess?:unknown){
   let unopened:unknown;
   if(first!==null){
     if(address===undefined){
-    try{await showPage(first);}catch(error){
-      if(first!=='futures'||(error as {code?:string}).code!=='gas_portfolio_scope'||$('nav-gas').hidden)throw error;
-      await showPage('gas');notice(errorMessage(error));
-    }
+    await showPage(first);
     }else await openReferenceAddress(address).catch(error=>{unopened=error;});
     if(!$('nav-futures').hidden)await futures.views();
     closeCheckDue=false; // the read that chose the close is this page's check for a newer one
@@ -966,8 +964,8 @@ const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
 });
 const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant});
 const gasSetup=setupGasConfiguration({api,act,busy:()=>busy,actor:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext()});
-const gas=setupPhysicalGas({api,act,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile});
-const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});
+const gas=setupPhysicalGas({api,act,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
+const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext(),onBooked:ticketBooked});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
 // The market the dashboard's widgets read in: the navigation and close on screen, the close's own label and its badge.
@@ -987,7 +985,12 @@ const power=setupPowerView({api,act,zone:()=>prefs.timeZone,name:curveName,sourc
 const unitConverter=setupUnitConverter({api,act,busy:()=>busy});
 // The knowledge the Blotter is read at: working data at current knowledge, the selected historical view, or live corrections.
 const knowledgeView=()=>navigation?.live?'live' as const:historicalContext()?'historical' as const:'working' as const;
-const futures=setupFutures({readFailed:error=>{text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');},onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},newGas:async()=>{await setPage('gas');await gas.load();},newPpa:async()=>{await setPage('ppa');await ppa.load();$('page-title').tabIndex=-1;$('page-title').focus();},api,act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
+const tickets=productTickets({
+ ppa:{root:$('ppa-page'),begin:()=>ppa.begin(frame().at),inspect:id=>ppa.inspect(frame().at,id),reset:ppa.reset,unsaved:ppa.unsaved,pending:ppa.pending,sync:ppa.sync},
+ gas:{root:$('gas-page'),begin:async()=>{await gas.load();},inspect:gas.inspect,reset:gas.reset,unsaved:gas.unsaved,pending:gas.pending,sync:gas.sync},
+});
+async function ticketBooked(tradeId:string):Promise<void>{if(tickets.active())await futures.bookedExternal(tradeId);}
+const futures=setupFutures({readFailed:error=>{text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');},onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
 // The contract panel beside the curve's chart and table: docked when the main area has the room and the assistant is closed, an overlay
 // otherwise, and on a phone a sheet over the page. Closing it returns focus to the contract's row, or else to what opened it.
 const contractPanel=setupContractPanel($('contract-panel'),{
@@ -1034,8 +1037,8 @@ async function showPage(next:string){
     case 'interval-series':await setPage('interval-series');await intervalSeries.load();return;
     case 'interval-curves':await setPage('interval-curves');await intervalCurves.load();return;
     case 'gas-setup':await setPage('gas-setup');await gasSetup.load();return;
-    case 'gas':await setPage('gas');await gas.load();return;
-    case 'ppa':await setPage('ppa');await ppa.load();return;
+    case 'gas':await setPage('futures');await futures.load();await futures.openProduct('gas');return;
+    case 'ppa':await setPage('futures');await futures.load();await futures.openProduct('ppa');return;
     case 'dashboard':await setPage('dashboard');await dashboard.load();return;
     case 'jobs':await setPage('jobs');await jobs.load();return;
     case 'power':await setPage('power');power.reset();await touProducts.load();if(select('snapshot').value)await power.load();return;

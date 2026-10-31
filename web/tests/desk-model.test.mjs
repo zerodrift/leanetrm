@@ -533,3 +533,12 @@ test('an unavailable heat rate retains its facts and explicit exclusion reason',
  assert.equal(row.unavailable,'Missing price at this close');
  assert.equal(row.value,null);
 });
+
+test('gas contractual PV shares the desk without adding receipt and delivery quantities or inventing risk exposure',()=>{
+ const gas={...fixture.holdings[0],instrumentType:'physical_gas',contractIdentityKind:'gas_instrument',direction:'multi_side',
+  quantity:null,lots:null,executionPrice:null,fixedPrice:null,mark:null,markMinusPrice:null,executionPnl:null,presentValue:'3200/51',measure:'gas_contractual_present_value',unavailableReason:null};
+ const [row]=positionRows([gas]);assert.equal(row.pill,'GAS');assert.equal(row.measure,'Contractual PV');assert.equal(row.value,'3200/51');
+ assert.equal(row.exposure,null);assert.equal(quantityText(row,format),'By physical side');assert.match(noteMeaning(row.quantityNote),/not added/);
+ assert.throws(()=>positionRows([{...gas,quantity:'1980'}]),/independent side quantities/);
+ const [started]=positionRows([{...gas,presentValue:null,unavailableReason:'gas_delivery_lifecycle'}]);assert.match(started.unavailable,/Delivery has started/);
+});

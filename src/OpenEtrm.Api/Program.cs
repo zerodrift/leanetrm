@@ -1264,6 +1264,8 @@ api.MapPost("/trading/positions",(HttpContext c,TradingPositionsRequest body)=>T
  expectedConvention:TradingBlotter.Convention));
 api.MapPost("/trading/directory",(HttpContext c,FuturesReadRequest body)=>TradingRead(c,body,
  (connection,view,ct)=>tradeReads.Directory(connection,view,ct),expectedConvention:TradingBlotter.Convention));
+api.MapPost("/trading/gas",(HttpContext c,TradePositionReadRequest body)=>TradingRead(c,body.Context,
+    (connection,view,ct)=>tradeReads.GasTrade(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/trading/position",(HttpContext c,TradePositionReadRequest body)=>TradingRead(c,
  body.Context??throw new MarketDataException("position_context","Supply the selected context."),
  (connection,view,ct)=>tradeReads.Position(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
