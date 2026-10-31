@@ -64,7 +64,7 @@ public static class SwapObservationCompatibility
                 return row.Id("reference_catalog_id") == index.Revision.CatalogId && row.Id("reference_revision_id") == index.Revision.RevisionId &&
                     row.Text("quote_code") == quote.Key.Code && row.Text("implementation") == IndexFixing.SupportedImplementation;
             }).Select(contract => new SwapProjection(new(new(data.DefinitionRevision, curve.Text("code")), contract.Key), contract)).ToImmutableArray();
-        return SupportedSamplings(SwapStore.Fixings(data, index, quote, projections));
+        return SupportedSamplings(PriceSettlementInputs.Fixings(data, settlement, quote, [.. projections.Select(projection => projection.Contract)]));
     }
 
     public static CompatibleSideObservations Validate(PreviewData data, JsonElement curve, PriceSettlementSelection settlement,
@@ -77,7 +77,7 @@ public static class SwapObservationCompatibility
             throw Error("swap_definition", "The observation index, quote and projection must use the selected exact references.");
         ValidateConvention(data, curve, settlement,averaging, calendar, custom);
         var plan = FloatingObservationPlan.Generate(from, to, averaging, quote, calendar, quantities);
-        var referencesForPlan = Bind(data, curve, settlement.SelectedIndex, quote, plan.Observations);
+        var referencesForPlan = Bind(data, curve, settlement, quote, plan.Observations);
         return new(plan, referencesForPlan.Projections, referencesForPlan.Fixings, calendar);
     }
 
@@ -97,7 +97,7 @@ public static class SwapObservationCompatibility
         // These are required input coordinates, not a priced quantity-weighted plan.
         // No placeholder quantities or inferred financial weights are introduced.
         var observations = FloatingObservationPlan.RequiredObservations(from, to, averaging, quote, calendar);
-        return Bind(data, curve, settlement.SelectedIndex, quote, observations);
+        return Bind(data, curve, settlement, quote, observations);
     }
 
     private static void ValidateConvention(PreviewData data, JsonElement curve,PriceSettlementSelection settlement,FloatingAveraging averaging,
@@ -119,7 +119,7 @@ public static class SwapObservationCompatibility
             throw Error("swap_observation_calendar", "Select an exact observation calendar only for a calendar-based observation convention.");
     }
 
-    private static PlannedSideObservationReferences Bind(PreviewData data, JsonElement curve, ReferenceKey index,
+    private static PlannedSideObservationReferences Bind(PreviewData data, JsonElement curve, PriceSettlementSelection settlement,
         QuoteSpecification quote, ImmutableArray<FloatingObservation> observations)
     {
         var candidates = CurveContracts(data, curve).ToLookup(contract => (contract.DeliveryFrom, contract.DeliveryTo));
@@ -131,7 +131,9 @@ public static class SwapObservationCompatibility
             var contract = matching[0];
             return new SwapProjection(new(new(data.DefinitionRevision, curve.Text("code")), contract.Key), contract, observation.AveragingQuantity);
         }).ToImmutableArray();
-        var fixings = SwapStore.Fixings(data, index, quote, projections);
+        var fixings = PriceSettlementInputs.Fixings(data, settlement, quote, [.. projections.Select(projection => projection.Contract)]);
+        if (fixings.Length != observations.Length)
+            throw Error("index_fixing_convention_missing", "Every planned observation requires one exact qualified fixing definition.");
         if (fixings.Any(fixing => !Qualified(fixing)))
             throw Error("index_fixing_definition", "Every planned observation requires qualified publication, source and exact series metadata.");
         return new(observations, projections, fixings);

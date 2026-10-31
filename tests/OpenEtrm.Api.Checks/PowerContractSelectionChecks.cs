@@ -24,7 +24,7 @@ internal static class PowerContractSelectionChecks
   var definitions=data.Definitions.SetItem("curve_members",[..data.Definitions["curve_members"].Where(
    row=>row.Text("curve_code")!=curve || row.Id("contract_id")!=contractId)]);
   var manifest=new PreviewManifest("local-synthetic-preview",data.DefinitionRevision.CatalogId,data.DefinitionRevision.RevisionId,
-   data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId,Guid.NewGuid(),Guid.NewGuid(),[],new(frame.At,curve));
+   data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId,Guid.NewGuid(),Guid.NewGuid(),[],new(frame.At,curve),FuturesConvention:"contract_lot_execution_pnl_v2");
   var changed=new PreviewData(manifest,definitions,data.References,data.Observations);
   if(changed.HasCurveMember(curve,contractId) || !frame.CurveContracts[curve].Contains(contractId))
    throw new Exception("The fixture did not isolate model membership from the selected frame.");

@@ -420,3 +420,12 @@ net physical quantity is20; contractual fixed fees remain unchanged.
 The [daily delivery quantity workflow](physical-gas-daily-quantities.md) now records
 separate trade-owned operational revisions and resolves native quantity inputs
 from retained gas grids. It leaves this fixed contractual PV profile unchanged.
+
+The integration checkpoint preserves dated-contract observation sources and the
+mandatory published-fixing admission rules in the shared schedule runtime. Local
+verification passed 651 managed core checks, 925 web checks and 44 physical gas
+browser checks. The populated prior-schema upgrade check applies migrations
+0142–0146 and proves existing reference, market, book and party rows remain
+unchanged. That check does not establish replay of an existing financial trade
+or its program history across this upgrade. Gas-bearing ordinary and streamed
+workspace scopes refuse before returning incomplete totals or starting a stream.

@@ -1,6 +1,8 @@
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Calculation;
 
 internal static class CloseRiskChecks
 {
@@ -15,6 +17,33 @@ internal static class CloseRiskChecks
             throw new Exception("A selected portfolio PPA policy must remain explicit in retained JSON.");
         Console.WriteLine("PASS existing-close policy wire compatibility and explicit portfolio PPA policy retention");
         CloseRiskPreflightChecks.Run();
+        var fixture=new PpaAcceptanceFixture();var agreement=fixture.Physical(volume:true);
+        var market=fixture.Market(fixture.From.AddDays(-1));var inputs=fixture.Prepare(market,[agreement]);
+        var balances=ValueMeasures.From(inputs.Session(market.Build).Value(agreement,new(fixture.From,fixture.From.AddHours(1)),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+        var report=new PortfolioValuationResult(market.Snapshot.Id,new("2031-10-31",null),PilotCloseJobs.QualifiedPolicy,[],[],[],[],[],new(0,0,0,1,0,0,0))
+            {PpaMeasures=[new(Guid.NewGuid(),agreement.Currency,balances,[])],PpaReceipt=inputs.Receipt};
+        var adapted=PilotCloseReports.Adapt(report);
+        if(!adapted.PpaMeasures.SequenceEqual(report.PpaMeasures)||adapted.PpaReceipt!=inputs.Receipt)
+            throw new Exception("Shared close report conversion dropped retained PPA receipt or book measures.");
+
+        var factor=market.Model.QuoteFactors(market.Snapshot).First();var curve=factor.Curves.First();
+        var parallel=new PortfolioRiskAxis("parallel",market.Snapshot.Definitions,new("market_quote",new("parallel",curve)),
+            CurveShockCoordinate.MarketQuote,new ParallelCurveTarget(curve),factor.Unit,"Synthetic curve",[],factor);
+        var contract=parallel with{Id="contract",Request=new("market_quote",new("contract",curve,Contract:factor.Contract)),Target=new ContractCurveTarget(curve,factor.Contract)};
+        var tick=ExactDecimal.Parse("0.1");
+        if(!PortfolioValuation.CanCountNativeWork([new(parallel,tick)])||
+            PortfolioValuation.CanCountNativeWork([new(parallel,tick),new(contract,tick)])||
+            PortfolioValuation.CanCountNativeWork([new(parallel with{Coordinate=CurveShockCoordinate.ComputedOutput},tick)]))
+            throw new Exception("Distinct curve target scenarios sharing one quote must retain their separate workload bound.");
+        var native=new ConnectedMarketEvidence(Guid.NewGuid(),new string('a',64),FuturesRisk.Implementation,[],[]);
+        CloseBookRiskJobs.RequireNativeEvidence([native]);
+        foreach(var unsupported in new[]{native with{Recipes=[new(Guid.NewGuid(),Guid.NewGuid(),1,"output",0,CustomCurveProjectionBinding.SupportedSelection,CustomCurveProjectionBinding.SupportedImplementation)]},
+            native with{Samples=[new(Guid.NewGuid(),market.Snapshot.ValuationAt,"synthetic_source",Guid.NewGuid(),false,[],"contract_observation",true)]}})
+        {
+            try{CloseBookRiskJobs.RequireNativeEvidence([unsupported]);throw new Exception("A native-only close admitted unretained connected source evidence.");}
+            catch(MarketDataException error)when(error.Code=="close_risk_source_evidence"){}
+        }
         var revision=new DefinitionRevision(Guid.NewGuid(),Guid.NewGuid());
         var quantity=new ReferenceKey(new(revision.CatalogId,revision.RevisionId),"synthetic_quantity");
         var currency=new ReferenceKey(quantity.Revision,"synthetic_currency");

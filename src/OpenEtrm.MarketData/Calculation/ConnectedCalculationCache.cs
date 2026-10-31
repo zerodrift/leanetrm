@@ -53,7 +53,7 @@ public sealed partial class ConnectedCurvePlan
         // slot matching. Full point/evidence identities are never changed.
         object Address(ConnectedCurvePoint p)=>p.Expression switch
         {
-            ConnectedSource {Sample:{} s} source=>new{Kind="native_source",source.Request,s.OriginalUse,s.ValuationAt,s.MarketCutoff,s.SelectionPolicy,s.FreezeHistorical},
+            ConnectedSource {Sample:{} s} source=>new{Kind="native_source",source.Request,s.OriginalUse,s.ValuationAt,s.MarketCutoff,s.SelectionPolicy,s.FreezeHistorical,s.FreezeObservation},
             ConnectedBuiltCurve b when p.Contract is not null=>new{Kind="native_built",p.Key.Curve,p.Contract.Key,b.Sample.OriginalUse,b.Sample.ValuationAt,b.Sample.MarketCutoff,b.Sample.SelectionPolicy,b.Sample.FreezeHistorical},
             _=>p.Key
         };
@@ -74,7 +74,7 @@ public sealed partial class ConnectedCurvePlan
                 cancellation.ThrowIfCancellationRequested();
                 return new{Key=keys[i],Dependencies=n.Dependencies.Select(d=>keys[d]).ToArray(),n.Weights,n.Divisor,
                     Source=n.Source is {} s?new{s.Input,s.Series,s.Quote,s.Request,Sample=s.Sample is {} sample?
-                        new{sample.ValuationAt,sample.MarketCutoff,sample.SelectionPolicy,sample.OriginalUse,sample.FreezeHistorical}:null}:null,
+                        new{sample.ValuationAt,sample.MarketCutoff,sample.SelectionPolicy,sample.OriginalUse,sample.FreezeHistorical,sample.FreezeObservation}:null}:null,
                     Built=n.Built is {} b?new{b.Rule,b.Quote,b.NumericalPolicy,MultiplierSpecification=b.Multiplier?.Specification,
                         MultiplierInput=b.MultiplierInput is {} m?new{m.Input,m.Series}:null}:null};
             }).OrderBy(n=>n.Key,StringComparer.Ordinal).ToArray()

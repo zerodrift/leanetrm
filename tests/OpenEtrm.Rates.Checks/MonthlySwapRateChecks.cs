@@ -174,8 +174,8 @@ internal static class MonthlySwapRateChecks
                 null, ShortMonth.Reject, DateRoll.Unadjusted, null, PaymentRule.Implementation);
             var unit = new Quantity(D(1), Quote.Quantity);
             fixedPeriods = contracts.Select(c => new FixedSidePeriod(c.DeliveryFrom,c.DeliveryTo,At(rule.Generate(c.DeliveryFrom,c.DeliveryTo).Date),ExactRatio.One,rule)).ToImmutableArray();
-            floatingPeriods = contracts.Select(c => new FloatingSidePeriod(c.DeliveryFrom,c.DeliveryTo,At(c.DeliveryFrom.AddDays(-1)),At(rule.Generate(c.DeliveryFrom,c.DeliveryTo).Date),FloatingAveraging.MonthlyIndexPrice,
-                [new(new(curve,c.Key),c)],[],null,null,rule,null,ExactRatio.One,FloatingSide.Implementation)).ToImmutableArray();
+            floatingPeriods = contracts.Select((c,n) => new FloatingSidePeriod(c.DeliveryFrom,c.DeliveryTo,At(c.DeliveryFrom.AddDays(-1)),At(rule.Generate(c.DeliveryFrom,c.DeliveryTo).Date),FloatingAveraging.MonthlyIndexPrice,
+                [new(new(curve,c.Key),c)],[new(index,Quote.Key,c.DeliveryFrom,c.DeliveryTo,At(c.DeliveryFrom.AddDays(-1)),CommoditySeries[n],R("source"),IndexFixing.SupportedImplementation)],null,null,rule,null,ExactRatio.One,FloatingSide.IndexedImplementation)).ToImmutableArray();
             Days = contracts.Select(c => c.DeliveryTo.DayNumber - c.DeliveryFrom.DayNumber).ToArray();
             var payments = fixedPeriods.Select(p => DateOnly.FromDateTime(p.PaymentAt.UtcDateTime)).ToArray();
             Factors = payments.Select(p => decimal.Round(365m / (365m + 0.05m * (p.DayNumber - referenceDate.DayNumber)), 18, MidpointRounding.ToEven)).ToArray();

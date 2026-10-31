@@ -1,3 +1,4 @@
+import {run as contractObservationAuthoring} from './contract-observation-authoring.mjs';
 import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -31,8 +32,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   for(const slot of [0,1]){await evaluate(`document.querySelectorAll('#scheduled-swap-editor .scheduled-side-columns>.instrument-side')[${slot}].querySelector('button').click()`);await wait(idle);}
   for(let n=0;n<months;n++){
    await evaluate(`for(const slot of [0,1]){const p=document.querySelectorAll('#scheduled-swap-editor .scheduled-side-columns>.instrument-side')[slot].querySelectorAll('.scheduled-period')[${n}];p.querySelector('[data-role=period-amount]').value='100';const price=p.querySelector('[data-role=fixed-price]');if(price)price.value=${JSON.stringify(n===0?'3':'4')};}`);
+   await label(1,n,'Floating price source','index');
    const index=JSON.stringify([catalog.indices.find(i=>i.curve===curve).definitionRevisionId,curve,catalog.indices.find(i=>i.curve===curve).index]);await label(1,n,'Projected price source','ordinary');await label(1,n,'Index and projection curve',index);await label(1,n,'Price settlement','curve_target');await label(1,n,'Price observation frequency',curve==='daily_gas'?'daily':'monthly');
-   for(const slot of [0,1]){await evaluate(`${period(slot,n)}.querySelector('button').click()`);await wait(idle);}
+   for(const slot of [0,1]){await evaluate(`[...${period(slot,n)}.querySelectorAll('button')].find(b=>b.textContent==='Apply displayed starting payment terms').click()`);await wait(idle);}
   }
  }
  let passed=0;
@@ -106,5 +108,5 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const weighted=await evaluate(`(async()=>{const b=window.syntheticScheduledBook;return window.syntheticPost('swaps/editor',{context:{snapshotId:${JSON.stringify(frame)},convention:'independent_side_financial_swap_v2',knowledgeMode:'current'},tradeId:b.result.tradeId,revision:null});})()`);
  if(weighted.valuation.presentValue!=='86.5')throw Error('Independent two-month weighted cash oracle expected 86.5, got '+weighted.valuation.presentValue);
  passed++;
- return passed;
+ return passed+await contractObservationAuthoring({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url});
 }

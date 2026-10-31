@@ -6,6 +6,7 @@ using OpenEtrm.Security;
 if(args is ["--gas-daily-quantities"]){GasDailyQuantityChecks.Run();return;}
 if(args is ["--physical-gas-quantities"]){PhysicalGasQuantityChecks.Run();return;}
 if(args is ["--physical-gas-side"]){PhysicalGasSideChecks.Run();return;}
+if(args is ["--contract-observation-schedules"]){ContractObservationScheduleChecks.Run();return;}
 if(args is ["--schedule-market-sources"]){ScheduleMarketSourceChecks.Run();return;}
 if(args is ["--schedule-input-batch"]){await ScheduleInputBatchChecks.Run();return;}
 if(args is ["--booked-side-program"]){BookedSideProgramChecks.Run();return;}
@@ -28,6 +29,7 @@ if(args is ["--ppa-connected"]){PpaConnectedChecks.Run();return;}
 if(args is ["--curve-lookups"]){CurveLookupChecks.Run();return;}
 if(args is ["--trade-contracts"]){TradeContractChecks.Run();return;}
 if(args is ["--cross-commodity-swaps"]){CrossCommoditySwapChecks.Run();return;}
+if(args is ["--observation-curve-scenarios"]){ObservationCurveScenarioChecks.Run();ObservationContractChecks.Run();ExpiryTransitionChecks.Run();PowerQuantityChecks.Run();IndexFixingChecks.Run();ConnectedRecipeChecks.Run();return;}
 if(args is ["--observation-schedules"]){ObservationScheduleChecks.Run();return;}
 if(args is ["--ppa-normalization-reuse"]){PpaNormalizationReuseChecks.Run();return;}
 if(args is ["--series-index-acceptance"]){SeriesIndexAcceptanceChecks.Run();return;}
@@ -461,6 +463,8 @@ Check("delegation cannot be borrowed by another agent", () =>
 passed += MixedResolutionChecks.Run();
 ContractSequenceChecks.Run();
 ObservationContractChecks.Run();
+ObservationCurveScenarioChecks.Run();
+ContractObservationScheduleChecks.Run();
 passed += ExpiryTransitionChecks.Run();
 passed += PowerCurveChecks.Run();
 passed += TypedPriceChecks.Run();

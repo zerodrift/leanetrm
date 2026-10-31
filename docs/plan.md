@@ -4,7 +4,7 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
-D263 adds the local [physical gas booking slice](physical-gas-side.md): fixed
+D269 adds the local [physical gas booking slice](physical-gas-side.md): fixed
 contractual delivery, independent consideration and optional usage fee, shared
 retained executable schedules, and an authorized preview/book/reopen ticket.
 Shared curve groups, point price adjustments, dated direct-meter schedule attribution
@@ -79,6 +79,15 @@ API metadata decoder resolves qualified fixing publication times without Side
 terms. Sibling composition, partial coverage, complete receipts, production
 input concurrency and the booked portfolio/worker cutover remain separate work;
 the source checks do not establish readiness for that deployment.
+
+D261 adds a bounded daily-observation consumer of exact dated futures contracts
+to scheduled swaps. Booking materializes selection results; later sampling retains
+the selected contract and observation instant. The
+[scenario matrix](observation-price-scenarios.md#bounded-source-consumer) records
+the explicit policies, backend-connected ticket authoring, retained interactive
+and queued risk, and financial cash settlement. Automated-close source evidence and
+broader source combinations remain work. This consumer does not complete the
+general booked-program cutover.
 
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.
@@ -648,6 +657,11 @@ and cell drill-through remain later work. Swap entry now covers fixed/floating
 and floating/floating financial composition with explicit spreads and reviewed
 par-rate entry (D207). Qualification includes selected actual fixings, published
 custom projections, booking replay and generated/existing-close report compatibility.
+
+The next observation-price integration starts with the
+[commodity and forward/settlement acceptance matrix](observation-price-scenarios.md).
+Qualify explicit source combinations before adding booking/pricing behavior;
+existing component tests do not establish end-to-end support.
 
 ## Milestone 0 — Record and review the design
 
@@ -1269,6 +1283,20 @@ Extend only after the baseline contracts are demonstrated:
     reproduced before any fix.
   - Rates curves on the market board.
   - A dark color scheme; the charts already follow the tokens.
+- Market dashboard follow-ups ([market-dashboard.md](market-dashboard.md)):
+  - Phase 2: provider connections, observation and event storage, the provider
+    setup screen, synthetic providers and the Weather, Inventory, Outages and
+    News widgets, with lateness against each series' declared cadence.
+  - Phase 3: intraday prices on Latest levels, from the live-price source shared
+    with the Blotter work.
+  - Phase 4: agent alerts and pinned chart cards, then watches once scheduled
+    agent tasks exist.
+  - Lateness of an expected close against its business calendar.
+  - Running a saved risk run definition from the Blotter.
+  - Dragging widgets on the Board; the page moves and sizes them one step at a
+    time.
+  - Measuring publication-lock contention from definition runs before a hosted
+    release (verification.md).
 - Live feed adapters and their entitlement/provenance controls.
 - Settlement workflows, richer administration and deployment hardening.
 
@@ -1461,12 +1489,51 @@ accepts P42:
 The pilot's next schema window applies 0122 (D256) over its hotfixed `pin_turn`.
 
 
-D261's first local slice resolves exact-contract and prompt-offset authoring terms
-at each observation fixing instant into concrete dated contract receipts. It
-shares the expiry resolver with date shortcuts and accepts explicitly supplied
-earlier roll boundaries without changing exchange expiry. The authorized
-observation-contract preview uses the same managed resolver. Remaining work is
-loading exact daily futures settlements and official final settlements under the
-selected historical context, normalized side/schedule
-persistence and admission, retained pricing of those dated references, and guided
-ticket controls. Current swap booking continues to reject unsupported terms.
+D261 resolves exact-contract and prompt-offset authoring terms at each observation
+fixing instant into concrete dated contract receipts. The scheduled ticket uses
+the managed generator and booking retains the resulting source relationships.
+Daily official settlements and explicit final carry feed connected valuation,
+interactive and queued risk, and financial cash determination. Retained risk jobs
+replay admitted observation evidence; determined cash does not demand obsolete
+source prices. Migration 0133 distinguishes fixed observations from live samples,
+even when both use the same observation record. The bounded consumer still
+requires full-month calendar-day arithmetic observations. Automated-close source evidence,
+broader source/calendar combinations and the general booked-program
+execution cutover remain separate work; see the scenario matrix.
+
+
+### Executable contract cutover
+
+D264 authorizes removing superseded executable contracts rather than preserving
+compatibility readers. Current inputs must state current terms explicitly; obsolete
+records require explicit replacement/rebooking instead of silent conversion.
+
+The executable cutover removes the older fixed-total futures pricing convention,
+synthetic execution qualification without policy rows, model edits without an
+identifier policy, cash-only discount providers, and projection-only floating-side
+authoring. Migrations 0134–0136 retire the obsolete SQL writer and enforce the
+current execution-policy and dated-source admission contracts. Each dated indexed
+lookup requires its fixing binding; contract observations retain their individual
+fixing instants without the obsolete side-wide boundary. Existing incompatible
+records refuse rather than acquiring inferred replacement terms. This includes
+previous dated-contract programs carrying a side-wide fixing timestamp: their
+individual observation terms remain auditable, but executable schedules require
+explicit rebooking under the current format.
+
+Verification covers 648 managed core checks, 85 rate checks, API checks, 838 web
+checks and 171 swap browser checks. Disposable-database checks exercise current
+futures policies, explicit model commands, indexed fixing corrections, scheduled
+synthetic and dated-contract booking/pricing/settlement/risk replay, and coherent
+malformed schedule programs. Independent review covered source
+admission, retained pricing, lifecycle behavior and amendment boundaries.
+
+Remaining compatibility should be identified by actual callers and persisted
+contracts, not by searching for version suffixes alone.
+
+Generated-close and existing-close jobs retain distinct operation identities and
+publication permissions while sharing pricing. Historical migrations and upgrade
+checks remain necessary to reproduce supported database upgrades. Neither
+migration history nor distinct current operations are duplicate pricing engines.
+
+
+D268 adds a streamed Blotter valuation (`POST /api/trading/workspace/stream`: start count, complete rows per trade as they finish, totals once at the end) with a client reader in `web/src/blotter-stream.ts`. Blotter UI adoption (progress bar, grid built once, removal of `progressive`) is separate work.

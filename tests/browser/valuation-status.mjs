@@ -18,6 +18,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `(()=>{const r=${table};return r.asOf.startsWith('2020-12-31')&&r.unvaluedPositions>0&&r.holdings.some(h=>h.unavailableReason===null)&&document.querySelector('#error').hidden;})()`,table+'.asOf');
   await check('an unvalued position shows the Not valued chip with its reason, and blank value cells, never zero',
     "(()=>{const cell=[...document.querySelectorAll('#desk-positions .desk-unvalued')].find(c=>c.textContent.includes('Contract expired · awaiting settlement')),row=cell?.closest('.tabulator-row');return !!cell&&cell.querySelector('.desk-chip').textContent==='Not valued'&&!cell.querySelector('.desk-figure')&&row.querySelector('[tabulator-field=c4]').textContent==='';})()");
+  await check('a swap with a missing published index fixing shows its exact reason and a blank value',
+    "(()=>{const cell=[...document.querySelectorAll('#desk-positions .desk-unvalued')].find(c=>c.textContent.includes('Missing published index fixing')),row=cell?.closest('.tabulator-row');return !!cell&&cell.querySelector('.desk-chip').textContent==='Not valued'&&!cell.querySelector('.desk-figure')&&row.querySelector('[tabulator-field=c4]').textContent==='';})()");
   // The side panel says the same in place of a value, and has no mark minus price for a position with no mark.
   await click("#desk-positions .tabulator-row:not(.tabulator-group):has(.desk-unvalued)");
   await wait("document.querySelector('#position-details')?.hidden===false");
@@ -39,7 +41,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "(()=>{const rows=document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)'),lines=document.querySelectorAll('#desk-positions svg.sparkline');return rows.length>0&&lines.length===rows.length&&[...document.querySelectorAll('#desk-positions svg.sparkline-unavailable title')].some(t=>t.textContent.startsWith('Curve shape unavailable'));})()");
   await click('#blotter-export');await wait('!!window.__blotterCsv');
   await check('the export states its grouping, the positions it cannot value and why each value is missing',
-    `(async()=>{const s=await window.__blotterCsv.text();return s.includes('"Grouping","Book"')&&s.includes('"Positions not valued at this close","'+${table}.unvaluedPositions+'"')&&s.includes('"Not valued · Contract expired · awaiting settlement"')&&s.includes('"Not valued · Missing price at this close"');})()`);
+    `(async()=>{const s=await window.__blotterCsv.text();return s.includes('"Grouping","Book"')&&s.includes('"Positions not valued at this close","'+${table}.unvaluedPositions+'"')&&s.includes('"Not valued · Contract expired · awaiting settlement"')&&s.includes('"Not valued · Missing published index fixing"');})()`);
   await menu('blotter-pivot');await set('#blotter-mode','pivot');await click('#blotter-dimensions input[value="book"]');
   for(const measure of ['presentValue','executionPnl','tradeCount'])await click(`#blotter-measures input[value="${measure}"]`);
   await click('#blotter-apply');await wait(`${table}?.view.mode==='pivot'&&${loaded}`);

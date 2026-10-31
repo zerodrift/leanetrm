@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Npgsql;
@@ -21,11 +22,19 @@ internal static class PpaBlotter
     internal static async Task<ImmutableArray<JsonObject>> Read(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,
         InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null)
     {
+        var rows=ImmutableArray.CreateBuilder<JsonObject>();
+        await foreach(var unit in (await Run(connection,database,data,frame,bookIds,portfolioIds,ct,position)).Units(ct))rows.AddRange(unit);
+        return rows.ToImmutable();
+    }
+    // The Blotter's PPAs: the bindings of the trades in scope, read before any is valued.
+    internal static async Task<PpaBlotterRun> Run(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,
+        InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null)
+    {
         var books=await new FuturesStore(database.Manifest).Books(connection,ct);
         FuturesStore.ValidateScope(books,bookIds,portfolioIds);
         var selected=books.Where(b=>(bookIds.IsEmpty||bookIds.Contains(b.Id("id")))&&(portfolioIds.IsEmpty||portfolioIds.Contains(b.Id("portfolio_id"))))
             .Select(b=>b.Id("id")).ToImmutableArray();
-        if(selected.IsEmpty)return [];
+        if(selected.IsEmpty)return new(null);
         var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId??throw new PreviewDeniedException(),ct)).Context;
         var scope=await PpaPortfolio.Scope(connection,data,frame,context,selected,ct);
         if(position is not null)
@@ -33,6 +42,21 @@ internal static class PpaBlotter
             scope=scope.Without(scope.Heads.Keys.Where(t=>t!=position.TradeId).ToHashSet());
             position.Require(scope.Bindings);
         }
+        return new(new(connection,database,data,frame,books,context,scope));
+    }
+    internal sealed record Scoped(NpgsqlConnection Connection,PreviewDatabase Database,PreviewData Data,InputFrame Frame,
+        ImmutableArray<JsonElement> Books,ScheduleContext Context,PpaScope Scope);
+    // A run of no selected books has no positions.
+    internal sealed class PpaBlotterRun(Scoped? scoped):IBlotterProductRun
+    {
+        public int Positions{get;}=scoped?.Scope.Bindings.Length??0;
+        // Each held trade is one unit: the valued trades once the shared preparation is done, each after its bindings are
+        // valued, then the trades listed unvalued, by reason.
+        public IAsyncEnumerable<ImmutableArray<JsonObject>> Units(CancellationToken ct)=>scoped is null?AsyncEnumerable.Empty<ImmutableArray<JsonObject>>():Value(scoped,ct);
+    }
+    private static async IAsyncEnumerable<ImmutableArray<JsonObject>> Value(Scoped scoped,[EnumeratorCancellation]CancellationToken ct)
+    {
+        var (connection,database,data,frame,books,context,scope)=scoped;
         // A trade with any binding booked under other versions is listed whole, so no total holds part of a trade.
         var other=scope.Bindings.Where(b=>!PpaPortfolio.SameVersions(data,b)).Select(b=>b.Id("trade_id")).ToHashSet();
         var facts=await Facts(connection,database.Manifest.CatalogId,scope.Heads,ct);
@@ -41,46 +65,57 @@ internal static class PpaBlotter
         var retained=new RetainedScheduleStore(data.DefinitionRevision.CatalogId);
         var prepared=await PpaPortfolio.Prepare(connection,data,frame,context,priced,PendingActuals,SchedulePreview.ParseAt(context.KnownAt),
             IntervalKnowledgePolicy.ResolvedCutoff,ct,retained,admission);
-        var valued=Valued(prepared);
+        if(prepared is not null)
+        {
+            var session=prepared.Receipt.Instruments.IsEmpty?throw new PreviewDeniedException():prepared.Portfolio.Setup.Interval!.Session(prepared.Market);
+            foreach(var trade in ByTrade(prepared.Bindings,b=>b.TradeId!.Value))yield return [..trade.Select(binding=>Valued(prepared,session,binding))];
+        }
         var rebook=admission.Refusals.Where(p=>p.Value.Any(PpaBlotterAdmission.NeedsRebooking)).Select(p=>p.Key).ToHashSet();
         var unpriced=admission.Refusals.Keys.Where(t=>!rebook.Contains(t)).ToHashSet();
-        var result=ImmutableArray.CreateBuilder<JsonObject>();
-        result.AddRange(valued);
-        if(other.Count>0)result.AddRange(await Unvalued(connection,database.Manifest.CatalogId,scope,other,OtherVersions,facts,books,ct));
-        if(unpriced.Count>0)result.AddRange(await Unvalued(connection,database.Manifest.CatalogId,scope,unpriced,UnpricedDelivery,facts,books,ct));
-        if(rebook.Count>0)
-            foreach(var row in await Unvalued(connection,database.Manifest.CatalogId,scope,rebook,NeedsRebooking,facts,books,ct))
-            {
-                row["unavailableCodes"]=JsonSerializer.SerializeToNode(admission.Refusals[row["tradeId"]!.GetValue<Guid>()].Order(StringComparer.Ordinal));
-                result.Add(row);
-            }
-        return result.ToImmutable();
-
-        ImmutableArray<JsonObject> Valued(PpaPortfolioInput? prepared)
+        foreach(var (trades,reason) in new[]{(other,OtherVersions),(unpriced,UnpricedDelivery),(rebook,NeedsRebooking)})
         {
-            if(prepared is null)return [];
-            var rows=ImmutableArray.CreateBuilder<JsonObject>();
-            var session=prepared.Receipt.Instruments.IsEmpty?throw new PreviewDeniedException():prepared.Portfolio.Setup.Interval!.Session(prepared.Market);
-            foreach(var binding in prepared.Bindings)
+            if(trades.Count==0)continue;
+            foreach(var trade in ByTrade(await Unvalued(connection,database.Manifest.CatalogId,scope,trades,reason,facts,books,ct),r=>r["tradeId"]!.GetValue<Guid>()))
             {
-                var instrument=binding.Instrument;var trade=binding.TradeId!.Value;
-                var measures=ValueMeasures.From(session.Value(instrument,binding.Coverage,prepared.Portfolio.Setup.InstrumentDiscounting[instrument.Id])).Scale(binding.Mw);
-                var evidence=prepared.Evidence.Single(e=>e.TradeId==trade&&e.BindingId==binding.BindingId);
-                var specification=data.References["quantity_specifications"].Single(q=>q.Text("code")==instrument.UnitQuantity.Specification.Code);
-                var commodity=data.References["commodities"].Single(c=>c.Text("code")==specification.Text("commodity_code"));
-                string[] curves=[..prepared.Portfolio.Setup.Interval!.Dependencies(instrument,binding.Coverage).Select(d=>d.Curve.Code).Distinct().Order()];
-                var row=Row(new(facts[trade],prepared.Heads[trade],Book(books,prepared.Heads[trade]),evidence.TradeReference,evidence.InstrumentReference,
-                    instrument.Id,binding.BindingId,binding.Revision!.Value,data.DefinitionRevision.RevisionId,curves,JsonSerializer.Serialize(curves),"PPA · independent schedules",
-                    (commodity.Text("code"),commodity.Text("name")),instrument.Delivery.From,instrument.Delivery.To,binding.Coverage,binding.Mw,
-                    data.References["units"].Single(u=>u.Text("code")==specification.Text("unit_code")).Text("symbol"),instrument.UnitQuantity.Specification,
-                    instrument.Currency,data.References["currencies"].Single(c=>c.Text("code")==instrument.Currency.Code).Text("display_code")));
-                row["presentValue"]=measures.ValueExcludingOverdue.ToExactString();row["unavailableReason"]=null;
-                row["completePv"]=measures.CompletePv?.ToExactString();
-                row["overdueKnown"]=measures.OverdueKnownBalance.ToExactString();row["overdueEstimated"]=measures.OverdueEstimated.ToExactString();
-                rows.Add(row);
+                if(reason==NeedsRebooking)
+                    foreach(var row in trade)row["unavailableCodes"]=JsonSerializer.SerializeToNode(admission.Refusals[row["tradeId"]!.GetValue<Guid>()].Order(StringComparer.Ordinal));
+                yield return trade;
             }
-            return rows.ToImmutable();
         }
+
+        // One valued binding's row.
+        JsonObject Valued(PpaPortfolioInput prepared,IntervalValuationSession session,PpaBinding binding)
+        {
+            var instrument=binding.Instrument;var trade=binding.TradeId!.Value;
+            var measures=ValueMeasures.From(session.Value(instrument,binding.Coverage,prepared.Portfolio.Setup.InstrumentDiscounting[instrument.Id])).Scale(binding.Mw);
+            var evidence=prepared.Evidence.Single(e=>e.TradeId==trade&&e.BindingId==binding.BindingId);
+            var specification=data.References["quantity_specifications"].Single(q=>q.Text("code")==instrument.UnitQuantity.Specification.Code);
+            var commodity=data.References["commodities"].Single(c=>c.Text("code")==specification.Text("commodity_code"));
+            string[] curves=[..prepared.Portfolio.Setup.Interval!.Dependencies(instrument,binding.Coverage).Select(d=>d.Curve.Code).Distinct().Order()];
+            var row=Row(new(facts[trade],prepared.Heads[trade],Book(books,prepared.Heads[trade]),evidence.TradeReference,evidence.InstrumentReference,
+                instrument.Id,binding.BindingId,binding.Revision!.Value,data.DefinitionRevision.RevisionId,curves,JsonSerializer.Serialize(curves),"PPA · independent schedules",
+                (commodity.Text("code"),commodity.Text("name")),instrument.Delivery.From,instrument.Delivery.To,binding.Coverage,binding.Mw,
+                data.References["units"].Single(u=>u.Text("code")==specification.Text("unit_code")).Text("symbol"),instrument.UnitQuantity.Specification,
+                instrument.Currency,data.References["currencies"].Single(c=>c.Text("code")==instrument.Currency.Code).Text("display_code")));
+            row["presentValue"]=measures.ValueExcludingOverdue.ToExactString();row["unavailableReason"]=null;
+            row["completePv"]=measures.CompletePv?.ToExactString();
+            row["overdueKnown"]=measures.OverdueKnownBalance.ToExactString();row["overdueEstimated"]=measures.OverdueEstimated.ToExactString();
+            return row;
+        }
+    }
+    // Bindings or their rows, one unit per trade, in their order. They arrive grouped by trade; grouping them here instead
+    // would reorder rows against the scope, so a trade whose bindings are apart is a defect.
+    internal static ImmutableArray<ImmutableArray<T>> ByTrade<T>(IEnumerable<T> bindings,Func<T,Guid> trade)
+    {
+        var units=new List<List<T>>();var seen=new HashSet<Guid>();
+        foreach(var binding in bindings)
+        {
+            var key=trade(binding);
+            if(units.Count>0&&trade(units[^1][0])==key){units[^1].Add(binding);continue;}
+            if(!seen.Add(key))throw new InvalidOperationException("PPA bindings are not grouped by trade.");
+            units.Add([binding]);
+        }
+        return [..units.Select(unit=>unit.ToImmutableArray())];
     }
     // Each listed trade's booking facts and the exact revisions of its parties.
     private static async Task<Dictionary<Guid,JsonElement>> Facts(NpgsqlConnection connection,Guid catalog,ImmutableDictionary<Guid,JsonElement> heads,CancellationToken ct)

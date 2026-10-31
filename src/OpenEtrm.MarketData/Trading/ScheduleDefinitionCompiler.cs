@@ -194,6 +194,15 @@ public static partial class ScheduleDefinitionCompiler
                 {
                     var term=plan.Prices[n];var key=prefix+"/observation/"+n;int price;
                     if(term.FixedPrice is {} fixedPrice)price=Price(key,fixedPrice.At(term.FixedPriceDate??DateOnly.MinValue),plan);
+                    else if(term.ContractObservation is {} observation)
+                    {
+                        var unit=PriceUnit.FromQuote(observation.Quote);
+                        price=Row(key,"source",ContractObservationScheduleSource.Operation,"price",plan,unit.Quantity,unit.Currency,unit.Multiplier.ToString(),
+                            ContractObservationScheduleSource.Parameters(observation),observation.From,observation.To);
+                        Binding(price,"market","contract_price",market:observation.Market);
+                        Binding(price,"quote","quote",reference:observation.Quote.Key);
+                        Binding(price,"settlement","settlement_source",reference:observation.Source,series:observation.Series,coordinate:observation.Role.ToString());
+                    }
                     else price=Lookup(key,term.Lookup!,plan);
                     if(term.Spread is {} spread)
                     {

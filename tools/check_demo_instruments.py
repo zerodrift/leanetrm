@@ -1,5 +1,6 @@
 """Independent mixed-instrument acceptance in an owned disposable preview."""
 from fractions import Fraction
+from pathlib import Path
 from uuid import uuid4
 from preview_client import PreviewClient
 from seed_demo_instruments import seed_heat_rates, seed_ppas
@@ -31,6 +32,8 @@ def run_checks(url, manifest, query, *, run_worker, owned_root, run_id, psql, en
     rows = workspace['blotter']['holdings']
     assert len(rows) == 33 and {r['instrumentType'] for r in rows} == {'future', 'financial_swap', 'heat_rate', 'ppa'}
     print('PASS all eight heat-rate and five PPA bindings appear in the shared blotter', flush=True)
+    from check_blotter_stream import run_checks as check_stream
+    check_stream(c, context, view, rows, original_context, query, psql, environment, Path(owned_root)/'app.log')
     from check_position_facts import run_checks as check_facts
     check_facts(c,context,view,rows,query,psql,environment,owned_root)
     from check_position_details import run_checks as check_details

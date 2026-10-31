@@ -41,7 +41,8 @@ def prepare(market,manifest):
             observations.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REV}','{series}',{R},'fixture','scheduled_{ordinal}_{sample}','1','trader_mark','final','{frame['at']}','{datetime.now(timezone.utc).isoformat()}',{price},NULL);")
     market=market.replace('UPDATE market_data.revisions SET','\n'.join(definitions)+'\nUPDATE market_data.revisions SET',1)
     market=market.rsplit('COMMIT;',1)[0]+'\n'+'\n'.join(observations)+'\nCOMMIT;\n'
-    return market
+    from check_contract_observation_booking import prepare as prepare_contract_observations
+    return prepare_contract_observations(market,manifest)
 
 
 def check_unvalued_lifecycle(c,workspace,trade,run_worker):
@@ -252,6 +253,9 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
             assert c.call('swaps/quantity-schedule',dict(context=context,tradeId=power_saved['tradeId'],revision=1),expected=403)['code']=='access_denied'
         finally:
             query('GRANT EXECUTE ON FUNCTION security.read_swap_power_quantity_intervals(uuid,uuid,integer) TO openetrm_runtime;')
+    if query and run_worker is not None:
+        from check_swap_quantity_worker import run as check_quantity_worker
+        check_quantity_worker(url,query,manifest,f['at'],power_saved['tradeId'])
     print('PASS retained power quantity read: 2930 exact intervals fit the normal request deadline; unbound authority refuses',flush=True)
     assert retained['quantityInputs'][1]['periods'][1]['deliveryHours']=='720'
     new_york=next(q['reference'] for q in catalog['scheduledOptions']['clocks'] if q['reference']['code']=='synthetic_new_york')
@@ -394,4 +398,6 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     print('PASS scheduled swap HTTP: period totals, daily rates, total allocation, cash/PV, replay and exact revision amendment')
     from check_scheduled_observations import run as check_scheduled_observations
     check_scheduled_observations(c,context,manifest)
+    from check_contract_observation_booking import run as check_contract_observations
+    check_contract_observations(c,context,body,query,run_worker=run_worker)
     return dict(frame=partial,tradeId=mixed_saved['tradeId'],currency=value['currency'],netTradeId=net_fixture['tradeId'])

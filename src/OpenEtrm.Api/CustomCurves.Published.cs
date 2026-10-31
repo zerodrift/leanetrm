@@ -33,7 +33,7 @@ public static partial class CustomCurves
             try
             {
                 var version=versions.SingleOrDefault(v=>v.Id==reference.CurveId&&v.Version==reference.Version);
-                if(version is null||version.State!="published"||version.Definition.Output!=reference.OutputNode||version.PublishedAt is null||version.PublishedAt>resolved.KnownAt)
+                if(version is null||version.State!="published"||version.EngineVersion!=RecipeEngine.Version||version.Definition.Output!=reference.OutputNode||version.PublishedAt is null||version.PublishedAt>resolved.KnownAt)
                     throw Invalid("The exact published topology is unavailable in this context.");
                 await new CustomCurvesStore(database).RequirePublishedSource(connection,reference,data.DefinitionRevision.RevisionId,ct);
                 var parents=new Dictionary<string,RecipeTopology>();

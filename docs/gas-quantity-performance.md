@@ -14,7 +14,7 @@ History is a separate demand-loaded read pinned to the grid's captured context.
 Opening history while another operation runs queues the read without losing its
 context. No selected-quantity result cache or permission cache was introduced.
 
-Migration 0134 adds indexes for per-trade command counts and per-series history.
+Migration 0146 adds indexes for per-trade command counts and per-series history.
 The batch adapter requires an exact bound request/catalog/context/as-of, checks
 current trade, market, reference and setup authority before and after its read,
 and applies the same publication high-water mark, certified receipt knowledge

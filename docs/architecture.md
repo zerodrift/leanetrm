@@ -6,7 +6,7 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
-D263 adds the local [physical gas booking slice](physical-gas-side.md): fixed
+D269 adds the local [physical gas booking slice](physical-gas-side.md): fixed
 contractual delivery, independent consideration and optional usage fee, shared
 retained executable schedules, and an authorized preview/book/reopen ticket.
 Shared curve groups, point price adjustments, dated direct-meter schedule attribution

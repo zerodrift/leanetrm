@@ -75,7 +75,7 @@ internal static class DirectReadChecks
             }
             Same($"{view.Name} curve names match their page",await Direct(view,"curve names",(c,ct)=>reads.CurveNames(c,view.Pin(),ct)),view.Page("curveNames"));
             // Its rows link units, commodities and measurement bases, which the page names from their exact rows.
-            Same($"{view.Name} reference page matches its page",await Direct(view,"reference page",(c,ct)=>reads.References(c,view.Pin(),"quantity_specifications",0,"",ct)),view.Page("references"),
+            Same($"{view.Name} reference page matches its page",await Direct(view,"reference page",(c,ct)=>reads.References(c,view.Pin(),"quantity_specifications",0,"",null,ct)),view.Page("references"),
                 "table","rows","references","offset","pageSize","maximumOffset","hasMore","search","referenceRevision","definitionRevisionId");
             foreach(var curve in view.Page("evaluations").AsObject())
             {

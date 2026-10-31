@@ -8,13 +8,13 @@ public sealed partial class CurveModel
     // Compile exact domain relationships and selected observations. No numerical
     // evaluation occurs here; ordinary curves and recipes share the graph engine.
     public ConnectedCurveExport Compile(MarketSnapshot snapshot,ImmutableArray<CurveRequest> requests,
-        bool freezeHistorical,ResolvedCalculationContext context,CancellationToken cancellation=default)
-        =>CompileValidated(snapshot,requests,freezeHistorical,context,ValidateSnapshot(snapshot,cancellation),cancellation);
+        bool freezeHistorical,ResolvedCalculationContext context,CancellationToken cancellation=default,bool freezeObservation=false)
+        =>CompileValidated(snapshot,requests,freezeHistorical,context,ValidateSnapshot(snapshot,cancellation),cancellation,freezeObservation);
 
     private ConnectedCurveExport CompileValidated(MarketSnapshot snapshot,ImmutableArray<CurveRequest> requests,
-        bool freezeHistorical,ResolvedCalculationContext context,ImmutableDictionary<InputKey,SelectedObservation> inputs,CancellationToken cancellation)
+        bool freezeHistorical,ResolvedCalculationContext context,ImmutableDictionary<InputKey,SelectedObservation> inputs,CancellationToken cancellation,bool freezeObservation=false)
     {
-        if(context is null||snapshot.ValuationAt>context.ValuationAt||snapshot.MarketCutoff>context.MarketAsOf||
+        if(context is null||freezeObservation&&(freezeHistorical||snapshot.ValuationAt!=context.ValuationAt)||snapshot.ValuationAt>context.ValuationAt||snapshot.MarketCutoff>context.MarketAsOf||
             freezeHistorical!=(snapshot.ValuationAt<context.ValuationAt)||!freezeHistorical&&snapshot.MarketCutoff!=context.MarketAsOf)
             throw new MarketDataException("connected_curve_source","Compile an exact source snapshot with explicit historical freezing under the selected resolved context.");
         if(requests.IsDefault||requests.Distinct().Count()!=requests.Length)
@@ -32,7 +32,7 @@ public sealed partial class CurveModel
                 return frozen;
             }
             if(points.TryGetValue((request,use),out var existing))return existing;
-            var sample=new ConnectedSourceSample(snapshot.Id,snapshot.ValuationAt,snapshot.MarketCutoff,snapshot.SelectionPolicy,use,freezeHistorical);
+            var sample=new ConnectedSourceSample(snapshot.Id,snapshot.ValuationAt,snapshot.MarketCutoff,snapshot.SelectionPolicy,use,freezeHistorical){FreezeObservation=freezeObservation};
             var key=new CurvePointKey(request.Curve,ConnectedIdentity.Id(new{Version="connected_curve_build_v1",request,Use=use,Sample=sample}));
             points.Add((request,use),key);pending.Enqueue((request,use));return key;
         }
@@ -45,7 +45,7 @@ public sealed partial class CurveModel
             var contract=contracts[request.Contract];
             if(use==InputUse.Variable&&snapshot.ValuationAt>=contract.Expiry)
                 throw new MarketDataException("source_expired","A live constituent expired; an explicit supported transition is required.");
-            var sample=new ConnectedSourceSample(snapshot.Id,snapshot.ValuationAt,snapshot.MarketCutoff,snapshot.SelectionPolicy,use,freezeHistorical);
+            var sample=new ConnectedSourceSample(snapshot.Id,snapshot.ValuationAt,snapshot.MarketCutoff,snapshot.SelectionPolicy,use,freezeHistorical){FreezeObservation=freezeObservation};
             var quote=Quote(curve);ConnectedCurveExpression expression;
             if(curve.Rule==CurveRule.Direct)
             {
@@ -58,11 +58,15 @@ public sealed partial class CurveModel
                     throw new MarketDataException("selection_mismatch","Selected quote, source, role or finality is incompatible.");
                 if(use==InputUse.FrozenFact&&(contract.Kind!=ContractKind.Future&&curve.ConstituentExpiry!=ConstituentExpiryRule.FreezeFinalSettlement||observation.ObservedAt<contract.Expiry))
                     throw new MarketDataException("frozen_fact","Final future settlement must be observed at or after its explicit expiry.");
-                expression=new ConnectedSource(request,freezeHistorical?key with{Use=InputUse.FrozenFact}:key,
+                if(freezeObservation&&(use!=InputUse.Variable||observation.ObservedAt!=snapshot.ValuationAt||
+                    observation.Role is not(ObservationRole.DailySettlement or ObservationRole.TraderMark)))
+                    throw new MarketDataException("connected_curve_source","Explicit current fixing requires its exact current economic observation and live original source.");
+                expression=new ConnectedSource(request,freezeHistorical||freezeObservation?key with{Use=InputUse.FrozenFact}:key,
                     observation,quote,series[key.Series]){Sample=sample};
             }
             else
             {
+                if(freezeObservation)throw new MarketDataException("connected_curve_source","Current observation freezing requires a direct qualified source.");
                 if(use!=InputUse.Variable)throw new MarketDataException("unsupported_expiry","Composite final settlements are not implemented.");
                 CurvePointReference Dependency(InputSlot slot)
                 {

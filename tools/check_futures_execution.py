@@ -1,5 +1,6 @@
 """Generic execution qualification on newly owned synthetic resources only."""
 import json
+import re
 from decimal import Decimal
 from datetime import datetime
 from uuid import uuid4
@@ -7,6 +8,8 @@ from preview_client import PreviewClient
 
 
 def prepare(reference,market,manifest):
+    # This fixture supplies its own explicit candidate qualification below.
+    market=re.sub(r"DO \$policy\$ BEGIN.*?END \$policy\$;", "", market, flags=re.S)
     r=manifest['referenceCatalogId'];rev=manifest['referenceRevisionId']
     reference=reference.replace("'Synthetic fixed-lot gas future','synthetic'","'Synthetic fixed-lot gas future','candidate'")
     reference=reference.replace("'2021-01','synthetic'","'2021-01','candidate'")
@@ -27,6 +30,11 @@ INSERT INTO ref_data.futures_execution_policies(catalog_id,revision_id,series_co
 
 def run_checks(url,query,manifest):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'});w=c.call('workspace')
+    # The futures product page's read returns its contracts' execution eligibility exactly as the references hold it.
+    product=c.call('reference/futures-product?code=test_gas_future')
+    held=[p for p in w['references']['futures_execution_policies'] if p['series_code'] in {s['code'] for s in product['series']}]
+    canonical=lambda rows:sorted(json.dumps(r,sort_keys=True) for r in rows)
+    assert held and canonical(product['executionPolicies'])==canonical(held),'The product read must return its contracts\' execution policies'
     frame=next(f for f in w['frames'] if f['at'].startswith('2020-12-18'))
     context={'snapshotId':frame['id'],'convention':w['futuresConvention'],'knowledgeMode':'current'}
     catalog=c.call('futures/catalog',context);future=catalog['contracts'][0]
@@ -66,7 +74,8 @@ def run_checks(url,query,manifest):
     # synthetic legacy convention. All edits are rolled back in this owned DB.
     synthetic=f"ALTER TABLE ref_data.futures_products DISABLE TRIGGER guard_definition;UPDATE ref_data.futures_products SET definition_state='synthetic' WHERE revision_id='{rev}' AND code='test_gas_future';ALTER TABLE ref_data.futures_series DISABLE TRIGGER guard_definition;UPDATE ref_data.futures_series SET definition_state='synthetic' WHERE revision_id='{rev}' AND code='test_gas_202101';ALTER TABLE ref_data.futures_milestones DISABLE TRIGGER guard_definition;UPDATE ref_data.futures_milestones SET event_at='2020-11-30T13:00:00Z' WHERE revision_id='{rev}' AND series_code='test_gas_202101' AND milestone='first_trading';"
     raw(synthetic+policy_edit+"eligibility_rule='explicit_utc_bound_v1',source_date_offset_seconds=NULL"+target,role='daily_settlement',implementation='fixed_total_cash_execution_pnl_v1')
-    raw(synthetic+policy_edit+"eligibility_rule='source_first_trade_instant_v1',source_date_offset_seconds=NULL,eligible_from='2020-11-30T13:00:00Z'"+target,role='daily_settlement',implementation='fixed_total_cash_execution_pnl_v1',reject=False)
+    raw(synthetic+policy_edit+"eligibility_rule='source_first_trade_instant_v1',source_date_offset_seconds=NULL,eligible_from='2020-11-30T13:00:00Z'"+target,role='daily_settlement',implementation='fixed_total_cash_execution_pnl_v1')
+    raw(synthetic+f"ALTER TABLE ref_data.futures_execution_policies DISABLE TRIGGER frozen_definition;DELETE FROM ref_data.futures_execution_policies WHERE revision_id='{rev}' AND series_code='test_gas_202101';",role='daily_settlement')
     havana=f"ALTER TABLE ref_data.clock_rules DISABLE TRIGGER guard_definition;UPDATE ref_data.clock_rules SET kind='iana',fixed_offset_seconds=NULL,iana_zone='America/Havana',tzdb_version='2026c' WHERE revision_id='{rev}' AND code='test_utc';ALTER TABLE ref_data.futures_milestones DISABLE TRIGGER guard_definition;UPDATE ref_data.futures_milestones SET business_date='2026-10-31' WHERE revision_id='{rev}' AND series_code='test_gas_202101' AND milestone='first_trading';"
     for offset in (-14400,-18000):
         raw(havana+policy_edit+f"source_date_offset_seconds={offset},source_date_tzdb_version='2026c',eligible_from='2026-11-02T12:30:00Z'"+target)

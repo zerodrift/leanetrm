@@ -68,6 +68,139 @@ if(hostedAuthentication is not null)hostedAuthentication.SignedOut=turnStreams.E
 
 var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"} };
 
+const string malformed="The request is incomplete or malformed.";
+// The HTTP status, code and message an API failure is reported with: as an error body, or as the error frame of a started Blotter stream.
+(int Status,string Code,string Message) Failure(Exception e,PathString apiPath,HttpContext context)=>e switch
+{
+    // A missing or ended session is session_ended on the assistant's routes, which offer a reload; pages keep access_denied (§8).
+    PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
+    PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
+    MarketDataException m when m.Code is "swap_conflict" or "ppa_conflict" => (409,m.Code,m.Message),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal) && p.MessageText.Contains("conflict",StringComparison.Ordinal)
+        => (409,p.MessageText,"The request, retained content or trade revision changed. Reconcile the original operation or reload its current revision."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal)
+        => (422,p.MessageText,"The complete retained schedule requires compatible exact references, typed operations and an immutable validated manifest."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "settlement_version_conflict" or "settlement_operation_conflict" => (409,p.MessageText,"Reconcile the original operation or reload the settlement version."),
+    MarketDataException m when m.Code is "settlement_stale_preview" or "settlement_version_conflict" => (409,m.Code,m.Message),
+    PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("settlement_",StringComparison.Ordinal) || p.MessageText.StartsWith("meter_finality_",StringComparison.Ordinal)) => (422,p.MessageText,"Settlement requires compatible, final, certified evidence and explicit policies."),
+    CloseRiskInputsException c => (422,CloseRiskInputsException.Code,c.Message),
+    RiskRunTieException t => (409,RiskRunTieException.Code,t.Message),
+    AutomationException a => (422,a.Code,a.Message),
+    OpenEtrm.Shared.Calculation.CalculationException g => (422,g.Code,g.Message),
+    OpenEtrm.Shared.Analytics.OverlayException o => (422,o.Code,o.Message),
+    PostgresException p when p.MessageText=="curve_activation_conflict" => (409,p.MessageText,"The activation timeline or request changed. Reload or retry the exact original request."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("curve_activation_",StringComparison.Ordinal) => (422,p.MessageText,"Supply disjoint effective intervals and exact published outputs under the complete timeline policy."),
+    PostgresException p when p.MessageText is "job_conflict" => (409,p.MessageText,"The job or request changed. Refresh or reconcile the original request."),
+    PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
+    PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/jobs/pilot-close") => (422,"pilot_profile","Choose supported exact books, curves, sources, policies and schedule terms."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("pilot_",StringComparison.Ordinal) => (422,p.MessageText,"Choose complete explicit pilot close inputs, supported policies and an available exact anchor."),
+    PostgresException p when p.MessageText is "infrastructure_busy" => (409,p.MessageText,"Wait for active workloads or pending maintenance to finish before requesting node maintenance."),
+    PostgresException p when p.MessageText is "infrastructure_conflict" => (409,p.MessageText,"The node changed. Refresh infrastructure before requesting another action."),
+    PostgresException p when p.SqlState=="23505" && apiPath.StartsWithSegments("/api/infrastructure") => (409,"infrastructure_busy","Cluster maintenance is already queued, running or awaiting reconciliation."),
+    PostgresException p when p.MessageText is "infrastructure_input" => (422,p.MessageText,"Supply a supported infrastructure operation and exact target version."),
+    PostgresException p when p.SqlState is "23502" or "23514" or "22P02" or "22007" or "22008" or "22003" && apiPath.StartsWithSegments("/api/jobs") => (422,"job_input","The job contract has missing, malformed or unsupported fields."),
+    PostgresException p when p.MessageText is "job_input" or "job_transition" or "job_limit" => (422,p.MessageText,"Supply a supported job contract or an available action within its limits."),
+    AntiforgeryValidationException => (400,"request_token","Reload the preview to obtain a valid request token."),
+    MarketDataException m when m.Code is "shortcut_conflict" or "tou_conflict" or "table_view_conflict" or "dashboard_layout_conflict" or "dashboard_request_conflict" or "risk_definition_conflict" or "risk_definition_request_conflict" or "futures_revision_conflict" or "swap_revision_conflict" or "custom_curve_conflict" or "contract_date_conflict" => (409,m.Code,m.Message),
+    PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/custom-curves") => (409,"custom_curve_conflict","This curve or request changed. Reload or reconcile the original request."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
+    MarketDataException m when m.Code=="reference_conflict" => (409,m.Code,m.Message),
+    MarketDataException m when m.Code=="reference_item" => (404,m.Code,m.Message),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="reference_conflict" => (409,p.MessageText,"This reference version or display selection changed. Reload before editing."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "reference_edit" or "reference_limit" or "reference_economic_change" => (422,p.MessageText,"Supply supported display fields within the authoring limits. Financial terms must remain identical before display activation."),
+    PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/tou-products") => (409,"tou_conflict","This TOU product changed or its code already exists. Reload before editing."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="ppa_conflict" => (409,p.MessageText,"The trade or operation changed. Reconcile its original request or current head."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("ppa_",StringComparison.Ordinal) => (422,p.MessageText,"The PPA operation does not meet its explicit terms, pins, coverage or limits."),
+    PostgresException p when p.MessageText is "gas_conflict" or "gas_setup_conflict" or "gas_quantity_conflict" => (409,p.MessageText,"This operation already belongs to different terms or ownership."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("gas_",StringComparison.Ordinal) => (422,p.MessageText,"The gas operation requires complete compatible terms and retained schedules."),
+    MarketDataException m => (422,m.Code,m.Message),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_denied" => (403,"access_denied","Current authority does not permit this risk job operation."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_conflict" => (409,p.MessageText,"This request identity already belongs to different risk inputs."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("risk_",StringComparison.Ordinal) => (422,p.MessageText,"The risk job does not meet its retained context, input or execution contract."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "swap_conflict" or "swap_revision_conflict" or "trade_operation_conflict" => (409,p.MessageText,"This trade or operation changed. Reconcile the original request or reload the latest revision."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("scheduled_",StringComparison.Ordinal) => (422,p.MessageText,"The scheduled swap requires complete, compatible quantity, delivery, observation and payment terms."),
+    PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("payment_",StringComparison.Ordinal)||p.MessageText=="short_month") => (422,p.MessageText,"The generated payment date does not meet its explicit rule and calendar coverage."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("swap_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit side, reference, date or lifecycle terms."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_conflict" => (409,"futures_conflict","This trade request identity already has different economics or ownership."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_revision_conflict" => (409,"futures_revision_conflict","The trade changed. Reload its latest revision before amending."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("futures_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit book, contract or execution terms."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "trade_booking_read_only" or "booking_human_required" => (422,p.MessageText,"Booking facts are server-owned and require the authenticated human workspace user."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="trade_party" => (422,p.MessageText,"Select available exact legal entity/counterparty versions."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="trade_annotation" => (422,p.MessageText,"Choose an available exact trader version; memo is limited to 4000 characters."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="historical_read_only" => (422,"historical_read_only","Return to working data before booking or amending."),
+    TemporalException t when t.Code is "date_definition_conflict" or "schedule_conflict" => (409,t.Code,t.Message),
+    TemporalException t => (422,t.Code,t.Message),
+    PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/date-schedules") => (409,"schedule_conflict","This schedule changed or the reference already exists. Reload before editing."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="admin_conflict" => (409,"admin_conflict","This account or request changed. Reload administration before editing."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="admin_limit" && context.Items.ContainsKey("model_admin_attempted") => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "last_administrator" or "self_access_change" or "admin_input" or "admin_limit" => (422,p.MessageText,"The administrative change was rejected. Keep a current administrator and supply explicit account details and roles."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_managed" => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="23505" && apiPath.StartsWithSegments("/api/admin") => (409,"admin_conflict","That account or request already exists. Reload administration."),
+    ModelAdministrationException m => (422,m.Code,m.Message),
+    ModelCallException m => (422,m.Code,m.Message),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_admin_conflict" || p.SqlState=="23505" && context.Items.ContainsKey("model_admin_attempted")
+        => (409,"model_admin_conflict","This provider, model or request changed, or its current state does not allow the change. Reload Settings › AI before repeating the change under a new request."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_provider_unqualified" or "model_provider_disabled" or "model_unqualified" or "model_mapping_unconfirmed"
+        or "model_unpriced" or "test_in_progress" or "model_changed" or "model_disabled" or "agent_retired"
+        => (409,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_role_lacks_permission" => (422,p.MessageText,AgentAdministration.RoleRefusal(AgentAdministration.Lacking(p.Hint))),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "agent_not_allowed" or "grant_permission_missing" => (403,p.MessageText,AgentGrants.Refusal(p.MessageText,p.Hint)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_unknown" => (404,p.MessageText,AgentGrants.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_conflict" => (409,p.MessageText,AgentGrants.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_input" => (422,p.MessageText,AgentGrants.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_input" or "question_too_long" => (422,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_conflict" or "conversation_agent_mismatch" or "knowledge_budget_reserved"
+        or "access_changed" => (409,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "conversation_not_found" or "turn_not_found" => (404,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_required" => (403,p.MessageText,AgentTurns.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_admin_input" or "model_identifier_invalid" or "currency_unavailable" or "parameter_required"
+        or "model_limit_exceeded" or "instructions_too_long" or "grant_duration_exceeded"
+        => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_runtime_unavailable" => (503,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "report_zone_invalid" or "report_range_invalid" => (422,p.MessageText,UsageReports.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="amount_format_conflict" => (409,"amount_format_conflict","This deal display changed. Reload its precision controls before saving."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "amount_format" or "futures_lot" => (422,p.MessageText,"Supply exact supported contract lot terms or deal display precision."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_conflict" or "interval_series_revision_conflict" => (409,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_values" or "interval_series_window" or "interval_series_grid" or "interval_series_code"
+        || p.SqlState=="23514" && p.MessageText=="interval_series_definition" => (422,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="23514" && p.MessageText=="interval_curve_definition"
+        => (422,p.MessageText,"Interval contracts must be forwards on their operating date, alone in their curve and as long as its delivery profile's interval."),
+    PostgresException p when p.SqlState=="23505" => (409,"revision_conflict","This observation has already been revised. Inspect its history and explicitly select the intended revision."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="trading_history_archived" => (422,p.MessageText,"Trading history at this knowledge cutoff is archived. Select a context at or after the rebooking cutover; market and reference history remain available."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "knowledge_coverage" or "knowledge_clock" or "knowledge_tracking" or "knowledge_retention" or "knowledge_limit" or "knowledge_timeline" => (422,p.MessageText,"The requested knowledge cutoff cannot be certified. Check retained coverage, clock health and commit tracking."),
+    PostgresException p when p.SqlState=="42501" => (403,"access_denied","Database permissions rejected this operation."),
+    PostgresException p when p.SqlState is "23514" or "55000" => (422,"definition_rejected","The value or operation violates an explicit database specification."),
+    PostgresException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome cannot be confirmed. Retain the original request and inspect the audit before retrying."),
+    Exception when context.Items.ContainsKey("model_admin_attempted") && e is NpgsqlException or OperationCanceledException
+        => (503,"model_admin_outcome_unknown","The outcome is unknown. Check Settings › AI and its audit, or repeat the identical request."),
+    Exception when context.Items.ContainsKey("grant_attempted") && e is NpgsqlException or OperationCanceledException
+        => (503,"grant_outcome_unknown","The outcome is unknown. Read your grants, or repeat the identical request."),
+    Exception when context.Items.ContainsKey("turn_attempted") && e is NpgsqlException or OperationCanceledException
+        => (503,"turn_outcome_unknown","The outcome is unknown. Read your conversations, or repeat the identical request."),
+    OperationCanceledException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
+    NpgsqlException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
+    OperationCanceledException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome is unknown. Retain the request identity and inspect the audit before retrying the exact command."),
+    NpgsqlException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome is unknown. Retain the request identity and inspect the audit before retrying the exact command."),
+    OperationCanceledException when context.Items.ContainsKey("correction_attempted") => (503,"mutation_outcome_unknown","The correction outcome is unknown. Reload, inspect the input's revisions and explicitly select any saved successor before submitting again."),
+    NpgsqlException when context.Items.ContainsKey("correction_attempted") => (503,"mutation_outcome_unknown","The correction outcome is unknown. Reload, inspect the input's revisions and explicitly select any saved successor before submitting again."),
+    OperationCanceledException when context.Items.ContainsKey("swap_attempted") => (503,"swap_outcome_unknown","The trade request outcome is unknown. Reconcile or retry its retained operation identity."),
+    NpgsqlException when context.Items.ContainsKey("swap_attempted") => (503,"swap_outcome_unknown","The trade request outcome is unknown. Reconcile or retry its retained operation identity."),
+    OperationCanceledException when context.Items.ContainsKey("futures_attempted") => (503,"futures_outcome_unknown","The trade request outcome is unknown. Reconcile or retry the retained operation identity."),
+    NpgsqlException when context.Items.ContainsKey("futures_attempted") => (503,"futures_outcome_unknown","The trade request outcome is unknown. Reconcile or retry the retained operation identity."),
+    Exception when context.Items.ContainsKey("automation_attempted") && e is NpgsqlException or OperationCanceledException => (503,"job_outcome_unknown","The operation outcome is unknown. Inspect current state or retry the retained exact request identity."),
+    Exception when context.Items.ContainsKey("reference_attempted") && e is NpgsqlException or OperationCanceledException => (503,"reference_outcome_unknown","The reference change outcome is unknown. Inspect saved versions or retry the retained exact request identity."),
+    Exception when context.Items.ContainsKey("interval_series_attempted") && e is NpgsqlException or OperationCanceledException => (503,"interval_series_outcome_unknown","The save outcome is unknown. Retry the original request to recover its receipt."),
+    OperationCanceledException when context.Items.ContainsKey("risk_job_attempted") => (503,"risk_job_outcome_unknown","Job admission could not be confirmed. Reconcile or retry the exact retained request identity."),
+    NpgsqlException when context.Items.ContainsKey("risk_job_attempted") => (503,"risk_job_outcome_unknown","Job admission could not be confirmed. Reconcile or retry the exact retained request identity."),
+    OperationCanceledException => (503,"request_cancelled","The request was cancelled or exceeded its time limit."),
+    BadHttpRequestException or JsonException => (400,"request_format",malformed),
+    _ => (500,"preview_error","The preview could not complete the operation.")
+};
+// A started Blotter stream whose client still reads it ends with an error frame, since its HTTP status has been sent.
+BlotterStreamWriter? OpenStream(HttpContext context)=>context.Response.HasStarted&&context.Items[typeof(BlotterStreamWriter)] is BlotterStreamWriter{Terminated:false} writer
+    &&context.Items["client_aborted"] is CancellationToken{IsCancellationRequested:false}?writer:null;
+
 app.Use(async (context,next)=>
 {
     var origin=hosted?.PublicOrigin ?? $"http://127.0.0.1:{port}";
@@ -88,145 +221,36 @@ app.Use(async (context,next)=>
     var intervalRead=apiPath.StartsWithSegments("/api/ppa")||string.Equals(apiPath.Value,"/api/trading/position",StringComparison.OrdinalIgnoreCase);
     if(!LiveContexts.Matches(context.Request.Method,apiPath)&&!TurnStream.Matches(context.Request.Method,apiPath))deadline.CancelAfter(TimeSpan.FromSeconds(intervalRead?20:15));
     context.RequestAborted=deadline.Token;
-    const string malformed="The request is incomplete or malformed.";
     try
     {
         await next(context);
     }
-    catch (Exception e) when (!context.Response.HasStarted)
+    // A client that left a started Blotter stream is sent nothing more, and its cancelled run is no failure to report.
+    catch (OperationCanceledException) when (context.Response.HasStarted&&context.Items.ContainsKey(typeof(BlotterStreamWriter))
+        &&context.Items["client_aborted"] is CancellationToken{IsCancellationRequested:true}) {}
+    catch (Exception e) when (!context.Response.HasStarted||OpenStream(context) is not null)
     {
-        var (status,code,message)=e switch
-        {
-            // A missing or ended session is session_ended on the assistant's routes, which offer a reload; pages keep access_denied (§8).
-            PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
-            PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
-            MarketDataException m when m.Code is "swap_conflict" or "ppa_conflict" => (409,m.Code,m.Message),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal) && p.MessageText.Contains("conflict",StringComparison.Ordinal)
-                => (409,p.MessageText,"The request, retained content or trade revision changed. Reconcile the original operation or reload its current revision."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal)
-                => (422,p.MessageText,"The complete retained schedule requires compatible exact references, typed operations and an immutable validated manifest."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "settlement_version_conflict" or "settlement_operation_conflict" => (409,p.MessageText,"Reconcile the original operation or reload the settlement version."),
-            MarketDataException m when m.Code is "settlement_stale_preview" or "settlement_version_conflict" => (409,m.Code,m.Message),
-            PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("settlement_",StringComparison.Ordinal) || p.MessageText.StartsWith("meter_finality_",StringComparison.Ordinal)) => (422,p.MessageText,"Settlement requires compatible, final, certified evidence and explicit policies."),
-            CloseRiskInputsException c => (422,CloseRiskInputsException.Code,c.Message),
-            AutomationException a => (422,a.Code,a.Message),
-            OpenEtrm.Shared.Calculation.CalculationException g => (422,g.Code,g.Message),
-            OpenEtrm.Shared.Analytics.OverlayException o => (422,o.Code,o.Message),
-            PostgresException p when p.MessageText=="curve_activation_conflict" => (409,p.MessageText,"The activation timeline or request changed. Reload or retry the exact original request."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("curve_activation_",StringComparison.Ordinal) => (422,p.MessageText,"Supply disjoint effective intervals and exact published outputs under the complete timeline policy."),
-            PostgresException p when p.MessageText is "job_conflict" => (409,p.MessageText,"The job or request changed. Refresh or reconcile the original request."),
-            PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
-            PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/jobs/pilot-close") => (422,"pilot_profile","Choose supported exact books, curves, sources, policies and schedule terms."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("pilot_",StringComparison.Ordinal) => (422,p.MessageText,"Choose complete explicit pilot close inputs, supported policies and an available exact anchor."),
-            PostgresException p when p.MessageText is "infrastructure_busy" => (409,p.MessageText,"Wait for active workloads or pending maintenance to finish before requesting node maintenance."),
-            PostgresException p when p.MessageText is "infrastructure_conflict" => (409,p.MessageText,"The node changed. Refresh infrastructure before requesting another action."),
-            PostgresException p when p.SqlState=="23505" && apiPath.StartsWithSegments("/api/infrastructure") => (409,"infrastructure_busy","Cluster maintenance is already queued, running or awaiting reconciliation."),
-            PostgresException p when p.MessageText is "infrastructure_input" => (422,p.MessageText,"Supply a supported infrastructure operation and exact target version."),
-            PostgresException p when p.SqlState is "23502" or "23514" or "22P02" or "22007" or "22008" or "22003" && apiPath.StartsWithSegments("/api/jobs") => (422,"job_input","The job contract has missing, malformed or unsupported fields."),
-            PostgresException p when p.MessageText is "job_input" or "job_transition" or "job_limit" => (422,p.MessageText,"Supply a supported job contract or an available action within its limits."),
-            AntiforgeryValidationException => (400,"request_token","Reload the preview to obtain a valid request token."),
-            MarketDataException m when m.Code is "shortcut_conflict" or "tou_conflict" or "table_view_conflict" or "futures_revision_conflict" or "swap_revision_conflict" or "custom_curve_conflict" or "contract_date_conflict" => (409,m.Code,m.Message),
-            PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/custom-curves") => (409,"custom_curve_conflict","This curve or request changed. Reload or reconcile the original request."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
-            MarketDataException m when m.Code=="reference_conflict" => (409,m.Code,m.Message),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="reference_conflict" => (409,p.MessageText,"This reference version or display selection changed. Reload before editing."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "reference_edit" or "reference_limit" or "reference_economic_change" => (422,p.MessageText,"Supply supported display fields within the authoring limits. Financial terms must remain identical before display activation."),
-            PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/tou-products") => (409,"tou_conflict","This TOU product changed or its code already exists. Reload before editing."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="ppa_conflict" => (409,p.MessageText,"The trade or operation changed. Reconcile its original request or current head."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("ppa_",StringComparison.Ordinal) => (422,p.MessageText,"The PPA operation does not meet its explicit terms, pins, coverage or limits."),
-            PostgresException p when p.MessageText is "gas_conflict" or "gas_setup_conflict" or "gas_quantity_conflict" => (409,p.MessageText,"This operation already belongs to different terms or ownership."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("gas_",StringComparison.Ordinal) => (422,p.MessageText,"The gas operation requires complete compatible terms and retained schedules."),
-            MarketDataException m => (422,m.Code,m.Message),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_denied" => (403,"access_denied","Current authority does not permit this risk job operation."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_conflict" => (409,p.MessageText,"This request identity already belongs to different risk inputs."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("risk_",StringComparison.Ordinal) => (422,p.MessageText,"The risk job does not meet its retained context, input or execution contract."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "swap_conflict" or "swap_revision_conflict" or "trade_operation_conflict" => (409,p.MessageText,"This trade or operation changed. Reconcile the original request or reload the latest revision."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("scheduled_",StringComparison.Ordinal) => (422,p.MessageText,"The scheduled swap requires complete, compatible quantity, delivery, observation and payment terms."),
-            PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("payment_",StringComparison.Ordinal)||p.MessageText=="short_month") => (422,p.MessageText,"The generated payment date does not meet its explicit rule and calendar coverage."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("swap_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit side, reference, date or lifecycle terms."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_conflict" => (409,"futures_conflict","This trade request identity already has different economics or ownership."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_revision_conflict" => (409,"futures_revision_conflict","The trade changed. Reload its latest revision before amending."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("futures_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit book, contract or execution terms."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "trade_booking_read_only" or "booking_human_required" => (422,p.MessageText,"Booking facts are server-owned and require the authenticated human workspace user."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="trade_party" => (422,p.MessageText,"Select available exact legal entity/counterparty versions."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="trade_annotation" => (422,p.MessageText,"Choose an available exact trader version; memo is limited to 4000 characters."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="historical_read_only" => (422,"historical_read_only","Return to working data before booking or amending."),
-            TemporalException t when t.Code is "date_definition_conflict" or "schedule_conflict" => (409,t.Code,t.Message),
-            TemporalException t => (422,t.Code,t.Message),
-            PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/date-schedules") => (409,"schedule_conflict","This schedule changed or the reference already exists. Reload before editing."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="admin_conflict" => (409,"admin_conflict","This account or request changed. Reload administration before editing."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="admin_limit" && context.Items.ContainsKey("model_admin_attempted") => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "last_administrator" or "self_access_change" or "admin_input" or "admin_limit" => (422,p.MessageText,"The administrative change was rejected. Keep a current administrator and supply explicit account details and roles."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_managed" => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="23505" && apiPath.StartsWithSegments("/api/admin") => (409,"admin_conflict","That account or request already exists. Reload administration."),
-            ModelAdministrationException m => (422,m.Code,m.Message),
-            ModelCallException m => (422,m.Code,m.Message),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="model_admin_conflict" || p.SqlState=="23505" && context.Items.ContainsKey("model_admin_attempted")
-                => (409,"model_admin_conflict","This provider, model or request changed, or its current state does not allow the change. Reload Settings › AI before repeating the change under a new request."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_provider_unqualified" or "model_provider_disabled" or "model_unqualified" or "model_mapping_unconfirmed"
-                or "model_unpriced" or "test_in_progress" or "model_changed" or "model_disabled" or "agent_retired"
-                => (409,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_role_lacks_permission" => (422,p.MessageText,AgentAdministration.RoleRefusal(AgentAdministration.Lacking(p.Hint))),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "agent_not_allowed" or "grant_permission_missing" => (403,p.MessageText,AgentGrants.Refusal(p.MessageText,p.Hint)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_unknown" => (404,p.MessageText,AgentGrants.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_conflict" => (409,p.MessageText,AgentGrants.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_input" => (422,p.MessageText,AgentGrants.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_input" or "question_too_long" => (422,p.MessageText,AgentTurns.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "turn_conflict" or "conversation_agent_mismatch" or "knowledge_budget_reserved"
-                or "access_changed" => (409,p.MessageText,AgentTurns.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "conversation_not_found" or "turn_not_found" => (404,p.MessageText,AgentTurns.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="grant_required" => (403,p.MessageText,AgentTurns.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "model_admin_input" or "model_identifier_invalid" or "currency_unavailable" or "parameter_required"
-                or "model_limit_exceeded" or "instructions_too_long" or "grant_duration_exceeded"
-                => (422,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="agent_runtime_unavailable" => (503,p.MessageText,ModelCatalog.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "report_zone_invalid" or "report_range_invalid" => (422,p.MessageText,UsageReports.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="amount_format_conflict" => (409,"amount_format_conflict","This deal display changed. Reload its precision controls before saving."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "amount_format" or "futures_lot" => (422,p.MessageText,"Supply exact supported contract lot terms or deal display precision."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_conflict" or "interval_series_revision_conflict" => (409,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "interval_series_values" or "interval_series_window" or "interval_series_grid" or "interval_series_code"
-                || p.SqlState=="23514" && p.MessageText=="interval_series_definition" => (422,p.MessageText,IntervalSeriesStore.Refusal(p.MessageText)),
-            PostgresException p when p.SqlState=="23514" && p.MessageText=="interval_curve_definition"
-                => (422,p.MessageText,"Interval contracts must be forwards on their operating date, alone in their curve and as long as its delivery profile's interval."),
-            PostgresException p when p.SqlState=="23505" => (409,"revision_conflict","This observation has already been revised. Inspect its history and explicitly select the intended revision."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText=="trading_history_archived" => (422,p.MessageText,"Trading history at this knowledge cutoff is archived. Select a context at or after the rebooking cutover; market and reference history remain available."),
-            PostgresException p when p.SqlState=="P0001" && p.MessageText is "knowledge_coverage" or "knowledge_clock" or "knowledge_tracking" or "knowledge_retention" or "knowledge_limit" or "knowledge_timeline" => (422,p.MessageText,"The requested knowledge cutoff cannot be certified. Check retained coverage, clock health and commit tracking."),
-            PostgresException p when p.SqlState=="42501" => (403,"access_denied","Database permissions rejected this operation."),
-            PostgresException p when p.SqlState is "23514" or "55000" => (422,"definition_rejected","The value or operation violates an explicit database specification."),
-            PostgresException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome cannot be confirmed. Retain the original request and inspect the audit before retrying."),
-            Exception when context.Items.ContainsKey("model_admin_attempted") && e is NpgsqlException or OperationCanceledException
-                => (503,"model_admin_outcome_unknown","The outcome is unknown. Check Settings › AI and its audit, or repeat the identical request."),
-            Exception when context.Items.ContainsKey("grant_attempted") && e is NpgsqlException or OperationCanceledException
-                => (503,"grant_outcome_unknown","The outcome is unknown. Read your grants, or repeat the identical request."),
-            Exception when context.Items.ContainsKey("turn_attempted") && e is NpgsqlException or OperationCanceledException
-                => (503,"turn_outcome_unknown","The outcome is unknown. Read your conversations, or repeat the identical request."),
-            OperationCanceledException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
-            NpgsqlException when context.Items.ContainsKey("party_attempted") => (503,"party_outcome_unknown","The party save outcome is unknown. Inspect versions or retry the original request identity."),
-            OperationCanceledException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome is unknown. Retain the request identity and inspect the audit before retrying the exact command."),
-            NpgsqlException when context.Items.ContainsKey("administration_attempted") => (503,"administration_outcome_unknown","The administrative outcome is unknown. Retain the request identity and inspect the audit before retrying the exact command."),
-            OperationCanceledException when context.Items.ContainsKey("correction_attempted") => (503,"mutation_outcome_unknown","The correction outcome is unknown. Reload, inspect the input's revisions and explicitly select any saved successor before submitting again."),
-            NpgsqlException when context.Items.ContainsKey("correction_attempted") => (503,"mutation_outcome_unknown","The correction outcome is unknown. Reload, inspect the input's revisions and explicitly select any saved successor before submitting again."),
-            OperationCanceledException when context.Items.ContainsKey("swap_attempted") => (503,"swap_outcome_unknown","The trade request outcome is unknown. Reconcile or retry its retained operation identity."),
-            NpgsqlException when context.Items.ContainsKey("swap_attempted") => (503,"swap_outcome_unknown","The trade request outcome is unknown. Reconcile or retry its retained operation identity."),
-            OperationCanceledException when context.Items.ContainsKey("futures_attempted") => (503,"futures_outcome_unknown","The trade request outcome is unknown. Reconcile or retry the retained operation identity."),
-            NpgsqlException when context.Items.ContainsKey("futures_attempted") => (503,"futures_outcome_unknown","The trade request outcome is unknown. Reconcile or retry the retained operation identity."),
-            Exception when context.Items.ContainsKey("automation_attempted") && e is NpgsqlException or OperationCanceledException => (503,"job_outcome_unknown","The operation outcome is unknown. Inspect current state or retry the retained exact request identity."),
-            Exception when context.Items.ContainsKey("reference_attempted") && e is NpgsqlException or OperationCanceledException => (503,"reference_outcome_unknown","The reference change outcome is unknown. Inspect saved versions or retry the retained exact request identity."),
-            Exception when context.Items.ContainsKey("interval_series_attempted") && e is NpgsqlException or OperationCanceledException => (503,"interval_series_outcome_unknown","The save outcome is unknown. Retry the original request to recover its receipt."),
-            OperationCanceledException when context.Items.ContainsKey("risk_job_attempted") => (503,"risk_job_outcome_unknown","Job admission could not be confirmed. Reconcile or retry the exact retained request identity."),
-            NpgsqlException when context.Items.ContainsKey("risk_job_attempted") => (503,"risk_job_outcome_unknown","Job admission could not be confirmed. Reconcile or retry the exact retained request identity."),
-            OperationCanceledException => (503,"request_cancelled","The request was cancelled or exceeded its time limit."),
-            BadHttpRequestException or JsonException => (400,"request_format",malformed),
-            _ => (500,"preview_error","The preview could not complete the operation.")
-        };
+        var (status,code,message)=Failure(e,apiPath,context);
         if(e is PostgresException pg)app.Logger.LogWarning("Database operation rejected: {SqlState}",pg.SqlState);
-        if (status==500) app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
+        if (status==500)
+        {
+            app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
+            var inner=e.InnerException;
+            for(var depth=0;inner is not null&&depth<4;inner=inner.InnerException,depth++)
+            {
+                app.Logger.LogError("Preview operation failed: {ErrorType}",inner.GetType().Name);
+                if(inner is PostgresException nested)app.Logger.LogWarning("Database operation rejected: {SqlState}",nested.SqlState);
+            }
+            foreach(var codeLocation in PreviewFailureDiagnostics.Codes(e))
+                app.Logger.LogError("Preview failure code: {CodeLocation}",codeLocation);
+        }
+        if(OpenStream(context) is {} stream){await stream.Error(code,message);return;}
         context.Response.StatusCode=status;
         // A role refusal also names the role and permission as fields, so a page never parses its message.
         object body=e is PostgresException{SqlState:"P0001",MessageText:"agent_role_lacks_permission"} lacking&&AgentAdministration.Lacking(lacking.Hint) is {} lack
             ?new {code,message,role=lack.Role,permission=lack.Permission}:new {code,message};
         if(e is CloseRiskInputsException closeRisk)body=new{code,message,affectedBindings=closeRisk.AffectedBindings};
+        if(e is RiskRunTieException tie)body=new{code,message,definition=tie.Definition,runs=tie.Runs};
         await context.Response.WriteAsJsonAsync(body,CancellationToken.None);
     }
     // Binding refuses a body or query value it cannot read, and a body over the limit, with a bare status before any
@@ -828,10 +852,22 @@ api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,se
     var requestedOffset=c.Request.Query["offset"].ToString();
     if(!int.TryParse(c.Request.Query.ContainsKey("offset")?requestedOffset:"0",System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var offset))
         throw new MarketDataException("reference_page",$"Choose an offset from 0 to {PreviewDatabase.ReferenceMaximumOffset}.");
-    var page=await marketReads.References(connection,Pin(session),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),ct);
+    var page=await marketReads.References(connection,Pin(session),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),
+        c.Request.Query.TryGetValue("code",out var code)?code.ToString():null,ct);
     var referenceDisplay=await ReferenceEditors.Display(connection,page.ReferenceRevision,ct);
     return Results.Ok(new {page.Table,page.Rows,page.References,page.Offset,page.PageSize,page.MaximumOffset,page.HasMore,page.Search,page.ReferenceRevision,page.DefinitionRevisionId,referenceDisplay,
         tables=PreviewDatabase.ReferenceTables,referenceScope="selected_table",context=session.MarketContext,profile=session.Profile});
+},c.RequestAborted))));
+api.MapGet("/reference/search",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    var found=await marketReads.SearchReferences(connection,Pin(session),c.Request.Query["q"].ToString(),ct);
+    return Results.Ok(new {found.Query,found.Hits,found.Truncated,context=session.MarketContext,profile=session.Profile});
+},c.RequestAborted))));
+api.MapGet("/reference/futures-product",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    var read=await marketReads.FuturesProduct(connection,Pin(session),c.Request.Query["code"].ToString(),ct);
+    var referenceDisplay=await ReferenceEditors.Display(connection,read.ReferenceRevision,ct);
+    return Results.Ok(new {read.Product,read.Series,read.Milestones,read.ExecutionPolicies,read.References,read.ReferenceRevision,referenceDisplay,context=session.MarketContext,profile=session.Profile});
 },c.RequestAborted))));
 api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
@@ -841,7 +877,7 @@ api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,ses
 },c.RequestAborted))));
 Task<IResult> ReferenceMutation(HttpContext c,string permission,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> work)=>Locked(c,session=>
 {
-    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before saving or applying reference display changes.");
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before committing reference display changes.");
     return database.WithIdentity<IResult>(Profile(session),permission,async(connection,ct)=>
     {
         c.Items["reference_attempted"]=true;
@@ -857,8 +893,8 @@ api.MapGet("/gas-setup/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,se
 api.MapPost("/gas-setup/save",(HttpContext c,GasSetupSaveRequest body)=>ReferenceMutation(c,"WriteMarketDefinitions",(connection,ct)=>gasSetupEditor.Save(connection,body,ct)));
 api.MapPost("/gas-setup/validate",(HttpContext c,GasSetupValidateRequest body)=>ReferenceMutation(c,"ReadMarketData",(connection,ct)=>gasSetupEditor.Validate(connection,body,ct)));
 api.MapPost("/gas-setup/publish",(HttpContext c,GasSetupPublishRequest body)=>ReferenceMutation(c,"SealMarketDefinitions",(connection,ct)=>gasSetupEditor.Publish(connection,body,ct)));
-api.MapPost("/reference/save",(HttpContext c,ReferenceSaveRequest body)=>ReferenceMutation(c,"WriteReferenceData",(connection,ct)=>ReferenceEditors.Save(connection,database.Manifest,body,ct)));
-api.MapPost("/reference/apply",(HttpContext c,ReferenceApplyRequest body)=>ReferenceMutation(c,"SealReferenceData",(connection,ct)=>ReferenceEditors.Apply(connection,database.Manifest,body,ct)));
+// The route holds Write; the apply function enforces Seal in the same transaction.
+api.MapPost("/reference/commit",(HttpContext c,ReferenceCommitRequest body)=>ReferenceMutation(c,"WriteReferenceData",(connection,ct)=>ReferenceEditors.Commit(connection,database.Manifest,body,ct)));
 api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async session=>
 {
     var pin=Pin(session,body.SnapshotId);
@@ -987,11 +1023,17 @@ api.MapPost("/table-views/blotter",(HttpContext c,SaveTableView body)=>Locked(c,
     database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await TableViews.Save(connection,body,ct)),c.RequestAborted)));
 api.MapPost("/table-views/blotter/delete",(HttpContext c,DeleteTableView body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>{await TableViews.Delete(connection,body,ct);return Results.Ok(new {deleted=true});},c.RequestAborted)));
+api.MapGet("/dashboard/layout",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>Results.Ok(await DashboardLayouts.Read(connection,ct)),c.RequestAborted))));
+api.MapPost("/dashboard/layout",(HttpContext c,SaveDashboardLayout body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>Results.Ok(await DashboardLayouts.Save(connection,body,ct)),c.RequestAborted)));
 var futuresStore=new FuturesStore(database.Manifest);
 // Trading pages name their knowledge: current knowledge, captured now at the working frame's date;
 // a context captured earlier, re-read over a working frame; or the selected historical view's own.
 Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession session,FuturesReadRequest body,InputFrame frame,CancellationToken ct)
     =>TradingReadSelection.Capture(session,body,frame).Resolve(connection,knowledgeStore,body,ct);
+// How trading reads publish their results: camel-case members, exact decimals as exact text.
+var tradingJson=new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase,Converters={new ExactDecimalJsonConverter()}};
 // Trading pages without a read operation of their own run their store's read on the shared trading read path.
 Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false)=>
     TradingRead(c,body,(connection,view,ct)=>tradeReads.Read(connection,view,data=>read(connection,data,view.CalculationFrame,ct),ct),scenario,headTrade,amendmentPreview,expectedConvention,dealRisk);
@@ -1003,10 +1045,9 @@ Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
     Task<IResult> Execute(string profile,Func<TradingReadSelection> capture)=>database.WithIdentity(profile,"ReadTrades",async(connection,ct)=>
     {
         var selection=capture();
-        if(expectedConvention is SwapStore.Convention or PhysicalGasStore.Convention or TradingBlotter.Convention){if(body.Convention!=expectedConvention)throw new MarketDataException("swap_context","Select the explicit supported swap valuation convention.");}
-        else FuturesStore.Convention(body.Convention);
+        RequireConvention(body,expectedConvention);
         if(scenario && !await PreviewDatabase.HasPermission(connection,"RunScenario",ct)||dealRisk && !await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct))throw new PreviewDeniedException();
-        var frame=selection.Frame;var working=selection.Working;
+        var working=selection.Working;
         if(amendmentPreview&&!working)
             throw new MarketDataException("historical_read_only","Amendments require working data.");
         if(amendmentPreview&&!await PreviewDatabase.HasPermission(connection,"AmendTrade",ct))throw new PreviewDeniedException();
@@ -1020,19 +1061,10 @@ Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
         var value=await read(connection,view,ct);
         completedView=view;
         if(scenario && !await PreviewDatabase.HasPermission(connection,"RunScenario",ct)||dealRisk && !await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct))throw new PreviewDeniedException();
-        var response=System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(value,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase,Converters={new ExactDecimalJsonConverter()}}))!.AsObject();
+        var response=System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(value,tradingJson))!.AsObject();
         foreach(var json in combinedWorkspace?new[]{response["catalog"]!.AsObject(),response["blotter"]!.AsObject()}:new[]{response})
         {
-        json["context"]=JsonSerializer.SerializeToNode(view.Context,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});json["asOf"]=JsonSerializer.SerializeToNode(frame.At);
-        json["canRunDealRisk"]=JsonSerializer.SerializeToNode(await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct));
-        json["canBook"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"BookTrade",ct));
-        if(json["books"] is not null)
-        {
-            json["canAmendTrades"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct));
-            json["bookingUnavailableReason"]=JsonSerializer.SerializeToNode(!working
-                ?$"{selection.ReadOnlyLabel} is read-only. Return to working data, then select an As of date."
-                :!await PreviewDatabase.HasPermission(connection,"BookTrade",ct)?"Your current role does not have Book Trade permission.":null);
-        }
+        await Rights(connection,json,view,selection,json["books"] is not null,ct);
         if(headTrade is not null)
         {
             var selectedRevision=json["state"]?["revision"]?.GetValue<int>()??json["expectedRevision"]?.GetValue<int>();
@@ -1056,47 +1088,73 @@ Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
         }
         return Results.Ok(response);
     },c.RequestAborted);
-    TradingReadSelection Capture(PreviewSession session)=>TradingReadSelection.Capture(session,body,
-        session.LivePin(body.SnapshotId)?.RequireFrame()??Frame(session,body.SnapshotId));
-    if(!concurrent)return Locked(c,session=>Execute(Profile(session),()=>Capture(session)));
+    if(!concurrent)return Locked(c,session=>Execute(Profile(session),()=>Capture(session,body)));
     if(!combinedWorkspace||scenario||dealRisk||amendmentPreview||headTrade is not null||recheck is null)
         throw new InvalidOperationException("Only the read-only combined workspace can release the session gate.");
-    return Concurrent();
-    async Task<IResult> Concurrent()
+    return Concurrent(c,body,async(session,capture)=>(await Execute(Profile(session),capture),completedView!),recheck);
+}
+TradingReadSelection Capture(PreviewSession session,FuturesReadRequest body)=>TradingReadSelection.Capture(session,body,
+    session.LivePin(body.SnapshotId)?.RequireFrame()??Frame(session,body.SnapshotId));
+void RequireConvention(FuturesReadRequest body,string? expected)
+{
+    if(expected is SwapStore.Convention or PhysicalGasStore.Convention or TradingBlotter.Convention){if(body.Convention!=expected)throw new MarketDataException("swap_context","Select the explicit supported swap valuation convention.");}
+    else FuturesStore.Convention(body.Convention);
+}
+// The context and As of a trading page read, and the reader's rights under its selection; with the booking rights when it offers booking.
+async Task Rights(NpgsqlConnection connection,System.Text.Json.Nodes.JsonObject json,TradingView view,TradingReadSelection selection,bool booking,CancellationToken ct)
+{
+    var working=selection.Working;
+    json["context"]=JsonSerializer.SerializeToNode(view.Context,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});json["asOf"]=JsonSerializer.SerializeToNode(selection.Frame.At);
+    json["canRunDealRisk"]=JsonSerializer.SerializeToNode(await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct));
+    json["canBook"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"BookTrade",ct));
+    if(!booking)return;
+    json["canAmendTrades"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct));
+    json["bookingUnavailableReason"]=JsonSerializer.SerializeToNode(!working
+        ?$"{selection.ReadOnlyLabel} is read-only. Return to working data, then select an As of date."
+        :!await PreviewDatabase.HasPermission(connection,"BookTrade",ct)?"Your current role does not have Book Trade permission.":null);
+}
+// The reader may still read trades and the market data that values them.
+async Task RequireReadAccess(NpgsqlConnection connection,CancellationToken ct)
+{
+    await using var access=ScheduleStore.Command(connection,
+        "SELECT security.trading_access($1,'ReadTrades') AND security.market_access($1,'ReadMarketData')",database.Manifest.CatalogId);
+    if(!Equals(await access.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+}
+// A read-only trading read outside the session gate: the selection is captured under the gate, which is released while the
+// read runs and taken again to authorize its result before the caller publishes it.
+async Task<T> Concurrent<T>(HttpContext c,FuturesReadRequest body,Func<PreviewSession,Func<TradingReadSelection>,Task<(T Result,TradingView View)>> read,
+    Func<NpgsqlConnection,TradingView,CancellationToken,Task> recheck)
+{
+    var session=Session(c);TradingReadSelection? selection=null;
+    await session.Gate.WaitAsync(c.RequestAborted);
+    var held=true;(T Result,TradingView View) completed;
+    try
     {
-        var session=Session(c);TradingReadSelection? selection=null;
-        await session.Gate.WaitAsync(c.RequestAborted);
-        var held=true;IResult result;
-        try
+        completed=await read(session,()=>
         {
-            result=await Execute(Profile(session),()=>
-            {
-                // Authenticate before validating the selected frame, as every
-                // trading read does. Release only after immutable capture.
-                selection=Capture(session);session.Gate.Release();held=false;
-                return selection;
-            });
-        }
-        finally {if(held)session.Gate.Release();}
-        await session.Gate.WaitAsync(c.RequestAborted);
-        try
-        {
-            selection!.RequireSession(session);
-            // The gate wait follows the valuation transaction. Authorize again
-            // before returning; no DB epoch is held while waiting for this gate.
-            return await database.WithIdentity(selection.Profile,"ReadTrades",async(connection,ct)=>
-            {
-                await using var publication=ScheduleStore.Command(connection,
-                    "SELECT security.trading_access($1,'ReadTrades') AND security.market_access($1,'ReadMarketData')",database.Manifest.CatalogId);
-                if(!Equals(await publication.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
-                await recheck!(connection,completedView!,ct);
-                await MarketBundle.RequireReferenceVisibility(connection,database.Manifest,ct);
-                selection.RequireSession(session);
-                return result;
-            },c.RequestAborted);
-        }
-        finally {session.Gate.Release();}
+            // Authenticate before validating the selected frame, as every
+            // trading read does. Release only after immutable capture.
+            selection=Capture(session,body);session.Gate.Release();held=false;
+            return selection;
+        });
     }
+    finally {if(held)session.Gate.Release();}
+    await session.Gate.WaitAsync(c.RequestAborted);
+    try
+    {
+        selection!.RequireSession(session);
+        // The gate wait follows the valuation transaction. Authorize again
+        // before returning; no DB epoch is held while waiting for this gate.
+        return await database.WithIdentity(selection.Profile,"ReadTrades",async(connection,ct)=>
+        {
+            await RequireReadAccess(connection,ct);
+            await recheck(connection,completed.View,ct);
+            await MarketBundle.RequireReferenceVisibility(connection,database.Manifest,ct);
+            selection.RequireSession(session);
+            return completed.Result;
+        },c.RequestAborted);
+    }
+    finally {session.Gate.Release();}
 }
 api.MapPost("/trade-formats/read",(HttpContext c,DealFormatRead body)=>
 {
@@ -1208,6 +1266,55 @@ api.MapPost("/trading/workspace",(HttpContext c,TradingWorkspaceRequest body)=>
   expectedConvention:TradingBlotter.Convention,combinedWorkspace:true,concurrent:body.Progressive,
   recheck:async(connection,view,ct)=>{await tradeReads.Positions(connection,view,body.View.BookIds,body.View.PortfolioIds,0,1,ct);});
 });
+// The workspace's Blotter valuation as NDJSON frames (D268):
+// refused as trading/workspace refuses before start; then start, the rows of each completed unit, and complete once the
+// result passes the final recheck under the session gate. The read runs outside the gate and authorizes every frame.
+api.MapPost("/trading/workspace/stream",async(HttpContext c,TradingWorkspaceStreamRequest body)=>
+{
+ if(body.BookingCatalog is not(null or "directory" or "priced_contracts"))throw new MarketDataException("blotter_view","Choose an available booking catalog projection.");
+ var context=body.Context??throw new MarketDataException("blotter_view","Supply the selected context.");
+ var writer=new BlotterStreamWriter(c.Response.Body,tradingJson);
+ c.Items[typeof(BlotterStreamWriter)]=writer;
+ var positions=0;
+ var result=await Concurrent(c,context,(session,capture)=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+ {
+  var selection=capture();
+  // The reader's authority on the run's own connection and epoch, checked before every frame: start and each rows frame.
+  async Task Authorize(CancellationToken ct)
+  {
+   await RequireReadAccess(connection,ct);
+   await database.RequireSignedIn(connection,ct);
+   selection.RequireSession(session);
+  }
+  RequireConvention(context,TradingBlotter.Convention);
+  var view=await selection.Resolve(connection,knowledgeStore,context,ct);
+  var value=await tradeReads.WorkspaceRun(connection,view,body.View,body.Summaries.IsDefault?[]:body.Summaries,body.BookingCatalog=="directory",async run=>
+  {
+   positions=run.Positions;
+   var start=new System.Text.Json.Nodes.JsonObject{["positions"]=positions};
+   await Rights(connection,start,view,selection,true,ct);
+   // Refused here, nothing has started: the refusal is an ordinary HTTP error.
+   await Authorize(ct);
+   c.Response.StatusCode=StatusCodes.Status200OK;
+   c.Response.ContentType=BlotterStreamWriter.ContentType;
+   c.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+   await c.Response.StartAsync(ct);
+   await writer.Start(start,ct);
+   var rows=await writer.Rows(run.Units(ct),positions,body.View.Mode=="trades",Authorize,ct);
+   // The rows have been sent; complete carries the rest of the report.
+   return TradingBlotter.WithoutRows(run.Finish(rows));
+  },ct);
+  var response=JsonSerializer.SerializeToNode(value,tradingJson)!.AsObject();
+  response["blotter"]!.AsObject().Remove("holdings");
+  foreach(var json in new[]{response["catalog"]!.AsObject(),response["blotter"]!.AsObject()})await Rights(connection,json,view,selection,json["books"] is not null,ct);
+  return (response,view);
+ },c.RequestAborted),
+  async(connection,view,ct)=>{await tradeReads.Positions(connection,view,body.View.BookIds,body.View.PortfolioIds,0,1,ct);});
+ var complete=new System.Text.Json.Nodes.JsonObject{["valued"]=positions,["positions"]=positions};
+ foreach(var name in new[]{"blotter","summaries","catalog"}){var node=result[name];result.Remove(name);complete[name]=node;}
+ await writer.Complete(complete,c.RequestAborted);
+ return Results.Empty;
+});
 api.MapPost("/trading/blotter",(HttpContext c,FuturesBlotterRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),
  (connection,view,ct)=>tradeReads.Blotter(connection,view,body.View,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/swaps/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,swapStore.Catalog,expectedConvention:SwapStore.Convention));
@@ -1256,6 +1363,9 @@ api.MapPost("/swaps/settlement/status",(HttpContext c,FuturesStatusRequest body)
  await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.swap_operation_status($1,$2)::text",database.Manifest.CatalogId,body.OperationId);
  return Results.Ok(JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!));
 },c.RequestAborted)));
+api.MapPost("/swaps/contract-observation-preview",(HttpContext c,SwapContractObservationPreviewRequest body)=>FuturesRead(c,
+ body.Context??throw new MarketDataException("swap_context","Supply the selected observation context."),
+ (connection,data,frame,ct)=>swapStore.ContractObservationPreview(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/observation-options",(HttpContext c,SwapObservationOptionsRequest body)=>FuturesRead(c,
  body.Context??throw new MarketDataException("swap_context","Supply the selected observation context."),
  (connection,data,frame,ct)=>swapStore.ObservationOptions(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
@@ -1323,6 +1433,20 @@ api.MapGet("/portfolio/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,se
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
 api.MapPost("/portfolio/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,cancel:true,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
+api.MapGet("/risk/definitions",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskRunDefinitions.List(connection,database.Manifest.CatalogId,ct)),c.RequestAborted))));
+api.MapPost("/risk/definitions",(HttpContext c,SaveRiskRunDefinition body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskRunDefinitions.Save(connection,database.Manifest.CatalogId,body,ct)),c.RequestAborted)));
+api.MapPost("/risk/definitions/{id:guid}/run",(HttpContext c,Guid id,RunRiskDefinition body)=>PortfolioRead(c,
+    body.Context??throw new MarketDataException("risk_job_context","Supply the definition version and exact retained context."),
+    async(connection,data,frame,ct)=>
+    {
+        c.Items["risk_job_attempted"]=true;
+        return (object)await RiskRunDefinitions.Run(connection,database.Manifest,portfolioRisk,data,frame,id,body,ct);
+    }));
+api.MapPost("/risk/definitions/{id:guid}/latest",(HttpContext c,Guid id,LatestRiskRun body)=>TradingRead(c,
+    body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
+    (connection,view,ct)=>tradeReads.LatestRiskRun(connection,view,id,body.RunId,ct),scenario:true,expectedConvention:TradingBlotter.Convention));
 api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking or amending.");

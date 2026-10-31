@@ -19,8 +19,8 @@ public sealed record SubmitPortfolioRiskJob(Guid RequestId,PortfolioRiskRequest 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RiskJobRun(Guid Id,int Part,int Parts)
 {
-    /// <summary>The most parts a run takes: sixteen shocks to a part, 4,096 shocks in all, the most a books-detail request takes.</summary>
-    public const int MaxParts=256;
+    /// <summary>The most parts a run takes: a holdings request's shocks to a part, and in all the most a books-detail request takes.</summary>
+    public const int MaxParts=PortfolioRiskPreview.MaxBooksBumps/PortfolioRiskPreview.MaxHoldingsBumps;
 }
 
 public static class RiskJobs

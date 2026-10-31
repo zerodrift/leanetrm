@@ -60,7 +60,8 @@ internal sealed class BasisRiskFixture
         }
         var series=Enumerable.Range(0,months).SelectMany(m=>Enumerable.Range(0,9).Select(l=>new MarketSeries(S(m,l),K(m,l),
             (Factors[l].Length>1?Basis(l):Out(l)).Key,null))).ToImmutableArray();
-        Model=new(revision,references,[gas,power],[gasOut,gasBasis,powerOut,powerBasis],contracts,curves.ToImmutable(),[],[],series);
+        var fixings=contracts.Select((c,n)=>new MarketSeries(new SeriesKey(revision,Id(70000+n)),c.Key,Out(n%9).Key,null)).ToImmutableArray();
+        Model=new(revision,references,[gas,power],[gasOut,gasBasis,powerOut,powerBasis],contracts,curves.ToImmutable(),[],[],series.Concat(fixings.Where((s,n)=>Factors[n%9].Length>1)));
         Snapshot=new(Id(5),revision,at,at,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
             series.Select((s,n)=>new SelectedObservation(new(s.Key,InputUse.Variable),new(new(revision.CatalogId,Id(30000+n)),s.Key,R("synthetic_source"),
                 ObservationRole.TraderMark,PublicationState.Final,at,Primitive(n/9,n%9)))).ToImmutableArray());
@@ -70,8 +71,8 @@ internal sealed class BasisRiskFixture
             var contract=contracts[n];var quote=Out(n%9);var unit=new Quantity(one,quote.Quantity);
             var payment=new DateTimeOffset(contract.DeliveryTo.AddDays(3).ToDateTime(TimeOnly.MinValue),TimeSpan.Zero);
             var fixedSide=new FixedSide(Id(40000+2*n),new UnitPrice(ExactDecimal.Parse("2"),quote),unit,contract.DeliveryFrom,contract.DeliveryTo,payment,FixedSide.Implementation,quote);
-            var floating=new FloatingSide(Id(40001+2*n),PriceSettlementSelection.CurveTarget(R(Names[n%9]+"_index")),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,at.AddDays(1),payment,
-                FloatingAveraging.MonthlyIndexPrice,[new(request,contract)],FloatingSide.Implementation);
+            var floating=new FloatingSide(Id(40001+2*n),PriceSettlementSelection.CurveTarget(R(Names[n%9]+"_index")),quote,unit,contract.DeliveryFrom,contract.DeliveryTo,[new(R(Names[n%9]+"_index"),quote.Key,contract.DeliveryFrom,contract.DeliveryTo,at.AddDays(1),Factors[n%9].Length>1?fixings[n].Key:series[n].Key,R("synthetic_source"),IndexFixing.SupportedImplementation)],payment,
+                FloatingAveraging.MonthlyIndexPrice,[new(request,contract)],FloatingSide.IndexedImplementation);
             return (Instrument)new FinancialSwapInstrument(Id(50000+n),[new(fixedSide,ExactDecimal.Parse("-1")),new(floating,one)],FinancialSwapInstrument.Implementation,false);
         }).ToImmutableArray();
         Bumps=series.Select((s,n)=>new QuoteBump(new(s.Key,InputUse.Variable),s.Quote!.Value,

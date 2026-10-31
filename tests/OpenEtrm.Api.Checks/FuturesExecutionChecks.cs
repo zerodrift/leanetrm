@@ -12,7 +12,7 @@ internal static class FuturesExecutionChecks
         JsonElement Row(object value)=>JsonSerializer.SerializeToElement(value);
         JsonElement Policy(string rule="after_source_first_trade_date_v1",string bound="2040-03-15T12:30:00Z",
             int? offset=0,string? tzdb=null,string role="trader_mark",string source="chosen_source")=>Row(new{
-                series_code="test_month",implementation=FuturesMarketBinding.GeneralImplementation,
+                series_code="test_month",implementation=FuturesMarketBinding.Implementation,
                 eligibility_rule=rule,eligible_from=bound,source_date_offset_seconds=offset,source_date_tzdb_version=tzdb,
                 price_role=role,price_source_code=source,evidence_source_code="reviewed_terms"});
         JsonElement First(string state="known",string? date="2040-03-11",string? instant=null)=>Row(new{
@@ -26,7 +26,7 @@ internal static class FuturesExecutionChecks
             ["sources"]=[Row(new{code="chosen_source",kind="manual_entry",locator="arbitrary:operator-selected-source"}),
                 Row(new{code="reviewed_terms",kind="manual_entry",locator="arbitrary:qualified-terms"})]};
         DateTimeOffset Resolve(Dictionary<string,ImmutableArray<JsonElement>>? rows=null,JsonElement? selectedCurve=null)=>
-            FuturesExecutionPolicies.Resolve(product,series,selectedCurve??curve,rows??references,FuturesMarketBinding.GeneralImplementation);
+            FuturesExecutionPolicies.Resolve(product,series,selectedCurve??curve,rows??references,FuturesMarketBinding.Implementation);
         Dictionary<string,ImmutableArray<JsonElement>> With(JsonElement policy,JsonElement? first=null,JsonElement? clock=null)=>
             new(references){["futures_execution_policies"]=[policy],["futures_milestones"]=[first??First()],["clock_rules"]=[clock??FixedClock(0)]};
         void Reject(Action action)
@@ -38,7 +38,7 @@ internal static class FuturesExecutionChecks
         Reject(()=>Resolve(selectedCurve:Row(new{direct_role="daily_settlement",direct_source_code="chosen_source"})));
         Reject(()=>Resolve(selectedCurve:Row(new{direct_role="trader_mark",direct_source_code="another_source"})));
         Reject(()=>Resolve(new(references){["sources"]=[references["sources"][0]]}));
-        Reject(()=>FuturesExecutionPolicies.Resolve(Row(new{definition_state="placeholder"}),series,curve,references,FuturesMarketBinding.GeneralImplementation));
+        Reject(()=>FuturesExecutionPolicies.Resolve(Row(new{definition_state="placeholder"}),series,curve,references,FuturesMarketBinding.Implementation));
         Reject(()=>Resolve(With(Policy(rule:"explicit_utc_bound_v1",offset:null))));
         Reject(()=>Resolve(With(Policy(bound:"2040-03-11T23:59:59Z"))));
         Reject(()=>Resolve(With(Policy(offset:3600))));
@@ -68,9 +68,12 @@ internal static class FuturesExecutionChecks
         var syntheticProduct=Row(new{definition_state="synthetic"});
         var syntheticSeries=Row(new{code="test_month",definition_state="synthetic"});
         var settledCurve=Row(new{direct_role="daily_settlement",direct_source_code="chosen_source"});
-        DateTimeOffset Legacy(JsonElement policy)=>FuturesExecutionPolicies.Resolve(syntheticProduct,syntheticSeries,settledCurve,With(policy,exact),FuturesMarketBinding.Implementation);
-        Reject(()=>Legacy(Policy("explicit_utc_bound_v1","2040-03-15T12:30:00Z",null)));
-        if(Legacy(exactPolicy)!=DateTimeOffset.Parse("2040-03-11T13:00:00Z"))throw new Exception("Consistent legacy source instant rejected.");
+        var missingSyntheticPolicy=new Dictionary<string,ImmutableArray<JsonElement>>(references){["futures_milestones"]=[exact],["futures_execution_policies"]=[]};
+        Reject(()=>FuturesExecutionPolicies.Resolve(syntheticProduct,syntheticSeries,settledCurve,missingSyntheticPolicy,FuturesMarketBinding.Implementation));
+        Reject(()=>FuturesExecutionPolicies.Resolve(syntheticProduct,syntheticSeries,settledCurve,missingSyntheticPolicy,"fixed_total_cash_execution_pnl_v1"));
+        var explicitSyntheticPolicy=Policy("source_first_trade_instant_v1","2040-03-11T13:00:00Z",null,role:"daily_settlement");
+        if(FuturesExecutionPolicies.Resolve(syntheticProduct,syntheticSeries,settledCurve,With(explicitSyntheticPolicy,exact),FuturesMarketBinding.Implementation)
+            !=DateTimeOffset.Parse("2040-03-11T13:00:00Z"))throw new Exception("Explicit synthetic source policy rejected.");
         // Havana repeats midnight at the fall transition; neither offset is a proof.
         var havana=Row(new{code="test_clock",kind="iana",fixed_offset_seconds=(int?)null,iana_zone="America/Havana",tzdb_version=tzdb});
         foreach(var offset in new[]{-14400,-18000})

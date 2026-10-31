@@ -23,7 +23,7 @@ from check_request_refusals import is_refusal, one_message_per_code, unreadable
 from fake_model_provider import FakeProvider, Trap
 
 
-def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, control_url=None, run_id=None):
+def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, control_url=None, run_id=None, psql=None, psql_environment=None):
     directory = root / 'hosted-check'
     directory.mkdir(mode=0o700)
     state, definitions = directory / 'state', directory / 'manifest'
@@ -226,6 +226,10 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         check_power_history(client,query,manifest)
         from check_trading_compression import run_hosted_checks as check_hosted_compression
         check_hosted_compression(client,origin,cert,boot)
+        from check_blotter_stream import run_hosted_checks as check_hosted_stream
+        ending = Client(); ending.login('invalid', password)
+        check_hosted_stream(ending, first, query, psql, psql_environment,
+                            next(f for f in ending.bootstrap()['frames'] if f['at'].startswith('2020-12-18') and not f.get('contextId')))
         client.call('/api/market/current', {}, headers={'Origin': 'https://attacker.invalid'}, expected=403)
         client.call('/api/bootstrap', headers={'Host': 'attacker.invalid'}, expected=403)
         assert query("SELECT count(*)>0 FROM security.request_contexts WHERE hosted_session_digest IS NOT NULL;") == 't'

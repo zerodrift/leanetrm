@@ -5,12 +5,16 @@ import {setupPpa} from './ppa-editor.js';
 import {setupCustomCurves} from './custom-curves-view.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
-import {newestDate,newestClose,closeBadge,latestInstant,type CloseChoice} from './latest-close.js';
+import {newestDate,newestClose,closeBadge,latestInstant,type CloseBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
 import {setupIntervalSeries} from './interval-series-view.js';
 import {setupIntervalCurves} from './interval-curves-view.js';
 import {setupJobs} from './jobs-view.js';
+import {setupDashboard} from './dashboard-view.js';
+import type {DashboardMarket} from './dashboard-levels.js';
 import {setupReferenceEditor} from './reference-editor.js';
+import {setupReferenceNavigation,type ReferenceHit} from './reference-navigation.js';
+import {parseReferenceAddress,formatReferenceAddress,referenceSelection,type ReferenceAddress} from './reference-address.js';
 import {setupPartyEditors} from './party-view.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {withNotice} from './notice-text.js';
@@ -28,8 +32,11 @@ import {renderRegularTable,clearTableFilters} from './regular-table.js';
 import {curveWorkbook,rateWorkbook,renderWorkbook} from './curve-workbook.js';
 import {type PricingGraph,pricingGraph,pricingEquation} from './pricing-view.js';
 import {renderPricingGraph} from './pricing-graph-view.js';
-import {type Row,type Frame,type Workspace,type CurveResult,type Point,type ReferenceDisplay,displayReferenceRows,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText} from './market-view.js';
-import {dataSections} from './data-sections.js';
+import {type Row,type Frame,type Workspace,type CurveResult,type Point,type ReferenceDisplay,type ReferenceRevision,displayReferenceRows,referenceLabel,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText} from './market-view.js';
+import {dataSections,keylessCategories} from './data-sections.js';
+import {renderReferenceItem} from './reference-detail.js';
+import {renderFuturesProduct} from './futures-product-view.js';
+import type {FuturesProductRead} from './futures-product-model.js';
 import {type Preferences,newPreferences,loadPreferences,savePreferences,validTimeZone,zoneChoices} from './preferences.js';
 import {setupShortcutEditor,scheduleErrorMessage} from './shortcut-view.js';
 import {requestRefusal} from './request-refusal.js';
@@ -72,6 +79,10 @@ let liveSucceeded:Date|undefined;
 let liveStream:EventSource|undefined,liveUpdates:LiveUpdates<LiveContextUpdate & {generation:number}>|undefined,liveId='',lastLiveUpdate:LiveContextUpdate|undefined;
 type ReferencePage={table:string;rows:Row[];references:Record<string,Row[]>;referenceDisplay?:ReferenceDisplay|null;offset:number;pageSize:number;maximumOffset:number;hasMore:boolean;search:string;referenceRevision:{catalogId:string;revisionId:string};definitionRevisionId:string;context:Context|null;profile:string;referenceScope:'selected_table'};
 let referencePage:ReferencePage|undefined;
+// The reference category tab chosen; empty until one is chosen, when the page opens on Currencies.
+let referenceTable='';
+// The address of the reference list or item shown, and the list an item was opened from, which its breadcrumb returns to.
+let shownReference='',referenceReturn:{table:string;search:string;offset:number}|undefined;
 const canAdvanceReference=()=>!!referencePage&&referencePage.hasMore&&referencePage.offset+referencePage.pageSize<=referencePage.maximumOffset;
 let hostedPilot=false;
 type ProfileChoices={mode:string;profiles:{id:string;name:string}[];customProfiles:{id:string;name:string}[]};
@@ -106,7 +117,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  futures.sync();parties.sync();agentGrants.sync();jobs.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();gasSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
+  futures.sync();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();gasSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
 }
 function renderWorkspaceMode(){
   const historical=!!historicalContext();
@@ -123,7 +134,7 @@ async function transport<T>(path:string,body?:unknown,root=apiRoot,signal?:Abort
   try{response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000)});}
   catch{throw Object.assign(Error(body!==undefined?'We could not confirm the result. Refresh and check the saved changes before saving again.':'The app could not connect. Please refresh the page.'),{code:'response_unknown'});}
   if(response.status===401){sessionEnded=true;workspace=undefined;result=undefined;historyData=undefined;curve='';document.body.hidden=true;location.replace('/auth');throw Object.assign(Error('Sign in to continue.'),{code:'sign_in_required'});}
-  if(!response.ok){const error=await response.json().catch(()=>({code:'request_failed'}));if(path.startsWith('swaps/settlement/'))throw Object.assign(Error(error.message??'The settlement operation was refused.'),{code:error.code});if(path.startsWith('ppa/'))throw Object.assign(Error(`${error.code??'request_failed'}: ${error.message??'The PPA operation was refused.'}`),{code:error.code,details:error});const messages:Record<string,string>={index_fixing_convention_missing:'This index has no qualified fixing schedule for the selected observations. Its reference rules must be configured before this swap can be priced.',index_fixing_missing:'A published index fixing is required but is missing from the selected market inputs. Load the fixing and select a complete market context.',index_fixing_definition:'The fixing schedule does not match the exact index, price units or source definition.',swap_fixing_read_only:'Fixing dates come from the selected index convention and cannot be entered manually.',reference_edit:'Choose a reference row and complete its supported display fields. Financial terms are read-only.',reference_conflict:'This reference version changed. Reload before editing or reconcile the retained request.',reference_limit:'This reference catalog exceeds the supported metadata authoring limits.',reference_economic_change:'The saved version changes financial terms and cannot be applied as a display update.',reference_outcome_unknown:'The save outcome is unconfirmed. Inspect versions or retry the retained original request.',missing_curve_view:'This curve has no configured close for the selected date. Choose an available calendar date.',missing_observation:'Required market data is missing for this curve and close. Choose another available date or load the missing prices.',recipe_definition:'Complete every required operation setting and connect each node to the curve output with compatible inputs.',recipe_input:'The selected dates or contracts do not have complete valid observations. Check the source and date window.',recipe_transform:'This saved curve uses an operation that is unavailable in the connected engine. Recreate it with supported graph operations.',recipe_formula:'Use quoted parameters, connected @node inputs and typed JSON contract mappings.',custom_curve_definition:'Complete the curve operations, connections and required settings. Check the selected sources and date coverage.',custom_curve_conflict:'This curve changed or the code is already used. Reload the library before editing.',custom_curve_coverage:'The selected dates or contracts do not have complete observations. Choose a covered window or load the required prices.',custom_curve_operator:'This curve uses an unsupported operation or incompatible input connection.',custom_curve_source:'Choose an available curve from the selected market context.',custom_curve_limit:'This curve exceeds the supported graph or history bounds.',futures_execution_policy:'Trading eligibility is missing, ambiguous or inconsistent with its source. A maintainer must qualify this contract before it can be priced.',unit_catalog:'The configured unit catalog is unavailable at this effective date or knowledge cutoff.',reference_catalog:'The configured reference catalog is unavailable in this context.',reference_page:'Choose an available category and valid page or search text.',clock_tzdb:'The installed time-zone rules differ from the product clock’s declared release, or cannot be verified. Calculations are blocked until they match.',clock_rule:'This product’s market clock is incomplete or unknown in reference data.',power_calendar:'The settlement index calendar does not cover this whole delivery period.',power_index:'This curve needs a single settlement index with matching commodity, currency and unit.',tou_definition:'Supply a lowercase code, a name, a market clock and an ordered peak window.',tou_conflict:'This TOU product changed or its code is already used. Reload before editing.',clock_reference:'Choose a market clock from this workspace’s reference data.',calendar_reference:'Choose a business calendar from this workspace’s reference data.',calendar_binding:'Choose a reference calendar, not a typed one.',futures_revision_conflict:'This trade changed. Reload the current revision before amending.',futures_amendment:'Supply an explicit amendment reason and use the selected working As of time.',futures_no_change:'Change a supported booking term before previewing an amendment.',futures_trade:'The trade revision is unavailable in this context.',historical_read_only:'This historical view is read-only. Return to working data before booking or amending.',risk_stress:'Choose signed nonzero curve-coordinate shifts using the supported additive convention, with at most sixteen nested stresses.',scenario_target:'Choose an available exact curve, contract or point target; overlapping shifts belong in separate nested layers.',scenario_coordinate:'Choose a primitive quote for input shocks or a computed point for output shifts. Frozen observations cannot be shocked.',scenario_bucket:'Choose an ordered delivery window whose boundaries do not split a contract or computed point.',scenario_shift:'Choose an offered quote or output target, its exact unit and a valid signed shift within the supported nesting limit.',risk_context:'Select the shared financial context before running risk.',risk_job_context:'Queue the exact retained financial context with a stable request identity.',risk_job_conflict:'This request identity belongs to different risk inputs. Inspect the retained job before submitting a new request.',risk_job_run:'The parts of this run do not agree: every part of a run is queued once, at one retained context, with one part count. Queue the run again.',risk_job_outcome_unknown:'The job submission outcome is unknown. Reconcile the retained submission to retry the same request safely.',risk_engine_version:'This retained job requires its original managed engine version.',risk_timeout:'The risk job exceeded its configured calculation time limit.',risk_input_timeout:'The retained risk inputs could not be loaded within the configured time limit.',risk_result_limit:'The risk result exceeds the retained report size limit. Narrow the selected books or request book totals.',risk_bump:'Enter a positive absolute bump and choose distinct supported scenario targets.',risk_factor:'Choose an available quote or computed-output target in this market context.',risk_position:'Choose books containing live supported holdings.',risk_policy:'Choose the supported exact repricing policy.',risk_convention:'Choose the supported repricing convention for this risk operation.',portfolio_policy:'Refresh the risk catalog to select its complete supported pricing policies.',portfolio_context:'Select a complete retained financial context covering the held instruments and their market inputs.',swap_risk_model:'A held swap requires market inputs that are unavailable in this exact financial context.',precision_loss:'An exact result needs more precision. For a conversion, choose explicit final rounding; no value was rounded automatically.',price_domain:'A base or shocked price is outside the contract’s allowed price range.',table_view_conflict:'This saved view changed in another session. Use Reload views before saving or deleting it.',table_view:'Choose a valid named layout; at most twenty views can be saved per table.',blotter_view:'Choose available books and explicit pivot dimensions/measures. Lots require dated-contract grouping.',power_historical:'Return to current inputs to use the unsaved power example. Historical clock publication is not supported yet.',power_units:'This example needs an outright curve quoted per MWh.',settlement_coverage:'The selected mask has no intervals or the fixing coverage is incomplete.',power_input:'Complete the product, units and classification choices.',access_denied:hostedPilot?'Your account does not have permission for that operation.':'This demo user can’t make that change. You can switch users in Profile → Preview access.',revision_conflict:'This price has already changed. Refresh and choose the version you want in Price changes.',mutation_outcome_unknown:'We could not confirm whether your change was saved. Refresh and check the saved changes before saving again.',numeric_format:'Enter a number with no commas or spaces, using up to 18 decimal places.',missing_value:'Enter a new value before saving.',definition_rejected:'This value does not meet the contract’s price rules. Check the allowed range and settlement increment in Reference data.',snapshot_missing:'Choose an available market date.',request_token:'Please refresh the page before making this change.',request_cancelled:'This took too long. Please refresh and try again.',admin_conflict:'This account changed or the login name is already registered. Refresh accounts before editing.',last_administrator:'Keep at least one current administrator in this workspace.',self_access_change:'Another administrator must remove your administrative access.',admin_input:'Enter a name, login, identity kind and explicit roles.',admin_limit:'This preview has reached its account limit.',administration_outcome_unknown:'We could not confirm the change. Check accounts and recent access changes, then retry the retained request if necessary.',model_admin_input:entryRanges,model_admin_conflict:'This provider or model changed, the model already exists, its current state does not allow the change, or the request identity was used for a different change. Refresh AI settings before trying again.',model_admin_outcome_unknown:'We could not confirm the change. Check the current AI settings and recent changes, then retry the retained request if necessary.',model_identifier_invalid:'Enter the vendor’s model identifier: up to 128 letters, digits, dots, underscores or hyphens, starting with a letter or digit.',currency_unavailable:'Choose a currency of a sealed reference revision that your roles can currently read.',model_unqualified:'Enable a model once its capabilities are recorded under the usage mapping its vendor’s adapter applies.',model_provider_unqualified:'The provider is not qualified: this release must confirm its usage mapping, and its current key and terms must be attested.',model_provider_disabled:'The model’s provider is disabled. Enable the provider first.',model_mapping_unconfirmed:'Record capabilities once this release confirms a usage mapping for the model’s vendor.',model_unpriced:'The model needs a rate set in force now.',model_changed:'The model’s capability version changed. Refresh AI settings and choose the version listed now.',model_disabled:'The model is disabled. Enable it before an agent version names it.',model_limit_exceeded:'Ask for no more output tokens per call than the model version allows.',grant_duration_exceeded:'The grant is longer than the limit stated with it.',instructions_too_long:'The instructions are longer than the limit stated with them.',agent_retired:'This agent is retired and can no longer change.',parameter_required:'Choose one of the reasoning efforts the model’s capability version records.',test_in_progress:'This test has no recorded outcome yet. Retry the retained request to read it once it is recorded.',report_zone_invalid:'Choose a time zone the preview’s database knows, named exactly as it names it.',report_range_invalid:'Enter a From date before the To date, each written yyyy-MM-dd, no further apart than the Usage tab states.',agent_runtime_unavailable:'Tests run only while this process holds the agent worker, which another process may hold or whose connection was lost. Try again shortly.',credential_unavailable:'Key storage is unavailable here, so no key can be saved or opened. Its key files are missing or unreadable: ask whoever runs this installation to restore them.',agent_managed:'Agents can’t be created or changed here, and only agents hold the agent reader role.',numeric_range:'A number is too large: its magnitude must be below 10^24.',interval_series_resolution:'Choose a 5, 15, 30 or 60 minute resolution.',interval_series_empty:'Add at least one value to import.',interval_series_size:'A revision holds at most 200,000 intervals, so split a larger import into several smaller ones.',interval_series_instant:'Write each start as a UTC instant, for example 2027-01-01T05:00:00Z, within the years 2000 to 2099.',interval_series_grid:'Every start must be where one of the series’ intervals starts on its market clock, and From and To may not fall inside a stored interval.',interval_series_overlap:'Intervals within one import cannot overlap or repeat.',interval_series_historical:'Return to working data to edit or read interval series, then use Known at on this page to see earlier knowledge.',interval_curve_historical:'Return to working data to read interval curves; their TOU and shape inputs are current definitions.',interval_curve_window:'Choose From and To on the curve’s interval grid, at most 35,136 intervals apart.',interval_curve_cutoff:'Choose Known at for a shaped curve or when resolving actuals.',interval_contract:'Choose a curve whose constituents are exact delivery intervals on its market clock.',interval_block:'A block curve must be date-only and bound to a published TOU peak window, or cover all hours.',interval_block_partition:'The curve’s block marks must cover every interval in this window exactly once. Choose a window inside its marked months.',interval_block_coverage:'No block of the curve covers part of this window. Choose a window inside its marked months.',interval_shape:'The shape cannot calibrate a block: multiplicative factors need a positive weighted mean under the supported method.',interval_shape_coverage:'The shape has no value for an interval of a block this window touches at the chosen Known at. Choose a later Known at or complete the shape.',interval_actual:'This curve has no collected actual-price source and due rule, or its collected prices do not match its intervals.',interval_actual_missing:'A delivered interval’s actual price is due but was not collected by the chosen Known at.',interval_aggregate:'Aggregate resolved prices over whole local hours or operating days, with From and To on their boundaries.',interval_curve_coverage:'The curve has no interval for part of this window. Choose From and To within its intervals.',interval_delivered:'This window includes intervals delivered by the market date. Choose Resolve to price them from collected actuals.',interval_series_conflict:'This request was already used for a different change, so start a new request.',interval_series_revision_conflict:'Someone else saved this series first, so reload it and apply your change again.',interval_series_values:'Check the values: each must be a plain decimal with at most 18 decimal places inside the series’ allowed range, and no interval may overlap a stored one that starts at a different time.',interval_series_window:'Choose a From before To spanning at most 35,136 intervals and 100,000 changes, with a Known at no later than now.',interval_series_code:'Choose an unused code that starts with a lowercase letter and uses lowercase letters, digits, underscores, dots or hyphens.',interval_series_definition:'Name the series in 1 to 80 characters without leading or trailing spaces, and choose a kind, specification and clock that belong together in this workspace’s reference data.',interval_series_request:'This request has no identity, so refresh the page and try again.',interval_series_reason:'Give a reason of 1 to 500 characters that is not blank.',interval_series_outcome_unknown:'We could not confirm whether the save completed, so retry the original request to recover its receipt or check the change log first.',request_too_large:'The request is too large for this operation; for an import, split it into smaller ones.',overlay_parameter:'Choose a known overlay with a whole-number window from 2 to 250, and at most four overlays.',overlay_input:'The chart overlays need an ordered price history of at most 35,136 points with plain decimal values.',history_conflict:'Different prices remain at one instant under the cutoff policy. Choose Exact closes or one version to read this history.',power_period_interval:'A stored delivery price is not an interval of these operating days under the source’s market clock, so the read was refused.',power_period:'Choose operating dates written yyyy-MM-dd that span 1 to 366 days within 2000 to 2099, and a day inside the contract’s delivery period when settling.',custom_curve_mixed_units:'The preview mixes output units, so no single unit describes it. Give the outputs one unit.'};throw Object.assign(Error(agentRefusal(error)??scheduleErrorMessage(error.code)??messages[error.code]??requestRefusal(error)),{code:error.code});}
+  if(!response.ok){const error=await response.json().catch(()=>({code:'request_failed'}));if(path.startsWith('swaps/settlement/'))throw Object.assign(Error(error.message??'The settlement operation was refused.'),{code:error.code});if(path.startsWith('ppa/'))throw Object.assign(Error(`${error.code??'request_failed'}: ${error.message??'The PPA operation was refused.'}`),{code:error.code,details:error});const messages:Record<string,string>={index_fixing_convention_missing:'This index has no qualified fixing schedule for the selected observations. Its reference rules must be configured before this swap can be priced.',index_fixing_missing:'A published index fixing is required but is missing from the selected market inputs. Load the fixing and select a complete market context.',index_fixing_definition:'The fixing schedule does not match the exact index, price units or source definition.',swap_fixing_read_only:'Fixing dates come from the selected index convention and cannot be entered manually.',reference_edit:'Choose a reference row and complete its supported display fields. Financial terms are read-only.',reference_conflict:'This reference version changed. Reload before editing or reconcile the retained request.',reference_limit:'This reference catalog exceeds the supported metadata authoring limits.',reference_economic_change:'The saved version changes financial terms and cannot be applied as a display update.',reference_outcome_unknown:'The save outcome is unconfirmed. Inspect versions or retry the retained original request.',missing_curve_view:'This curve has no configured close for the selected date. Choose an available calendar date.',missing_observation:'Required market data is missing for this curve and close. Choose another available date or load the missing prices.',recipe_definition:'Complete every required operation setting and connect each node to the curve output with compatible inputs.',recipe_input:'The selected dates or contracts do not have complete valid observations. Check the source and date window.',recipe_transform:'This saved curve uses an operation that is unavailable in the connected engine. Recreate it with supported graph operations.',recipe_formula:'Use quoted parameters, connected @node inputs and typed JSON contract mappings.',custom_curve_definition:'Complete the curve operations, connections and required settings. Check the selected sources and date coverage.',custom_curve_conflict:'This curve changed or the code is already used. Reload the library before editing.',custom_curve_coverage:'The selected dates or contracts do not have complete observations. Choose a covered window or load the required prices.',custom_curve_operator:'This curve uses an unsupported operation or incompatible input connection.',custom_curve_source:'Choose an available curve from the selected market context.',custom_curve_limit:'This curve exceeds the supported graph or history bounds.',futures_execution_policy:'Trading eligibility is missing, ambiguous or inconsistent with its source. A maintainer must qualify this contract before it can be priced.',unit_catalog:'The configured unit catalog is unavailable at this effective date or knowledge cutoff.',reference_catalog:'The configured reference catalog is unavailable in this context.',reference_page:'Choose an available category and valid page or search text.',clock_tzdb:'The installed time-zone rules differ from the product clock’s declared release, or cannot be verified. Calculations are blocked until they match.',clock_rule:'This product’s market clock is incomplete or unknown in reference data.',power_calendar:'The settlement index calendar does not cover this whole delivery period.',power_index:'This curve needs a single settlement index with matching commodity, currency and unit.',tou_definition:'Supply a lowercase code, a name, a market clock and an ordered peak window.',tou_conflict:'This TOU product changed or its code is already used. Reload before editing.',clock_reference:'Choose a market clock from this workspace’s reference data.',calendar_reference:'Choose a business calendar from this workspace’s reference data.',calendar_binding:'Choose a reference calendar, not a typed one.',futures_revision_conflict:'This trade changed. Reload the current revision before amending.',futures_amendment:'Supply an explicit amendment reason and use the selected working As of time.',futures_no_change:'Change a supported booking term before previewing an amendment.',futures_trade:'The trade revision is unavailable in this context.',historical_read_only:'This historical view is read-only. Return to working data before booking or amending.',risk_stress:'Choose signed nonzero curve-coordinate shifts using the supported additive convention, with at most sixteen nested stresses.',scenario_target:'Choose an available exact curve, contract or point target; overlapping shifts belong in separate nested layers.',scenario_coordinate:'Choose a primitive quote for input shocks or a computed point for output shifts. Frozen observations cannot be shocked.',scenario_bucket:'Choose an ordered delivery window whose boundaries do not split a contract or computed point.',scenario_shift:'Choose an offered quote or output target, its exact unit and a valid signed shift within the supported nesting limit.',risk_context:'Select the shared financial context before running risk.',risk_job_context:'Queue the exact retained financial context with a stable request identity.',risk_job_conflict:'This request identity belongs to different risk inputs. Inspect the retained job before submitting a new request.',risk_job_run:'The parts of this run do not agree: every part of a run is queued once, at one retained context, with one part count. Queue the run again.',risk_job_outcome_unknown:'The job submission outcome is unknown. Reconcile the retained submission to retry the same request safely.',risk_engine_version:'This retained job requires its original managed engine version.',risk_timeout:'The risk job exceeded its configured calculation time limit.',risk_input_timeout:'The retained risk inputs could not be loaded within the configured time limit.',risk_result_limit:'The risk result exceeds the retained report size limit. Narrow the selected books or request book totals.',risk_bump:'Enter a positive absolute bump and choose distinct supported scenario targets.',risk_factor:'Choose an available quote or computed-output target in this market context.',risk_position:'Choose books containing live supported holdings.',risk_policy:'Choose the supported exact repricing policy.',risk_convention:'Choose the supported repricing convention for this risk operation.',portfolio_policy:'Refresh the risk catalog to select its complete supported pricing policies.',portfolio_context:'Select a complete retained financial context covering the held instruments and their market inputs.',swap_risk_model:'A held swap requires market inputs that are unavailable in this exact financial context.',precision_loss:'An exact result needs more precision. For a conversion, choose explicit final rounding; no value was rounded automatically.',price_domain:'A base or shocked price is outside the contract’s allowed price range.',table_view_conflict:'This saved view changed in another session. Use Reload views before saving or deleting it.',table_view:'Choose a valid named layout; at most twenty views can be saved per table.',blotter_view:'Choose available books and explicit pivot dimensions/measures. Lots require dated-contract grouping.',power_historical:'Return to current inputs to use the unsaved power example. Historical clock publication is not supported yet.',power_units:'This example needs an outright curve quoted per MWh.',settlement_coverage:'The selected mask has no intervals or the fixing coverage is incomplete.',power_input:'Complete the product, units and classification choices.',access_denied:hostedPilot?'Your account does not have permission for that operation.':'This demo user can’t make that change. You can switch users in Profile → Preview access.',revision_conflict:'This price has already changed. Refresh and choose the version you want in Price changes.',mutation_outcome_unknown:'We could not confirm whether your change was saved. Refresh and check the saved changes before saving again.',numeric_format:'Enter a number with no commas or spaces, using up to 18 decimal places.',missing_value:'Enter a new value before saving.',definition_rejected:'This value does not meet the contract’s price rules. Check the allowed range and settlement increment in Reference data.',snapshot_missing:'Choose an available market date.',request_token:'Please refresh the page before making this change.',request_cancelled:'This took too long. Please refresh and try again.',admin_conflict:'This account changed or the login name is already registered. Refresh accounts before editing.',last_administrator:'Keep at least one current administrator in this workspace.',self_access_change:'Another administrator must remove your administrative access.',admin_input:'Enter a name, login, identity kind and explicit roles.',admin_limit:'This preview has reached its account limit.',administration_outcome_unknown:'We could not confirm the change. Check accounts and recent access changes, then retry the retained request if necessary.',model_admin_input:entryRanges,model_admin_conflict:'This provider or model changed, the model already exists, its current state does not allow the change, or the request identity was used for a different change. Refresh AI settings before trying again.',model_admin_outcome_unknown:'We could not confirm the change. Check the current AI settings and recent changes, then retry the retained request if necessary.',model_identifier_invalid:'Enter the vendor’s model identifier: up to 128 letters, digits, dots, underscores or hyphens, starting with a letter or digit.',currency_unavailable:'Choose a currency of a sealed reference revision that your roles can currently read.',model_unqualified:'Enable a model once its capabilities are recorded under the usage mapping its vendor’s adapter applies.',model_provider_unqualified:'The provider is not qualified: this release must confirm its usage mapping, and its current key and terms must be attested.',model_provider_disabled:'The model’s provider is disabled. Enable the provider first.',model_mapping_unconfirmed:'Record capabilities once this release confirms a usage mapping for the model’s vendor.',model_unpriced:'The model needs a rate set in force now.',model_changed:'The model’s capability version changed. Refresh AI settings and choose the version listed now.',model_disabled:'The model is disabled. Enable it before an agent version names it.',model_limit_exceeded:'Ask for no more output tokens per call than the model version allows.',grant_duration_exceeded:'The grant is longer than the limit stated with it.',instructions_too_long:'The instructions are longer than the limit stated with them.',agent_retired:'This agent is retired and can no longer change.',parameter_required:'Choose one of the reasoning efforts the model’s capability version records.',test_in_progress:'This test has no recorded outcome yet. Retry the retained request to read it once it is recorded.',report_zone_invalid:'Choose a time zone the preview’s database knows, named exactly as it names it.',report_range_invalid:'Enter a From date before the To date, each written yyyy-MM-dd, no further apart than the Usage tab states.',agent_runtime_unavailable:'Tests run only while this process holds the agent worker, which another process may hold or whose connection was lost. Try again shortly.',credential_unavailable:'Key storage is unavailable here, so no key can be saved or opened. Its key files are missing or unreadable: ask whoever runs this installation to restore them.',agent_managed:'Agents can’t be created or changed here, and only agents hold the agent reader role.',numeric_range:'A number is too large: its magnitude must be below 10^24.',interval_series_resolution:'Choose a 5, 15, 30 or 60 minute resolution.',interval_series_empty:'Add at least one value to import.',interval_series_size:'A revision holds at most 200,000 intervals, so split a larger import into several smaller ones.',interval_series_instant:'Write each start as a UTC instant, for example 2027-01-01T05:00:00Z, within the years 2000 to 2099.',interval_series_grid:'Every start must be where one of the series’ intervals starts on its market clock, and From and To may not fall inside a stored interval.',interval_series_overlap:'Intervals within one import cannot overlap or repeat.',interval_series_historical:'Return to working data to edit or read interval series, then use Known at on this page to see earlier knowledge.',interval_curve_historical:'Return to working data to read interval curves; their TOU and shape inputs are current definitions.',interval_curve_window:'Choose From and To on the curve’s interval grid, at most 35,136 intervals apart.',interval_curve_cutoff:'Choose Known at for a shaped curve or when resolving actuals.',interval_contract:'Choose a curve whose constituents are exact delivery intervals on its market clock.',interval_block:'A block curve must be date-only and bound to a published TOU peak window, or cover all hours.',interval_block_partition:'The curve’s block marks must cover every interval in this window exactly once. Choose a window inside its marked months.',interval_block_coverage:'No block of the curve covers part of this window. Choose a window inside its marked months.',interval_shape:'The shape cannot calibrate a block: multiplicative factors need a positive weighted mean under the supported method.',interval_shape_coverage:'The shape has no value for an interval of a block this window touches at the chosen Known at. Choose a later Known at or complete the shape.',interval_actual:'This curve has no collected actual-price source and due rule, or its collected prices do not match its intervals.',interval_actual_missing:'A delivered interval’s actual price is due but was not collected by the chosen Known at.',interval_aggregate:'Aggregate resolved prices over whole local hours or operating days, with From and To on their boundaries.',interval_curve_coverage:'The curve has no interval for part of this window. Choose From and To within its intervals.',interval_delivered:'This window includes intervals delivered by the market date. Choose Resolve to price them from collected actuals.',interval_series_conflict:'This request was already used for a different change, so start a new request.',interval_series_revision_conflict:'Someone else saved this series first, so reload it and apply your change again.',interval_series_values:'Check the values: each must be a plain decimal with at most 18 decimal places inside the series’ allowed range, and no interval may overlap a stored one that starts at a different time.',interval_series_window:'Choose a From before To spanning at most 35,136 intervals and 100,000 changes, with a Known at no later than now.',interval_series_code:'Choose an unused code that starts with a lowercase letter and uses lowercase letters, digits, underscores, dots or hyphens.',interval_series_definition:'Name the series in 1 to 80 characters without leading or trailing spaces, and choose a kind, specification and clock that belong together in this workspace’s reference data.',interval_series_request:'This request has no identity, so refresh the page and try again.',interval_series_reason:'Give a reason of 1 to 500 characters that is not blank.',interval_series_outcome_unknown:'We could not confirm whether the save completed, so retry the original request to recover its receipt or check the change log first.',request_too_large:'The request is too large for this operation; for an import, split it into smaller ones.',overlay_parameter:'Choose a known overlay with a whole-number window from 2 to 250, and at most four overlays.',overlay_input:'The chart overlays need an ordered price history of at most 35,136 points with plain decimal values.',history_conflict:'Different prices remain at one instant under the cutoff policy. Choose Exact closes or one version to read this history.',power_period_interval:'A stored delivery price is not an interval of these operating days under the source’s market clock, so the read was refused.',power_period:'Choose operating dates written yyyy-MM-dd that span 1 to 366 days within 2000 to 2099, and a day inside the contract’s delivery period when settling.',custom_curve_mixed_units:'The preview mixes output units, so no single unit describes it. Give the outputs one unit.',dashboard_layout:'The dashboard layout is not valid. Dates, authority and market figures cannot be saved in a layout.',dashboard_layout_conflict:'This dashboard changed in another session. Reload it before saving.',dashboard_request_conflict:'This request id already saved a different dashboard. Reload before saving again.'};throw Object.assign(Error(agentRefusal(error)??scheduleErrorMessage(error.code)??messages[error.code]??requestRefusal(error)),{code:error.code,details:error});}
   return response.json() as Promise<T>;
 }
 async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
@@ -136,7 +147,7 @@ async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
  }
  return payload;
 }
-function pageStatus(){return page==='gas-setup'?'Gas delivery setup · immutable drafts and explicit publication.':page==='gas'?'Physical gas · reference-backed delivery points and independent delivery dates.':page==='delivery'?'Delivery prices · selected delivery dates and knowledge cutoff.':page==='ppa'?'PPA bookings · exact selected inputs and certified knowledge.':page==='interval-series'?'Interval data · working data, known at the chosen time.':page==='interval-curves'?'Hourly / sub-hourly prices · marks from the selected market date; shapes and actuals known at the chosen time.':page==='custom-curves'?'Curve builder · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant settings · current authority.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:select('snapshot').value?'Choose a curve to get started.':'Choose a curve and a market date to get started.';}
+function pageStatus(){return page==='dashboard'?'Dashboard · widgets read at the selected market date and context.':page==='gas-setup'?'Gas delivery setup · immutable drafts and explicit publication.':page==='gas'?'Physical gas · reference-backed delivery points and independent delivery dates.':page==='delivery'?'Delivery prices · selected delivery dates and knowledge cutoff.':page==='ppa'?'PPA bookings · exact selected inputs and certified knowledge.':page==='interval-series'?'Interval data · working data, known at the chosen time.':page==='interval-curves'?'Hourly / sub-hourly prices · marks from the selected market date; shapes and actuals known at the chosen time.':page==='custom-curves'?'Curve builder · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant settings · current authority.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:select('snapshot').value?'Choose a curve to get started.':'Choose a curve and a market date to get started.';}
 const errorMessage=(error:unknown)=>error instanceof Error?error.message:'Something went wrong. Please refresh the page.';
 // `keepNotice` is for work that completes a change the person has already made, as reading a changed effective date's end-of-day
 // knowledge does: what that change said, such as that it cleared a risk run, stays on screen.
@@ -159,6 +170,11 @@ type Move='discards'|'closes'|'keeps';
 async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
   if(page==='gas'&&move!=='keeps'){if(modal?.open)modal.close();return gas.leave();}
   if(page==='gas-setup'&&move!=='keeps'){if(modal?.open)modal.close();return gasSetup.leave();}
+  if(page==='reference'){
+    if(move==='keeps'||!referenceEditor.editing())return true;
+    if(modal?.open)modal.close();
+    return referenceEditor.leave();
+  }
   if(page==='futures'){
     if(modal?.open&&futures.editing())modal.close();
     return futures.leave();
@@ -171,14 +187,15 @@ async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
   if(move==='discards')customCurves.discard();
   return true;
 }
-// Whether the page showing holds edits that a move to another page, context or account gives up: the Blotter's amendment, or a custom curve's unsaved edits.
-function holdsEdits(){return page==='futures'?futures.editing():page==='custom-curves'&&customCurves.holds('edits');}
+// Whether the page showing holds edits that a move to another page, context or account gives up: the Blotter's amendment, a custom curve's
+// unsaved edits or a reference item's.
+function holdsEdits(){return page==='futures'?futures.editing():page==='reference'?referenceEditor.editing():page==='custom-curves'&&customCurves.holds('edits');}
 // What the profile dialog does gives up what the Blotter holds, which is asked about with the dialog closed, for a modal dialog keeps the panel, and
 // the question, out of reach. Keeping the amendment leaves the dialog closed and nothing done, which is said, for a closed dialog looks like a done one.
 async function mayLeaveForDialog(notDone:string,move:Move='discards'){
   if(busy)return false;
   if(await mayLeave(move,$<HTMLDialogElement>('profile-dialog')))return true;
-  notice(page==='futures'?`${notDone}, because you kept the amendment you were editing.`:`${notDone} · your curve edits are unchanged.`);
+  notice(page==='futures'?`${notDone}, because you kept the amendment you were editing.`:`${notDone} · your ${page==='reference'?'reference':'curve'} edits are unchanged.`);
   return false;
 }
 // Runs `work` as an action, once the person has agreed to leave what the page holds. A discarded curve that the work then failed to leave is read again.
@@ -186,7 +203,7 @@ function leaving(work:()=>Promise<void>,move:Move='discards'){void (async()=>{if
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
 function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][],onRowActivate?:(index:number)=>void){
-  const referenceScope=[data().profile,page,select('reference-table').value,referencePage?.referenceRevision,referencePage?.offset,referencePage?.search,historicalContext()];
+  const referenceScope=[data().profile,page,referenceTable,referencePage?.referenceRevision,referencePage?.offset,referencePage?.search,historicalContext()];
   const marketScope=[data().profile,curve,result?.snapshotId??'',target==='history-values'?contract:'',target==='revisions'?input:'',...(['inputs','mappings'].includes(target)?[showAllContracts||target==='inputs'&&sourceOnlyCurve?'all':pricingContract]:[])];
   renderRegularTable($(target),target,JSON.stringify(target==='reference'?referenceScope:marketScope),headers,rows,numeric,()=>busy,{displayRows,onRowActivate});
 }
@@ -214,9 +231,13 @@ async function setPage(next:string){
   // The Blotter is left on the person's word, whichever route took them, so no form of its panel stays held, with edits that the browser would be asked
   // about and that nothing can return to: the Blotter is read afresh when they come back to it.
   if(page==='futures'&&next!=='futures')futures.leavePage();
-  page=next;$('gas-setup-page').hidden=next!=='gas-setup';$('gas-page').hidden=next!=='gas';$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures';$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next);$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('curve-date-editor').hidden=next!=='configuration';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin';$('ai-page').hidden=next!=='ai';$('no-access-page').hidden=true;
-  text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='jobs'?'Jobs & Infrastructure':next==='custom-curves'?'Curve builder':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='interval-curves'?'Curves & prices':next==='parties'?'Entities & counterparties':next==='gas-setup'?'Gas delivery setup':next==='gas'?'Physical gas bookings':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='market'?'Curves & prices':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules':'Reference data');
-  for(const name of ['gas-setup','gas','market','custom-curves','delivery','interval-series','interval-curves','power','reference','configuration','schedules','admin','ai','parties','jobs'])$('nav-'+name).classList.toggle('active',next===name||(name==='market'&&next==='interval-curves'));
+  // The Dashboard releases its widgets, and any run a widget follows, when left; it is read afresh when opened again.
+  if(page==='dashboard'&&next!=='dashboard')dashboard.leave();
+  // Only the reference page has an address; another page leaves none behind.
+  if(next!=='reference'&&location.hash.startsWith('#reference'))window.history.replaceState(null,'',location.pathname+location.search);
+  page=next;$('gas-setup-page').hidden=next!=='gas-setup';$('gas-page').hidden=next!=='gas';$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('dashboard-page').hidden=next!=='dashboard';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures';$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next);$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('curve-date-editor').hidden=next!=='configuration';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin';$('ai-page').hidden=next!=='ai';$('no-access-page').hidden=true;
+  text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='dashboard'?'Dashboard':next==='jobs'?'Jobs & Infrastructure':next==='custom-curves'?'Curve builder':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='interval-curves'?'Curves & prices':next==='parties'?'Entities & counterparties':next==='gas-setup'?'Gas delivery setup':next==='gas'?'Physical gas bookings':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='market'?'Curves & prices':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules':'Reference data');
+  for(const name of ['gas-setup','gas','dashboard','market','custom-curves','delivery','interval-series','interval-curves','power','reference','configuration','schedules','admin','ai','parties','jobs'])$('nav-'+name).classList.toggle('active',next===name||(name==='market'&&next==='interval-curves'));
   renderBlotterViews();
   text('status',pageStatus());syncControls();
 }
@@ -324,11 +345,13 @@ async function recheckNewestClose(){
 // selected (taken the first time the close is rendered, and again whenever it is selected), so a later close is news
 // whoever selected the close. A historical or unapplied view has no newest close to claim, and a workspace without closes
 // has nothing to compare.
-function renderCloseBadge(){
+function currentCloseBadge():CloseBadge|null{
  const closes=workspaceCloses,shown=shownClose,latest=closes?latestInstant(closes):null;
  if(latest&&closeBasis?.close!==shown)closeBasis={close:shown,latest};
- marketCalendar.badge(closes&&latest&&closeBasis&&!contextDirty&&!historicalContext()?closeBadge(shown,closeBasis.latest,closes):null);
+ return closes&&latest&&closeBasis&&!contextDirty&&!historicalContext()?closeBadge(shown,closeBasis.latest,closes):null;
 }
+// The dashboard's close footers say what the badge says.
+function renderCloseBadge(){marketCalendar.badge(currentCloseBadge());if(page==='dashboard')dashboard.closeChanged();}
 // The As of dates the selector offers: a historical view's own date's frames, or every frame of working data.
 function offeredFrames(){const context=historicalContext();return context?directory().frames.filter(f=>f.at.slice(0,10)===context.effectiveOn):directory().frames;}
 function renderFrames(value:string){const frames=offeredFrames();choose('snapshot',[{value:'',name:frames.length?'Choose a date…':'No inputs for this context date'},...frameOptions(frames,prefs.timeZone)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;shownClose=select('snapshot').value;invalidateMarketDates();}
@@ -581,48 +604,131 @@ function renderDependencies(){
   $('source-flow').replaceChildren(sources);$('dependencies').replaceChildren(dependencies);
 }
 
-function referenceName(table:string,code:string,references=presentedReferences(data())){const r=exactRow(references[table]??[],'code',code);if(typeof r.name==='string')return r.name.replace(/^Synthetic /,'');if(typeof r.symbol==='string')return r.symbol;if(typeof r.display_code==='string')return r.display_code;return friendly(code);}
+function referenceName(table:string,code:string,references=presentedReferences(data())){return referenceLabel(exactRow(references[table]??[],'code',code));}
 const linkedTables:Record<string,string>={commodity_code:'commodities',fuel_commodity_code:'commodities',output_commodity_code:'commodities',currency_code:'currencies',quote_currency_code:'currencies',unit_code:'units',lot_unit_code:'units',from_unit_code:'units',to_unit_code:'units',quote_unit_code:'units',fuel_unit_code:'units',output_unit_code:'units',location_code:'locations',type_code:'location_types',exchange_code:'exchanges',clearing_house_code:'clearing_houses',source_code:'sources',qualification_source_code:'sources',product_code:'futures_products',series_code:'futures_series',clock_code:'clock_rules',market_clock_code:'clock_rules',calendar_code:'calendars',trading_calendar_code:'calendars',quantity_code:'quantity_specifications',basis_code:'measurement_bases',index_a_code:'price_index_definitions',index_b_code:'price_index_definitions',numerator_quantity_code:'quantity_specifications',denominator_quantity_code:'quantity_specifications'};
-function referenceValue(r:Row,key:string){
-  if(r[key]===null)return '—';const value=val(r,key);if(value==='true'||value==='false')return value==='true'?'Yes':'No';if(linkedTables[key]){const linked=linkedTables[key],rows=displayReferenceRows(linked,referencePage!.references[linked]??[],referencePage!.referenceDisplay,referencePage!.referenceRevision);return referenceName(linked,value,{[linked]:rows});}
+type ReferenceRows=Pick<ReferencePage,'references'|'referenceDisplay'|'referenceRevision'>;
+function referenceValue(r:Row,key:string,read:ReferenceRows){
+  if(r[key]===null)return '—';const value=val(r,key);if(value==='true'||value==='false')return value==='true'?'Yes':'No';if(linkedTables[key]){const linked=linkedTables[key],rows=displayReferenceRows(linked,read.references[linked]??[],read.referenceDisplay,read.referenceRevision);return referenceName(linked,value,{[linked]:rows});}
   if(key.endsWith('_at')||key==='eligible_from')return instant(value);if(key==='code')return friendly(value);
   if(/^-?\d+(\.\d+)?$/.test(value)||['name','symbol','display_code','source_series_code','zone_name','series_label','delivery_from','delivery_to','event_date','date','locator','evidence'].includes(key))return value;
   return friendly(value);
 }
-function clearReference(){referencePage=undefined;referenceEditor.setPage(undefined);unitConverter.reset();$('reference').replaceChildren();text('reference-page-status','');}
-function referenceCategory(){
-  const groups=dataSections(Object.keys(data().references)),sections=groups.flatMap(g=>g.sections),previous=select('reference-table').value;
-  const selected=sections.some(s=>s.value===previous)?previous:'currencies';
-  if(!sections.some(s=>s.value===selected))throw Error('These details are unavailable. Please refresh the page.');
-  select('reference-table').replaceChildren(...groups.map(g=>{const group=document.createElement('optgroup');group.label=g.name;group.append(...g.sections.map(s=>{const option=el('option',s.name);option.value=s.value;return option;}));return group;}));select('reference-table').value=selected;
-  const group=groups.find(g=>g.sections.some(s=>s.value===selected))!;
-  const section=group.sections.find(s=>s.value===selected)!;
-  text('data-title',section.name);text('data-description',section.consumer);
-  return selected;
+function clearReference(){referencePage=undefined;shownReference='';referenceEditor.reset();unitConverter.reset();$('reference').replaceChildren();text('reference-page-status','');$('reference-item').replaceChildren();$('reference-item').hidden=true;$('reference-list').hidden=false;}
+const referenceSections=()=>dataSections(Object.keys(data().references)).flatMap(g=>g.sections);
+// The chosen category, shown as its group and tab, with its list or one of its items (`listed`). One no longer available is an
+// error, and the next opening starts on Currencies.
+function referenceCategory(listed:boolean){
+  const selected=referenceTable||'currencies',section=referenceSections().find(s=>s.value===selected);
+  if(!section){referenceTable='';referenceNavigation.clear();throw Error('These details are unavailable. Please refresh the page.');}
+  referenceTable=selected;referenceNavigation.select(selected,listed);text('data-title',section.name);text('data-description',section.consumer);
+  return section;
+}
+const listAddress=(table:string,search:string):ReferenceAddress=>search?{table,search}:{table};
+// Field names on an item's own page, where the Code fact above names the item; elsewhere `name` is a list's Description column.
+const itemFieldNames:Record<string,string>={name:'Name',display_code:'Display code'};
+// The address of what the page shows. A move from a list, to another list or an item, is a new history entry; opening an address,
+// or the page from elsewhere, replaces the entry that led to it.
+function addressReference(address:ReferenceAddress){
+  const hash=formatReferenceAddress(address),current=parseReferenceAddress(location.hash);shownReference=hash;
+  if(location.hash===hash)return;
+  if(current&&current.code===undefined)window.history.pushState(null,'',hash);else window.history.replaceState(null,'',hash);
+}
+// Opens a category's tab, with its rows matching `search` when one is given, at the page an item of it was opened from.
+async function showReference(table:string,search:string){
+  clearReference();await loadWorkspace();
+  if(!referenceSections().some(s=>s.value===table)){referenceNavigation.clear();throw Error('That reference table is not available here.');}
+  const offset=referenceReturn?.table===table&&referenceReturn.search===search?referenceReturn.offset:0;referenceReturn=undefined;
+  referenceTable=table;$<HTMLInputElement>('reference-search').value=search;await loadReference(offset,search);
+}
+// The page an address names: a category's list, or one item of it with a breadcrumb back to that list.
+async function openReferenceItem(address:ReferenceAddress){
+  const {table,code,search=''}=address;
+  if(code===undefined)return showReference(table,search);
+  const from=referencePage;
+  clearReference();if(contextDirty)throw Error('Apply the changed context first.');await loadWorkspace();
+  if(!referenceSections().some(s=>s.value===table)){referenceNavigation.clear();throw Error('That reference table is not available here.');}
+  if((keylessCategories as readonly string[]).includes(table))throw Error('Rows of this category have no page of their own. Choose the category to list them.');
+  if(from)referenceReturn={table:from.table,search:from.search,offset:from.offset};
+  referenceTable=table;const section=referenceCategory(false),owner=data(),context=historicalContext()??null;
+  // The editor adds the item's display version to these facts once it has read it.
+  const heading={list:{name:section.name,address:listAddress(table,search)},facts:[['As of',context?`${displayDate(context.effectiveOn)}${context.knownAt?`, as known at ${instant(context.knownAt)}`:''}`:'Working data']] as const};
+  const current=()=>workspace===owner&&!contextDirty&&page==='reference'&&referenceTable===table;
+  // The display version the page read showed, which the editor's read must match.
+  let shownVersion=0;
+  try{
+    if(table==='futures_products'){
+      const read=await api<FuturesProductRead&{context:Context|null;profile:string}>('reference/futures-product?'+new URLSearchParams({code}));
+      if(!current()||!sameReferenceRead(owner,table,read,context)||read.product?.code!==code||![read.series,read.milestones,read.executionPolicies].every(Array.isArray)||!read.references)
+        throw Error('The futures product is missing or inconsistent. Refresh and try again.');
+      renderFuturesProduct($('reference-item'),read,{list:heading.list,facts:heading.facts,instant});
+      shownVersion=read.referenceDisplay?.version??0;
+    }else{
+      const read=await api<ReferencePage>('reference/catalog?'+new URLSearchParams({table,code}));
+      if(!current()||!sameReferencePage(owner,table,read,context)||read.rows.length!==1||read.rows[0].code!==code)
+        throw Error('The reference item is missing or inconsistent. Refresh and try again.');
+      const [row]=displayReferenceRows(table,read.rows,read.referenceDisplay,read.referenceRevision);
+      const addressable=(linked:string|undefined)=>linked!==undefined&&referenceSections().some(s=>s.value===linked);
+      // The Code fact above names the item, so its grid leaves the code out and calls its name Name.
+      renderReferenceItem($('reference-item'),{list:heading.list,title:referenceLabel(row),facts:[['Code',code],...heading.facts]},
+        publicColumns([row]).filter(c=>c.key!=='code').map(c=>({label:itemFieldNames[c.key]??c.name,value:referenceValue(row,c.key,read),editField:c.key,...(row[c.key]!==null&&addressable(linkedTables[c.key])?{linkTo:{table:linkedTables[c.key],code:String(row[c.key])}}:{})})));
+      shownVersion=read.referenceDisplay?.version??0;
+    }
+    if(!Number.isSafeInteger(shownVersion))throw Error('The reference item is missing or inconsistent. Refresh and try again.');
+    await referenceEditor.show(table,code,context,shownVersion);
+  }catch(error){clearReference();throw error;}
+  $('reference-list').hidden=true;
+  addressReference(address);
+}
+// A reference address from the browser's location or a link on the page; one naming no category shows no rows.
+async function openReferenceAddress(hash:string){
+  await setPage('reference');
+  const address=parseReferenceAddress(hash);
+  if(address)return openReferenceItem(address);
+  clearReference();referenceNavigation.clear();
+  throw Error('This address names no available reference category. Choose one from Reference data.');
+}
+type ReferenceSearch={query:string;hits:ReferenceHit[];truncated:boolean;context:Context|null;profile:string};
+async function searchReference(text:string){
+  if(contextDirty)throw Error('Apply the changed context first.');await loadWorkspace();
+  // The backend trims the text too and echoes what it searched.
+  const q=text.trim();
+  const owner=data(),context=historicalContext()??null;
+  const found=await api<ReferenceSearch>('reference/search?'+new URLSearchParams({q}));
+  if(workspace!==owner||contextDirty||page!=='reference'||found.query!==q||!Array.isArray(found.hits)||typeof found.truncated!=='boolean'||found.profile!==owner.profile||JSON.stringify(found.context)!==JSON.stringify(context))
+    throw Error('The reference search is missing or inconsistent. Refresh and try again.');
+  referenceNavigation.showHits(found.hits,found.truncated);
+}
+const unitCatalogCategories=['units','unit_conversions','dimensions','commodities','measurement_bases','quantity_specifications'];
+// A reference read answers in the workspace's exact reference revision (the unit catalog's, for its categories), for this account and context.
+function sameReferenceRead(owner:Workspace,table:string,read:{referenceRevision?:ReferenceRevision;profile:string;context:Context|null},context:Context|null){
+  const revision=owner.definitions.revisions[0],expected=unitCatalogCategories.includes(table)?owner.unitCatalog?.revision as ReferenceRevision|undefined:{catalogId:val(revision,'reference_catalog_id'),revisionId:val(revision,'reference_revision_id')};
+  return !!expected&&read.referenceRevision?.catalogId===expected.catalogId&&read.referenceRevision?.revisionId===expected.revisionId&&read.profile===owner.profile&&JSON.stringify(read.context)===JSON.stringify(context);
+}
+// A page of one category, in the workspace's definitions (outside the unit catalog), bounded by the server's page size.
+function sameReferencePage(owner:Workspace,table:string,read:ReferencePage,context:Context|null){
+  return sameReferenceRead(owner,table,read,context)&&(unitCatalogCategories.includes(table)||read.definitionRevisionId===val(owner.definitions.revisions[0],'id'))&&read.table===table
+    &&read.referenceScope==='selected_table'&&read.pageSize===200&&Number.isSafeInteger(read.maximumOffset)&&typeof read.hasMore==='boolean'&&Array.isArray(read.rows)&&read.rows.length<=200&&!!read.references;
 }
 function renderReference(){
   if(contextDirty||!referencePage)return;
   const {table:selected,rows,offset,hasMore}=referencePage;
   if(data().unitCatalog)unitConverter.populate({...data(),references:data().unitCatalog!.references},selected==='units'||selected==='unit_conversions');else unitConverter.reset();
-  const columns=publicColumns(rows),displayRows=displayReferenceRows(selected,rows,referencePage.referenceDisplay,referencePage.referenceRevision);table('reference',columns.map(c=>c.name),displayRows.map(r=>columns.map(c=>referenceValue(r,c.key))));
-  referenceEditor.setPage({...referencePage,rows:displayRows});
+  const columns=publicColumns(rows),displayRows=displayReferenceRows(selected,rows,referencePage.referenceDisplay,referencePage.referenceRevision),shown=referencePage;
+  // A row opens its item's page; rows of a category without codes have none.
+  const open=(keylessCategories as readonly string[]).includes(selected)?undefined:(index:number)=>void act(()=>openReferenceItem({table:selected,code:String(rows[index].code),...shown.search?{search:shown.search}:{}}));
+  table('reference',columns.map(c=>c.name),displayRows.map(r=>columns.map(c=>referenceValue(r,c.key,shown))),[],undefined,open);
   const filter=$('reference').querySelector<HTMLInputElement>('.table-search')!;filter.placeholder='Filter this page…';filter.setAttribute('aria-label','Filter this page');
   text('reference-page-status',rows.length?`Rows ${offset+1}–${offset+rows.length}${hasMore?canAdvanceReference()?' · more available':' · Refine your search to see more results.':''}`:'No rows on this page.');
 }
 async function loadReference(offset=0,search=''){
   clearReference();if(contextDirty)throw Error('Apply the changed context first.');await loadWorkspace();
-  const owner=data(),selected=referenceCategory(),context=historicalContext()??null;
+  const owner=data(),selected=referenceCategory(true).value,context=historicalContext()??null;
   const query=new URLSearchParams({table:selected,offset:String(offset),search});
   const next=await api<ReferencePage>('reference/catalog?'+query);
-  const unitCatalogPage=['units','unit_conversions','dimensions','commodities','measurement_bases','quantity_specifications'].includes(selected);
-  const revision=owner.definitions.revisions[0],expected=unitCatalogPage?owner.unitCatalog?.revision as ReferencePage['referenceRevision']|undefined:{catalogId:val(revision,'reference_catalog_id'),revisionId:val(revision,'reference_revision_id')};
-  const sameRevision=expected&&next.referenceRevision?.catalogId===expected.catalogId&&next.referenceRevision?.revisionId===expected.revisionId&&(unitCatalogPage||next.definitionRevisionId===val(revision,'id'));
-  const sameRequest=next.table===selected&&next.offset===offset&&next.search===search;
-  const sameContext=next.profile===owner.profile&&JSON.stringify(next.context)===JSON.stringify(context);
-  const boundedPage=next.referenceScope==='selected_table'&&next.pageSize===200&&Number.isSafeInteger(next.maximumOffset)&&next.maximumOffset>=offset&&typeof next.hasMore==='boolean'&&Array.isArray(next.rows)&&next.rows.length<=200&&next.references;
-  if(workspace!==owner||contextDirty||page!=='reference'||select('reference-table').value!==selected||!sameRevision||!sameRequest||!sameContext||!boundedPage)
+  if(workspace!==owner||contextDirty||page!=='reference'||referenceTable!==selected||!sameReferencePage(owner,selected,next,context)||next.offset!==offset||next.search!==search||next.maximumOffset<offset)
     throw Error('The reference page is missing or inconsistent. Refresh and try again.');
   referencePage=next;try{renderReference();}catch(error){clearReference();throw error;}
+  addressReference(listAddress(selected,search));
 }
 function marketSelection(){return JSON.stringify([administrationScope,currentProfile,select('snapshot').value,curve,contextDirty]);}
 function validateWorkspace(next:Workspace,owner:MarketNavigation,started:number,scope:string){
@@ -644,7 +750,7 @@ async function loadWorkspace(){
 }
 async function loadNavigation(){
   const started=++marketGeneration,profile=currentProfile,scope=administrationScope;
-  workspace=undefined;navigation=undefined;clearReference();setCurveNames([]);$('curves').replaceChildren();
+  workspace=undefined;navigation=undefined;clearReference();referenceNavigation.clear();setCurveNames([]);$('curves').replaceChildren();
   const next=validateMarketNavigation(await api<MarketNavigation>('workspace/navigation'));
   if(started!==marketGeneration||currentProfile!==profile||administrationScope!==scope||next.profile!==profile||contextDirty)
     throw Error('The account or market selection changed. Reload before continuing.');
@@ -669,6 +775,7 @@ async function refreshLiveScreen(update:LiveContextUpdate){
  if(page==='market'){if(curve){const open=contract;historyData=undefined;historySeries=[];await build();if(open&&contract===open)await history();}await loadBoard();}
  else if(page==='custom-curves')await customCurves.liveRefresh();
  else if(page==='futures')await futures.liveRefresh();
+ else if(page==='dashboard')await dashboard.liveRefresh();
  else if(page==='reference')await loadReference();
  text('environment-context-note','Live corrections · fixed effective and market dates. Every risk run and queued job retains its admitted context.');
 }
@@ -726,9 +833,9 @@ const startupBootstrapPath=bootstrapPath+'&includeAccess=true';
 async function profileChoices(initial?:ProfileChoices){const boot=initial??await api<ProfileChoices>(bootstrapPath);setHostMode(boot.mode);$('preview-access').hidden=hostedPilot;$('sign-out').hidden=!hostedPilot;choose('profile',[...boot.profiles,...boot.customProfiles.filter(p=>!boot.profiles.some(base=>base.id===p.id))].map(p=>({value:p.id,name:p.name})),currentProfile);const name=select('profile').selectedOptions[0]?.textContent??'Current user';text('profile-label',name);text('profile-avatar',name.slice(0,1));text('profile-title',name);text('profile-access','Current permissions: '+(permissions.length?permissions.map(p=>friendly(p.replace(/([a-z])([A-Z])/g,'$1 $2'))).join(', '):'No workspace access'));$('profile-open').setAttribute('aria-label','Profile · '+name);}
 $('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were not signed out'))return;await act(async()=>{await api('logout',{});location.assign('/auth');});})();
 async function loadIdentity(initialAccess?:unknown){
-  $('curve-price-navigation').hidden=true;customCurves.reset();$('custom-curves-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;
-  deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();gasSetup.reset();$('gas-setup-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('no-access-page').hidden=true;
-  curve='';clearPrices();clearReference();choose('reference-table',[],'');marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('curve-date-editor').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;$('date-context').hidden=true;
+  $('curve-price-navigation').hidden=true;customCurves.reset();$('custom-curves-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
+  deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();gasSetup.reset();$('gas-setup-page').hidden=true;$('gas-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('no-access-page').hidden=true;
+  curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('curve-date-editor').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;$('date-context').hidden=true;
   if(initialAccess===undefined)permissions=(await api<{permissions:string[]}>('access')).permissions;
   else{
     const access=initialAccess as StartupAccess|null;
@@ -748,16 +855,22 @@ async function loadIdentity(initialAccess?:unknown){
   // kept is not working data, so it chooses nothing.
   let opening:CloseChoice={kind:'none'};
   if(read){await loadNavigation();renderFrames('');renderContext();if(!historicalContext()){opening=await selectNewestClose();await initializeContext();}}else renderLayout();
+  // A reference address in the location opens that page in place of the first; failing to open it keeps the rest of the opening.
+  const address=location.hash.startsWith('#reference')&&pageAvailable('reference',permissions)?location.hash:undefined;
+  let unopened:unknown;
   if(first!==null){
+    if(address===undefined){
     try{await showPage(first);}catch(error){
       if(first!=='futures'||(error as {code?:string}).code!=='gas_portfolio_scope'||$('nav-gas').hidden)throw error;
       await showPage('gas');notice(errorMessage(error));
     }
+    }else await openReferenceAddress(address).catch(error=>{unopened=error;});
     if(!$('nav-futures').hidden)await futures.views();
     closeCheckDue=false; // the read that chose the close is this page's check for a newer one
     if(opening.kind==='choose')askNewestClose(opening.date);
   }
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
+  if(unopened!==undefined)throw unopened;
 }
 $('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was not switched'))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
 // A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
@@ -769,7 +882,7 @@ function closeChanged(){
 }
 async function loadSelectedClose(){
   if(!select('snapshot').value)return;
-  if(page==='gas')await gas.load();else if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'){if(curve)await build();await loadBoard();}
+  if(page==='gas')await gas.load();else if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'){if(curve)await build();await loadBoard();}else if(page==='dashboard')await dashboard.load();
 }
 // A close the person chooses waits for them to agree to what choosing it gives up. The hidden select that every read and command takes its close from
 // stays on the close the page shows until they do, so that nothing made while the question is open uses a close they have not confirmed, and keeping
@@ -784,7 +897,7 @@ $('browse-by').onchange=()=>void act(updateFilters);$('commodity').onchange=()=>
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];await updateFilters();}));
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
 const schedules=setupShortcutEditor(act,{time:api,load:()=>api('schedules'),preview:draft=>api('schedules/preview',draft),keep:draft=>api('schedules/keep',draft),resolve:body=>api('schedules/resolve',body)},()=>busy,()=>prefs.timeZone);
-function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();parties.reset();clearReference();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose View this context to apply it.');}
+function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();parties.reset();clearReference();referenceNavigation.clear();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose View this context to apply it.');}
 const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,source:()=>{if(contextDirty)throw Error('Apply the changed context first.');return frame().id;}});
 const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=>administrationScope+':'+currentProfile,profileChoices);
 // A person's own agent grants, in the profile dialog (docs/ai-assistant.md §7.1).
@@ -816,7 +929,7 @@ async function viewContext(snapshot:{context:Context}){
   text('environment-context-note','Historical view · working snapshots use the latest known corrections; stored closes retain their original inputs. Changes are disabled.');
 }
 $('close-view-context').onclick=()=>{$<HTMLDetailsElement>('date-context').open=false;};
-$('apply-view-context').onclick=()=>leaving(async()=>{await applyContext();if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
+$('apply-view-context').onclick=()=>leaving(async()=>{await applyContext();if(page==='dashboard')await dashboard.load();else if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
 async function currentInputs(){jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();parties.reset();unitConverter.reset();futures.reset('inputs');power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');text('environment-context-note','Working data uses current knowledge. These controls select a historical context when applied.');}
 // Returning to working data opens it on its newest close, as opening the workspace does (D217, D219), and the page that is
 // showing reads it. A latest instant with several closes opens the calendar on its date and selects nothing.
@@ -857,10 +970,18 @@ const gas=setupPhysicalGas({api,act,busy:()=>busy,source:()=>({snapshotId:frame(
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext()});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
+// The market the dashboard's widgets read in: the navigation and close on screen, the close's own label and its badge.
+function dashboardMarket():DashboardMarket{
+ const close=frame();
+ return {navigation:directory(),snapshotId:close.id,zone:prefs.timeZone,historical:!!historicalContext(),close:{at:close.at,label:close.name||null,badge:currentCloseBadge()}};
+}
+const dashboard=setupDashboard({api,act,busy:()=>busy,historical:()=>contextDirty||!!historicalContext(),market:dashboardMarket});
 const jobs=setupJobs({api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone});
-const referenceEditor=setupReferenceEditor({host:$('reference-editor'),api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,onDenied:clearReference,onApplied:async()=>{
- const selected=select('snapshot').value,offset=referencePage?.offset??0,search=referencePage?.search??'';
- await reload(selected);await loadReference(offset,search);if(result)renderPrices();
+// A committed label changes current curves' names and units as well as the item's page: the market is read again, as after a correction,
+// and so is the page.
+const referenceEditor=setupReferenceEditor({host:$('reference-item'),api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,onCommitted:async()=>{
+ const address=parseReferenceAddress(shownReference),selected=select('snapshot').value;
+ clearPrices();await reload(selected);if(address)await openReferenceItem(address);
 }});
 const power=setupPowerView({api,act,zone:()=>prefs.timeZone,name:curveName,source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');const f=frame();return {snapshotId:f.id,curve,name:instant(f.at)};}});
 const unitConverter=setupUnitConverter({api,act,busy:()=>busy});
@@ -878,7 +999,25 @@ let mainWidth=main.clientWidth;
 new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;contractPanel.place();customCurves.place();}}).observe(main);
 new MutationObserver(()=>{contractPanel.place();customCurves.place();}).observe(document.body,{attributes:true,attributeFilter:['class']});
 const touProducts=setupTouProducts(act,api,()=>busy,()=>prefs.timeZone,async()=>{power.reset();if(select('snapshot').value)await power.load();});
-$('reference-table').onchange=()=>void act(async()=>{$<HTMLInputElement>('reference-search').value='';await loadReference();});
+const referenceNavigation=setupReferenceNavigation({host:$('reference-page'),groups:()=>dataSections(Object.keys(data().references)),
+  // A tab chosen while an item holds unsaved edits asks first; kept, the tabs show the item's category again.
+  onSelect:async table=>{
+    if(busy)return;
+    if(!await mayLeave()){referenceNavigation.select(referenceTable,false);return;}
+    await act(async()=>{referenceTable=table;$<HTMLInputElement>('reference-search').value='';await loadReference();});
+  },
+  onSearch:q=>act(()=>searchReference(q))});
+// A reference address the person follows, types or returns to with Back opens what it names.
+// The address stays with the page shown, so that a reload opens what is on screen, while the person is asked about edits the
+// move would give up, and when it is not opened: another read is in progress, or the person kept their edits.
+window.addEventListener('hashchange',()=>{
+  const hash=location.hash;
+  if(!hash.startsWith('#reference')||page==='reference'&&hash===shownReference)return;
+  const restore=()=>{if(location.hash===hash)window.history.replaceState(null,'',page==='reference'?shownReference||hash:location.pathname+location.search);};
+  if(busy){restore();return;}
+  if(holdsEdits())restore();
+  void (async()=>{if(await mayLeave())await act(async()=>{if(contextDirty)await applyContext();await openReferenceAddress(hash);});else restore();})();
+});
 $('reference-search-form').onsubmit=event=>{event.preventDefault();void act(()=>loadReference(0,$<HTMLInputElement>('reference-search').value));};
 $('reference-previous').onclick=()=>void act(()=>loadReference(Math.max(0,referencePage!.offset-referencePage!.pageSize),referencePage!.search));
 $('reference-next').onclick=()=>void act(()=>loadReference(referencePage!.offset+referencePage!.pageSize,referencePage!.search));
@@ -897,6 +1036,7 @@ async function showPage(next:string){
     case 'gas-setup':await setPage('gas-setup');await gasSetup.load();return;
     case 'gas':await setPage('gas');await gas.load();return;
     case 'ppa':await setPage('ppa');await ppa.load();return;
+    case 'dashboard':await setPage('dashboard');await dashboard.load();return;
     case 'jobs':await setPage('jobs');await jobs.load();return;
     case 'power':await setPage('power');power.reset();await touProducts.load();if(select('snapshot').value)await power.load();return;
     case 'reference':await setPage('reference');$<HTMLInputElement>('reference-search').value='';await loadReference();return;
@@ -910,9 +1050,9 @@ async function showPage(next:string){
   }
 }
 // Pages that read the selected historical view apply a changed one before they open.
-const readsContext=['gas-setup','gas','market','custom-curves','delivery','reference','configuration','parties','futures'];
+const readsContext=['gas-setup','gas','dashboard','market','custom-curves','delivery','reference','configuration','parties','futures'];
 const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);});
-for(const name of ['gas-setup','gas','market','custom-curves','delivery','interval-series','interval-curves','jobs','power','reference','schedules','configuration','parties','admin','ai','futures'])
+for(const name of ['gas-setup','gas','dashboard','market','custom-curves','delivery','interval-series','interval-curves','jobs','power','reference','schedules','configuration','parties','admin','ai','futures'])
   $('nav-'+name).onclick=navigate(name);
 // The saved Blotter views the person lists in the sidebar, each under the Blotter, which is marked while none of them is the view it shows.
 let blotterViews:{listed:string[];shown:string|null}={listed:[],shown:null};
@@ -935,14 +1075,14 @@ function pageState():PageState{
   switch(page){
     case 'market':return {page,curve:curve||null,tab:prefs.tab};
     case 'power':return {page,frame:!!select('snapshot').value};
-    case 'reference':return {page,table:referencePage?.table??'',search:referencePage?.search??''};
+    case 'reference':return {page,...referenceSelection(shownReference)};
     case 'parties':return {page,kind:select('party-kind').value};
     case 'futures':return {page,...futures.report()};
     case 'jobs':return {page,job:jobs.shown()};
     case 'gas-setup':case 'gas':return {page};
     case 'ppa':return {page,...ppa.shown()};
     case 'custom-curves':return {page,...customCurves.report()};
-    case 'configuration':case 'schedules':case 'delivery':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':return {page};
+    case 'dashboard':case 'configuration':case 'schedules':case 'delivery':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':return {page};
     default:throw Error('This page could not load. Please refresh.');
   }
 }
@@ -966,6 +1106,7 @@ function unsaved(){
     case 'schedules':return schedules.unsaved()||dateEditor.datesUnsaved();
     case 'custom-curves':return customCurves.unconfirmed();
     case 'interval-series':return intervalSeries.unconfirmed();
+    case 'dashboard':return dashboard.unconfirmed();
     case 'jobs':return jobs.unconfirmed();
     case 'admin':return administration.unconfirmed();
     case 'ai':return aiSettings.unconfirmed();
@@ -1007,9 +1148,8 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
     }
     case 'reference_data':{
       const table=String(selection.table),search=String(selection.search);await loadWorkspace();
-      if(!dataSections(Object.keys(data().references)).some(g=>g.sections.some(t=>t.value===table)))throw Error('That reference table is not available here.');
-      await setPage('reference');referenceCategory();select('reference-table').value=table;
-      $<HTMLInputElement>('reference-search').value=search;await loadReference(0,search);return;
+      if(!referenceSections().some(s=>s.value===table))throw Error('That reference table is not available here.');
+      await setPage('reference');await showReference(table,search);return;
     }
     // A job's history opens its details on the page of the directory that lists it, found before the page changes.
     case 'jobs':{const job=await jobs.locateJob(String(selection.job));await setPage('jobs');jobs.showJob(job);return;}

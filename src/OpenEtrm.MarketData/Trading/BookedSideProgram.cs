@@ -199,7 +199,7 @@ public sealed partial class BookedSideProgram
             throw Error("The executable schedule requires its complete named output addresses and one side PV root.");
     }
 
-    internal static bool IsInput(string operation)=>operation is "price_lookup" or "quantity_input" or "asset_capacity" or "discount";
+    internal static bool IsInput(string operation)=>operation is "price_lookup" or ContractObservationScheduleSource.Operation or "quantity_input" or "asset_capacity" or "discount";
 
     private static MarketDataException Error(string message)=>new("side_schedule_program",message);
 }

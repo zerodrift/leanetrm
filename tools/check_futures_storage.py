@@ -57,7 +57,16 @@ def run_checks(query, manifest, psql, environment):
     expiry = query(f"SELECT expiry_at::text FROM market_data.contracts WHERE catalog_id='{catalog}' AND id='{contract}';")
     def booking(valuation='2020-12-18T16:00:00Z', executed=None, lots='1', price='3', operation=None):
         operation = operation or uuid4()
-        return f"PERFORM security.book_futures_with_parties('{catalog}','{operation}','d1000000-0000-0000-0000-000000000001','{manifest['revisionId']}','future','{contract}','{valuation}',{('NULL' if executed is None else chr(39)+executed+chr(39))},{lots},{price},'fixed_total_cash_execution_pnl_v1',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb);"
+        return f"PERFORM security.book_futures_with_parties('{catalog}','{operation}','d1000000-0000-0000-0000-000000000001','{manifest['revisionId']}','future','{contract}','{valuation}',{('NULL' if executed is None else chr(39)+executed+chr(39))},{lots},{price},'contract_lot_execution_pnl_v2',NULL,NULL,NULL,'{json.dumps(trade_booking())}'::jsonb);"
+    query(runtime(reject(booking().replace('contract_lot_execution_pnl_v2','fixed_total_cash_execution_pnl_v1'), 'P0001', 'futures_input')))
+    check('obsolete futures execution convention cannot create a current booking')
+    query(f"""BEGIN;
+ALTER TABLE ref_data.futures_execution_policies DISABLE TRIGGER frozen_definition;
+DELETE FROM ref_data.futures_execution_policies WHERE catalog_id='{manifest['referenceCatalogId']}' AND revision_id='{manifest['referenceRevisionId']}';
+SET LOCAL SESSION AUTHORIZATION preview_runtime; SELECT security.use_context('{issue()}');
+{reject(booking(), 'P0001', 'futures_execution_policy')}
+ROLLBACK;""")
+    check('synthetic futures without an explicit execution policy cannot book')
     query(runtime(reject(booking(valuation='2020-12-18T15:59:59Z',executed='2020-12-18T16:00:00Z'), 'P0001', 'trade_booking_read_only')))
     check('raw booking cannot supply its own execution timestamp')
     query(runtime(reject(booking(valuation=expiry), 'P0001', 'futures_execution')))

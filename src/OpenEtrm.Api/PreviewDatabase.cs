@@ -12,7 +12,7 @@ namespace OpenEtrm.Api;
 
 public sealed record PreviewManifest(string Mode, Guid CatalogId, Guid RevisionId, Guid ReferenceCatalogId,
     Guid ReferenceRevisionId, Guid TenantId, Guid WorkspaceId, PreviewSeedFrame[] Frames,PreviewExample? Example,
-    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",string FuturesConvention="fixed_total_cash_execution_pnl_v1",PreviewReferenceCatalog? ReferenceCatalog=null);
+    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",[property:System.Text.Json.Serialization.JsonRequired]string FuturesConvention="",PreviewReferenceCatalog? ReferenceCatalog=null);
 public sealed record PreviewReferenceCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId,ImmutableArray<string> Tables);
 public sealed record PreviewUnitCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId);
 public sealed record UnitCatalogData(ReferenceRevision Revision,ImmutableDictionary<string,ImmutableArray<JsonElement>> References);
@@ -21,6 +21,11 @@ public enum ObservationReadScope { FactHistory, ExactPins }
 public sealed record ReferencePage(string Table,ImmutableArray<JsonElement> Rows,
     ImmutableDictionary<string,ImmutableArray<JsonElement>> References,int Offset,int PageSize,int MaximumOffset,bool HasMore,string Search,
     ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
+public sealed record FuturesProductRead(JsonElement Product,ImmutableArray<JsonElement> Series,ImmutableArray<JsonElement> Milestones,
+    ImmutableArray<JsonElement> ExecutionPolicies,ImmutableDictionary<string,ImmutableArray<JsonElement>> References,ReferenceRevision ReferenceRevision);
+public sealed record ReferenceSummaryField(string Label,string? Value);
+public sealed record ReferenceHit(string Table,string Code,string Label,string? ProductCode,ImmutableArray<ReferenceSummaryField> Summary);
+public sealed record ReferenceSearch(string Query,ImmutableArray<ReferenceHit> Hits,bool Truncated);
 public sealed record PreviewSwapMarket(Guid RevisionId,PreviewSeedFrame[] Frames);
 public sealed record PreviewSequenceCoverage(string Curve, DateTimeOffset From, DateTimeOffset To, DateTimeOffset ExampleAt);
 public sealed record PreviewExample(DateTimeOffset At,string Curve);
@@ -236,20 +241,23 @@ public sealed class PreviewDatabase : IAsyncDisposable
             { limit.Parameters.AddWithValue(((long)bound.TotalMilliseconds).ToString(System.Globalization.CultureInfo.InvariantCulture)); await limit.ExecuteNonQueryAsync(ct); }
         await using (var command = new NpgsqlCommand(bind, connection, transaction))
         { command.Parameters.AddWithValue(token); await command.ExecuteNonQueryAsync(ct); }
-        async Task Session()
-        {
-            if(!signedIn)return;
-            await using var check=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction);
-            try{await check.ExecuteNonQueryAsync(ct);}
-            catch(PostgresException e) when(e.SqlState=="42501"){throw new PreviewSessionEnded();}
-        }
-        await Session();
+        if(signedIn)await SignedIn(connection,ct);
         var result = await operation(connection, ct);
-        await Session();
+        if(signedIn)await SignedIn(connection,ct);
         // A bounded transaction's commit is not cancelled: one cancelled in flight may still have been applied, and an agent's
         // save could not say whether its draft and step landed. Its statement bound still limits the commit.
         await transaction.CommitAsync(held is null?ct:CancellationToken.None);
         return result;
+    }
+
+    // A hosted request's bound context is still held by its verified sign-in session, which may have ended or been revoked
+    // since the bind without touching the epoch row (docs/ai-assistant.md §11). A local preview has no sign-in session.
+    public Task RequireSignedIn(NpgsqlConnection connection,CancellationToken ct)=>hostedSession is null?Task.CompletedTask:SignedIn(connection,ct);
+    private static async Task SignedIn(NpgsqlConnection connection,CancellationToken ct)
+    {
+        await using var check=new NpgsqlCommand("SELECT security.require_hosted_session()",connection);
+        try{await check.ExecuteNonQueryAsync(ct);}
+        catch(PostgresException e) when(e.SqlState=="42501"){throw new PreviewSessionEnded();}
     }
 
     // The bound request context holds a permission, or the operation is denied.
@@ -413,21 +421,82 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         }
         return(new(manifest.ReferenceCatalogId,manifest.ReferenceRevisionId),manifest.RevisionId);
     }
-    public async Task<ReferencePage> ReadReferencePage(NpgsqlConnection connection,string table,int offset,string? search,CancellationToken ct)
+    // Current read authority over a table's exact reference revision and proof that the
+    // selected sealed definition revision names that revision; reads repeat it after reading.
+    public async Task<(ReferenceRevision Revision,Guid Definition)> ReferenceScope(NpgsqlConnection connection,string table,CancellationToken ct)
+    {
+        var (revision,definition)=ReferenceSource(Manifest,table);
+        await using(var access=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData')",revision.CatalogId))
+            if(!Equals(await access.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+        var visible=await Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT reference_catalog_id,reference_revision_id FROM market_data.revisions WHERE catalog_id=$1 AND id=$2 AND state='sealed')t",[Manifest.CatalogId,definition],ct);
+        if(visible.Length!=1||visible[0].Id("reference_catalog_id")!=revision.CatalogId||visible[0].Id("reference_revision_id")!=revision.RevisionId)
+            throw new MarketDataException(UnitTables.Contains(table)?"unit_catalog":"reference_catalog","The exact reference catalog is unavailable in this context.");
+        return(revision,definition);
+    }
+
+    // Searchable categories in workspace order, with the column naming each row, the futures product it belongs to and its
+    // one-line summary. A search matches only a row's code and name. Identifiers and summaries come only from this list.
+    private static readonly (string Table,string Label,string? Product,string? Summary)[] SearchTables=
+    [
+        ("futures_products","name","code",FuturesProductSummary),("futures_series","series_label","product_code",null),("price_index_definitions","code",null,null),
+        ("exchanges","name",null,null),("clearing_houses","name",null,null),("interest_rate_definitions","code",null,null),("sources","code",null,null),
+        ("commodities","name",null,null),("units","symbol",null,null),("currencies","name",null,null),("measurement_bases","code",null,null),
+        ("quantity_specifications","code",null,null),("value_specifications","code",null,null),("locations","name",null,null),
+        ("location_types","description",null,null),("calendars","code",null,null),("clock_rules","code",null,null),("quote_specifications","code",null,null),
+        ("settlement_targets","code",null,null),("delivery_profiles","code",null,null)
+    ];
+    // A futures product's exchange, location, lot size and quote unit, named by rows of the product's own revision.
+    private const string FuturesProductSummary="""
+        jsonb_build_array(
+          jsonb_build_object('label','Exchange','value',(SELECT x.name FROM ref_data.exchanges x WHERE(x.catalog_id,x.revision_id,x.code)=(r.catalog_id,r.revision_id,r.exchange_code))),
+          jsonb_build_object('label','Location','value',(SELECT l.name FROM ref_data.locations l WHERE(l.catalog_id,l.revision_id,l.code)=(r.catalog_id,r.revision_id,r.location_code))),
+          jsonb_build_object('label','Lot size','value',r.contract_size::text||' '||(SELECT u.symbol FROM ref_data.units u WHERE(u.catalog_id,u.revision_id,u.code)=(r.catalog_id,r.revision_id,r.lot_unit_code))
+            ||CASE r.lot_basis WHEN 'fixed_total' THEN '' WHEN 'per_delivery_day' THEN ' per delivery day' WHEN 'per_delivery_hour' THEN ' per delivery hour' END),
+          jsonb_build_object('label','Quote unit','value',(SELECT c.display_code FROM ref_data.currencies c WHERE(c.catalog_id,c.revision_id,c.code)=(r.catalog_id,r.revision_id,r.quote_currency_code))
+            ||'/'||(SELECT u.symbol FROM ref_data.units u WHERE(u.catalog_id,u.revision_id,u.code)=(r.catalog_id,r.revision_id,r.quote_unit_code))))
+        """;
+    private const int SearchHitsPerTable=10,SearchHitLimit=60;
+    public async Task<ReferenceSearch> SearchReferences(NpgsqlConnection connection,string query,CancellationToken ct)
+    {
+        query=query.Trim();
+        if(query.Length is 0 or >160)
+            throw new MarketDataException("reference_search","Enter search text of 1 to 160 characters.");
+        // Tables can resolve to different exact revisions; each distinct source is proven once.
+        var scoped=SearchTables.Select(t=>t.Table).DistinctBy(table=>ReferenceSource(Manifest,table)).ToArray();
+        async Task ProveScopes(){foreach(var table in scoped)await ReferenceScope(connection,table,ct);}
+        await ProveScopes();
+        // Working data shows and matches applied display labels, as every other read does: each source's display revision is
+        // its complete copy with those labels. A historical context has none and keeps the source's original labels.
+        var shown=new Dictionary<ReferenceRevision,ReferenceRevision>();
+        foreach(var source in SearchTables.Select(t=>ReferenceSource(Manifest,t.Table).Revision).Distinct())
+            shown[source]=(await ReferenceEditors.Display(connection,source,ct))?.DisplayRevision??source;
+        // Search is literal, including SQL wildcard characters; each table reads one row past its cap.
+        var selects=SearchTables.Select((t,i)=>$"""
+            (SELECT {i} position,'{t.Table}' category,r.code::text code,r.{t.Label}::text label,{(t.Product is null?"NULL":"r."+t.Product)}::text product_code,
+               {t.Summary??"'[]'::jsonb"} summary
+             FROM ref_data.{t.Table} r WHERE r.catalog_id=${2*i+2} AND r.revision_id=${2*i+3}
+               AND(strpos(lower(r.code::text),lower($1))>0 OR strpos(lower(r.{t.Label}::text),lower($1))>0)
+             ORDER BY label,code LIMIT {SearchHitsPerTable+1})
+            """);
+        var revisions=SearchTables.Select(t=>shown[ReferenceSource(Manifest,t.Table).Revision]).SelectMany(r=>new object[]{r.CatalogId,r.RevisionId});
+        var found=await Rows(connection,$"SELECT row_to_json(t)::text FROM({string.Join(" UNION ALL ",selects)})t ORDER BY position,label,code",
+            [query,..revisions],ct);
+        var hits=found.Select(r=>new ReferenceHit(r.Text("category"),r.Text("code"),r.Text("label"),r.OptionalText("product_code"),
+                [..r.GetProperty("summary").EnumerateArray().Select(f=>new ReferenceSummaryField(f.Text("label"),f.OptionalText("value")))]))
+            .GroupBy(h=>h.Table).SelectMany(g=>g.Take(SearchHitsPerTable)).ToArray();
+        await ProveScopes();
+        return new(query,[..hits.Take(SearchHitLimit)],hits.Length<found.Length||hits.Length>SearchHitLimit);
+    }
+
+    public async Task<ReferencePage> ReadReferencePage(NpgsqlConnection connection,string table,int offset,string? search,string? code,CancellationToken ct)
     {
         search??="";
         if(!ReferenceTables.Contains(table)||offset is <0 or >ReferenceMaximumOffset||search.Length>160)
             throw new MarketDataException("reference_page",$"Choose a supported reference table, an offset from 0 to {ReferenceMaximumOffset} and search text up to 160 characters.");
-        var (revision,definition)=ReferenceSource(Manifest,table);
-        async Task RequireReferenceAccess()
-        {
-            await using var access=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData')",revision.CatalogId);
-            if(!Equals(await access.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
-        }
-        await RequireReferenceAccess();
-        var visible=await Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT reference_catalog_id,reference_revision_id FROM market_data.revisions WHERE catalog_id=$1 AND id=$2 AND state='sealed')t",[Manifest.CatalogId,definition],ct);
-        if(visible.Length!=1||visible[0].Id("reference_catalog_id")!=revision.CatalogId||visible[0].Id("reference_revision_id")!=revision.RevisionId)
-            throw new MarketDataException(UnitTables.Contains(table)?"unit_catalog":"reference_catalog","The exact reference catalog is unavailable in this context.");
+        // An exact item read names one code-keyed record; it is never a search or a later page.
+        if(code is not null&&(ReferenceKey(table)!="code"||code.Length is 0 or >160||search!=""||offset!=0))
+            throw new MarketDataException("reference_page","Read one item by its exact code from a code-keyed table, without search text or an offset.");
+        var (revision,definition)=await ReferenceScope(connection,table,ct);
         const int pageSize=200;
         // Table and key identifiers come only from the fixed public catalog.
         // Search is literal, including SQL wildcard characters, and never runs
@@ -437,14 +506,25 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
                 SELECT r.* FROM ref_data.{table} r
                 WHERE catalog_id=$1 AND revision_id=$2
                   AND ($3='' OR strpos(lower(row_to_json(r)::text),lower($3))>0)
+                  {(code is null?"":"AND code=$5")}
                 ORDER BY {ReferenceKey(table)} LIMIT 201 OFFSET $4
             ) t
-            """,[revision.CatalogId,revision.RevisionId,search,offset],ct);
+            """,code is null?[revision.CatalogId,revision.RevisionId,search,offset]:[revision.CatalogId,revision.RevisionId,search,offset,code],ct);
         var rows=found.Take(pageSize).ToImmutableArray();
         var references=ImmutableDictionary.CreateBuilder<string,ImmutableArray<JsonElement>>();
         references.Add(table,rows);
-        // Names for inspector cells are exact-version linked rows, not labels
-        // borrowed from the business catalog or a preceding page/context.
+        await LinkReferences(connection,revision,rows,references,ct);
+        await ReferenceScope(connection,table,ct);
+        // Absence is reported only after current authority is proven again.
+        if(code is not null&&rows.IsEmpty)throw ReferenceItemMissing();
+        return new(table,rows,references.ToImmutable(),offset,pageSize,ReferenceMaximumOffset,found.Length>pageSize,search,revision,definition);
+    }
+
+    // Names for linked codes are exact-version rows of the same revision, not labels
+    // borrowed from the business catalog or a preceding page/context.
+    private static async Task LinkReferences(NpgsqlConnection connection,ReferenceRevision revision,ImmutableArray<JsonElement> rows,
+        ImmutableDictionary<string,ImmutableArray<JsonElement>>.Builder references,CancellationToken ct)
+    {
         foreach(var (target,columns) in ReferenceLabels)
         {
             var codes=columns.SelectMany(column=>Codes(rows,column)).Distinct().ToArray();
@@ -453,9 +533,41 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             references[target]=references.TryGetValue(target,out var existing)
                 ? existing.Concat(linked).DistinctBy(row=>row.GetProperty("code").GetString()).ToImmutableArray():linked;
         }
-        await RequireReferenceAccess();
-        return new(table,rows,references.ToImmutable(),offset,pageSize,ReferenceMaximumOffset,found.Length>pageSize,search,revision,definition);
     }
+
+    private const int FuturesSeriesLimit=1000;
+    private static readonly string[] FuturesProductTables=["futures_products","futures_series","futures_milestones","futures_execution_policies"];
+    // One futures product with its contracts, their dates and execution eligibility, all from one exact revision.
+    public async Task<FuturesProductRead> ReadFuturesProduct(NpgsqlConnection connection,string code,CancellationToken ct)
+    {
+        if(code.Length is 0 or >160)throw new MarketDataException("reference_page","Read one futures product by its exact code of 1 to 160 characters.");
+        async Task<ReferenceRevision> ProveScopes()
+        {
+            var revisions=new HashSet<ReferenceRevision>();
+            foreach(var table in FuturesProductTables)revisions.Add((await ReferenceScope(connection,table,ct)).Revision);
+            if(revisions.Count!=1)throw new MarketDataException("reference_catalog","A futures product and its contracts must share one exact reference revision.");
+            return revisions.Single();
+        }
+        var revision=await ProveScopes();
+        Task<ImmutableArray<JsonElement>> Read(string table,string filter,object codes,string order)=>Rows(connection,
+            $"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{table} WHERE catalog_id=$1 AND revision_id=$2 AND {filter} ORDER BY {order})t",
+            [revision.CatalogId,revision.RevisionId,codes],ct);
+        var product=await Read("futures_products","code=$3",code,"code");
+        var series=product.IsEmpty?[]:await Read("futures_series","product_code=$3",code,$"delivery_from,code LIMIT {FuturesSeriesLimit+1}");
+        if(series.Length>FuturesSeriesLimit)
+            throw new MarketDataException("reference_limit",$"A futures product read is limited to {FuturesSeriesLimit} contracts.");
+        var codes=Codes(series,"code").ToArray();
+        var milestones=codes.Length==0?[]:await Read("futures_milestones","series_code=ANY($3::text[])",codes,ReferenceKey("futures_milestones"));
+        var policies=codes.Length==0?[]:await Read("futures_execution_policies","series_code=ANY($3::text[])",codes,ReferenceKey("futures_execution_policies"));
+        var references=ImmutableDictionary.CreateBuilder<string,ImmutableArray<JsonElement>>();
+        await LinkReferences(connection,revision,product,references,ct);
+        await ProveScopes();
+        // Absence is reported only after current authority is proven again.
+        if(product.IsEmpty)throw ReferenceItemMissing();
+        return new(product[0],series,milestones,policies,references.ToImmutable(),revision);
+    }
+
+    private static MarketDataException ReferenceItemMissing()=>new("reference_item","The reference item does not exist in this context's exact revision.");
 
     private static readonly (string Table,string[] Columns)[] ReferenceLabels=
     [
@@ -465,7 +577,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         ("locations",["location_code","pipeline_code","zone_code","point_code"]),("location_types",["type_code"]),
         ("exchanges",["exchange_code"]),("clearing_houses",["clearing_house_code"]),
         ("sources",["source_code","qualification_source_code"]),("futures_products",["product_code"]),("futures_series",["series_code"]),
-        ("clock_rules",["clock_code","market_clock_code"]),("calendars",["calendar_code","trading_calendar_code"]),
+        ("clock_rules",["clock_code","market_clock_code"]),("calendars",["calendar_code","trading_calendar_code","delivery_calendar_code","settlement_calendar_code"]),
         ("quantity_specifications",["quantity_code","numerator_quantity_code","denominator_quantity_code"]),
         ("measurement_bases",["basis_code"]),("price_index_definitions",["index_a_code","index_b_code"])
     ];

@@ -1,3 +1,5 @@
+import {mountContractObservationTicket,type ContractObservationSource,type ContractObservationTerms} from './contract-observation-ticket.js';
+import type {PaymentInput} from './swap-contract.js';
 import {mountPriceSettlement,type PriceSettlement} from './price-settlement.js';
 import {explainUnavailableValue,markUnavailableValue,unavailableValueLabel} from './saved-trade-terms.js';
 import type {Index} from './swap-editor.js';
@@ -6,9 +8,10 @@ import {mountObservationControls} from './swap-side-editor.js';
 import {projectionReference,type CustomProjection} from './swap-projections.js';
 import type {ObservationOptions,ObservationSchedule,SamplingChoice} from './swap-observations.js';
 
-export type ScheduledFloatingTerms={settlement:PriceSettlement;curve:string;index:string;currency:string;deliveryFrom:string;deliveryTo:string;resetFrequency:string;averagingMethod:string;spread:string;observationSchedule?:ObservationSchedule|null;customProjection?:CustomProjection|null};
-export function mountScheduledFloatingEditor(options:{host:HTMLElement;from:string;to:string;initial?:ScheduledFloatingTerms|null;indices:()=>Index[];
- context:()=>Record<string,unknown>;enabled:()=>boolean;busy:()=>boolean;api:<T>(path:string,body:unknown)=>Promise<T>;run:(work:()=>Promise<void>)=>void;changed:()=>void;quoteChanged:()=>void}){
+export type ScheduledFloatingTerms={settlement:PriceSettlement|null;curve:string;index:string|null;currency:string;deliveryFrom:string;deliveryTo:string;resetFrequency:string;averagingMethod:string;spread:string;observationSchedule?:ObservationSchedule|null;customProjection?:CustomProjection|null;contractObservations?:ContractObservationTerms|null};
+type EditorOptions={host:HTMLElement;from:string;to:string;initial?:ScheduledFloatingTerms|null;retainedObservations?:unknown[];indices:()=>Index[];
+ context:()=>Record<string,unknown>;enabled:()=>boolean;busy:()=>boolean;api:<T>(path:string,body:unknown)=>Promise<T>;run:(work:()=>Promise<void>)=>void;changed:()=>void;quoteChanged:()=>void;contractSources?:()=>ContractObservationSource[];payment?:()=>PaymentInput};
+function mountIndexFloatingEditor(options:EditorOptions){
  const prefix='scheduled-observations-'+crypto.randomUUID();
  const select=(label:string,id?:string)=>{const wrap=document.createElement('div'),caption=document.createElement('label'),field=document.createElement('select');field.id=id??prefix+'-'+crypto.randomUUID();caption.htmlFor=field.id;caption.textContent=label;wrap.append(caption,field);options.host.append(wrap);return field;};
  const key=(i:Pick<Index,'definitionRevisionId'|'curve'|'index'>)=>JSON.stringify([i.definitionRevisionId,i.curve,i.index]);
@@ -19,6 +22,7 @@ export function mountScheduledFloatingEditor(options:{host:HTMLElement;from:stri
  mountObservationControls(options.host,prefix);
  const note=document.createElement('p');note.className='field-help';options.host.append(note);
  const initial=options.initial;
+ let explicitProjection=initial?.customProjection??undefined;
  const unsupported=!!initial?.observationSchedule&&initial.observationSchedule.implementation!=='side_observation_schedule_v1';
  let qualified:ObservationOptions|undefined;
  let selectedRequirements:SamplingChoice|null|undefined;
@@ -28,6 +32,9 @@ export function mountScheduledFloatingEditor(options:{host:HTMLElement;from:stri
  // Requirements remain visible for an unavailable entered mode; admission uses the qualified response.
  const choice=():SamplingChoice|undefined=>[...(selectedRequirements?[selectedRequirements]:[]),...(qualified?.samplings??[]),...(quote()?.samplings??options.indices().flatMap(i=>i.samplings))].find(s=>s.resetFrequency===reset.value&&s.averagingMethod===average.value);
  const projections=()=>settlement.override()?[]:quote()?.customProjections.filter(p=>p.samplings.some(s=>s.resetFrequency===reset.value&&s.averagingMethod===average.value))??[];
+ const selectedProjection=()=>projections().find(p=>JSON.stringify(p.reference)===source.value)?.reference??
+  (!settlement.override()&&explicitProjection&&JSON.stringify(explicitProjection)===source.value?explicitProjection:undefined);
+ const qualifiedProjections=()=>{const choices=projections(),receipt=qualified?.qualifiedCustomProjection;return receipt&&JSON.stringify(receipt)===source.value&&selectedProjection()&&JSON.stringify(receipt)===JSON.stringify(selectedProjection())&&!choices.some(p=>JSON.stringify(p.reference)===source.value)?[...choices,{label:'Retained published source · qualified for this period',reference:receipt,samplings:[]}]:choices;};
  function isBookedValue(field:HTMLSelectElement,value:string){
   if(!initial)return false;
   if(field===index){const saved=options.indices().find(i=>i.curve===initial.curve&&i.index===initial.index);return !!saved&&key(saved)===value;}
@@ -43,13 +50,13 @@ export function mountScheduledFloatingEditor(options:{host:HTMLElement;from:stri
   }
   field.value=selected;explainUnavailableValue(field);
  };
- function sources(selected=source.value){fill(source,[{value:'ordinary',label:'Selected index curve'},...projections().map(p=>({value:JSON.stringify(p.reference),label:p.label}))],selected);}
+ function sources(selected=source.value){fill(source,[{value:'ordinary',label:'Selected index curve'},...qualifiedProjections().map(p=>({value:JSON.stringify(p.reference),label:p.label}))],selected);}
  function averaging(selected=average.value){fill(average,[...new Map(samplings().filter(s=>reset.value&&s.resetFrequency===reset.value).map(s=>[s.averagingMethod,{value:s.averagingMethod,label:s.label}])).values()],selected);sources();}
  function frequencies(selected=reset.value){fill(reset,[...new Set(samplings().map(s=>s.resetFrequency))].map(value=>({value,label:value})),selected);averaging();}
  function indices(selected=index.value){fill(index,options.indices().filter(i=>(i.settlementIndices?.length>0&&(!settlement.selected()||key(i)!==index.value))||(qualified?qualified.indices.some(candidate=>key(candidate)===key(i)):i.samplings.some(s=>(!reset.value||s.resetFrequency===reset.value)&&(!average.value||s.averagingMethod===average.value)))).map(i=>({value:key(i),label:`${i.index} · ${i.curve} · ${i.currency}/${i.unit} × ${i.quoteMultiplier}`})),selected);}
  const observations=setupSwapObservationControls({prefix,enabled:()=>options.enabled()&&options.host.isConnected,api:options.api,busy:options.busy,choice,unit:()=>quote()?.unit??'',
-  request:()=>{const i=quote(),unambiguous=(values:string[])=>{const distinct=[...new Set(values)];return distinct.length===1?distinct[0]:undefined;},custom=projections().find(p=>JSON.stringify(p.reference)===source.value);return{context:options.context(),definitionRevisionId:i?.definitionRevisionId??unambiguous(options.indices().map(i=>i.definitionRevisionId)),curve:i?.curve,index:i?.index,settlement:settlement.selected(),commodity:i?.commodity??unambiguous(options.indices().map(i=>i.commodity)),
-   resetFrequency:reset.value||undefined,averagingMethod:average.value||undefined,deliveryFrom:options.from,deliveryTo:options.to,observationCalendar:observations.calendar(),...(custom?{customProjection:custom.reference}:{})};},
+  request:()=>{const i=quote(),unambiguous=(values:string[])=>{const distinct=[...new Set(values)];return distinct.length===1?distinct[0]:undefined;},custom=selectedProjection();return{context:options.context(),definitionRevisionId:i?.definitionRevisionId??unambiguous(options.indices().map(i=>i.definitionRevisionId)),curve:i?.curve,index:i?.index,settlement:settlement.selected(),commodity:i?.commodity??unambiguous(options.indices().map(i=>i.commodity)),
+   resetFrequency:reset.value||undefined,averagingMethod:average.value||undefined,deliveryFrom:options.from,deliveryTo:options.to,observationCalendar:observations.calendar(),...(custom?{customProjection:custom}:{})};},
   apply:result=>{selectedRequirements=result.selectedSampling;qualified=result;indices();frequencies();note.textContent=result.availability?.message??result.customProjectionUnavailableReason??'Observation dates and weights use the selected exact backend plan.';}});
  async function refresh(){if(unsupported||!options.indices().length||!options.host.isConnected)return;await observations.refresh();}
  const change=(work:()=>void)=>{options.changed();qualified=undefined;work();indices();frequencies();for(const field of [index,reset,average,source])explainUnavailableValue(field);options.quoteChanged();options.run(refresh);};
@@ -60,10 +67,29 @@ export function mountScheduledFloatingEditor(options:{host:HTMLElement;from:stri
  options.host.querySelector<HTMLSelectElement>('#'+prefix+'-observation-calendar')!.onchange=()=>change(()=>{});
  indices();if(initial){const saved=options.indices().find(i=>i.curve===initial.curve&&i.index===initial.index);if(saved){index.value=key(saved);indices();}}
  settlement.restore(initial?.settlement??null);frequencies(initial?.resetFrequency??'');averaging(initial?.averagingMethod??'');sources(initial?initial.customProjection?JSON.stringify(initial.customProjection):'ordinary':'');spread.value=initial?.spread??'';observations.restore(initial?.observationSchedule??undefined);
- return{refresh,spread:()=>spread.value,sync:()=>{observations.sync();settlement.sync();if(unsupported)for(const field of [index,reset,average,source])field.disabled=true;},setSpread:(value:string)=>{spread.value=value;},dispose:()=>observations.reset(),
+ return{refresh,quote,spread:()=>spread.value,sync:()=>{observations.sync();settlement.sync();if(unsupported)for(const field of [index,reset,average,source])field.disabled=true;},setSpread:(value:string)=>{spread.value=value;},dispose:()=>observations.reset(),
   read():ScheduledFloatingTerms{if(unsupported)throw Error('These retained observation terms require explicit period replacement; they cannot be simplified by this editor.');const i=quote();if(!i||!choice()||!qualified?.indices.some(candidate=>key(candidate)===key(i)))throw Error('Choose a qualified index, reset frequency and averaging convention for every floating period.');
-   const customProjection=projectionReference(source.value,projections()),observationSchedule=observations.read();
+   const observationSchedule=observations.read(),customProjection=projectionReference(source.value,qualifiedProjections());
    return{curve:i.curve,index:i.index,settlement:settlement.read(),currency:i.currencyCode,deliveryFrom:options.from,deliveryTo:options.to,resetFrequency:reset.value,averagingMethod:average.value,spread:spread.value,customProjection,observationSchedule:observationSchedule??null};},
-  async apply(value:ScheduledFloatingTerms){if(unsupported)throw Error('Replace unsupported retained terms explicitly before applying common observation terms.');const i=options.indices().find(i=>i.curve===value.curve&&i.index===value.index);if(!i)throw Error('The selected common price source is unavailable for this period.');qualified=undefined;indices(key(i));settlement.restore(value.settlement);frequencies(value.resetFrequency);averaging(value.averagingMethod);sources(value.customProjection?JSON.stringify(value.customProjection):'ordinary');observations.restore(value.observationSchedule??undefined);await refresh();}
+  async apply(value:ScheduledFloatingTerms){if(unsupported)throw Error('Replace unsupported retained terms explicitly before applying common observation terms.');const i=options.indices().find(i=>i.curve===value.curve&&i.index===value.index);if(!i)throw Error('The selected common price source is unavailable for this period.');explicitProjection=value.customProjection??undefined;qualified=undefined;indices(key(i));settlement.restore(value.settlement);frequencies(value.resetFrequency);averaging(value.averagingMethod);sources(value.customProjection?JSON.stringify(value.customProjection):'ordinary');observations.restore(value.observationSchedule??undefined);await refresh();}
+ };
+}
+
+export function mountScheduledFloatingEditor(options:EditorOptions){
+ if(!options.contractSources)return mountIndexFloatingEditor(options);
+ const choiceWrap=document.createElement('div'),label=document.createElement('label'),mode=document.createElement('select');mode.id='period-source-'+crypto.randomUUID();mode.dataset.role='period-source-mode';label.htmlFor=mode.id;label.textContent='Floating price source';choiceWrap.append(label,mode);options.host.append(choiceWrap);
+ mode.append(new Option('Choose…',''),new Option('Published index observations','index'));
+ if(options.contractSources().length||options.initial?.contractObservations)mode.append(new Option('Daily dated futures settlements','contract'));
+ mode.value=options.initial?options.initial.contractObservations?'contract':'index':'';
+ const indexHost=document.createElement('div'),contractHost=document.createElement('div');options.host.append(indexHost,contractHost);
+ const conventional=mountIndexFloatingEditor({...options,host:indexHost,initial:options.initial?.contractObservations?null:options.initial,enabled:()=>options.enabled()&&mode.value==='index'});
+ const spreadWrap=document.createElement('div'),spreadLabel=document.createElement('label'),spread=document.createElement('input');spread.id=mode.id+'-spread';spreadLabel.htmlFor=spread.id;spreadLabel.textContent='Agreed floating spread';spread.inputMode='decimal';spread.value=options.initial?.contractObservations?options.initial.spread:'';spreadWrap.append(spreadLabel,spread);contractHost.append(spreadWrap);
+ const contract=mountContractObservationTicket({...options,host:contractHost,sources:options.contractSources,payment:()=>{if(!options.payment)throw Error('Choose explicit payment terms before source preview.');return options.payment();},spread:()=>spread.value,enabled:()=>options.enabled()&&mode.value==='contract'});
+ function sync(){indexHost.hidden=mode.value!=='index';contractHost.hidden=mode.value!=='contract';mode.disabled=!options.enabled()||options.busy();spread.disabled=!options.enabled()||options.busy();conventional.sync();contract.sync();}
+ mode.onchange=()=>{options.changed();contract.invalidate();sync();options.quoteChanged();if(mode.value==='index')options.run(conventional.refresh);};spread.oninput=()=>{options.changed();contract.sync();};sync();
+ return{refresh:async()=>{if(mode.value==='index')await conventional.refresh();},quote:()=>mode.value==='contract'?contract.quote():mode.value==='index'?conventional.quote():undefined,
+  spread:()=>mode.value==='contract'?spread.value:conventional.spread(),setSpread:(value:string)=>{if(mode.value==='contract'){spread.value=value;options.changed();contract.sync();}else conventional.setSpread(value);},sync,
+  dispose(){conventional.dispose();contract.dispose();},read():ScheduledFloatingTerms{if(mode.value==='contract')return contract.read();if(mode.value==='index')return conventional.read();throw Error('Choose the floating price source for every period.');},
+  async apply(value:ScheduledFloatingTerms){if(value.contractObservations)throw Error('Preview dated contract observations separately for each period; copying them would change their meaning.');mode.value='index';contract.invalidate();sync();await conventional.apply(value);}
  };
 }

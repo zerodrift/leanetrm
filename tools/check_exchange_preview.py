@@ -15,7 +15,7 @@ def run_checks(url,query=None,manifest=None):
     # Same browser cookies cannot make a token or input frame cross examples.
     c.call('profile',{'profile':'trader'},expected=400,headers={'X-Preview-CSRF':base.token})
     c.call('futures/catalog',{**context,'snapshotId':baseline_frame['id']},expected=422)
-    base.call('futures/catalog',{'snapshotId':frame['id'],'convention':'fixed_total_cash_execution_pnl_v1','knowledgeMode':'current'},expected=422)
+    base.call('futures/catalog',{'snapshotId':frame['id'],'convention':'contract_lot_execution_pnl_v2','knowledgeMode':'current'},expected=422)
     catalog=c.call('futures/catalog',context);contracts=catalog['contracts']
     assert len(contracts)==61
     expected_sizes={'ice_dgd':'2500','ice_hxs':'2500','ice_wah':'2500','nymex_ng':'10000','ice_pmi':'320','ice_pjc':'320','ice_ern':'320','ice_spm':'384','ice_npm':'384',

@@ -18,8 +18,8 @@ def run_checks(query,manifest,url,client=None):
     def future(operation,trade=None):
         common=f"'{catalog}','{operation}'"
         terms=f"'{book}','{manifest['revisionId']}','future','{contract}','2020-12-18T16:00:00Z'"
-        if trade is None:return f"security.book_futures_with_parties({common},{terms},NULL,1,3,'fixed_total_cash_execution_pnl_v1',NULL,NULL,NULL,'{booking}'::jsonb)"
-        return f"security.amend_futures_with_parties({common},'{trade}',1,{terms},'2020-12-18T16:00:00Z',NULL,2,3,'Synthetic correction','fixed_total_cash_execution_pnl_v1','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{booking}'::jsonb)"
+        if trade is None:return f"security.book_futures_with_parties({common},{terms},NULL,1,3,'contract_lot_execution_pnl_v2',NULL,NULL,NULL,'{booking}'::jsonb)"
+        return f"security.amend_futures_with_parties({common},'{trade}',1,{terms},'2020-12-18T16:00:00Z',NULL,2,3,'Synthetic correction','contract_lot_execution_pnl_v2','unprocessed_futures_booking_amendment_v1',NULL,NULL,NULL,'{booking}'::jsonb)"
     original_future=json.loads(runtime('SELECT '+future(future_op)+';'))
     # Current admission retains a complete schedule through the ordinary API.
     # Raw probes below use its exact accepted command, independent of prior tests

@@ -66,6 +66,16 @@ evidence, publication and revision records stay out of the category menu; their
 foreign-key and history responsibilities remain in place. Removing a menu item
 does not authorize deleting a retained or referenced record.
 
+The page's search box searches every category the person may read through
+`GET /reference/search`. It matches each item's code and name (for example a
+unit's symbol or a contract's label) literally and case-insensitively, after
+trimming surrounding spaces; it never matches other columns, identifiers or
+serialized text. In working data it matches and shows applied display labels,
+and a historical context keeps the original labels. Each category lists at most
+10 hits and the whole search 60, with a note when more exist. A futures product's
+hit carries a one-line summary of its exchange, location, lot size and quote unit,
+built by the backend from rows of the product's own revision.
+
 ## Editing metadata and applying current display changes
 
 The Reference data editor supports display metadata for nine existing categories:
@@ -74,25 +84,39 @@ location-type descriptions, unit symbols, exchange and clearing-house names,
 futures-product names and futures-contract labels. Stable codes, relationships,
 units, ratios, contract terms and other financial values are read-only. The other
 categories remain inspectable because they have the current consumers listed
-above; this editor does not promise financial-term authoring for them.
+above; this editor does not promise financial-term authoring for them. Calendar-day
+descriptions stay read-only because those rows have no code key.
 
-Saving requires scoped `WriteReferenceData` and reading the original sealed
-reference version. It creates a new immutable draft from the currently applied
-display version, or from the original version when no display change is active.
-The editor reloads the selected row and its exact base version before editing.
-A save changes one item; unpublished drafts cannot be chained. The saved review
-shows that item's supplied fields and the server-recorded time in the user's
-time zone. Optional coordinates are transported as exact decimal strings, with
-both coordinates required together and no browser rounding.
+Committing requires both scoped `WriteReferenceData` and `SealReferenceData`
+and reading the original sealed reference version. No seeded role holds both
+permissions; an administrator assigns both roles to people who edit labels.
+An item's page has one **Edit** button that turns its display fields into inputs
+in place; the code and financial fields stay as text. Save lists the changed
+fields for confirmation, then sends one `POST /reference/commit` (D263) from the
+item's exact base version. On a futures product's page one Edit covers the
+product name and every contract label; each changed item is its own commit,
+sent in order, and the first refusal stops the rest, which stay unsent in the
+form. In one transaction a commit saves a new immutable metadata version from
+the currently applied display version, or from the original version when no
+display change is active, and applies it. A commit changes one item. Optional coordinates are transported as exact decimal strings,
+with both coordinates required together and no browser rounding.
 
-Applying is a separate operation requiring scoped `SealReferenceData`. It locks
-the target before proving that every retained key and non-display value equals
-the original source. Extra economic rows also fail this proof. The source,
-current display version and draft base must still match the reviewed request;
-concurrent or stale changes require a fresh edit. Successful apply seals the
+Applying locks the target before proving that every retained key and non-display
+value equals the original source. Extra economic rows also fail this proof. The
+source, current display version and base must still match the confirmed request;
+concurrent or stale changes require a fresh edit. Any refusal rolls back the
+whole commit, so no unapplied draft remains. A successful commit seals the
 metadata version and appends an exact source/display revision relationship in
-the current workspace. The same user can save and apply when their current grants
-permit both operations; this is explicit review, not mandatory dual control.
+the current workspace. Committing values that the current display version already
+holds records nothing and returns that version (D238). An item's History lists
+its latest 20 applied display versions with their changed fields, author and
+server-recorded time in the user's time zone, and says when earlier versions are
+not listed. The author is shown by the member's current workspace display name,
+not the name held when the edit was made. Only people holding
+`WriteReferenceData` or `SealReferenceData` read History, which
+`security.reference_display_history` enforces; a reader sees none. The page
+header shows the current display version. Moving away from an item with unsaved
+edits, by a link, a tab or another page, asks before discarding them.
 
 Current curve navigation, reference presentation and the unit converter consume
 a separate display overlay scoped to the original exact reference version.
@@ -108,9 +132,14 @@ No market bundle, observation, quote, unit conversion ratio or booked trade is
 rewritten or copied as part of applying labels. An updated symbol changes
 formatting, while the underlying amount and conversion remain identical.
 Historical contexts keep their original metadata and cannot inspect later edit
-requests or apply current display changes.
+requests or commit current display changes. The futures-product read returns the
+same display overlay as the category read, so a product page shows applied labels.
 
-Save and apply retain operation identifiers and exact request payloads. The UI
+A commit retains its operation identifier and exact request payload for both its
+saved version and its activation; an exact retry returns the first outcome and the
+same identifier with different values is `reference_conflict`. A commit whose
+values are already applied records nothing, so its retry after a later commit is
+refused with `reference_conflict` instead of replaying the no-op answer. The UI
 retains an unconfirmed request across reloads and retries it before allowing a new
 change. Retries recheck current authority; an earlier successful receipt does not
 grant continued access. A denied retry after an uncertain response does not prove
@@ -118,8 +147,10 @@ that the original transaction rolled back. Financial-term editing, requalificati
 of existing prices and financial curve migration require a separate workflow.
 The initial authoring bounds are 100,000 copied reference rows per version and
 64 authored versions per source revision and workspace; the editor lists the
-latest 20 saved versions. Reaching a bound raises `reference_limit` and does not
-prune historical versions or create a partial copy.
+latest 20 applied versions. Reaching a bound raises `reference_limit` and does not
+prune historical versions or create a partial copy. Because a commit changes one
+item, a product-page Save that changes the product name and 11 contract labels
+uses 12 of the 64 versions, each with its own full copy of the reference rows.
 
 Unit symbols must contain a non-whitespace character, contain no C0/C1 controls and use
 at most 80 Unicode scalar values, matching managed amount labels. Supplementary

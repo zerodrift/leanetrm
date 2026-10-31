@@ -8,7 +8,7 @@ calculation follows from recording or selecting a quantity.
 
 ## Ownership and persistence
 
-Migration 0133 creates a delivery obligation for each physical membership when a
+Migration 0145 creates a delivery obligation for each physical membership when a
 composed trade is booked. Existing composed bookings receive the same mapping on
 migration. An obligation pins the originating trade revision, instrument and
 membership slot through exact foreign keys. The current booking profile admits

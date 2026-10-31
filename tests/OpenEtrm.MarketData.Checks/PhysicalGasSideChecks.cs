@@ -141,7 +141,7 @@ internal static class PhysicalGasSideChecks
         var changedMarket = f.Model.Build(changedSnapshot, physical.DependenciesAt(changedSnapshot));
         Reject("side_market_sources", () => physical.PV(Context(changedMarket, [assignment])));
 
-        var indexedLookup = f.Swap(indexed: true).Floating.GenerateSchedule().Rows[0].Prices[0].Lookup!;
+        var indexedLookup = f.Swap().Floating.GenerateSchedule().Rows[0].Prices[0].Lookup!;
         var indexedAssignment = new GasValuationAssignment(assignment.Key, assignment.Location, assignment.Product, from, to,
             indexedLookup.Settlement, indexedLookup.Quote, new(indexedLookup.Market, indexedLookup.Contract), indexedLookup.Fixing,
             new(default, f.Quote));

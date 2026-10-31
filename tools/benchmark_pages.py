@@ -17,7 +17,8 @@ from urllib.parse import urlencode
 from uuid import uuid4
 
 from owned_process import stop_owned_group
-from preview_client import PreviewClient
+from preview_client import PreviewClient, initial_frame
+from check_risk_jobs_db import provision_worker
 from preview_fixture import fixture, trading_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,40 @@ def artifact_hash(directory):
             digest.update(str(path.relative_to(directory)).encode()+b'\0')
             digest.update(hashlib.sha256(path.read_bytes()).digest())
     return digest.hexdigest()
+
+
+def seed_dashboard(url, query, run_worker):
+    """The risk persona's saved dashboard: one Latest levels widget of up to twelve curves, one Price chart and one Positions widget whose
+    definition shocks every held contract, with one completed run at the newest close."""
+    risk = PreviewClient(url)
+    risk.bootstrap()
+    risk.call('profile', {'profile': 'risk'})
+    frame = initial_frame(risk.call('workspace'), '2020-12-18')
+    current = {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
+    catalog = risk.call('portfolio/risk/catalog', {'context': current, 'bookIds': [], 'portfolioIds': []})
+    retained = {**current, 'knowledgeMode': 'retained', 'contextId': catalog['context']['contextId']}
+    books = sorted(b['bookId'] for b in catalog['books'])
+    held = risk.call('portfolio/risk/catalog', {'context': retained, 'bookIds': books, 'portfolioIds': []})
+    targets = {t['id']: t for t in held['scenarioTargets']}
+    units = {json.dumps(targets[t]['priceUnit'], sort_keys=True): targets[t]['priceUnit'] for t in held['heldContractTargets']}
+    definition = risk.call('risk/definitions', dict(requestId=str(uuid4()), definitionId=None, expectedVersion=None, name='Synthetic benchmark delta',
+                                                    bookIds=books, preset='held_contracts', sizes=[dict(unit=unit, size='0.5') for unit in units.values()]))
+    queued = risk.call(f"risk/definitions/{definition['definitionId']}/run", dict(requestId=str(uuid4()), version=definition['version'], context=retained))
+    for _ in range(len(queued['jobs'])+5):
+        if query("SELECT count(*) FROM risk.jobs WHERE state IN('queued','running')") == '0':
+            break
+        run_worker()
+    if query(f"SELECT count(*) FROM risk.definition_run_jobs p JOIN risk.jobs j ON j.id=p.job_id WHERE p.run_id='{queued['runId']}' AND j.state='completed'") != str(len(queued['jobs'])):
+        raise RuntimeError('The benchmark definition run did not complete.')
+    curves = [c['code'] for c in risk.call('workspace/navigation')['curves'] if c['marketType'] != 'rates'][:12]
+    chart = risk.call('market/curve-shapes', {'snapshotId': frame['id'], 'curves': ['local_power']})['curves'][0]
+    def widget(kind, config, y, h):
+        return dict(id=str(uuid4()), kind=kind, config=config, board=dict(x=0, y=y, w=12, h=h), morning=dict(section='prices_positions', order=y))
+    widgets = [widget('latest_levels', {'curves': curves}, 0, 4), widget('price_chart', {'curve': 'local_power', 'contractId': chart['front']['contractId']}, 4, 6),
+               widget('positions', {'definitionId': definition['definitionId']}, 10, 6)]
+    risk.call('dashboard/layout', dict(requestId=str(uuid4()), expectedVersion=None, layout=dict(version=1, arrangement='board', widgets=widgets)))
+    return {'widgets': {w['kind']: 1 for w in widgets}, 'levelCurves': len(curves), 'definitions': 1, 'definitionBooks': len(books),
+            'definitionPriceUnits': len(units), 'heldContractTargets': len(held['heldContractTargets']), 'completedRuns': 1, 'runParts': len(queued['jobs'])}
 
 
 def main():
@@ -164,6 +199,15 @@ def main():
         # Delivery prices opens on this week of two sources, so its readiness includes the interval chart and table.
         from delivery_price_seed import seed as seed_delivery_prices
         seed_delivery_prices(query, manifest)
+        # The Dashboard opens on a saved layout of every widget kind, its Positions definition already run by an owned risk worker.
+        provision_worker(query, manifest)
+        worker_connection = temporary/'risk-worker-connection'
+        worker_connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username=preview_risk_worker;SSL Mode=Disable')
+        worker_config = temporary/'risk-worker.json'
+        worker_config.write_text(json.dumps({'connectionFile': str(worker_connection), 'leaseSeconds': 30, 'pollSeconds': 1, 'timeoutSeconds': 60}))
+        worker_env = {**env, 'OPENETRM_RISK_WORKER_CONFIG': str(worker_config)}
+        dashboard = seed_dashboard(url, query, lambda: subprocess.run([str(args.dotnet.resolve()), str(temporary/'api'/dll.name), '--risk-worker', 'once'],
+                                                                       cwd=ROOT, env=worker_env, check=True, timeout=90, capture_output=True))
         # Independent unused observations exercise workspace scaling without
         # changing any pinned price, contract, correction chain or numerical result.
         query(f"""WITH originals AS MATERIALIZED (
@@ -251,7 +295,7 @@ def main():
                                'additionalReferenceLocations': args.additional_reference_locations,
                                'additionalFuturesSeries': args.additional_futures_series,
                                'uniquePinnedInputs': len({o for f in manifest['frames'] for o in f['observationIds']}),
-                               'scenarios': 0, 'apiCurveEvaluatedConstituents': result['evaluated'],
+                               'scenarios': 0, 'apiCurveEvaluatedConstituents': result['evaluated'], 'dashboard': dashboard,
                                'apiDatabaseTransport': 'local Unix socket; stock PostgreSQL; runtime RLS enabled'},
                   'api': {'workspace': {**summary(timings), 'endpoint': args.workspace_endpoint, 'decodedJsonBytes': len(json.dumps(workspace).encode()),
                                        'observationsReturned': len(workspace['observations'])},

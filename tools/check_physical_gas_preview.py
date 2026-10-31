@@ -93,6 +93,10 @@ def run_checks(url):
     listed=c.call('gas/directory',context)['trades']
     assert any(t['trade_id']==booked['tradeId'] for t in listed)
     c.call('trading/blotter',{'context':{**context,'convention':'trading_workspace_v1'},'view':{'mode':'trades','bookIds':[body['bookId']],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}},expected=422)
+    scope={'context':{**context,'convention':'trading_workspace_v1'},'view':{'mode':'trades','bookIds':[body['bookId']],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}}
+    for route in ('trading/workspace','trading/workspace/stream'):
+        refused=c.call(route,scope,expected=422)
+        assert refused['code']=='gas_portfolio_scope', (route,refused)
     c.call('profile',{'profile':'risk'})
     c.call('gas/book',{**body,'operationId':str(uuid4())},expected=403)
     assert c.call('gas/status',{'operationId':body['operationId']})=={'found':False}

@@ -225,6 +225,17 @@ def fixture(root, current_schema=True, fixing_frames=False):
         partial=next(frame for frame in frames if frame['at']=='2021-01-15T08:00:00Z')
         frames.append({**partial,'at':'2021-01-15T09:00:00Z'})
     extra_ref.append(f"DO $$ BEGIN IF to_regclass('ref_data.futures_product_terms') IS NOT NULL THEN INSERT INTO ref_data.futures_product_terms VALUES({R},'test_gas_future','test_uniform',NULL); END IF; END $$;")
+    extra_ref.append(f"""DO $policy$ BEGIN
+ IF to_regclass('ref_data.futures_execution_policies') IS NOT NULL THEN
+  INSERT INTO ref_data.futures_execution_policies(catalog_id,revision_id,series_code,implementation,eligibility_rule,eligible_from,
+   source_date_offset_seconds,source_date_tzdb_version,price_role,price_source_code,evidence_source_code)
+  SELECT s.catalog_id,s.revision_id,s.code,'contract_lot_execution_pnl_v2','source_first_trade_instant_v1',m.event_at,
+   NULL,NULL,'daily_settlement','fixture','fixture'
+  FROM ref_data.futures_series s JOIN ref_data.futures_milestones m
+   ON(m.catalog_id,m.revision_id,m.series_code,m.milestone)=(s.catalog_id,s.revision_id,s.code,'first_trading')
+  WHERE(s.catalog_id,s.revision_id,s.product_code)=({R},'test_gas_future');
+ END IF;
+ END $policy$;""")
     market=market.replace('UPDATE ref_data.revisions SET', '\n'.join(extra_ref)+'\nUPDATE ref_data.revisions SET',1)
     extra_market.append(f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','2022-01-01');")
     market=market.replace('UPDATE market_data.revisions SET','\n'.join(extra_market)+'\nUPDATE market_data.revisions SET',1)
@@ -235,7 +246,7 @@ def fixture(root, current_schema=True, fixing_frames=False):
         tou=tou_products(CAT,R,clocks,now,lambda n:identity('d',n))
         market=market.rsplit('COMMIT;',1)[0]+'\n'.join(tou)+'\nCOMMIT;\n'
     manifest={'mode':'local-synthetic-preview','catalogId':CAT,'revisionId':REV,'referenceCatalogId':RCAT,'referenceRevisionId':RREV,
-              'tenantId':TENANT,'workspaceId':WORKSPACE,'frames':frames,
+              'tenantId':TENANT,'workspaceId':WORKSPACE,'frames':frames,'futuresConvention':'contract_lot_execution_pnl_v2',
               'schedules':[{'curve':'future','from':'2020-12-01T00:00:00Z','to':'2021-05-28T15:30:00Z','exampleAt':'2020-12-28T15:29:00Z'}],
               'example':{'at':'2020-12-18T16:00:00Z','curve':'local_power'},
               'unitCatalog':{'referenceRevisionId':RREV,'definitionRevisionId':REV}}

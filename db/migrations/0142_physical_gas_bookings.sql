@@ -192,11 +192,12 @@ END$$;
 ALTER TABLE trading.instrument_side_schedules ADD CHECK(num_nonnulls(swap_fixed_side_id,swap_floating_side_id,swap_whole_term_side_id,ppa_side_id,gas_side_id)=1),
  ADD CHECK(side_id=coalesce(swap_fixed_side_id,swap_floating_side_id,swap_whole_term_side_id,ppa_side_id,gas_side_id));
 
-ALTER TABLE trading.side_schedule_bindings ADD CHECK(kind IN('contract_price','index_fixing','curve_interval','custom_output','quantity_source',
+ALTER TABLE trading.side_schedule_bindings ADD CHECK(kind IN('contract_price','index_fixing','settlement_source','curve_interval','custom_output','quantity_source',
  'asset','sibling_quantity','location','index','quote','gas_assignment','gas_product'));
 ALTER TABLE trading.side_schedule_bindings ADD CHECK(CASE kind
  WHEN 'contract_price' THEN num_nonnulls(source_catalog_id,definition_revision_id,curve_code,contract_id)=4
  WHEN 'index_fixing' THEN num_nonnulls(reference_catalog_id,reference_revision_id,source_code,source_catalog_id,definition_revision_id,series_id,fixing_index_code,fixing_from,fixing_to,quote_code,coordinate)=11
+ WHEN 'settlement_source' THEN num_nonnulls(reference_catalog_id,reference_revision_id,source_code,source_catalog_id,definition_revision_id,series_id,coordinate)=7 AND coordinate IN('DailySettlement','TraderMark')
  WHEN 'curve_interval' THEN num_nonnulls(source_catalog_id,definition_revision_id)=2 AND num_nonnulls(curve_code,shaped_curve_code)=1
  WHEN 'custom_output' THEN num_nonnulls(custom_catalog_id,custom_curve_id,custom_version,output_node,source_catalog_id,definition_revision_id,curve_code,contract_id,coordinate)=9
   AND coordinate=output_node AND(position IS NULL OR position>=0)
@@ -211,7 +212,7 @@ ALTER TABLE trading.side_schedule_bindings ADD CHECK(CASE kind
 ALTER TABLE trading.side_schedule_bindings ADD CHECK(num_nonnulls(reference_catalog_id,reference_revision_id,index_code,quantity_code,location_code,quote_code,
  source_catalog_id,definition_revision_id,curve_code,contract_id,shaped_curve_code,quantity_source_code,asset_code,series_id,
  custom_catalog_id,custom_curve_id,custom_version,output_node,position,coordinate,source_code,fixing_index_code,fixing_from,fixing_to,gas_assignment_code,gas_product_code)=
- CASE kind WHEN 'contract_price' THEN 4 WHEN 'index_fixing' THEN 11 WHEN 'curve_interval' THEN 3
+ CASE kind WHEN 'contract_price' THEN 4 WHEN 'index_fixing' THEN 11 WHEN 'settlement_source' THEN 7 WHEN 'curve_interval' THEN 3
   WHEN 'custom_output' THEN 9+num_nonnulls(position) WHEN 'quantity_source' THEN 3+num_nonnulls(coordinate)
   WHEN 'asset' THEN 3+num_nonnulls(coordinate) WHEN 'sibling_quantity' THEN 5 WHEN 'gas_assignment' THEN 6 WHEN 'gas_product' THEN 3 WHEN 'location' THEN 3+num_nonnulls(coordinate) WHEN 'index' THEN 3 WHEN 'quote' THEN 3 END);
 ALTER TABLE trading.side_schedule_bindings ADD CHECK(kind<>'index_fixing' OR coordinate='published_index_observations_v1');
@@ -383,7 +384,7 @@ BEGIN
    WHERE(catalog_id,schedule_id)=(catalog,schedule) GROUP BY target)
   SELECT 1 FROM trading.side_schedule_rows r LEFT JOIN inputs ON inputs.target=r.ordinal
   WHERE(r.catalog_id,r.schedule_id)=(catalog,schedule) AND CASE
-   WHEN r.operation IN('constant_price','price_lookup','quantity_input','quantity_literal','profile_quantity','asset_capacity','discount') THEN coalesce(inputs.n,0)<>0
+   WHEN r.operation IN('constant_price','price_lookup','contract_observation_price','quantity_input','quantity_literal','profile_quantity','asset_capacity','discount') THEN coalesce(inputs.n,0)<>0
    WHEN r.operation IN('quantity_scale','quantity_transform','price_scale','price_application','sum_cells','quantity_sum_cells') THEN coalesce(inputs.n,0)<>1
    WHEN r.operation IN('quantity_normalize','amount','pv','output_guard','price_add') THEN coalesce(inputs.n,0)<>2
    WHEN r.operation IN('quantity_add','weighted_price','sum') THEN coalesce(inputs.n,0)<1 ELSE true END)
@@ -433,17 +434,19 @@ BEGIN
  THEN RAISE EXCEPTION 'side_schedule_ports';END IF;
  IF EXISTS(WITH sources AS MATERIALIZED(SELECT row_ordinal,count(*) n,bool_or(kind='contract_price') dated,bool_or(kind='curve_interval') curve,
    bool_or(port='market' AND kind='contract_price') market_port,bool_or(port='index' AND kind='index') index_port,
-   bool_or(port='quote' AND kind='quote') quote_port,bool_or(port='curve' AND kind='curve_interval') curve_port,
+   bool_or(port='quote' AND kind='quote') quote_port,bool_or(port='fixing' AND kind='index_fixing') fixing_port,bool_or(port='curve' AND kind='curve_interval') curve_port,
    bool_or(port='assignment') gas_assignment,bool_or(port='point') gas_point,bool_or(port='product') gas_product,
    bool_and(kind=CASE port WHEN 'market' THEN 'contract_price' WHEN 'index' THEN 'index' WHEN 'quote' THEN 'quote'
     WHEN 'fixing' THEN 'index_fixing' WHEN 'projection' THEN 'custom_output' WHEN 'assignment' THEN 'gas_assignment' WHEN 'point' THEN 'location' WHEN 'product' THEN 'gas_product' ELSE '' END) dated_ports,
    bool_and((port,kind) IN(('curve','curve_interval'),('index','index'))) curve_ports,
+   bool_and((port,kind) IN(('market','contract_price'),('quote','quote'),('settlement','settlement_source'))) sample_ports,
    bool_and(port='location' AND kind IN('location','quantity_source','asset')) location_ports,
    bool_and((port,kind) IN(('source','quantity_source'),('quantity','sibling_quantity'))) quantity_sources,bool_and(port='asset' AND kind='asset') assets
    FROM trading.side_schedule_bindings WHERE(catalog_id,schedule_id)=(catalog,schedule) GROUP BY row_ordinal)
   SELECT 1 FROM trading.side_schedule_rows r LEFT JOIN sources s ON s.row_ordinal=r.ordinal
   WHERE(r.catalog_id,r.schedule_id)=(catalog,schedule) AND CASE r.operation
-   WHEN 'price_lookup' THEN CASE WHEN s.dated THEN NOT(s.market_port AND s.index_port AND s.quote_port AND s.dated_ports AND (NOT(coalesce(s.gas_assignment,false) OR coalesce(s.gas_point,false) OR coalesce(s.gas_product,false)) OR s.gas_assignment AND s.gas_point AND s.gas_product))
+   WHEN 'contract_observation_price' THEN NOT(coalesce(s.n,0)=3 AND s.market_port AND s.quote_port AND s.sample_ports)
+   WHEN 'price_lookup' THEN CASE WHEN s.dated THEN NOT(s.market_port AND s.index_port AND s.quote_port AND s.fixing_port AND s.dated_ports AND (NOT(coalesce(s.gas_assignment,false) OR coalesce(s.gas_point,false) OR coalesce(s.gas_product,false)) OR s.gas_assignment AND s.gas_point AND s.gas_product))
     WHEN s.curve THEN NOT(s.curve_port AND s.curve_ports AND CASE WHEN r.parameters->>'selection'='interval_attribute_lookup_v1'
      THEN s.n=1 ELSE s.n=2 AND s.index_port END) ELSE coalesce(s.n,0)<>1 OR NOT s.location_ports END
    WHEN 'quantity_input' THEN coalesce(s.n,0)<>1 OR NOT s.quantity_sources
@@ -481,6 +484,32 @@ BEGIN
      (row.unit_catalog_id,row.unit_revision_id,row.unit_code) IS DISTINCT FROM(o.unit_catalog_id,o.unit_revision_id,o.unit_code)))
   THEN RAISE EXCEPTION 'side_schedule_output_set';END IF;
  ELSIF EXISTS(SELECT 1 FROM trading.side_schedule_output_sets WHERE(catalog_id,schedule_id)=(catalog,schedule)) THEN RAISE EXCEPTION 'side_schedule_output_set';END IF;
+ IF EXISTS(SELECT 1 FROM trading.side_schedule_rows r
+  JOIN trading.side_schedule_bindings m ON(m.catalog_id,m.schedule_id,m.row_ordinal,m.port)=(r.catalog_id,r.schedule_id,r.ordinal,'market')
+  JOIN trading.side_schedule_bindings q ON(q.catalog_id,q.schedule_id,q.row_ordinal,q.port)=(r.catalog_id,r.schedule_id,r.ordinal,'quote')
+  JOIN trading.side_schedule_bindings s ON(s.catalog_id,s.schedule_id,s.row_ordinal,s.port)=(r.catalog_id,r.schedule_id,r.ordinal,'settlement')
+  JOIN market_data.contracts c ON(c.catalog_id,c.revision_id,c.id)=(m.source_catalog_id,m.definition_revision_id,m.contract_id)
+  JOIN market_data.curves curve ON(curve.catalog_id,curve.revision_id,curve.code)=(m.source_catalog_id,m.definition_revision_id,m.curve_code)
+  JOIN market_data.series series ON(series.catalog_id,series.revision_id,series.id)=(s.source_catalog_id,s.definition_revision_id,s.series_id)
+  JOIN ref_data.quote_specifications quote ON(quote.catalog_id,quote.revision_id,quote.code)=(q.reference_catalog_id,q.reference_revision_id,q.quote_code)
+  WHERE(r.catalog_id,r.schedule_id,r.operation)=(catalog,schedule,'contract_observation_price') AND(
+   (s.source_catalog_id,s.definition_revision_id,series.contract_id,series.quote_code) IS DISTINCT FROM(m.source_catalog_id,m.definition_revision_id,m.contract_id,q.quote_code) OR
+   (s.reference_catalog_id,s.reference_revision_id) IS DISTINCT FROM(q.reference_catalog_id,q.reference_revision_id) OR
+   (curve.reference_catalog_id,curve.reference_revision_id) IS DISTINCT FROM(q.reference_catalog_id,q.reference_revision_id) OR
+   curve.quote_code<>q.quote_code OR quote.kind<>'outright' OR curve.rule IS DISTINCT FROM 'direct' OR
+   curve.direct_source_code IS DISTINCT FROM s.source_code OR
+   curve.direct_role IS DISTINCT FROM CASE s.coordinate WHEN 'DailySettlement' THEN 'daily_settlement' WHEN 'TraderMark' THEN 'trader_mark' END OR
+   (r.unit_catalog_id,r.unit_revision_id,r.unit_code,r.currency_catalog_id,r.currency_revision_id,r.currency_code,r.quote_multiplier)
+    IS DISTINCT FROM(q.reference_catalog_id,q.reference_revision_id,quote.quantity_code,q.reference_catalog_id,q.reference_revision_id,quote.currency_code,quote.multiplier) OR
+   r.parameters->>'expiryPolicy'='CarryFinalSettlement' AND NOT EXISTS(SELECT 1 FROM market_data.curve_expiry_rules e
+    WHERE(e.catalog_id,e.revision_id,e.curve_code,e.rule_version)=(m.source_catalog_id,m.definition_revision_id,m.curve_code,'freeze_final_settlement_v1')) OR
+   c.kind='future' AND s.coordinate<>'DailySettlement' OR
+   (r.parameters->>'sampleAt')::timestamptz>=c.expiry_at AND r.parameters->>'expiryPolicy'='RequireLive'))
+ THEN RAISE EXCEPTION 'side_schedule_sources';END IF;
+ IF EXISTS(SELECT 1 FROM trading.side_schedule_rows r
+  WHERE(r.catalog_id,r.schedule_id,r.operation)=(catalog,schedule,'output_guard') AND r.grid_ordinal IS NULL
+   AND r.parameters->>'firstFixingAt' IS DISTINCT FROM 'none')
+ THEN RAISE EXCEPTION 'side_schedule_sources';END IF;
  INSERT INTO trading.side_schedule_seals(catalog_id,schedule_id,content_hash) VALUES(catalog,schedule,h.content_hash);
  PERFORM security.side_schedule_stage_authority(catalog,request,schedule);
 END$$;
@@ -656,7 +685,7 @@ LANGUAGE sql STABLE SET search_path=pg_catalog SET enable_nestloop=off SET jit=o
  edges AS MATERIALIZED(SELECT * FROM trading.side_schedule_edges WHERE(catalog_id,schedule_id)=(catalog,schedule)),
  walk(source,node) AS(
   SELECT r.ordinal,e.target FROM rows r JOIN edges e ON e.source=r.ordinal
-   WHERE r.operation IN('price_lookup','quantity_input','asset_capacity','discount')
+   WHERE r.operation IN('price_lookup','contract_observation_price','quantity_input','asset_capacity','discount')
   UNION
   SELECT w.source,e.target FROM walk w JOIN rows r ON r.ordinal=w.node
    JOIN edges e ON e.source=w.node WHERE r.operation<>'output_guard'),
@@ -668,7 +697,7 @@ LANGUAGE sql STABLE SET search_path=pg_catalog SET enable_nestloop=off SET jit=o
  bindings AS(SELECT b.row_ordinal,jsonb_agg(jsonb_build_object(
   'row',b.row_ordinal,'port',b.port,'kind',b.kind,
   'reference',trading.side_program_reference(b.reference_catalog_id,b.reference_revision_id,CASE b.kind
-   WHEN 'index_fixing' THEN b.source_code WHEN 'sibling_quantity' THEN b.quantity_code WHEN 'location' THEN b.location_code
+   WHEN 'index_fixing' THEN b.source_code WHEN 'settlement_source' THEN b.source_code WHEN 'sibling_quantity' THEN b.quantity_code WHEN 'location' THEN b.location_code
    WHEN 'gas_assignment' THEN b.gas_assignment_code WHEN 'gas_product' THEN b.gas_product_code WHEN 'index' THEN b.index_code WHEN 'quote' THEN b.quote_code END),
   'market',CASE WHEN b.contract_id IS NOT NULL THEN jsonb_build_object(
    'curve',trading.side_program_reference(b.source_catalog_id,b.definition_revision_id,b.curve_code),
