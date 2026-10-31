@@ -23,7 +23,7 @@ export async function openPpaBookings({click,wait,evaluate}){
   if(await evaluate("[...document.querySelectorAll('#product-trade-pending button')].some(b=>b.textContent==='Reconcile PPA request')")){
     await evaluate("[...document.querySelectorAll('#product-trade-pending button')].find(b=>b.textContent==='Reconcile PPA request').click()");await wait(idle);
   }else{await startNewTrade({click,wait});await click('#new-trade-ppa');}
-  await wait("document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#side-panel-form').contains(document.querySelector('#ppa-page'))&&"+idle);
+  await wait("document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#position-details-form').contains(document.querySelector('#ppa-page'))&&"+idle);
 }
 
 /** Chooses a product in the open panel and waits for its form to be in the panel's form part. */

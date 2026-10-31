@@ -28,7 +28,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
  await click('#profile-open');await set('#zone','America/New_York');await click('#preferences-form button[type=submit]');
  await captureFrames();await openPpaBookings({click,wait,evaluate});await chooseFrame(fixture.baseFrameAt);
- await check('choosing an exact PPA frame opens its booking steps in the common panel',"!document.querySelector('#ppa-wizard').hidden&&document.querySelector('#side-panel-form').contains(document.querySelector('#ppa-wizard'))");
+ await check('choosing an exact PPA frame opens its booking steps in the common panel',"!document.querySelector('#ppa-wizard').hidden&&document.querySelector('#position-details-form').contains(document.querySelector('#ppa-wizard'))");
  await check('guided PPA page loads its authorized exact-bundle capability catalog',"!document.querySelector('#ppa-page').hidden&&document.querySelector('#ppa-composition').options.length===6&&document.querySelector('#error').hidden",text('error'));
  await newContract('fixed_physical');
  await check('physical draft matches the independent 25-hour exact 2500 oracle',`${text('ppa-measures')}.includes('2500')&&!document.querySelector('#ppa-result').hidden&&document.querySelector('#error').hidden`,text('ppa-error'));

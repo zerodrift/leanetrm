@@ -433,14 +433,14 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   // PPA entry shares the product panel and its unsaved-edit guard.
   await amend(refB);
   await startNewTrade({click,wait});await click('#new-trade-ppa');
-  await check('New trade for a PPA leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='Blotter'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#side-panel-form').contains(document.querySelector('#ppa-page'))`,`[${prompt}.textContent,${title}]`);
+  await check('New trade for a PPA leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='Blotter'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#position-details-form').contains(document.querySelector('#ppa-page'))`,`[${prompt}.textContent,${title}]`);
   await closeNewTrade({click,evaluate,wait});await back();
   await newTrade({click,wait},'futures');await typeInto('#futures-lots','5');
   await click('#new-trade-ppa');await asks();
   await check('Switching to PPA asks first, and keeping edits preserves the current trade',`${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&${newForm}&&document.querySelector('#futures-lots').value==='5'`,`[${prompt}.textContent,${title}]`);
   await answer(0);
   await click('#new-trade-ppa');await asks();await answer(1);await wait(idle);
-  await check('and agreeing opens the PPA form in the common workspace',`${title}==='Blotter'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#side-panel-form').contains(document.querySelector('#ppa-page'))`,title);
+  await check('and agreeing opens the PPA form in the common workspace',`${title}==='Blotter'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#position-details-form').contains(document.querySelector('#ppa-page'))`,title);
   await closeNewTrade({click,evaluate,wait});await back();
   await check('the Blotter comes back without the form: it starts fresh',`${side}.hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#trade-editing').hidden`);
 
