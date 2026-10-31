@@ -6,6 +6,9 @@ using OpenEtrm.MarketData;
 if(args is ["--gas-market-selection"]){GasMarketSelectionChecks.Run();return;}
 if(args is ["--preview-failure-diagnostics"]){OpenEtrm.Api.Checks.PreviewFailureDiagnosticChecks.Run();return;}
 if(args is ["--position-qualification"]){await PositionQualificationChecks.Run();return;}
+
+if(args is ["--book-scope"]){BookScopeChecks.Run();return;}
+if(args is ["--database-login-boundaries",var boundaryConnectionFile,var boundaryTracking]){await DatabaseLoginBoundaryChecks.Run(boundaryConnectionFile,bool.Parse(boundaryTracking));return;}
 if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
 if(args is ["--booked-programs",var bookedProgramsFixture]){await BookedProgramStorageChecks.Run(bookedProgramsFixture);return;}
 if(args is ["--ppa-blotter-admission"]){await PpaBlotterAdmissionChecks.Run();return;}
@@ -86,6 +89,7 @@ if (args is ["--schedules"])
     TradingReadSelectionChecks.Run();
     GasMarketSelectionChecks.Run();
     TradePositionFactsChecks.Run();
+    BookScopeChecks.Run();
     BookedScheduleLookupChecks.Run();
     SideObservationCompatibilityChecks.Run();
     ContractObservationAuthoringChecks.Run();

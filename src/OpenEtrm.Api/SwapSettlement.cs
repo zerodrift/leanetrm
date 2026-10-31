@@ -140,9 +140,7 @@ public sealed partial class SwapStore
             request.CorrectionPolicy != "swap_explicit_correction_due_v1" || string.IsNullOrWhiteSpace(request.PreviewHash))
             throw Error("settlement_policy", "Explicitly enroll this swap under the supported due, per-period recognition, correction and currency-rounding policies.");
         var payload = JsonSerializer.Serialize(request, RiskJobs.Json);
-        await using (var retry = ScheduleStore.Command(connection, "SELECT settlement_data.swap_command_status($1,$2,$3::jsonb)::text",
-            manifest.CatalogId, request.OperationId, payload))
-            if (await retry.ExecuteScalarAsync(ct) is string prior) return JsonSerializer.Deserialize<JsonElement>(prior);
+        if (await SettlementCommandReplay.Read(connection, manifest.CatalogId, request.OperationId, payload, ct) is {} prior) return prior;
         var prepared = await WithBookingRead(connection, frame, (data, pinned) => PrepareSettlement(connection, data, pinned, preview, ct), ct);
         if (request.PreviewHash != prepared.PreviewHash) throw Error("settlement_stale_preview", "Final inputs or contractual terms changed; recalculate and review settlement.");
         var value = prepared.Calculation;
@@ -170,9 +168,7 @@ public sealed partial class SwapStore
         var amount = ExactDecimal.Parse(Required(request.Amount));
         var at = SettlementInstant(request.EffectiveAt,"settlement_cash_input");
         var payload = JsonSerializer.Serialize(request, RiskJobs.Json);
-        await using (var retry = ScheduleStore.Command(connection, "SELECT settlement_data.swap_command_status($1,$2,$3::jsonb)::text",
-            manifest.CatalogId, request.OperationId, payload))
-            if (await retry.ExecuteScalarAsync(ct) is string prior) return JsonSerializer.Deserialize<JsonElement>(prior);
+        if (await SettlementCommandReplay.Read(connection, manifest.CatalogId, request.OperationId, payload, ct) is {} prior) return prior;
         var context = await WithBookingRead(connection, frame, async (data, pinned) =>
         {
             _ = await SettlementState(connection, request.TradeId, ct);
@@ -323,7 +319,7 @@ public sealed partial class SwapStore
             request.BookIds.Distinct().Count()!=request.BookIds.Length||request.ContractChanges is not("reject_contract_changes_v1" or SwapContractBridge.Policy)||
             request.DuePolicy!="swap_due_nominal_v1"||request.RecognitionPolicy!="swap_completed_period_trading_pnl_v1")
             throw Error("settlement_bridge","Select explicit financial-swap scopes, due/recognition policies and the unchanged-contract bridge.");
-        var books=await new FuturesStore(manifest).Books(connection,ct);FuturesStore.ValidateScope(books,request.BookIds,[]);
+        var books=await BookScope.Read(connection,manifest.CatalogId,ct);BookScope.Validate(books,request.BookIds,[]);
         var allRows=await Rows(connection,null,ct);
         var heads=allRows.GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!).ToArray();
         var rows=heads.Where(r=>(request.TradeIds.IsEmpty||request.TradeIds.Contains(r.Id("trade_id")))&&(request.BookIds.IsEmpty||request.BookIds.Contains(r.Id("book_id"))));

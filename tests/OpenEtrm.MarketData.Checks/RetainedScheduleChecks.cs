@@ -7,6 +7,7 @@ internal static class RetainedScheduleChecks
 {
     internal static int Run()
     {
+        ScheduleManifestChecks.Run();
         CompactMonthlyBounds();
         CompactRetainedChecks.Run();
         var fixture=new CommodityLookupFixture(2,monthly:true);

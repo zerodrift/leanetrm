@@ -69,7 +69,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   ValidateView(view);ValidateSummaries(view,summaries);
   await PhysicalGasStore.RequirePortfolioScope(connection,manifest.CatalogId,view.BookIds,view.PortfolioIds,ct);
   var books=await futures.Books(connection,ct);
-  FuturesStore.ValidateScope(books,view.BookIds,view.PortfolioIds);
+  BookScope.Validate(books,view.BookIds,view.PortfolioIds);
   await MarketBundle.RequireObservationPins(connection,manifest,frame.ObservationIds,ct);
   return BlotterRun.Empty(view,summaries);
  }

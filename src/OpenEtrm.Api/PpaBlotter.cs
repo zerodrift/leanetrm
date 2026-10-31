@@ -30,9 +30,8 @@ internal static class PpaBlotter
     internal static async Task<PpaBlotterRun> Run(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,
         InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null)
     {
-        var books=await new FuturesStore(database.Manifest).Books(connection,ct);
-        FuturesStore.ValidateScope(books,bookIds,portfolioIds);
-        var selected=books.Where(b=>(bookIds.IsEmpty||bookIds.Contains(b.Id("id")))&&(portfolioIds.IsEmpty||portfolioIds.Contains(b.Id("portfolio_id"))))
+        var books=await BookScope.Read(connection,database.Manifest.CatalogId,ct);
+        var selected=BookScope.Select(books,bookIds,portfolioIds)
             .Select(b=>b.Id("id")).ToImmutableArray();
         if(selected.IsEmpty)return new(null);
         var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId??throw new PreviewDeniedException(),ct)).Context;

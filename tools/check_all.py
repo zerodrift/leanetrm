@@ -47,6 +47,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     worker_project='src/OpenEtrm.Worker/OpenEtrm.Worker.csproj'
     check('locked worker restore',[str(dotnet),'restore',worker_project,'--locked-mode'])
     check('independent worker build',[str(dotnet),'build',worker_project,'--no-restore'])
+    check('isolated database login boundaries',[sys.executable,'tools/check_database_login_boundaries.py',
+          '--pg-bin',str(pg_bin),'--dotnet',str(dotnet),'--no-build'])
     check('managed automation contracts',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--automation'])
     check('managed live context contracts',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--live-calculation'])
     check('managed private reference intake',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--reference-intake'])
