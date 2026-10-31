@@ -1185,7 +1185,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
         else if(!live&&bookingCatalog==='directory'&&!holdings){await factsRead.catch(()=>undefined);if(started!==generation||get('futures-page').hidden)return;readFailed(error,error===countFailed?'count':'valuation');}
         else if(!live)clear();
         else{get('futures-page').dataset.pricingState='failed';if(shapes===undefined)noShapes('the refresh that interrupted their read failed');}
-        if(background&&!live&&bookingCatalog==='directory'){options.failed(error);return;}
+        // A read in the background is said by its own handler below; it still fails, for whoever awaits the values (valued).
         throw error;
       }finally{if(pricingController===controller)pricingController=undefined;}
     };
@@ -1474,6 +1474,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
   // soon as they arrive.
   if(options.window.kind==='main')setInterval(()=>{if(!busy()&&owner&&owner===options.profile()&&!tie?.out()&&takeStoredRequest())sync();},1000);
   return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),reset,sync,show,
+    /** The values of the read under way, which a read in the background draws after `load` returns: rejects with the read's failure. */
+    valued:()=>pricingRead,
     // The person's saved views, read for the sidebar when they are not read yet.
     async views(){restore();if(!viewsLoaded)await loadViews();},
     // Shows the saved view a sidebar entry names, read afresh with the other saved views; the page then reads the Blotter.

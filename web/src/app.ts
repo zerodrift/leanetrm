@@ -870,10 +870,15 @@ async function loadIdentity(initialAccess?:unknown){
   let unopened:unknown;
   if(first!==null){
     if(address===undefined){
-    try{await showPage(first);}catch(error){
-      if(first!=='futures'||(error as {code?:string}).code!=='gas_portfolio_scope'||$('nav-gas').hidden)throw error;
-      await showPage('gas');notice(errorMessage(error));
-    }
+    // A Blotter scope that holds physical gas cannot be valued there: physical gas bookings open instead, saying why, whether the Blotter's
+    // first read refuses it or its values, read in the background once the page is open, do.
+    const gasScope=(error:unknown)=>first==='futures'&&(error as {code?:string}).code==='gas_portfolio_scope'&&!$('nav-gas').hidden;
+    const openGas=async(error:unknown)=>{await showPage('gas');notice(errorMessage(error));};
+    try{await showPage(first);}catch(error){if(!gasScope(error))throw error;await openGas(error);}
+    if(first==='futures'&&page==='futures')void futures.valued().catch(error=>{
+      if(!gasScope(error))return;
+      const whenIdle=()=>{if(page!=='futures')return;if(busy)setTimeout(whenIdle,50);else void act(()=>openGas(error));};whenIdle();
+    });
     }else await openReferenceAddress(address).catch(error=>{unopened=error;});
     if(!$('nav-futures').hidden)await futures.views();
     closeCheckDue=false; // the read that chose the close is this page's check for a newer one
