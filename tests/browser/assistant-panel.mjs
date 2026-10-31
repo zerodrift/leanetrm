@@ -197,9 +197,39 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `[JSON.stringify(${asks}.at(-1).body.pageReport.layout),${drawnLayout}]`);
   await check('Looking at shows the layout the ask sends: the details open on the trade, the charts as drawn, the main window',
     `!${layoutLine}.hidden&&${layoutLine}.textContent===${drawnLine}&&${layoutLine}.textContent.startsWith('Details open · ')`,`[${layoutLine}.textContent,${drawnLine}]`);
+  // On this page, narrowed by the assistant, every pane shares one group: showing another tab closes the details, and Looking at says so at
+  // once, so the ask that follows sends what it shows and is not refused as a page change.
+  await check('the Blotter here is narrow: its panes share one group',`document.querySelector('main').clientWidth<960&&document.querySelectorAll('#blotter-dock .dock-group').length===1`,
+    "[document.querySelector('main').clientWidth,document.querySelectorAll('#blotter-dock .dock-group').length]");
+  await click('#blotter-dock-grid');
+  await check('showing the positions tab on a narrow page changes what Looking at shows of the layout at once',
+    `${layoutLine}.textContent===${drawnLine}&&${layoutLine}.textContent.startsWith('Details closed · ')`,`[${layoutLine}.textContent,${drawnLine}]`);
+  await script({text:'The positions are shown. '});
+  await ask('What is shown?');await wait(finished);
+  await check('and the ask that follows goes through, sending the layout Looking at shows',
+    `${q('#assistant-error')}.hidden&&JSON.stringify(${asks}.at(-1).body.pageReport.layout)===${drawnLayout}&&${asks}.at(-1).body.pageReport.layout.pane.details===false`,
+    `[${q('#assistant-error')}.textContent,JSON.stringify(${asks}.at(-1).body.pageReport.layout)]`);
+  await click('#blotter-dock-details');await wait(shown('#blotter-pane-details'));
   await click('#details-collapse');
   await check('closing the details changes what Looking at shows of the layout at once, so the next ask sends what it says',
     `${layoutLine}.textContent===${drawnLine}&&${layoutLine}.textContent.startsWith('Details closed · ')`,`[${layoutLine}.textContent,${drawnLine}]`);
+  // On a wide page Reset layout brings back the panes it arranges, and Looking at follows it too.
+  await command('Emulation.setDeviceMetricsOverride',{width:2000,height:1050,deviceScaleFactor:1,mobile:false});
+  await wait(`document.querySelector('main').clientWidth>=960&&document.querySelectorAll('#blotter-dock .dock-group').length>1&&!!document.querySelector('[data-collapse="charts"]')`);
+  // The charts may have made way for the details earlier: they are brought back first, so that they can be put away.
+  await evaluate(`document.querySelector('[data-collapse="charts"][aria-expanded="false"]')?.click()`);
+  await wait(`!!document.querySelector('[data-collapse="charts"][aria-expanded="true"]')&&${layoutLine}.textContent.includes('Charts open')`);
+  await click('[data-collapse="charts"][aria-expanded="true"]');await wait(`${layoutLine}.textContent.includes('Charts closed')`);
+  await evaluate(`${q('#blotter-reset-layout')}.click()`);
+  await check('Reset layout on a wide page changes what Looking at shows of the layout at once',
+    `${layoutLine}.textContent===${drawnLine}&&${layoutLine}.textContent.includes('Charts open')`,`[${layoutLine}.textContent,${drawnLine}]`);
+  await script({text:'The charts are back. '});
+  await ask('Are the charts shown?');await wait(finished);
+  await check('and the ask that follows goes through, sending the layout Looking at shows',
+    `${q('#assistant-error')}.hidden&&JSON.stringify(${asks}.at(-1).body.pageReport.layout)===${drawnLayout}&&${asks}.at(-1).body.pageReport.layout.pane.charts===true`,
+    `[${q('#assistant-error')}.textContent,JSON.stringify(${asks}.at(-1).body.pageReport.layout)]`);
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
+  await wait("document.querySelector('main').clientWidth<960");
   await check('closing the panel returns Looking at to the Blotter\'s rows',`${looking}[1].startsWith('Trade rows · ')&&(${q('#position-details')}?.hidden!==false)`,looking);
   // An amendment under way holds a live move away from the page, like any other unsaved edit, and Back brings the trade back in the panel.
   await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
@@ -444,7 +474,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#assistant-history-open');await wait(`document.querySelectorAll('#assistant-history-list button').length>0`);
   // Every question of this run went to one conversation with the guide.
   await evaluate(`[...document.querySelectorAll('#assistant-history-list button')].find(b=>b.textContent.includes(${JSON.stringify(guide)})).click()`);
-  await wait(`document.querySelectorAll('#assistant-turns > li').length===19&&!!${latest}.querySelector('.assistant-usage')`);
+  await wait(`document.querySelectorAll('#assistant-turns > li').length===21&&!!${latest}.querySelector('.assistant-usage')`);
   await check('at 390 px the panel covers the width as a sheet that fits it, showing the conversation without identifiers',
     `${q('#assistant-panel')}.getBoundingClientRect().width===document.documentElement.clientWidth&&${fitsWidth}`
     +`&&!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(${q('#assistant-panel')}.innerText)&&${q('#assistant-agent')}.value===${JSON.stringify(guideChoice)}`,

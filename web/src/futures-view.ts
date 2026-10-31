@@ -23,7 +23,7 @@ import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
 import type {BlotterSelection,EntryShown,TradeShown} from './assistant-pages.js';
 import {isPriceMeasure,priceMeanPolicy,blotterColumns,blotterDockRules,defaultBlotterArrangement,deskFields,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,rowGroups,sidebarViews,withoutColumns,type BlotterView,type RowGroup} from './blotter-layout.js';
 import {setupDock} from './dock.js';
-import {createBlotterOperations,refuse,requireModeColumns,type BlotterCaller,type BlotterOperation} from './blotter-operations.js';
+import {createBlotterOperations,guard,refuse,requireModeColumns,type BlotterCaller,type BlotterOperation} from './blotter-operations.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
@@ -100,7 +100,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const workspace=createTableWorkspace(get('blotter-workspace'),{
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
     pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
-    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Run risk'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(()=>load('directory',false,true)),onScope:()=>void perform({kind:'chooseScope',bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}),
+    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Run risk'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>asked(()=>load('directory',false,true)),onScope:()=>void perform({kind:'chooseScope',bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}),
     note:get('new-trade-availability'),body:get('blotter-dock'),rows:get('blotter-pane-grid'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),lens:get('desk-lens'),
   });
   // Existing booking controls share the table toolbar.
@@ -164,6 +164,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // The Blotter's panes (blotter-workbench.md): the summary strip, the positions, details and charts, arranged by the trader and kept in
   // the view. Moving or collapsing a pane draws the grid again where it now stands, never builds it again. The details collapse by their own
   // control, which asks first about edits they hold.
+  let setUp=false;
   const dock=setupDock(get('blotter-dock'),{label:'Blotter panes',rules:blotterDockRules,narrow:options.narrow,initial:view.panes,ownCollapse:['details'],
     tabs:[{id:'summary',label:'Summary',body:get('blotter-pane-summary')},{id:'grid',label:'Positions',body:get('blotter-pane-grid')},{id:'details',label:'Details',body:get('blotter-pane-details')},{id:'charts',label:'Charts',body:get('blotter-pane-charts')}],
     changed:arrangement=>{
@@ -171,9 +172,11 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(chartsMadeWay&&!arrangement.collapsed.includes('charts'))chartsMadeWay=false;
       view.panes=chartsMadeWay?{...arrangement,collapsed:arrangement.collapsed.filter(tab=>tab!=='charts')}:arrangement;
       // A divider dragged or a pane moved, put away or brought back changes the room the open details have: it is sized again once drawn.
-      // Which panes are open is part of what the page reports.
-      requestAnimationFrame(fitRoom);options.reported();
-    },shown:id=>{if(id==='grid')for(const grid of [table,ladderTable])grid?.relayout();}});
+      requestAnimationFrame(fitRoom);
+    },
+    // Which panes are open is part of what the page reports, however they came to be open; while the page is set up, the panes it opens
+    // are what it shows first, which its first report states.
+    opened:()=>{if(setUp)options.reported();},shown:id=>{if(id==='grid')for(const grid of [table,ladderTable])grid?.relayout();}});
   // A page that has just become narrow shows the positions among its tabs, or the details while they show something; one wide again
   // shows the arrangement as it was, with the details expanded while they show something. Focus in the details stays there.
   let narrowed=false;
@@ -262,7 +265,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // show, so that nothing leaves the person with no way to find out what became of it.
   const retained=get('futures-pending');
   // The head of the panel's New trade mode, which asks the page for the product the person chooses and for the PPA page.
-  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),ppa:()=>guarded(options.newPpa),busy});
+  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),ppa:()=>asked(options.newPpa),busy});
   // The forms belong to the panel's mode: when it moves to another, whatever they held is dropped (the person was asked first if they
   // held edits), and the page says what it now reports. A new trade is drawn as its head and what it says until its form is in the panel.
   let formsFor:PanelMode=null;
@@ -281,10 +284,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(mode===null){if(options.narrow())dock.reveal('grid');else{dock.collapse('details');giveRoomBack();}fitRoom();}
     renderRisk();options.reported();
   }
-  // The panes stack in one group on a narrow main area: they are placed again when its width changes, which can change which are open,
-  // part of what the page reports; a change of its height only sizes the open details' room again.
+  // The panes stack in one group on a narrow main area: they are placed again when its width changes; a change of its height only sizes
+  // the open details' room again.
   let mainWidth=main.clientWidth;
-  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();options.reported();}else fitRoom();}).observe(main);
+  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();}else fitRoom();}).observe(main);
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
@@ -298,7 +301,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       shown:h=>{const future=editor.shown(),swap=swapEditor.shown();return !!future&&future.tradeId===h.tradeId&&future.bindingId===h.bindingId||!!swap&&swap.tradeId===h.tradeId&&swap.contractId===h.contractId;},
       close:async()=>{await leave();},
     },
-    openCurve:(curve,contractId)=>guarded(()=>options.openCurve(curve,contractId))});
+    openCurve:(curve,contractId)=>asked(()=>options.openCurve(curve,contractId))});
   const panelHoldings=()=>holdings?.holdings;
   // The header names the position the details show by its trade and market.
   const titled=(at:PositionInput)=>detailsPane.title(`${at.holding.tradeReference} · ${at.row.market}`);
@@ -333,8 +336,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   async function leave(){if(!await panel.leave())return false;dropForms();return true;}
   // An action of the person's that gives the panel's form up, by reading the Blotter again, which closes the panel, or by leaving it,
   // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
-  // control disabled. `kept` hears that the person kept them, for a control that has already changed.
-  async function guarded(work:()=>Promise<void>,kept?:()=>void){if(busy())return;if(await leave())await act(work);else kept?.();}
+  // control disabled; and is refused, saying so, when the page is or became busy (guard). `kept` hears that the person kept them, for a
+  // control that has already changed. An operation's handler hears a refusal; the person's other controls show it (asked).
+  const guarded=(work:()=>Promise<void>,kept?:()=>void)=>guard({busy,leave,act},work,kept);
+  const asked=(work:()=>Promise<void>,kept?:()=>void)=>void guarded(work,kept).catch(options.failed);
   // A position opens, in the details or a window of its own, only from the read on screen: rows kept from the previous read, or drawn
   // while the read is under way, say so.
   const notOpened=()=>options.notice('Positions open once the Blotter has valued them.');
@@ -349,7 +354,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     openPositionWindow(location.href,selection,(url,target,features)=>window.open(url,target,features));
   }
   // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
-  function settle(h:Holding){guarded(()=>swapEditor.openSettlement(h));}
+  function settle(h:Holding){asked(()=>swapEditor.openSettlement(h));}
   // New trade (D221) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
   // What the panel held is left only when the person says so, which is asked before the page is busy.
@@ -1059,7 +1064,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // A retained settlement command is retried or checked with the settlement view it came from left open, as its outcome reads the
   // Blotter again as a live correction does. Any other retained request is settled by a new read, which closes the panel, so the
   // panel asks about its edits first.
-  function retainedAction(work:()=>Promise<void>){if(pending.command?.path.startsWith('swaps/settlement/')){if(!busy())void act(work);}else guarded(work);}
+  function retainedAction(work:()=>Promise<void>){if(pending.command?.path.startsWith('swaps/settlement/')){if(!busy())void act(work);}else asked(work);}
   get('futures-retry').onclick=()=>retainedAction(async()=>{if(!pending.command)throw Error('No retained booking to retry.');await send(pending.command);});
   get('futures-reconcile').onclick=()=>retainedAction(async()=>{
     if(!pending.command)throw Error('No retained booking to reconcile.');
@@ -1079,8 +1084,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // refused in the banner, and the grouping on screen stays.
   // The control shows the grouping the Blotter shows, also after one it refused.
   field('blotter-row-group').onchange=()=>void perform({kind:'groupRows',rowGroup:(field('blotter-row-group').value||null) as RowGroup}).then(()=>{field('blotter-row-group').value=view.rowGroup??'';});
-  get('blotter-apply').onclick=()=>guarded(load);
-  get('blotter-save').onclick=()=>guarded(async()=>{
+  get('blotter-apply').onclick=()=>asked(load);
+  get('blotter-save').onclick=()=>asked(async()=>{
     const draft=readView();const next=parseBlotterViews(JSON.stringify([{...draft,name:field('blotter-name').value}]))[0];
     const saved=await layoutApi<{version:string;layout:BlotterView}>('table-views/blotter',{layout:next,expectedVersion:draftBase?.name===next.name?draftBase.version:versions.get(next.name)??null});
     versions.set(next.name,saved.version);draftBase={name:next.name,version:saved.version};savedViews=[...savedViews.filter(v=>v.name!==next.name),saved.layout];earlierViews=earlierViews.filter(name=>name!==next.name);
@@ -1091,7 +1096,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   function useSaved(saved:BlotterView){draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);showPanes();field('blotter-name').value=view.name;field('blotter-saved').value=view.name;viewControls();}
   // Choosing the unsaved current view is no choice: the list shows the view the Blotter shows again.
   field('blotter-saved').onchange=()=>{const name=field('blotter-saved').value;if(name)void perform({kind:'selectView',name});else field('blotter-saved').value=draftBase?.name??'';};
-  get('blotter-views-reload').onclick=()=>guarded(async()=>{
+  get('blotter-views-reload').onclick=()=>asked(async()=>{
     const name=field('blotter-saved').value;
     await loadViews();
     const saved=savedViews.find(v=>v.name===name);
@@ -1112,7 +1117,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const about=ladder?[...metadata.slice(0,-1),['Risk run',get('desk-run-title').textContent??''],['Run detail',get('desk-run-detail').textContent??''],[]]:metadata;
     const csv=guardedCsv(about)+guardedCsv([shown.headers,...shown.rows],shown.numeric);void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv(ladder?'leanetrm-delta-ladder.csv':'leanetrm-blotter.csv',csv);});
   };
-  get('futures-refresh').onclick=get('blotter-retry').onclick=()=>guarded(()=>load('directory',false,true));
+  get('futures-refresh').onclick=get('blotter-retry').onclick=()=>asked(()=>load('directory',false,true));
   // A Blotter view a navigation target names, applied as Apply applies the view's controls.
   async function show(selection:BlotterSelection){
     restore();if(!viewsLoaded)await loadViews();
@@ -1205,6 +1210,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // The new trade the panel holds, as the page reports it: of its product, or of none until the person has chosen one.
   function newTradeShown():EntryShown|null{const mode=panel.current();return mode?.kind==='new'?{product:mode.product}:null;}
+  setUp=true;
   return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),reset,sync,show,
     // The person's saved views, read for the sidebar when they are not read yet.
     async views(){restore();if(!viewsLoaded)await loadViews();},

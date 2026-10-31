@@ -22,6 +22,7 @@ export type BlotterOperationHandlers={[K in BlotterOperation['kind']]:(operation
 
 /** A refusal of an operation, with why: an operation that does not read, and one its handler cannot carry out where the Blotter is. */
 export const refuse=(why:string)=>Error(`The Blotter operation was refused: ${why}.`);
+const busyNow=()=>refuse('the Blotter is busy; try again when it is idle');
 // An operation is exactly its kind and fields: a missing, extra or mistyped one is refused, never defaulted or dropped.
 const exactly=(value:Record<string,unknown>,...fields:string[])=>{
   const keys=Object.keys(value).sort(),wanted=['kind',...fields].sort();
@@ -77,9 +78,21 @@ export const createBlotterOperations=(handlers:BlotterOperationHandlers,page:{bu
   async<O extends BlotterOperation>(operation:O,caller:BlotterCaller):Promise<BlotterAnswer<O['kind']>>=>{
     const read=readBlotterOperation(operation);
     if(!Object.hasOwn(handlers,read.kind))throw refuse(`${read.kind} has no handler`);
-    if(page.busy())throw refuse('the Blotter is busy; try again when it is idle');
+    if(page.busy())throw busyNow();
     return await (handlers[read.kind] as (operation:BlotterOperation,caller:BlotterCaller)=>Promise<BlotterAnswer<O['kind']>>)(read,caller);
   };
+
+/**
+ * Work that gives up what the details hold asks the person first, before the page is busy (a question asked then would be asked of a page
+ * with every control disabled), then runs under `act`. A page busy before the question, or that became busy while the person was asked, is
+ * refused with why, never left to `act` to drop unseen; kept edits keep the work from running, and `kept` hears it.
+ */
+export async function guard(page:{busy:()=>boolean;leave:()=>Promise<boolean>;act:(work:()=>Promise<void>)=>Promise<void>},work:()=>Promise<void>,kept?:()=>void){
+  if(page.busy())throw busyNow();
+  if(!await page.leave()){kept?.();return;}
+  if(page.busy())throw busyNow();
+  await page.act(work);
+}
 
 /** Columns the display mode shown takes, by the saved-view rules (blotter-layout.ts); any other choice is refused. */
 export function requireModeColumns(view:Pick<BlotterView,'mode'|'groupBy'|'measures'>,columns:readonly string[]){

@@ -19,7 +19,7 @@ export type Dock={arrangement():Arrangement;set(a:Arrangement):void;reveal(tab:s
  *  body comes into view, also when the dock is drawn again and moves it, so that what it draws can measure itself there (a moved element
  *  loses its scroll offsets); `label` names the tab groups to assistive technology. A tab of `ownCollapse` draws its own collapse
  *  control in its body, which asks first about what it holds, so its group's head draws none while it is shown. */
-export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boolean;rules:DockRules;initial:Arrangement;changed:(a:Arrangement)=>void;shown?:(id:string)=>void;label?:string;ownCollapse?:readonly string[]}):Dock{
+export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boolean;rules:DockRules;initial:Arrangement;changed:(a:Arrangement)=>void;shown?:(id:string)=>void;opened?:(open:string[])=>void;label?:string;ownCollapse?:readonly string[]}):Dock{
   const {rules}=o,label=new Map(o.tabs.map(t=>[t.id,t.label]));
   const flat=(a:Arrangement):Arrangement=>({layout:collapse(a.layout),collapsed:a.collapsed});
   let saved=o.initial,narrow=o.narrow(),shown=narrow?flat(saved):saved,dragged:string|undefined;
@@ -129,10 +129,14 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
       drawn.first.style.flex=a?'0 0 auto':`${b?1:split.ratio} 1 0`;drawn.second.style.flex=b?'0 0 auto':`${a?1:1-split.ratio} 1 0`;
       drawn.divider.setAttribute('aria-valuenow',String(Math.round(split.ratio*100)));});
   }
-  /** Tells `o.shown` of the tabs that have just come into view. */
+  // The tabs open as `o.opened` last heard them: those a first drawing opens it is not told of, as the page draws what it shows first itself.
+  let opened=openTabs(shown).join();
+  /** Tells `o.shown` of the tabs that have just come into view, and `o.opened` of the tabs open whenever they are other than before: by the
+   *  viewer's arrangement, the caller's (set), a narrow page's or a tab shown or put away. */
   function announce(){
-    const now=new Set(openTabs(shown)),fresh=[...now].filter(id=>!visible.has(id));
+    const open=openTabs(shown),now=new Set(open),fresh=[...now].filter(id=>!visible.has(id));
     visible=now;for(const id of fresh)o.shown?.(id);
+    if(open.join()!==opened){opened=open.join();o.opened?.(open);}
   }
   /** Draws `shown` again, keeping focus on what had it. The first drawing announces nothing: the page draws what it shows first itself. */
   function render(again=true){

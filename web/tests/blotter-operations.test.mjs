@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readBlotterOperation,createBlotterOperations,requireModeColumns} from '../dist/blotter-operations.js';
+import {readBlotterOperation,createBlotterOperations,requireModeColumns,guard} from '../dist/blotter-operations.js';
 import {defaultBlotterArrangement} from '../dist/blotter-layout.js';
 
 const pos='71000000-0000-4000-8000-000000000009:72000000-0000-4000-8000-000000000008',book='d1000000-0000-4000-8000-000000000001',portfolio='d2000000-0000-4000-8000-000000000002';
@@ -104,4 +104,17 @@ test('the dispatcher refuses every operation while the page is busy, before any 
   // A malformed operation is refused for what it is, busy or not.
   await assert.rejects(dispatch({kind:'popOut',extra:1},{placed:false}),/popOut takes exactly no fields/);
   busy=false;await dispatch(examples.resetLayout,{placed:false});assert.deepEqual(calls,['resetLayout']);
+});
+
+test('work that asks first about edits is refused, saying so, when the page became busy while the person was asked, and is never dropped',async()=>{
+  let busy=false;const acted=[],kept=[];
+  const page={busy:()=>busy,act:async work=>{if(busy)return;acted.push(true);await work();},leave:async()=>{busy=true;return true;}};
+  await assert.rejects(guard(page,async()=>{}),/The Blotter operation was refused: the Blotter is busy; try again when it is idle\./);
+  assert.deepEqual(acted,[]);
+  // Busy before asking, it asks nothing and is refused too; kept edits keep the work from running, as the person said.
+  busy=true;let asked=0;
+  await assert.rejects(guard({...page,leave:async()=>{asked++;return true;}},async()=>{}),/busy/);assert.equal(asked,0);
+  busy=false;
+  await guard({...page,leave:async()=>false},async()=>{acted.push('kept');},()=>kept.push(true));assert.deepEqual([acted,kept],[[],[true]]);
+  await guard({...page,leave:async()=>true},async()=>{acted.push('done');});assert.deepEqual(acted,[true,'done']);
 });
