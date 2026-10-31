@@ -8,7 +8,7 @@ const forms={futures:{form:'#futures-new-trade',head:'New future'},swaps:{form:'
 /** Presses New trade and waits for the panel to offer its switch. */
 export async function startNewTrade({click,wait}){
   await click('#futures-new');
-  await wait("document.querySelector('#side-panel').dataset.mode==='new'&&!!document.querySelector('#new-trade-product')&&"+idle);
+  await wait("document.querySelector('#position-details').dataset.mode==='new'&&!!document.querySelector('#new-trade-product')&&"+idle);
 }
 
 /** Opens PPA bookings as the sidebar has no entry for it: from the Blotter's New trade panel. */
@@ -30,7 +30,7 @@ export async function openPpaBookings({click,wait,evaluate}){
 export async function chooseProduct({click,wait},product){
   await click('#new-trade-'+product);
   const {form,head}=forms[product];
-  await wait(`(()=>{const form=document.querySelector(${JSON.stringify(form)});return !!form&&!form.hidden&&document.querySelector('#side-panel-form').contains(form)&&!document.querySelector('#side-panel-form').hidden&&document.querySelector('#side-panel-title').textContent===${JSON.stringify(head)};})()&&`+idle);
+  await wait(`(()=>{const form=document.querySelector(${JSON.stringify(form)});return !!form&&!form.hidden&&document.querySelector('#position-details-form').contains(form)&&!document.querySelector('#position-details-form').hidden&&document.querySelector('#side-panel-title').textContent===${JSON.stringify(head)};})()&&`+idle);
 }
 
 /** Begins a new trade of a product: New trade, then the product. */
@@ -44,7 +44,7 @@ export async function newTrade(page,product){
  * question is answered Discard changes. The checks that read the Blotter again with a form open begin here.
  */
 export async function closeNewTrade({click,evaluate,wait}){
-  await click('#side-panel-close');
-  if(await evaluate("!document.querySelector('#side-panel-prompt').hidden"))await evaluate("document.querySelector('#side-panel-prompt').querySelectorAll('button')[1].click()");
-  await wait("document.querySelector('#side-panel').hidden&&"+idle);
+  await click('#details-collapse');
+  if(await evaluate("!document.querySelector('#position-details-prompt').hidden"))await evaluate("document.querySelector('#position-details-prompt').querySelectorAll('button')[1].click()");
+  await wait("document.querySelector('#position-details').hidden&&"+idle);
 }

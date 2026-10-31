@@ -157,6 +157,8 @@ returns `422 source_expired` from `CurveModel.Connected.cs`. Instead:
 
 ## Desk layout
 
+The workbench in [blotter-workbench.md](blotter-workbench.md) replaces the page layout below (panes that fill the window, no page scroll).
+
 ```
 ┌ sidebar ┐┌ header: Blotter · profile ───────────────────────────────────────────────┐
 │ Trading ││ toolbar: book scope · view · Risk report · Scenario · New trade          │
@@ -243,6 +245,8 @@ Live corrections (D188) refresh the tiles, charts, sparklines and rows through
 the existing refresh path, and clear a risk run with a note, as today.
 
 ## Side panel
+
+The position details are now a docked pane, not an inline expansion: see [blotter-workbench.md](blotter-workbench.md) and D272.
 
 Docked on the right beside the positions when the main area is wide enough. It
 becomes an overlay drawer below that width and while the assistant panel is

@@ -1,13 +1,13 @@
-// The Blotter desk's DOM: summary tiles, the two market charts, the run bar of a risk run, and the cells and group headers of
+// The Blotter desk's DOM: the summary strip, the desk charts, the run bar of a risk run, and the cells and group headers of
 // the positions grid, under the Values or the Risk lens. It draws what desk-model and risk-lens selected; every figure is a
 // backend string shown in the backend's display format.
 import {compareDecimalStrings} from './analytics-model.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
-import {curvePoints,minus,noteMeaning,quantityText,signOf,signedText,type CurveShape,type DeskRow,type Format,type GroupHeader,type PositionsTile,type Sparkline,type Tile} from './desk-model.js';
+import {curvePoints,minus,noteMeaning,quantityText,signOf,signedText,tileLabels,type CurveShape,type DeskRow,type Format,type GroupHeader,type PositionsTile,type Sparkline,type StripItem,type Tile} from './desk-model.js';
 import {publicText} from './market-view.js';
-import {kpi,label,node,space} from './tiles.js';
+import {node,space} from './tiles.js';
 import {divergingBar} from './mini-charts.js';
-import {drawSparkline,svgNode as shape,svgTooltip as tooltip} from './mini-chart-view.js';
+import {drawSparkline,svgNode as shape} from './mini-chart-view.js';
 import type {LensShock,RunNote} from './risk-lens.js';
 
 // The largest magnitude among exact amounts, for a shared bar scale: chosen by exact comparison, never computed.
@@ -15,10 +15,6 @@ function largest(values:readonly string[]){
   let top='0';for(const value of values){const magnitude=value.replace(/^-/,'');if(compareDecimalStrings(magnitude,top)>0)top=magnitude;}return top;
 }
 
-function amount(value:string|null,currency:string,money:Format){
-  if(value===null)return node('p','kpi-value desk-not-valued','Not valued');
-  const figure=kpi(signedText(value,money),currency);figure.dataset.sign=signOf(value);figure.title=`${value} ${currency}`;return figure;
-}
 function splitBar(value:string|null,max:string){
   const track=shape('svg',{class:'desk-split-bar',viewBox:'0 0 120 10',preserveAspectRatio:'none','aria-hidden':'true'});
   track.append(shape('rect',{x:0,y:4,width:120,height:2,class:'desk-track'}),shape('line',{x1:60,x2:60,y1:0,y2:10,class:'desk-axis'}));
@@ -26,31 +22,41 @@ function splitBar(value:string|null,max:string){
   return track;
 }
 const trades=(count:number,word:string)=>`${count} ${word}${count===1?'':'s'}`;
+const signs={pos:'positive',neg:'negative',zero:'zero'} as const;
 
-/** A money tile: per currency its total, a bar and amount per book, and what it leaves out. */
-export function renderMoneyTile(host:HTMLElement,title:string,word:string,tile:Tile,money:Format){
-  host.replaceChildren(label(title,tile.rows.length===1?trades(tile.rows[0].trades,word):undefined));
-  host.classList.toggle('desk-tile-several',tile.rows.length>1);
-  for(const row of tile.rows){
-    const block=node('div','desk-tile-row');block.dataset.currency=row.currency;
-    if(tile.rows.length>1)block.append(node('p','desk-tile-currency',`${row.currency} · ${trades(row.trades,word)}`));
-    block.append(amount(row.total,row.currency,money));
+/** The summary strip: each figure after its label, with its currency, and why, where it is not complete or leaves positions out. */
+export function renderSummaryStrip(host:HTMLElement,items:readonly StripItem[]){
+  host.replaceChildren(...items.map(item=>{
+    const entry=node('li','strip-item'),value=node('span','strip-value',item.value);entry.dataset.state=item.state;
+    if(item.sign)value.dataset.sign=signs[item.sign];
+    if(item.currency)entry.dataset.currency=item.currency;
+    // An amount's title is the backend's exact amount in its currency; the strip shows its display text.
+    if(item.exact!==undefined)value.title=publicText(`${item.exact} ${item.currency}`);
+    // A stale figure is flagged, its reason the flag's title: the panes' own notes say it in full, once.
+    const stale=item.stale===undefined?undefined:node('span','strip-stale','Stale');if(stale){stale.title=publicText(item.stale!);entry.dataset.stale='';}
+    entry.append(node('span','strip-label',item.label),space(),value,...(item.currency?[space(),node('span','strip-currency',item.currency)]:[]),...(item.reason?[space(),node('span','strip-reason',item.reason)]:[]),...(stale?[space(),stale]:[]));
+    return entry;
+  }));
+}
+
+/** Each money total split by book, per currency on a scale of its own, under the chart's heading; or a note when nothing is held. */
+export function renderBookBars(host:HTMLElement,tiles:readonly Tile[],money:Format){
+  const blocks=tiles.flatMap(tile=>tile.rows.map(row=>{
+    const block=node('div','desk-book-bars');block.dataset.currency=row.currency;
+    block.append(node('p','desk-tile-currency',`${tileLabels[tile.key]} · ${row.currency} · ${trades(row.trades,'trade')}`));
     const splits=node('div','desk-splits'),max=largest(row.byBook.flatMap(b=>b.value===null?[]:[b.value]));
     for(const book of row.byBook){
       const split=node('div','desk-split');split.title=publicText(`${book.book} · ${book.value===null?'not valued':`${book.value} ${row.currency}`}${book.excluded?` · excludes ${book.excluded} not valued`:''}`);
       const shown=node('span','desk-split-amount',book.value===null?'Not valued':signedText(book.value,money));if(book.value!==null)shown.dataset.sign=signOf(book.value);
       split.append(node('span','desk-split-book',book.book),space(),splitBar(book.value,max),shown);splits.append(split);
     }
-    block.append(splits);
-    if(tile.rows.length>1&&row.note)block.append(node('p','desk-tile-note',row.note));
-    host.append(block);
-  }
-  if(tile.note)host.append(node('p','desk-tile-note',tile.note));
+    block.append(splits);return block;
+  }));
+  host.replaceChildren(host.querySelector('h3')!,...(blocks.length?blocks:[node('p','desk-chart-empty','No positions in the selected books')]));
 }
 
-/** The positions tile: the rows read, and one mix segment per backend commodity and instrument type group. */
-export function renderPositionsTile(host:HTMLElement,tile:PositionsTile,colors:ReadonlyMap<string,string>){
-  const figure=kpi(String(tile.count),tile.count===1?'position':'positions');
+/** The positions read, mixed by the backend commodity and instrument type groups: one segment per group, never summed per commodity. */
+export function renderPositionMix(host:HTMLElement,tile:PositionsTile,colors:ReadonlyMap<string,string>){
   const bar=node('div','desk-mix'),legend=node('ul','desk-legend');bar.setAttribute('role','img');
   bar.setAttribute('aria-label',publicText(tile.segments.map(s=>`${s.label} ${trades(s.trades,'trade')}`).join(', ')||'No positions'));
   for(const segment of tile.segments){
@@ -58,76 +64,13 @@ export function renderPositionsTile(host:HTMLElement,tile:PositionsTile,colors:R
     const item=node('li'),swatch=node('i',`desk-swatch desk-mix-${segment.instrumentType}`);swatch.style.background=colors.get(segment.commodity)!;
     item.append(swatch,node('span',undefined,segment.label),space(),node('b',undefined,String(segment.trades)));legend.append(item);
   }
-  host.replaceChildren(label('Open positions'),figure,...(tile.segments.length?[bar,legend]:[]));
-  if(tile.note)host.append(node('p','desk-tile-note',tile.note));
-}
-
-/** A position's own largest move, as the risk tile draws it in its small bars: the exact change and what the bar's tooltip says. */
-export type TileBar={value:string;title:string};
-/**
- * A run's results as the risk tile shows them (blotter-desk.md, Desk layout): what it ran, how many shocks it has results for, and per
- * currency its largest move, which position it is and why, and each position's own largest move as a small bar; and what it leaves out.
- */
-export type RiskTileResults={label:string;count:string;rows:{currency:string;text:string;exact:string;sign:'positive'|'negative'|'zero';hint:string;bars:TileBar[];scale:string}[];
-  empty:string|null;note:string|null};
-/**
- * What the risk tile says: no run, its report open, a queued run under way, or a run made elsewhere; a run whose results are refused, or
- * which has none, with why; or a run's results. `denial` is why this account cannot run a risk report, when it cannot.
- */
-export type RiskTile={state:'none'|'open'|'running'|'elsewhere';denial:string|null;busy:boolean}|{state:'refused'|'empty';reason:string;denial:string|null;busy:boolean}
-  |{state:'results';denial:string|null;busy:boolean;results:RiskTileResults};
-const riskWords={none:['Not run at this close','Revalue the books on screen under shared market shocks.','Run risk report'],
-  open:['Set up in the panel','The risk report is open in the side panel.','Go to the risk report'],
-  running:['Running','A queued risk run is under way. Its results will show here and in the positions.','Go to the risk report'],
-  elsewhere:['Results made elsewhere','The run on screen was made at another close, context or books than the Blotter read on screen. Export downloads its results.','Go to the risk report'],
-  refused:['Results not shown','','Go to the risk report'],empty:['No results','','Go to the risk report']} as const;
-// Each position's own largest move, as one small bar of a strip: up for a gain and down for a loss, on one scale, its sign in its title.
-function moveBars(bars:readonly TileBar[],scale:string){
-  const width=150,height=34,gap=2,band=Math.max(2,Math.min(8,(width-gap*Math.max(0,bars.length-1))/Math.max(1,bars.length)));
-  const strip=shape('svg',{class:'desk-risk-bars',viewBox:`0 0 ${width} ${height}`,width,height,role:'img'});
-  strip.setAttribute('aria-label',publicText(`Each position's largest move: ${bars.map(b=>b.title).join('; ')}`));
-  strip.append(shape('line',{x1:0,x2:width,y1:height/2,y2:height/2,class:'desk-axis'}));
-  bars.forEach((bar,index)=>{
-    const geometry=divergingBar(bar.value,scale,height);
-    if(geometry.width>0)strip.append(tooltip(shape('rect',{x:index*(band+gap),y:height-geometry.x-geometry.width,width:band,height:geometry.width,rx:1.5,class:`desk-bar-${geometry.direction}`}),bar.title));
-  });
-  return strip;
-}
-/**
- * The risk tile: before a run, whether the risk report is open or a queued run is under way, with the way to it; after one, its
- * results. It is drawn once and then updated in place, so a focused button keeps its focus while the page syncs.
- */
-export function renderRiskTile(host:HTMLElement,risk:RiskTile,run:()=>void){
-  if(!host.firstChild){
-    const button=node('button','secondary');button.type='button';button.id='desk-risk-run';
-    host.append(node('div','desk-tile-label'),node('p','desk-risk-state'),node('div','desk-risk-moves'),node('p','desk-tile-hint'),node('p','desk-tile-note'),button);
-  }
-  const part=<T extends Element>(selector:string)=>host.querySelector<T&HTMLElement>(':scope > '+selector)!,button=part<HTMLButtonElement>('button'),moves=part('.desk-risk-moves'),note=part('.desk-tile-note');
-  const shown=risk.state==='results'?risk.results:undefined;
-  // The tile's name and, after a run, its shock count, read apart as every tile's name and count do.
-  part('.desk-tile-label').replaceChildren(node('span',undefined,shown?shown.label:'Risk at this close'),...(shown?[space(),node('span','desk-risk-count',shown.count)]:[]));
-  part('.desk-risk-state').hidden=part('.desk-tile-hint').hidden=button.hidden=!!shown;moves.hidden=!shown;
-  note.hidden=!shown?.note;note.textContent=shown?.note?publicText(shown.note):'';
-  if(risk.state==='results'){
-    const rows=risk.results.rows;
-    if(risk.results.empty!==null){moves.replaceChildren(node('p','desk-risk-none',risk.results.empty));return;}
-    moves.replaceChildren(...rows.map(row=>{
-      const block=node('div','desk-tile-row'),figure=kpi(row.text,row.currency);figure.dataset.sign=row.sign;figure.title=`${row.exact} ${row.currency}`;
-      if(rows.length>1)block.append(node('p','desk-tile-currency',row.currency));
-      block.append(figure,node('p','desk-risk-largest',row.hint),moveBars(row.bars,row.scale));return block;
-    }));
-    return;
-  }
-  moves.replaceChildren();
-  const [state,hint,action]=riskWords[risk.state],denied=risk.state==='none'&&risk.denial!==null;
-  part('.desk-risk-state').textContent=publicText(state);part('.desk-tile-hint').textContent=publicText(denied?risk.denial!:'reason' in risk?risk.reason:hint);
-  button.textContent=publicText(action);button.disabled=risk.busy||denied;button.onclick=run;
+  host.replaceChildren(host.querySelector('h3')!,...(tile.segments.length?[bar,legend]:[node('p','desk-chart-empty','No positions in the selected books')]),...(tile.note?[node('p','desk-chart-note',tile.note)]:[]));
 }
 
 /** What the run bar says, and what its Edit shocks, Export and Clear do. */
 export type RunBarView={title:string;setup:string;detail:string;notes:readonly RunNote[];exportable:boolean;exportShown:boolean;exportNote:string|null};
 /**
- * The run bar above the tiles (blotter-desk.md, Risk report inline): what ran, with its setup's words, how many it shocked, at which
+ * The run bar above the summary strip (blotter-desk.md, Risk report inline): what ran, with its setup's words, how many it shocked, at which
  * close, knowledge and time, and its notes; Edit shocks, Export and Clear. Nothing while no run is on screen.
  */
 export function renderRunBar(host:HTMLElement,bar:RunBarView|null,busy:boolean){

@@ -17,6 +17,13 @@ const money=new Set(['tradeCashAmount','tradePresentValue','presentValue','instr
 const prices=new Set(['price','fixedPrice','executionPrice','mark','markMinusPrice','value','annualRate',...priceMeasureChoices.map(c=>c[0])]);
 const quantities=new Set(['resolvedQuantity','quantity','physicalQuantity','totalQuantity','weight']);
 const factors=new Set(['discountFactor','factor','multiplier','delta','gamma']);
+/** The part of an API read whose amounts a page shows, by the read's path; undefined for a read whose amounts no page shows. A workspace
+ *  read's report and its desk summaries are both shown, its catalog is not; a curve's points are. */
+export function shownAmounts(path:string,payload:unknown):unknown{
+ if(!/^(trading\/(blotter|workspace|position)|swaps\/(preview|editor)|futures\/(holdings|editor|amend-preview)|evaluate|history|power\/preview)$/.test(path))return undefined;
+ const read=payload as {blotter?:unknown;summaries?:unknown;points?:unknown};
+ return path==='trading/workspace'?{blotter:read.blotter,summaries:read.summaries}:path==='evaluate'||path==='history'?{points:read.points}:payload;
+}
 export async function prepareAmountDisplay(payload:unknown,format:(body:Request[])=>Promise<string[]>,initialTick?:string,initialPolicy=precision){
  const requests=new Map<string,Request>();
  function visit(value:unknown,tick?:string,inherited=initialPolicy){

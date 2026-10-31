@@ -43,6 +43,7 @@
     <div class="header-actions"><div id="context-dock" class="context-dock" role="group" aria-label="Market context"><div class="date-control"><label for="market-date-open">As of</label><div id="market-date-calendar"></div><select id="snapshot" hidden aria-hidden="true" tabindex="-1"><option value="">Choose a date…</option></select></div><details id="date-context" class="header-context floating-context" hidden><summary><span class="context-kicker">Context</span><strong id="workspace-mode-label">Working data</strong><span class="context-values" data-context-values></span></summary><div class="header-context-panel"><button id="close-view-context" type="button" class="text-button">Close time controls</button><p id="workspace-today" class="field-help"></p><p id="header-calculation-time" class="field-help context-read"></p><div class="schedule-fields"><div><label for="date-context-on">Effective date</label><input id="date-context-on" data-context-coordinate="Effective" type="date" required></div><div><label for="date-context-view">Knowledge cutoff · <span data-user-time-zone></span></label><input id="date-context-view" data-context-coordinate="Knowledge cutoff" type="datetime-local" step="1" required></div></div><p class="field-help">The effective date selects business history. Changing it selects knowledge through the end of that date in your time zone, capped at current knowledge. The cutoff remains editable. Later corrections preserve earlier views.</p><p id="environment-context-note" role="status" class="field-help">Current workspace · exact selected inputs</p><div class="schedule-actions"><button id="apply-view-context" type="button">View this context</button><button id="current-view-context" type="button" class="secondary">Return to current inputs</button></div><div class="schedule-actions"><button id="date-context-latest" type="button" class="secondary">Use current knowledge</button><button id="follow-live" type="button" class="secondary" title="Follow committed corrections to these selected facts. Effective date, market date, observation times and contracts stay fixed.">Follow live corrections</button></div></div></details><span id="live-status" class="live-status" role="status" aria-live="polite" hidden></span><button id="live-retry" type="button" class="secondary context-action" hidden>Retry refresh</button><button id="return-working" type="button" class="secondary context-action" hidden>Return to working data</button></div><button id="profile-open" class="profile-button" aria-haspopup="dialog"><span id="profile-avatar" class="avatar" aria-hidden="true">U</span><span id="profile-label">Profile</span></button></div>
   </header>
   <div id="error" role="alert" hidden></div><div id="notice" role="status" hidden></div>
+  <div id="blotter-window-question" class="blotter-window-question" tabindex="-1" aria-label="The Blotter’s window"><div id="blotter-window-question-prompt" class="side-panel-prompt" role="alertdialog" hidden></div></div>
   <div class="status-bar"><span id="status" role="status" aria-live="polite">Loading market data…</span></div>
   <section id="gas-setup-page" hidden aria-label="Gas delivery setup"></section>
   <section id="gas-page" hidden aria-label="Physical gas bookings"></section>
@@ -239,13 +240,16 @@
     <section class="card"><h3>Kept shortcuts</h3><p id="schedule-saved-empty" class="muted">No shortcuts kept in this demo user’s session.</p><div id="schedule-saved"></div></section>
     </details>
   </section>
+  <!-- blotter-window: page -->
   <section id="futures-page" hidden>
     <div id="futures-retained"><div id="futures-pending" class="profile-note retained-request" role="status" hidden><p id="futures-pending-text"></p><div class="schedule-actions"><button id="futures-reconcile" type="button" class="secondary">Check status</button><button id="futures-retry" type="button" class="secondary">Retry original request</button></div></div></div>
     <p id="new-trade-availability" class="table-workspace-note" role="status" hidden></p>
     <div id="blotter-workspace"></div>
     <div id="desk-lens" class="desk-lens-bar" hidden><div class="desk-lens" role="group" aria-label="Positions lens"><button type="button" data-lens="values" aria-pressed="true">Values</button><button type="button" data-lens="risk" aria-pressed="false">Risk</button><button type="button" data-lens="ladder" aria-pressed="false">Ladder</button></div><div id="desk-ladder-value" class="desk-lens" role="group" aria-label="Ladder values" hidden><button type="button" data-ladder-value="delta" aria-pressed="true">Delta</button><button type="button" data-ladder-value="upPnl" aria-pressed="false">Up P&amp;L</button><button type="button" data-ladder-value="downPnl" aria-pressed="false">Down P&amp;L</button></div></div>
-    <div id="desk" class="desk" hidden>
-      <section id="desk-run" class="desk-run" hidden>
+    <div id="blotter-dock" class="blotter-dock">
+      <div id="blotter-pane-summary" class="blotter-pane">
+        <div id="desk" class="desk" hidden>
+          <section id="desk-run" class="desk-run" hidden>
         <span class="desk-run-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19l5-6 4 3 7-9"/></svg></span>
         <div class="desk-run-text">
           <p id="desk-run-title" class="desk-run-title"><strong>Risk report</strong> · <span id="risk-run-setup"></span></p>
@@ -255,37 +259,28 @@
         </div>
         <div class="desk-run-actions"><button id="desk-run-edit" type="button" class="secondary">Edit shocks</button><button id="risk-export" type="button" class="secondary">Export</button><button id="desk-run-clear" type="button" class="secondary">Clear</button></div>
       </section>
-      <div class="desk-tiles" role="group" aria-label="Book summary at this close">
-        <div class="desk-tile-pair">
-          <section id="desk-tile-swapPv" class="desk-tile" aria-label="Swap PV"></section>
-          <section id="desk-tile-futuresPnl" class="desk-tile" aria-label="Futures execution P&amp;L"></section>
-        </div>
-        <div class="desk-tile-pair">
-          <section id="desk-tile-positions" class="desk-tile" aria-label="Open positions"></section>
-          <section id="desk-tile-risk" class="desk-tile desk-tile-risk" aria-label="Risk at this close"></section>
+          <ul id="blotter-strip" class="summary-strip" aria-label="Book summary at this close"></ul>
         </div>
       </div>
-    </div>
-    <div id="desk-charts" class="desk-charts" hidden>
-      <section id="desk-chart-pv" class="desk-chart" aria-labelledby="desk-chart-pv-title"><h3 id="desk-chart-pv-title" class="desk-chart-title">Value by market</h3></section>
-      <section id="desk-chart-position" class="desk-chart" aria-labelledby="desk-chart-position-title"><h3 id="desk-chart-position-title" class="desk-chart-title">Long and short by market</h3></section>
-    </div>
-    <aside id="side-panel" class="side-panel" aria-label="Position" tabindex="-1" hidden>
-      <div class="side-panel-frame">
-        <div id="side-panel-prompt" class="side-panel-prompt" role="alertdialog" aria-label="Unsaved changes" hidden></div>
-        <div id="side-panel-retained" class="side-panel-retained"></div>
-        <button id="side-panel-close" type="button" class="icon-button side-panel-close" aria-label="Close the panel">×</button>
-        <div id="side-panel-head" class="side-panel-head"></div>
-        <div id="side-panel-tabs" class="side-panel-tabs"></div>
-        <div id="side-panel-body" class="side-panel-body" tabindex="0">
-          <div id="side-panel-view"></div>
-          <div id="side-panel-form" class="side-panel-form" hidden></div>
-        </div>
+      <div id="blotter-pane-grid" class="blotter-pane blotter-pane-grid">
+        <div id="blotter-progress" class="blotter-progress" role="progressbar" aria-label="Valuing positions" hidden></div>
+        <p id="blotter-load-status" class="blotter-load-status" role="status" hidden><span id="blotter-load-text"></span><button id="blotter-retry" type="button" class="secondary" hidden>Retry</button></p>
+        <div class="table-workspace-footer"><p id="futures-summary" role="status">Choose a market date above.</p><details class="blotter-scope"><summary>Calculation scope</summary><p class="field-help">Futures show execution P&amp;L; financial swaps show projected PV. These are separate measures. Blank values are unavailable. Futures PV and daily settlement remain separate work. Values use the selected saved market inputs; no live feed is connected.</p></details></div>
       </div>
-    </aside>
-    <section id="blotter-chart-card" class="card blotter-analysis" hidden><div class="analysis-heading"><div><div class="eyebrow">BLOTTER ANALYTICS</div><h3>Visual analysis</h3><p id="blotter-chart-scope" class="field-help"></p></div><div class="plot-style-controls" role="group" aria-label="Chart style"><button type="button" data-plot-kind="bar" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v17h17M8 16v-5m5 5V7m5 9V4"/></svg>Bars</button><button type="button" data-plot-kind="line" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v17h17M7 15l5-7 4 3 5-7"/></svg>Line</button><button type="button" data-plot-kind="heatmap" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM4 10h16m-16 5h16M10 4v16m5-16v16"/></svg>Heatmap</button></div></div><div id="blotter-chart"></div><p class="analysis-footnote">Hover for exact values. Use the legend to isolate a series and the slider to zoom. Empty cells indicate unavailable values.</p></section>
-    <div class="table-workspace-footer"><p id="futures-summary" role="status">Choose a market date above.</p><details class="blotter-scope"><summary>Calculation scope</summary><p class="field-help">Futures show execution P&amp;L; financial swaps show projected PV. These are separate measures. Blank values are unavailable. Futures PV and daily settlement remain separate work. Values use the selected saved market inputs; no live feed is connected.</p></details></div>
+      <div id="blotter-pane-details" class="blotter-pane"></div>
+      <div id="blotter-pane-charts" class="blotter-pane">
+        <div id="desk-charts" class="desk-charts" hidden>
+          <section id="desk-chart-pv" class="desk-chart" aria-labelledby="desk-chart-pv-title"><h3 id="desk-chart-pv-title" class="desk-chart-title">Value by market</h3></section>
+          <section id="desk-chart-position" class="desk-chart" aria-labelledby="desk-chart-position-title"><h3 id="desk-chart-position-title" class="desk-chart-title">Long and short by market</h3></section>
+          <section id="desk-chart-books" class="desk-chart" aria-labelledby="desk-chart-books-title"><h3 id="desk-chart-books-title" class="desk-chart-title">Totals by book</h3></section>
+          <section id="desk-chart-mix" class="desk-chart" aria-labelledby="desk-chart-mix-title"><h3 id="desk-chart-mix-title" class="desk-chart-title">Positions by commodity and instrument type</h3></section>
+        </div>
+        <section id="blotter-chart-card" class="card blotter-analysis" hidden><div class="analysis-heading"><div><div class="eyebrow">BLOTTER ANALYTICS</div><h3>Visual analysis</h3><p id="blotter-chart-scope" class="field-help"></p></div><div class="plot-style-controls" role="group" aria-label="Chart style"><button type="button" data-plot-kind="bar" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v17h17M8 16v-5m5 5V7m5 9V4"/></svg>Bars</button><button type="button" data-plot-kind="line" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v17h17M7 15l5-7 4 3 5-7"/></svg>Line</button><button type="button" data-plot-kind="heatmap" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM4 10h16m-16 5h16M10 4v16m5-16v16"/></svg>Heatmap</button></div></div><div id="blotter-chart"></div><p class="analysis-footnote">Hover for exact values. Use the legend to isolate a series and the slider to zoom. Empty cells indicate unavailable values.</p></section>
+      </div>
+    </div>
   </section>
+  <!-- /blotter-window: page -->
+  <section id="blotter-away" class="card blotter-away" aria-labelledby="blotter-away-title" hidden><h2 id="blotter-away-title">Blotter is in its own window</h2><p class="muted">Its books, view and positions are in that window, which follows the market date and context chosen here. Bring back shows the Blotter here again, as that window shows it.</p><button id="blotter-bring-back" type="button">Bring back</button></section>
   <section id="dashboard-page" hidden>
     <div class="card"><div class="card-heading"><div><h2>Dashboard</h2><p id="dashboard-scope"></p></div>
       <div class="filter-tabs" role="group" aria-label="Arrangement"><button id="dashboard-board" type="button" aria-pressed="true">Board</button><button id="dashboard-morning" type="button" aria-pressed="false">Morning</button></div></div>
@@ -436,13 +431,14 @@
   <p id="assistant-status" class="sr-only" role="status" aria-live="polite"></p>
   <div id="assistant-stream" class="assistant-stream" role="status" hidden><p id="assistant-stream-text"></p><button id="assistant-resume" type="button" class="secondary">Resume</button><button id="assistant-reload" type="button" class="secondary">Reload the page</button></div>
   <div id="assistant-consent" class="assistant-consent" role="group" aria-labelledby="assistant-consent-text" hidden><p id="assistant-consent-text"></p><div class="assistant-consent-actions"><button id="assistant-allow" type="button">Allow</button><button id="assistant-deny" type="button" class="secondary">Cancel</button></div></div>
-  <div class="assistant-looking"><span class="eyebrow">Looking at</span><strong id="assistant-looking-page"></strong><span id="assistant-looking-shows"></span><span id="assistant-looking-context" class="assistant-looking-context"></span></div>
+  <div class="assistant-looking"><span class="eyebrow">Looking at</span><strong id="assistant-looking-page"></strong><span id="assistant-looking-shows"></span><span id="assistant-looking-layout" hidden></span><span id="assistant-looking-context" class="assistant-looking-context"></span></div>
   <form id="assistant-composer" class="assistant-composer">
     <label for="assistant-question" class="sr-only">Your question</label><textarea id="assistant-question" rows="3" placeholder="Ask about this page" autocomplete="off"></textarea>
     <p id="assistant-error" class="assistant-error" role="alert" hidden></p>
     <div class="assistant-composer-actions"><span id="assistant-composer-note" class="field-help"></span><button id="assistant-discard" type="button" class="secondary" hidden>Discard</button><button id="assistant-retry" type="button" class="secondary" hidden>Retry</button><button id="assistant-send" type="submit">Send</button></div>
   </form>
 </aside>
+<!-- blotter-window: shelf -->
 <div id="editor-shelf" hidden>
 <div id="risk-report" class="risk-report" hidden>
  <p id="risk-scope" class="field-help">Selected books and portfolios before table row filters, using the financial context above. Revalue held instruments through connected market quotes and computed curve outputs. Results keep each valuation measure and currency separate; rates, actual fixings and futures settlement state stay fixed.</p>
@@ -541,8 +537,10 @@
   <div id="trade-amount-format"></div>
 </div>
 </div>
+<!-- /blotter-window: shelf -->
 <dialog id="profile-dialog" aria-labelledby="profile-title"><form id="preferences-form"><div class="dialog-heading"><div><div class="eyebrow">PERSONAL SETTINGS</div><h2 id="profile-title">Your profile</h2></div><button type="button" id="profile-close" class="icon-button" aria-label="Close profile">×</button></div><p id="profile-access" class="muted">Make this view work for you.</p><p id="profile-error" role="alert" hidden></p><label for="zone">Time zone</label><select id="zone" required></select><p class="field-help">Dates and times will appear in your chosen time zone.</p><label for="preferred-browse">Browse market data by</label><select id="preferred-browse"><option value="commodity">Commodity</option><option value="marketType">Market type</option></select><label class="assistant-preference"><input id="show-assistant" type="checkbox"> Show floating Assistant button</label><div class="profile-note">Your browsing choices are remembered on this browser. Account-wide settings will be added with sign-in.</div><div class="dialog-actions"><button type="button" id="profile-cancel" class="secondary">Cancel</button><button id="profile-save" type="submit">Save preferences</button></div></form><section id="profile-grants" class="profile-grants" aria-labelledby="profile-grants-title"><h3 id="profile-grants-title" tabindex="-1">Agent access</h3><p class="field-help">The agents you allowed to read on your behalf, what each reads and until when. A grant also covers the agent’s later versions that use the same model and read nothing more. Revoking ends it at once and stops anything the agent is doing for you.</p><button id="profile-grants-show" type="button" class="secondary" aria-controls="profile-grants-list">Show agent access</button><p id="profile-grants-status" class="field-help" role="status"></p><p id="profile-grants-error" role="alert" hidden></p><ul id="profile-grants-list" class="grant-list" aria-labelledby="profile-grants-title"></ul><div id="profile-grants-pending" class="profile-note" hidden><p id="profile-grants-pending-text"></p><button id="profile-grants-retry" type="button" class="secondary">Retry revocation</button><button id="profile-grants-discard" type="button" class="secondary">Discard kept request</button></div></section>
 <details id="preview-access" class="preview-tools"><summary>Preview access</summary><p class="muted">Try different permissions in the sample app. These are demo users.</p><label for="profile">Demo user</label><select id="profile"></select><button id="open" class="secondary">Switch demo user</button></details><button id="sign-out" class="secondary" hidden>Sign out</button></dialog>
+<!-- blotter-window: templates -->
 <template id="swap-fixed-template">   <section class="instrument-side" aria-labelledby="swap-fixed-title"><h3 id="swap-fixed-title">Fixed side</h3><div class="fixed-side-description"><span class="eyebrow">FIXED PRICE</span><p class="field-help">A cash price in the instrument’s compatible units.</p></div>
     <div><label for="swap-direction">Direction</label><select id="swap-direction" required><option value="">Choose…</option><option value="-1">Pay fixed</option><option value="1">Receive fixed</option></select></div>
     <div><label for="swap-fixed-currency">Currency</label><select id="swap-fixed-currency" required></select></div>
@@ -593,4 +591,5 @@
     </div>
    </section>
 </template>
+<!-- /blotter-window: templates -->
 <button id="assistant-launcher" type="button" class="assistant-launcher secondary" aria-controls="assistant-panel" aria-expanded="false" aria-label="Assistant" hidden><span aria-hidden="true">✦</span><span class="assistant-launcher-text">Assistant</span><span id="assistant-dot" class="assistant-dot" hidden></span></button><button id="assistant-hide" type="button" class="assistant-hide icon-button" aria-label="Hide Assistant button" title="Hide Assistant · restore in Profile" hidden>×</button></body></html>

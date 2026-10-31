@@ -23,15 +23,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // The side panel says the same in place of a value, and has no mark minus price for a position with no mark.
   await click("#desk-positions .tabulator-row:not(.tabulator-group):has(.desk-unvalued)");
   await wait("document.querySelector('#position-details')?.hidden===false");
-  await check('an unvalued position opens in the side panel with the same reason in place of its value, and no mark minus price',
+  await check('an unvalued position opens in the details with the same reason in place of its value, and no mark minus price',
     "(()=>{const cell=document.querySelector('#desk-positions .open-row .desk-unvalued'),figure=document.querySelector('#position-details .side-panel-figure');return !!cell&&figure.querySelector('.desk-chip').textContent==='Not valued'&&figure.querySelector('#position-details .side-panel-reason').textContent===cell.querySelector('.desk-sub').textContent&&!figure.querySelector('.kpi-value')&&!document.querySelector('#position-details .side-panel-delta');})()",
     "document.querySelector('#position-details-head').innerText");
-  await click('#position-details .position-close');
+  await click('#details-collapse');
   // Each tile states the positions its own total leaves out, from its own backend group, never a sum of other counts.
   const own=type=>`${read}.summaries[0].groups.find(g=>g.instrumentType==='${type}').unvaluedPositions`;
   await check('each money tile notes the positions its own total leaves out, and the position count includes them, flagged',
-    `(()=>{const tileNote=key=>document.querySelector('#desk-tile-'+key+' > .desk-tile-note')?.textContent;return ${own('future')}>0&&${own('financial_swap')}>0&&tileNote('futuresPnl')===${note(own('future'))}&&tileNote('swapPv')===${note(own('financial_swap'))}&&document.querySelector('#desk-tile-positions .kpi-value').firstChild.textContent===String(${table}.holdings.length)&&tileNote('positions')==='Includes '+${table}.unvaluedPositions+' positions not valued at this close';})()`,
-    "[...document.querySelectorAll('.desk-tile')].map(t=>t.innerText)");
+    `(()=>{const reason=label=>[...document.querySelectorAll('#blotter-strip .strip-item')].find(i=>i.querySelector('.strip-label').textContent===label)?.querySelector('.strip-reason')?.textContent,value=label=>[...document.querySelectorAll('#blotter-strip .strip-item')].find(i=>i.querySelector('.strip-label').textContent===label)?.querySelector('.strip-value').textContent;return ${own('future')}>0&&${own('financial_swap')}>0&&reason('Futures execution P&L')===${note(own('future'))}&&reason('Swap PV')===${note(own('financial_swap'))}&&value('Positions')===String(${table}.holdings.length)&&value('Not valued')===String(${table}.unvaluedPositions)&&document.querySelector('#desk-chart-mix .desk-chart-note')?.textContent==='Includes '+${table}.unvaluedPositions+' positions not valued at this close';})()`,
+    "[...document.querySelectorAll('#blotter-strip .strip-item')].map(i=>i.innerText)");
   await check('a book subtotal that leaves positions out says how many',
     "[...document.querySelectorAll('#desk-positions .tabulator-group')].some(h=>/\\d+ not valued/.test(h.querySelector('.desk-group-totals').textContent))");
   await check('the swap PV chart notes what it leaves out, and the long and short chart, which counts booked quantity, claims nothing',
@@ -65,8 +65,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a cross-tab shows the count beside each column group',
     "document.querySelector('#blotter-table-title').textContent==='Pivot table'&&[...document.querySelectorAll('#desk-positions .tabulator-col-title')].filter(t=>t.textContent.trim()==='Not valued').length===2");
   // The risk report says which positions this close cannot value, each with its reason, and a run's results say they leave them out.
-  await persona('risk');await wait(loaded+"&&!document.querySelector('#desk-risk-run').disabled");
-  await click('#desk-risk-run');await wait("document.querySelector('#side-panel').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
+  await persona('risk');await wait(loaded+"&&!document.querySelector('#blotter-risk').disabled");
+  await click('#blotter-risk');await wait("document.querySelector('#position-details').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
   const catalog="window.__replies.filter(r=>r.path==='/api/portfolio/risk/catalog').at(-1).data";
   await check('the risk report lists the positions this close cannot value, each with its reason, which a run leaves out',
     `(()=>{const left=${catalog}.excludedPositions,shown=document.querySelector('#risk-excluded');return left.length>1&&!shown.hidden&&shown.textContent.startsWith('This close cannot value '+left.length+' positions, so a run leaves them out: ')&&left.every(e=>shown.textContent.includes(e.tradeReference+' ('))&&shown.textContent.includes('Contract expired · awaiting settlement');})()`,
@@ -78,11 +78,19 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `(()=>{const left=${catalog}.excludedPositions,line=[...document.querySelectorAll('#desk-run-notes li')].find(p=>p.textContent.startsWith('Leaves out '));return !!line&&line.textContent.startsWith('Leaves out '+left.length+' positions this close cannot value: ')&&left.every(e=>line.textContent.includes(e.tradeReference+' ('));})()`,
     "[...document.querySelectorAll('#desk-run-notes li')].map(p=>p.textContent)");
   await check('the Risk lens marks each position the run leaves out with the reason its own row states',
-    `(()=>{const left=${catalog}.excludedPositions,rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.querySelector('[tabulator-field=c3] .desk-chip')?.textContent==='Left out');return rows.length===left.length&&rows.every(r=>left.some(e=>e.tradeReference===r.querySelector('.desk-reference').textContent))&&rows.some(r=>r.querySelector('[tabulator-field=c3] .desk-sub').textContent==='Contract expired · awaiting settlement')&&rows.every(r=>r.querySelector('[tabulator-field=c4]').textContent==='');})()`);
+    // The grid draws only the rows in its pane's view: every row is read by scrolling the grid through them, each left-out one as drawn.
+    `(async()=>{const left=${catalog}.excludedPositions,h=document.querySelector('#desk-positions .tabulator-tableholder'),seen=new Map();
+      for(let top=0;;top+=Math.max(1,Math.floor(h.clientHeight/2))){h.scrollTop=top;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        for(const r of h.querySelectorAll('.tabulator-row:not(.tabulator-group)'))seen.set(r.querySelector('.desk-reference').textContent,{chip:r.querySelector('[tabulator-field=c7] .desk-chip')?.textContent,reason:r.querySelector('[tabulator-field=c7] .desk-sub')?.textContent,up:r.querySelector('[tabulator-field=c8]').textContent});
+        if(h.scrollTop+h.clientHeight>=h.scrollHeight-1)break;}
+      h.scrollTop=0;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const rows=[...seen].filter(([,r])=>r.chip==='Left out');
+      // Each left-out row states its own reason, as the run bar names it beside its reference from the run's read.
+      const named=[...document.querySelectorAll('#desk-run-notes li')].find(p=>p.textContent.startsWith('Leaves out '))?.textContent??'';
+      return rows.length===left.length&&left.every(e=>seen.get(e.tradeReference)?.chip==='Left out')&&rows.every(([reference,r])=>!!r.reason&&named.includes(reference+' ('+r.reason+')'))&&rows.some(([,r])=>r.reason==='Contract expired · awaiting settlement')&&rows.every(([,r])=>r.up==='');})()`);
   await check('a book\'s header in the Risk lens says how many of its positions the run leaves out, by the book the run names for each',
     `(()=>{const left=${catalog}.excludedPositions,books=new Map(${table}.holdings.map(h=>[h.book,h.bookId])),headers=[...document.querySelectorAll('#desk-positions .tabulator-group')];return headers.length>0&&headers.every(h=>{const count=left.filter(e=>e.bookId===books.get(h.querySelector('.desk-group-label').textContent)).length,said=h.querySelector('.desk-group-left');return count?said?.textContent===' · '+count+' left out of this run':!said;})&&headers.some(h=>h.querySelector('.desk-group-left'));})()`,
     "[...document.querySelectorAll('#desk-positions .tabulator-group')].map(h=>h.textContent)");
   await check('the risk tile and the change chart say how many positions the run leaves out',
-    `(()=>{const left=${catalog}.excludedPositions.length;return document.querySelector('#desk-tile-risk .desk-tile-note')?.textContent==='Leaves out '+left+' positions this close cannot value'&&[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].some(p=>p.textContent===${note(`${catalog}.excludedPositions.length`)});})()`,
-    "[document.querySelector('#desk-tile-risk').textContent,document.querySelector('#desk-chart-position').textContent]");
+    `(()=>{const left=${catalog}.excludedPositions.length;return [...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-reason')?.textContent.endsWith('Leaves out '+left+' positions this close cannot value')&&[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].some(p=>p.textContent===${note(`${catalog}.excludedPositions.length`)});})()`,
+    "[[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' '),document.querySelector('#desk-chart-position').textContent]");
 }

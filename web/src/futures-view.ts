@@ -2,7 +2,7 @@ import {readGasView} from './gas-trade-view.js';
 import type {ProductTickets,TicketProduct} from './product-tickets.js';
 import {readPpaView} from './ppa-trade-view.js';
 import {openPositionWindow,type PositionWindowSelection} from './position-window-selection.js';
-import {readPositionFacts,requirePricedFacts,readIndividualPosition,type PositionFacts,type PositionFact,type IndividualPosition} from './position-facts.js';
+import {readPositionFacts,readPositionFactsPage,requirePricedFacts,type PositionFacts} from './position-facts.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {type PartyCatalog,type Trader} from './trade-annotations.js';
 import {setupSwapEditor,readSwapView} from './swap-editor.js';
@@ -11,28 +11,35 @@ import {type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {releasesRetained,retainedText,retryAllowed} from './trade-requests.js';
 import {setupRisk,riskDenied,type RunView} from './risk-view.js';
-import {changeChart,changeScales,gapsText,largestMove,lensCells,madeHere,noMoveText,positionKey,positionMoves,runBar,runExclusions,runGaps,runSummary,shockCount,shocksText,tileWords,unmovedNote,
+import {changeChart,changeScales,gapsText,lensCells,madeHere,noMoveText,positionKey,positionMoves,runBar,runExclusions,runGaps,runSummary,shockCount,shocksText,tileWords,unmovedNote,
   type LensCell,type ReadPlace,type RunGap} from './risk-lens.js';
 import type {ExcludedPosition,RiskReport} from './risk-report.js';
 import {setupFuturesBooking} from './futures-booking.js';
 import {draftShapes,otherRevision,readCurveShapes} from './curve-shapes.js';
 import {newTradeControl,newTradeProducts,setupNewTrade,type NewProduct} from './new-trade.js';
 import {createTableWorkspace} from './table-workspace.js';
-import {renderDataGrid,emptyGridLayout} from './data-grid.js';
+import {renderDataGrid} from './data-grid.js';
 import {contractPositions,deltaLadder,ladderExport,type LadderCell,type LadderValue} from './delta-ladder.js';
 import {pivotMatrix,pivotChartPanels,groupLabel,type PivotGroup} from './analytics-model.js';
 import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
 import type {BlotterSelection,EntryShown,TradeShown} from './assistant-pages.js';
-import {isPriceMeasure,priceMeanPolicy,blotterColumns,deskFields,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,rowGroups,sidebarViews,withoutColumns,type BlotterView,type RowGroup} from './blotter-layout.js';
+import {isPriceMeasure,priceMeanPolicy,blotterColumns,blotterDockRules,defaultBlotterArrangement,deskFields,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,rowGroups,sidebarViews,withoutColumns,type BlotterView,type RowGroup} from './blotter-layout.js';
+import {setupDock} from './dock.js';
+import {acting,createBlotterOperations,guard,refuse,requireModeColumns,type BlotterCaller,type BlotterOperation} from './blotter-operations.js';
+import {rowMenuItems,type RowMenuAction} from './blotter-row-menu.js';
+import {openBlotterChannel,type EndReason} from './blotter-channel.js';
+import {retainedActions,tieMainWindow,type BlotterContext,type BlotterHeld,type BlotterQuestion} from './blotter-popout.js';
+import {setupMenu} from './context-menu.js';
+import {closeOutRefusal,closeOutRequest,readCloseOutDraft} from './close-out-draft.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
-import {commodityColors,deskGroups,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,projectsFromSeveralCurves,pvChartPanels,severalCurvesShape,signOf,signedText,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type Summary} from './desk-model.js';
-import {askLeave,liveRefreshPlan,panelPlacement,riskRefreshPlan,sameMode,setupSidePanel,type PanelMode,type RiskRefresh} from './side-panel.js';
-import {setupPositionPanel,type PositionInput,type PositionRisk} from './position-panel.js';
-import {setupPositionExpansion} from './position-expansion.js';
-import {bookedPosition,followedPosition,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
-import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderDeskCharts,renderMoneyTile,renderPositionsTile,renderRiskTile,renderRunBar,riskColumns,riskGroupHeader,type LensRowView,type RiskTile,type RiskTileResults} from './desk-view.js';
+import {commodityColors,deskGroups,rowKey,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,projectsFromSeveralCurves,pvChartPanels,severalCurvesShape,signOf,signedText,staleStripItems,summaryStripItems,waitingStripItems,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type StripItem,type StripRisk,type Summary} from './desk-model.js';
+import {askInPanel,liveRefreshPlan,riskRefreshPlan,sameMode,type PanelMode,type RiskRefresh} from './side-panel.js';
+import {amendRefusal,setupPositionPanel,type PositionInput,type PositionRisk} from './position-panel.js';
+import {setupDetailsPane} from './details-pane.js';
+import {bookedPosition,followedPosition,positionIndex,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
+import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderBookBars,renderDeskCharts,renderPositionMix,renderRunBar,renderSummaryStrip,riskColumns,riskGroupHeader,type LensRowView} from './desk-view.js';
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
 type ReadRequest={snapshotId:string;convention:string;knowledgeMode:'current'|'retained';contextId?:string};
@@ -43,15 +50,18 @@ type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 // A stored view an earlier release saved is listed with this label. It cannot be applied, and choosing it says why.
 const earlierFormatLabel='Earlier format · save again';
 const earlierFormatNote=(name:string)=>`Saved view "${name}" is in an earlier format and cannot be applied. Set up the Blotter as you want it and save it again under this name, or delete it.`;
-const curveColumn=deskColumns.findIndex(([key])=>key==='curve'),markColumn=deskColumns.findIndex(([key])=>key==='mark');
-// Under the Risk lens a docked panel takes the grid's width from the shock sizes first, which a row's panel also states, and then its deltas.
-const riskGiveUp=['riskShock','riskDelta'].map(key=>riskColumns.findIndex(([column])=>column===key));
+const curveColumn=deskColumns.findIndex(([key])=>key==='curve');
+// The trade rows' own columns under both lenses: one grid holds them all, and the lens shows its own (D222). The Values lens shows the
+// price, mark, value and curve; the Risk lens the shock, its changes and the delta in their place.
+const tradeHead=[...deskColumns,...riskColumns.filter(([key])=>!deskColumns.some(([desk])=>desk===key))];
+const riskOnly=new Set<string>(riskColumns.flatMap(([key])=>deskColumns.some(([desk])=>desk===key)?[]:[key]));
+const valuesOnly=new Set<string>(deskColumns.flatMap(([key])=>riskColumns.some(([risk])=>risk===key)?[]:[key]));
 // The Risk lens columns, which a saved view never keeps.
 const riskKeys=riskColumns.flatMap(([key])=>key.startsWith('risk')?[key]:[]);
 // What a new read of the Blotter says of the risk run it clears (D222): changing the close, the context or the book scope says so in the
 // design's words; any other new read, a Refresh, another Display or pivot, or the Blotter opened again, says it was read again, each
 // read at current knowledge being made at a context of its own.
-const readNotes={inputs:'Risk results cleared · the close or books changed',read:'Risk results cleared · the Blotter was read again'} as const;
+const readNotes={inputs:'Risk results cleared · the close or books changed',read:'Risk results cleared · the Blotter was read again',away:'Risk results cleared · the Blotter opened in a window of its own'} as const;
 type ReadCause=keyof typeof readNotes;
 // The knowledge a read is made at, as the run bar says a run made on it was: working data, a historical view or live corrections.
 const knowledgeWords={working:'current knowledge',historical:'historical view',live:'live corrections'} as const;
@@ -72,7 +82,10 @@ const numericFields=['tradeCount','lots','quantity','executionPrice','mark','exe
 // At most this many curves are shaped in one read (market/curve-shapes).
 const curvesPerShapeRead=64;
 
-export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;readFailed:(error:unknown)=>void;notice:(message:string)=>void;
+export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
+  // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused; and
+  // takes that away again once the person acts anew.
+  failed:(error:unknown)=>void;failureCleared:()=>void;notice:(message:string)=>void;
   // The definition revision of the curves the selected close prices; positions of another revision get no shape from it.
   definitionRevision:()=>string;
   // The saved views the person lists in the sidebar, and the one the Blotter shows, whenever the saved views are read or the shown one changes.
@@ -84,7 +97,15 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   // The knowledge the Blotter is read at: working data at current knowledge, a historical view, or live corrections.
   knowledge:()=>keyof typeof knowledgeWords;
   // The panel's form started or stopped holding unsaved edits.
-  unsavedChanged:()=>void}){
+  unsavedChanged:()=>void;
+  // Whether the page is too narrow to show the panes side by side or above one another.
+  narrow:()=>boolean;
+  // The page assistant, when the account may use it: a row's menu asks it about a position, which the details then show it.
+  assistant:{available:()=>boolean;about:(position:{key:string;reference:string;bookIds:string[];portfolioIds:string[]})=>void};
+  // The window the Blotter is in (blotter-workbench.md, Pop-out Blotter): the main window, which pops it out into a window of its own that
+  // `open` opens and brings it back; or that window, which `close`s to bring it back.
+  // `example` is the example both windows read, which a position's own window reads too; a window that cannot say opens no position window.
+  window:({kind:'main';open:(url:string,target:string,features:string)=>Window|null}|{kind:'popout';close:()=>void})&{example:'baseline'|'exchange'|undefined}}){
   const {api,act,busy}=options;
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
@@ -92,18 +113,28 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   const workspace=createTableWorkspace(get('blotter-workspace'),{
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
     pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
-    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Risk report'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(()=>load('directory',false,true)),
-    note:get('new-trade-availability'),lead:get('desk'),overview:get('desk-charts'),aside:get('side-panel'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),lens:get('desk-lens'),
+    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Run risk'],['refresh','Refresh'],['export','Export'],['new','New trade'],['popout',options.window.kind==='main'?'Pop out':'Bring back']],onApply:()=>asked(()=>load('directory',false,true)),onScope:()=>void perform({kind:'chooseScope',bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}),
+    note:get('new-trade-availability'),body:get('blotter-dock'),rows:get('blotter-pane-grid'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),lens:get('desk-lens'),
   });
   // Existing booking controls share the table toolbar.
   get('blotter-refresh').id='futures-refresh';get('blotter-new').id='futures-new';get('blotter-rows').id='desk-positions';
   let catalog:Catalog|undefined,holdings:Holdings|undefined,summaries:Summary[]|undefined,owner='',snapshot='',uncertain=false,generation=0;
-  let facts:PositionFacts|undefined,factsPaging=false,pricingRead:Promise<void>=Promise.resolve(),pricingController:AbortController|undefined;
-  let factsGrid:ReturnType<typeof renderDataGrid>|undefined,factsLayout=emptyGridLayout();
-  let individual:IndividualPosition|undefined,openingFact:PositionFact|undefined,individualController:AbortController|undefined;
-  const factPageSize=64,factsMore=document.createElement('button');
-  factsMore.id='blotter-more-positions';factsMore.type='button';factsMore.className='secondary';factsMore.textContent='Load more positions';factsMore.hidden=true;
-  get('futures-summary').after(factsMore);
+  // The first page of the booked positions a read values: its total is the count the status line gives, and the priced read must hold its
+  // bindings. No row is drawn from it.
+  let facts:PositionFacts|undefined,pricingRead:Promise<void>=Promise.resolve(),pricingController:AbortController|undefined;
+  const factPageSize=64;
+  // A read draws no row before its values: a bar and a status line over the rows say what is happening, or why the read failed, with Retry:
+  // the valuation, or the count of the positions read beside it.
+  type Loading={state:'reading'}|{state:'valuing';total:number}|{state:'failed';read:'count'|'valuation';reason:string};
+  let loading:Loading|undefined;
+  get('desk-positions').before(get('blotter-progress'),get('blotter-load-status'));
+  function showLoad(next:Loading|undefined){
+    loading=next;get('blotter-progress').hidden=!next||next.state==='failed';get('blotter-load-status').hidden=!next;get('blotter-retry').hidden=next?.state!=='failed';
+    // Streamed batches (acceptValuedRows) will say "Valuing positions · <shown> of <total>" once rows are drawn as they arrive.
+    text('blotter-load-text',!next?'':next.state==='reading'?'Valuing positions':next.state==='failed'?`${next.read==='count'?'Counting positions failed':'Valuation failed'} · ${next.reason}`:`Valuing ${next.total} positions`);
+  }
+  // The valued rows of the read under way, in the backend's order, as they have arrived.
+  let arrived:Holding[]=[];
   // The curve shapes of the current read, once read: by curve, a shape or why it is unavailable; or why none could be read.
   let shapes:{revision:string;curves:Map<string,CurveShape|string>}|{unavailable:string}|undefined;
   // The desk's read of its curves, while it is under way: what Price before booking waits for before it reads a curve of its own.
@@ -124,9 +155,12 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   // where the read was made, which a run's results must have been made at to be drawn against it (D222).
   let readInputs:string|undefined,readPlace:ReadPlace|undefined;
   let chartState:{panels:ChartSpec[];request:{context:unknown;view:unknown}}|undefined;
-  // What the trade rows' desk drew from the read on screen, which the side panel draws its position from.
+  // What the trade rows' desk drew from the read on screen, which the details draw their position from.
   let drawn:{rows:DeskRow[];colors:ReadonlyMap<string,string>}|undefined;
   let view=newBlotterView(),savedViews:BlotterView[]=[],table:ReturnType<typeof renderDataGrid>|undefined,tableColumns:string[]=[];
+  // The trade rows and summary strip of the previous read, kept on screen, stale, while the Blotter is read again or after that read failed.
+  // A position is opened only from the read on screen, so these rows open nothing.
+  let kept:{strip:StripItem[]|undefined}|undefined,strip:StripItem[]|undefined;
   // The delta ladder (D230) the Ladder lens draws in place of the trade rows, by the value it shows, with what an export of it states.
   let ladderTable:ReturnType<typeof renderDataGrid>|undefined,ladderValue:LadderValue='delta',ladderShown:{headers:string[];rows:string[][];numeric:number[]}|undefined;
   // Columns the current read shows that a saved view never keeps: each pivot group's count of positions it leaves out, and the desk's curve shapes.
@@ -141,6 +175,65 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   let lens:'values'|'risk'|'ladder'='values',inline:Inline|undefined,preparing:string|undefined,lensFor:number|undefined;
   // Each report of the run on screen by a number of its own, so that results that are new can be told from those already shown.
   const reportIds=new WeakMap<RiskReport,number>();let reports=0;
+  // The Blotter's panes (blotter-workbench.md): the summary strip, the positions, details and charts, arranged by the trader and kept in
+  // the view. Moving or collapsing a pane draws the grid again where it now stands, never builds it again. The details collapse by their own
+  // control, which asks first about edits they hold.
+  let setUp=false,retainedOnly=false;
+  const dock=setupDock(get('blotter-dock'),{label:'Blotter panes',rules:blotterDockRules,narrow:options.narrow,initial:view.panes,ownCollapse:['details'],
+    tabs:[{id:'summary',label:'Summary',body:get('blotter-pane-summary')},{id:'grid',label:'Positions',body:get('blotter-pane-grid')},{id:'details',label:'Details',body:get('blotter-pane-details')},{id:'charts',label:'Charts',body:get('blotter-pane-charts')}],
+    changed:arrangement=>{
+      // Charts put away to make room for the details are this visit's, never the view's; once brought back by the person they are theirs again.
+      if(chartsMadeWay&&!arrangement.collapsed.includes('charts'))chartsMadeWay=false;
+      view.panes=chartsMadeWay?{...arrangement,collapsed:arrangement.collapsed.filter(tab=>tab!=='charts')}:arrangement;
+      // A divider dragged or a pane moved, put away or brought back changes the room the open details have: it is sized again once drawn.
+      requestAnimationFrame(fitRoom);
+    },
+    // Which panes are open is part of what the page reports, however they came to be open; while the page is set up, the panes it opens
+    // are what it shows first, which its first report states.
+    opened:()=>{if(setUp)options.reported();},shown:id=>{if(id==='grid')for(const grid of [table,ladderTable])grid?.relayout();}});
+  // A page that has just become narrow shows the positions among its tabs, or the details while they show something; one wide again
+  // shows the arrangement as it was, with the details expanded while they show something. Focus in the details stays there.
+  let narrowed=false;
+  function placeDock(){
+    const now=options.narrow(),body=get('blotter-pane-details'),focused=body.contains(document.activeElement);
+    dock.relayout();
+    if(now!==narrowed&&(now||panel.current()!==null))dock.reveal(panel.current()===null?'grid':'details');
+    narrowed=now;fitRoom();
+    if(focused&&!body.contains(document.activeElement)&&!body.hidden)get('position-details').focus({preventScroll:true});
+  }
+  // Open details keep room of their own (detailsRoom, and a minimum height in app.css): where the arrangement leaves them less, the Charts pane
+  // makes way for as long as they are open, unless the person has put Charts away themselves. The view is never told of it.
+  const detailsRoom=240;
+  let chartsMadeWay=false;
+  function makeRoom(){
+    if(chartsMadeWay||options.narrow()||dock.arrangement().collapsed.includes('charts'))return;
+    const group=get('blotter-pane-details').closest('.dock-group');
+    // Their minimum height holds them at detailsRoom where the arrangement would leave them less, which then comes out of their neighbours.
+    const box=group?.getBoundingClientRect();
+    if(!box||box.height>detailsRoom+1&&box.bottom<=get('blotter-dock').getBoundingClientRect().bottom+1)return;
+    chartsMadeWay=true;dock.collapse('charts');
+  }
+  function giveRoomBack(){if(!chartsMadeWay)return;chartsMadeWay=false;if(dock.arrangement().collapsed.includes('charts'))dock.reveal('charts');}
+  // Where the dock cannot hold the grid's and the open details' own minimums beside the summary strip and the collapsed bars, the grid and
+  // the details above one another share what is left evenly, each at least sharedFloor: no pane ever reaches past the dock's foot.
+  const sharedFloor=160;
+  function fitRoom(){
+    const host=get('blotter-dock');host.style.removeProperty('--grid-room');host.style.removeProperty('--details-room');
+    if(panel.current()===null||options.narrow())return;
+    const grid=get('blotter-pane-grid').closest('.dock-group'),details=get('blotter-pane-details').closest('.dock-group');
+    if(!grid||!details)return;
+    const foot=host.getBoundingClientRect().bottom-parseFloat(getComputedStyle(host).paddingBottom);
+    const over=Math.max(...Array.from(host.querySelectorAll('.dock-group'),g=>g.getBoundingClientRect().bottom))-foot;
+    const g=grid.getBoundingClientRect(),d=details.getBoundingClientRect();
+    if(over<=1||d.top<g.bottom-1)return;
+    const share=`${Math.max(sharedFloor,Math.floor((g.height+d.height-over)/2))}px`;
+    host.style.setProperty('--grid-room',share);host.style.setProperty('--details-room',share);
+  }
+  // A view the Blotter turns to brings its arrangement with it.
+  function showPanes(){chartsMadeWay=false;if(JSON.stringify(dock.arrangement())!==JSON.stringify(view.panes))dock.set(view.panes);}
+  get('blotter-reset-layout').onclick=()=>void perform({kind:'resetLayout'});
+  get('blotter-popout').onclick=()=>void perform({kind:options.window.kind==='main'?'popOut':'bringBack'});
+  if(options.window.kind==='main')get('blotter-bring-back').onclick=()=>void perform({kind:'bringBack'});
   // The risk report of the panel's Risk report mode, for the books and context of the read on screen. What it holds outlives the panel's
   // other modes, so its results stay while a position is looked at; a new read of the Blotter clears it.
   const risk=setupRisk({api,act,busy,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,onChange:riskChanged,edited:options.unsavedChanged,scope:()=>{
@@ -165,39 +258,38 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     const values=get('desk-ladder-value');values.hidden=lens!=='ladder';
     for(const button of values.querySelectorAll<HTMLButtonElement>('[data-ladder-value]')){button.setAttribute('aria-pressed',String(button.dataset.ladderValue===ladderValue));button.disabled=busy();}
   }
-  function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};}
+  function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained' as const:'current' as const,...(source.context?{contextId:source.context.contextId}:{})};}
+  // The main window's tie to the Blotter popped out of it (blotter-popout.ts), which follows what the header selects: the close, the
+  // knowledge and the account. Its convention is not a selection, and the pop-out reads its own; a selection the header cannot state now,
+  // an unapplied context or no close, leaves the pop-out where it is.
+  function popoutContext():BlotterContext|undefined{
+    let read;try{read=readContext();}catch{return undefined;}
+    return {snapshotId:read.snapshotId,knowledgeMode:read.knowledgeMode,contextId:read.contextId??null,profile:options.profile()};
+  }
+  const tie=options.window.kind==='main'&&options.window.example?tieMainWindow({source:location.href,example:options.window.example,grace:3000,session:()=>crypto.randomUUID(),
+    channel:openBlotterChannel,open:options.window.open,context:popoutContext,returned:cameBack,reported:()=>{options.reported();options.unsavedChanged();},ask:askAbout}):undefined;
   const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
-    queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
+    queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
   const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
-    ask:question=>expansion.ask(question),
-    queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
+    ask:question=>detailsPane.ask(question),
+    queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   // The form of a new future, which the panel hosts as it hosts the forms of the amendments. What it books is kept as the request it was first sent as.
   const booking=setupFuturesBooking({api,act,busy,zone:options.zone,context:readContext,catalog:()=>catalog,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
-    book:async body=>{const command=pending.begin('futures/book',body,undefined,'New futures trade');store();sync();await send(command);}});
-  // The side panel beside the positions: a position's curve, terms, risk and history, and the form of its amendment. Opening a row
-  // opens it; Amend puts the amendment's form in the Terms tab, and a new trade has the whole panel, its form beneath the instrument-type choice.
-  const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
+    book:async body=>{takeHanded();const command=pending.begin('futures/book',body,undefined,'New futures trade');store();sync();await send(command);}});
+  // The details below the positions: a position's curve, terms, risk and history, and the form of its amendment, a new trade or the risk
+  // report. Opening a row opens it; Amend puts the amendment's form in the Terms tab, and a new trade has the whole pane, its form beneath a
+  // instrument-type choice. Collapsing the details returns focus to the row; on a narrow page the positions are shown again instead (modeChanged).
+  const main=document.querySelector('main')!;
   const editing=()=>editor.unsaved()||swapEditor.unsaved()||booking.unsaved()||options.tickets.unsaved()||risk.edited();
-  const docked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
-  // A docked panel takes the grid's width, so the grid gives up the columns the panel shows for its position, Curve first and then
-  // Mark, for as long as its columns do not fit the room it has left.
-  const dockedGiveUp=()=>sidePanel.current()!==null&&docked()?ladderOn()?[]:lensShown()?riskGiveUp:[curveColumn,markColumn]:[];
-  const wide=()=>!phone.matches&&swapEditor.settlementOpen();
-  const sidePanel=setupSidePanel(get('side-panel'),{
-    // What the panel holds that switching would lose: the form of an amendment or of a new trade, with edits in it.
-    unsaved:editing,confirmLeave:askLeave(get('side-panel')),docked,
-    // On a phone the panel is a sheet over the page, which stays out of reach while it is open, unless the Blotter has been left.
-    sheet:()=>phone.matches&&!get('futures-page').hidden,
-    // A swap's settlement figures need more room than a docked panel has: off a phone, the panel lies over the desk at a wider width.
-    wide,
-    changed:()=>{table?.fitColumns(dockedGiveUp());ladderTable?.fitColumns([]);modeChanged();placeRetained();},closed:()=>deskPanel.closed()});
-  const expansion=setupPositionExpansion(sidePanel,{unsaved:editing,busy,changed:()=>{modeChanged();placeRetained();},closed:()=>deskPanel.closed(),resized:keepVisible=>table?.resizeDetail(keepVisible)});
-  const panel=expansion.shell;
-  // A request whose outcome is not known is kept with its Check status and Retry in a card, which is in the panel while the panel is open,
-  // whatever it shows, and on the page when it is not, so that nothing leaves the person with no way to find out what became of it.
+  const detailsPane=setupDetailsPane(get('blotter-pane-details'),{unsaved:editing,busy,step:direction=>void stepPosition(direction),
+    collapsed:()=>{if(!deskPanel.closed())focusSelected();},expand:()=>{dock.reveal('details');makeRoom();fitRoom();},changed:modeChanged});
+  const panel=detailsPane.shell;
+  placeDock();
+  // A request whose outcome is not known is kept with its Check status and Retry in a card on the page, above the panes, whatever the details
+  // show, so that nothing leaves the person with no way to find out what became of it.
   const retained=get('futures-pending');
-  function placeRetained(){const slot=get(sidePanel.current()!==null?'side-panel-retained':'futures-retained');if(retained.parentElement!==slot)slot.append(retained);}
+  // A PPA or physical gas request whose outcome is not known offers its reconciliation beside the futures and swap request's card.
   const productPending=document.createElement('section');productPending.className='card';productPending.id='product-trade-pending';get('futures-retained').append(productPending);
   function syncProductPending(){
     const pendingProducts=options.tickets.pending();productPending.hidden=pendingProducts.length===0;
@@ -213,42 +305,59 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     const mode=panel.current();
     if(sameMode(mode,formsFor))return;
     // Set before the forms are reset, which places the panel and so calls this again: the mode is then already the one handled.
-    const left=formsFor;formsFor=mode;if(mode?.kind!=='position')cancelIndividual();resetForms();
+    const left=formsFor;formsFor=mode;resetForms();
     if(left?.kind==='risk')risk.shelve();
     if(mode!==null&&mode.kind!=='position')deskPanel.left();
     if(mode?.kind==='new')entry.show(mode,mode.product===null?'choose':'loading');
     if(mode?.kind==='risk')risk.mount(panel);
     if(mode?.kind==='contract')drawContract();
+    // Details that close collapse, never staying open empty; on a narrow page, where the panes share one group, they give their place back
+    // to the positions. Charts that made way for them come back.
+    if(mode===null){if(options.narrow())dock.reveal('grid');else{dock.collapse('details');giveRoomBack();}fitRoom();}
     renderRisk();options.reported();
   }
-  // The panel docks or overlays by the width the main area has: it is placed again when that changes, not when only its height does.
+  // The panes stack in one group on a narrow main area: they are placed again when its width changes; a change of its height only sizes
+  // the open details' room again.
   let mainWidth=main.clientWidth;
-  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;panel.place();}}).observe(main);
-  new MutationObserver(()=>panel.place()).observe(document.body,{attributes:true,attributeFilter:['class']});
-  const positionContext=()=>!holdings&&individual?{...readContext(),knowledgeMode:'retained',contextId:individual.context.contextId}:readContext();
-  const position=setupPositionPanel(expansion.position,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(positionContext()),onDenied:clear,
+  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();}else fitRoom();}).observe(main);
+  const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
     read:async(h,formats)=>{
-      const retainedIndividual=!holdings,context=positionContext();
-      const read=await(h.instrumentType==='physical_gas'?readGasView(api,context,h,()=>void manage('gas',h.tradeId)):h.instrumentType==='ppa'?readPpaView(api,context,h,(retainedIndividual&&individual?individual.context:catalog!.context).knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
-      // Retained inspection does not transition into a working settlement editor.
-      return retainedIndividual?{...read,view:zone=>({...read.view(zone),actions:undefined})}:read;
+      const stale=!holdings,context=readContext();
+      const read=await(h.instrumentType==='physical_gas'?readGasView(api,context,h,()=>void manage('gas',h.tradeId)):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
+      // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
+      return stale?{...read,view:zone=>({...read.view(zone),actions:undefined})}:read;
     },
     amendment:{
-      open:h=>void act(()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision))),
+      open:h=>void perform({kind:'amend',key:rowKey(h)}),
       // A future's form is open for its binding, a swap's for its instrument.
       shown:h=>{const future=editor.shown(),swap=swapEditor.shown();return !!future&&future.tradeId===h.tradeId&&future.bindingId===h.bindingId||!!swap&&swap.tradeId===h.tradeId&&swap.contractId===h.contractId;},
       close:async()=>{await leave();},
     },
-    openCurve:(curve,contractId)=>guarded(()=>options.openCurve(curve,contractId))});
-  const panelHoldings=()=>holdings?.holdings??(individual?[individual.holding]:undefined);
-  const deskPanel=setupDeskPanel({shell:panel,position,holdings:panelHoldings,input:positionInput,grid:()=>{
-    const grid=holdings?table:factsGrid;if(!grid)return;
-    const sourceIndex=(index:number)=>holdings?index:facts?.positions.findIndex(fact=>fact.tradeId===individual?.holding.tradeId&&fact.bindingId===individual.holding.bindingId)??-1;
-    return {...grid,selectRow:index=>{const at=index===null?null:sourceIndex(index);grid.selectRow(at);grid.detailRow(at,expansion.host);},
-      focusRow:index=>{const at=sourceIndex(index);if(at>=0)grid.focusRow(at);},revealRow:index=>{const at=sourceIndex(index);if(at>=0)grid.revealRow(at);}};
+    openCurve:(curve,contractId)=>asked(()=>options.openCurve(curve,contractId))});
+  const panelHoldings=()=>holdings?.holdings;
+  // The header names the position the details show by its trade and market.
+  const titled=(at:PositionInput)=>detailsPane.title(`${at.holding.tradeReference} · ${at.row.market}`);
+  const deskPanel=setupDeskPanel({shell:panel,position:{show:(at,tab)=>{position.show(at,tab);titled(at);},update:at=>{position.update(at);titled(at);},clear:position.clear},
+    holdings:panelHoldings,input:positionInput,grid:()=>{
+    const grid=holdings?table:undefined;if(!grid)return;
+    return {selectRow:index=>grid.selectRow(index),focusRow:index=>grid.focusRow(index),revealRow:index=>grid.revealRow(index)};
   },notice:options.notice});
-  // Gives the forms the panel hosts up, without asking, and places the panel again for what it then shows: a panel left by its settlement
-  // view, however it is left, a switch of mode among the ways, has its own width again.
+  // Focus after details that showed no position collapse: the grid's selected row, or else its first row on screen.
+  function focusSelected(){
+    if(!table||!holdings)return;
+    const key=table.selected(),index=key===null?-1:holdings.holdings.findIndex(h=>rowKey(h)===key),at=index>=0?index:table.shownRows()[0];
+    if(at!==undefined)table.focusRow(at);
+  }
+  // While the details show a position, the selection the person moves in the grid shows its position there too, asking first about edits.
+  const following=()=>panel.current()?.kind==='position'&&dock.showing('details');
+  // ◂ and ▸ show the previous or next position in the grid's order.
+  async function stepPosition(direction:-1|1){
+    const mode=panel.current();
+    if(busy()||!table||!holdings||mode?.kind!=='position')return;
+    const at=positionIndex(holdings.holdings,mode),next=at<0?null:table.rowAfter(at,direction);
+    if(next!==null)await perform({kind:'selectPosition',key:rowKey(holdings.holdings[next])},{placed:true});
+  }
+  // Gives the forms the panel hosts up, without asking, and updates the panel's controls for what it then shows.
   // The leave guard must read the final state after every editor has reset.
   function resetForms(){options.tickets.detach();editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();queueMicrotask(options.unsavedChanged);}
   // Gives the panel's forms up without asking, for a page that is left on the person's word, so that no form stays held that they cannot return to.
@@ -260,20 +369,177 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   async function leave(){if(!await panel.leave())return false;dropForms();return true;}
   // An action of the person's that gives the panel's form up, by reading the Blotter again, which closes the panel, or by leaving it,
   // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
-  // control disabled. `kept` hears that the person kept them, for a control that has already changed.
-  function guarded(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await leave())await act(work);else kept?.();})();}
-  function popout(selected:Pick<PositionFact,'tradeId'|'bindingId'|'revision'|'instrumentType'>){
+  // control disabled; and is refused, saying so, when the page is or became busy (guard). `kept` hears that the person kept them, for a
+  // control that has already changed. An operation's handler hears a refusal, and a failure the page has said (acting); the person's other
+  // controls show a refusal, and leave a failure to what said it (asked).
+  const guarded=(work:()=>Promise<void>,kept?:()=>void)=>guard({busy,leave,act},work,kept);
+  const asked=(work:()=>Promise<void>,kept?:()=>void)=>void guarded(work,kept).catch(error=>{if((error as {shown?:boolean}).shown!==true)options.failed(error);});
+  // Leaving the Blotter: no read, form or position of it stays.
+  function leavePage(){cancelRead();dropForms();deskPanel.reset();}
+  // A trade request whose outcome is not confirmed is owned by the window that sent it, which keeps its Check status and Retry.
+  // A main window's unconfirmed requests stay with it; a pop-out's go back with the Blotter (handOver).
+  const retainedStays=(move:string)=>{
+    if(pending.command||risk.unconfirmed())throw refuse(`a request whose outcome is not confirmed stays with the window that sent it; check its status before the Blotter ${move}`);
+  };
+  // The view as it stands, its unsaved edits among them, in its saved form: what one window hands the other.
+  function handOff(){return parseBlotterViews(JSON.stringify([readView()]))[0];}
+  // A view the other window handed over, shown as the person left it there: unsaved.
+  function adopt(handed:BlotterView){
+    restore();view=structuredClone(handed);draftBase=undefined;table=undefined;showPanes();field('blotter-name').value=view.name;field('blotter-saved').value='';viewControls();
+    // A narrow window shows the positions among the stacked panes, as it does once it has become narrow.
+    if(options.narrow())dock.reveal('grid');
+  }
+  // On the Blotter's page the main window shows the Blotter, or, while it is popped out, where it went.
+  function placeWindow(){
+    const page=get('futures-page'),placeholder=get('blotter-away');
+    if(!tie||page.hidden&&placeholder.hidden)return;
+    page.hidden=tie.out();placeholder.hidden=!tie.out();
+  }
+  // The Blotter popped out leaves nothing of itself in the main window.
+  function away(){leavePage();replaceRead('away');placeWindow();options.reported();}
+  // Work the page takes up once it is idle: the Blotter coming back, while the main window is busy with something else.
+  function whenIdle(work:()=>void){if(busy())setTimeout(()=>whenIdle(work),50);else work();}
+  // The Blotter is back with the view its window handed back, or the one it took there, which is said; the main window reads it afresh.
+  function cameBack(returned:BlotterView,handedBack:boolean,held:BlotterHeld|undefined){
+    adopt(returned);const arrived=takeStoredRequest();sync();placeWindow();options.reported();options.unsavedChanged();
+    // The pop-out said it held unconfirmed requests: they arrive with it, or the person is told to look for them in its window.
+    if(held?.requests&&!arrived)options.notice('The Blotter’s window said it held a request whose outcome is not confirmed, which did not arrive here. Check its status in that window, if it is still open, or in Recent risk jobs and the trade history.');
+    const said=()=>{if(!handedBack)options.notice('The Blotter’s window closed without handing back its view, so the Blotter shows the view it had when it was popped out.');};
+    if(get('futures-page').hidden){said();return;}
+    whenIdle(()=>void act(()=>load('directory',false,true)).then(said));
+  }
+  // A position the pop-out asks the assistant about, found in the main window's own read of the booked positions it may read: the pop-out
+  // names only its key.
+  // names its key and the books and portfolios its Blotter shows, whose positions alone are read, as the page's own action.
+  function askAbout({key,bookIds,portfolioIds}:BlotterQuestion){
+    whenIdle(()=>void act(async()=>{
+      const context={...readContext(),convention:'trading_workspace_v1'};
+      for(let offset:number|null=0;offset!==null;){
+        const page=readPositionFactsPage(await api('trading/positions',{context,bookIds,portfolioIds,offset,limit:factPageSize}),factPageSize,offset);
+        const found=page.positions.find(p=>`${p.tradeId}:${p.bindingId}`===key);
+        if(found){window.focus();options.assistant.about({key,reference:found.tradeReference,bookIds,portfolioIds});return;}
+        offset=page.nextOffset;
+      }
+      throw Error('The Blotter’s window asked about a position this window cannot read, so nothing was put to the assistant.');
+    }));
+  }
+  // Whether the pop-out holds edits that a change of the main window's context or account would give up: it may, until it has reported. Its
+  // unconfirmed requests are never given up, as they go with the Blotter, so they are not asked about.
+  const windowEdits=()=>!!tie?.out()&&tie.held()?.edits!==false;
+  // Asks, in the main window, before a change gives up the edits the pop-out holds: false means the person kept them. One question at a time.
+  let askingWindow=false;
+  async function leaveWindow(){
+    if(!windowEdits())return true;
+    if(askingWindow)return false;
+    askingWindow=true;
+    try{return await askInPanel(get('blotter-window-question'),{text:'The Blotter’s window holds unsaved edits that this gives up.',keep:'Keep them',go:'Give them up'})(new AbortController().signal);}
+    finally{askingWindow=false;}
+  }
+  // A position opens, in the details or a window of its own, only from the read on screen: rows kept from the previous read, or drawn
+  // while the read is under way, say so.
+  const notOpened=()=>options.notice('Positions open once the Blotter has valued them.');
+  function popout(selected:Holding){
     if(busy())return;
+    if(!holdings){notOpened();return;}
     if(editing()||pending.command){options.notice('Finish the current trade edit before opening a separate trade window.');return;}
-    const read=holdings??facts;
-    if(!read||!snapshot)throw Error('Read the position facts before opening a separate trade window.');
-    const selection:PositionWindowSelection={snapshotId:snapshot,context:read.context,asOf:read.asOf,
-      tradeId:selected.tradeId,bindingId:selected.bindingId,revision:selected.revision,instrumentType:selected.instrumentType,zone:options.zone(),
-      example:(new URL(location.href).searchParams.get('example')??'baseline') as PositionWindowSelection['example']};
+    if(!snapshot)throw Error('Read the Blotter before opening a separate trade window.');
+    const example=options.window.example;if(!example){options.failed(refuse('this window does not know which example it reads, so it opens no trade window'));return;}
+    const selection:PositionWindowSelection={snapshotId:snapshot,context:holdings.context,asOf:holdings.asOf,
+      tradeId:selected.tradeId,bindingId:selected.bindingId,revision:Number(selected.revision),instrumentType:selected.instrumentType as PositionWindowSelection['instrumentType'],zone:options.zone(),
+      example};
     openPositionWindow(location.href,selection,(url,target,features)=>window.open(url,target,features));
   }
   // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
-  function settle(h:Holding){guarded(()=>swapEditor.openSettlement(h));}
+  function settle(h:Holding){asked(()=>swapEditor.openSettlement(h));}
+  // A row's menu (blotter-workbench.md, Row context menu): each action the account may not take now is shown with why. Rows kept on
+  // screen from an earlier read, or drawn while the page is busy, offer nothing, saying why. Escape gives focus back to the row.
+  const rowMenu=setupMenu('blotter-row-menu');get('futures-page').append(rowMenu.element);
+  // The position and revision a row's menu was opened on, while the Close out chosen from it runs: an operation names only its position.
+  let menuRevision:{key:string;revision:string}|undefined;
+  function focusRow(key:string){const index=holdings?.holdings.findIndex(h=>rowKey(h)===key)??-1;if(table&&index>=0)table.focusRow(index);}
+  function openRowMenu(h:Holding,at:{x:number;y:number}){
+    try{showRowMenu(h,at);}catch(error){options.failed(error);}
+  }
+  function showRowMenu(h:Holding,at:{x:number;y:number}){
+    const key=rowKey(h),control=bookingControl(),amend=amendRefusal(h.instrumentType,!!catalog?.canAmendTrades,position.amendState(h));
+    const stale=busy()?'The Blotter is busy; try again when it is idle.':!holdings?'Positions open once the Blotter has valued them.':undefined;
+    const can={book:control.enabled,amend:amend===null,ask:options.assistant.available(),
+      why:{book:control.reason??undefined,amend:amend??undefined,ask:'Your role does not include the page assistant.'},...(stale===undefined?{}:{stale})};
+    rowMenu.open(`Position ${h.tradeReference}`,rowMenuItems({key,instrumentType:h.instrumentType,reference:h.tradeReference},can,action=>void rowAction(h,action)),at,()=>focusRow(key));
+  }
+  async function rowAction(h:Holding,action:RowMenuAction){
+    const key=rowKey(h);
+    switch(action.kind){
+      // Close out drafts the revision the menu was opened on, which a read landing since then may have replaced.
+      case 'draftCloseOut':menuRevision={key,revision:h.revision};try{await perform(action);}finally{menuRevision=undefined;}return;
+      case 'openWindow':popout(h);return;
+      case 'copyId':
+        try{await navigator.clipboard.writeText(h.tradeReference);options.notice(`Trade ID ${h.tradeReference} copied.`);}
+        catch(error){options.failed(Error(`The trade ID could not be copied: ${error instanceof Error?error.message:String(error)}`));}
+        focusRow(key);return;
+      // Amend and Ask act on the position the details show, which they show first, asking about what the details hold.
+      case 'amend':if(await perform({kind:'selectPosition',key})===true)await perform(action);return;
+      case 'ask':if(await perform({kind:'selectPosition',key})===true)options.assistant.about({key,reference:h.tradeReference,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]});return;
+      default:await perform(action);
+    }
+  }
+  // Close out (owner, 2026-10-30) opens the backend's draft of the offsetting trade, at the curve price of the read on screen, in the new trade
+  // form of its product: a future's after the priced contracts are read, as New trade reads them, a swap's in its ticket. Nothing books
+  // until the person presses Book. The draft is of the revision the row's menu was opened on, or the row showed when the operation was
+  // dispatched without one: a row that holds another revision by then, or after the read made for the priced contracts, refuses it.
+  async function draftCloseOut(key:string){
+    const row=()=>{const h=holdings?.holdings.find(h=>rowKey(h)===key);if(!h)throw refuse('that position is not among the rows on screen');return h;};
+    const chosen=menuRevision?.key===key?menuRevision.revision:row().revision,before=panel.current();
+    const unchanged=(h:Holding)=>{if(h.revision!==chosen)throw refuse(`${h.tradeReference} is now at revision ${h.revision}, not revision ${chosen} that was chosen; choose Close out again to draft the revision shown`);};
+    unchanged(row());
+    // The page's action says its own failures in the banner; the backend's refusal, said in the details, is the operation's answer.
+    let refused:Error|undefined;
+    await guarded(async()=>{
+      // The draft is read in the context of the read that holds the priced contracts, or not at all.
+      const priced=()=>catalog?.kind==='priced_contracts'&&!!holdings;
+      if(row().instrumentType==='future'&&!priced()){
+        await load('priced_contracts');
+        if(!priced())throw refuse('the Blotter could not be read with its priced contracts, so nothing was drafted');
+      }
+      const h=row(),control=bookingControl();if(!control.enabled)throw Error(control.reason);
+      unchanged(h);
+      const product=h.instrumentType==='future'?'futures' as const:'swaps' as const;
+      let drafted;
+      try{drafted=readCloseOutDraft(await api('trading/close-out-draft',closeOutRequest({snapshotId:snapshot,contextId:holdings!.context.contextId},h)),h.instrumentType==='future'?'future':'financial_swap');}
+      catch(error){
+        // The backend's own refusal is said in the details, in place of a form, and still refuses the operation; any other failure is the page's.
+        if((error as {code?:string}).code==='access_denied')clear();
+        refused=closeOutRefusal(error,h.tradeReference);if(!refused)throw error;
+        await showRefusal(refused);return;
+      }
+      const shown={reference:h.tradeReference},next:PanelMode={kind:'new',product};
+      // A draft a form cannot hold whole leaves no form, and the details as they were: never a part-filled form that could be booked.
+      try{
+        if(drafted.kind==='future'){await panel.show(next);booking.populate();booking.open();booking.closeOut(drafted,shown);}
+        else{resetForms();await panel.show(next);if(!await swapEditor.openCloseOut(drafted,shown))throw Error(`The close-out of ${h.tradeReference} was not opened, as the market selection changed while it was read.`);}
+      }catch(error){resetForms();await restoreDetails(before);throw error;}
+      showForm();
+    });
+    if(refused)throw refused;
+    const shown=panel.current();if(shown?.kind==='new'&&shown.product!==null)panel.focusForm();
+  }
+  // A refused draft leaves the details on New trade, saying why in place of a form: nothing was drafted.
+  async function showRefusal(refused:Error){
+    await panel.show(newTrade);
+    const said=document.createElement('p');said.id='close-out-refusal';said.className='side-panel-status';said.setAttribute('role','alert');
+    said.textContent=publicText(refused.message);panel.element('view').replaceChildren(said);panel.reveal();
+  }
+  // The details as they were before a close-out that could not be opened: the position they showed, if it is still on screen, or what else
+  // they showed, without a form; or closed.
+  async function restoreDetails(before:PanelMode){
+    if(before?.kind==='position'){
+      const index=holdings?.holdings.findIndex(h=>h.tradeId===before.tradeId&&h.bindingId===before.bindingId)??-1;
+      if(index>=0){await deskPanel.open(index);return;}
+      panel.reset();return;
+    }
+    if(before===null){panel.reset();return;}
+    await panel.show(before.kind==='new'?newTrade:before);
+  }
   // New trade (D221) opens the panel on its instrument-type choice with no product selected, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
   // What the panel held is left only when the person says so, which is asked before the page is busy.
@@ -337,7 +603,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   }
   function captureFilters(){if(!table)return;const state=table.state();view.query=state.query;view.columnFilters=Object.fromEntries(state.columns.flatMap((value,i)=>value===null||transientKeys.has(tableColumns[i])?[]:[[tableColumns[i],value]]));}
   // A view keeps the layout of its own columns: the Risk lens draws others, whose layout it never keeps.
-  function captureLayout(){captureFilters();if(table?.ready()&&!tableColumns.includes('riskShock'))view.grid=withoutColumns(table.layout(),transientKeys);}
+  function captureLayout(){captureFilters();if(table?.ready())view.grid=withoutColumns(table.layout(),transientKeys);}
   function readView():BlotterView{
     captureLayout();const next=structuredClone(view);next.mode=field('blotter-mode').value as BlotterView['mode'];next.sidebar=get<HTMLInputElement>('blotter-sidebar').checked;
     if(get<HTMLSelectElement>('blotter-books').options.length)next.bookIds=selected('blotter-books');
@@ -379,27 +645,98 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     savedViews=read.views;earlierViews=read.earlier;versions=new Map(saved.map(v=>[v.layout.name,v.version]));viewsLoaded=true;viewControls();
   }
 
-  const storageKey=()=>`openetrm.futures.request.server_booking_utc_v1.${options.profile()}`;
+  // A trade request whose outcome is unconfirmed stays with the window that sent it: the pop-out keeps its own, never the main window's, which
+  // its storage holds a copy of from when it opened.
+  const requestKey=(popout:boolean)=>`openetrm.futures.request.server_booking_utc_v1.${popout?'blotter-window.':''}${options.profile()}`;
+  const storageKey=()=>requestKey(options.window.kind==='popout');
+  // Where the pop-out hands an unconfirmed risk submission to the main window, which takes it over as its own.
+  const submissionKey=()=>`openetrm.risk.handed-submission.${options.profile()}`;
+  // The requests this window's storage keeps, which it now owns: a trade request it sent before a reload, or one the pop-out handed over
+  // as it closed, and a risk submission the pop-out handed over, which is then the report's to reconcile.
+  // A submission is taken from storage only once it is the report's: one refused stays there, said once, never lost.
+  let refusedSubmission:string|undefined;
+  function takeStoredRequest(){
+    const before=!!pending.command||risk.unconfirmed();
+    if(!pending.command)try{const saved=restoreTradeRequest(JSON.parse(sessionStorage.getItem(storageKey())??'null'));if(saved){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
+    if(options.window.kind==='main'){
+      let handed:string|null=null;try{handed=sessionStorage.getItem(submissionKey());}catch{/* No storage, nothing handed over. */}
+      if(handed!==null&&handed!==refusedSubmission){
+        try{risk.adopt(JSON.parse(handed));sessionStorage.removeItem(submissionKey());}catch(error){refusedSubmission=handed;options.failed(error);}
+      }
+    }
+    return !before&&(!!pending.command||risk.unconfirmed());
+  }
+  // The main window says in its storage that it keeps a risk submission of its own, which a pop-out's is then never handed over to replace.
+  const keptSubmissionKey=()=>`openetrm.risk.kept-submission.${options.profile()}`;
+  function markKeptSubmission(){
+    if(options.window.kind!=='main'||!owner)return;
+    try{if(risk.unconfirmed())sessionStorage.setItem(keptSubmissionKey(),'1');else sessionStorage.removeItem(keptSubmissionKey());}catch{/* Without storage no pop-out can be handed anything. */}
+  }
+  // Whether the pop-out's unconfirmed requests can go to the main window's storage, or why not: another request there is never overwritten,
+  // and one that cannot be read is never taken for this one.
+  // Each says what this window can then do with what it keeps (retainedActions).
+  const retainedKinds=()=>({trade:!!pending.command,risk:risk.unconfirmed()});
+  function handOverRefusal(storage:Storage):string|undefined{
+    const keeps=()=>retainedActions(retainedKinds());
+    try{
+      const there=storage.getItem(requestKey(false));
+      if(pending.command&&there!==null&&restoreTradeRequest(JSON.parse(there))?.operationId!==pending.command.operationId)
+        return `The main window already holds another unconfirmed trade request, so this window keeps its own: ${keeps()}.`;
+      if(risk.unconfirmed()&&(storage.getItem(submissionKey())!==null||storage.getItem(keptSubmissionKey())!==null))
+        return `The main window already holds a risk submission handed to it, so this window keeps its own: ${keeps()}.`;
+    }catch{return `The main window’s stored requests could not be read, so this window keeps its own: ${keeps()}.`;}
+    return undefined;
+  }
+  // The pop-out hands its unconfirmed trade request and risk submission to the main window's storage, under the account's keys there, as the
+  // Blotter goes back: they are then the main window's, with Check status, Retry and Reconcile, under their first identities. Undefined once
+  // handed over; otherwise why they stay.
+  function handOver(storage:Storage):string|undefined{
+    const why=handOverRefusal(storage);if(why)return why;
+    const submission=risk.handOff();
+    try{
+      if(pending.command)storage.setItem(requestKey(false),JSON.stringify(pending.command));
+      if(submission)storage.setItem(submissionKey(),JSON.stringify(submission));
+    }catch{return `The main window could not store the requests this window holds, so it keeps them: ${retainedActions(retainedKinds())}.`;}
+    if(pending.command){pending.clear();uncertain=false;store();}
+    if(submission)risk.handedOff();
+    sync();return undefined;
+  }
+  // A request a pop-out handed over waits in this window's storage until its next idle look. A command of this window's own takes it over
+  // first, so that storing the command never writes over it, and the command is then refused while it is outstanding, as any is (D238).
+  function takeHanded(){if(takeStoredRequest())sync();}
   function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The current visit still retains the exact in-memory request. */}}
   function restore(){
-    if(owner===options.profile())return;
-    owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();forgetViews();draftBase=undefined;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Positions');workspace.closeMenus();viewControls();
-    try{const saved=restoreTradeRequest(JSON.parse(sessionStorage.getItem(storageKey())??'null'));if(saved){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
+    if(owner===options.profile()){takeStoredRequest();return;}
+    owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();showPanes();forgetViews();draftBase=undefined;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Positions');workspace.closeMenus();viewControls();
+    takeStoredRequest();
   }
-  // The risk report is the panel's Risk report mode, and the tile says whether it is open, a queued run is under way, or a run's results are
-  // on the desk, or at another context. The report tells the page whenever what it shows changes, also when a queued part finishes on its
-  // own timer.
+  // The risk report is the panel's Risk report mode, and the strip says whether it is open, a queued run is under way, or a run's results
+  // are on the desk, or at another context. The report tells the page whenever what it shows changes, also when a queued part finishes on
+  // its own timer.
   function renderRisk(){
     if(!holdings)return;
-    const denial=options.canRunRisk()?null:riskDenied,shown=inline?.state==='shown'?inline:undefined,run=risk.current();
-    // A run on the desk is stated as it stands: its results, refused or made elsewhere; or none at all, as no part has any.
-    const tile:RiskTile=shown?{state:'results',denial,busy:busy(),results:tileResults(shown)}
-      :inline?.state==='failed'?{state:'refused',reason:inline.reason,denial,busy:busy()}
-      :inline?.state==='elsewhere'?{state:'elsewhere',denial,busy:busy()}
-      :run&&!run.running&&!run.parts.some(p=>p.report)?{state:'empty',reason:gapsText(runGaps(run)),denial,busy:busy()}
-      :{state:risk.running()?'running':panel.current()?.kind==='risk'?'open':'none',denial,busy:busy()};
-    renderRiskTile(get('desk-tile-risk'),tile,()=>void openRiskReport());
-    showRunBar();
+    drawStrip();showRunBar();
+  }
+  // What the strip says of risk: a run on the desk as it stands, its results, refused or made elsewhere, or none at all, as no part has
+  // any; before a run, whether its report is open or a queued run is under way, or what running one does, or why this account cannot.
+  function stripRisk():StripRisk{
+    const run=risk.current();
+    if(inline?.state==='shown')return riskResults(inline);
+    if(inline?.state==='failed')return {state:'unavailable',value:'Results not shown',reason:inline.reason};
+    if(inline?.state==='elsewhere')return {state:'unavailable',value:'Results made elsewhere',reason:'The run on screen was made at another close, context or books than the Blotter read on screen. Export downloads its results.'};
+    if(run&&!run.running&&!run.parts.some(p=>p.report))return {state:'unavailable',value:'No results',reason:gapsText(runGaps(run))};
+    if(risk.running())return {state:'pending',value:'Running',reason:'A queued risk run is under way. Its results will show here and in the positions.'};
+    if(panel.current()?.kind==='risk')return {state:'pending',value:'Set up in the panel',reason:'The risk report is open in the details.'};
+    return {state:'none',reason:options.canRunRisk()?'Revalue the books on screen under shared market shocks.':riskDenied};
+  }
+  // The summary strip of the read on screen; the previous read's, stale, while the Blotter is read again or after that read failed; or,
+  // while a first read's values are pending or failed, the positions read and why the totals are not shown.
+  function drawStrip(){
+    const host=get('blotter-strip');
+    if(holdings&&summaries){strip=summaryStripItems(summaries,{count:holdings.holdings.length,unvalued:holdings.unvaluedPositions},stripRisk(),money);renderSummaryStrip(host,strip);return;}
+    if(kept?.strip){renderSummaryStrip(host,staleStripItems(kept.strip,loading?.state==='failed'?failedStale[loading.read]:staleReason));return;}
+    if(!facts){host.replaceChildren();return;}
+    renderSummaryStrip(host,waitingStripItems(loading?.state==='failed'?{state:'unavailable',reason:loading.read==='count'?'Retry to read again':'Retry to value again'}:{state:'pending',reason:'Complete selected scope is being valued'},facts.total,money));
   }
   // What the run bar says of the run on screen, or nothing while there is none.
   function showRunBar(){
@@ -465,20 +802,18 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   const lensShown=()=>lens==='risk'&&inline?.state==='shown'&&view.mode==='trades';
   // The Ladder lens shows a run's per-factor totals in place of the trade rows (D230).
   const ladderOn=()=>lens==='ladder'&&inline?.state==='shown'&&view.mode==='trades';
-  // What the risk tile shows of a run's results: its largest move in each currency, the largest known one while a part has no results,
-  // which position it is and why, and each position's own largest move as a small bar; or that nothing moves; with what the run leaves out,
-  // which positions are not known and why.
-  function tileResults(shown:Extract<Inline,{state:'shown'}>):RiskTileResults{
-    const held=holdings!.holdings,rows=positionRows(held),at=new Map(held.map((h,i)=>[positionKey(h),i])),run=risk.current();
+  // What the strip states of a run's results: what it ran and its shock count, its largest move in each currency, the largest known one
+  // while a part has no results, which position it is and why; or that nothing moves; with what the run leaves out, which positions are
+  // not known and why.
+  function riskResults(shown:Extract<Inline,{state:'shown'}>):StripRisk{
+    const held=holdings!.holdings,at=new Map(held.map((h,i)=>[positionKey(h),i])),run=risk.current();
     const unknown=shown.gaps.length?[...shown.cells.values()].filter(cell=>!cell.shocks.length).length:0;
     const words=tileWords({largest:shown.summary.largest.length,gaps:shown.gaps,unknown,excluded:shown.excluded.length});
-    return {label:`Risk · ${run?.setup?tileReports[run.setup.report]:'retained run'}`,count:run?shocksText(shockCount(run)):'',note:words.note,empty:words.empty,
-      rows:shown.summary.largest.map(largest=>{
-        const index=at.get(largest.positionKey)!,money=holdingFormats(held[index]).money;
-        const bars=held.flatMap(h=>{const key=positionKey(h),cell=shown.cells.get(key),move=cell&&largestMove(key,cell);
-          return move&&move.shock.currencyKey===largest.shock.currencyKey?[{value:move.change,title:`${move.tradeReference} · ${signedText(move.change,holdingFormats(h).money)} ${move.shock.currency} if ${move.shock.label} moves ${move.direction}`}]:[];});
-        return {currency:largest.currency,text:signedText(largest.change,money),exact:largest.change,sign:signOf(largest.change),
-          hint:`${words.lead}: ${largest.tradeReference} · ${rows[index].market}, if ${largest.shock.label} moves ${largest.direction}`,bars,scale:largest.change.replace(/^-/,'')};
+    return {state:'results',label:['Risk',run?.setup?tileReports[run.setup.report]:'retained run',...(run?[shocksText(shockCount(run))]:[])].join(' · '),note:words.note,empty:words.empty,
+      moves:shown.summary.largest.map(largest=>{
+        const h=held[at.get(largest.positionKey)!];
+        return {currency:largest.currency,text:signedText(largest.change,holdingFormats(h).money),exact:largest.change,sign:signOf(largest.change),
+          hint:`${words.lead}: ${largest.tradeReference} · ${positionRows([h])[0].market}, if ${largest.shock.label} moves ${largest.direction}`};
       })};
   }
   // What the Risk lens shows of a position: the shocks that move it; that nothing moves it, or, while a part has no results, that it is
@@ -522,20 +857,51 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     if(control.reason===null)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby','new-trade-availability');
   }
   function sync(){
+    markKeptSubmission();
     // Release the rows before restoring their control's focus. On entry to
     // busy, position.sync captures that focus before the rows become inert.
     if(!busy())workspace.busy(false);
-    const awaitingValues=!!facts&&!holdings;get('blotter-workspace').querySelectorAll<HTMLElement>('.table-menu').forEach(menu=>{menu.inert=busy()||awaitingValues&&menu.id!=='blotter-scope';});field('blotter-saved').disabled=busy()||awaitingValues;factsMore.hidden=!facts||facts.nextOffset===null||!!holdings;factsMore.disabled=busy()||factsPaging;syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();options.tickets.sync();syncProductPending();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
-  function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;for(const id of ['desk-tile-swapPv','desk-tile-futuresPnl','desk-tile-positions','desk-tile-risk'])get(id).replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));}
-  function cancelIndividual(){individualController?.abort();individualController=undefined;openingFact=undefined;}
-  function cancelRead(){generation++;pricingController?.abort();pricingController=undefined;cancelIndividual();}
-  function clear(){cancelRead();individual=undefined;factsGrid=undefined;factsLayout=emptyGridLayout();facts=undefined;factsPaging=false;factsMore.hidden=true;get('futures-page').dataset.pricingState='empty';delete get('futures-page').dataset.pricingContext;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';ladderTable=undefined;ladderShown=undefined;inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;text('header-calculation-time','');get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');sync();}
+    const awaitingValues=!holdings&&loading!==undefined;get('blotter-workspace').querySelectorAll<HTMLElement>('.table-menu').forEach(menu=>{menu.inert=busy()||awaitingValues&&menu.id!=='blotter-scope';});field('blotter-saved').disabled=busy()||awaitingValues;get<HTMLButtonElement>('blotter-retry').disabled=busy();
+    // Rows on screen while no valued read is, kept stale from the previous one, are not offered: opening them only says why.
+    const grid=get('desk-positions').querySelector('[role=grid]');if(holdings)grid?.removeAttribute('aria-disabled');else grid?.setAttribute('aria-disabled','true');syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();options.tickets.sync();syncProductPending();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+  function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;get('blotter-strip').replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));for(const id of ['desk-chart-books','desk-chart-mix'])get(id).replaceChildren(get(id).querySelector('h3')!);}
+  function cancelRead(){generation++;pricingController?.abort();pricingController=undefined;}
+  function clear(){clearRead(false);}
+  // A read again keeps on screen what the read before drew, its rows and the summary strip, charts and summary line, all marked stale
+  // with the reason until the new values land.
+  const staleReason='Reading the Blotter again · these values are from the previous read.',failedStale={
+    valuation:'The Blotter could not be valued again · these values are from the previous read.',count:'The positions could not be counted again · these values are from the previous read.'};
+  // Each pane that keeps values on screen says why itself, so the reason shows whichever panes are open.
+  const staleNote=(id:string,host:HTMLElement)=>{const note=document.createElement('p');note.id=id;note.className='table-stale-note';note.setAttribute('role','status');note.hidden=true;host.prepend(note);return note;};
+  const staleNotes=[staleNote('desk-stale-note',get('desk')),staleNote('charts-stale-note',get('blotter-pane-charts')),staleNote('details-stale-note',get('blotter-pane-details'))];
+  // The grid's own mark is cleared by the grid once its new rows are in (`rows:false`); a pivot's chart's once it is read (`chart:false`).
+  function markStale(reason:string|null,rows=true,chart=true){
+    if(rows)workspace.stale(reason);
+    for(const id of ['desk','desk-charts',...(chart?['blotter-chart-card']:[]),'futures-summary','position-details'])get(id).classList.toggle('stale',reason!==null);
+    for(const note of staleNotes)if(chart||note.id!=='charts-stale-note'){note.textContent=reason??'';note.hidden=reason===null;}
+  }
+  // Forgets the read on screen. A new read for the same account keeps what the page draws, its rows marked stale, so the read arriving
+  // changes the grid in place and the person keeps their place in it; the panel closes as it does for any new read.
+  function clearRead(keepGrid:boolean){
+    kept=keepGrid?{strip:strip??kept?.strip}:undefined;strip=undefined;
+    // A read again keeps the position the details show, which the read arriving draws again (deskPanel.sync) or, when it no longer holds it,
+    // closes; anything else the details hold closes now.
+    const keepDetails=keepGrid&&panel.current()?.kind==='position';
+    if(keepGrid){if(!keepDetails)table?.selectRow(null);markStale(staleReason);}else markStale(null);
+    cancelRead();facts=undefined;arrived=[];showLoad(undefined);get('futures-page').dataset.pricingState='empty';delete get('futures-page').dataset.pricingContext;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';ladderTable=undefined;ladderShown=undefined;inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;if(!keepDetails)deskPanel.reset();lastReadRequest=undefined;text('header-calculation-time','');
+    // The summary strip kept is drawn stale now: a read for the priced contracts reads no position count, which would draw it.
+    if(keepGrid)drawStrip();
+    if(!keepGrid){get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');}
+    sync();}
   // Starts the Blotter afresh: for another close or context, or for the Blotter opened again, each of which says so of a risk run it
   // clears; or, for another account, saying nothing, as everything the page held goes.
-  function reset(cause:ReadCause|null){if(cause)replaceRead(cause);else clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
+  function reset(cause:ReadCause|null){
+    // Another account ends a Blotter popped out for the last one, which the account's change said first.
+    if(cause===null&&tie?.out()){tie.end('account_changed');placeWindow();}
+    if(cause)replaceRead(cause);else clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
   // A new read of the Blotter replaces the one a run on screen was made at: the run is cleared and the page says why (D222). A live
   // correction and a settlement record say so in their own words.
-  function replaceRead(cause:ReadCause){if(risk.current())options.notice(readNotes[cause]);clear();}
+  function replaceRead(cause:ReadCause,keepGrid=false){if(risk.current())options.notice(readNotes[cause]);clearRead(keepGrid);}
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
@@ -554,18 +920,17 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     if(!catalog||!holdings||!summaries)return;
     const pivot=view.mode==='pivot',colors=commodityColors(holdings.holdings.map(h=>h.commodity.code));
     // Everything the desk shows is selected from the read before anything is drawn, so a read the desk refuses leaves the
-    // desk on screen whole, and never new tiles and rows beside the old charts. The tiles summarize the read in both display
-    // modes; the two charts and grouped positions are the trade-row desk.
-    const tiles=summaryTiles(summaries),[swapPv,futuresPnl]=tiles,mix=positionsTile(summaries,holdings.holdings.length,holdings.unvaluedPositions);
+    // desk on screen whole, and never a new strip and rows beside the old charts. The strip, the totals by book and the position mix
+    // summarize the read in both display modes; the two market charts and grouped positions are the trade-row desk.
+    const items=summaryStripItems(summaries,{count:holdings.holdings.length,unvalued:holdings.unvaluedPositions},stripRisk(),money);
+    const tiles=summaryTiles(summaries),mix=positionsTile(summaries,holdings.holdings.length,holdings.unvaluedPositions);
     const plan=pivot?undefined:planDesk(colors);
     // A new future's form in the panel is filled again from the read, keeping what the person chose and typed that it still offers.
     if(booking.mounted())booking.populate();
-    const scope=options.profile()+':'+snapshot+':'+catalog.context.contextId;
-    get('desk').hidden=false;get('desk-charts').hidden=pivot;
-    renderMoneyTile(get('desk-tile-swapPv'),'Swap PV','swap',swapPv,money);
-    renderMoneyTile(get('desk-tile-futuresPnl'),'Futures execution P&L','future',futuresPnl,money);
-    for(const [key,label] of [['heatRatePv','Heat-rate PV'],['ppaValue','PPA value excluding overdue cash'],['gasPv','Gas contractual PV']] as const){let host=document.getElementById('desk-tile-'+key);const tile=tiles.find(t=>t.key===key);if(!host&&tile){host=document.createElement('section');host.id='desk-tile-'+key;host.className='desk-tile';get('desk-tile-swapPv').parentElement!.append(host);}if(host){host.hidden=!tile;if(tile)renderMoneyTile(host,label,key==='ppaValue'?'PPA':key==='gasPv'?'gas trade':'heat-rate swap',tile,money);}}
-    renderPositionsTile(get('desk-tile-positions'),mix,colors);
+    // The grid is built once for an account and a kind of rows; new reads, grouping, columns and filters change it in place.
+    const scope=options.profile();
+    get('desk').hidden=false;get('desk-charts').hidden=false;get('desk-chart-pv').hidden=get('desk-chart-position').hidden=pivot;
+    strip=items;renderSummaryStrip(get('blotter-strip'),items);renderBookBars(get('desk-chart-books'),tiles,money);renderPositionMix(get('desk-chart-mix'),mix,colors);
     if(plan)renderDesk(scope,colors,plan);else renderPivot(scope);
     text('blotter-table-title',pivot?view.splitBy.length?'Pivot table':'Pivot summary':ladderOn()?'Delta ladder · grouped by curve':view.rowGroup===null?'Positions':`Positions · grouped by ${rowGroupLabel(view.rowGroup).toLowerCase()}`);
     // The ladder groups its rows by curve, so the trade rows' grouping is not offered beside it.
@@ -575,7 +940,12 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
       {label:'Columns',values:view.splitBy.map(d=>groupChoices.find(c=>c[0]===d)![1])},
       {label:'Values',values:view.measures.map(m=>measureChoices.find(c=>c[0]===m)![1])},
     ]:[]);
-    text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();deskPanel.sync();drawContract();
+    text('futures-summary',`${holdings.holdings.length} trade bindings · ${holdings.evaluatedContracts} evaluated futures contract prices. Financial swaps are valued from their side schedules.`);
+    // Drawn whole: what was kept on screen stale is current again, but for a pivot's chart, which is read after the rows and stays marked
+    // until it is (renderChartPanels). A draw that fails above leaves it marked.
+    const chartComing=pivot&&view.chart.visible&&get('blotter-chart-card').classList.contains('stale');
+    kept=undefined;markStale(null,false,!chartComing);
+    options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();deskPanel.sync();drawContract();
   }
   // What the trade rows' desk shows, selected from the read: its rows, their trade fields, its group headers and its two charts.
   function planDesk(colors:ReadonlyMap<string,string>){
@@ -584,43 +954,11 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
       pvPanels:pvChartPanels(summaries!,colors,money),positionPanels:positionChartPanels(summaries!,held,colors,quantity)};
   }
   function renderDesk(scope:string,colors:ReadonlyMap<string,string>,plan:ReturnType<typeof planDesk>){
-    const held=holdings!.holdings,{rows,fields,groups}=plan,shown=lensShown()?inline as Extract<Inline,{state:'shown'}>:undefined;
+    const held=holdings!.holdings,{rows,groups}=plan,shown=lensShown()?inline as Extract<Inline,{state:'shown'}>:undefined;
     const formats=held.map(holdingFormats);
     // The Ladder lens draws the run's per-factor totals in place of the trade rows (D230); the charts below are drawn either way.
     if(ladderOn())renderLadder(scope);
-    else{
-      ladderTable=undefined;ladderShown=undefined;
-      // Every other trade column is present, shown when the view chooses it, so a filter on a hidden one stays active. Under the Risk lens
-      // the price, mark, value and curve columns give way to the shock, its changes and the delta (D222).
-      const details=tradeColumns.filter(([key])=>!(deskFields as readonly string[]).includes(key));
-      const head=shown?riskColumns:deskColumns,columns=[...head,...details];
-      tableColumns=columns.map(c=>c[0]);transientKeys=new Set(['curve',...riskKeys]);
-      const numeric=tableColumns.flatMap((key,i)=>i>=head.length?(numericFields.includes(key)?[i]:[]):['quantity','executionPrice','mark','presentValue','riskUp','riskDown','riskDelta'].includes(key)?[i]:[]);
-      const lenses=shown?held.map((h,i)=>lensRow(shown,h,rows[i])):undefined;
-      // A lens cell sorts and filters by its exact amount, which only a position one shock moves has; the others by their words.
-      const single=(i:number)=>lenses?.[i].state==='shocks'&&lenses[i].shocks.length===1?lenses[i].shocks[0]:undefined;
-      const lensWords=(i:number)=>{const lens=lenses![i];return lens.state==='left'?'Left out':lens.state==='unmoved'?'Not moved':lens.state==='unknown'?'Not known'
-        :lens.shocks.length>1?`${lens.shocks.length} shocks`:`±${lens.shocks[0].bump} ${lens.shocks[0].unit}`;};
-      const values=rows.map((row,i)=>shown?[row.reference,row.market,row.quantity??'',lensWords(i),single(i)?.up??'',single(i)?.down??'',single(i)?.delta??'',...details.map(([key])=>fields[i][key]??'')]
-        :[row.reference,row.market,row.quantity??'',row.price??'',row.mark??'',row.value??'','',...details.map(([key])=>fields[i][key]??'')]);
-      const headers=new Map(groups?.headers.map(h=>[h.key,h])??[]);
-      const cells=deskCells(rows,colors,{money:(i,value)=>formats[i].money(value),quantity:(i,value)=>formats[i].quantity(value),price:(i,value)=>formats[i].price(value),mark:(i,value)=>formats[i].mark(value),
-        factor:(i,value)=>formats[i].factor(value)},i=>shapeOf(held[i]),tableColumns,lenses&&(i=>lenses[i]));
-      // How many of a book's, or an instrument type's, positions the run leaves out, by the book and instrument type the run names for each.
-      const leftOut=(key:string)=>shown?shown.excluded.filter(e=>view.rowGroup==='book'?e.bookId===key:view.rowGroup==='instrumentType'?e.instrumentType===key:false).length:0;
-      table=workspace.render('desk-positions',scope+JSON.stringify([view.mode,view.rowGroup,view.bookIds,view.portfolioIds,view.query,view.columnFilters,shown?'risk':'values']),columns.map(c=>c[1]),values,numeric,busy,{
-        keys:tableColumns,cells,searchText:rows.map((row,i)=>shown?`${row.words} ${lensWords(i)}`:row.words),visual:shown?[]:[curveColumn],giveUp:dockedGiveUp(),rowHeight:46,stretch:true,
-        visible:columns.map(([key],i)=>i<head.length||view.columns.includes(key)),
-        // The Risk lens keeps the widths of the columns it shares with the view, and is laid out afresh: a saved view never keeps it.
-        layout:shown?{order:riskColumns.map(([key])=>key),widths:view.grid.widths,sort:view.grid.sort.filter(s=>riskColumns.some(([key])=>key===s.key))}:view.grid,
-        onLayout:layout=>{if(!shown)view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
-        group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>shown?riskGroupHeader(headers.get(key)!,count,leftOut(key)):groupHeader(headers.get(key)!,count,money)}:undefined,
-        initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
-        onRowOpen:index=>void deskPanel.open(index,undefined,false),onRowDoubleOpen:index=>{const h=held[index];popout({...h,revision:Number(h.revision),instrumentType:h.instrumentType as PositionFact['instrumentType']});}});
-      workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>{
-        if(busy())return;captureLayout();view.columns=selected;render();
-      },[...deskFields]);
-    }
+    else drawTrades(scope,held,colors,{rows,fields:plan.fields,groups,formats},shown);
     renderDeskCharts(get('desk-chart-pv'),plan.pvPanels,'No swaps in the selected books');
     // After a run, the long and short chart becomes the change if each contract moves up; it leaves out what the run leaves out (D220).
     const charted=shown??(ladderOn()?inline as Extract<Inline,{state:'shown'}>:undefined);
@@ -632,6 +970,41 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
       renderDeskCharts(get('desk-chart-position'),change.panels,noMoveText(charted.gaps),[...(excluded?[excluded]:[]),...(unmoved?[unmoved]:[])]);
     }else renderDeskCharts(get('desk-chart-position'),plan.positionPanels,'No positions in the selected books');
     drawn={rows,colors};
+  }
+  // The trade rows of these positions, under the groups given or none, with the Risk lens's results when it shows them.
+  function drawTrades(scope:string,held:Holding[],colors:ReadonlyMap<string,string>,{rows,fields,groups,formats}:{rows:DeskRow[];fields:Record<string,string|null>[];groups:ReturnType<typeof deskGroups>;formats:ReturnType<typeof holdingFormats>[]},shown?:Extract<Inline,{state:'shown'}>){
+    ladderTable=undefined;ladderShown=undefined;
+    // Every other trade column is present, shown when the view chooses it, so a filter on a hidden one stays active. Both lenses' columns
+    // are present too, and switching the lens shows the other's in place (tradeHead).
+    const details=tradeColumns.filter(([key])=>!(deskFields as readonly string[]).includes(key));
+    const head=tradeHead,columns=[...head,...details];
+    tableColumns=columns.map(c=>c[0]);transientKeys=new Set(['curve',...riskKeys]);
+    const numeric=tableColumns.flatMap((key,i)=>i>=head.length?(numericFields.includes(key)?[i]:[]):['quantity','executionPrice','mark','presentValue','riskUp','riskDown','riskDelta'].includes(key)?[i]:[]);
+    const lenses=shown?held.map((h,i)=>lensRow(shown,h,rows[i])):undefined;
+    // A lens cell sorts and filters by its exact amount, which only a position one shock moves has; the others by their words.
+    const single=(i:number)=>lenses?.[i].state==='shocks'&&lenses[i].shocks.length===1?lenses[i].shocks[0]:undefined;
+    const lensWords=(i:number)=>{const lens=lenses![i];return lens.state==='left'?'Left out':lens.state==='unmoved'?'Not moved':lens.state==='unknown'?'Not known'
+      :lens.shocks.length>1?`${lens.shocks.length} shocks`:`±${lens.shocks[0].bump} ${lens.shocks[0].unit}`;};
+    const values=rows.map((row,i)=>[row.reference,row.market,row.quantity??'',row.price??'',row.mark??'',row.value??'','',
+      ...(shown?[lensWords(i),single(i)?.up??'',single(i)?.down??'',single(i)?.delta??'']:['','','','']),...details.map(([key])=>fields[i][key]??'')]);
+    const headers=new Map(groups?.headers.map(h=>[h.key,h])??[]);
+    const cells=deskCells(rows,colors,{money:(i,value)=>formats[i].money(value),quantity:(i,value)=>formats[i].quantity(value),price:(i,value)=>formats[i].price(value),mark:(i,value)=>formats[i].mark(value),
+      factor:(i,value)=>formats[i].factor(value)},i=>shapeOf(held[i]),tableColumns,lenses&&(i=>lenses[i]));
+    // How many of a book's, or an instrument type's, positions the run leaves out, by the book and instrument type the run names for each.
+    const leftOut=(key:string)=>shown?shown.excluded.filter(e=>view.rowGroup==='book'?e.bookId===key:view.rowGroup==='instrumentType'?e.instrumentType===key:false).length:0;
+    table=workspace.update('desk-positions',scope+':trades',columns.map(c=>c[1]),values,numeric,busy,{
+      keys:tableColumns,rowKeys:held.map(rowKey),cells,searchText:rows.map((row,i)=>shown?`${row.words} ${lensWords(i)}`:row.words),visual:[curveColumn],rowHeight:46,stretch:true,
+      visible:columns.map(([key],i)=>riskOnly.has(key)?!!shown:valuesOnly.has(key)?!shown:i<head.length||view.columns.includes(key)),
+      // The Risk lens's columns follow the position's size; a saved view never keeps them (transientKeys).
+      layout:{...view.grid,order:view.grid.order.flatMap(key=>key==='quantity'?[key,...riskOnly]:[key])},
+      onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
+      group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>shown?riskGroupHeader(headers.get(key)!,count,leftOut(key)):groupHeader(headers.get(key)!,count,money)}:undefined,
+      initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
+      // A row opened is brought into view once the details have taken their room, when they leave it beneath the grid's foot.
+      onRowOpen:index=>perform({kind:'selectPosition',key:rowKey(held[index])}).then(shown=>shown===true),
+      onRowSelect:index=>holdings&&following()?perform({kind:'selectPosition',key:rowKey(held[index])},{placed:true}).then(shown=>shown===true):true,
+      onRowEscape:()=>void perform({kind:'details',open:false}),onRowMenu:(index,at)=>openRowMenu(held[index],at),onRowDoubleOpen:index=>popout(held[index])});
+    workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>void perform({kind:'chooseColumns',columns:selected}),[...deskFields]);
   }
   // The reports of the run on screen whose parts have results: a part that failed or has none is said so by the run bar, never read as zero.
   const shownReports=()=>inline?.state==='shown'?risk.current()?.parts.flatMap(p=>p.report?[p.report]:[])??[]:[];
@@ -653,8 +1026,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     };
     const groupKeys=ladder.groups.flatMap(g=>g.rows.map(()=>g.key)),titles=new Map(ladder.groups.map(g=>[g.key,g.title]));
     table=undefined;ladderShown=exported;
-    ladderTable=workspace.render('desk-positions',scope+JSON.stringify(['ladder',ladderValue,view.bookIds,view.portfolioIds]),exported.headers,exported.rows,exported.numeric,busy,{
-      keys,displayRows:display,cells,searchText:display.map(row=>row.join(' ')),rowHeight:40,stretch:true,giveUp:[],
+    ladderTable=workspace.update('desk-positions',scope+':ladder',exported.headers,exported.rows,exported.numeric,busy,{
+      keys,rowKeys:rows.map(row=>row.factorId),displayRows:display,cells,searchText:display.map(row=>row.join(' ')),rowHeight:40,stretch:true,
       visible:keys.map(key=>!['curve','priceUnit','value'].includes(key)),layout:{order:keys,widths:{contract:150,coordinate:120,shock:190,...Object.fromEntries(ladder.columns.map((_,i)=>['book'+i,180]))},sort:[]},onLayout:()=>{},onReady:sync,
       group:{keys:groupKeys,order:ladder.groups.map(g=>g.key),header:(key,count)=>{const head=document.createElement('span');head.className='desk-group-head';
         head.textContent=publicText(`${titles.get(key)} · ${count} ${count===1?'shock':'shocks'}, each on its own`);return head;}},
@@ -683,7 +1056,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
       const held=holdings?.holdings.find(h=>positionKey(h)===position.key),format=held?holdingFormats(held):undefined;
       button.append(node('span','',`${position.tradeReference} · ${position.label}`),node('span','',`${format?(ladderValue==='delta'?format.factor:format.money)(position.exact):position.exact} ${position.unit}`));
       button.title=publicText(`${position.exact} ${position.unit}`);
-      button.onclick=()=>{const index=holdings?.holdings.findIndex(h=>positionKey(h)===position.key)??-1;if(index>=0)void deskPanel.open(index);else options.notice(`${position.tradeReference} is not in this Blotter read.`);};
+      button.onclick=()=>{const held=holdings?.holdings.find(h=>positionKey(h)===position.key);if(held)void perform({kind:'selectPosition',key:rowKey(held)});else options.notice(`${position.tradeReference} is not in this Blotter read.`);};
       item.append(button);list.append(item);
     }
     panel.element('view').replaceChildren(
@@ -699,12 +1072,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     if(projectsFromSeveralCurves(h))return severalCurvesShape;
     return shapes.curves.get(h.curve)??'Curve shape unavailable';
   }
-  // The position at a row of the read on screen, as the side panel draws it; nothing while the desk draws no positions.
+  // The position at a row of the read on screen, as the details draw it; nothing while the desk draws no positions.
   function positionInput(index:number):PositionInput|undefined{
-    const h=panelHoldings()?.[index];if(!h)return;
-    const row=holdings?drawn?.rows[index]:positionRows([h])[0];if(!row)return;
-    return {holding:h,row,formats:holdingFormats(h),shape:holdings?shapeOf(h):'Open the market to inspect its curve.',
-      color:(holdings?drawn?.colors:commodityColors([h.commodity.code]))?.get(row.commodity)!,risk:positionRisk(h,row)};
+    const h=panelHoldings()?.[index],row=drawn?.rows[index];if(!h||!row)return;
+    return {holding:h,row,formats:holdingFormats(h),shape:shapeOf(h),color:drawn!.colors.get(row.commodity)!,risk:positionRisk(h,row)};
   }
   function renderPivot(scope:string){
     const read=holdings!;drawn=undefined;
@@ -734,11 +1105,12 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
       if(measure==='quantity')return amountText(value,'quantity');
       return value;
     }));
-    table=workspace.render('desk-positions',scope+JSON.stringify([view.mode,view.groupBy,view.measures,view.bookIds,view.portfolioIds,view.query,view.columnFilters]),gridColumns.map(c=>c.title),rawRows.map(row=>gridColumns.map(c=>row[c.key]??'')),gridColumns.flatMap((c,i)=>c.numeric?[i]:[]),busy,{displayRows,keys:tableColumns,columnGroups:matrix?Object.fromEntries(matrix.columns.filter(c=>c.groupKey).map(c=>[c.key,{key:c.groupKey!,title:c.groupTitle!,measureTitle:c.measureTitle!}])):undefined,layout:view.grid,onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,visible:gridVisible,initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true});
-    workspace.columns(columns,columns.filter((_,i)=>visible[i]).map(c=>c[0]),selected=>{
-      if(busy())return;
-      if(!selected.length){render();return;}captureLayout();view.columns=selected;render();
-    },required);
+    // A pivot row is named by its labels, the values of its columns that are not measures; rows its labels do not tell apart, by their order.
+    const seen=new Map<string,number>();
+    const rowKeys=rawRows.map(row=>{const label=gridColumns.filter(c=>!c.numeric).map(c=>row[c.key]??'').join('\u0000'),repeat=seen.get(label)??0;seen.set(label,repeat+1);return repeat?label+'\u0000'+repeat:label;});
+    table=workspace.update('desk-positions',scope+':pivot',gridColumns.map(c=>c.title),rawRows.map(row=>gridColumns.map(c=>row[c.key]??'')),gridColumns.flatMap((c,i)=>c.numeric?[i]:[]),busy,{displayRows,keys:tableColumns,rowKeys,columnGroups:matrix?Object.fromEntries(matrix.columns.filter(c=>c.groupKey).map(c=>[c.key,{key:c.groupKey!,title:c.groupTitle!,measureTitle:c.measureTitle!}])):undefined,layout:view.grid,onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,visible:gridVisible,initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true});
+    // No column chosen is no choice: the choices are drawn again as they were.
+    workspace.columns(columns,columns.filter((_,i)=>visible[i]).map(c=>c[0]),selected=>{if(selected.length)void perform({kind:'chooseColumns',columns:selected});else if(!busy())render();},required);
     get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(required.includes(n.value)){n.checked=true;n.disabled=true;}});
   }
 
@@ -746,86 +1118,38 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   function requireCurrentRead(started:number,scope:string){
     if(started!==generation||whereAmI()!==scope)throw Error('The account or market selection changed. Reload the Blotter before continuing.');
   }
-  function pendingTile(id:string,label:string,value:string,note:string){
-    const title=document.createElement('h3'),number=document.createElement('div'),help=document.createElement('p');
-    title.className='desk-tile-title';title.textContent=label;number.className='kpi-value';number.textContent=value;help.className='desk-tile-note';help.textContent=note;
-    get(id).replaceChildren(title,number,help);
+  /**
+   * The streaming hook: a batch of complete, valued rows of the read under way, in the backend's order. They are kept until the read is
+   * whole, and the batch that completes it, its summaries in, draws the desk; today the whole valued set is that one batch. Drawing rows
+   * as they arrive is the streaming work's: a grouped grid's headers state the backend's subtotals, which come only with the whole read,
+   * and the grid refuses rows added under groups (data-grid appendRows).
+   */
+  function acceptValuedRows(batch:Holding[]){arrived=[...arrived,...batch];if(holdings)render();}
+  // A read whose values or count failed keeps what the previous read drew, marked stale, or, on a first load, no rows; the grid pane says which
+  // failed and why, with Retry.
+  function readFailed(error:unknown,read:'count'|'valuation'){
+    get('futures-page').dataset.pricingState='failed';
+    showLoad({state:'failed',read,reason:error instanceof Error&&error.message?error.message:read==='count'?'The positions could not be counted.':'The positions could not be valued.'});
+    if(kept)markStale(failedStale[read]);
+    drawStrip();sync();
   }
-  function renderFacts(message?:string){
-    if(!facts)return;
-    const failed=get('futures-page').dataset.pricingState==='failed',value=failed?'Unavailable':'Pending',note=failed?'Refresh to retry valuation':'Complete selected scope is being valued';
-    message??=failed?'Values and totals unavailable. Refresh to retry':'Values and totals pending';
-    get('desk').hidden=false;get('desk-charts').hidden=true;get('blotter-chart-card').hidden=true;
-    pendingTile('desk-tile-swapPv','Swap PV',value,note);
-    pendingTile('desk-tile-futuresPnl','Futures execution P&L',value,note);
-    pendingTile('desk-tile-positions','Position bindings',String(facts.total),`${facts.positions.length} loaded`);
-    pendingTile('desk-tile-risk','Risk','Not run','Available after the complete valuation');
-    for(const [key,type,label] of [['heatRatePv','heat_rate','Heat-rate PV'],['ppaValue','ppa','PPA value excluding overdue cash'],['gasPv','physical_gas','Gas contractual PV']] as const){
-      const present=facts.positions.some(position=>position.instrumentType===type);let tile=document.getElementById('desk-tile-'+key);
-      if(present&&!tile){tile=document.createElement('section');tile.id='desk-tile-'+key;tile.className='desk-tile';get('desk-tile-swapPv').parentElement!.append(tile);}
-      if(tile){tile.hidden=!present;if(present)pendingTile(tile.id,label,value,note);}
-    }
-    text('blotter-table-title',failed?'Booked positions · valuation unavailable':'Booked positions · values pending');get('blotter-row-group-control').hidden=true;workspace.describe([]);
-    const rows=facts.positions.map(position=>[position.tradeReference,position.book,friendly(position.instrumentType),position.marketLabel??'—',
-      position.deliveryFrom&&position.deliveryTo?(position.instrumentType==='ppa'?`${position.deliveryFrom} — ${position.deliveryTo}`:deliveryLabel(position.deliveryFrom,position.deliveryTo)):'—',
-      position.bookedQuantity===null?'—':`${position.bookedQuantity}${position.bookedUnit===null?'':' '+position.bookedUnit}`,value]);
-    const previousFilters=factsGrid?.state();
-    factsGrid=workspace.render('desk-positions','facts:'+facts.context.contextId,
-      ['Trade','Book','Instrument','Market','Delivery','Booked quantity','Value'],rows,[],busy,
-      {keys:['tradeReference','book','instrumentType','market','delivery','bookedQuantity','value'],stretch:true,rowHeight:46,onReady:sync,layout:factsLayout,onLayout:layout=>{factsLayout=layout;},initial:previousFilters,cellTitles:rows,giveUp:[6,2,4,1],onRowOpen:index=>void openFact(index),onRowDoubleOpen:index=>popout(facts!.positions[index])});
-    workspace.columns([],[],()=>{});text('futures-summary',`${facts.positions.length} of ${facts.total} trade bindings loaded. ${message}.`);
-    get('futures-page').dataset.pricingContext=facts.context.contextId;options.onReadContext(facts.asOf,facts.context.knownAt);sync();if(individual)deskPanel.sync();
-  }
-  async function openFact(index:number){
-    if(busy()||!facts||holdings)return;
-    const selected=facts.positions[index],from=facts,started=generation,scope=whereAmI();
-    if(!selected||scope===undefined||!await panel.leave()||started!==generation)return;
-    cancelIndividual();const controller=individualController=new AbortController();openingFact=selected;
-    text('futures-summary',`${from.positions.length} of ${from.total} trade bindings loaded. Opening ${selected.tradeReference}…`);
-    try{
-      const value=await api<unknown>('trading/position',{context:{...readContext(),convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:from.context.contextId},
-        tradeId:selected.tradeId,bindingId:selected.bindingId,revision:selected.revision,instrumentType:selected.instrumentType},controller.signal);
-      if(started!==generation||whereAmI()!==scope||get('futures-page').hidden||individualController!==controller||holdings)return;
-      if(facts?.context.contextId!==from.context.contextId)return;
-      individual=readIndividualPosition(value,from,selected);
-      await deskPanel.open(0,undefined,false);
-    }catch(error){
-      if(started!==generation||whereAmI()!==scope||get('futures-page').hidden||individualController!==controller)return;
-      if((error as {code?:string}).code==='access_denied')clear();
-      options.readFailed(error);
-    }finally{
-      if(individualController===controller){individualController=undefined;openingFact=undefined;
-        if(facts&&!holdings)text('futures-summary',`${facts.positions.length} of ${facts.total} trade bindings loaded. Values and totals ${get('futures-page').dataset.pricingState==='failed'?'unavailable':'pending'}.`);}
-    }
-  }
-  factsMore.onclick=()=>{
-    if(busy()||factsPaging||!facts||facts.nextOffset===null||holdings)return;
-    const previous=facts,started=generation,scope=whereAmI();if(scope===undefined)return;
-    void act(async()=>{
-      factsPaging=true;sync();
-      try{
-        const page=await api<unknown>('trading/positions',{context:{...readContext(),convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:previous.context.contextId},
-          bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],offset:previous.nextOffset,limit:factPageSize});
-        requireCurrentRead(started,scope);if(get('futures-page').hidden||facts!==previous||holdings)return;
-        facts=readPositionFacts(page,previous.nextOffset!,factPageSize,previous);renderFacts();
-      }catch(error){
-        if(started!==generation||get('futures-page').hidden)return;
-        if((error as {code?:string}).code==='access_denied')clear();else if(holdings)return;
-        throw error;
-      }finally{if(started===generation){factsPaging=false;sync();}}
-    });
-  };
   async function load(bookingCatalog:BookingCatalog='directory',live=false,background=false){
-    restore();if(!viewsLoaded)await loadViews();view=parseBlotterViews(JSON.stringify([facts?{...view,bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}:readView()]))[0];const source=options.source();
+    // A Blotter in a window of its own is read there; one that keeps only its retained request reads nothing.
+    if(tie?.out()||retainedOnly)return;
+    // A read awaiting its values has only its book scope to change; its other controls belong to the view.
+    const account=owner;restore();if(!viewsLoaded)await loadViews();view=parseBlotterViews(JSON.stringify([!holdings&&loading?{...view,bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}:readView()]))[0];const source=options.source();
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before reading holdings.');
     snapshot=source.snapshotId;
     const inputs=JSON.stringify([source.snapshotId,source.context?.contextId??null,view.bookIds,view.portfolioIds]);
-    if(live)cancelRead();else replaceRead(inputs===readInputs?'read':'inputs');
+    // A read for the account on screen keeps its grid, stale, and the read arriving changes it in place: also the rows a failed read kept.
+    const keep=!live&&(!!holdings||!!kept)&&account===owner;
+    if(live)cancelRead();else replaceRead(inputs===readInputs?'read':'inputs',keep);
     const started=generation,scope=JSON.stringify([options.profile(),source]);
     const request:ReadRequest={snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};
     const selectedView={mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:view.mode==='pivot'?[...view.groupBy]:[],measures:view.mode==='pivot'?[...view.measures]:[],pivotConvention:view.mode==='pivot'?'trading_blotter_totals_v1':null,priceNumericalPolicy:view.mode==='pivot'&&view.measures.some(m=>isPriceMeasure(m)&&m.endsWith('Mean'))?priceMeanPolicy:null};
     const summaryViews=deskSummaryViews(view.bookIds,view.portfolioIds);
-    get('futures-page').dataset.pricingState='pending';
+    get('futures-page').dataset.pricingState='pending';if(!live)showLoad({state:'reading'});
+    let factsRead:Promise<void>=Promise.resolve(),countFailed:unknown;
     try{
       if(!live&&bookingCatalog==='directory'){
         const directory=await api<Catalog>('trading/directory',{...request,convention:'trading_workspace_v1'});
@@ -833,11 +1157,18 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
         if(directory.kind!=='directory'||Object.hasOwn(directory,'contracts')||!directory.context?.contextId||!Array.isArray(directory.books)||
           source.context&&directory.context.contextId!==source.context.contextId)throw Error('The trading directory returned an inconsistent context. Refresh the Blotter.');
         catalog=directory;viewControls();
-        const page=await api<unknown>('trading/positions',{context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId},bookIds:selectedView.bookIds,portfolioIds:selectedView.portfolioIds,offset:0,limit:factPageSize});
-        requireCurrentRead(started,scope);if(get('futures-page').hidden)return;
-        facts=readPositionFacts(page,0,factPageSize);
-        if(facts.context.contextId!==directory.context.contextId||facts.context.effectiveOn!==directory.context.effectiveOn||facts.context.knownAt!==directory.context.knownAt||facts.asOf!==directory.asOf)throw Error('The position facts returned a different directory context. Refresh the Blotter.');
-        renderFacts();
+        // The count of booked positions is read beside the valuation, which waits for it only to check the bindings it values.
+        factsRead=(async()=>{
+          const page=await api<unknown>('trading/positions',{context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId},bookIds:selectedView.bookIds,portfolioIds:selectedView.portfolioIds,offset:0,limit:factPageSize});
+          requireCurrentRead(started,scope);
+          const read=readPositionFacts(page,factPageSize);
+          if(read.context.contextId!==directory.context.contextId||read.context.effectiveOn!==directory.context.effectiveOn||read.context.knownAt!==directory.context.knownAt||read.asOf!==directory.asOf)throw Error('The position facts returned a different directory context. Refresh the Blotter.');
+          facts=read;if(get('futures-page').hidden||holdings)return;
+          if(loading?.state==='reading')showLoad({state:'valuing',total:read.total});
+          get('desk').hidden=false;drawStrip();if(!keep)options.onReadContext(read.asOf,read.context.knownAt);sync();
+        })().catch(error=>{countFailed=error;throw error;});
+        // The valuation awaits it, and fails with it; the failure is then said as the count's own.
+        factsRead.catch(()=>undefined);
       }
     }catch(error){if(started===generation)clear();throw error;}
     const controller=background&&!live&&bookingCatalog==='directory'?new AbortController():undefined;
@@ -852,15 +1183,14 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
         if(combined.catalog.kind!==bookingCatalog||combined.catalog.kind==='directory'&&Object.hasOwn(combined.catalog,'contracts')||combined.catalog.kind==='priced_contracts'&&!Array.isArray(combined.catalog.contracts))throw Error('The trading workspace returned an inconsistent booking catalog. Refresh and try again.');
         if(!selected.contextId||selected.contextId!==reported.contextId||selected.effectiveOn!==reported.effectiveOn||selected.knownAt!==reported.knownAt||combined.catalog.asOf!==combined.blotter.asOf)throw Error('The trading workspace returned inconsistent market contexts. Refresh and try again.');
         if(!Array.isArray(combined.summaries)||combined.summaries.length!==summaryViews.length)throw Error('The trading workspace did not return the desk summaries. Refresh and try again.');
-        if(facts){requirePricedFacts(facts,combined.blotter,!!source.context);get('desk-tile-risk').replaceChildren();}
+        await factsRead;requireCurrentRead(started,scope);if(get('futures-page').hidden)return;
+        if(facts)requirePricedFacts(facts,combined.blotter,!!source.context);
         const previous={catalog,holdings,summaries,shapes,lastReadRequest,readPlace};
         catalog=combined.catalog;holdings=combined.blotter;summaries=combined.summaries;shapes=undefined;drafts.reset();
         const reportRequest={context:{...request,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selected.contextId},view:selectedView};lastReadRequest=reportRequest;
         readPlace={contextId:selected.contextId,asOf:combined.blotter.asOf,snapshotId:request.snapshotId,bookIds:[...selectedView.bookIds],portfolioIds:[...selectedView.portfolioIds]};
-        try{viewControls();render();}catch(error){({catalog,holdings,summaries,shapes,lastReadRequest,readPlace}=previous);throw error;}
-        const opening=openingFact;cancelIndividual();individual=undefined;
-        facts=undefined;factsGrid=undefined;factsMore.hidden=true;readInputs=inputs;
-        if(opening){const index=holdings.holdings.findIndex(h=>h.tradeId===opening.tradeId&&h.bindingId===opening.bindingId&&String(h.revision)===String(opening.revision));if(index>=0)await deskPanel.open(index);}
+        try{viewControls();acceptValuedRows(holdings.holdings.slice(arrived.length));}catch(error){({catalog,holdings,summaries,shapes,lastReadRequest,readPlace}=previous);throw error;}
+        facts=undefined;readInputs=inputs;showLoad(undefined);
         shapesRead=view.mode==='trades'?loadShapes(started,scope,source):Promise.resolve();
         await loadChart(reportRequest,started,scope);requireCurrentRead(started,scope);if(get('futures-page').hidden)return;
         get('futures-page').dataset.pricingContext=selected.contextId;get('futures-page').dataset.pricingState='complete';workspace.closeMenus();sync();
@@ -870,16 +1200,17 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
         // must still report a changed selection to the action waiting for it.
         if(whereAmI()!==scope){if(controller)return;clear();throw error;}
         if((error as {code?:string}).code==='access_denied')clear();
-        else if(facts){get('futures-page').dataset.pricingState='failed';renderFacts('Values and totals unavailable. Refresh to retry');}
+        // A Blotter read whose values were not drawn says why, once the count read beside it is in, and keeps what the previous read drew.
+        else if(!live&&bookingCatalog==='directory'&&!holdings){await factsRead.catch(()=>undefined);if(started!==generation||get('futures-page').hidden)return;readFailed(error,error===countFailed?'count':'valuation');}
         else if(!live)clear();
         else{get('futures-page').dataset.pricingState='failed';if(shapes===undefined)noShapes('the refresh that interrupted their read failed');}
-        if(background&&!live&&bookingCatalog==='directory'){options.readFailed(error);return;}
+        // A read in the background is said by its own handler below; it still fails, for whoever awaits the values (valued).
         throw error;
       }finally{if(pricingController===controller)pricingController=undefined;}
     };
     pricingRead=finish();
     if(background&&!live&&bookingCatalog==='directory'){
-      void pricingRead.catch(error=>{if(started===generation&&whereAmI()===scope&&!get('futures-page').hidden)options.readFailed(error);});
+      void pricingRead.catch(error=>{if(started===generation&&whereAmI()===scope&&!get('futures-page').hidden)options.failed(error);});
     }else await pricingRead;
   }
   // Every row's curve unavailable, with the reason.
@@ -915,6 +1246,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   function renderChartPanels(){
     if(!chartState)return;const {panels,request}=chartState,host=get('blotter-chart');
     host.querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(host);host.classList.remove('chart-empty');get('blotter-chart-card').hidden=false;
+    // The chart read, it is current again, and so is its pane once the desk's charts are.
+    get('blotter-chart-card').classList.remove('stale');if(!get('desk-charts').classList.contains('stale')){const note=get('charts-stale-note');note.hidden=true;note.textContent='';}
     get('blotter-chart-card').querySelectorAll<HTMLButtonElement>('[data-plot-kind]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.plotKind===view.chart.kind)));
     if(!panels.length){host.classList.add('chart-empty');text('blotter-chart','No values available for the selected books and portfolios.');}
     for(const spec of panels){
@@ -993,7 +1326,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   // A retained settlement command is retried or checked with the settlement view it came from left open, as its outcome reads the
   // Blotter again as a live correction does. Any other retained request is settled by a new read, which closes the panel, so the
   // panel asks about its edits first.
-  function retainedAction(work:()=>Promise<void>){if(pending.command?.path.startsWith('swaps/settlement/')){if(!busy())void act(work);}else guarded(work);}
+  function retainedAction(work:()=>Promise<void>){if(pending.command?.path.startsWith('swaps/settlement/')){if(!busy())void act(work);}else asked(work);}
   get('futures-retry').onclick=()=>retainedAction(async()=>{if(!pending.command)throw Error('No retained booking to retry.');await send(pending.command);});
   get('futures-reconcile').onclick=()=>retainedAction(async()=>{
     if(!pending.command)throw Error('No retained booking to reconcile.');
@@ -1011,22 +1344,21 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   field('blotter-mode').onchange=()=>{if(busy())return;get('blotter-pivot-fields').hidden=field('blotter-mode').value!=='pivot';};
   // Grouping arranges the rows already read; every grouping's subtotals came with them. A grouping the read cannot show is
   // refused in the banner, and the grouping on screen stays.
-  field('blotter-row-group').onchange=()=>void act(async()=>{
-    const shown=view.rowGroup;captureLayout();view.rowGroup=(field('blotter-row-group').value||null) as RowGroup;
-    try{render();}catch(error){view.rowGroup=shown;field('blotter-row-group').value=shown??'';throw error;}
-  });
-  get('blotter-apply').onclick=()=>guarded(load);
-  get('blotter-save').onclick=()=>guarded(async()=>{
+  // The control shows the grouping the Blotter shows, also after one it refused.
+  field('blotter-row-group').onchange=()=>void perform({kind:'groupRows',rowGroup:(field('blotter-row-group').value||null) as RowGroup}).then(()=>{field('blotter-row-group').value=view.rowGroup??'';});
+  get('blotter-apply').onclick=()=>asked(load);
+  get('blotter-save').onclick=()=>asked(async()=>{
     const draft=readView();const next=parseBlotterViews(JSON.stringify([{...draft,name:field('blotter-name').value}]))[0];
     const saved=await layoutApi<{version:string;layout:BlotterView}>('table-views/blotter',{layout:next,expectedVersion:draftBase?.name===next.name?draftBase.version:versions.get(next.name)??null});
     versions.set(next.name,saved.version);draftBase={name:next.name,version:saved.version};savedViews=[...savedViews.filter(v=>v.name!==next.name),saved.layout];earlierViews=earlierViews.filter(name=>name!==next.name);
-    view=structuredClone(saved.layout);viewControls();field('blotter-saved').value=next.name;text('blotter-view-note','Saved to your account. Dates and market inputs are selected separately.');table=undefined;workspace.closeMenus();await load();
+    view=structuredClone(saved.layout);showPanes();viewControls();field('blotter-saved').value=next.name;text('blotter-view-note','Saved to your account. Dates and market inputs are selected separately.');table=undefined;workspace.closeMenus();await load();
   });
   // An earlier-format view is named so it can be saved again under its name, and explained as a notice, not an error.
   // A saved view the person chooses becomes the view the Blotter reads, the base of its next save.
-  function useSaved(saved:BlotterView){draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);field('blotter-name').value=view.name;field('blotter-saved').value=view.name;viewControls();}
-  field('blotter-saved').onchange=()=>guarded(async()=>{const name=field('blotter-saved').value;if(earlierViews.includes(name)){field('blotter-name').value=name;options.notice(earlierFormatNote(name));return;}const saved=savedViews.find(v=>v.name===name);if(!saved)return;useSaved(saved);workspace.closeMenus();await load();},()=>{field('blotter-saved').value=draftBase?.name??'';});
-  get('blotter-views-reload').onclick=()=>guarded(async()=>{
+  function useSaved(saved:BlotterView){draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);showPanes();field('blotter-name').value=view.name;field('blotter-saved').value=view.name;viewControls();}
+  // Choosing the unsaved current view is no choice: the list shows the view the Blotter shows again.
+  field('blotter-saved').onchange=()=>{const name=field('blotter-saved').value;if(name)void perform({kind:'selectView',name});else field('blotter-saved').value=draftBase?.name??'';};
+  get('blotter-views-reload').onclick=()=>asked(async()=>{
     const name=field('blotter-saved').value;
     await loadViews();
     const saved=savedViews.find(v=>v.name===name);
@@ -1047,7 +1379,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     const about=ladder?[...metadata.slice(0,-1),['Risk run',get('desk-run-title').textContent??''],['Run detail',get('desk-run-detail').textContent??''],[]]:metadata;
     const csv=guardedCsv(about)+guardedCsv([shown.headers,...shown.rows],shown.numeric);void act(async()=>{try{await api('trading/blotter',lastReadRequest);}catch(error){if((error as {code?:string}).code==='access_denied')clear();throw error;}downloadCsv(ladder?'leanetrm-delta-ladder.csv':'leanetrm-blotter.csv',csv);});
   };
-  get('futures-refresh').onclick=()=>guarded(()=>load('directory',false,true));
+  get('futures-refresh').onclick=get('blotter-retry').onclick=()=>asked(()=>load('directory',false,true));
   // A Blotter view a navigation target names, applied as Apply applies the view's controls.
   async function show(selection:BlotterSelection){
     restore();if(!viewsLoaded)await loadViews();
@@ -1055,6 +1387,96 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
       groupBy:[...selection.groupBy],splitBy:[],measures:[...selection.measures]};
     if(view.mode!==next.mode||JSON.stringify([view.groupBy,view.splitBy,view.measures])!==JSON.stringify([next.groupBy,next.splitBy,next.measures]))relayout(next);
     view=next;viewControls();await load();
+  }
+  // Every Blotter action is an operation (blotter-operations.ts), which the toolbar, keys, panes and menus dispatch here, as the assistant
+  // will: each kind has the one handler below, and none runs while the page is busy. Sorting and filtering in the grid's headers, moving,
+  // resizing and putting panes away in the dock, and the details' own collapse belong to those components, which tell the view (onLayout,
+  // changed, collapsed).
+  const operate=createBlotterOperations({
+    selectView:async({name})=>guarded(async()=>{
+      if(earlierViews.includes(name)){field('blotter-name').value=name;options.notice(earlierFormatNote(name));return;}
+      const saved=savedViews.find(v=>v.name===name);if(!saved)throw refuse(`no saved view is named ${name}`);
+      useSaved(saved);workspace.closeMenus();await load();
+    },()=>{field('blotter-saved').value=draftBase?.name??'';}),
+    // The books and portfolios are those the scope lists offer once the person has said what the details held may go; the Blotter is read
+    // again for them, its other controls as they stand. One no longer listed is refused, never dropped.
+    chooseScope:async({bookIds,portfolioIds})=>guarded(async()=>{
+      const scope=[['blotter-books',bookIds],['blotter-portfolios',portfolioIds]] as const;
+      for(const [id,ids] of scope)if(ids.some(chosen=>!Array.from(get<HTMLSelectElement>(id).options,o=>o.value).includes(chosen)))throw refuse('a book or portfolio is not one the Blotter lists');
+      for(const [id,ids] of scope)for(const option of get<HTMLSelectElement>(id).options)option.selected=ids.includes(option.value);
+      await load('directory',false,true);
+    }),
+    // Grouping arranges the rows already read; every grouping's subtotals came with them. A grouping the read cannot show is refused in the
+    // banner, and the grouping on screen stays.
+    groupRows:async({rowGroup})=>acting(act,async()=>{
+      const shown=view.rowGroup;captureLayout();view.rowGroup=rowGroup;field('blotter-row-group').value=rowGroup??'';
+      try{render();}catch(error){view.rowGroup=shown;field('blotter-row-group').value=shown??'';throw error;}
+    }),
+    sort:async({sort})=>acting(act,async()=>{rowColumns(sort.map(s=>s.key));captureLayout();view.grid={...view.grid,sort};render();}),
+    filter:async({query,columns})=>acting(act,async()=>{rowColumns(Object.keys(columns));captureLayout();view.query=query;view.columnFilters={...columns};render();}),
+    chooseColumns:async({columns})=>{requireModeColumns(view,columns);captureLayout();view.columns=columns;render();},
+    // A position opens only from the read on screen; no position closes the details that show one, asking first about their edits.
+    selectPosition:async({key},{placed})=>{
+      if(key===null){if(panel.current()?.kind==='position')await detailsPane.collapse();return panel.current()?.kind!=='position';}
+      if(!holdings){notOpened();return false;}
+      const index=holdings.holdings.findIndex(h=>rowKey(h)===key);
+      if(index<0||!positionInput(index))throw refuse('that position is not among the rows on screen');
+      return deskPanel.open(index,undefined,!placed);
+    },
+    details:async({open})=>showDetails(open),
+    arrange:async({panes})=>{
+      if(panes.collapsed.includes('details')!==dock.arrangement().collapsed.includes('details'))throw refuse('the details open and close with what they show');
+      chartsMadeWay=false;view.panes=panes;dock.set(panes);requestAnimationFrame(fitRoom);
+    },
+    collapsePane:async({pane,collapsed})=>{if(pane==='details')await showDetails(!collapsed);else if(collapsed)dock.collapse(pane);else dock.reveal(pane);},
+    // The default arrangement has the details collapsed: details that show something collapse first, as ⌄ collapses them, asking about their
+    // edits, which kept keep the layout as it is; and a page busy before or after the question is refused (guard), as every change is.
+    resetLayout:async()=>guard({busy,act,leave:async()=>{if(panel.current()!==null)await detailsPane.collapse();return panel.current()===null;}},
+      async()=>{chartsMadeWay=false;view.panes=defaultBlotterArrangement();dock.set(view.panes);}),
+    // The Blotter pops out into a window of its own with the view it shows, its unsaved edits among them, once the person has said what
+    // the details hold may go.
+    popOut:async()=>{
+      const own=tie;if(!own)throw refuse('the Blotter is already in a window of its own');
+      await guarded(async()=>{retainedStays('opens in a window of its own');own.open(handOff());away();});
+    },
+    // The main window closes the pop-out, which hands back its view as it goes; the pop-out closes itself.
+    bringBack:async()=>{
+      const shown=options.window;
+      // The pop-out's own requests go back with it (handOver), which its window does as it closes.
+      if(shown.kind==='popout'){await guarded(async()=>{shown.close();});return;}
+      const own=tie;if(!own?.out())throw refuse('the Blotter is not in a window of its own');
+      if(!await leaveWindow())return;
+      await guarded(()=>own.bringBack());
+    },
+    draftCloseOut:async({key})=>draftCloseOut(key),
+    // A position is amended from its details, for the revision they read: a PPA, an account that cannot amend or a revision that cannot be
+    // amended is refused with why.
+    amend:async({key})=>{
+      const h=holdings?.holdings.find(h=>rowKey(h)===key),shown=deskPanel.shown();
+      if(!h)throw refuse('that position is not among the rows on screen');
+      if(!shown||rowKey(shown)!==key)throw refuse('a position is amended from its details, which do not show it');
+      const why=amendRefusal(h.instrumentType,!!catalog?.canAmendTrades,position.amendState(h));if(why)throw Error(why);
+      await acting(act,()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision)));
+    }},{busy});
+  // The person's own actions: each takes away what an earlier refusal said, and one refused, before its handler or by it, says why as any
+  // failed action does, and shows no position.
+  function perform<O extends BlotterOperation>(operation:O,caller:BlotterCaller={placed:false}){
+    options.failureCleared();
+    // A refusal the page has already said where it applies, as the details say a refused close-out, is not said again in the banner.
+    return operate(operation,caller).catch(error=>{if((error as {shown?:boolean}).shown!==true)options.failed(error);return undefined;});
+  }
+  // Sorting and filtering name columns of the rows on screen, never one a read shows for itself alone.
+  function rowColumns(keys:readonly string[]){
+    if(!holdings||!table)throw refuse('the Blotter shows no rows to sort or filter');
+    const other=keys.find(key=>!tableColumns.includes(key)||transientKeys.has(key));
+    if(other!==undefined)throw refuse(`${other} is not a column of the rows shown`);
+  }
+  // The details open while they show something, a position, a new trade, the risk report or a ladder contract, and are never open empty;
+  // closing them asks first about their edits.
+  async function showDetails(open:boolean){
+    if(!open){if(panel.current()!==null)await detailsPane.collapse();return;}
+    if(panel.current()===null)throw refuse('the details open on what they show, and show nothing');
+    panel.reveal();
   }
   // The trade the panel shows, as the page reports it: its position, at the revision the Blotter holds, or at the one its form shows
   // while its form is open, which can be an earlier one.
@@ -1066,7 +1488,13 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   }
   // The new trade the panel holds, as the page reports it: of its product, or of none until the person has chosen one.
   function newTradeShown():EntryShown|null{const mode=panel.current();return mode?.kind==='new'?{product:mode.product}:null;}
+  setUp=true;
+  // A main window that reloaded is handed a pop-out's requests once it is back, after its own first read: they are taken, and shown, as
+  // soon as they arrive.
+  if(options.window.kind==='main')setInterval(()=>{if(!busy()&&owner&&owner===options.profile()&&!tie?.out()&&takeStoredRequest())sync();},1000);
   return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),reset,sync,show,
+    /** The values of the read under way, which a read in the background draws after `load` returns: rejects with the read's failure. */
+    valued:()=>pricingRead,
     // The person's saved views, read for the sidebar when they are not read yet.
     async views(){restore();if(!viewsLoaded)await loadViews();},
     // Shows the saved view a sidebar entry names, read afresh with the other saved views; the page then reads the Blotter.
@@ -1092,7 +1520,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
         const rows=holdings?.holdings??[],matches=rows.map((h,index)=>({h,index})).filter(x=>x.h.tradeId===tradeId);
         if(view.mode==='trades'&&matches.length===1)await deskPanel.open(matches[0].index,'terms');
         else options.notice('Trade saved. Select its position binding in the Blotter to inspect it.');
-      }catch(error){options.notice('The trade was saved. Refresh the Blotter to inspect its position.');options.readFailed(error);}
+      }catch(error){options.notice('The trade was saved. Refresh the Blotter to inspect its position.');options.failed(error);}
     },
     refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
@@ -1109,14 +1537,36 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     // not a Display choice not yet applied: the person's view is never changed to fit it.
     requireTradeRows:()=>requireTradeRows(view.mode),
     // What the Blotter shows: its risk report, the trade in its panel, the new trade entered there, or the view its last read applied.
-    report:()=>({risk:panel.current()?.kind==='risk',trade:shownTrade(),entry:newTradeShown(),lens:lensShown()||ladderOn()?'risk' as const:'values' as const,
-      view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]}}),
+    // While the Blotter is popped out, that is what its window last reported; before it has, the main window cannot say.
+    report(){
+      if(tie?.out()){
+        const shown=tie.shown();if(!shown)throw Error('The Blotter’s window has not said what it shows yet.');
+        const {page,...state}=shown;return state;
+      }
+      return {risk:panel.current()?.kind==='risk',trade:shownTrade(),entry:newTradeShown(),lens:lensShown()||ladderOn()?'risk' as const:'values' as const,
+        view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]},
+        // A pane is open as the dock draws it (BlotterLayoutShown).
+        pane:{details:dock.showing('details'),charts:dock.showing('charts')},poppedOut:options.window.kind==='popout'};
+    },
     // A form of the panel with edits not yet sent, the risk report's setup among them, or a trade request or risk job whose outcome is unconfirmed.
     unsaved:()=>!!pending.command||options.tickets.pending().length>0||editing()||risk.unconfirmed(),
     // Whether the panel holds the form of an amendment or of a new trade, or a risk report's setup, with edits, and the question asked before it is given up: false means the person kept it. The forms
     // are dropped without a question when the page is left on the person's word, as the assistant's Go anyway is.
     editing,leave,dropForms,cancelRead,
-    // A page exit has already passed its unsaved-edit guard. Clear its
-    // retained expansion as well as forms, without returning focus to a row.
-    leavePage(){cancelRead();dropForms();deskPanel.reset();}};
+    // A page exit has already passed its unsaved-edit guard. Clear the details as well as forms, without returning focus to a row.
+    leavePage,
+    // The Blotter popped out of the main window (blotter-workbench.md, Pop-out Blotter): whether it is, bringing its window to the front,
+    // sending it the context the header selects now, and ending it, saying why, when the main window signs out, changes account or closes.
+    poppedOut:()=>!!tie?.out(),front:()=>tie?.front(),follow(){if(!busy())try{tie?.follow();}catch(error){options.failed(error);}},
+    ended(reason:EndReason){tie?.end(reason);placeWindow();},
+    // Whether the pop-out holds edits, and the question asked before a change gives them up.
+    windowEdits,leaveWindow,
+    // In the pop-out: the view the main window handed over, the view to hand back, the request to hand over, and the retained request kept
+    // alone, with no values, when there is no main window to hand it to.
+    adopt,handOff,handOver,handOverRefusal,retained:()=>!!pending.command||risk.unconfirmed(),
+    // Which unconfirmed requests the pop-out keeps, as it says what it can do with each.
+    retainedKinds,
+    // The catalog last read says whether the account may book or amend, which Retry is offered by; it holds no values, and the backend
+    // authorizes the retry again.
+    keepOnlyRetained(){const authority=catalog;leavePage();clear();catalog=authority;retainedOnly=true;get('futures-page').dataset.retainedOnly='';sync();}};
 }

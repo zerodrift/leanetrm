@@ -622,7 +622,7 @@ dialog label{margin-top:16px}
 .library-filters .filter-tabs button.active{background:var(--surface);color:var(--accent-text);box-shadow:0 1px 2px #1b2e2324}
 .chart-toolbar>span strong{color:var(--text);font-weight:600}
 
-/* Blotter desk: summary tiles, market charts and grouped positions (blotter-desk.md, Desk layout). Every
+/* Blotter desk: summary strip, desk charts and grouped positions (blotter-desk.md, Desk layout). Every
    figure is a backend string; signs, bar direction and words always accompany gain, loss and commodity colors. */
 /* The saved views list takes the room the toolbar has left, up to a limit, so its label shows whole; it gives way before the toolbar wraps. */
 .table-workspace-toolbar>select{flex:1 1 150px;min-width:120px;max-width:260px}
@@ -632,19 +632,9 @@ dialog label{margin-top:16px}
 .table-group-by select{width:auto;max-width:170px;min-height:32px;font-size:12px;font-weight:500;padding:5px 28px 5px 10px}
 .table-workspace-filters{display:flex;flex:1 1 300px;justify-content:flex-end;min-width:0}
 .table-workspace-filters .table-filters{flex:1;justify-content:flex-end;margin:0;padding:0}
-/* The desk is a size container: a figure that would not fit even a lone tile shrinks to its width (.kpi-figure below). */
-.table-workspace>.desk{container:desk/inline-size;display:grid;gap:12px;padding:14px 16px 12px;background:var(--bg)}
-/* Under the tiles, the charts and the positions share a column, and the side panel docks beside it (see Side panel below). */
-.table-workspace-stage{display:block;min-width:0}
-.table-workspace-main{min-width:0}
-.table-workspace-main>.table-workspace-heading{border-top:1px solid var(--border)}
-/* Tiles take the room their content needs. A row of them wraps before a figure or a split would be cut off: the money tiles
-   and the positions and risk tiles are two pairs, so a narrower desk shows two by two, and a narrower one still one by one. */
-.desk-tiles,.desk-tile-pair{display:flex;flex-wrap:wrap;gap:12px}
-.desk-tile-pair{flex:1 1 422px}.desk-tile-pair:first-child{flex:1.8 1 492px}
+/* Tiles take the room their content needs, and a row of them wraps before a figure would be cut off. */
+.desk-tiles{display:flex;flex-wrap:wrap;gap:12px}
 .desk-tile{display:flex;flex:1 1 176px;flex-direction:column;gap:4px;padding:11px 14px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
-.desk-tile-pair:first-child .desk-tile{flex-basis:240px}
-#desk-tile-positions{flex-basis:200px}
 .desk-tile-label{display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:550;color:var(--text-3)}
 .desk-tile-row{display:flex;flex-direction:column;gap:6px;min-width:0}
 .desk-tile-row+.desk-tile-row{padding-top:8px;border-top:1px solid var(--border)}
@@ -653,8 +643,6 @@ dialog label{margin-top:16px}
 /* A figure is one token: it never splits, and its currency wraps beneath it. A tile only gets narrower than its figure when the desk
    itself is, and then the figure shrinks to the desk's width (about two thirds of its size per character, for the widest digits). */
 .desk-tile .kpi-figure{white-space:nowrap;font-size:min(1em,calc((100cqw - 30px)/(var(--figure-length)*.66)))}
-.desk-tile-several .kpi-value{font-size:20px}
-.desk-tile .desk-not-valued{font-size:20px;color:var(--text-3)}
 .desk-tile-currency{margin:0;font-size:11px;font-weight:600;color:var(--text-2)}
 .desk [data-sign=positive],#desk-positions [data-sign=positive],.desk-tile [data-sign=positive]{color:var(--gain-ink)}
 .desk [data-sign=negative],#desk-positions [data-sign=negative],.desk-tile [data-sign=negative]{color:var(--loss-ink)}
@@ -671,11 +659,7 @@ dialog label{margin-top:16px}
 .desk-legend{display:flex;flex-wrap:wrap;gap:1px 12px;margin:0;padding:0;list-style:none;font-size:11px;line-height:1.3;color:var(--text-2)}
 .desk-legend li{display:inline-flex;align-items:center;gap:5px}.desk-legend b{font-weight:600;font-variant-numeric:tabular-nums}
 .desk-swatch{display:inline-block;width:9px;height:9px;border-radius:3px}
-.desk-tile-risk{flex:1.05 1 210px;background:radial-gradient(120% 140% at 100% 0%,var(--accent-soft) 0%,var(--surface) 58%)}
-.desk-risk-state{margin:0;font-size:18px;font-weight:650;letter-spacing:-.3px}
-.desk-tile-hint{margin:0;font-size:11.5px;line-height:1.4;color:var(--text-2)}
-.desk-tile-risk button{align-self:flex-start;margin-top:auto;font-size:12px;padding:6px 12px}
-.desk-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:12px;padding:0 16px 14px;background:var(--bg)}
+.desk-charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));align-items:start;gap:12px}
 .desk-chart{min-width:0;padding:11px 14px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
 .desk-chart-title{margin:0 0 6px;font-size:13px;font-weight:600;color:var(--text)}
 .desk-chart>.chart{min-height:0}.desk-chart>.chart+.chart{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
@@ -742,17 +726,13 @@ dialog label{margin-top:16px}
 .desk-lens button{padding:4px 10px;border:0;border-radius:7px;background:none;font-size:11.5px;font-weight:550;color:var(--text-2)}
 .desk-lens button:hover{background:var(--surface)}
 .desk-lens button[aria-pressed=true]{background:var(--surface);color:var(--text);font-weight:650;box-shadow:0 1px 2px rgba(18,34,27,.1)}
-.desk-risk-count{flex:none;font-weight:600;white-space:nowrap;color:var(--text-2)}
-.desk-risk-moves{display:grid;gap:4px}
-.desk-risk-largest,.desk-risk-none{margin:0;font-size:11.5px;line-height:1.4;color:var(--text-2);overflow-wrap:anywhere}
-.desk-risk-bars{display:block;max-width:100%;overflow:visible}
 .desk-chart-note{margin:0 0 6px;font-size:11.5px;line-height:1.4;color:var(--text-2)}
 .desk-group-left{font-weight:500;color:var(--warn)}
 .desk-risk .desk-sub{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .side-risk-shock h3{overflow-wrap:anywhere}.side-risk-shock .field-help{margin:0}
 .side-risk-shock .side-panel-facts{grid-template-columns:repeat(2,minmax(0,1fr))}
 .side-risk-shock b[data-sign=positive]{color:var(--gain-ink)}.side-risk-shock b[data-sign=negative]{color:var(--loss-ink)}
-@media(max-width:760px){.table-workspace>.desk{padding:12px 12px 10px}.desk-charts{grid-template-columns:minmax(0,1fr);padding:0 12px 12px}.table-workspace-filters{flex-basis:100%}.table-workspace-filters .table-filters{justify-content:flex-start}#desk-positions .tabulator-group span.desk-group-totals{margin-left:8px}
+@media(max-width:760px){.table-workspace-filters{flex-basis:100%}.table-workspace-filters .table-filters{justify-content:flex-start}#desk-positions .tabulator-group span.desk-group-totals{margin-left:8px}
   .desk-run{flex-wrap:wrap;align-items:flex-start}.desk-run-mark{display:none}.desk-run-actions{flex-basis:100%}}
 
 /* Side panel (blotter-desk.md, Side panel). Docked, it is a column beside the charts and the positions that keeps in view as they
@@ -761,18 +741,12 @@ dialog label{margin-top:16px}
 .side-panel{background:var(--surface);color:var(--text)}
 .side-panel:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .side-panel-frame{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0}
-.table-workspace-stage:has(>.side-panel[data-placement=docked]:not([hidden])){display:grid;grid-template-columns:minmax(0,1fr) var(--panel-width)}
 .side-panel[data-placement=docked]{border-left:1px solid var(--border)}
 .side-panel[data-placement=docked] .side-panel-frame{position:sticky;top:8px;max-height:calc(100vh - 16px)}
 .side-panel[data-placement=overlay]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-overlay-width),100%);border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
 .side-panel[data-placement=overlay] .side-panel-frame{height:100%}
 body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-width);width:min(var(--panel-overlay-width),calc(100% - var(--assistant-width)))}
 @media(max-width:760px){.side-panel[data-placement=overlay],body.assistant-open .side-panel[data-placement=overlay]{right:0;left:0;width:100%;border-left:0}}
-/* What needs more room than a docked panel has, a swap's settlement figures, opens the panel wide: it lies over the page, which keeps
-   its layout beneath, docked or not, and never over the navigation, which stays in view and in reach (D221). */
-.side-panel[data-wide]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-wide-width),calc(100% - var(--sidebar-width)));border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
-.side-panel[data-wide] .side-panel-frame{position:relative;top:auto;height:100%;max-height:none}
-body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:min(var(--panel-wide-width),calc(100% - var(--assistant-width) - var(--sidebar-width)))}
 .side-panel-close{position:absolute;top:8px;right:8px;z-index:1;width:32px;height:32px;display:grid;place-items:center;padding:0;border-radius:var(--radius-sm)}
 .side-panel-close:hover{background:var(--surface-3);color:var(--text)}
 /* The close button sits over the prompt's right edge too, so the question keeps clear of it. */
@@ -782,7 +756,6 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 /* A request whose outcome is not known is kept in a card nobody can miss: above the Blotter, or above whatever the open panel shows. */
 .retained-request{margin:0 0 12px;padding:10px 16px;background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius-sm);font-size:12.5px;color:var(--text)}
 .retained-request p{margin:0 0 8px}
-.side-panel-retained .retained-request{margin:0;padding-right:44px;border-width:0 0 1px;border-radius:0}
 .side-panel-head{padding:14px 16px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);min-width:0}
 .side-panel-head:empty{display:none}
 /* The close button sits over the head's top right corner, so only the lines beside it keep clear of it. */
@@ -873,6 +846,13 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .draft-curves .draft-chart .standard-chart-plot{height:200px}
 /* The row the panel shows: marked as a hovered row is, and by a bar at its edge. */
 .table-workspace .standard-data-grid .tabulator-row.open-row{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+/* The selected row keeps its bar once the panel closes. */
+.table-workspace .standard-data-grid .tabulator-row.selected-row{box-shadow:inset 3px 0 0 var(--accent)}
+/* Rows kept on screen while the Blotter is read again: dimmed, with the reason below them. */
+.standard-data-grid.stale .tabulator-tableholder{opacity:.6}
+#desk.stale>:not(#desk-stale-note),#desk-charts.stale,#blotter-chart-card.stale,#futures-summary.stale,#position-details.stale{opacity:.6}
+#desk-stale-note{margin:0 0 6px}
+.table-stale-note{margin:6px 0 0;font-size:12.5px;color:var(--text-2)}
 /* A row brought into view, as a position opened by a booking is, comes to rest with room around it, not flush with an edge. */
 .table-workspace .standard-data-grid .tabulator-row{scroll-margin-block:24px}
 
@@ -1011,13 +991,20 @@ body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:mi
 .custom-curve-start h4{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--text-2)}
 .custom-curve-start-templates{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
 .custom-curve-start-templates button{padding:5px 12px;font-size:12.5px}
-/* The tab dock (curve-dock.ts): groups of tabs side by side or above one another, at the height of a workspace. */
+/* The tab dock (dock.ts): groups of tabs side by side or above one another, at the height of a workspace. */
 .tab-dock{display:flex;height:max(560px,calc(100vh - 236px));min-width:0}
 .tab-dock>:not(.dock-menu){flex:1 1 0;min-width:0;min-height:0}
 .dock-split{display:flex;min-width:0;min-height:0}
 .dock-split[data-direction=column]{flex-direction:column}
 .dock-group{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);overflow:hidden}
-.dock-tabs{display:flex;flex:none;gap:2px;padding:0 8px;overflow-x:auto;background:var(--surface-2);border-bottom:1px solid var(--border)}
+.dock-head{display:flex;flex:none;align-items:center;gap:4px;padding:0 8px;background:var(--surface-2);border-bottom:1px solid var(--border)}
+.dock-tabs{display:flex;flex:1 1 auto;min-width:0;gap:2px;overflow-x:auto}
+.dock-grip{flex:none;padding:6px 4px;color:var(--text-3);cursor:grab;user-select:none}
+.dock-collapse{flex:none;min-height:0;padding:2px 8px;border:0;background:transparent;color:var(--text-2);font-size:14px;line-height:1}
+.dock-collapse:hover{background:var(--accent-soft);color:var(--accent-text)}
+.dock-collapse:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.dock-bar{display:flex;flex:none;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 6px 12px;background:var(--surface-2)}
+.dock-title{font-size:13px;font-weight:550;color:var(--text-2)}
 .dock-tab{flex:none;margin-bottom:-1px;padding:10px 12px 8px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--text-2);font-size:13px;font-weight:550;cursor:grab}
 .dock-tab:hover{background:transparent;border-color:transparent;border-bottom-color:var(--border-strong);color:var(--text)}
 .dock-tab[aria-selected=true]{background:var(--surface);color:var(--accent-text);border-bottom-color:var(--accent)}
@@ -1126,11 +1113,15 @@ button.custom-curve-dot.connectable:hover,button.custom-curve-dot.connectable:fo
 .custom-curve-connect{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 10px;padding:7px 10px 7px 12px;border:1px solid var(--accent-border);border-radius:var(--radius);background:var(--accent-soft);color:var(--accent-text);font-size:12.5px}
 .custom-curve-connect[hidden]{display:none}
 .custom-curve-connect span{flex:1}.custom-curve-connect .secondary{padding:4px 10px;font-size:12px}
-.custom-curve-menu,.dock-menu{position:fixed;z-index:40;display:grid;min-width:188px;max-width:min(320px,calc(100vw - 16px));max-height:min(360px,calc(100vh - 16px));overflow:auto;padding:4px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);box-shadow:0 10px 30px rgb(0 0 0/.18)}
-.custom-curve-menu[hidden],.dock-menu[hidden]{display:none}
-.custom-curve-menu [role=menuitem],.dock-menu [role=menuitem]{min-height:0;padding:6px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text);font-size:12.5px;font-weight:500;text-align:left;white-space:normal}
-.custom-curve-menu [role=menuitem]:hover:not([aria-disabled]),.custom-curve-menu [role=menuitem]:focus,.dock-menu [role=menuitem]:hover:not([aria-disabled]),.dock-menu [role=menuitem]:focus{background:var(--accent-soft);color:var(--accent-text);outline:none}
-.custom-curve-menu [role=menuitem][aria-disabled],.dock-menu [role=menuitem][aria-disabled]{color:var(--text-3);cursor:default}
+.custom-curve-menu,.dock-menu,.blotter-row-menu{position:fixed;z-index:40;display:grid;min-width:188px;max-width:min(320px,calc(100vw - 16px));max-height:min(360px,calc(100vh - 16px));overflow:auto;padding:4px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);box-shadow:0 10px 30px rgb(0 0 0/.18)}
+.custom-curve-menu[hidden],.dock-menu[hidden],.blotter-row-menu[hidden]{display:none}
+.custom-curve-menu [role=menuitem],.dock-menu [role=menuitem],.blotter-row-menu [role=menuitem]{min-height:0;padding:6px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text);font-size:12.5px;font-weight:500;text-align:left;white-space:normal}
+.custom-curve-menu [role=menuitem]:hover:not([aria-disabled]),.custom-curve-menu [role=menuitem]:focus,.dock-menu [role=menuitem]:hover:not([aria-disabled]),.dock-menu [role=menuitem]:focus,.blotter-row-menu [role=menuitem]:hover:not([aria-disabled]),.blotter-row-menu [role=menuitem]:focus{background:var(--accent-soft);color:var(--accent-text);outline:none}
+.custom-curve-menu [role=menuitem][aria-disabled],.dock-menu [role=menuitem][aria-disabled],.blotter-row-menu [role=menuitem][aria-disabled]{color:var(--text-3);cursor:default}
+/* A disabled item's reason, beneath its label. */
+[role=menuitem] .menu-reason{display:block;margin-top:2px;font-size:11.5px;font-weight:400;color:var(--text-3)}
+.close-out-draft{margin:0 0 12px}.close-out-draft h3{margin:0 0 4px}.close-out-periods{border-collapse:collapse;font-size:12.5px;margin:6px 0}.close-out-periods th,.close-out-periods td{padding:3px 8px;text-align:left;border-bottom:1px solid var(--border)}
+.price-source{margin:4px 0 0}
 .custom-curve-hint{margin:10px 0 0;font-size:12px;color:var(--text-3)}
 #custom-curves-expression textarea{display:block;width:100%;margin:8px 0 12px;font-family:var(--mono);resize:vertical}
 .custom-curve-outputs-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:220px;padding:32px 16px;text-align:center;border:1px dashed var(--border-strong);border-radius:var(--radius-lg);color:var(--text-2);font-size:13px}
@@ -1243,7 +1234,7 @@ button.custom-curve-dot.connectable:hover,button.custom-curve-dot.connectable:fo
 .live-status[data-state="stale"] {color:#9c283a;background:#fff0f2;}
 /* The assistant panel (docs/ai-assistant.md §10.1): docked right with the page narrowing beside it, its left edge resizing
    it; below 760 px a full-width sheet. Answers are text nodes in paragraphs, lists and code. */
-:root{--assistant-width:400px;--panel-width:340px;--panel-overlay-width:440px;--panel-wide-width:720px}
+:root{--assistant-width:400px;--panel-width:340px;--panel-overlay-width:440px}
 .assistant-launcher{display:inline-flex;align-items:center;gap:6px}
 .assistant-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
 body.assistant-open main{margin-right:var(--assistant-width)}
@@ -1373,7 +1364,6 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 :root{--dock-band:84px;--launcher-right:24px;--launcher-room:132px}
 body{--dock-center:calc((var(--sidebar-width) + 100vw - var(--launcher-right) - var(--launcher-room)) / 2)}
 body.assistant-open{--launcher-right:calc(var(--assistant-width) + 16px)}
-body:has(#futures-page:not([hidden]) .side-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--panel-width) + 49px)}
 body:has(#market-page:not([hidden]) .contract-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--contract-panel-width) + 49px)}
 main{padding-bottom:calc(var(--dock-band) + 16px)}
 html{scroll-padding-bottom:var(--dock-band)}
@@ -1399,7 +1389,7 @@ html{scroll-padding-bottom:var(--dock-band)}
 main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 main:has(>section:not([hidden]) .floating-context) .context-dock{bottom:72px}
 header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{opacity:.55}
-.side-panel[data-placement=overlay],.side-panel[data-wide]{padding-bottom:var(--dock-band)}
+.side-panel[data-placement=overlay]{padding-bottom:var(--dock-band)}
 /* On a phone the overlay is a sheet that holds the page, its docks included, out of reach: it lies over them, so its foot is in view. */
 @media(max-width:760px){body:not(.assistant-open) .side-panel[data-placement=overlay]{z-index:42;padding-bottom:0}}
 .assistant-launcher{position:fixed;right:var(--launcher-right);bottom:16px;z-index:40;border-radius:28px;box-shadow:0 4px 20px #122b2030;padding:13px 17px}
@@ -1548,19 +1538,28 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .delivery-jobs{margin:0 0 12px;font-size:13px;color:var(--text-2)}
 @media(max-width:760px){.delivery-filter-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.delivery-filter-fields>button{grid-column:span 2}.delivery-head{flex-direction:row;flex-wrap:wrap;gap:8px 16px}.delivery-chart .time-chart-canvas{height:280px}}
 .table-menu-check{display:flex;align-items:center;gap:8px;font-size:13px}
-/* A position's detail, inline beneath its Blotter row and in its own window: a head card with the position's value,
+/* A position's detail, in the Blotter's Details pane and in its own window: a head card with the position's value,
    a tab strip over a tinted body, and each section of the body a card of its own. Terms read as a grid of label-over-value
-   cells; schedules are tables whose numeric columns align right. Nothing here changes what is shown, only where. */
-:root .position-expansion{position:relative;box-sizing:border-box;white-space:normal;width:min(100%,1100px);display:grid;grid-template-columns:minmax(0,1fr);
-  padding:14px 16px 16px;background:var(--surface-3);border-top:1px solid var(--border-strong);border-bottom:1px solid var(--border-strong);cursor:default;color:var(--text)}
-.position-expansion>*{min-width:0}
-/* Close sits in the head card's top right corner, which the head keeps clear. */
-.position-expansion .position-close{position:absolute;top:24px;right:28px;z-index:1;font-size:12px;padding:5px 12px;min-height:0}
-.position-expansion #position-details-head{border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
-.position-expansion #position-details-head:not(:empty){margin-bottom:12px}
-.position-expansion #position-details-head:empty{display:none}
-.position-expansion #position-details-head,.position-window #position-window-head{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:24px;align-items:start;padding:14px 16px;background:var(--surface)}
-.position-expansion #position-details-head{padding-right:176px}
+   cells; schedules are tables whose numeric columns align right. Nothing here changes what is shown, only where. The pane's
+   header steps along the positions, names what it shows and collapses it. */
+:root .details-pane{position:relative;box-sizing:border-box;white-space:normal;display:grid;grid-template-columns:minmax(0,1fr);color:var(--text)}
+.details-pane:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.details-pane>*{min-width:0}
+.details-bar{display:flex;align-items:center;gap:4px;margin:0 0 10px}
+.details-title{flex:1 1 auto;min-width:0;margin:0 6px;font-size:14px;font-weight:650;overflow-wrap:anywhere}
+.details-control{flex:none;min-height:0;padding:2px 8px;font-size:15px;color:var(--text-2)}
+.details-control:disabled{color:var(--text-3);opacity:.5}
+.details-pane .side-panel-prompt{margin:0 0 10px;padding-right:16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
+/* A form in a narrow details pane takes the one column, as it does in a side panel. */
+@container (max-width:600px){
+  .details-form .schedule-fields,.details-form .trade-annotation-fields,.details-form .schedule-date-fields,.details-form .instrument-choices,.details-form .swap-term-columns,.details-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
+  .details-form .instrument-choices button,.details-form #swap-scheduled-open{white-space:normal;min-width:0;max-width:100%}
+  .details-form select,.details-form input:not([type=checkbox]),.details-form textarea{width:100%}
+}
+.details-pane #position-details-head{border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.details-pane #position-details-head:not(:empty){margin-bottom:12px}
+.details-pane #position-details-head:empty{display:none}
+.details-pane #position-details-head,.position-window #position-window-head{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:24px;align-items:start;padding:14px 16px;background:var(--surface)}
 :is(#position-details-head,#position-window-head)>*{grid-column:1;min-width:0}
 :is(#position-details-head,#position-window-head) .side-panel-kicker,:is(#position-details-head,#position-window-head) .side-panel-title{padding-right:0}
 :is(#position-details-head,#position-window-head) .side-panel-value{grid-column:2;grid-row:1/span 3;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:stretch;gap:8px;margin:0}
@@ -1570,50 +1569,50 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 :is(#position-details-head,#position-window-head) .kpi-value small{font-size:13px;font-weight:500;letter-spacing:0;color:var(--text-2)}
 :is(#position-details-head,#position-window-head) .side-panel-delta b{font-size:18px;line-height:1.35;margin-top:2px}
 :is(#position-details-head,#position-window-head) .side-panel-actions{margin-top:12px}
-.position-expansion #position-details-tabs{display:flex;gap:20px;padding:0 16px;background:var(--surface);border:1px solid var(--border);border-bottom-color:var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
-.position-expansion #position-details-tabs:empty{display:none}
-.position-expansion .side-panel-tab{background:transparent;color:var(--text-2);border:0;border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px;padding:10px 0 8px;min-height:0;font-size:13px;font-weight:550;box-shadow:none}
-.position-expansion .side-panel-tab:hover{background:transparent;color:var(--text);border-bottom-color:var(--border-strong)}
-.position-expansion .side-panel-tab[aria-selected=true]{color:var(--accent-text);border-bottom-color:var(--accent)}
-.position-expansion #position-details-body{max-height:65vh;overflow:auto;padding:12px;background:var(--surface-2);border:1px solid var(--border);border-top:0;border-radius:0 0 var(--radius-lg) var(--radius-lg)}
-.position-expansion #position-details-tabs:empty+#position-details-body{border-top:1px solid var(--border);border-radius:var(--radius-lg)}
+.details-pane #position-details-tabs{display:flex;gap:20px;padding:0 16px;background:var(--surface);border:1px solid var(--border);border-bottom-color:var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
+.details-pane #position-details-tabs:empty{display:none}
+.details-pane .side-panel-tab{background:transparent;color:var(--text-2);border:0;border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px;padding:10px 0 8px;min-height:0;font-size:13px;font-weight:550;box-shadow:none}
+.details-pane .side-panel-tab:hover{background:transparent;color:var(--text);border-bottom-color:var(--border-strong)}
+.details-pane .side-panel-tab[aria-selected=true]{color:var(--accent-text);border-bottom-color:var(--accent)}
+.details-pane #position-details-body{padding:12px;background:var(--surface-2);border:1px solid var(--border);border-top:0;border-radius:0 0 var(--radius-lg) var(--radius-lg)}
+.details-pane #position-details-tabs:empty+#position-details-body{border-top:1px solid var(--border);border-radius:var(--radius-lg)}
 .position-window #position-window-body{background:var(--surface-2)}
 :is(#position-details-view,#position-window-view){display:grid;gap:12px;align-content:start}
 :is(#position-details-view,#position-window-view) .side-panel-status{margin:0}
 :is(#position-details-view,#position-window-view) .side-panel-actions{margin:0}
 /* Sections are cards: a tinted title bar over their content. */
-:is(.position-expansion,.position-window) .side-panel-section{margin:0;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}
-:is(.position-expansion,.position-window) .side-panel-section>h3{margin:-12px -12px 12px;padding:9px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;font-size:12.5px;font-weight:650}
-:is(.position-expansion,.position-window) .side-panel-section>h3:last-child{margin-bottom:-12px;border-bottom:0}
+:is(.details-pane,.position-window) .side-panel-section{margin:0;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}
+:is(.details-pane,.position-window) .side-panel-section>h3{margin:-12px -12px 12px;padding:9px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;font-size:12.5px;font-weight:650}
+:is(.details-pane,.position-window) .side-panel-section>h3:last-child{margin-bottom:-12px;border-bottom:0}
 /* Terms: a grid of cells whose rules line up, the outer ones clipped by the card. */
-:is(.position-expansion,.position-window) .side-panel-section>.side-terms-list{margin:-12px;overflow:hidden;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
-:is(.position-expansion,.position-window) .side-terms-list .side-term{display:flex;flex-direction:column;gap:2px;margin:0 -1px -1px 0;padding:8px 12px;border:0;border-right:1px solid var(--border);border-bottom:1px solid var(--border);font-size:12.5px;line-height:1.45}
-:is(.position-expansion,.position-window) .side-term dt{font-size:11px;font-weight:550;color:var(--text-3)}
-:is(.position-expansion,.position-window) .side-term dd{margin:0;color:var(--text);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
-:is(.position-expansion,.position-window) .side-panel-facts{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin:0}
-:is(.position-expansion,.position-window) .side-panel-facts b{font-weight:600}
+:is(.details-pane,.position-window) .side-panel-section>.side-terms-list{margin:-12px;overflow:hidden;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+:is(.details-pane,.position-window) .side-terms-list .side-term{display:flex;flex-direction:column;gap:2px;margin:0 -1px -1px 0;padding:8px 12px;border:0;border-right:1px solid var(--border);border-bottom:1px solid var(--border);font-size:12.5px;line-height:1.45}
+:is(.details-pane,.position-window) .side-term dt{font-size:11px;font-weight:550;color:var(--text-3)}
+:is(.details-pane,.position-window) .side-term dd{margin:0;color:var(--text);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+:is(.details-pane,.position-window) .side-panel-facts{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin:0}
+:is(.details-pane,.position-window) .side-panel-facts b{font-weight:600}
 /* Schedules: one card per side, figures above tables with right-aligned numbers. */
-:is(.position-expansion,.position-window) table{border-collapse:collapse;width:100%;font-size:12.5px}
-:is(.position-expansion,.position-window) :is(th,td){padding:7px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
-:is(.position-expansion,.position-window) :is(th,td).numeric{text-align:right;font-family:inherit;font-size:inherit;font-variant-numeric:tabular-nums}
-:is(.position-expansion,.position-window) th.numeric{font-size:10px}
-:is(.position-expansion,.position-window) .table-wrap{max-width:100%;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface)}
-:is(.position-expansion,.position-window) .table-wrap:has(>.regular-table-scroll){overflow:visible;border:0;background:none}
-:is(.position-expansion,.position-window) .table-wrap tbody tr:last-child td{border-bottom:0}
-:is(.position-expansion,.position-window) .swap-payment-table{display:block}
-:is(.position-expansion,.position-window) .swap-payment-summary{display:none}
-:is(.position-expansion,.position-window) .swap-side-schedules{display:grid;gap:12px;margin-top:12px}
-:is(.position-expansion,.position-window) .swap-schedule{margin:0;padding:12px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius)}
-:is(.position-expansion,.position-window) .swap-schedule>h3{margin:-12px -12px 12px;padding:8px 12px;background:var(--accent-soft);border-bottom:1px solid var(--accent-border);border-radius:var(--radius) var(--radius) 0 0;color:var(--accent-text);font-size:12.5px}
-:is(.position-expansion,.position-window) .swap-schedule>.field-help{margin:10px 0 0}
-:is(.position-expansion,.position-window) .side-panel-section details{margin-top:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2)}
-:is(.position-expansion,.position-window) .side-panel-section details>summary{padding:8px 12px;font-size:12.5px;font-weight:550;color:var(--text-2);cursor:pointer}
-:is(.position-expansion,.position-window) .side-panel-section details[open]>summary{border-bottom:1px solid var(--border)}
-:is(.position-expansion,.position-window) .side-panel-section details>:not(summary){margin:10px 12px}
-:is(.position-expansion,.position-window) .valuation-facts+.table-wrap,:is(.position-expansion,.position-window) .swap-normalized .valuation-facts{margin-top:10px}
-:is(.position-expansion,.position-window) .scheduled-review section{margin:12px 0 0;padding:12px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface)}
-:is(.position-expansion,.position-window) .scheduled-review h4{margin:-12px -12px 10px;padding:8px 12px;background:var(--accent-soft);border-bottom:1px solid var(--accent-border);border-radius:var(--radius) var(--radius) 0 0;color:var(--accent-text);font-size:12.5px}
-:is(.position-expansion,.position-window) .scheduled-review p{margin:6px 0;font-size:12.5px;color:var(--text-2)}
+:is(.details-pane,.position-window) table{border-collapse:collapse;width:100%;font-size:12.5px}
+:is(.details-pane,.position-window) :is(th,td){padding:7px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+:is(.details-pane,.position-window) :is(th,td).numeric{text-align:right;font-family:inherit;font-size:inherit;font-variant-numeric:tabular-nums}
+:is(.details-pane,.position-window) th.numeric{font-size:10px}
+:is(.details-pane,.position-window) .table-wrap{max-width:100%;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface)}
+:is(.details-pane,.position-window) .table-wrap:has(>.regular-table-scroll){overflow:visible;border:0;background:none}
+:is(.details-pane,.position-window) .table-wrap tbody tr:last-child td{border-bottom:0}
+:is(.details-pane,.position-window) .swap-payment-table{display:block}
+:is(.details-pane,.position-window) .swap-payment-summary{display:none}
+:is(.details-pane,.position-window) .swap-side-schedules{display:grid;gap:12px;margin-top:12px}
+:is(.details-pane,.position-window) .swap-schedule{margin:0;padding:12px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius)}
+:is(.details-pane,.position-window) .swap-schedule>h3{margin:-12px -12px 12px;padding:8px 12px;background:var(--accent-soft);border-bottom:1px solid var(--accent-border);border-radius:var(--radius) var(--radius) 0 0;color:var(--accent-text);font-size:12.5px}
+:is(.details-pane,.position-window) .swap-schedule>.field-help{margin:10px 0 0}
+:is(.details-pane,.position-window) .side-panel-section details{margin-top:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2)}
+:is(.details-pane,.position-window) .side-panel-section details>summary{padding:8px 12px;font-size:12.5px;font-weight:550;color:var(--text-2);cursor:pointer}
+:is(.details-pane,.position-window) .side-panel-section details[open]>summary{border-bottom:1px solid var(--border)}
+:is(.details-pane,.position-window) .side-panel-section details>:not(summary){margin:10px 12px}
+:is(.details-pane,.position-window) .valuation-facts+.table-wrap,:is(.details-pane,.position-window) .swap-normalized .valuation-facts{margin-top:10px}
+:is(.details-pane,.position-window) .scheduled-review section{margin:12px 0 0;padding:12px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface)}
+:is(.details-pane,.position-window) .scheduled-review h4{margin:-12px -12px 10px;padding:8px 12px;background:var(--accent-soft);border-bottom:1px solid var(--accent-border);border-radius:var(--radius) var(--radius) 0 0;color:var(--accent-text);font-size:12.5px}
+:is(.details-pane,.position-window) .scheduled-review p{margin:6px 0;font-size:12.5px;color:var(--text-2)}
 /* A PPA's side schedules: a status line, the side totals, the side and month to inspect, then the month's and its intervals' rows. */
 .position-schedules .schedule-note{margin:0 0 12px;padding:8px 12px;border-left:3px solid var(--accent-border);background:var(--surface-2);border-radius:0 var(--radius-sm) var(--radius-sm) 0;font-size:12.5px;color:var(--text-2)}
 .position-schedules .schedule-block:not(:empty){margin-top:12px}
@@ -1625,15 +1624,12 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .position-schedules .schedule-pager{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 .position-schedules .schedule-pager button{font-size:12px;padding:6px 12px}
 @media(max-width:760px){
-  :root .position-expansion{width:100%;padding:10px}
-  .position-expansion .position-close{position:static;justify-self:end;margin-bottom:8px}
-  .position-expansion #position-details-head{padding-right:16px}
   :is(#position-details-head,#position-window-head){grid-template-columns:minmax(0,1fr)}
   :is(#position-details-head,#position-window-head) .side-panel-value{grid-column:1;grid-row:auto;justify-content:stretch;margin-top:12px}
   :is(#position-details-head,#position-window-head) :is(.side-panel-figure,.side-panel-delta){flex:1 1 140px;text-align:left}
-  .position-expansion #position-details-tabs{gap:16px;padding:0 12px;overflow-x:auto}
-  .position-expansion #position-details-body{padding:10px}
-  :is(.position-expansion,.position-window) .side-panel-section>.side-terms-list{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .details-pane #position-details-tabs{gap:16px;padding:0 12px;overflow-x:auto}
+  .details-pane #position-details-body{padding:10px}
+  :is(.details-pane,.position-window) .side-panel-section>.side-terms-list{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
   .position-schedules .schedule-fields select{min-width:0;width:100%}
   .position-schedules .schedule-fields label{flex:1 1 140px}
 }
@@ -1653,6 +1649,97 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .custom-curve-pick .curve-component-type{margin-right:auto}
 .custom-curve-row-open .curve-component-type{margin-bottom:3px}
 
+/* The Blotter workbench (blotter-workbench.md, Layout): beside the navigation the Blotter fills the window, which never scrolls. The
+   toolbar keeps its row; the panes share the rest and scroll within themselves, the positions grid within its own rows. A narrow
+   window has the navigation above the page, and the Blotter fills what is left of it; a phone's page scrolls, and the panes keep the
+   dock's own height. */
+@media(min-width:481px){
+  main:has(>#futures-page:not([hidden])){box-sizing:border-box;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  main:has(>#futures-page:not([hidden]))>:not(#futures-page){flex:none}
+  #futures-page:not([hidden]){display:flex;flex:1 1 0;flex-direction:column;min-height:0}
+  #futures-page>:not(#blotter-workspace){flex:none}
+  #blotter-workspace{flex:1 1 0;min-height:0}
+  #blotter-workspace>.table-workspace{display:flex;flex-direction:column;height:100%}
+  #blotter-workspace .table-workspace-toolbar,#blotter-workspace .table-workspace-note{flex:none}
+  #blotter-workspace .table-workspace-stage{display:grid;flex:1 1 0;grid-template-columns:minmax(0,1fr);min-width:0;min-height:0}
+  #blotter-dock.tab-dock{height:auto}
+}
+@media(min-width:481px) and (max-width:760px){
+  body:has(#futures-page:not([hidden])){display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  /* The navigation above the Blotter keeps to a band of its own, which scrolls, so the panes keep room for the positions. */
+  body:has(#futures-page:not([hidden]))>.sidebar{flex:none;max-height:min(40vh,240px);overflow-y:auto}
+  body:has(#futures-page:not([hidden]))>main{flex:1 1 0;height:auto;min-height:0}
+}
+#blotter-dock.tab-dock{min-height:0;padding:10px;background:var(--bg)}
+/* The saved views list keeps its whole label; the search beside it gives way first. */
+#blotter-workspace .table-workspace-toolbar>select{flex:none;width:auto}
+.table-workspace-rows{display:flex;flex:1 1 560px;align-items:center;gap:6px 14px;min-width:0}
+@media(max-width:760px){.table-workspace-rows{flex-wrap:wrap;flex-basis:100%}}
+#blotter-workspace .table-workspace-filters{flex:1 1 380px}
+#blotter-workspace .table-workspace-filters .table-filters{flex-wrap:nowrap}
+#blotter-workspace .table-workspace-filters .table-search{flex:1 1 120px;min-width:100px;width:auto}
+#blotter-dock .dock-panels{padding:10px 12px}
+/* The summary strip keeps the room its figures need; the positions keep room for a row under their header, however the panes are sized. */
+#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-summary:not([hidden])){min-height:max-content}
+#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-grid:not([hidden])){min-height:var(--grid-room,250px)}
+/* Every pane keeps at least the height of its head or bar, so that one squeezed by its neighbours' minimums still names itself inside the
+   dock, and the room the splits below keep beside the details holds either. */
+#blotter-dock .dock-group{min-height:40px}
+/* Open details keep room of their own; the Charts pane makes way for them where the arrangement leaves less, and on a dock too short for
+   both minimums the grid and the details share it evenly (--grid-room, --details-room: futures-view.ts fitRoom). */
+#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-details:not([hidden]) #position-details:not([hidden])){min-height:var(--details-room,240px)}
+/* The splits that hold them keep that room too, with a neighbour's divider and head or bar beside them, so the grid gives way first. */
+#blotter-dock .dock-split:has(#blotter-pane-details:not([hidden]) #position-details:not([hidden])){min-height:var(--details-room,240px)}
+#blotter-dock .dock-split:has(>.dock-group>.dock-panels>#blotter-pane-details:not([hidden]) #position-details:not([hidden])){min-height:calc(var(--details-room,240px) + 50px)}
+/* The run bar's notes scroll within it, so a run with many keeps the summary pane to a few lines. */
+#blotter-pane-summary .desk-run-notes{max-height:4.4em;overflow-y:auto}
+#blotter-dock .dock-panels:has(>#blotter-pane-grid:not([hidden])){display:flex;flex-direction:column;padding:0;overflow:hidden}
+.blotter-pane-grid:not([hidden]){display:flex;flex:1 1 0;flex-direction:column;min-height:0}
+.blotter-pane-grid>:not(#desk-positions){flex:none}
+.blotter-pane-grid .table-workspace-heading{padding:8px 12px 4px}
+.blotter-pane-grid .table-workspace-footer{padding:6px 12px 8px}
+#desk-positions{display:flex;flex:1 1 0;flex-direction:column;min-height:0}
+#desk-positions>:not(.standard-data-grid){flex:none}
+#desk-positions>.standard-data-grid{flex:1 1 0;min-height:0}
+.desk{display:grid;gap:8px}
+.summary-strip{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 22px;margin:0;padding:0;list-style:none}
+.strip-item{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;min-width:0;font-size:12px;color:var(--text-2)}
+.strip-label{font-weight:550;color:var(--text-3)}
+.strip-value{font-size:16px;font-weight:650;letter-spacing:-.2px;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.strip-currency{font-weight:550}
+.strip-reason{font-size:11.5px;color:var(--text-2);overflow-wrap:anywhere}
+.strip-item[data-state=pending] .strip-value,.strip-item[data-state=unavailable] .strip-value{font-size:14px;color:var(--text-2)}
+.strip-item[data-state=pending] .strip-reason,.strip-item[data-state=unavailable] .strip-reason{color:var(--warn)}
+.strip-item[data-stale] .strip-value{color:var(--text-2)}
+.strip-stale{font-size:10.5px;font-weight:650;letter-spacing:.3px;text-transform:uppercase;color:var(--warn);cursor:help}
+/* A read under way: a thin bar over the rows, moving while nothing says how far the read has come, and the status line beneath it. */
+.blotter-progress{position:relative;height:3px;margin:0 12px;overflow:hidden;border-radius:2px;background:var(--surface-3)}
+.blotter-progress::after{content:'';position:absolute;inset:0 auto 0 0;width:30%;border-radius:2px;background:var(--accent);animation:blotter-progress 1.2s ease-in-out infinite}
+@keyframes blotter-progress{from{transform:translateX(-100%)}to{transform:translateX(340%)}}
+@media(prefers-reduced-motion:reduce){.blotter-progress::after{animation:none;width:100%;opacity:.5}}
+.blotter-load-status{display:flex;align-items:center;gap:10px;margin:0;padding:6px 12px;font-size:12.5px;color:var(--text-2)}
+.blotter-load-status button{padding:3px 10px;font-size:12px}
+/* Rows kept stale from the previous read are not offered: opening one only says why. */
+.table-workspace #desk-positions [role=grid][aria-disabled=true] .tabulator-row.openable-row{cursor:default}
+.desk-book-bars{display:grid;gap:5px}.desk-book-bars+.desk-book-bars{margin-top:10px;padding-top:8px;border-top:1px solid var(--border)}
+#desk-chart-mix .desk-legend{margin-top:8px}
+#blotter-pane-charts{display:grid;gap:12px}
+/* A collapsed pane beside another is an upright bar of its title, and the divider beside a collapsed bar does not move. */
+.dock-split[data-direction=row]>.dock-group[data-collapsed]>.dock-bar{flex:1 1 auto;flex-direction:column-reverse;justify-content:flex-end;padding:8px 4px}
+.dock-split[data-direction=row]>.dock-group[data-collapsed] .dock-title{writing-mode:vertical-rl;white-space:nowrap}
+.dock-divider[aria-disabled=true]{cursor:default}
+.dock-divider[aria-disabled=true]::after{display:none}
+
+/* The Blotter popped out (blotter-workbench.md, Pop-out Blotter): in its own window it has no navigation beside it and fills the window;
+   the main window says where it went. A window that stops says why in place of the Blotter. */
+.blotter-window main{margin-left:0;max-width:none}
+.blotter-window-ended{padding:14px;border:1px solid var(--danger-border);border-radius:var(--radius);background:var(--danger-soft);color:var(--danger)}
+.blotter-away{max-width:640px}
+.blotter-away p{margin:8px 0 16px}
+/* A question the main window asks before a change gives up the edits the popped-out Blotter holds. */
+.blotter-window-question .side-panel-prompt{margin:0 0 12px;padding:10px 16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
+/* A pop-out whose main window is gone keeps only its unconfirmed trade request, with Check status and Retry, and no values. */
+#futures-page[data-retained-only]>:not(#futures-retained){display:none}
 /* Gas authoring and retained evidence share the available workspace width. */
 #gas-page,#gas-page .card,#gas-page label{min-width:0}
 #gas-page .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}

@@ -31,6 +31,26 @@ test('a separate trade window also loads one bundle with only its declared vendo
   assert.equal((html.match(/<script type="module" src="\/position-window.js"><\/script>/g)??[]).length,1);
 });
 
+test('the pop-out Blotter window loads one bundle with its declared vendor imports preloaded',async()=>{
+  const result=await build({absWorkingDir:fileURLToPath(new URL('../dist/',import.meta.url)),entryPoints:['blotter-window.js'],
+    bundle:false,write:false,metafile:true,format:'esm',platform:'browser',logLevel:'silent'});
+  const imports=Object.values(result.metafile.outputs).flatMap(output=>output.imports).map(item=>item.path);
+  assert.ok(imports.length>0&&imports.every(path=>['./vendor/echarts.js','./vendor/klinecharts.js','./vendor/tabulator.js'].includes(path)),'The Blotter window must not fetch project modules separately.');
+  const html=readFileSync(new URL('../dist/blotter.html',import.meta.url),'utf8');
+  assert.deepEqual([...html.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map(match=>match[1]).sort(),imports.map(path=>path.slice(1)).sort());
+  assert.equal((html.match(/<script type="module" src="\/blotter-window.js"><\/script>/g)??[]).length,1);
+});
+test('the pop-out Blotter window draws the main page\'s own Blotter markup, once, with nothing else of that page',()=>{
+  const main=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8'),popout=readFileSync(new URL('../dist/blotter.html',import.meta.url),'utf8');
+  const ids=html=>[...html.matchAll(/ id="([^"]+)"/g)].map(match=>match[1]);
+  for(const id of ['futures-page','blotter-workspace','blotter-dock','editor-shelf','risk-report','swap-form','trade-amend-form','swap-fixed-template','swap-floating-template']){
+    assert.equal(ids(popout).filter(found=>found===id).length,1,id);assert.equal(ids(main).filter(found=>found===id).length,1,id);
+  }
+  for(const id of ['app-sidebar','market-page','assistant-panel','profile-dialog','blotter-away'])assert.ok(!ids(popout).includes(id),id);
+  assert.doesNotMatch(popout+main,/blotter-window:|include:/,'no build marker is left in a page');
+  assert.equal(new Set(ids(popout)).size,ids(popout).length,'every id of the Blotter window is unique');
+});
+
 async function fixture(files,run){
   const parent=realpathSync(mkdtempSync(join(tmpdir(),'openetrm-bundle-test-'))),root=join(parent,'dist');mkdirSync(root);
   try{

@@ -19,7 +19,11 @@ public static class TableViews
     // How the desk groups trade rows; null is a flat list.
     private static readonly string[] RowGroups=["book","market","instrumentType"];
     // The only layout version. Layouts of an earlier version are not migrated and cannot be saved.
-    private const int Version=5;
+    private const int Version=6;
+    // The Blotter's dock: these panes exactly once, splits at most three deep, ratios within the range, the positions grid never collapsed.
+    private static readonly string[] Panes=["summary","grid","details","charts"];
+    private const int MaxPaneDepth=3;
+    private const double MinRatio=0.05,MaxRatio=0.95;
     private static MarketDataException Invalid()=>new("table_view","Supply a valid named table layout. Dates, authority and market inputs cannot be saved in a layout.");
     private static bool Field(string key)
     {
@@ -34,11 +38,40 @@ public static class TableViews
         }
         catch(Exception e) when(e is JsonException or InvalidOperationException or ArgumentException){return false;}
     }
+    // Returns the tabs of the groups under `node` in order; exactly the properties each node kind has, no others.
+    private static IEnumerable<string[]> PaneGroups(JsonElement node,int depth)
+    {
+        if(node.ValueKind!=JsonValueKind.Object)throw Invalid();
+        switch(node.GetProperty("kind").GetString())
+        {
+            case "group":
+                if(node.EnumerateObject().Count()!=3)throw Invalid();
+                var tabs=node.GetProperty("tabs").EnumerateArray().Select(t=>t.GetString()??throw Invalid()).ToArray();
+                if(tabs.Length==0||!tabs.Contains(node.GetProperty("active").GetString()))throw Invalid();
+                return [tabs];
+            case "split":
+                if(node.EnumerateObject().Count()!=4||depth>=MaxPaneDepth||node.GetProperty("direction").GetString() is not("row" or "column"))throw Invalid();
+                var ratio=node.GetProperty("ratio").GetDouble();
+                var children=node.GetProperty("children").EnumerateArray().ToArray();
+                if(!(ratio>=MinRatio&&ratio<=MaxRatio)||children.Length!=2)throw Invalid();
+                return children.SelectMany(c=>PaneGroups(c,depth+1));
+            default: throw Invalid();
+        }
+    }
+    private static void ValidatePanes(JsonElement panes)
+    {
+        if(panes.ValueKind!=JsonValueKind.Object||panes.EnumerateObject().Count()!=2)throw Invalid();
+        var held=PaneGroups(panes.GetProperty("layout"),0).SelectMany(t=>t).ToArray();
+        if(held.Length!=Panes.Length||held.Distinct().Count()!=held.Length||held.Any(t=>!Panes.Contains(t)))throw Invalid();
+        var collapsed=panes.GetProperty("collapsed").EnumerateArray().Select(t=>t.GetString()??throw Invalid()).ToArray();
+        if(collapsed.Distinct().Count()!=collapsed.Length||collapsed.Any(t=>!Panes.Contains(t)||t=="grid"))throw Invalid();
+    }
+
     public static void Validate(JsonElement layout)
     {
         try
         {
-            var fields=new[]{"version","name","sidebar","mode","rowGroup","columns","bookIds","portfolioIds","groupBy","measures","query","columnFilters","splitBy","grid","chart"};
+            var fields=new[]{"version","name","sidebar","mode","rowGroup","columns","bookIds","portfolioIds","groupBy","measures","query","columnFilters","splitBy","grid","panes","chart"};
             if(layout.ValueKind!=JsonValueKind.Object)throw Invalid();
             if(layout.GetProperty("version").GetInt32()!=Version||layout.EnumerateObject().Count()!=fields.Length||layout.EnumerateObject().Select(p=>p.Name).Distinct().Count()!=fields.Length||layout.EnumerateObject().Any(p=>!fields.Contains(p.Name)))throw Invalid();
             var name=layout.GetProperty("name").GetString();
@@ -75,6 +108,7 @@ public static class TableViews
             if(widths.ValueKind!=JsonValueKind.Object||widths.EnumerateObject().Count()>128||widths.EnumerateObject().Any(p=>!Field(p.Name)||p.Value.ValueKind!=JsonValueKind.Number||!p.Value.TryGetInt32(out var width)||width is <40 or >3000))throw Invalid();
             var sort=grid.GetProperty("sort").EnumerateArray().ToArray();
             if(sort.Length>16||sort.Any(p=>p.ValueKind!=JsonValueKind.Object||p.EnumerateObject().Count()!=2||!Field(p.GetProperty("key").GetString()??"")||p.GetProperty("direction").GetString() is not("asc" or "desc"))||sort.Select(p=>p.GetProperty("key").GetString()).Distinct().Count()!=sort.Length)throw Invalid();
+            ValidatePanes(layout.GetProperty("panes"));
             var chart=layout.GetProperty("chart");
             if(chart.ValueKind!=JsonValueKind.Object||chart.EnumerateObject().Count()!=3||chart.EnumerateObject().Select(p=>p.Name).Distinct().Count()!=3||chart.GetProperty("visible").ValueKind is not(JsonValueKind.True or JsonValueKind.False))throw Invalid();
             var chartMeasure=chart.GetProperty("measure").GetString();

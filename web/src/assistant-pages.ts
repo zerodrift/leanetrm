@@ -4,7 +4,13 @@
 import {grantPhrase,type Vendor} from './agent-grants.js';
 import {readPages,type Step,type Ending,type Usage,type TargetContext} from './assistant-events.js';
 
-export type PageReport={page:string;selection:Record<string,unknown>};
+/**
+ * What the Blotter shows of its panes and window, which its report states beside the selection (D271). A pane is open when it is the shown
+ * tab of its group in the panes as drawn and is not put away: one behind another tab of its group is not open. A narrow page draws every
+ * pane in one group, so there only the pane that group shows is open (dock-model openTabs). `poppedOut`: the Blotter is in a window of its own.
+ */
+export type BlotterLayoutShown={pane:{details:boolean;charts:boolean};poppedOut:boolean};
+export type PageReport={page:string;selection:Record<string,unknown>;layout?:BlotterLayoutShown};
 export type BlotterSelection={mode:'trades'|'pivot';bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[]};
 export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas';revision:number;reference:string};
 /** A new trade being entered in the Blotter's panel: of its product, or of none until the person chooses one. */
@@ -15,7 +21,7 @@ export type PpaShown={trade:{tradeId:string;revision:number}|null;book:string|nu
 export type PageState=
   {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
-  |{page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}
+  |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
   |{page:'dashboard'|'gas-setup'|'gas'|'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
@@ -54,17 +60,21 @@ export function pageReport(state:PageState):PageReport{
     // reports is always the first page of the person's own jobs.
     case 'jobs':return {page:'jobs',selection:state.job?{view:'history',job:state.job,page:null,before:null}:{view:'jobs',job:null,page:0,before:null}};
     case 'futures':{
-      if(state.risk)return {page:'blotter_risk',selection:{}};
-      if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:{}};
-      if(!state.trade&&state.lens==='risk')return {page:'blotter_risk_lens',selection:{}};
+      const layout:BlotterLayoutShown={pane:{...state.pane},poppedOut:state.poppedOut};
+      if(state.risk)return {page:'blotter_risk',selection:{},layout};
+      if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:{},layout};
+      if(!state.trade&&state.lens==='risk')return {page:'blotter_risk_lens',selection:{},layout};
       const t=state.trade,v=state.view,pivot=v.mode==='pivot';
-      return {page:'blotter',selection:t?{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:t.tradeId,instrumentType:t.instrumentType,revision:t.revision}
+      return {page:'blotter',layout,selection:t?{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:t.tradeId,instrumentType:t.instrumentType,revision:t.revision}
         :{view:'blotter',mode:v.mode,bookIds:[...v.bookIds],portfolioIds:[...v.portfolioIds],groupBy:pivot?[...v.groupBy]:[],measures:pivot?[...v.measures]:[],
           tradeId:null,instrumentType:null,revision:null}};
     }
     default:return {page:unsupported[state.page],selection:{}};
   }
 }
+
+// What Looking at showed, kept to compare with the page at send: the report it shows whole, the Blotter's layout too, and its context.
+export const lookingKey=({report,context}:{report:PageReport;context:PageContext})=>JSON.stringify([report.page,report.selection,report.layout??null,context]);
 
 // The knowledge an ask pins: working data only at a chosen As of frame, the selected historical view with or without one.
 export function askKnowledge(context:PageContext){
@@ -117,13 +127,17 @@ function contextLine(context:PageContext){
   if(context.mode==='current')return `Working data · ${frame||'choose an As of date to ask about it'}`;
   return `Historical view · ${context.effectiveOn}, as known at ${context.knownAtLabel} · ${frame||'no As of date chosen'}`;
 }
-// Looking at: the page, what it shows and the context the next question will pin, or that the page is not read.
+// Looking at's line for the Blotter's layout: its details and charts open or closed, and the window it is in.
+const layoutLine=({pane,poppedOut}:BlotterLayoutShown)=>
+  [`Details ${pane.details?'open':'closed'}`,`Charts ${pane.charts?'open':'closed'}`,poppedOut?'Pop-out window':'Main window'].join(' · ');
+// Looking at: the page, what it shows, the Blotter's layout where it reports one, and the context the next question will pin, or that the
+// page is not read.
 export function lookingAt(report:PageReport,context:PageContext,names:Names,extra:{trade?:string}={}){
   if(!Object.hasOwn(pageNames,report.page))throw inconsistent();
   // A page whose report names no selection yet, Reference data before it shows a table or PPA bookings before it lists a
   // book, has nothing to be asked from.
   const named=!(report.page==='reference_data'&&report.selection.table===''||report.page==='ppa'&&report.selection.view==='ppa_book'&&!(report.selection.bookIds as string[]).length);
-  return {page:pageNames[report.page],shows:shows(report,names,extra.trade),context:contextLine(context),supported:readPages.includes(report.page)||unopened.includes(report.page),
+  return {page:pageNames[report.page],shows:shows(report,names,extra.trade),...(report.layout?{layout:layoutLine(report.layout)}:{}),context:contextLine(context),supported:readPages.includes(report.page)||unopened.includes(report.page),
     askable:named&&askKnowledge(context)!==undefined};
 }
 
@@ -260,7 +274,7 @@ export function keptAsk(stored:string|null){
     if(!exact(v,['operationId','path','body'])||!isUuid(v.operationId)||v.path!=='assistant/turns/ask'
       ||!exact(b,['conversationId','agentId','version','question','pageReport','knowledge'])||b.conversationId!==null&&!isUuid(b.conversationId)
       ||!isUuid(b.agentId)||!Number.isSafeInteger(b.version)||b.version<1||typeof b.question!=='string'||!b.question.trim()
-      ||!exact(b.pageReport,['page','selection'])||!exact(k,['mode','contextId','frameId']))return undefined;
+      ||!exact(b.pageReport,['page','selection'])&&!exact(b.pageReport,['page','selection','layout'])||!exact(k,['mode','contextId','frameId']))return undefined;
     return {operationId:v.operationId as string,path:v.path as string,body:b as Record<string,unknown>,uncertain:true};
   }catch{return undefined;/* Invalid browser state keeps no request. */}
 }

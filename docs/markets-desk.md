@@ -252,7 +252,7 @@ operations) are unchanged.
   published curve it reads.
 - **Nothing open.** With no curve open, the main area offers **Ask the
   assistant to set up a curve**, **New curve** and the templates.
-- **Views as tabs in a dock** (`curve-dock.ts`, `curve-dock-model.ts`). The
+- **Views as tabs in a dock** (`dock.ts`, `dock-model.ts`). The
   views open as one tab group on **Outputs**:
   - **Outputs:** the preview's tiles, chart, table and receipt, or a Preview
     button while there is none. Preview runs only when asked, and shows

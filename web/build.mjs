@@ -1,7 +1,19 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import {bundleApplication} from './bundle-app.mjs';
 mkdirSync('dist', { recursive: true });
-for (const file of ['index.html', 'app.css','position.html','position-window.css']) copyFileSync(`src/${file}`, `dist/${file}`);
+for (const file of ['app.css','position.html','position-window.css']) copyFileSync(`src/${file}`, `dist/${file}`);
+// The pop-out Blotter (blotter.html) draws the main page's own Blotter markup: the regions index.html marks, each once, in its includes.
+const regions=new Map();
+const main=readFileSync('src/index.html','utf8').replace(/ *<!-- blotter-window: ([a-z]+) -->\n([\s\S]*?) *<!-- \/blotter-window: \1 -->\n/g,(_,name,body)=>{
+ if(regions.has(name))throw Error(`The main page marks its ${name} Blotter region twice.`);regions.set(name,body);return body;});
+let popout=readFileSync('src/blotter.html','utf8');
+for(const [name,body] of regions){
+ const include=`<!-- include: ${name} -->`;
+ if(popout.split(include).length!==2)throw Error(`The Blotter window must include the ${name} region once.`);
+ popout=popout.replace(include,()=>body);
+}
+if(/blotter-window:|<!-- include:/.test(main+popout))throw Error('A Blotter window region or include is unmatched.');
+writeFileSync('dist/index.html',main);writeFileSync('dist/blotter.html',popout);
 
 mkdirSync('dist/vendor', {recursive:true});
 for(const [source,target] of [
@@ -23,7 +35,7 @@ for(const [source,target] of [
 const library=readFileSync('node_modules/klinecharts/dist/index.esm.js','utf8');
 if(library.split('process.env.NODE_ENV').length!==2)throw Error('The chart library no longer reads process.env.NODE_ENV exactly once.');
 writeFileSync('dist/vendor/klinecharts.js',library.replace('process.env.NODE_ENV',"'production'"));
-for(const [name,page] of [['app.js','index.html'],['position-window.js','position.html']]){
+for(const [name,page] of [['app.js','index.html'],['position-window.js','position.html'],['blotter-window.js','blotter.html']]){
  const metafile=await bundleApplication('dist',name);
  const imported=Object.values(metafile.outputs)[0].imports.map(item=>item.path);
  // Only the vendor modules this page imports are preloaded.

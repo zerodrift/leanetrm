@@ -1,5 +1,5 @@
 import {setupTradingReplies} from './trading-responses.mjs';
-// The risk report (blotter-desk.md, Risk report inline): its setup in the side panel's Risk report mode, with its presets, the custom
+// The risk report (blotter-desk.md, Risk report inline): its setup in the details' Risk report mode, with its presets, the custom
 // scenario lab, runs made now and queued as jobs, split into parts of at most sixteen shocks, and the retained job history; and its
 // results inline in the desk (D222): the run bar, the Values | Risk lens of the positions, the risk tile, the change chart and the
 // Risk tab of a position's panel.
@@ -13,12 +13,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // A person's own typing, which the setup holds as an edit, unlike a value a script sets.
   const typeInto=async(selector,text)=>{await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);await command('Input.insertText',{text});};
   const catalog="window.__riskReads.findLast(r=>r.path==='/api/portfolio/risk/catalog').data";
-  const panelRisk="(()=>{const panel=document.querySelector('#side-panel');return !panel.hidden&&panel.dataset.mode==='risk'&&document.querySelector('#side-panel-view').contains(document.querySelector('#risk-report'))&&!document.querySelector('#risk-report').hidden;})()";
-  const tileSays=state=>`document.querySelector('#desk-tile-risk .desk-risk-state').textContent===${JSON.stringify(state)}`;
+  const panelRisk="(()=>{const panel=document.querySelector('#position-details');return !panel.hidden&&panel.dataset.mode==='risk'&&document.querySelector('#position-details-view').contains(document.querySelector('#risk-report'))&&!document.querySelector('#risk-report').hidden;})()";
+  // The risk status the summary strip states (blotter-workbench.md, Layout): its first item's value.
+  const tileSays=state=>`[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-value').textContent===${JSON.stringify(state)}`;
   // A run's results are inline: the run bar says what ran, and the lens shows the positions under Risk.
   const inline="(()=>{const bar=document.querySelector('#desk-run');return !bar.hidden&&document.querySelector('#desk-lens [data-lens=risk]')?.getAttribute('aria-pressed')==='true'&&!document.querySelector('#desk-lens').hidden;})()";
   const noRun="document.querySelector('#desk-run').hidden&&document.querySelector('#desk-lens').hidden";
-  const shocksShown="Number(document.querySelector('#desk-tile-risk .desk-risk-count').textContent.split(' ')[0])";
+  const shocksShown="Number([...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-label').textContent.split(' · ').at(-1).split(' ')[0])";
   // Changing the close, the context or the book scope clears a run in the design's words; any other new read of the Blotter says it was read.
   const cleared='Risk results cleared · the close or books changed',readAgain='Risk results cleared · the Blotter was read again';
   const notice="document.querySelector('#notice').hidden?'':document.querySelector('#notice').textContent";
@@ -27,19 +28,27 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const runReports=count=>`window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').slice(-${count}).map(r=>r.data)`;
   const lensCell=(row,field)=>`${row}.querySelector('[tabulator-field=${field}]')`;
   const choose=async report=>{await click(`input[name=risk-choice][value=${report}]`);};
+  // A person presses a row they can see: the grid's first position row (of a kind), scrolled into view, whose cells are wholly within the
+  // grid's view, not one the grid draws beyond it. An open row's details below its cells may run past the view.
+  const pressRow=async(kind='')=>{const key=await evaluate(`(async()=>{const holder=document.querySelector('#desk-positions .tabulator-tableholder'),frames=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),rows=()=>[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)${kind}')];
+    const inView=()=>{const h=holder.getBoundingClientRect();return rows().find(r=>{const b=r.querySelector('.tabulator-cell')?.getBoundingClientRect();return !!b&&b.height>0&&b.top>=h.top-0.5&&b.bottom<=h.bottom+0.5;});};
+    holder.scrollTop=0;await frames();if(!inView()){rows()[0]?.querySelector('.tabulator-cell')?.scrollIntoView({block:'nearest'});await frames();}return inView()?.dataset.rowKey;})()`);if(!key)throw Error('No position row is in the grid\'s view to press.');await click(`#desk-positions .tabulator-row[data-row-key="${key}"]`);};
+  // Reads the Blotter again and waits for the read to land; a position the details showed is shown again from it, anything else closes.
+  const workspaceReads="window.__riskReads.filter(r=>r.path==='/api/trading/workspace').length";
+  const refresh=async()=>{const reads=await evaluate(workspaceReads);await click('#futures-refresh');await wait(`${workspaceReads}>${reads}&&${idle}`);};
   const openReport=async()=>{await click('#blotter-risk');await wait(panelRisk+"&&!document.querySelector('#risk-fields').disabled");};
   await persona('risk');
   // The date's own close, never a close another check registered from it at the same instant.
   const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&!f.originCloseId).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
-  await check('portfolio risk includes a mixed book selection without hiding swap holdings',"(()=>{const holdings=window.__tradingReports(window.__riskReads).at(-1).data.holdings;return !document.querySelector('#blotter-risk').hidden&&document.querySelector('#blotter-risk').textContent==='Risk report'&&holdings.some(row=>row.instrumentType==='future')&&holdings.some(row=>row.instrumentType==='financial_swap');})()");
+  await check('portfolio risk includes a mixed book selection without hiding swap holdings',"(()=>{const holdings=window.__tradingReports(window.__riskReads).at(-1).data.holdings;return !document.querySelector('#blotter-risk').hidden&&document.querySelector('#blotter-risk').textContent==='Run risk'&&holdings.some(row=>row.instrumentType==='future')&&holdings.some(row=>row.instrumentType==='financial_swap');})()");
   await check('Risk Analyst can inspect holdings and run scenarios without booking authority, and is told so rather than offered New trade',"document.querySelector('#profile-label').textContent==='Risk Analyst'&&document.querySelector('#futures-new').disabled&&document.querySelector('#new-trade-availability').textContent.includes('Book Trade permission')&&document.querySelector('#futures-book-submit').disabled&&!document.querySelector('#blotter-risk').disabled");
-  await check('the risk tile says no report has run at this close and offers to run one',tileSays('Not run at this close')+"&&!document.querySelector('#desk-risk-run').disabled");
+  await check('the risk tile says no report has run at this close and offers to run one',tileSays('Not run')+"&&!document.querySelector('#blotter-risk').disabled");
 
-  // The tile opens the risk report in the side panel, which reads the risk catalog of the Blotter read on screen.
-  await click('#desk-risk-run');await wait(panelRisk+"&&!document.querySelector('#risk-fields').disabled");
+  // The tile opens the risk report in the details, which reads the risk catalog of the Blotter read on screen.
+  await click('#blotter-risk');await wait(panelRisk+"&&!document.querySelector('#risk-fields').disabled");
   await check('the risk tile opens the side panel in its Risk report mode, named so for assistive technology, with the catalog of the read on screen',
-    `${panelRisk}&&document.querySelector('#side-panel').getAttribute('aria-label')==='Risk report'&&document.querySelector('#side-panel-title').textContent==='Risk report'&&${catalog}.context.contextId===window.__tradingReports(window.__riskReads).at(-1).data.context.contextId&&${tileSays('Set up in the panel')}`);
+    `${panelRisk}&&document.querySelector('#position-details').getAttribute('aria-label')==='Risk report'&&document.querySelector('#side-panel-title').textContent==='Risk report'&&${catalog}.context.contextId===window.__tradingReports(window.__riskReads).at(-1).data.context.contextId&&${tileSays('Set up in the panel')}`);
   await check('no report is chosen for the person: the form asks for one before it can run',"[...document.querySelectorAll('input[name=risk-choice]')].every(c=>!c.checked)&&!document.querySelector('#risk-form').checkValidity()&&document.querySelector('#risk-preset').hidden&&document.querySelector('#risk-custom').hidden");
   await check('each preset says what it shocks at this read, from the held targets the backend names',
     `(()=>{const c=${catalog};return c.heldContractTargets.length>0&&c.heldCurveTargets.length>0&&document.querySelector('#risk-choice-held-detail').textContent.startsWith(c.heldContractTargets.length+' held contract')&&document.querySelector('#risk-choice-parallel-detail').textContent.startsWith(c.heldCurveTargets.length+' held curve');})()`);
@@ -57,24 +66,25 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the run shocks every held contract target once by its size, in parts of at most sixteen made one after another, all at the catalog\'s one retained context',
     `(()=>{const c=${catalog},targets=${heldTargets},parts=window.__riskRequests.slice(${requestsBefore});return parts.length===Math.ceil(targets.length/16)&&parts.every(r=>r.bumps.length>=1&&r.bumps.length<=16&&r.stress.length===0&&r.context.knowledgeMode==='retained'&&r.context.contextId===c.context.contextId&&r.convention===c.convention&&JSON.stringify(r.pricingPolicy)===JSON.stringify(c.pricingPolicy))&&JSON.stringify(parts.flatMap(r=>r.bumps.map(b=>b.factor)))===JSON.stringify(targets.map(t=>t.factor))&&parts.every(r=>r.bumps.every(b=>b.size==='0.05'&&b.convention===c.bumpConvention));})()`);
   await check('the run comes back inline: the run bar says what ran, at which close and knowledge, and the panel keeps the setup and shows no results',
-    `${panelRisk}&&!document.querySelector('#risk-results')&&document.querySelector('#desk-run-title').textContent.startsWith('Risk report · Shock every held contract · ')&&document.querySelector('#desk-run-detail').textContent.startsWith(${heldTargets}.length+' held contracts · Dec 18, 2020')&&document.querySelector('#desk-run-detail').textContent.includes(' close · current knowledge · ran ')&&document.querySelector('#error').hidden&&!document.querySelector('#risk-export').disabled&&document.querySelector('#side-panel').dataset.wide===undefined`,
+    `${panelRisk}&&!document.querySelector('#risk-results')&&document.querySelector('#desk-run-title').textContent.startsWith('Risk report · Shock every held contract · ')&&document.querySelector('#desk-run-detail').textContent.startsWith(${heldTargets}.length+' held contracts · Dec 18, 2020')&&document.querySelector('#desk-run-detail').textContent.includes(' close · current knowledge · ran ')&&document.querySelector('#error').hidden&&!document.querySelector('#risk-export').disabled`,
     "[document.querySelector('#desk-run-title').textContent,document.querySelector('#desk-run-detail').textContent]");
   await check('the results say which report was run, with its size for each price unit, and which held prices it did not shock, if any',
     `(()=>{const units=[...new Set(${heldTargets}.map(t=>t.unit))],left=${catalog}.heldContractsWithoutTarget;return document.querySelector('#risk-run-setup')?.textContent==='Shock every held contract · '+units.map(unit=>'±0.05 '+unit).join(', ')+' · '+(left.length?'not shocked, as no whole-contract target covers '+(left.length===1?'it':'them')+': '+left.join('; '):'every held price shocked');})()`,
     "document.querySelector('#risk-run-setup')?.textContent");
   await check('the Risk lens shows each position\'s shock, up and down changes and delta, signed, and how many shocks move one that several move, never a sum',
-    `(()=>{const reports=${runReports(`Math.ceil(${heldTargets}.length/16)`)},rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')],titles=[...document.querySelectorAll('#desk-positions .tabulator-col-title')].map(t=>t.textContent.trim());
-      if(!['Trade','Market','Position','Shock','Up','Down','Delta'].every(t=>titles.includes(t))||titles.includes('Value')||titles.includes('Curve')||!rows.length)return false;
+    `(()=>{const reports=${runReports(`Math.ceil(${heldTargets}.length/16)`)},rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')],columns=[...document.querySelectorAll('#desk-positions .tabulator-col')].map(c=>({title:c.querySelector('.tabulator-col-title').textContent.trim(),shown:c.style.display!=='none'})),titles=columns.map(c=>c.title),shownTitles=columns.filter(c=>c.shown).map(c=>c.title);
+      // The lens's columns are in the grid, a docked panel taking the shock's first when they do not fit; the values' are not shown.
+      if(!['Trade','Market','Position','Shock','Up','Down','Delta'].every(t=>titles.includes(t))||shownTitles.includes('Value')||shownTitles.includes('Curve')||!rows.length)return false;
       let several=0,single=0;
-      const fine=rows.every(row=>{const reference=row.querySelector('.desk-reference').textContent,moved=${movedBy}(reference,reports),up=${lensCell('row','c4')}.querySelector('.desk-figure'),delta=${lensCell('row','c6')}.querySelector('.desk-figure');
-        if(moved>1){several++;return ${lensCell('row','c3')}.querySelector('.desk-figure').textContent===moved+' shocks'&&up.textContent===moved+' shocks'&&delta.textContent===moved+' shocks'&&!up.title;}
+      const fine=rows.every(row=>{const reference=row.querySelector('.desk-reference').textContent,moved=${movedBy}(reference,reports),up=${lensCell('row','c8')}.querySelector('.desk-figure'),delta=${lensCell('row','c10')}.querySelector('.desk-figure');
+        if(moved>1){several++;return ${lensCell('row','c7')}.querySelector('.desk-figure').textContent===moved+' shocks'&&up.textContent===moved+' shocks'&&delta.textContent===moved+' shocks'&&!up.title;}
         if(moved!==1)return true;single++;
         const position=reports.flatMap(r=>r.factors).flatMap(f=>f.positions).find(p=>p.tradeReference===reference&&!/^-?0+(?:\\.0+)?$/.test(p.values.upPnl));
-        return /^[+−]/.test(up.textContent)&&up.title===position.values.upPnl&&up.dataset.sign===(position.values.upPnl.startsWith('-')?'negative':'positive')&&/^[+−0]/.test(delta.textContent)&&${lensCell('row','c6')}.textContent.includes(position.values.deltaUnit)&&${lensCell('row','c3')}.querySelector('.desk-figure').textContent==='±0.05';});
+        return /^[+−]/.test(up.textContent)&&up.title===position.values.upPnl&&up.dataset.sign===(position.values.upPnl.startsWith('-')?'negative':'positive')&&/^[+−0]/.test(delta.textContent)&&${lensCell('row','c10')}.textContent.includes(position.values.deltaUnit)&&${lensCell('row','c7')}.querySelector('.desk-figure').textContent==='±0.05';});
       return fine&&several>0&&single>0;})()`);
   await check('the risk tile shows the largest move and the number of shocks, its label and count reading apart, and the chart becomes the change if each contract moves up',
-    `(()=>{const tile=document.querySelector('#desk-tile-risk'),figure=tile.querySelector('.kpi-value'),panels=[...document.querySelectorAll('#desk-chart-position .chart')];return ${shocksShown}===${heldTargets}.length&&!!figure&&figure.title.endsWith(' USD')&&/^[+−]/.test(figure.querySelector('.kpi-figure').textContent)&&tile.textContent.includes('Largest move: ')&&document.querySelector('#desk-chart-position-title').textContent==='Change if each contract moves up'&&panels.length>0&&panels.some(p=>/Not drawn: \\d+ positions? several shocks move · /.test(p.textContent))&&document.querySelector('#desk-tile-risk .desk-risk-state').hidden&&(label=>label.children.length===2&&label.textContent===label.children[0].textContent+' '+label.children[1].textContent)(tile.querySelector('.desk-tile-label'));})()`,
-    "[document.querySelector('#desk-tile-risk').textContent,document.querySelector('#desk-chart-position').textContent]");
+    `(()=>{const figure=[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).find(i=>i.dataset.currency)?.querySelector('.strip-value'),panels=[...document.querySelectorAll('#desk-chart-position .chart')];return ${shocksShown}===${heldTargets}.length&&!!figure&&figure.title.endsWith(' USD')&&window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').flatMap(r=>r.data.factors.flatMap(f=>f.positions.flatMap(p=>[p.values.upPnl,p.values.downPnl]))).includes(figure.title.slice(0,-4))&&/^[+−]/.test(figure.textContent)&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ').includes('Largest move: ')&&document.querySelector('#desk-chart-position-title').textContent==='Change if each contract moves up'&&panels.length>0&&panels.some(p=>/Not drawn: \\d+ positions? several shocks move · /.test(p.textContent))&&/^Risk · .+ · \\d+ shocks?$/.test([...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-label').textContent);})()`,
+    "[[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' '),document.querySelector('#desk-chart-position').textContent]");
   await shot('risk-held-results');
   // The Ladder lens (D230): a row for each shocked factor, grouped by curve, and a column for each book, measure and currency the run's
   // reports total, each cell that total as the server returns it. It never adds rows, books or measures, so it has no total of its own.
@@ -83,27 +93,27 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const ladderCells=value=>`(()=>{const f=${firstFactor},row=${ladderRows}[0];return f.totals.every((t,j)=>{const span=row.querySelector('[tabulator-field=c'+(6+j)+'] span');return !!span&&span.title.startsWith(t.values.${value==='delta'?'delta':value}+' '+t.values.${value==='delta'?'deltaUnit':'currency'});});})()`;
   await click('#desk-lens [data-lens=ladder]');await wait(`document.querySelector('#blotter-table-title').textContent==='Delta ladder · grouped by curve'&&${ladderRows}.length>0&&`+idle);
   await check('the Ladder lens has a row for each factor the run shocked and a column for each book, measure and currency its reports total, and no total of its own',
-    `(()=>{const factors=${runReports(`Math.ceil(${heldTargets}.length/16)`)}.flatMap(r=>r.factors),columns=new Set(factors.flatMap(f=>f.totals.map(t=>JSON.stringify([t.bookId,t.measure,t.values.currency])))),titles=[...document.querySelectorAll('#desk-positions .tabulator-col-title')].map(t=>t.textContent.trim());
+    `(()=>{const factors=${runReports(`Math.ceil(${heldTargets}.length/16)`)}.flatMap(r=>r.factors),columns=new Set(factors.flatMap(f=>f.totals.map(t=>JSON.stringify([t.bookId,t.measure,t.values.currency])))),titles=[...document.querySelectorAll('#desk-positions .tabulator-col')].filter(c=>c.style.display!=='none').map(c=>c.querySelector('.tabulator-col-title')).map(t=>t.textContent.trim());
       return document.querySelector('#blotter-filters .table-row-count').textContent.startsWith(factors.length+' of ')&&titles.filter(t=>/ · [A-Z]{3}$/.test(t)).length===columns.size&&!titles.some(t=>/total/i.test(t))&&!document.querySelector('#desk-ladder-value').hidden&&document.querySelector('#blotter-row-group-control').hidden;})()`,
-    "[document.querySelector('#blotter-filters .table-row-count').textContent,[...document.querySelectorAll('#desk-positions .tabulator-col-title')].map(t=>t.textContent.trim())]");
+    "[document.querySelector('#blotter-filters .table-row-count').textContent,[...document.querySelectorAll('#desk-positions .tabulator-col')].filter(c=>c.style.display!=='none').map(c=>c.querySelector('.tabulator-col-title')).map(t=>t.textContent.trim())]");
   await check('each ladder cell of a factor is the server\'s total for its book and measure, its delta in the unit the server names',ladderCells('delta'),
     `[...${ladderRows}[0].querySelectorAll('[tabulator-field] span')].map(s=>s.title)`);
   await click('[data-ladder-value=upPnl]');await wait(`document.querySelector('[data-ladder-value=upPnl]').getAttribute('aria-pressed')==='true'&&`+idle);
   await check('Up P&L shows each total\'s change if its factor moves up, in its currency',ladderCells('upPnl'),`[...${ladderRows}[0].querySelectorAll('[tabulator-field] span')].map(s=>s.title)`);
-  await evaluate(`${ladderRows}[0].click()`);await wait("document.querySelector('#side-panel').dataset.mode==='contract'&&"+idle);
+  await evaluate(`${ladderRows}[0].click()`);await wait("document.querySelector('#position-details').dataset.mode==='contract'&&"+idle);
   await check('a ladder row opens its Contract panel, which lists each position its shock moves as the server values it',
-    `(()=>{const f=${firstFactor},moved=f.positions.filter(p=>!${zeroText}.test(p.values.upPnl)),items=[...document.querySelectorAll('#side-panel-view .contract-positions li')];
-      return document.querySelector('#side-panel').getAttribute('aria-label')==='Contract'&&document.querySelector('#side-panel-title').textContent.includes(' · ')&&items.length===moved.length&&moved.every(p=>items.some(li=>li.textContent.startsWith(p.tradeReference+' · ')));})()`,
-    "document.querySelector('#side-panel-view').textContent");
+    `(()=>{const f=${firstFactor},moved=f.positions.filter(p=>!${zeroText}.test(p.values.upPnl)),items=[...document.querySelectorAll('#position-details-view .contract-positions li')];
+      return document.querySelector('#position-details').getAttribute('aria-label')==='Contract'&&document.querySelector('#side-panel-title').textContent.includes(' · ')&&items.length===moved.length&&moved.every(p=>items.some(li=>li.textContent.startsWith(p.tradeReference+' · ')));})()`,
+    "document.querySelector('#position-details-view').textContent");
   await click('[data-ladder-value=delta]');await click('#desk-lens [data-lens=risk]');await wait(`${inline}&&!document.querySelector('#blotter-row-group-control').hidden&&`+idle);
-  await check('the Risk lens shows the trade rows again with their grouping, and the contract the panel showed stays a contract of the run',`document.querySelector('#blotter-table-title').textContent.startsWith('Positions')&&document.querySelector('#side-panel').dataset.mode==='contract'`);
+  await check('the Risk lens shows the trade rows again with their grouping, and the contract the panel showed stays a contract of the run',`document.querySelector('#blotter-table-title').textContent.startsWith('Positions')&&document.querySelector('#position-details').dataset.mode==='contract'`);
   // Results stay while a position is looked at; its panel's Risk tab lists each shock that moves it: a position the run's own reports say a
   // shock moves, found by its trade reference among the positions read, whatever the order of the rows.
   const heldReports=runReports(`Math.ceil(${heldTargets}.length/16)`);
   const movedReference=await evaluate(`(()=>{const reports=${heldReports};return window.__tradingReports(window.__riskReads).at(-1).data.holdings.map(h=>h.tradeReference).find(reference=>${movedBy}(reference,reports)>0);})()`);
   await set('#blotter-filters .table-search',movedReference);await wait("[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length).length===1");
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details').getAttribute('aria-label')==='Position details'&&"+idle);
-  await check('opening a position takes the report out of the panel and keeps the run inline',`document.querySelector('#editor-shelf').contains(document.querySelector('#risk-report'))&&document.querySelector('#position-details').dataset.wide===undefined&&${inline}`);
+  await pressRow();await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle).catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify(await evaluate("({mode:document.querySelector('#position-details').dataset.mode,prompt:document.querySelector('#position-details-prompt')?.hidden===false?document.querySelector('#position-details-prompt').textContent:'',selected:document.querySelector('#desk-positions .standard-data-grid')?.dataset.selectedRow,open:[...document.querySelectorAll('#desk-positions .open-row')].length,holder:document.querySelector('#desk-positions .tabulator-tableholder')?.clientHeight,error:document.querySelector('#error').hidden?'':document.querySelector('#error').textContent})")));});
+  await check('opening a position takes the report out of the panel and keeps the run inline',`document.querySelector('#editor-shelf').contains(document.querySelector('#risk-report'))&&${inline}`);
   await click('#position-details-tabs-risk');await wait("document.querySelector('#position-details-tabs-risk').getAttribute('aria-selected')==='true'&&"+idle);
   await check('the position\'s Risk tab says its results come from the risk run on the desk, and lists each shock that moves it, with its base, up and down values, changes, delta and gamma',
     `(()=>{const reference=document.querySelector('#position-details-head .side-panel-reference').textContent,reports=${heldReports},moved=${movedBy}(reference,reports),sections=[...document.querySelectorAll('#position-details-view .side-risk-shock')];
@@ -116,22 +126,22 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
 
   // A new read of the Blotter clears the run and says so, each read at current knowledge being made at a context of its own; the sizes last
   // used are prefilled, visibly, the next time.
-  await click('#futures-refresh');await wait("document.querySelector('#side-panel').hidden&&"+idle);
+  await refresh();
   await check('Refresh reads the Blotter again, which clears the run: the page says it was read again, not that the close or books changed, and the tile says it has not run',
-    `${noRun}&&(${notice}).includes(${JSON.stringify(readAgain)})&&!(${notice}).includes(${JSON.stringify(cleared)})&&${tileSays('Not run at this close')}&&document.querySelector('#desk-chart-position-title').textContent==='Long and short by market'`,
-    `[${notice},document.querySelector('#desk-tile-risk').textContent]`);
+    `${noRun}&&(${notice}).includes(${JSON.stringify(readAgain)})&&!(${notice}).includes(${JSON.stringify(cleared)})&&${tileSays('Not run')}&&document.querySelector('#desk-chart-position-title').textContent==='Long and short by market'`,
+    `[${notice},[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]`);
   await openReport();await choose('held');
   await check('the sizes the last run used are prefilled, each marked as prefilled for the person and for assistive technology',
     "[...document.querySelectorAll('#risk-sizes input')].every(i=>i.value==='0.05'&&i.getAttribute('aria-describedby')===i.id+'-note'&&!document.getElementById(i.id+'-note').hidden&&document.getElementById(i.id+'-note').textContent==='Prefilled · the size you last used')");
   // The setup's own edits are what the panel asks about before they are left.
   await typeInto('#risk-size-0','0.07');
   await check('a size the person types is theirs: it is no longer marked as prefilled',"document.querySelector('#risk-size-0').value==='0.07'&&document.querySelector('#risk-size-0-note').hidden&&!document.querySelector('#risk-size-0').hasAttribute('aria-describedby')");
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!document.querySelector('#side-panel-prompt').hidden");
-  await check('opening a position while the setup holds edits asks first, in the panel',"document.querySelector('#side-panel-prompt').textContent.includes('unsaved changes')&&document.querySelector('#side-panel').dataset.mode==='risk'");
-  await click('#side-panel-prompt button.secondary');
+  await pressRow();await wait("!document.querySelector('#position-details-prompt').hidden");
+  await check('opening a position while the setup holds edits asks first, in the panel',"document.querySelector('#position-details-prompt').textContent.includes('unsaved changes')&&document.querySelector('#position-details').dataset.mode==='risk'");
+  await click('#position-details-prompt button.secondary');
   await check('Keep editing keeps the setup as the person left it',`${panelRisk}&&document.querySelector('#risk-size-0').value==='0.07'&&document.querySelector('input[name=risk-choice][value=held]').checked`);
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!document.querySelector('#side-panel-prompt').hidden");
-  await click('#side-panel-prompt button:not(.secondary)');await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle);
+  await pressRow();await wait("!document.querySelector('#position-details-prompt').hidden");
+  await click('#position-details-prompt button:not(.secondary)');await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle);
   await openReport();
   await check('Discard changes leaves the setup, which starts afresh the next time',"[...document.querySelectorAll('input[name=risk-choice]')].every(c=>!c.checked)&&document.querySelector('#risk-preset').hidden");
 
@@ -147,7 +157,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "document.querySelector('#desk-run-detail').textContent");
   // Values shows the positions' values again, and the chart their long and short sizes; Risk shows the run.
   await click('#desk-lens [data-lens=values]');await wait(idle);
-  await check('the Values lens shows the positions\' values and the long and short chart, and the run stays',`document.querySelector('#desk-lens [data-lens=values]').getAttribute('aria-pressed')==='true'&&[...document.querySelectorAll('#desk-positions .tabulator-col-title')].some(t=>t.textContent.trim()==='Value')&&document.querySelector('#desk-chart-position-title').textContent==='Long and short by market'&&!document.querySelector('#desk-run').hidden`);
+  await check('the Values lens shows the positions\' values and the long and short chart, and the run stays',`document.querySelector('#desk-lens [data-lens=values]').getAttribute('aria-pressed')==='true'&&[...document.querySelectorAll('#desk-positions .tabulator-col')].filter(c=>c.style.display!=='none').map(c=>c.querySelector('.tabulator-col-title')).some(t=>t.textContent.trim()==='Value')&&document.querySelector('#desk-chart-position-title').textContent==='Long and short by market'&&!document.querySelector('#desk-run').hidden`);
   await click('#desk-lens [data-lens=risk]');await wait(inline+'&&'+idle);
   // Clear takes the run off the desk, which the person asked for, so nothing is said about it.
   await evaluate("document.querySelector('#notice').hidden=true");await click('#desk-run-clear');await wait(idle);
@@ -156,14 +166,16 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // Queued: one job for each part, each stating the run it is a part of, and the run shown as one.
   await choose('held');
   const jobsBefore=await evaluate('window.__riskJobs.length');
-  // Each part's job is read as under way for a few polls, so that the panel can be seen not to be placed again on each poll.
+  // Each part's job is read as under way for a few polls, so that polling can be seen to leave the panes and the grid as they are.
   await evaluate('window.__holdRiskJobs=true;window.__heldPolls=0');await click('#risk-queue');
-  await evaluate("window.__placements=0;window.__placementObserver=new MutationObserver(records=>{window.__placements+=records.length;});window.__placementObserver.observe(document.querySelector('#side-panel'),{attributes:true,attributeFilter:['data-placement']});");
+  await evaluate(`(()=>{const h=document.querySelector('#desk-positions .tabulator-tableholder');window.__polling={redraws:0,widths:new Set([h.clientWidth])};
+    window.__pollingObserver=new MutationObserver(records=>{window.__polling.redraws+=records.length;});window.__pollingObserver.observe(document.querySelector('#blotter-dock'),{childList:true});
+    window.__pollingWidths=setInterval(()=>window.__polling.widths.add(document.querySelector('#desk-positions .tabulator-tableholder').clientWidth),50);})()`);
   await wait(`window.__heldPolls>=3*Math.ceil(${heldTargets}.length/16)`,30000);
-  await check('polling the jobs of a queued run under way does not place the panel again, so the grid beside it is not fitted again on each poll','window.__placements===0','window.__placements');
+  await check('polling the jobs of a queued run under way draws the panes again never, and the grid keeps its width, so it is neither laid out nor fitted again',
+    'window.__polling.redraws===0&&window.__polling.widths.size===1','({redraws:window.__polling.redraws,widths:[...window.__polling.widths]})');
+  await evaluate('window.__pollingObserver.disconnect();clearInterval(window.__pollingWidths)');
   await evaluate('window.__holdRiskJobs=false');await wait(inline+'&&'+idle,60000);
-  await check('its results come back inline without the panel taking another width',"document.querySelector('#side-panel').dataset.wide===undefined",'window.__placements');
-  await evaluate('window.__placementObserver.disconnect()');
   await check('a queued run submits one job for each part, each with its own request identity and the catalog\'s one retained context',
     `(()=>{const c=${catalog},jobs=window.__riskJobs.slice(${jobsBefore});return jobs.length===Math.ceil(${heldTargets}.length/16)&&new Set(jobs.map(j=>j.requestId)).size===jobs.length&&jobs.every(j=>j.request.context.contextId===c.context.contextId&&j.request.bumps.length<=16)&&JSON.stringify(jobs.flatMap(j=>j.request.bumps.map(b=>b.factor)))===JSON.stringify(${heldTargets}.map(t=>t.factor));})()`);
   await check('each part states the run it is a part of: one identity for the run, its own part and the run\'s part count',
@@ -187,7 +199,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate(`window.__failRiskPart=${failing}`);await submit('#risk-form',60000);
   await check('a part of a run made now that fails is said to have failed, and the parts after it still run and show their own results',
     `(()=>{const failed=[...document.querySelectorAll('#desk-run-notes .risk-part-failed')];return ${heldTargets}.length>16&&${failing}>=0&&window.__riskRequests.length-${requestsBeforeFailure}===${parts}&&failed.length===1&&failed[0].getAttribute('role')==='alert'&&failed[0].textContent.startsWith('Part ${failing+1} of '+${parts}+' failed: ')&&${shocksShown}===${heldTargets}.length-Math.min(16,${heldTargets}.length-16*${failing})&&!document.querySelector('#error').hidden;})()`,
-    "[[...document.querySelectorAll('#desk-run-notes li')].map(p=>p.textContent),document.querySelector('#desk-tile-risk').textContent,document.querySelector('#error').textContent]");
+    "[[...document.querySelectorAll('#desk-run-notes li')].map(p=>p.textContent),[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' '),document.querySelector('#error').textContent]");
   const failedPart=(await evaluate("document.querySelector('#desk-run-notes .risk-part-failed').textContent")).replace(/\.$/,'');
   const unknownAfterFailure=await evaluate(`(()=>{const reports=window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').slice(${reportsBeforeFailure}).map(r=>r.data).filter(r=>Array.isArray(r.factors)),moved=new Set(reports.flatMap(r=>r.factors.flatMap(f=>f.positions.filter(p=>[p.values.upPnl,p.values.downPnl].some(v=>!/^-?0+(?:\\.0+)?(?:\\/\\d+)?$/.test(v))).map(p=>p.tradeReference))));
     return [...new Set(reports[0].factors[0].positions.map(p=>p.tradeReference))].filter(reference=>!moved.has(reference));})()`);
@@ -196,18 +208,18 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#blotter-filters .table-search',unknownAfterFailure[0]??'');await wait(idle);
   await check('a position only the failed part could move is not known, with the part and why, in the lens, the change chart and the tile; none is said to be not moved',
     `${unknownAfterFailure.length}>0&&${JSON.stringify(notMoved)}.startsWith('0 of ')&&${JSON.stringify(notKnown)}.startsWith('${unknownAfterFailure.length} of ')`
-    +`&&[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length).every(r=>r.querySelector('[tabulator-field=c3]').textContent===${JSON.stringify('Not known'+failedPart)})`
+    +`&&[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length).every(r=>r.querySelector('[tabulator-field=c7]').textContent===${JSON.stringify('Not known'+failedPart)})`
     +`&&[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].some(p=>p.textContent.startsWith(${JSON.stringify('Not known, as '+failedPart.charAt(0).toLowerCase()+failedPart.slice(1)+': ')}))`
-    +`&&document.querySelector('#desk-tile-risk .desk-tile-note').textContent.includes(${JSON.stringify(`Not known for ${unknownAfterFailure.length} position${unknownAfterFailure.length===1?'':'s'} · ${failedPart}`)})&&document.querySelector('#desk-tile-risk').textContent.includes('Largest known move: ')`,
-    `[${JSON.stringify([notMoved,notKnown,unknownAfterFailure,failedPart])},[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].map(r=>r.textContent),[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].map(p=>p.textContent),document.querySelector('#desk-tile-risk').textContent]`);
+    +`&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-reason').textContent.includes(${JSON.stringify(`Not known for ${unknownAfterFailure.length} position${unknownAfterFailure.length===1?'':'s'} · ${failedPart}`)})&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ').includes('Largest known move: ')`,
+    `[${JSON.stringify([notMoved,notKnown,unknownAfterFailure,failedPart])},[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].map(r=>r.textContent),[...document.querySelectorAll('#desk-chart-position .desk-chart-note')].map(p=>p.textContent),[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]`);
   await set('#blotter-filters .table-search','');await wait(idle);
   // When the parts with results move nothing while a part failed, nothing is known to move: the change chart and the tile say so alike.
   await evaluate(`window.__reportEdit=report=>({...report,factors:report.factors.map(f=>({...f,positions:f.positions.map(p=>({...p,values:{...p.values,up:p.values.base,down:p.values.base,upPnl:'0',downPnl:'0',delta:'0',gamma:'0',
     display:{...p.values.display,up:p.values.display.base,down:p.values.display.base,upPnl:'0',downPnl:'0',delta:'0',gamma:'0'}}}))}))});window.__failRiskPart=${failing}`);
   await submit('#risk-form',60000);await evaluate('window.__reportEdit=undefined');await wait(inline+'&&'+idle,60000);
   await check('a run whose parts with results move nothing while a part failed says no known move, in the change chart as in the tile',
-    `document.querySelector('#desk-chart-position .desk-chart-empty')?.textContent===${JSON.stringify('No known move: '+failedPart)}&&document.querySelector('#desk-tile-risk .desk-risk-moves').textContent===${JSON.stringify('No known move: '+failedPart)}`,
-    "[document.querySelector('#desk-chart-position').textContent,document.querySelector('#desk-tile-risk').textContent]");
+    `document.querySelector('#desk-chart-position .desk-chart-empty')?.textContent===${JSON.stringify('No known move: '+failedPart)}&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-value').textContent===${JSON.stringify('No known move: '+failedPart)}`,
+    "[document.querySelector('#desk-chart-position').textContent,[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
   await check('the download of a run that lacks a part is refused, and says why',"document.querySelector('#risk-export').disabled&&!document.querySelector('#risk-export-note').hidden&&document.querySelector('#risk-export-note').textContent==='The download needs the results of every part of the run.'");
   // A queued part whose submission is refused is not queued, and says why; the other parts are queued and complete as the run.
   const jobsBeforeRefusal=await evaluate('window.__riskJobs.length');
@@ -230,7 +242,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#risk-job-retry',60000);await wait("!document.querySelector('#risk-form').hidden&&"+idle,60000);
   await check('Reconcile sends the same request again, which returns its completed job, and the run shows every part',
     `(()=>{const jobs=window.__riskJobs.slice(${jobsBeforeLoss});return jobs.length===${parts}+1&&jobs.at(-1).requestId===${JSON.stringify(lost)}&&JSON.stringify(jobs.at(-1))===JSON.stringify(jobs[0])&&[...document.querySelectorAll('#risk-job-parts li')].every(li=>li.textContent.endsWith('Completed'))&&${shocksShown}===${heldTargets}.length&&!document.querySelector('#desk-run-notes .risk-part-missing')&&!document.querySelector('#risk-export').disabled;})()`,
-    "[document.querySelector('#desk-tile-risk').textContent,[...document.querySelectorAll('#risk-job-parts li')].map(li=>li.textContent),document.querySelector('#risk-job-status').textContent]");
+    "[[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' '),[...document.querySelectorAll('#risk-job-parts li')].map(li=>li.textContent),document.querySelector('#risk-job-status').textContent]");
 
   // Sizes are kept for the next setup only once the backend has taken a run of them.
   await typeInto('#risk-size-0','0.09');
@@ -240,15 +252,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "Object.entries(sessionStorage).filter(([key])=>key.startsWith('openetrm.desk.shockSizes.'))");
   const noResults=`('Parts '+[...Array(${parts}-1).keys()].map(i=>i+1).join(', ')+' and '+${parts}+' of '+${parts}+' have no results')`;
   await check('a run no part of which has results says so in the risk tile, which names its parts, never as not run',
-    `document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='No results'&&document.querySelector('#desk-tile-risk .desk-tile-hint').textContent==='Parts '+[...Array(${parts}-1).keys()].map(i=>i+1).join(', ')+' and '+${parts}+' of '+${parts}+' have no results'&&!document.querySelector('#desk-run').hidden`,
-    "document.querySelector('#desk-tile-risk').textContent");
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details').getAttribute('aria-label')==='Position details'&&"+idle);
+    `[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-value').textContent==='No results'&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-reason').textContent==='Parts '+[...Array(${parts}-1).keys()].map(i=>i+1).join(', ')+' and '+${parts}+' of '+${parts}+' have no results'&&!document.querySelector('#desk-run').hidden`,
+    "[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')");
+  await pressRow();await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle).catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify(await evaluate("({mode:document.querySelector('#position-details').dataset.mode,prompt:document.querySelector('#position-details-prompt')?.hidden===false?document.querySelector('#position-details-prompt').textContent:'',selected:document.querySelector('#desk-positions .standard-data-grid')?.dataset.selectedRow,open:[...document.querySelectorAll('#desk-positions .open-row')].length,holder:document.querySelector('#desk-positions .tabulator-tableholder')?.clientHeight,error:document.querySelector('#error').hidden?'':document.querySelector('#error').textContent})")));});
   await click('#position-details-tabs-risk');await wait("document.querySelector('#position-details-tabs-risk').getAttribute('aria-selected')==='true'&&"+idle);
   await check('a position\'s Risk tab says the run on the desk has no results, and why, never that there is no run',
     `document.querySelector('#position-details-view .side-panel-status').textContent==='The risk run on the desk has no results. '+${noResults}+'.'`,"document.querySelector('#position-details-view').textContent");
   // What a preset leaves out is said where it is chosen, in its results and in its download, so that a run that left prices out can be told
   // from a complete one. The catalog read here names held prices and curves without a whole target: synthetic labels in its own lists.
-  await click('#futures-refresh');await wait("document.querySelector('#side-panel').hidden&&"+idle);
+  await refresh();
   await check('a new read clears a run that has no results, and says so too',`${noRun}&&(${notice}).includes(${JSON.stringify(readAgain)})`,notice);
   await evaluate("window.__catalogEdit=c=>({...c,heldContractsWithoutTarget:['Synthetic output · 2021-01-01 to 2021-02-01'],heldCurvesWithoutTarget:['Synthetic output curve']})");
   await openReport();await choose('parallel');
@@ -274,10 +286,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await scope();await evaluate("(()=>{const options=[...document.querySelector('#blotter-books').options];options.forEach((o,i)=>{o.selected=i===0;});})()");await click('#blotter-scope-apply');
   await wait(noRun+'&&'+idle);
   await check('changing the book scope clears the run, and the page says the close or books changed',
-    `${noRun}&&(${notice}).includes(${JSON.stringify(cleared)})&&!(${notice}).includes(${JSON.stringify(readAgain)})&&${tileSays('Not run at this close')}`,notice);
+    `${noRun}&&(${notice}).includes(${JSON.stringify(cleared)})&&!(${notice}).includes(${JSON.stringify(readAgain)})&&${tileSays('Not run')}`,notice);
   await scope();await evaluate(`(()=>{const chosen=${JSON.stringify(booksChosen)};[...document.querySelector('#blotter-books').options].forEach((o,i)=>{o.selected=chosen[i];});})()`);await click('#blotter-scope-apply');await wait(idle);
   // A catalog that does not say what a preset leaves out, or which positions a run leaves out, is refused: never read as saying none.
-  await click('#futures-refresh');await wait("document.querySelector('#side-panel').hidden&&"+idle);
+  await refresh();
   await evaluate("window.__catalogEdit=({heldContractsWithoutTarget,...rest})=>rest");
   await openReport();await choose('held');
   const requestsBeforeRefusal=await evaluate('window.__riskRequests.length');
@@ -286,10 +298,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `document.querySelector('#risk-choice-held-detail').textContent==='The risk catalog is inconsistent. Reload it.'&&document.querySelector('#risk-preset-summary').textContent==='The risk catalog is inconsistent. Reload it.'&&document.querySelector('#error').textContent.includes('The risk catalog is inconsistent. Reload it.')&&window.__riskRequests.length===${requestsBeforeRefusal}`,
     "[document.querySelector('#risk-choice-held-detail').textContent,document.querySelector('#risk-preset-summary').textContent,document.querySelector('#error').textContent]");
   // The refused setup still holds the person's choice, which a new read of the Blotter asks about before it is given up.
-  await click('#futures-refresh');await wait("!document.querySelector('#side-panel-prompt').hidden");
-  await click('#side-panel-prompt button:not(.secondary)');await wait("document.querySelector('#side-panel').hidden&&"+idle);
+  await click('#futures-refresh');await wait("!document.querySelector('#position-details-prompt').hidden");
+  await click('#position-details-prompt button:not(.secondary)');await wait("document.querySelector('#position-details').hidden&&"+idle);
   await evaluate("window.__catalogEdit=({excludedPositions,...rest})=>rest");
-  await click('#desk-risk-run');await wait("document.querySelector('#side-panel').dataset.mode==='risk'&&"+idle);
+  await click('#blotter-risk');await wait("document.querySelector('#position-details').dataset.mode==='risk'&&"+idle);
   await check('a catalog that does not say which positions a run leaves out is refused, and the report offers nothing to run',
     "document.querySelector('#error').textContent.includes('The risk catalog is inconsistent. Reload it.')&&document.querySelector('#risk-fields').disabled&&!document.querySelector('#risk-status').hidden&&!document.querySelector('#risk-reload').hidden",
     "[document.querySelector('#error').textContent,document.querySelector('#risk-status').textContent]");
@@ -297,9 +309,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await choose('custom');await set('#risk-factor',await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`));await set('#risk-bump','0.1');
   await evaluate("window.__reportEdit=({excludedPositions,...rest})=>rest");await submit('#risk-form');await evaluate('window.__reportEdit=undefined');
   await check('a result that does not say which positions it leaves out is not shown, and the risk tile says so with the reason',
-    "document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Results not shown'&&document.querySelector('#desk-tile-risk .desk-tile-hint').textContent==='A result of this run does not say which positions it leaves out, so its results are not shown. Run it again.'&&[...document.querySelectorAll('#desk-run-notes [role=alert]')].some(p=>p.textContent==='A result of this run does not say which positions it leaves out, so its results are not shown. Run it again.')&&document.querySelector('#desk-lens').hidden&&document.querySelector('#risk-export').hidden&&!document.querySelector('#desk-tile-risk .kpi-value')",
+    "[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-value').textContent==='Results not shown'&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-reason').textContent==='A result of this run does not say which positions it leaves out, so its results are not shown. Run it again.'&&[...document.querySelectorAll('#desk-run-notes [role=alert]')].some(p=>p.textContent==='A result of this run does not say which positions it leaves out, so its results are not shown. Run it again.')&&document.querySelector('#desk-lens').hidden&&document.querySelector('#risk-export').hidden&&![...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).find(i=>i.dataset.currency)",
     "[...document.querySelectorAll('#desk-run-notes li')].map(p=>p.textContent)");
-  await click('#futures-refresh');await wait("document.querySelector('#side-panel').hidden&&"+idle);await openReport();
+  await refresh();await openReport();
 
   // The custom scenario lab: an explicit target and bump, nested stresses and the targets the catalog offers.
   await choose('custom');
@@ -309,18 +321,19 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#risk-factor',factor);await set('#risk-bump','0.1');await submit('#risk-form');await wait(inline+'&&'+idle);
   const customMoved=`(()=>{const r=window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').at(-1).data;return [...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(row=>${movedBy}(row.querySelector('.desk-reference').textContent,[r])===1);})()`;
   await check('the lens states each moved position\'s delta in its explicit derivative unit, and a position the shock does not move says so',
-    `(()=>{const moved=${customMoved},rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')];return document.querySelector('#error').hidden&&moved.length>0&&moved.every(row=>${lensCell('row','c6')}.textContent.includes('USD / (1 USD / MMBtu (IT))'))&&rows.some(row=>${lensCell('row','c3')}.textContent.startsWith('Not moved'))&&${shocksShown}===1;})()`);
+    `(()=>{const moved=${customMoved},rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')];return document.querySelector('#error').hidden&&moved.length>0&&moved.every(row=>${lensCell('row','c10')}.textContent.includes('USD / (1 USD / MMBtu (IT))'))&&rows.some(row=>${lensCell('row','c7')}.textContent.startsWith('Not moved'))&&${shocksShown}===1;})()`);
   await check('risk uses the blotter context and every selected futures and swap holding',"(()=>{const r=window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').at(-1).data;const h=window.__tradingReports(window.__riskReads).at(-1).data;return r.context.contextId===h.context.contextId&&r.heldInstruments>1&&r.work.positionCount===h.holdings.length&&r.inputs.positions.length===h.holdings.length&&h.holdings.every(row=>r.inputs.positions.some(p=>row.tradeId===p.tradeId&&row.bindingId===p.bindingId))&&new Set(r.factors[0].totals.map(t=>t.measure)).size===2;})()");
   await check('risk submits the complete pricing policy offered by its catalog without inventing inputs',`(()=>{const c=${catalog},r=window.__riskRequests.at(-1);const source=c.factors.find(f=>f.curves.includes('future')&&f.deliveryFrom==='2021-01-01');return r.context.convention==='trading_workspace_v1'&&r.convention==='portfolio_instrument_repricing_v1'&&r.numericalPolicy==='exact_rational_portfolio_repricing_v1'&&JSON.stringify(r.pricingPolicy)===JSON.stringify(c.pricingPolicy)&&JSON.stringify(r.bumps[0].factor)===JSON.stringify(source.factor);})()`);
   await check('each moved position\'s change names its own measure and currency, and states its exact amount beneath the display text',
-    `(()=>{const r=window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').at(-1).data,moved=${customMoved};return moved.length>0&&moved.every(row=>{const position=r.factors[0].positions.find(p=>p.tradeReference===row.querySelector('.desk-reference').textContent),up=${lensCell('row','c4')};return up.querySelector('.desk-figure').title===position.values.upPnl&&up.querySelector('.desk-sub').textContent===(position.measure==='futures_execution_pnl'?'P&L':'PV')+' · '+position.values.currency;});})()`);
+    `(()=>{const r=window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').at(-1).data,moved=${customMoved};return moved.length>0&&moved.every(row=>{const position=r.factors[0].positions.find(p=>p.tradeReference===row.querySelector('.desk-reference').textContent),up=${lensCell('row','c8')};return up.querySelector('.desk-figure').title===position.values.upPnl&&up.querySelector('.desk-sub').textContent===(position.measure==='futures_execution_pnl'?'P&L':'PV')+' · '+position.values.currency;});})()`);
+  // Counted from the read, not the drawn rows: the grid draws only the rows in its pane's view, the chart every moved position.
   await check('the change chart draws a signed bar for each position the shock moves, and names those it does not move',
-    `(()=>{const moved=${customMoved},items=[...document.querySelectorAll('#desk-chart-position .chart ul.sr-only li')];return document.querySelector('#desk-chart-position-title').textContent==='Change if each contract moves up'&&items.length===moved.length&&items.every(li=>/: [+−]/.test(li.textContent))&&document.querySelector('#desk-chart-position .desk-chart-note')?.textContent.startsWith('Not moved by any shock: ');})()`,
+    `(()=>{const r=window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').at(-1).data,moved=window.__tradingReports(window.__riskReads).at(-1).data.holdings.filter(h=>${movedBy}(h.tradeReference,[r])===1),items=[...document.querySelectorAll('#desk-chart-position .chart ul.sr-only li')];return document.querySelector('#desk-chart-position-title').textContent==='Change if each contract moves up'&&moved.length>0&&items.length===moved.length&&moved.every(h=>items.some(li=>li.textContent.startsWith(h.tradeReference+' · ')))&&items.every(li=>/: [+−]/.test(li.textContent))&&document.querySelector('#desk-chart-position .desk-chart-note')?.textContent.startsWith('Not moved by any shock: ');})()`,
     "document.querySelector('#desk-chart-position').textContent");
   await check('work evidence distinguishes materialization from each backend connected graph receipt',"(()=>{const r=window.__riskReads.filter(r=>r.path==='/api/portfolio/risk').at(-1).data,rows=[...document.querySelectorAll('#risk-work li')];return rows.length===r.connectedScenarios.length+1&&rows[0].textContent.includes('Materialization')&&r.connectedScenarios.every((m,i)=>rows[i+1].textContent.includes(m.definitions.revisionId)&&rows[i+1].textContent.includes(m.work.evaluatedNodes+' graph nodes evaluated')&&rows[i+1].textContent.includes(m.preparation.sourceCompilations+' source compilations'));})()");
   // Closing the panel is not clearing the run: it stays inline, and Edit shocks opens the report again.
-  await click('#side-panel-close');
-  await check('closing the panel keeps the run inline, and the tile shows its largest move',`document.querySelector('#side-panel').hidden&&${inline}&&!!document.querySelector('#desk-tile-risk .kpi-value')&&document.querySelector('#desk-risk-run').hidden`);
+  await click('#details-collapse');
+  await check('closing the panel keeps the run inline, and the tile shows its largest move',`document.querySelector('#position-details').hidden&&${inline}&&!![...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).find(i=>i.dataset.currency)`);
   await click('#desk-run-edit');await wait(panelRisk+"&&"+idle);
   await click('#risk-stress>summary');await set('#risk-stress-factor',factor);await set('#risk-stress-size','0.3');await click('#risk-stress-add');
   await set('#risk-stress-size','-0.1');await click('#risk-stress-add');await submit('#risk-form');
@@ -346,9 +359,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const nonlinear=await evaluate('window.__nonlinear');
   await set('#blotter-filters .table-search',nonlinear);await wait("[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length).length===1");
   await check('a rational change reads as the backend\'s display text with its exact amount, and a zero delta stays zero',
-    `(()=>{const row=document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)'),up=${lensCell('row','c4')}.querySelector('.desk-figure'),delta=${lensCell('row','c6')}.querySelector('.desk-figure');return row.querySelector('.desk-reference').textContent===${JSON.stringify(nonlinear)}&&up.title==='1/100'&&up.textContent.startsWith('+')&&!up.textContent.includes('/')&&delta.title==='0'&&delta.textContent==='0';})()`,
+    `(()=>{const row=document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)'),up=${lensCell('row','c8')}.querySelector('.desk-figure'),delta=${lensCell('row','c10')}.querySelector('.desk-figure');return row.querySelector('.desk-reference').textContent===${JSON.stringify(nonlinear)}&&up.title==='1/100'&&up.textContent.startsWith('+')&&!up.textContent.includes('/')&&delta.title==='0'&&delta.textContent==='0';})()`,
     "document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)').textContent");
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details').getAttribute('aria-label')==='Position details'&&"+idle);
+  await pressRow();await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle).catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify(await evaluate("({mode:document.querySelector('#position-details').dataset.mode,prompt:document.querySelector('#position-details-prompt')?.hidden===false?document.querySelector('#position-details-prompt').textContent:'',selected:document.querySelector('#desk-positions .standard-data-grid')?.dataset.selectedRow,open:[...document.querySelectorAll('#desk-positions .open-row')].length,holder:document.querySelector('#desk-positions .tabulator-tableholder')?.clientHeight,error:document.querySelector('#error').hidden?'':document.querySelector('#error').textContent})")));});
   await click('#position-details-tabs-risk');await wait("document.querySelector('#position-details-tabs-risk').getAttribute('aria-selected')==='true'&&"+idle);
   await check('its Risk tab keeps the response\'s own measure label, a nonzero gamma and a zero delta, each with its exact amount',
     "(()=>{const facts=Object.fromEntries([...document.querySelectorAll('#position-details-view .side-risk-shock dt')].map(dt=>[dt.textContent,dt.nextElementSibling.querySelector('b')]));return document.querySelector('#position-details-view .side-risk-shock .field-help').textContent.includes('Synthetic nonlinear PV')&&facts.Gamma.title==='2'&&facts.Gamma.textContent==='+2'&&facts.Delta.title==='0'&&facts.Base.title==='1/3';})()",
@@ -360,8 +373,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     display:{...p.values.display,up:p.values.display.base,down:p.values.display.base,upPnl:'0',downPnl:'0',delta:'0',gamma:'0'}}}))}))})`);
   await submit('#risk-form');await evaluate('window.__reportEdit=undefined');await wait(inline+'&&'+idle);
   await check('a run that moves no position says so in the risk tile',
-    "document.querySelector('#desk-tile-risk .desk-risk-moves').textContent===\"No position moves by this run's shocks.\"&&!document.querySelector('#desk-tile-risk .kpi-value')",
-    "document.querySelector('#desk-tile-risk').textContent");
+    "[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-value').textContent===\"No position moves by this run's shocks.\"&&![...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).find(i=>i.dataset.currency)",
+    "[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')");
   // Results prepared late, for a run no longer on screen, are never drawn: a first run's display text is held while a second run is made,
   // and the first's, released while the second's is still being prepared, draws nothing; the second's then draws its own. A size not run
   // before has amounts not yet prepared for display, so each run's preparation is read, and held here.
@@ -370,54 +383,54 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#risk-bump','0.41');await submit('#risk-form');await wait("window.__heldDisplay.length===2&&"+idle);
   await evaluate('window.__heldDisplay[0]()');await new Promise(resolve=>setTimeout(resolve,500));
   await check('results prepared late for a run no longer on screen are not drawn while the run on screen is being prepared',
-    "document.querySelector('#desk-lens').hidden&&!document.querySelector('#desk-tile-risk .kpi-value')&&!document.querySelector('#desk-run').hidden",
-    "[document.querySelector('#desk-lens').hidden,document.querySelector('#desk-tile-risk').textContent]");
+    "document.querySelector('#desk-lens').hidden&&![...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).find(i=>i.dataset.currency)&&!document.querySelector('#desk-run').hidden",
+    "[document.querySelector('#desk-lens').hidden,[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
   await evaluate('window.__holdDisplay=false;for(const release of window.__heldDisplay.slice(1))release()');await wait(inline+'&&'+idle);
   await check('and the run on screen draws its own results once they are prepared',
-    "[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c3]')].some(cell=>cell.textContent.startsWith('±0.41'))&&![...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c3]')].some(cell=>cell.textContent.startsWith('±0.37'))",
-    "[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c3]')].map(cell=>cell.textContent)");
+    "[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c7]')].some(cell=>cell.textContent.startsWith('±0.41'))&&![...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c7]')].some(cell=>cell.textContent.startsWith('±0.37'))",
+    "[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group) [tabulator-field=c7]')].map(cell=>cell.textContent)");
   // A pivot shows totals, which have no lens: the run bar says the results are by position and points to Export and to a run made on trade rows.
   await click('#blotter-pivot>summary');await set('#blotter-mode','pivot');await click('#blotter-dimensions input[value="book"]');await click('#blotter-measures input[value="tradeCount"]');await click('#blotter-apply');
   await wait("document.querySelector('#blotter-table-title').textContent==='Pivot summary'&&"+idle);
   await click('#blotter-risk');await wait(panelRisk+'&&'+idle);await choose('custom');await set('#risk-factor',factor);await set('#risk-bump','0.1');await submit('#risk-form');
   await wait("!document.querySelector('#desk-run').hidden&&"+idle);
   await check('a pivot view has no lens: the run bar says where a position\'s results are, and the tile still shows the run',
-    "document.querySelector('#desk-lens').hidden&&[...document.querySelectorAll('#desk-run-notes li')].some(li=>li.textContent==='Risk results are by position, which totals do not show. Export downloads them for every factor; a run made with Display set to Individual trades shows each position\\'s shocks in its row and in the Risk tab of its panel.')&&!!document.querySelector('#desk-tile-risk .kpi-value')",
+    "document.querySelector('#desk-lens').hidden&&[...document.querySelectorAll('#desk-run-notes li')].some(li=>li.textContent==='Risk results are by position, which totals do not show. Export downloads them for every factor; a run made with Display set to Individual trades shows each position\\'s shocks in its row and in the Risk tab of its panel.')&&!![...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).find(i=>i.dataset.currency)",
     "[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent)");
   await click('#blotter-pivot>summary');await set('#blotter-mode','trades');await click('#blotter-apply');
   await wait("document.querySelector('#blotter-table-title').textContent.startsWith('Positions')&&"+idle);
   await click('#blotter-risk');await wait(panelRisk+'&&'+idle);await choose('custom');await set('#risk-factor',factor);await set('#risk-bump','0.1');await submit('#risk-form');await wait(inline+'&&'+idle);
   await shot('risk-desktop');
   await set('#risk-bump','0');
-  await check('editing a shock clears its prior result and export immediately',`${noRun}&&document.querySelector('#side-panel').dataset.wide===undefined`);
+  await check('editing a shock clears its prior result and export immediately',`${noRun}`);
   await submit('#risk-form');
   await check('zero bump produces a visible structured failure without cached results',`!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.includes('positive absolute bump')&&${noRun}`);
   await set('#risk-bump','0.1');await submit('#risk-form');
   await evaluate(`(()=>{window.__riskBlob=undefined;const create=URL.createObjectURL;URL.createObjectURL=b=>{window.__riskBlob=b;return create(b);};const click=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(this.download==='leanetrm-risk.json')return;return click.call(this);};})();`);
   await click('#risk-export');
   await check('risk download reauthorizes the exact pinned request and includes its inputs',"(async()=>{const {setup,parts}=JSON.parse(await window.__riskBlob.text()),r=parts[0];if(setup?.report!=='custom'||setup.label!=='Custom scenario')return false;const requests=window.__riskRequests;return parts.length===1&&r.inputs.positions.length===r.work.positionCount&&r.inputs.markets.length>1&&r.inputs.markets.every(m=>m.observations.length>0)&&r.factors[0].factor.coordinate==='market_quote'&&!!r.factors[0].factor.unit&&r.displayPolicy&&r.factors[0].totals.every(t=>t.values.display&&t.measure&&t.measureLabel)&&JSON.stringify(requests.at(-1))===JSON.stringify(requests.at(-2));})()");
-  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("document.querySelector('#side-panel').dataset.placement==='overlay'");
-  await check('the report fills the phone sheet without page-wide overflow',fitsWidth+"&&document.querySelector('#side-panel').dataset.wide===undefined");await shot('risk-mobile');
+  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("(!document.querySelector('#blotter-pane-details').hidden&&document.querySelector('#blotter-pane-grid').hidden)");
+  await check('the report fills the phone\'s details without page-wide overflow',fitsWidth);await shot('risk-mobile');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1250,deviceScaleFactor:1,mobile:false});
   await evaluate('window.__previousRiskBlob=window.__riskBlob;window.__denyRisk=true');await click('#risk-export');
-  await check('denied risk export creates no download and clears risk and holdings caches',`window.__riskBlob===window.__previousRiskBlob&&document.querySelector('#side-panel').hidden&&${noRun}&&document.querySelector('#desk-positions').children.length===0`);
+  await check('denied risk export creates no download and clears risk and holdings caches',`window.__riskBlob===window.__previousRiskBlob&&document.querySelector('#position-details').hidden&&${noRun}&&document.querySelector('#desk-positions').children.length===0`);
   await click('#futures-refresh');await openReport();await choose('custom');await set('#risk-factor',factor);await set('#risk-bump','0.1');
   for(const outcome of ['network','server']){
     if(await evaluate("!document.querySelector('#risk-job-return').hidden"))await click('#risk-job-return');
     await choose('custom');await set('#risk-factor',factor);await set('#risk-bump','0.1');await evaluate('window.__loseRiskSubmission='+JSON.stringify(outcome));await click('#risk-queue');
     await check(`${outcome} unknown queue outcomes retain their exact request for safe reconciliation`,"!document.querySelector('#risk-job-retry').hidden&&document.querySelector('#risk-fields').disabled&&document.querySelector('#risk-form').hidden&&document.querySelector('#risk-job-status').textContent.includes('unknown')&&window.__riskJobs.at(-1).request.context.knowledgeMode==='retained'");
     await evaluate('window.__riskCatalogCount=window.__riskReads.filter(r=>r.path==="/api/portfolio/risk/catalog").length;window.__rejectRiskSubmission='+JSON.stringify(outcome==='server'?'access_denied':'request_format'));await click('#risk-job-retry');
-    if(outcome==='server')await click('#futures-refresh');else await click('#side-panel-close');
+    if(outcome==='server')await click('#futures-refresh');else await click('#details-collapse');
     await click('#blotter-risk');await wait(panelRisk);
     await check(`${outcome} uncertainty survives a rejected retry and recovers its receipt without selecting a new financial context`,"document.querySelector('#risk-form').hidden&&document.querySelector('#risk-fields').disabled&&document.querySelector('#risk-job-context').textContent.includes('2020-12-18')&&window.__riskReads.filter(r=>r.path==='/api/portfolio/risk/catalog').length===window.__riskCatalogCount",
-      "[document.querySelector('#risk-form').hidden,document.querySelector('#risk-fields').disabled,document.querySelector('#risk-job-context').textContent,window.__riskReads.filter(r=>r.path==='/api/portfolio/risk/catalog').length,window.__riskCatalogCount,document.querySelector('#side-panel').dataset.mode,document.querySelector('#error').textContent]");
+      "[document.querySelector('#risk-form').hidden,document.querySelector('#risk-fields').disabled,document.querySelector('#risk-job-context').textContent,window.__riskReads.filter(r=>r.path==='/api/portfolio/risk/catalog').length,window.__riskCatalogCount,document.querySelector('#position-details').dataset.mode,document.querySelector('#error').textContent]");
     await wait("/Completed|Failed/.test(document.querySelector('#risk-job-status').textContent)");
     await check('queued risk completes rather than ending with a hidden worker failure',"document.querySelector('#risk-job-status').textContent.includes('Completed')","window.__riskReads.filter(r=>r.path.startsWith('/api/portfolio/risk/jobs')).at(-1)?.data");
     // The job finishes on the report's own timer, outside the page's actions: the desk still follows it. A run kept through a new read of the
     // Blotter was made at the context it was captured at, which is no longer the one on screen, so its results are not shown inline.
     await check(`${outcome} queued risk that completes by polling moves the run bar to its results`,outcome==='server'
-      ?"!document.querySelector('#desk-run').hidden&&document.querySelector('#desk-lens').hidden&&[...document.querySelectorAll('#desk-run-notes li')].some(li=>li.textContent.startsWith('This run was made at another close, context or books than the Blotter read on screen'))&&document.querySelector('#desk-tile-risk .desk-risk-state').textContent==='Results made elsewhere'"
-      :`${inline}&&!!document.querySelector('#desk-tile-risk .kpi-value')`,"[document.querySelector('#desk-run').textContent,document.querySelector('#desk-tile-risk').textContent]");
+      ?"!document.querySelector('#desk-run').hidden&&document.querySelector('#desk-lens').hidden&&[...document.querySelectorAll('#desk-run-notes li')].some(li=>li.textContent.startsWith('This run was made at another close, context or books than the Blotter read on screen'))&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-value').textContent==='Results made elsewhere'"
+      :`${inline}&&!![...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).find(i=>i.dataset.currency)`,"[document.querySelector('#desk-run').textContent,[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
     await check(`${outcome} queued risk retries use one identity and publish the captured context`,"(()=>{const jobs=window.__riskJobs,reads=window.__riskReads.filter(r=>r.path.startsWith('/api/portfolio/risk/jobs'));const done=reads.findLast(r=>r.data.state==='completed').data;return JSON.stringify(jobs.at(-1))===JSON.stringify(jobs.at(-2))&&done.result.context.contextId===jobs.at(-1).request.context.contextId&&done.result.work.positionCount===window.__tradingReports(window.__riskReads).at(-1).data.holdings.length&&!document.querySelector('#risk-export').hidden;})()");
   }
   await click('#risk-export');
@@ -425,7 +438,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const retainedJob=await evaluate("window.__riskReads.findLast(r=>r.path.startsWith('/api/portfolio/risk/jobs')&&r.data.state==='completed').data.id");
   const earlier=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-17')).id;})()");
   await set('#snapshot',earlier);await wait(idle);
-  await check('changing the close clears the run and its choices, and the page says so',`document.querySelector('#side-panel').hidden&&document.querySelector('#risk-factor').value===''&&${noRun}&&[...document.querySelectorAll('input[name=risk-choice]')].every(c=>!c.checked)&&document.querySelector('#notice').textContent.includes(${JSON.stringify(cleared)})`,
+  await check('changing the close clears the run and its choices, and the page says so',`document.querySelector('#position-details').hidden&&document.querySelector('#risk-factor').value===''&&${noRun}&&[...document.querySelectorAll('input[name=risk-choice]')].every(c=>!c.checked)&&document.querySelector('#notice').textContent.includes(${JSON.stringify(cleared)})`,
     "document.querySelector('#notice').textContent");
   await click('#blotter-risk');await wait(panelRisk);await set('#risk-job-history',retainedJob);await wait(idle);await wait("!document.querySelector('#desk-run').hidden");
   await check('recent jobs remain discoverable after context changes and identify their original dates, and their results are not shown against another close',"document.querySelector('#risk-job-context').textContent.includes('2020-12-18')&&document.querySelector('#risk-scope').textContent.includes('captured financial context')&&document.querySelector('#risk-form').hidden&&document.querySelector('#risk-job-scenario').textContent.includes('original market')&&document.querySelector('#risk-fields').disabled&&!document.querySelector('#risk-job-return').hidden&&document.querySelector('#desk-lens').hidden&&[...document.querySelectorAll('#desk-run-notes li')].some(li=>li.textContent.startsWith('This run was made at another close, context or books'))&&!document.querySelector('#risk-export').hidden");
@@ -435,7 +448,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#risk-job-history',retainedJob);await wait(idle);
   await check('retained job timestamp labels follow the selected display zone',"document.querySelector('label[for=risk-job-history]').textContent.includes('America/Chicago')&&document.querySelector('#risk-job-history').selectedOptions[0].textContent.includes('10:00 AM')");
   await persona('trader');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
-  await check('Trader permissions do not enable the risk report, and the risk tile says why',`document.querySelector('#blotter-risk').disabled&&document.querySelector('#blotter-risk').title.includes('Risk Analyst role')&&document.querySelector('#desk-risk-run').disabled&&document.querySelector('#desk-tile-risk').textContent.includes('Risk Analyst role')&&document.querySelector('#side-panel').dataset.mode!=='risk'`);
+  await check('Trader permissions do not enable the risk report, and the risk tile says why',`document.querySelector('#blotter-risk').disabled&&document.querySelector('#blotter-risk').title.includes('Risk Analyst role')&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ').includes('Risk Analyst role')&&document.querySelector('#position-details').dataset.mode!=='risk'`);
   await persona('risk');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
   await openReport();
   // Controlled transport ordering exercises presentation races independently of
@@ -473,7 +486,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // After a reload the job history still lists the queued split run as one run, and the run bar shows its parts as one, made at the
   // context it was captured at.
   // The setup the races left edited is given up first, so that the reload asks nothing.
-  await click('#nav-market');if(await evaluate("!document.querySelector('#side-panel-prompt').hidden"))await click('#side-panel-prompt button:not(.secondary)');await wait(idle);
+  await click('#nav-market');if(await evaluate("!document.querySelector('#position-details-prompt').hidden"))await click('#position-details-prompt button:not(.secondary)');await wait(idle);
   const replaced=await evaluate('performance.timeOrigin');await command('Page.reload');await wait(`performance.timeOrigin!==${replaced}&&document.querySelector('#profile-label')?.textContent==='Risk Analyst'&&${idle}`);
   await evaluate(hook);await setupTradingReplies(evaluate);
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
@@ -495,7 +508,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     await openReport();await choose('custom');await set('#risk-factor',await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`));await set('#risk-bump','0.1');
     await submit('#risk-form',60000);await wait(inline+'&&'+idle,60000);
   };
-  await click('#futures-refresh');await wait("document.querySelector('#side-panel').hidden&&"+idle);
+  await refresh();
   await runOnDesk();
   await set('#date-context-on','2099-01-01');await wait(idle);
   await check('another effective date clears the run, and the note that says so stays while the date\'s knowledge is read',
@@ -515,18 +528,18 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   };
   const runChoices="document.querySelector('input[name=risk-choice][value=custom]').checked&&document.querySelector('#risk-factor').value!==''&&document.querySelector('#risk-bump').value==='0.1'";
   await runOnDesk();await stressEdit();
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!document.querySelector('#side-panel-prompt').hidden");
-  await check('opening a position while the setup holds a nested stress edit asks first, and the run stays on the desk meanwhile',`${inline}&&document.querySelector('#side-panel').dataset.mode==='risk'`);
-  await click('#side-panel-prompt button:not(.secondary)');await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle);
+  await pressRow();await wait("!document.querySelector('#position-details-prompt').hidden");
+  await check('opening a position while the setup holds a nested stress edit asks first, and the run stays on the desk meanwhile',`${inline}&&document.querySelector('#position-details').dataset.mode==='risk'`);
+  await click('#position-details-prompt button:not(.secondary)');await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle);
   await check('Discard changes gives the edit up and opens the position, and the run stays on the desk',`${inline}&&document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'`,
-    "[document.querySelector('#desk-run').hidden,document.querySelector('#side-panel').dataset.mode,document.querySelector('#desk-tile-risk').textContent]");
+    "[document.querySelector('#desk-run').hidden,document.querySelector('#position-details').dataset.mode,[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
   await click('#desk-run-edit');await wait(panelRisk+'&&'+idle);
   await check('Edit shocks then opens the setup on the run\'s choices, without the edit that was given up',`${runChoices}&&document.querySelector('#risk-stress-size').value===''&&${inline}`,
     "[document.querySelector('input[name=risk-choice]:checked')?.value,document.querySelector('#risk-factor').value,document.querySelector('#risk-bump').value,document.querySelector('#risk-stress-size').value]");
   await stressEdit();
-  await set('#date-context-on','2099-01-03');await wait("!document.querySelector('#side-panel-prompt').hidden");
+  await set('#date-context-on','2099-01-03');await wait("!document.querySelector('#position-details-prompt').hidden");
   await check('a date typed while the setup holds a nested stress edit waits for the person, and the run stays meanwhile',`${inline}&&!(${notice}).includes(${JSON.stringify(cleared)})`,notice);
-  await click('#side-panel-prompt button:not(.secondary)');await wait(idle);
+  await click('#position-details-prompt button:not(.secondary)');await wait(idle);
   await check('Discard changes keeps the run until the date it lets through clears it, and the note says so',
     `${noRun}&&(${notice}).includes(${JSON.stringify(cleared)})&&${typedDate}==='2099-01-03'&&${knowledgeRead('2099-01-03')}`,
     `[${notice},${typedDate},${noRun},document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent]`);
@@ -537,7 +550,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await persona('context_risk_browser');
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
   await runOnDesk();
-  await click('#desk-positions .tabulator-row:not(.tabulator-group):has(.desk-pill-fut)');await wait("document.querySelector('#position-details').getAttribute('aria-label')==='Position details'&&"+idle);
+  await pressRow(':has(.desk-pill-fut)');await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle);
   await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&"+idle);
   await typeInto('#trade-lots','5');
   await set('#date-context-on','2099-01-02');await wait("!document.querySelector('#position-details-prompt').hidden");

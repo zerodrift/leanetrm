@@ -24,6 +24,7 @@ static class AgentToolChecks
         Definitions();
         Inputs();
         Reports();
+        BlotterLayouts();
         Refusals();
         Results();
         Display();
@@ -201,11 +202,11 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v9"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
+        Require(RuntimeSet.Turns=="turns_v10"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
             &&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
-            "turns_v9 bounds a tool read by its agent version's time per read, at most 30 seconds, and its turn's deadline (D245), gives no command of a read less, bounds tool results and keeps a workspace's turns below its agent pools");
+            "turns_v10 bounds a tool read by its agent version's time per read, at most 30 seconds, and its turn's deadline (D245), gives no command of a read less, bounds tool results and keeps a workspace's turns below its agent pools");
         Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
-            "require every member they state, and their permissions; turns_v9 bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
+            "require every member they state, and their permissions; turns_v10 bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";
@@ -470,7 +471,7 @@ static class AgentToolChecks
         ModelToolRequest Current(string input="{}")=>new("toolu_synthetic_01","read_current_page",Json(input));
         var (call,dispatched)=AgentTools.Requested(Turn(curve,"read_current_page","read_market_data"),Current());
         var (own,ownDispatched)=AgentTools.Requested(Turn(curve,"read_market_data"),new("toolu_synthetic_02","read_market_data",Json("""{"view":"curves","curve":null}""")));
-        Require(call.Operation.Id=="market_data.curve_v1"&&call.Arguments==new CurveArguments("future")&&dispatched&&own.Operation.Id=="market_data.curves_v1"&&!ownDispatched,
+        Require(call.Operation.Id=="market_data.curve_v1"&&call.Arguments==new CurveArguments("future")&&dispatched is {Page:"curves"}&&own.Operation.Id=="market_data.curves_v1"&&ownDispatched is null,
             "Read current page dispatches the stored report's read with its selection; another tool reads its own input");
         Require(Code(()=>AgentTools.Requested(Turn(curve,"read_current_page"),Current()))=="tool_not_enabled"
             &&Code(()=>AgentTools.Requested(Turn("""{"page":"users_access","selection":{}}""","read_current_page","read_market_data"),Current()))=="page_not_supported"
@@ -487,9 +488,53 @@ static class AgentToolChecks
             &&Code(()=>AgentTools.Requested(Turn(curve,"read_market_data"),new("toolu_synthetic_04","navigate",Json("{}"))))=="tool_not_enabled",
             "a request for a tool the version has not switched on is tool_not_enabled before its input is read");
         Require(AgentTools.Requested(Turn(curve,"navigate"),new("toolu_synthetic_05","navigate",Json("""{"page":"curves","target":null}"""))) is
-                ({Operation.Id:"navigation.target_v1",Arguments:NavigateArguments{Page:"curves",Handle:null}},false),
+                ({Operation.Id:"navigation.target_v1",Arguments:NavigateArguments{Page:"curves",Handle:null}},null),
             "Navigate, switched on, requests its own operation and reads no page report");
         Console.WriteLine("PASS a request for a tool the version has not switched on is refused tool_not_enabled before any read");
+    }
+
+    // The Blotter's page report may also say which of its panes are open and whether it is in a window of its own (D271), exactly
+    // {pane:{details,charts},poppedOut}, on the pages the Blotter reports and no other. Read current page carries it with the read
+    // the report dispatches, under turns_v10.
+    static void BlotterLayouts()
+    {
+        const string Layout=""" "layout":{"pane":{"details":true,"charts":false},"poppedOut":true}""";
+        string Laid(string page,string selection,string layout=Layout)=>$$"""{"page":"{{page}}","selection":{{selection}},{{layout}}}""";
+        var trade=$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":3}""";
+        foreach(var (page,selection) in new[]{("blotter",Blotter),("blotter",trade),("blotter_risk","{}"),("blotter_risk_lens","{}"),("blotter_new_trade","{}"),
+            ("blotter_new_future","{}"),("blotter_new_swap","{}")})
+            PageReports.Require(Json(Laid(page,selection)));
+        Require(PageReports.Dispatch(Json(Laid("blotter",Blotter))) is {Page:"blotter",Call.Operation.Id:"trades.blotter_v1",Layout:{Details:true,Charts:false,PoppedOut:true}}
+            &&PageReports.Dispatch(Json(Laid("blotter",trade,""" "layout":{"pane":{"details":false,"charts":true},"poppedOut":false}"""))) is {Layout:{Details:false,Charts:true,PoppedOut:false}}
+            &&PageReports.Dispatch(Json(Report("blotter",Blotter))) is {Call:not null,Layout:null}&&PageReports.Dispatch(Json(Laid("blotter_risk","{}"))) is null,
+            "the Blotter's pages take its layout, which the read the report dispatches keeps; a report without one names none");
+        Console.WriteLine("PASS the Blotter's page report may say which of its panes are open and whether it is popped out, and its read keeps that");
+
+        foreach(var report in new[]{Laid("curves","""{"view":"curves","curve":null}"""),Laid("jobs",JobList),Laid("ppa",PpaBook),Laid("delivery_prices","{}"),Laid("settings_ai","{}")})
+            Require(Code(()=>PageReports.Require(Json(report)))=="page_report_invalid",$"ask refuses a layout on a page the Blotter does not report: {report}");
+        foreach(var layout in new[]{""" "layout":{"pane":{"details":true,"charts":false},"poppedOut":true,"extra":1}""",""" "layout":{"pane":{"details":true,"charts":false,"summary":true},"poppedOut":true}""",
+            """ "layout":{"pane":{"details":true,"charts":false}}""",""" "layout":{"pane":{"details":true},"poppedOut":false}""",""" "layout":{"poppedOut":false}""",
+            """ "layout":{"pane":{"details":"true","charts":false},"poppedOut":false}""",""" "layout":{"pane":{"details":true,"charts":0},"poppedOut":false}""",
+            """ "layout":{"pane":{"details":true,"charts":false},"poppedOut":null}""",""" "layout":{"pane":[true,false],"poppedOut":false}""",""" "layout":{"pane":null,"poppedOut":false}""",
+            """ "layout":null""",""" "layout":[]""",""" "layout":"open" """,""" "layout":{"pane":{"details":true,"charts":false},"poppedOut":true},"extra":1""",
+            """ "layout":{"pane":{"details":true,"charts":false,"details":false},"poppedOut":true}"""})
+            Require(Code(()=>PageReports.Require(Json(Laid("blotter",Blotter,layout))))=="page_report_invalid",$"ask refuses the Blotter layout {layout}");
+        Console.WriteLine("PASS ask refuses a layout on any other page, and one with a member missing, extra or of another type, page_report_invalid");
+
+        // Read current page names the layout with the read its report dispatches; a result of any other report or tool names none.
+        var working=Pin("current",Guid.NewGuid(),Working);
+        TurnReads Turn(string report)=>new(working,new("agent",Guid.NewGuid()),Json(report),["read_current_page","read_trades"],Guid.NewGuid(),TimeSpan.FromSeconds(15));
+        var (call,dispatched)=AgentTools.Requested(Turn(Laid("blotter",Blotter)),new("toolu_synthetic_06","read_current_page",Json("{}")));
+        var (own,ownDispatched)=AgentTools.Requested(Turn(Laid("blotter",Blotter)),new("toolu_synthetic_07","read_trades",Json(Blotter)));
+        Require(call.Operation.Id=="trades.blotter_v1"&&dispatched is {Layout:{Details:true,Charts:false,PoppedOut:true}}&&own.Operation.Id=="trades.blotter_v1"&&ownDispatched is null,
+            "Read current page dispatches the Blotter's read with the layout its report states; Read trades reads its own input, which states none");
+        JsonObject Envelope(BlotterLayout? layout)=>AgentTools.Envelope(working,call.Operation,Cutoff.AddDays(1),new(new JsonObject{["rows"]=new JsonArray()},0,false),"n1",layout);
+        var laid=Envelope(dispatched!.Layout);
+        Require(laid.Select(m=>m.Key).SequenceEqual(["operation","context","target","layout","result"])
+            &&JsonNode.DeepEquals(laid["layout"],JsonNode.Parse("""{"pane":{"details":true,"charts":false},"poppedOut":true}"""))
+            &&Envelope(null).Select(m=>m.Key).SequenceEqual(["operation","context","target","result"]),
+            "Read current page's result on the Blotter names which panes were open and whether it was popped out, exactly as reported; any other result names no layout");
+        Console.WriteLine("PASS Read current page's result on the Blotter carries the reported layout; no other result carries one");
     }
 
     static void Refusals()

@@ -297,13 +297,13 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
                   'market_data.contract_definitions_v1', 'reference_data.table_v1', 'schedules.library_v1', 'schedules.tou_products_v1',
                   'schedules.power_hours_v1', 'trade_parties.versions_v1', 'trades.blotter_v1', 'trades.blotter_v1', 'trades.trade_v1', 'trades.trade_v1']
     check("a step records its tool, operation, the request's input, the instant it read, after its call's close and before the next "
-          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v9",
+          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v10",
           [(s['tool'], s['operation'], s['input'], s['code']) for s in recorded] == [(r[1], o, r[2], None) for r, o in zip(first + second, operations)]
           and [s['access'] for s in recorded] == [market] * 9 + [parties] + [trades] * 4
           and all(at(loop[0]['closed']) <= at(s['read_at']) <= at(loop[1]['started']) for s in recorded[:3])
           and all(at(loop[1]['closed']) <= at(s['read_at']) <= at(loop[2]['started']) for s in recorded[3:])
           and [e['payload'] for e in events if e['kind'] == 'step'] == [{'ordinal': n, 'tool': s['tool']} for n, s in enumerate(recorded, start=1)]
-          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v9', recorded)
+          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v10', recorded)
     grant_id = delegation(turn)
     contexts_read = issued(grant_id)
     check("each read runs in one request context of its own, issued to the agent's principal under the turn's grant on the agent pools, "
@@ -551,6 +551,20 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           "tool_not_enabled, reading nothing",
           disabled['state'] == 'completed' and offered == ['read_current_page', 'read_market_data']
           and [(s['code'], s['operation'], s['input'], s['access']) for s in steps(disabled)] == [('tool_not_enabled', None, {}, [])], offered)
+
+    # The Blotter's layout reaches the model with Read current page's result on the Blotter, as its page report states it, and with no
+    # other result (D271).
+    layout = {'pane': {'details': True, 'charts': False}, 'poppedOut': False}
+    fake.respond(stream(tool_use(model_name, [('toolu_layout_1', 'read_current_page', {}), ('toolu_layout_2', 'read_trades', BLOTTER)])),
+                 stream(recording(model_name, text='The details are open.')))
+    since = len(fake.received)
+    laid, _ = settled(ask(report={'page': 'blotter', 'selection': BLOTTER, 'layout': layout})['turn'])
+    given = answers(requests(since)[-1])
+    check("Read current page's result on the Blotter carries the layout its page report states, exactly, beside the read it dispatches; "
+          "Read trades' result carries none",
+          laid['state'] == 'completed' and given['toolu_layout_1'][0]['operation'] == 'trades.blotter_v1' and given['toolu_layout_1'][0].get('layout') == layout
+          and not given['toolu_layout_1'][1] and given['toolu_layout_2'][0]['operation'] == 'trades.blotter_v1' and 'layout' not in given['toolu_layout_2'][0],
+          {k: (sorted(v[0]), v[1]) for k, v in given.items()})
 
     # A historical view without a frame (§7.2): current-only definitions and frame-consuming reads are refused before reading, and
     # the curve directory reads at the retained context.

@@ -34,6 +34,14 @@ internal sealed record TradePositionSelection(Guid TradeId,Guid BindingId,int Re
 
 public sealed partial class TradeReads
 {
+    // A read of one position needs current trading authority before any frame or trade is selected, so that a principal without it is
+    // denied rather than told the position is unavailable.
+    private async Task RequireReadTrades(NpgsqlConnection connection,CancellationToken ct)
+    {
+        await using var permission=ScheduleStore.Command(connection,"SELECT security.trading_access($1,'ReadTrades')",database.Manifest.CatalogId);
+        if(!Equals(await permission.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+    }
+
     public Task<object> GasTrade(NpgsqlConnection connection,TradingView view,TradePositionReadRequest request,CancellationToken ct)
     {
         var selected=TradePositionSelection.From(request);
@@ -64,8 +72,7 @@ public sealed partial class TradeReads
         var selected=TradePositionSelection.From(request);
         return ReadBound(connection,view,async()=>
         {
-            await using(var permission=ScheduleStore.Command(connection,"SELECT security.trading_access($1,'ReadTrades')",database.Manifest.CatalogId))
-                if(!Equals(await permission.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+            await RequireReadTrades(connection,ct);
             var data=await database.Read(connection,ct,observationIds:view.Frame.ObservationIds,
                 referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
             return new{holding=await blotter.Position(connection,data,view.CalculationFrame,selected,ct),
