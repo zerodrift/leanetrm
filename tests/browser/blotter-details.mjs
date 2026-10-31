@@ -206,21 +206,31 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await press('Escape');
   await wait(`${collapsed}&&document.activeElement===${row(JSON.stringify(pressedKey))}&&${idle}`).catch(observed);
   await check('Escape straight after a press on a row collapses the details, with focus on the row',`${collapsed}&&document.activeElement===${row(JSON.stringify(pressedKey))}`);
-  // A double click like a person's, on a row cut by the foot of the grid, opens the position's own window once: with the details collapsed,
-  // where the first click opens them, and beside them once open.
+  // A press on a row in the upper grid opens its details at once, with no wait for a second press: the details take their room below the
+  // grid, whose top stays put, so the row stays under the pointer and the grid does not scroll.
+  const settled=`(async()=>{const h=${holder};let last=-1;for(let i=0;i<20&&h.scrollTop!==last;i++){last=h.scrollTop;await ${frames};}})()`;
+  const upper=JSON.stringify(await evaluate(`(()=>{const h=${holder}.getBoundingClientRect();return ${rows}.filter(r=>{const b=r.getBoundingClientRect();return b.top>=h.top-0.5&&b.bottom<=h.bottom+0.5;})[1].dataset.rowKey;})()`));
+  const placed=`(()=>({top:${row(upper)}?.getBoundingClientRect().top,scroll:${holder}.scrollTop}))()`,start=await evaluate(placed);
+  await evaluate(`(()=>{const details=document.querySelector('#blotter-pane-details');window.__upAt=window.__expandedAt=undefined;
+    document.addEventListener('mouseup',()=>{window.__upAt=performance.now();},{capture:true,once:true});
+    const seen=new MutationObserver(()=>{if(!details.hidden){window.__expandedAt=performance.now();seen.disconnect();}});seen.observe(details,{attributes:true,attributeFilter:['hidden']});})()`);
+  const upperPoint=await pointAt(upper);
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...upperPoint});await mouse(upperPoint);
+  await wait(`document.querySelector('#position-details')?.hidden===false&&${idle}`);await evaluate(settled);
+  await check('a press on a row opens its details at once, with no wait for a second press','window.__expandedAt-window.__upAt<200','[window.__upAt,window.__expandedAt]');
+  await check('a press on a row in the upper grid leaves that row where it was on screen and does not scroll the grid',
+    `(()=>{const now=${placed};return Math.abs(now.top-${start.top})<=1&&now.scroll===${start.scroll};})()`,`[${placed},${JSON.stringify(start)}]`);
+  // A double click like a person's, its second press a moment after the first at the same point, on a row that still fits beside the
+  // details its first press opens, opens the position's own window once, and the details show that row.
+  await click('#details-collapse');await wait(`${collapsed}&&${idle}`);await evaluate(settled);
   await evaluate("window.__opened=[];window.open=(...args)=>{window.__opened.push(args[0]);return null;}");
-  for(const open of [false,true]){
-  await evaluate('window.__opened=[]');
-  if(open){await press('Enter');await wait(`document.querySelector('#position-details')?.hidden===false&&${idle}`);}else await wait(collapsed);
-  await evaluate(frames);
-  // The rows are scrolled, where they end flush with the grid's foot, so that one is cut by it.
-  const partly=await evaluate(`(async()=>{const holder=${holder},cut=()=>{const h=holder.getBoundingClientRect();return ${rows}.find(r=>{const b=r.getBoundingClientRect();return b.top<h.bottom-12&&b.bottom>h.bottom+1;});};
-    if(!cut()){holder.scrollTop+=23;await ${frames};}return cut()?.dataset.rowKey??null;})()`);
-  if(!partly)throw Error('No row is cut by the foot of the grid.');
-  const cut=await evaluate(`(()=>{const b=${row(JSON.stringify(partly))}.querySelector('.tabulator-cell').getBoundingClientRect(),h=${holder}.getBoundingClientRect();return {x:b.left+20,y:(b.top+Math.min(b.bottom,h.bottom))/2};})()`);
-  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...cut});await mouse(cut,2);
-  await wait('window.__opened.length>0',3000).catch(()=>undefined);await evaluate('new Promise(r=>setTimeout(r,600))');
-  await check(`a person\'s double click on a row cut by the foot of the grid, ${open?'beside the open details':'with the details collapsed'}, opens the position\'s own window once`,`window.__opened.length===1&&${selected}===${JSON.stringify(partly)}`,'[window.__opened.length,'+selected+']');
+  const upperReference=await evaluate(reference(upper)),twice=await pointAt(upper);
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...twice});
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...twice,button:'left',buttons:1,clickCount:1});await command('Input.dispatchMouseEvent',{type:'mouseReleased',...twice,button:'left',buttons:0,clickCount:1});
+  await evaluate('new Promise(r=>setTimeout(r,120))');
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...twice,button:'left',buttons:1,clickCount:2});await command('Input.dispatchMouseEvent',{type:'mouseReleased',...twice,button:'left',buttons:0,clickCount:2});
+  await wait('window.__opened.length>0',3000).catch(()=>undefined);await wait(`document.querySelector('#position-details')?.hidden===false&&${idle}`);await evaluate('new Promise(r=>setTimeout(r,600))');
+  await check("a person's double click on a row that still fits beside the details it opens opens the position's own window once, and the details show that row",
+    `window.__opened.length===1&&${selected}===${upper}&&document.querySelector('#details-title').textContent.startsWith(${JSON.stringify(upperReference)})`,`[window.__opened.length,${selected},document.querySelector('#details-title').textContent]`);
   await click('#details-collapse');await wait(`${collapsed}&&${idle}`);
-  }
 }
