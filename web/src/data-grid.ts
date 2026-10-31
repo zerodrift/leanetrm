@@ -24,15 +24,22 @@ type Cells=(string|HTMLElement)[][];
 // fill: the table takes the height its host gives it, such as a pane's, and its rows scroll within it; otherwise it is sized to its rows.
 // giveUp: columns, by index, that the grid gives up in this order, one at a time, only while the columns it shows do not fit its width. A grid
 // with room for all of them shows all.
+// tree: each source row's parent row key (null at the top), drawn as rows that open in place; `open` names the rows drawn open, and
+// onToggle hears the person opening or closing one.
+// totals: one display string per column, drawn as a row pinned below the rows; the grid never computes it.
+// headerGroups: column indices under a header in a colour token's colour (`--side-<colour>` in app.css).
+// decorate: a cell's value sources, whether it changed since the last read and whether its row is delivered; null for none.
 type Chosen=void|boolean|Promise<boolean>;
 export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>Chosen;onRowSelect?:(index:number)=>Chosen;onRowEscape?:()=>void;onRowMenu?:(index:number,at:{x:number;y:number})=>void;onRowDoubleOpen?:(index:number)=>void;
-  cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[]};
+  cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[];
+  tree?:{parents:(string|null)[];open:ReadonlySet<string>;onToggle:(key:string,open:boolean)=>void};totals?:string[];headerGroups?:{title:string;colour:string;columns:number[]}[];
+  decorate?:(index:number,column:number)=>{sources:string[];changed:boolean;delivered:boolean}|null};
 /**
  * What a grid is built for and cannot change while it stands: its key, scope and columns. A later render with the same identity changes the
  * standing grid's rows, grouping, column visibility, filters and layout in place, so the person keeps their place in it.
  */
 export function gridIdentity(key:string,scope:string,headers:readonly string[],numeric:readonly number[],options:GridOptions){
-  return JSON.stringify([key,scope,headers,numeric,options.keys,options.visual??[],options.columnGroups??null,!!options.stretch]);
+  return JSON.stringify([key,scope,headers,numeric,options.keys,options.visual??[],options.columnGroups??null,!!options.stretch,options.headerGroups??null,!!options.tree,!!options.totals]);
 }
 const frame=()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
 export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:string[],rows:Cells,numeric:number[],isBusy:()=>boolean,options:GridOptions){
@@ -105,12 +112,33 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   let order:readonly number[]=options.giveUp??[],given=new Set<number>();
   const shown=(i:number)=>options.visible?.[i]!==false&&!given.has(i);
   const definitions:Record<string,unknown>[]=[],groups=new Map<string,{columns:Record<string,unknown>[]} >();
+  // A column's header group: a pivot's, by column key, or a coloured one, by column index.
+  const columnGroupOf=(key:string,i:number)=>{
+    const pivot=options.columnGroups?.[key];if(pivot)return {key:pivot.key,title:pivot.title,measureTitle:pivot.measureTitle,colour:null};
+    const at=options.headerGroups?.findIndex(g=>g.columns.includes(i))??-1;
+    return at<0?undefined:{key:'header-group-'+at,title:options.headerGroups![at].title,measureTitle:undefined,colour:options.headerGroups![at].colour};
+  };
+  const groupTitle=(title:string,colour:string|null)=>{
+    if(colour===null)return document.createTextNode(title);
+    if(!/^[a-z][a-z0-9_-]*$/.test(colour))throw Error(`A header group's colour must be a colour token name, not '${colour}'.`);
+    const span=el('span',title);span.className='grid-group-title';span.style.setProperty('--group-colour',`var(--side-${colour})`);return span;
+  };
+  // A cell's sources and change marker, drawn before its content; its row's delivered state marks the row (rowFormatter).
+  const decorated=(content:Node,index:number,i:number)=>{
+    const mark=options.decorate?.(index,i);
+    if(!mark||!mark.changed&&!mark.sources.length)return content;
+    const wrap=el('span');wrap.className='grid-decorated';
+    if(mark.changed){const dot=el('span');dot.className='grid-changed';dot.title='Changed by the last edit';dot.setAttribute('role','img');dot.setAttribute('aria-label','Changed by the last edit');wrap.append(dot);}
+    for(const source of mark.sources){const tag=el('span',source);tag.className='grid-source';wrap.append(tag);}
+    wrap.append(content);return wrap;
+  };
   for(const key of ordered(options.layout)){
-    const i=options.keys.indexOf(key),group=options.columnGroups?.[key],title=publicText(group?.measureTitle??headers[i]);
-    const definition={title,titleFormatter:()=>document.createTextNode(title),field:field(i),visible:shown(i),minWidth:100,width:options.layout.widths[key],resizable:true,headerSort:!options.visual?.includes(i),hozAlign:numeric.includes(i)?'right':'left',cssClass:numeric.includes(i)?'grid-number':'',formatter:(cell:any)=>{const index=Number(cell.getRow().getData().__sourceIndex),rich=options.cells?.(index,i);if(rich)return rich;const span=document.createElement('span');span.textContent=publicText(options.displayRows?.[index]?.[i]??cell.getValue());if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';if(options.cellTitles?.[index]?.[i]!==undefined)span.title=publicText(options.cellTitles[index][i]);else if(options.displayRows?.[index]?.[i]!==undefined)span.title=String(cell.getValue());return span;},headerWordWrap:true,
-      sorter:numeric.includes(i)?(a:string,b:string)=>a===''?(b===''?0:-1):b===''?1:compareDecimalStrings(a,b):'string'};
+    const i=options.keys.indexOf(key),group=columnGroupOf(key,i),title=publicText(group?.measureTitle??headers[i]);
+    const definition={title,titleFormatter:()=>document.createTextNode(title),field:field(i),visible:shown(i),minWidth:100,width:options.layout.widths[key],resizable:true,headerSort:!options.visual?.includes(i),hozAlign:numeric.includes(i)?'right':'left',cssClass:numeric.includes(i)?'grid-number':'',formatter:(cell:any)=>{const index=Number(cell.getRow().getData().__sourceIndex),rich=options.cells?.(index,i);if(rich)return decorated(rich,index,i);const span=document.createElement('span');span.textContent=publicText(options.displayRows?.[index]?.[i]??cell.getValue());if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';if(options.cellTitles?.[index]?.[i]!==undefined)span.title=publicText(options.cellTitles[index][i]);else if(options.displayRows?.[index]?.[i]!==undefined)span.title=String(cell.getValue());return decorated(span,index,i);},headerWordWrap:true,
+      sorter:numeric.includes(i)?(a:string,b:string)=>a===''?(b===''?0:-1):b===''?1:compareDecimalStrings(a,b):'string',
+      ...(options.totals?{bottomCalc:()=>options.totals![i],bottomCalcFormatter:(cell:any)=>{const span=el('span',String(cell.getValue()));if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';return span;}}:{})};
     if(!group){definitions.push(definition);continue;}
-    let parent=groups.get(group.key);if(!parent){const title=publicText(group.title);parent={columns:[]};groups.set(group.key,parent);definitions.push({...parent,title,titleFormatter:()=>document.createTextNode(title),headerHozAlign:'center',cssClass:'pivot-column-group'});}
+    let parent=groups.get(group.key);if(!parent){const title=publicText(group.title);parent={columns:[]};groups.set(group.key,parent);definitions.push({...parent,title,titleFormatter:()=>groupTitle(title,group.colour),headerHozAlign:'center',cssClass:group.colour===null?'pivot-column-group':'grid-header-group'});}
     parent.columns.push(definition);
   }
   // Whether the columns the table shows are wider than the room it has: it would scroll sideways.
@@ -154,14 +182,32 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   }
   // Grouped rows start in the order of their groups, which Tabulator keeps as it meets them; a group the filters empty disappears.
   const groupOf=(data:Record<string,string>)=>options.group!.keys[Number(data.__sourceIndex)];
-  const rowData=()=>values.map((row,index)=>({...Object.fromEntries(row.map((cell,i)=>[field(i),cell])),__sourceIndex:String(index),__key:keys[index]}))
-    .sort((a,b)=>options.group?options.group.order.indexOf(groupOf(a))-options.group.order.indexOf(groupOf(b)):0);
-  const height=()=>options.fill?'100%':Math.min(560,Math.max(140,values.length*(options.rowHeight??35)+(options.group?.order.length??0)*36+(groups.size?82:46)))+'px';
+  // A tree's rows are given to Tabulator nested under their parents (dataTree's _children), in the order given.
+  function nested(flat:Record<string,string>[]){
+    const tree=options.tree!;
+    if(tree.parents.length!==flat.length)throw Error('Each row of this tree needs its parent, or null at the top.');
+    const top:Record<string,unknown>[]=[],byKey=new Map<string,Record<string,unknown>>(flat.map(row=>[row.__key,row]));
+    flat.forEach((row,index)=>{
+      const parentKey=tree.parents[index];if(parentKey===null){top.push(row);return;}
+      const parent=byKey.get(parentKey);if(!parent)throw Error(`Row ${row.__key} names the parent row ${parentKey}, which this tree does not have.`);
+      ((parent._children??=[]) as Record<string,unknown>[]).push(row);
+    });
+    return top as Record<string,string>[];
+  }
+  const rowData=()=>{
+    if(options.totals&&options.totals.length!==headers.length)throw Error('The totals row needs one value for each column.');
+    const flat=values.map((row,index)=>({...Object.fromEntries(row.map((cell,i)=>[field(i),cell])),__sourceIndex:String(index),__key:keys[index]}))
+      .sort((a,b)=>options.group?options.group.order.indexOf(groupOf(a))-options.group.order.indexOf(groupOf(b)):0);
+    return options.tree?nested(flat):flat;
+  };
+  const height=()=>options.fill?'100%':Math.min(560,Math.max(140,values.length*(options.rowHeight??35)+(options.group?.order.length??0)*36+(groups.size?82:46)+(options.totals?36:0)))+'px';
   let drawnHeight=height();
   const table=new TabulatorFull(container,{
     index:'__key',
     data:rowData(),
     rowFormatter:(row:any)=>{
+      // The pinned totals row is Tabulator's calculation row, not one of the source rows.
+      if(row.getData().__key===undefined)return;
       const target=row.getElement() as HTMLElement;
       if(options.onRowOpen){target.tabIndex=0;target.classList.add('openable-row');target.setAttribute('aria-label','Open row details');target.onkeydown=event=>{
         if(event.target!==target)return;
@@ -170,6 +216,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
         else if(event.key==='Escape'&&options.onRowEscape&&current()){event.preventDefault();options.onRowEscape();}
         else if(menuKey(event)&&options.onRowMenu){event.preventDefault();openMenu(target,placeOf(target));}
       };}
+      if(options.decorate){const index=sourceIndex(row);target.classList.toggle('delivered-row',headers.some((_,i)=>options.decorate!(index,i)?.delivered));}
       markRow(row);
     },
     columns:definitions,
@@ -186,6 +233,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       return header;
     },
     ...(options.group?{groupBy:groupOf}:{}),
+    ...(options.tree?{dataTree:true,dataTreeStartExpanded:(row:GridRow)=>options.tree?.open.has(keyOf(row))??false}:{}),
     initialSort:options.layout.sort.filter(s=>options.keys.includes(s.key)).map(s=>({column:field(options.keys.indexOf(s.key)),dir:s.direction})),
   });
   // The person's place: every change of the rows, their grouping, sorting, filters or columns, and of the grid's width, keeps the first row
@@ -392,7 +440,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Brings the standing columns to a layout a later render asks for, such as a saved view's: their order, widths and sort.
   function applyLayout(next:GridLayout){
     const wanted=ordered(next);
-    if(!options.columnGroups&&layout().order.join('\u0000')!==wanted.join('\u0000'))
+    if(!options.columnGroups&&!options.headerGroups&&layout().order.join('\u0000')!==wanted.join('\u0000'))
       wanted.forEach((key,at)=>{const column=table.getColumn(field(options.keys.indexOf(key)));if(at>0&&column)column.move(field(options.keys.indexOf(wanted[at-1])),true);});
     for(const [key,width] of Object.entries(next.widths)){const column=options.keys.includes(key)?table.getColumn(field(options.keys.indexOf(key))):false;if(column&&Math.abs(column.getWidth()-width)>1)column.setWidth(width);}
     const sort=next.sort.filter(s=>options.keys.includes(s.key)).map(s=>({column:field(options.keys.indexOf(s.key)),dir:s.direction}));
@@ -410,6 +458,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // fitDataFill refits every column without a definition width whenever the
   // grid is redrawn for a new size, so a user's resize becomes that width.
   table.on('columnResized',(column:any)=>{column.getDefinition().width=column.getWidth();});
+  if(options.tree)for(const [event,open] of [['dataTreeRowExpanded',true],['dataTreeRowCollapsed',false]] as const)table.on(event,(row:GridRow)=>{if(current())options.tree?.onToggle(keyOf(row),open);});
   table.on('tableBuilt',()=>{if(!alive){table.destroy();return;}ready=true;markBuilt();fit();apply();options.onReady?.();});
   for(const event of ['columnMoved','columnResized','dataSorted'])table.on(event,()=>{if(ready&&!updating&&current())options.onLayout(layout());});
   search.oninput=()=>{if(!current())return;state.query=search.value;apply();};

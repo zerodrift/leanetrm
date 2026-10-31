@@ -345,6 +345,13 @@ Each move keeps the product's booking contract and removes its old editor
 Physical gas has a description (`physical_gas` v1) and returns a schedule view
 from its preview and booked read; the ticket screen is not built yet.
 
+- The schedule grid (`web/src/schedule-grid.ts`) turns a schedule view into the
+  Instrument and side tabs: side-coloured header groups and a Trade group, the
+  rows of the chosen level and coarser as a tree, source tags, change markers
+  against the previous view, dimmed delivered rows and the view's own totals as
+  a pinned row. Exact decimals are shown with digit grouping only; an `a/b`
+  ratio is shown exact. The delivered/remaining split is not drawn yet.
+
 - Quantities and amounts carry the side's direction: delivered gas and paid
   cash are negative. Clients show them as reported and never re-sign them or
   take absolute values. Prices are not signed.
