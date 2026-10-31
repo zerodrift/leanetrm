@@ -4,7 +4,9 @@
 import {grantPhrase,type Vendor} from './agent-grants.js';
 import {readPages,type Step,type Ending,type Usage,type TargetContext} from './assistant-events.js';
 
-export type PageReport={page:string;selection:Record<string,unknown>};
+/** What the Blotter shows of its panes and window. It is the page's own state, never part of the selection an ask sends (askReport). */
+export type BlotterLayoutShown={pane:{details:boolean;charts:boolean};poppedOut:boolean};
+export type PageReport={page:string;selection:Record<string,unknown>;layout?:BlotterLayoutShown};
 export type BlotterSelection={mode:'trades'|'pivot';bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[]};
 export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa';revision:number;reference:string};
 /** A new trade being entered in the Blotter's panel: of its product, or of none until the person chooses one. */
@@ -15,7 +17,7 @@ export type PpaShown={trade:{tradeId:string;revision:number}|null;book:string|nu
 export type PageState=
   {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
-  |{page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}
+  |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
   |{page:'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
@@ -54,17 +56,21 @@ export function pageReport(state:PageState):PageReport{
     // reports is always the first page of the person's own jobs.
     case 'jobs':return {page:'jobs',selection:state.job?{view:'history',job:state.job,page:null,before:null}:{view:'jobs',job:null,page:0,before:null}};
     case 'futures':{
-      if(state.risk)return {page:'blotter_risk',selection:{}};
-      if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:{}};
-      if(!state.trade&&state.lens==='risk')return {page:'blotter_risk_lens',selection:{}};
+      const layout:BlotterLayoutShown={pane:{...state.pane},poppedOut:state.poppedOut};
+      if(state.risk)return {page:'blotter_risk',selection:{},layout};
+      if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:{},layout};
+      if(!state.trade&&state.lens==='risk')return {page:'blotter_risk_lens',selection:{},layout};
       const t=state.trade,v=state.view,pivot=v.mode==='pivot';
-      return {page:'blotter',selection:t?{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:t.tradeId,instrumentType:t.instrumentType,revision:t.revision}
+      return {page:'blotter',layout,selection:t?{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:t.tradeId,instrumentType:t.instrumentType,revision:t.revision}
         :{view:'blotter',mode:v.mode,bookIds:[...v.bookIds],portfolioIds:[...v.portfolioIds],groupBy:pivot?[...v.groupBy]:[],measures:pivot?[...v.measures]:[],
           tradeId:null,instrumentType:null,revision:null}};
     }
     default:return {page:unsupported[state.page],selection:{}};
   }
 }
+
+// The report an ask sends: the server accepts exactly a page and its selection (PageReports.cs), so the layout stays with the page.
+export const askReport=({page,selection}:PageReport)=>({page,selection});
 
 // The knowledge an ask pins: working data only at a chosen As of frame, the selected historical view with or without one.
 export function askKnowledge(context:PageContext){

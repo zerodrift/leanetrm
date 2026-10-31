@@ -43,10 +43,14 @@ export function validLayoutField(key:string):boolean{
  if(!key.startsWith('pivot:')||key.length>512)return false;
  try{const [split,measure,...extra]=JSON.parse(key.slice(6));const ids=JSON.parse(split);return !extra.length&&Array.isArray(ids)&&ids.length>0&&ids.length<=3&&ids.every(id=>typeof id==='string'&&/^[a-z0-9_-]{1,80}$/i.test(id))&&measureChoices.some(c=>c[0]===measure);}catch{return false;}
 }
+// The checks a saved view and a Blotter operation (blotter-operations.ts) share, so that one rule says what a sort, a filter or a scope may be.
+export const validSort=(sort:unknown):sort is GridLayout['sort']=>Array.isArray(sort)&&sort.length<=16&&!sort.some((x:{key:string;direction:string})=>!x||!validLayoutField(x.key)||!['asc','desc'].includes(x.direction))&&new Set(sort.map((x:{key:string})=>x.key)).size===sort.length;
+export const validColumnFilters=(filters:unknown):filters is Record<string,string>=>!!filters&&typeof filters==='object'&&!Array.isArray(filters)&&!Object.entries(filters).some(([key,value])=>!validLayoutField(key)||typeof value!=='string'||value.length>200);
+export const validIds=(v:unknown):v is string[]=>Array.isArray(v)&&v.length<=256&&!v.some(x=>typeof x!=='string'||!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(x))&&new Set(v).size===v.length;
 export function parseBlotterViews(raw:string):BlotterView[]{
  const rows=JSON.parse(raw);if(!Array.isArray(rows)||rows.length>20)throw Error('Saved blotter views could not be read.');
  const list=(value:unknown,allowed:readonly string[],max=allowed.length):string[]=>{if(!Array.isArray(value)||value.length>max||value.some(x=>typeof x!=='string'||!allowed.includes(x))||new Set(value).size!==value.length)throw Error('Invalid saved view choices.');return [...value];};
- const ids=(v:unknown):string[]=>{if(!Array.isArray(v)||v.length>256||v.some(x=>typeof x!=='string'||!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(x))||new Set(v).size!==v.length)throw Error('Invalid saved book selection.');return [...v];};
+ const ids=(v:unknown):string[]=>{if(!validIds(v))throw Error('Invalid saved book selection.');return [...v];};
  const result=rows.map(v=>{
   if(isEarlierFormat(v))throw Error('Saved blotter view is from an earlier version.');
   if(v?.version!==blotterVersion||typeof v.sidebar!=='boolean'||typeof v.name!=='string'||!v.name.trim()||v.name.length>60||!['trades','pivot'].includes(v.mode)||typeof v.query!=='string'||v.query.length>200)throw Error('Invalid saved blotter view.');
@@ -57,10 +61,10 @@ export function parseBlotterViews(raw:string):BlotterView[]{
   if(v.mode==='trades'&&columns.some(c=>c==='tradeCount'||isPriceMeasure(c))||v.mode==='pivot'&&(columns.some(c=>![...groupBy,...measures,'instrumentType','unit','currency','priceUnit'].includes(c))||!columns.includes('unit')||!columns.includes('currency')))throw Error('Saved columns must belong to the selected display mode.');
   if(v.mode==='pivot'&&measures.some(isPriceMeasure)&&!columns.includes('priceUnit'))throw Error('Price pivots require their quote units.');
   if(!columns.length||v.mode==='pivot'&&(!groupBy.length||!measures.length||measures.includes('lots')&&!groupBy.includes('contract')))throw Error('Choose pivot dimensions and measures; lots require dated-contract grouping.');
-  if(!v.columnFilters||typeof v.columnFilters!=='object'||Array.isArray(v.columnFilters)||Object.entries(v.columnFilters).some(([key,value])=>!validLayoutField(key)||typeof value!=='string'||value.length>200))throw Error('Invalid saved filters.');
+  if(!validColumnFilters(v.columnFilters))throw Error('Invalid saved filters.');
   const panes=parseArrangement(v.panes,blotterPanes,blotterDockRules);
   const {grid,chart}=v;
-  if(!grid||!Array.isArray(grid.order)||grid.order.length>128||grid.order.some((x:unknown)=>typeof x!=='string'||!validLayoutField(x))||new Set(grid.order).size!==grid.order.length||!grid.widths||typeof grid.widths!=='object'||Array.isArray(grid.widths)||Object.entries(grid.widths).some(([key,width])=>!validLayoutField(key)||!Number.isInteger(width)||Number(width)<40||Number(width)>3000)||Object.keys(grid.widths).length>128||!Array.isArray(grid.sort)||grid.sort.length>16||grid.sort.some((x:{key:string;direction:string})=>!x||!validLayoutField(x.key)||!['asc','desc'].includes(x.direction))||new Set(grid.sort.map((x:{key:string})=>x.key)).size!==grid.sort.length)throw Error('Invalid saved grid layout.');
+  if(!grid||!Array.isArray(grid.order)||grid.order.length>128||grid.order.some((x:unknown)=>typeof x!=='string'||!validLayoutField(x))||new Set(grid.order).size!==grid.order.length||!grid.widths||typeof grid.widths!=='object'||Array.isArray(grid.widths)||Object.entries(grid.widths).some(([key,width])=>!validLayoutField(key)||!Number.isInteger(width)||Number(width)<40||Number(width)>3000)||Object.keys(grid.widths).length>128||!validSort(grid.sort))throw Error('Invalid saved grid layout.');
   if(!chart||typeof chart.visible!=='boolean'||!measureChoices.some(c=>c[0]===chart.measure)||!['bar','line','heatmap'].includes(chart.kind))throw Error('Invalid saved chart choices.');
   if(chart.visible&&chart.measure==='lots'&&v.mode==='pivot'&&!groupBy.includes('contract'))throw Error('Lot charts require dated-contract grouping.');
   return {version:blotterVersion,name:v.name.trim(),sidebar:v.sidebar,mode:v.mode,rowGroup:v.rowGroup as RowGroup,columns,bookIds:ids(v.bookIds),portfolioIds:ids(v.portfolioIds),groupBy,measures,query:v.query,columnFilters:{...v.columnFilters},splitBy,grid:structuredClone(grid),panes,chart:{visible:chart.visible,measure:chart.measure,kind:chart.kind}};

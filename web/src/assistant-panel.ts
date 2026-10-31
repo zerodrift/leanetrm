@@ -7,7 +7,7 @@ import {PendingCommand} from './pending-command.js';
 import type {Vendor} from './agent-grants.js';
 import {streamFrame,streamOrder,readEvents,newTurnView,applyEvent,type TurnView,type TurnEvent,type Target,type StreamItem} from './assistant-events.js';
 import {lookingAt,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,startsOver,usageLine,consentText,grantExpiry,
-  agentChoice,preselect,conversationChoice,panelMessage,keptAsk,isUuid,type Place,type Names,type UsableAgent} from './assistant-pages.js';
+  askReport,agentChoice,preselect,conversationChoice,panelMessage,keptAsk,isUuid,type Place,type Names,type UsableAgent} from './assistant-pages.js';
 import {answerBlocks,renderBlocks} from './assistant-text.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
@@ -291,7 +291,7 @@ export function setupAssistant(options:PanelOptions){
       if(JSON.stringify([place.report,place.context])!==lookedAt){error='The page changed. Check Looking at, then send again.';sync();return;}
       if(!knowledge||!askable||options.pageBusy()||!question.value.trim()||asking.command)return;
       command=asking.begin('assistant/turns/ask',{conversationId:conversation?.id??null,agentId:agent.id,version:agent.version,question:question.value,
-        pageReport:place.report,knowledge});
+        pageReport:askReport(place.report),knowledge});
     }
     working=true;error='';consent=undefined;sync();
     const started=identity,previouslyUncertain=asking.sending();keep();
