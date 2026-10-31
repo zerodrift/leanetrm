@@ -33,8 +33,7 @@ public readonly record struct ScheduleNumber
     }
     internal ExactDecimal Decimal()
     {
-        var scaled=BigInteger.DivRem(Numerator*ExactDecimal.WorkingScale,Denominator,out var remainder);
-        if(!remainder.IsZero)throw new MarketDataException("precision_loss","This input requires an exact working decimal without inferred rounding.");
+        if(!value.TryScaleToInteger(ExactDecimal.WorkingScale,out var scaled))throw new MarketDataException("precision_loss","This input requires an exact working decimal without inferred rounding.");
         return ExactDecimal.FromScaled(scaled);
     }
     internal bool IsValid=>Denominator>0;

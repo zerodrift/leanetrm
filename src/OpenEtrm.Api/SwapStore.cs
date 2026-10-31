@@ -276,7 +276,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    paymentCalendars=m.Data.References["calendars"].Select(c=>new{code=c.Text("code"),reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),from=c.Text("coverage_from"),to=c.Text("coverage_to")}).ToArray(),
    powerQuantities=m.Data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt"&&q.Text("dimension_code")=="power").Select(q=>new{specification=new ReferenceKey(m.Data.ReferenceRevision,q.Text("code")),unit="MW",commodity=q.Text("commodity_code")}).ToArray(),
    clocks=m.Data.References["clock_rules"].Select(c=>new{reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),label=c.OptionalText("iana_zone")??c.Text("code")}).ToArray()}).ToArray();
-  return new{books=await new FuturesStore(manifest).Books(connection,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),indices,referenceChoices,contractObservationSources=markets.SelectMany(m=>ContractObservationSources(m.Data)).ToArray(),
+  return new{books=await BookScope.Read(connection,manifest.CatalogId,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),indices,referenceChoices,contractObservationSources=markets.SelectMany(m=>ContractObservationSources(m.Data)).ToArray(),
    commodities=markets.SelectMany(m=>m.Data.References["commodities"]).DistinctBy(c=>c.Text("code")).Select(c=>new{code=c.Text("code"),name=c.Text("name")}),
    paymentCalendars=markets.SelectMany(m=>m.Data.References["calendars"].Select(c=>new{definitionRevisionId=m.Data.DefinitionRevision.RevisionId,code=c.Text("code"),reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),from=c.Text("coverage_from"),to=c.Text("coverage_to")})),
    factorOptions=new{swapImplementation=CrossCommodityScheduledSwap.Implementation,factorImplementation=QuantityFactor.Implementation,unitConversionImplementation=UnitConverter.Implementation,quantityBasis="factor_of_first_side_v1"},
@@ -414,7 +414,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   RequireWriteRules(data,body);
   await TradeAnnotations.Validate(connection,manifest.CatalogId,body.TraderId,body.TraderRevision,body.Memo,SchedulePreview.ParseAt(body.ExecutedAt),ct);
   await TradeParties.Validate(connection,manifest.CatalogId,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision),SchedulePreview.ParseAt(body.ExecutedAt),ct);
-  if(SchedulePreview.ParseAt(body.ExecutedAt)>frame.At||!(await new FuturesStore(manifest).Books(connection,ct)).Any(b=>b.Id("id")==body.BookId))
+  if(SchedulePreview.ParseAt(body.ExecutedAt)>frame.At||!(await BookScope.Read(connection,manifest.CatalogId,ct)).Any(b=>b.Id("id")==body.BookId))
    throw Error("swap_input","Choose an available book and execution no later than As of.");
   SwapWriteRequest? booked=null;
   if(body.TradeId is {} trade)
@@ -491,9 +491,10 @@ public sealed partial class SwapStore(PreviewDatabase database)
  // The Blotter's swaps and heat-rate swaps: each held trade's head revision in scope, read before any is valued.
  internal async Task<SwapBlotterRun> BlotterRun(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
  {
-  var books=await new FuturesStore(manifest).Books(connection,ct);FuturesStore.ValidateScope(books,bookIds,portfolioIds);
-  var rows=(await Rows(connection,selected?.TradeId,ct)).GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!).Where(r=>
-   (bookIds.IsEmpty||bookIds.Contains(r.Id("book_id")))&&(portfolioIds.IsEmpty||portfolioIds.Contains(One(books.Where(b=>b.Id("id")==r.Id("book_id"))).Id("portfolio_id")))).ToArray();
+  var books=await BookScope.Read(connection,manifest.CatalogId,ct);
+  var scope=BookScope.Select(books,bookIds,portfolioIds).Select(book=>book.Id("id")).ToHashSet();
+  var rows=(await Rows(connection,selected?.TradeId,ct)).GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!)
+   .Where(row=>scope.Contains(row.Id("book_id"))).ToArray();
   selected?.Require(rows);
   if(selected is not null&&rows.Any(r=>(r.Text("implementation")==CrossCommodityScheduledSwap.Implementation?"heat_rate":"financial_swap")!=selected.InstrumentType))
    throw TradePositionSelection.Unavailable();

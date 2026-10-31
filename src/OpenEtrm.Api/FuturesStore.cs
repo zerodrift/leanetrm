@@ -54,12 +54,8 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
         var quote=data.QuoteRows(c.Text("quote_code")).Single();
         return data.Model.BindFutures(id,new(new(contract.Key.Revision,curve),contract.Key),product.Text("settlement_method"),implementation,eligibleFrom);
     }
-    public async Task<ImmutableArray<JsonElement>> Books(NpgsqlConnection connection,CancellationToken ct)=>
-        await PreviewDatabase.Rows(connection,"""
-            SELECT row_to_json(r)::text FROM(SELECT b.id,b.name,b.portfolio_id,p.name AS portfolio
-            FROM trading.books b JOIN trading.portfolios p ON(p.catalog_id,p.id)=(b.catalog_id,b.portfolio_id)
-            WHERE b.catalog_id=$1 ORDER BY b.name,b.id)r
-            """,[manifest.CatalogId],ct);
+    public Task<ImmutableArray<JsonElement>> Books(NpgsqlConnection connection,CancellationToken ct)=>
+        BookScope.Read(connection,manifest.CatalogId,ct);
 
     private sealed record BookingDirectory(ImmutableArray<JsonElement> Books,JsonElement BookingActor,
         ImmutableArray<TradeParties.Choice> LegalEntities,ImmutableArray<TradeParties.Choice> Counterparties);
@@ -212,11 +208,9 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
     internal async Task<ResolvedTrades> ReadTrades(NpgsqlConnection connection,PreviewData data,ImmutableArray<JsonElement> books,
         ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
     {
-        ValidateScope(books,bookIds,portfolioIds);
+        var scope=BookScope.Select(books,bookIds,portfolioIds).Select(book=>book.Id("id")).ToHashSet();
         var rows=await RevisionRows(connection,selected?.TradeId,false,ct);
-        rows=rows.Where(r=>
-            (bookIds.Length==0||bookIds.Contains(r.Id("book_id")))&&
-            (portfolioIds.Length==0||portfolioIds.Contains(books.Single(b=>b.Id("id")==r.Id("book_id")).Id("portfolio_id")))).ToImmutableArray();
+        rows=rows.Where(row=>scope.Contains(row.Id("book_id"))).ToImmutableArray();
         selected?.Require(rows);
         var sides=new Dictionary<Guid,FuturesMarketBinding>();
         foreach(var row in rows)
@@ -234,12 +228,6 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
                 row.Instant("effective_at"),FuturesSettlementState.Unprocessed,row.Id("instrument_id"));
         }).ToImmutableArray(),TradeParties.Read(manifest.CatalogId,group.First()))).ToImmutableArray();
         return new(rows,sides,trades);
-    }
-    internal static void ValidateScope(ImmutableArray<JsonElement> books,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds)
-    {
-        if(bookIds.IsDefault || portfolioIds.IsDefault || bookIds.Distinct().Count()!=bookIds.Length || portfolioIds.Distinct().Count()!=portfolioIds.Length ||
-            bookIds.Any(id=>!books.Any(b=>b.Id("id")==id)) || portfolioIds.Any(id=>!books.Any(b=>b.Id("portfolio_id")==id)))
-            throw Error("blotter_view","Choose explicit available exact books and portfolios.");
     }
     public async Task<JsonElement> Book(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBookRequest body,CancellationToken ct)
     {

@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Numerics;
-using OpenEtrm.MarketData.CustomCurves;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData;
 
@@ -8,7 +8,9 @@ namespace OpenEtrm.MarketData;
 // Retain that quantity exactly until an explicitly chosen decimal boundary.
 public sealed record ExactQuantity
 {
- private readonly BigInteger numerator,denominator;
+ private readonly SignedRatio value;
+ private BigInteger numerator=>value.Numerator;
+ private BigInteger denominator=>value.Denominator;
  public ReferenceKey Specification { get; }
  internal BigInteger NumeratorValue=>numerator;
  internal BigInteger DenominatorValue=>denominator;
@@ -18,30 +20,33 @@ public sealed record ExactQuantity
  {
   Money.RequireKey(specification);
   if(denominator<=0)throw new MarketDataException("numeric_division","An exact quantity requires a positive denominator.");
-  var gcd=BigInteger.GreatestCommonDivisor(BigInteger.Abs(numerator),denominator);
-  numerator/=gcd;denominator/=gcd;
-  RequireRange(numerator,denominator);
-  this.numerator=numerator;this.denominator=denominator;Specification=specification;
+  value=new(numerator,denominator);
+  RequireRange(value.Numerator,value.Denominator);
+  Specification=specification;
  }
+ private ExactQuantity(SignedRatio value,ReferenceKey specification)
+ {RequireRange(value.Numerator,value.Denominator);this.value=value;Specification=specification;}
  internal static void RequireRange(BigInteger numerator,BigInteger denominator)
  {if(numerator.GetBitLength()>4096||denominator.GetBitLength()>4096)throw new MarketDataException("numeric_range","The exact quantity exceeds its supported bound.");}
  public static ExactQuantity FromQuantity(Quantity value)=>new(value.Amount.ScaledValue,ExactDecimal.WorkingScale,value.Specification);
- public ExactQuantity Scale(OpenEtrm.Shared.Numerics.ExactRatio ratio)=>new(numerator*ratio.Numerator,denominator*ratio.Denominator,Specification);
+ public ExactQuantity Scale(OpenEtrm.Shared.Numerics.ExactRatio ratio)=>new(value * new SignedRatio(ratio.Numerator,ratio.Denominator),Specification);
  public ExactQuantity Scale(ExactDecimal factor)=>ScaleFraction(factor.ScaledValue,ExactDecimal.WorkingScale);
  public ExactQuantity Times(QuantityFactor factor,ReferenceKey target,UnitConverter converter)=>factor.Apply(this,target,converter);
- internal ExactQuantity ScaleFraction(BigInteger factor,BigInteger divisor)=>new(numerator*factor,denominator*divisor,Specification);
+ internal ExactQuantity ScaleFraction(BigInteger factor,BigInteger divisor)
+ {
+  if(divisor<=0)throw new MarketDataException("numeric_division","An exact quantity requires a positive denominator.");
+  return new(value * new SignedRatio(factor,divisor),Specification);
+ }
  public ExactQuantity Add(ExactQuantity other)
  {
   if(other is null || Specification!=other.Specification)throw new MarketDataException("quantity_mismatch","Exact quantities require the same quantity specification.");
-  var shared=BigInteger.GreatestCommonDivisor(denominator,other.denominator);
-  return new(numerator*(other.denominator/shared)+other.numerator*(denominator/shared),denominator*(other.denominator/shared),Specification);
+  return new(value+other.value,Specification);
  }
  public Quantity ToQuantity(AmountFormat? rounding=null)
  {
   if(rounding is not null)return new(rounding.RoundFraction(numerator,denominator),Specification);
-  var value=BigInteger.DivRem(numerator*ExactDecimal.WorkingScale,denominator,out var remainder);
-  if(!remainder.IsZero)throw new MarketDataException("precision_loss","The exact quantity needs explicit final rounding to become a decimal quantity.");
-  return new(ExactDecimal.FromScaled(value),Specification);
+  if(!value.TryScaleToInteger(ExactDecimal.WorkingScale,out var scaled))throw new MarketDataException("precision_loss","The exact quantity needs explicit final rounding to become a decimal quantity.");
+  return new(ExactDecimal.FromScaled(scaled),Specification);
  }
  public ExactMoney Times(UnitPrice price)
  {

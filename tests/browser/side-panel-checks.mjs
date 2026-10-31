@@ -559,8 +559,12 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     await settle(width,900);
     const phoneWidth=await evaluate('document.documentElement.scrollWidth');
     await open('fut');
+    // Curve layout can scroll the virtual row; its focus is restored on the
+    // next animation frame. Assert after that render cycle, not mid-detachment.
+    await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
     await check(`at ${width} pixels position details stay inside the row and do not widen the page`,`${inlineGeometry}&&${panel}.getBoundingClientRect().width<=document.querySelector('#desk-positions .tabulator-tableholder').clientWidth+1&&document.documentElement.scrollWidth===${phoneWidth}&&document.documentElement.scrollWidth<=document.documentElement.clientWidth+1`,`({inline:${inlineGeometry},detail:${panel}.getBoundingClientRect().toJSON(),holder:document.querySelector('#desk-positions .tabulator-tableholder').clientWidth,page:[document.documentElement.scrollWidth,document.documentElement.clientWidth],before:${phoneWidth}})`);
-    await check('inline detail leaves page controls available and takes keyboard focus',`document.querySelectorAll('[inert]').length===0&&document.activeElement===${panel}`);
+    await check('inline detail leaves page controls available and takes keyboard focus',`document.querySelectorAll('[inert]').length===0&&document.activeElement===${panel}`,
+      `({focus:[document.activeElement?.id,document.activeElement?.className],inert:[...document.querySelectorAll('[inert]')].map(element=>element.id),connected:${panel}.isConnected,hidden:${panel}.hidden})`);
     await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&document.querySelector('#position-details-form')?.contains(document.activeElement)");
     await check('the mobile amendment stays inside the row and its form receives focus',`!document.querySelector('#position-details-form').hidden&&document.querySelector('#position-details-form').contains(document.activeElement)&&document.querySelector('#position-details-form').scrollWidth<=document.querySelector('#position-details-form').clientWidth+1&&document.querySelectorAll('[inert]').length===0`);
     await click('#side-panel-amend');await click('#position-details .position-close');await wait(`${panel}.hidden`);

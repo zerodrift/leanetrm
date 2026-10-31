@@ -341,7 +341,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
                 clockRules=receipt.ReferenceInputs.Clocks.Select(p=>new{clock=p.Key,p.Value.Fingerprint,p.Value.Rules})};
     }
     private static object PriceUnit(PriceUnit unit)=>new{unit.Currency,unit.Quantity,multiplier=unit.Multiplier.ToString()};
-    private static object Price(OpenEtrm.MarketData.CustomCurves.ExactUnitPrice price)=>new{price.Numerator,price.Denominator,unit=PriceUnit(price.Unit)};
+    private static object Price(OpenEtrm.MarketData.ExactUnitPrice price)=>new{price.Numerator,price.Denominator,unit=PriceUnit(price.Unit)};
     private static object InspectionRow(ScheduleRowValue r)=>new {
         r.SideId,r.Slot,kind=r.Kind.ToString(),r.Interval,quantity=Exact(r.Quantity),quantitySpecification=r.Quantity.Specification,quantityState=r.QuantityState.ToString(),stage=r.Stage?.ToString(),
         amount=Exact(r.Amount),currency=r.Amount.Currency,presentValue=r.PresentValue is {} pv?Exact(pv):null,coefficient=r.Coefficient.ToString(),r.DateRule,r.ValueAt,

@@ -196,7 +196,7 @@ public sealed partial class SwapStore
         body=await BookingTerms(connection,frame,body,ct);
         await TradeAnnotations.Validate(connection,manifest.CatalogId,body.TraderId,body.TraderRevision,body.Memo,SchedulePreview.ParseAt(body.ExecutedAt),ct);
         await TradeParties.Validate(connection,manifest.CatalogId,TradeParties.Payload(body.TradeDate,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision),SchedulePreview.ParseAt(body.ExecutedAt),ct);
-        if(!(await new FuturesStore(manifest).Books(connection,ct)).Any(b=>b.Id("id")==body.BookId))throw Error("swap_book","Choose an authorized book.");
+        if(!(await BookScope.Read(connection,manifest.CatalogId,ct)).Any(b=>b.Id("id")==body.BookId))throw Error("swap_book","Choose an authorized book.");
         SwapWriteRequest? booked=null;
         if(body.TradeId is {} trade)
         {
