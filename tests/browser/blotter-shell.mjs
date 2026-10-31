@@ -1,7 +1,7 @@
 // The Blotter fills the window beside the navigation with docked panes, the summary strip, the positions grid, details and charts, and
 // the page itself never scrolls. The trader collapses, moves and resizes the panes; the arrangement, collapsed panes included, is saved in
-// the named view, Reset layout restores the default, and a narrow window shows the panes as tabs of one group until it is wide again;
-// a phone's page, with the navigation above it, scrolls.
+// the named view, Reset layout restores the default, and a narrow window shows the panes as tabs of one group until it is wide again,
+// still without the page scrolling; a phone's page, with the navigation above it, scrolls.
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){
   const frames='new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))';
   const size=async(width,height)=>{await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await wait(`innerWidth===${width}&&innerHeight===${height}`);await evaluate(frames);await evaluate(frames);};
@@ -60,9 +60,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // A narrow window shows the panes as tabs of one group, positions in view, and keeps the arrangement for when it is wide again.
   await size(700,1050);
   await wait(`document.querySelectorAll('#blotter-dock .dock-group').length===1&&${idle}`);await evaluate(frames);
-  await check('at 700 px the panes are tabs of one group, with the positions shown',
-    `JSON.stringify([...document.querySelectorAll('#blotter-dock [role=tab]')].map(t=>t.textContent).sort())==='["Charts","Details","Positions","Summary"]'&&!document.querySelector('#blotter-pane-grid').hidden&&${rowInView}`,
-    `[[...document.querySelectorAll('#blotter-dock [role=tab]')].map(t=>t.textContent),document.querySelector('#blotter-pane-grid').hidden]`);
+  await check('at 700 px the panes are tabs of one group, with the positions shown, and the page still does not scroll',
+    `JSON.stringify([...document.querySelectorAll('#blotter-dock [role=tab]')].map(t=>t.textContent).sort())==='["Charts","Details","Positions","Summary"]'&&!document.querySelector('#blotter-pane-grid').hidden&&${rowInView}&&${pageFits}`,
+    `[[...document.querySelectorAll('#blotter-dock [role=tab]')].map(t=>t.textContent),document.querySelector('#blotter-pane-grid').hidden,document.scrollingElement.scrollHeight,innerHeight]`);
   await size(1440,1050);
   await wait(`${drawn}===${JSON.stringify(arranged)}`,3000).catch(()=>undefined);
   await check('widening the window again restores the arrangement',`${drawn}===${JSON.stringify(arranged)}&&${rowInView}`,drawn);

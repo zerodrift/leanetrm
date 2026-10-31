@@ -29,7 +29,9 @@ export function renderSummaryStrip(host:HTMLElement,items:readonly StripItem[]){
   host.replaceChildren(...items.map(item=>{
     const entry=node('li','strip-item'),value=node('span','strip-value',item.value);entry.dataset.state=item.state;
     if(item.sign)value.dataset.sign=signs[item.sign];
-    if(item.currency){entry.dataset.currency=item.currency;value.title=publicText(`${item.value} ${item.currency}`);}
+    if(item.currency)entry.dataset.currency=item.currency;
+    // An amount's title is the backend's exact amount in its currency; the strip shows its display text.
+    if(item.exact!==undefined)value.title=publicText(`${item.exact} ${item.currency}`);
     entry.append(node('span','strip-label',item.label),space(),value,...(item.currency?[space(),node('span','strip-currency',item.currency)]:[]),...(item.reason?[space(),node('span','strip-reason',item.reason)]:[]));
     return entry;
   }));

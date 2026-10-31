@@ -495,7 +495,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     return {state:'results',label:['Risk',run?.setup?tileReports[run.setup.report]:'retained run',...(run?[shocksText(shockCount(run))]:[])].join(' · '),note:words.note,empty:words.empty,
       moves:shown.summary.largest.map(largest=>{
         const h=held[at.get(largest.positionKey)!];
-        return {currency:largest.currency,text:signedText(largest.change,holdingFormats(h).money),sign:signOf(largest.change),
+        return {currency:largest.currency,text:signedText(largest.change,holdingFormats(h).money),exact:largest.change,sign:signOf(largest.change),
           hint:`${words.lead}: ${largest.tradeReference} · ${positionRows([h])[0].market}, if ${largest.shock.label} moves ${largest.direction}`};
       })};
   }
@@ -551,12 +551,14 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // A read again keeps on screen what the read before drew, its rows and the summary strip, charts and summary line, all marked stale
   // with the reason until the new values land.
   const staleReason='Reading the Blotter again · these values are from the previous read.';
-  const deskStale=document.createElement('p');deskStale.id='desk-stale-note';deskStale.className='table-stale-note';deskStale.setAttribute('role','status');deskStale.hidden=true;get('desk').prepend(deskStale);
+  // Each pane that keeps values on screen says why itself, so the reason shows whichever panes are open.
+  const staleNote=(id:string,host:HTMLElement)=>{const note=document.createElement('p');note.id=id;note.className='table-stale-note';note.setAttribute('role','status');note.hidden=true;host.prepend(note);return note;};
+  const staleNotes=[staleNote('desk-stale-note',get('desk')),staleNote('charts-stale-note',get('blotter-pane-charts'))];
   // The grid's own mark is cleared by the grid once its new rows are in (`rows:false`).
   function markStale(reason:string|null,rows=true){
     if(rows)workspace.stale(reason);
     for(const id of ['desk','desk-charts','blotter-chart-card','futures-summary'])get(id).classList.toggle('stale',reason!==null);
-    deskStale.textContent=reason??'';deskStale.hidden=reason===null;
+    for(const note of staleNotes){note.textContent=reason??'';note.hidden=reason===null;}
   }
   // Forgets the read on screen. A new read for the same account keeps what the page draws, its rows marked stale, so the read arriving
   // changes the grid in place and the person keeps their place in it; the panel closes as it does for any new read.

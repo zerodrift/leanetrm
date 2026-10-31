@@ -39,6 +39,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     return result;
   };
   let values=texts(rows),keys=keysOf(rows,options.rowKeys);
+  // The keys of the rows last given to the grid, which its changes apply one at a time: a consumer names a row by its index in what it
+  // gave last, also while that is still being drawn.
+  let requested=keys;
   const state={query:options.initial?.query??'',columns:headers.map((_,i)=>options.initial?.columns[i]??null)};
   const toolbar=el('div');toolbar.className='table-filters';
   const search=el('input');search.type='search';search.placeholder='Filter rows…';search.className='table-search';search.value=state.query;search.maxLength=200;search.setAttribute('aria-label','Filter table rows');
@@ -91,7 +94,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   document.addEventListener('pointercancel',cancelGesture,true);
   document.addEventListener('scroll',cancelGesture,true);
   // Deferred row positioning must yield to a later focus move, including one inside the detail.
-  let focusVersion=0;const focusChanged=()=>{focusVersion++;};
+  // The control in the open detail focused last, which a render that detaches the detail gives focus back to.
+  let focusVersion=0,lastDetailFocus:HTMLElement|undefined;
+  const focusChanged=(event:FocusEvent)=>{focusVersion++;if(event.target instanceof HTMLElement&&detail?.body.contains(event.target))lastDetailFocus=event.target;};
   document.addEventListener('focusin',focusChanged,true);
   const field=(i:number)=>'c'+i;
   const ordered=(layout:GridLayout)=>[...layout.order.filter(k=>options.keys.includes(k)),...options.keys.filter(k=>!layout.order.includes(k))];
@@ -133,7 +138,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   function sizeDetail(){const holder=container.querySelector<HTMLElement>('.tabulator-tableholder');if(detail&&holder)detail.body.style.maxWidth=holder.clientWidth+'px';}
   const sourceIndex=(row:GridRow)=>Number(row.getData().__sourceIndex);
   const keyOf=(row:GridRow)=>row.getData().__key;
-  const keyAt=(index:number|null)=>index===null?null:keys[index]??null;
+  const keyAt=(index:number|null)=>index===null?null:requested[index]??null;
   function markRow(row:GridRow){
     const target=row.getElement(),key=keyOf(row),isOpen=key===opened;target.dataset.rowKey=key;
     target.classList.toggle('open-row',isOpen);if(isOpen)target.setAttribute('aria-current','true');else target.removeAttribute('aria-current');
@@ -185,10 +190,12 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   }
   let detailFocus:HTMLElement|undefined;
   table.on('renderStarted',()=>{detailFocus=focusedDetail()??detailFocus;});
-  table.on('renderComplete',()=>{const held=detailFocus;detailFocus=undefined;restoreDetailFocus(held);});
+  // Focus the person moved within the detail while the rows rendered, as an arrow key along its tabs does, is the focus restored.
+  table.on('renderComplete',()=>{const held=lastDetailFocus&&detail?.body.contains(lastDetailFocus)?lastDetailFocus:detailFocus;detailFocus=undefined;restoreDetailFocus(held);});
   // Focusing a prompt or a field can scroll the virtual viewport too. Capture
   // its focus before Tabulator handles that scroll and rebuilds the visible rows.
-  const keepDetailFocusOnScroll=()=>{const held=focusedDetail();if(held)requestAnimationFrame(()=>{if(alive)restoreDetailFocus(held);});};
+  // Focus the person moves meanwhile, as a tab key does, stands: an older control is never focused again over it.
+  const keepDetailFocusOnScroll=()=>{const held=focusedDetail(),at=focusVersion;if(held)requestAnimationFrame(()=>{if(alive&&focusVersion===at)restoreDetailFocus(held);});};
   container.addEventListener('scroll',keepDetailFocusOnScroll,true);
 
   // The person's place: every change of the rows, their grouping, sorting, filters or columns, and of the grid's width, keeps the first row
@@ -233,7 +240,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     // The virtual renderer estimates the heights of rows it has not drawn, so the row is measured where it lands and moved again until it holds.
     for(let tries=0;tries<4&&version===placing&&alive;tries++){
       // A short viewport's rows are drawn again on the frame after a scroll: the anchor is measured once it is drawn.
-      let delta=away();if(delta===undefined){await frame();delta=away();}
+      let delta=away();if(delta===undefined){await frame();if(version!==placing||!alive)return;delta=away();}
       if(delta===undefined)return;
       if(Math.abs(delta)<1)break;
       const focused=focusedDetail(),moved=focusVersion;view.scrollTop+=delta;await frame();if(focusVersion===moved)restoreDetailFocus(focused);
@@ -300,14 +307,18 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   }
   // Virtual redraws can replace a row element between the two clicks. The
   // row key identifies the same position within this grid.
-  let doubleCandidate:string|undefined;
+  let doubleCandidate:string|undefined,doubled:string|undefined;
   const keyAtElement=(element:HTMLElement)=>{const row=table.getRows().find(row=>row.getElement()===element);return row?keyOf(row):undefined;};
   // A second native mousedown selects a word before dblclick. Keep text
   // selection available for drags and existing selections; suppress only that
   // automatic selection for a second click on the same eligible row.
   const secondMouseDown=(event:MouseEvent)=>{
     const row=(event.target as Element).closest<HTMLElement>('.tabulator-row');
-    if(options.onRowDoubleOpen&&event.detail===2&&row&&doubleCandidate!==undefined&&keyAtElement(row)===doubleCandidate&&safeRowGesture(event,row))event.preventDefault();
+    if(!options.onRowDoubleOpen||event.detail!==2||!row||doubleCandidate===undefined||keyAtElement(row)!==doubleCandidate||!safeRowGesture(event,row))return;
+    // The second press opens the separate view: the first opened the row, which the grid can draw again before the press is released,
+    // and a release on a row drawn again is no click, so no double click would follow.
+    event.preventDefault();
+    const index=keys.indexOf(doubleCandidate);doubled=doubleCandidate;doubleCandidate=undefined;if(index>=0)options.onRowDoubleOpen(index);
   };
   container.addEventListener('mousedown',secondMouseDown,true);
   table.on('rowClick',(event:MouseEvent,row:GridRow)=>{
@@ -320,7 +331,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Handle the eligible double click before the grid's cell handler, which
   // otherwise selects the whole cell even when mousedown was prevented.
   const doubleClick=(event:MouseEvent)=>{
-    const target=(event.target as Element).closest<HTMLElement>('.tabulator-row'),candidate=doubleCandidate;doubleCandidate=undefined;
+    const target=(event.target as Element).closest<HTMLElement>('.tabulator-row'),candidate=doubleCandidate,opened=doubled;doubleCandidate=doubled=undefined;
+    // The double click whose second press opened the view selects nothing and reaches no other handler.
+    if(opened!==undefined&&target&&keyAtElement(target)===opened){event.preventDefault();event.stopPropagation();return;}
     if(!options.onRowDoubleOpen||!target||candidate===undefined||!safeRowGesture(event,target))return;
     if(keyAtElement(target)!==candidate)return;
     const index=keys.indexOf(candidate);if(index<0)return;
@@ -413,12 +426,12 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     },
     /** Replaces every row with these, by key, keeping the person's place. */
     replaceRows(next:Cells,displayRows:string[][]|undefined,rowKeys:readonly string[]){
-      const nextKeys=keysOf(next,rowKeys);
+      const nextKeys=keysOf(next,rowKeys);requested=nextKeys;
       return change(async()=>{values=texts(next);keys=nextKeys;options={...options,displayRows};drawFilters();report();await replaceAll();});
     },
     /** Adds these rows after the others; the rows on screen stay where they are. A grouped grid's rows are replaced, never appended to. */
     appendRows(more:Cells,displayRows:string[][]|undefined,rowKeys:readonly string[]){
-      const added=keysOf(more,rowKeys);
+      const added=keysOf(more,rowKeys),asked=requested=[...requested,...added];
       return change(async()=>{
         if(options.group)throw Error('Rows cannot be added to a grouped table; replace its rows.');
         if(!!options.displayRows!==!!displayRows)throw Error('Added rows must state display text exactly when the table does.');
@@ -427,7 +440,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
         values=[...values,...texts(more)];keys=nextKeys;options={...options,displayRows:displayRows&&[...options.displayRows!,...displayRows]};
         drawFilters();report();fitHeight();
         await table.addData(texts(more).map((row,at)=>({...Object.fromEntries(row.map((cell,i)=>[field(i),cell])),__sourceIndex:String(from+at),__key:added[at]})),false);
-      });
+      }).catch(error=>{if(requested===asked)requested=keys;throw error;});
     },
     /** Groups the rows under these headers, or not at all, keeping the person's place. */
     setGrouping(group:GridGroupOption|undefined){
@@ -441,7 +454,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
      * replaced back and keeps them marked stale with the reason; it never rejects.
      */
     reconfigure(next:Cells,nextOptions:GridOptions){
-      const nextKeys=keysOf(next,nextOptions.rowKeys);
+      const nextKeys=keysOf(next,nextOptions.rowKeys);requested=nextKeys;
       return change(async()=>{
         const before={values,keys,options,order,query:state.query,columns:state.columns.slice()},grouped=!!options.group;
         try{
@@ -452,7 +465,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
           lay(given);applyLayout(options.layout);fit();
           markStale(null);
         }catch(error){
-          ({values,keys,options,order}=before);state.query=before.query;state.columns=before.columns;search.value=state.query;drawFilters();report();
+          ({values,keys,options,order}=before);if(requested===nextKeys)requested=keys;state.query=before.query;state.columns=before.columns;search.value=state.query;drawFilters();report();
           await regroup(!!nextOptions.group).catch(()=>undefined);
           markStale(`These rows could not be updated: ${error instanceof Error&&error.message?error.message:'the update failed'}`);
         }
@@ -478,6 +491,15 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
         // those estimates; retain the person's horizontal place, and the first row in view where it was, also when the detail was above it.
         if(place)redraw(place);
       }
+      // The row opened is brought into view with its detail once the changes it waits for, such as a redraw for the detail's height, are
+      // drawn: a short view could otherwise leave it out of the rows drawn. A row in view is left where it is.
+      if(changed&&at!==null)void built.then(()=>queue).then(frame).then(frame).then(()=>{
+        const row=alive&&ready&&detail?.key===at?table.getRow(at)||undefined:undefined,view=holder();
+        if(!row||!view||inView(row,view))return;
+        // Scrolling draws the rows again, detaching the detail and focus in it: focus goes back where it was unless the person moved it.
+        const held=focusedDetail(),moved=focusVersion;
+        return row.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive&&focusVersion===moved)restoreDetailFocus(held);});
+      });
     },
     resizeDetail(keepVisible=false){
       sizeDetail();if(!ready||!alive)return;
@@ -489,7 +511,8 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
         // row. Tabulator 6.6.1 resets its learned buffer on resize. Retain the
         // measured extent in its configured buffer, then reset it on collapse.
         const buffer=holder&&height>holder.clientHeight?height:0;
-        if(table.options.renderVerticalBuffer!==buffer){table.options.renderVerticalBuffer=buffer;table.redraw(true);if(row)row.normalizeHeight();}
+        // The full redraw keeps the scroll offset and the first row in view (redraw), so the row with the detail stays where it is.
+        if(table.options.renderVerticalBuffer!==buffer){table.options.renderVerticalBuffer=buffer;redraw();if(row)row.normalizeHeight();}
       }
       // Returning from a tall editor can leave its source row outside the
       // virtual viewport. Restore only that still-current position, without

@@ -5,7 +5,8 @@ const panel="(document.querySelector('#position-details')??{hidden:true})",side=
 const tiles="JSON.stringify([...document.querySelectorAll('#blotter-strip .strip-item')].map(t=>{const r=t.getBoundingClientRect();return [r.left+scrollX,r.top+scrollY,r.width,r.height].map(Math.round);}))";
 const rowSelector=kind=>`#desk-positions .tabulator-row:not(.tabulator-group):has(.desk-pill-${kind})`;
 const referenceOf=kind=>`document.querySelector(${JSON.stringify(rowSelector(kind))}).querySelector('.desk-reference').textContent`;
-const panelReference="document.querySelector('#position-details-head .side-panel-reference').textContent";
+// While the panel moves to another row its details are briefly detached: a wait on the reference keeps polling until they are back.
+const panelReference="document.querySelector('#position-details-head .side-panel-reference')?.textContent";
 // A desk drawn again: its read is in, and its first position is on screen.
 const redrawn=idle=>`${idle}&&!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')`;
 // The desk's seven columns by field (Trade, Market, Position, Price, Mark, Value, Curve): whether the grid shows one, and which of them.
@@ -561,7 +562,10 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     const phoneWidth=await evaluate('document.documentElement.scrollWidth');
     await open('fut');
     await check(`at ${width} pixels position details stay inside the row and do not widen the page`,`${inlineGeometry}&&${panel}.getBoundingClientRect().width<=document.querySelector('#desk-positions .tabulator-tableholder').clientWidth+1&&document.documentElement.scrollWidth===${phoneWidth}&&document.documentElement.scrollWidth<=document.documentElement.clientWidth+1`,`({inline:${inlineGeometry},detail:${panel}.getBoundingClientRect().toJSON(),holder:document.querySelector('#desk-positions .tabulator-tableholder').clientWidth,page:[document.documentElement.scrollWidth,document.documentElement.clientWidth],before:${phoneWidth}})`);
-    await check('inline detail leaves page controls available and takes keyboard focus',`document.querySelectorAll('[inert]').length===0&&document.activeElement===${panel}`,`({width:${width},inert:[...document.querySelectorAll('[inert]')].map(n=>n.id||n.className),focus:[document.activeElement?.id,document.activeElement?.className]})`);
+    // Opening scrolls the rows to the detail, which the grid draws again and gives focus back to: focus must settle there and stay.
+    const settled=`(async()=>{for(let i=0;i<3;i++){if(document.querySelectorAll('[inert]').length!==0||document.activeElement!==${panel})return false;await new Promise(r=>requestAnimationFrame(r));}return true;})()`;
+    await waitUntil(settled,3000).catch(()=>undefined);
+    await check('inline detail leaves page controls available and takes keyboard focus',settled,`({width:${width},inert:[...document.querySelectorAll('[inert]')].map(n=>n.id||n.className),focus:[document.activeElement?.id,document.activeElement?.className]})`);
     await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&document.querySelector('#position-details-form')?.contains(document.activeElement)");
     await check('the mobile amendment stays inside the row and its form receives focus',`!document.querySelector('#position-details-form').hidden&&document.querySelector('#position-details-form').contains(document.activeElement)&&document.querySelector('#position-details-form').scrollWidth<=document.querySelector('#position-details-form').clientWidth+1&&document.querySelectorAll('[inert]').length===0`);
     await click('#side-panel-amend');await click('#position-details .position-close');await wait(`${panel}.hidden`);

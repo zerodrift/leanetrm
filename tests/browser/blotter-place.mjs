@@ -87,12 +87,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     const staleParts="['#desk-positions .standard-data-grid','#desk','#desk-charts','#futures-summary'].map(s=>document.querySelector(s)).filter(n=>n&&!n.hidden)";
     await kept('reading the Blotter again',async()=>{
       await evaluate("window.__placeHold=true;document.querySelector('#futures-refresh').click()");await wait("typeof window.__placeRelease==='function'");
-      await check('while the Blotter is read again, its rows, tiles, charts and summary stay on screen marked stale, each with the reason',
-        `(()=>{const parts=${staleParts},notes=[...document.querySelectorAll('#desk-positions .table-stale-note,#desk-stale-note')];return parts.length===4&&parts.every(n=>n.classList.contains('stale'))&&notes.length===2&&notes.every(n=>!n.hidden&&n.getClientRects().length>0&&n.textContent.includes('previous read'));})()`,
-        `({parts:${staleParts}.map(n=>[n.id||n.className,n.classList.contains('stale')]),notes:[...document.querySelectorAll('#desk-positions .table-stale-note,#desk-stale-note')].map(n=>[n.hidden,n.textContent])})`);
+      await check('while the Blotter is read again, its rows, summary strip, charts and summary stay on screen marked stale, each pane with the reason',
+        `(()=>{const parts=${staleParts},notes=[...document.querySelectorAll('#desk-positions .table-stale-note,#desk-stale-note,#charts-stale-note')];return parts.length===4&&parts.every(n=>n.classList.contains('stale'))&&notes.length===3&&notes.every(n=>!n.hidden&&n.getClientRects().length>0&&n.textContent.includes('previous read'));})()`,
+        `({parts:${staleParts}.map(n=>[n.id||n.className,n.classList.contains('stale')]),notes:[...document.querySelectorAll('#desk-positions .table-stale-note,#desk-stale-note,#charts-stale-note')].map(n=>[n.hidden,n.textContent])})`);
       await evaluate('window.__placeRelease();window.__placeRelease=undefined');
       await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
-      await check('once the new values land, nothing is marked stale',`(()=>${staleParts}.every(n=>!n.classList.contains('stale'))&&[...document.querySelectorAll('#desk-positions .table-stale-note,#desk-stale-note')].every(n=>n.hidden))()`);
+      await check('once the new values land, nothing is marked stale',`(()=>${staleParts}.every(n=>!n.classList.contains('stale'))&&[...document.querySelectorAll('#desk-positions .table-stale-note,#desk-stale-note,#charts-stale-note')].every(n=>n.hidden))()`);
     });
     await kept(`narrowing the window to 1200 px`,()=>command('Emulation.setDeviceMetricsOverride',{width:1200,height,deviceScaleFactor:1,mobile:false}));
     await kept(`widening it to ${width} px again`,()=>command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false}));

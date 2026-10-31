@@ -15,6 +15,14 @@ test('each currency of swap PV is an item of its own, never added to another',()
  assert.equal(pv[1].reason,"Excludes 1 position that can't be valued at this close");
  assert.equal(pv[0].reason,undefined);
 });
+test('each money total and largest risk move carries the backend exact amount beside its display text',()=>{
+ assert.deepEqual(labelled(items(),'Swap PV').map(i=>[i.value,i.exact]),[['+#15','15'],['+#220','220']]);
+ assert.equal(labelled(items(),'Futures execution P&L')[0].exact,'-37.5');
+ const risk=items(undefined,undefined,{state:'results',label:'Risk · custom scenario · 1 shock',moves:[{currency:'USD',text:'−#4',exact:'-4',sign:'negative',hint:'Largest move: T-1'}],empty:null,note:null}).at(-1);
+ assert.deepEqual([risk.value,risk.exact],['−#4','-4']);
+ assert.equal(labelled(items(fixture.allUnvalued),'Swap PV')[0].exact,undefined);
+ assert.equal(labelled(items(),'Positions')[0].exact,undefined);
+});
 test('swap PV and futures execution P&L are separate items, also in one currency',()=>{
  const list=items(),usd=list.filter(i=>i.currency==='USD');
  assert.deepEqual(usd.map(i=>[i.label,i.value,i.sign]),[['Swap PV','+#220','pos'],['Futures execution P&L','−#37.5','neg']]);
@@ -45,7 +53,7 @@ test('risk that has not run says Not run, with what running it does',()=>{
  assert.deepEqual(labelled(items(),'Risk'),[{label:'Risk',value:'Not run',state:'complete',reason:notRun.reason}]);
 });
 test('a run states its largest move per currency and its shock count, or why it shows none',()=>{
- const moves=[{currency:'EUR',text:'−#4',sign:'negative',hint:'Largest move: T-1 · Gas, if Gas moves up'},{currency:'USD',text:'+#9',sign:'positive',hint:'Largest move: T-2 · Power, if Power moves down'}];
+ const moves=[{currency:'EUR',text:'−#4',exact:'-4',sign:'negative',hint:'Largest move: T-1 · Gas, if Gas moves up'},{currency:'USD',text:'+#9',exact:'9',sign:'positive',hint:'Largest move: T-2 · Power, if Power moves down'}];
  const risk=items(undefined,undefined,{state:'results',label:'Risk · every held contract · 3 shocks',moves,empty:null,note:'Leaves out 2 positions this close cannot value'});
  assert.deepEqual(risk.slice(-2).map(i=>[i.label,i.value,i.currency,i.sign,i.reason]),[
   ['Risk · every held contract · 3 shocks','−#4','EUR','neg','Largest move: T-1 · Gas, if Gas moves up · Leaves out 2 positions this close cannot value'],

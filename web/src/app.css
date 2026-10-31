@@ -1606,9 +1606,10 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .custom-curve-row-open .curve-component-type{margin-bottom:3px}
 
 /* The Blotter workbench (blotter-workbench.md, Layout): beside the navigation the Blotter fills the window, which never scrolls. The
-   toolbar keeps its row; the panes share the rest and scroll within themselves, the positions grid within its own rows. A phone has the
-   navigation above the page, which scrolls, and the panes keep the dock's own height. */
-@media(min-width:761px){
+   toolbar keeps its row; the panes share the rest and scroll within themselves, the positions grid within its own rows. A narrow
+   window has the navigation above the page, and the Blotter fills what is left of it; a phone's page scrolls, and the panes keep the
+   dock's own height. */
+@media(min-width:481px){
   main:has(>#futures-page:not([hidden])){box-sizing:border-box;display:flex;flex-direction:column;height:100vh;overflow:hidden}
   main:has(>#futures-page:not([hidden]))>:not(#futures-page){flex:none}
   #futures-page:not([hidden]){display:flex;flex:1 1 0;flex-direction:column;min-height:0}
@@ -1622,6 +1623,12 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
   #futures-page .side-panel[data-placement=docked] .side-panel-frame{position:relative;top:auto;max-height:none}
   #blotter-dock.tab-dock{height:auto}
 }
+@media(min-width:481px) and (max-width:760px){
+  body:has(#futures-page:not([hidden])){display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  /* The navigation above the Blotter keeps to a band of its own, which scrolls, so the panes keep room for the positions. */
+  body:has(#futures-page:not([hidden]))>.sidebar{flex:none;max-height:min(40vh,240px);overflow-y:auto}
+  body:has(#futures-page:not([hidden]))>main{flex:1 1 0;height:auto;min-height:0}
+}
 #blotter-dock.tab-dock{min-height:0;padding:10px;background:var(--bg)}
 /* The saved views list keeps its whole label; the search beside it gives way first. */
 #blotter-workspace .table-workspace-toolbar>select{flex:none;width:auto}
@@ -1633,7 +1640,9 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 #blotter-dock .dock-panels{padding:10px 12px}
 /* The summary strip keeps the room its figures need; the positions keep room for a row under their header, however the panes are sized. */
 #blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-summary:not([hidden])){min-height:max-content}
-#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-grid:not([hidden])){min-height:190px}
+#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-grid:not([hidden])){min-height:250px}
+/* The run bar's notes scroll within it, so a run with many keeps the summary pane to a few lines. */
+#blotter-pane-summary .desk-run-notes{max-height:4.4em;overflow-y:auto}
 #blotter-dock .dock-panels:has(>#blotter-pane-grid:not([hidden])){display:flex;flex-direction:column;padding:0;overflow:hidden}
 .blotter-pane-grid:not([hidden]){display:flex;flex:1 1 0;flex-direction:column;min-height:0}
 .blotter-pane-grid>:not(#desk-positions){flex:none}

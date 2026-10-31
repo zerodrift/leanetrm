@@ -25,9 +25,12 @@ export function setupPositionExpansion(side:SidePanel,o:{unsaved:()=>boolean;bus
   if(next?.kind==='position'){
    if(mode?!await leave():!await side.show(null))return false;
    mode=next;host.hidden=false;close.disabled=o.busy();o.changed();
-   // The desk attaches the detail to its row after show resolves. Focus only
-   // once that placement is painted, and only if this opening still owns it.
-   requestAnimationFrame(()=>{if(mode===next&&host.isConnected&&!host.hidden)host.focus({preventScroll:true});});
+   // The desk attaches the detail to its row after show resolves, and a row the grid has still to draw (one it brings into view first)
+   // only some frames later. Focus once that placement is painted, and only if this opening still owns it.
+   // A later frame only takes focus that is lost, never from a control the person has moved to meanwhile.
+   const lost=()=>document.activeElement===null||document.activeElement===document.body;
+   const focusOnce=(frames:number,first:boolean)=>requestAnimationFrame(()=>{if(mode!==next||host.hidden)return;if(host.isConnected){if(first||lost())host.focus({preventScroll:true});}else if(frames>0&&(first||lost()))focusOnce(frames-1,false);});
+   focusOnce(30,true);
    return true;
   }
   if(mode&&!await leave())return false;
