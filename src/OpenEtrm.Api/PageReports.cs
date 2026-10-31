@@ -34,7 +34,7 @@ static class PageReports
         ["jobs"]=new("read_jobs",["jobs.list_v1","jobs.history_v1"],"Jobs & Infrastructure"),
         // The inspected PPA is the Blotter's trade view of it; its target opens it in the Blotter.
         ["ppa"]=new("read_trades",["trades.trade_v1","trades.ppa_book_v1"],"PPA bookings",false),
-        ["blotter_risk"]=Unsupported(),["blotter_risk_lens"]=Unsupported(),["blotter_new_trade"]=Unsupported(),["blotter_new_future"]=Unsupported(),["blotter_new_swap"]=Unsupported(),
+        ["blotter_risk"]=Unsupported(),["blotter_risk_lens"]=Unsupported(),["blotter_new_trade"]=Unsupported(),["blotter_new_future"]=Unsupported(),["blotter_new_swap"]=Unsupported(),["blotter_new_ppa"]=Unsupported(),["blotter_new_gas"]=Unsupported(),
         ["gas_setup"]=Unsupported(),["physical_gas"]=Unsupported(),["delivery_prices"]=Unsupported(),["interval_series"]=Unsupported(),
         ["interval_curves"]=Unsupported(),["users_access"]=Unsupported(),["settings_ai"]=Unsupported()
     }.ToImmutableDictionary(StringComparer.Ordinal);

@@ -1,3 +1,5 @@
+import {readGasView} from './gas-trade-view.js';
+import type {ProductTickets,TicketProduct} from './product-tickets.js';
 import {readPpaView} from './ppa-trade-view.js';
 import {openPositionWindow,type PositionWindowSelection} from './position-window-selection.js';
 import {readPositionFacts,readPositionFactsPage,requirePricedFacts,type PositionFacts} from './position-facts.js';
@@ -80,7 +82,7 @@ const numericFields=['tradeCount','lots','quantity','executionPrice','mark','exe
 // At most this many curves are shaped in one read (market/curve-shapes).
 const curvesPerShapeRead=64;
 
-export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
+export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
   // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused; and
   // takes that away again once the person acts anew.
   failed:(error:unknown)=>void;failureCleared:()=>void;notice:(message:string)=>void;
@@ -277,9 +279,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
     book:async body=>{takeHanded();const command=pending.begin('futures/book',body,undefined,'New futures trade');store();sync();await send(command);}});
   // The details below the positions: a position's curve, terms, risk and history, and the form of its amendment, a new trade or the risk
   // report. Opening a row opens it; Amend puts the amendment's form in the Terms tab, and a new trade has the whole pane, its form beneath a
-  // Future | Swap switch. Collapsing the details returns focus to the row; on a narrow page the positions are shown again instead (modeChanged).
+  // instrument-type choice. Collapsing the details returns focus to the row; on a narrow page the positions are shown again instead (modeChanged).
   const main=document.querySelector('main')!;
-  const editing=()=>editor.unsaved()||swapEditor.unsaved()||booking.unsaved()||risk.edited();
+  const editing=()=>editor.unsaved()||swapEditor.unsaved()||booking.unsaved()||options.tickets.unsaved()||risk.edited();
   const detailsPane=setupDetailsPane(get('blotter-pane-details'),{unsaved:editing,busy,step:direction=>void stepPosition(direction),
     collapsed:()=>{if(!deskPanel.closed())focusSelected();},expand:()=>{dock.reveal('details');makeRoom();fitRoom();},changed:modeChanged});
   const panel=detailsPane.shell;
@@ -287,8 +289,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
   // A request whose outcome is not known is kept with its Check status and Retry in a card on the page, above the panes, whatever the details
   // show, so that nothing leaves the person with no way to find out what became of it.
   const retained=get('futures-pending');
-  // The head of the panel's New trade mode, which asks the page for the product the person chooses and for the PPA page.
-  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),ppa:()=>asked(options.newPpa),gas:()=>asked(options.newGas),busy});
+  // A PPA or physical gas request whose outcome is not known offers its reconciliation beside the futures and swap request's card.
+  const productPending=document.createElement('section');productPending.className='card';productPending.id='product-trade-pending';get('futures-retained').append(productPending);
+  function syncProductPending(){
+    const pendingProducts=options.tickets.pending();productPending.hidden=pendingProducts.length===0;
+    productPending.replaceChildren();
+    for(const product of pendingProducts){const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=`Reconcile ${product==='ppa'?'PPA':'physical gas'} request`;button.disabled=busy();button.onclick=()=>void chooseProduct(product,true);productPending.append(button);}
+  }
+  // The head of the panel's New trade mode, which asks the page for the product the person chooses and the page mounts that product's editor.
+  const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),busy});
   // The forms belong to the panel's mode: when it moves to another, whatever they held is dropped (the person was asked first if they
   // held edits), and the page says what it now reports. A new trade is drawn as its head and what it says until its form is in the panel.
   let formsFor:PanelMode=null;
@@ -314,7 +323,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
-      const read=await(h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
+      const read=await(h.instrumentType==='physical_gas'?readGasView(api,context,h,()=>void manage('gas',h.tradeId)):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
       return stale?{...read,view:zone=>({...read.view(zone),actions:undefined})}:read;
     },
@@ -349,7 +358,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
     if(next!==null)await perform({kind:'selectPosition',key:rowKey(holdings.holdings[next])},{placed:true});
   }
   // Gives the forms the panel hosts up, without asking, and updates the panel's controls for what it then shows.
-  function resetForms(){editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();}
+  // The leave guard must read the final state after every editor has reset.
+  function resetForms(){options.tickets.detach();editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();queueMicrotask(options.unsavedChanged);}
   // Gives the panel's forms up without asking, for a page that is left on the person's word, so that no form stays held that they cannot return to.
   // A new trade has nothing but its form, so the panel it was in is closed with it.
   function dropForms(){resetForms();closeNew();options.reported();}
@@ -530,11 +540,11 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
     if(before===null){panel.reset();return;}
     await panel.show(before.kind==='new'?newTrade:before);
   }
-  // New trade (D221) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
+  // New trade (D221) opens the panel on its instrument-type choice with no product selected, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
   // What the panel held is left only when the person says so, which is asked before the page is busy.
   const newTrade:PanelMode={kind:'new',product:null};
-  const bookingControl=()=>newTradeControl({catalog,retained:!!pending.command,fallback:options.bookingUnavailableReason()});
+  const bookingControl=()=>newTradeControl({catalog,retained:!!pending.command||options.tickets.pending().length>0,fallback:options.bookingUnavailableReason()});
   async function openNewTrade(){
     if(busy()||!bookingControl().enabled)return;
     if(await panel.show(panel.current()?.kind==='new'?panel.current():newTrade))panel.reveal();
@@ -559,20 +569,29 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
     await panel.show(next);
     return swapEditor.openNew();
   }
+  async function openAdditional(product:TicketProduct,next:PanelMode){
+    resetForms();await panel.show(next);await options.tickets.open(product,panel.element('form'));return true;
+  }
+  async function manage(product:TicketProduct,trade:string){
+    if(busy()||!await panel.leave())return;
+    await act(async()=>{resetForms();await options.tickets.open(product,panel.element('form'),trade);panel.form(true);panel.reveal();});
+  }
   // A product is chosen: its form opens once what it needs has been read, in one action with the question asked first. The panel never holds a
   // product it has nothing to show for: when a product's form could not be opened it asks for a product again, with the failure said, whichever
   // product it was, and a page that is busy leaves the panel as it was.
-  async function chooseProduct(product:NewProduct){
+  async function chooseProduct(product:NewProduct,reconcile=false,inAction=false){
     const next:PanelMode={kind:'new',product};
-    if(busy()||sameMode(panel.current(),next))return;
+    if(busy()&&!inAction||sameMode(panel.current(),next))return;
+    if(!reconcile&&(pending.command||options.tickets.pending().some(p=>p!==product))){options.notice('Reconcile the retained trade request before starting another.');return;}
     if(!await panel.leave())return;
     const at=whereAmI();let ran=false,opened=false;
-    await act(async()=>{
+    const open=async()=>{
       ran=true;
-      try{opened=product==='futures'?await openFuture(next):await openSwap(next);}
+      try{opened=product==='futures'?await openFuture(next):product==='swaps'?await openSwap(next):await openAdditional(product,next);}
       catch(error){if(at!==undefined&&whereAmI()===at)await panel.show(newTrade);throw error;}
       if(opened)showForm();else if(sameMode(panel.current(),next))await panel.show(newTrade);
-    });
+    };
+    if(inAction)await open();else await act(open);
     // A page that became busy while the person was asked does nothing: the panel is as it was, and the person is told, not left to wonder.
     if(!ran)options.notice(`${newTradeProducts.find(([key])=>key===product)![1]} was not opened because the page was busy. Choose it again.`);
     // The form takes focus once the page is no longer busy, which disables every control of it.
@@ -844,7 +863,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
     if(!busy())workspace.busy(false);
     const awaitingValues=!holdings&&loading!==undefined;get('blotter-workspace').querySelectorAll<HTMLElement>('.table-menu').forEach(menu=>{menu.inert=busy()||awaitingValues&&menu.id!=='blotter-scope';});field('blotter-saved').disabled=busy()||awaitingValues;get<HTMLButtonElement>('blotter-retry').disabled=busy();
     // Rows on screen while no valued read is, kept stale from the previous one, are not offered: opening them only says why.
-    const grid=get('desk-positions').querySelector('[role=grid]');if(holdings)grid?.removeAttribute('aria-disabled');else grid?.setAttribute('aria-disabled','true');syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+    const grid=get('desk-positions').querySelector('[role=grid]');if(holdings)grid?.removeAttribute('aria-disabled');else grid?.setAttribute('aria-disabled','true');syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();options.tickets.sync();syncProductPending();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;get('blotter-strip').replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));for(const id of ['desk-chart-books','desk-chart-mix'])get(id).replaceChildren(get(id).querySelector('h3')!);}
   function cancelRead(){generation++;pricingController?.abort();pricingController=undefined;}
   function clear(){clearRead(false);}
@@ -1494,6 +1513,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
       if(plan.risk.reopen)await risk.open();
       if(plan.reloadPanel){await position.reload();await swapEditor.liveRefresh();}
     },
+    openProduct:(product:NewProduct)=>chooseProduct(product,false,true),
+    async bookedExternal(tradeId:string){
+      try{
+        await load();
+        const rows=holdings?.holdings??[],matches=rows.map((h,index)=>({h,index})).filter(x=>x.h.tradeId===tradeId);
+        if(view.mode==='trades'&&matches.length===1)await deskPanel.open(matches[0].index,'terms');
+        else options.notice('Trade saved. Select its position binding in the Blotter to inspect it.');
+      }catch(error){options.notice('The trade was saved. Refresh the Blotter to inspect its position.');options.failed(error);}
+    },
     refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
     async openTrade(tradeId:string,instrumentType:TradeShown['instrumentType'],revision:number|null){
@@ -1521,7 +1549,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
         pane:{details:dock.showing('details'),charts:dock.showing('charts')},poppedOut:options.window.kind==='popout'};
     },
     // A form of the panel with edits not yet sent, the risk report's setup among them, or a trade request or risk job whose outcome is unconfirmed.
-    unsaved:()=>!!pending.command||editing()||risk.unconfirmed(),
+    unsaved:()=>!!pending.command||options.tickets.pending().length>0||editing()||risk.unconfirmed(),
     // Whether the panel holds the form of an amendment or of a new trade, or a risk report's setup, with edits, and the question asked before it is given up: false means the person kept it. The forms
     // are dropped without a question when the page is left on the person's word, as the assistant's Go anyway is.
     editing,leave,dropForms,cancelRead,

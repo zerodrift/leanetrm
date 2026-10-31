@@ -233,7 +233,7 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
  {
   await using var q=ScheduleStore.Command(c,"SELECT security.require_supported_gas_portfolio_scope($1,$2::uuid[],$3::uuid[])",catalog,books.ToArray(),portfolios.ToArray());
   try{await q.ExecuteNonQueryAsync(ct);}catch(PostgresException e)when(e.MessageText=="gas_portfolio_scope"){
-   throw new MarketDataException("gas_portfolio_scope","This scope contains physical gas trades. Use Physical gas bookings to inspect their retained valuation; mixed-product blotter totals and portfolio risk for gas are not yet supported.");
+   throw new MarketDataException("gas_portfolio_scope","This close contains physical gas obligations outside its supported valuation and settlement conventions. Use the trading workspace for contractual gas PV and explicit portfolio-risk exclusions.");
   }
  }
  public async Task<object> Directory(NpgsqlConnection c,CancellationToken ct)=>new{trades=await PreviewDatabase.Rows(c,

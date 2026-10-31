@@ -1,3 +1,4 @@
+import {actorTransport} from './pending-command.js';
 import {setupGasDailyQuantities} from './gas-daily-quantities.js';
 import type {GasCatalog} from './physical-gas-editor.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
@@ -7,7 +8,7 @@ type SideValue={code:string;role:string;direction:string;source:string|null;stag
 type EntryTerms={cashSides:{code:string;price:string|null;tariffCode:string|null;paymentAt:string}[]};
 type Value={presentValue:string;currency:string;quantityUnit:string;sides:SideValue[];links:{source:string;target:string;formula:string;fraction:string;receipt:Quantity;delivery:Quantity;fuel:Quantity}[]};
 type Receipt={operationId:string;tradeId:string;instrumentId:string;revision:number};
-export function setupGasComposer(o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;source:()=>{snapshotId:string};historical:()=>boolean;actor:()=>string;busy:()=>boolean}){
+export function setupGasComposer(o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;source:()=>{snapshotId:string};historical:()=>boolean;actor:()=>string;busy:()=>boolean;onBooked?:(tradeId:string)=>Promise<void>}){
  const root=document.getElementById('gas-composer')!;
  root.innerHTML=`<section class="card"><h2>Compose a gas instrument</h2><p>Each physical side has its own direction, location, delivery terms and quantity. Link matching gas-day profiles with an explicit fuel rule, then add independently directed cash and fee sides.</p><p class="field-help">Fixed contractual quantities only · one to four physical sides and up to four cash sides · one native unit and currency · explicit no discounting. Transport rights, actuals and settlement require separate qualification.</p>
  <form id="gc-form"><fieldset><legend>Trade details</legend><div class="schedule-fields"><label>Book<select id="gc-book" required></select></label><label>Legal entity<select id="gc-entity" required></select></label><label>Counterparty<select id="gc-party" required></select></label><label>Valuation policy<select id="gc-policy" required><option value="">Choose policy</option><option value="no_discounting">No discounting</option></select></label></div></fieldset>
@@ -16,7 +17,7 @@ export function setupGasComposer(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  <div id="gc-pending" hidden><p>The original booking awaits confirmation. Its complete sides and links have been retained.</p><button id="gc-check" type="button">Check original booking</button><button id="gc-retry" type="button">Retry original booking</button></div><p id="gc-receipt" role="status"></p></section>
  <section class="card" id="gc-result" hidden><h3 id="gc-result-title"></h3><p id="gc-total"></p><div id="gc-values" class="table-wrap"></div><h3>Quantity links and fuel reconciliation</h3><div id="gc-links" class="table-wrap"></div><div id="gc-schedules"></div></section>
  <div id="gc-daily"></div>
- <section class="card"><h3>Composed gas bookings</h3><button id="gc-refresh" type="button" class="secondary">Refresh composed trades</button><div id="gc-directory" class="table-wrap"></div></section>
+ <section class="card" id="gc-book-directory"><h3>Composed gas bookings</h3><button id="gc-refresh" type="button" class="secondary">Refresh composed trades</button><div id="gc-directory" class="table-wrap"></div></section>
  <dialog id="gc-leave"><p>Discard unsaved gas composition changes?</p><div class="schedule-actions"><button type="button" id="gc-keep">Keep editing</button><button type="button" id="gc-discard">Discard changes</button></div></dialog>`;
  const daily=setupGasDailyQuantities({...o,context:()=>context()});
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -26,8 +27,9 @@ export function setupGasComposer(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  let catalog:GasCatalog|undefined,physical:Fields[]=[],cash:Fields[]=[],serial=0,epoch=0,dirty=false,reviewed:Record<string,unknown>|undefined;
  let pending:{body:Record<string,unknown>;uncertain:boolean}|undefined;
  const key=()=>`gas-composition-request:${o.actor()}`;
- function retain(){try{if(pending)sessionStorage.setItem(key(),JSON.stringify(pending));else sessionStorage.removeItem(key());}catch{/* Exact command remains in memory. */}}
- function restore(){try{const p=JSON.parse(sessionStorage.getItem(key())??'null');if(p?.body?.profile==='fixed_gas_composition_v1'&&typeof p.body.operationId==='string')pending={body:p.body,uncertain:true};}catch{/* Transport state grants no write authority. */}}
+ const transport=actorTransport<{body:Record<string,unknown>;uncertain:boolean}>(key,()=>sessionStorage);
+ function retain(){transport.write(pending);}
+ function restore(){const p=transport.read();if(p?.body?.profile==='fixed_gas_composition_v1'&&typeof p.body.operationId==='string')pending={body:p.body,uncertain:true};}
  const context=()=>({...o.source(),convention:'physical_gas_fixed_quantity_v4',knowledgeMode:'current'});
  function invalidate(){dirty=true;reviewed=undefined;epoch++;get('gc-result').hidden=true;sync();}
  function options(id:string,rows:{value:string;label:string}[],selected=''){get<HTMLSelectElement>(id).replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(r.label,r.value)));input(id).value=selected;}
@@ -84,7 +86,7 @@ export function setupGasComposer(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  }
  function draw(){drawPhysical();drawCash();}
  function sync(){
-  const locked=o.busy()||!!pending||o.historical()||!catalog;
+  const locked=o.busy()||!!pending||daily.pending()||o.historical()||!catalog;
   for(const node of root.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'))node.disabled=locked;
   for(const card of get('gc-physical').querySelectorAll<HTMLElement>('[data-physical]')){const p=physical[Number(card.dataset.physical)];for(const key of ['quantity','source','formula','fraction']){const node=card.querySelector<HTMLInputElement|HTMLSelectElement>(`[data-field=${key}]`)!;node.disabled=locked||(key==='quantity'?p.mode!=='independent':p.mode!=='linked');node.required=!node.disabled;}}
   for(const card of get('gc-cash').querySelectorAll<HTMLElement>('[data-cash]')){const p=cash[Number(card.dataset.cash)];const node=card.querySelector<HTMLInputElement>('[data-field=price]')!;node.disabled=locked||p.tariffCode!=='manual';node.required=!node.disabled;}
@@ -108,15 +110,15 @@ export function setupGasComposer(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  async function directory(){if(!catalog)return;const e=epoch,result=await o.api<{trades:{trade_id:string;book:string;physical_count:string}[]}>('gas/composition/directory',context());if(e!==epoch)return;const list=document.createElement('div');for(const trade of result.trades){const button=document.createElement('button');button.type='button';button.className='text-button';button.textContent=`${trade.book} · ${trade.physical_count} physical sides · ${trade.trade_id}`;button.onclick=()=>void o.act(()=>open(trade.trade_id));list.append(button);const quantities=document.createElement('button');quantities.type='button';quantities.className='secondary';quantities.textContent='Daily delivery quantities';quantities.onclick=()=>void o.act(()=>daily.open(trade.trade_id));list.append(quantities);}get('gc-directory').replaceChildren(list);}
  async function open(id:string){const e=epoch,result=await o.api<{valuation:Value;terms:EntryTerms}>('gas/composition/editor',{context:context(),tradeId:id});if(e!==epoch)return;render(result.valuation,'Booked composition · retained side schedules',result.terms);await daily.open(id);}
  function receipt(r:Receipt){if(!pending||r.operationId!==pending.body.operationId||r.revision!==1||typeof r.tradeId!=='string'||typeof r.instrumentId!=='string')throw Error('The booking response is unconfirmed. Check its original status.');pending=undefined;reviewed=undefined;dirty=false;retain();get('gc-receipt').textContent=`Booked composition ${r.tradeId}`;sync();}
- async function send(){if(!pending)return;const command=pending,actor=o.actor(),e=epoch,wasUncertain=command.uncertain;command.uncertain=true;retain();try{const r=await o.api<Receipt>('gas/composition/book',command.body);if(actor!==o.actor()||e!==epoch)return;receipt(r);await open(r.tradeId);await directory();}catch(error){if(actor===o.actor()&&e===epoch){const code=(error as {code?:string}).code;if(!wasUncertain&&code&&(code.startsWith('gas_')||['access_denied','trade_party','request_format','side_schedule_request_conflict'].includes(code))){pending=undefined;retain();}}throw error;}finally{sync();}}
+ async function send(){if(!pending)return;const command=pending,actor=o.actor(),e=epoch,wasUncertain=command.uncertain;command.uncertain=true;retain();try{const r=await o.api<Receipt>('gas/composition/book',command.body);if(actor!==o.actor()||e!==epoch)return;receipt(r);await open(r.tradeId);await directory();await o.onBooked?.(r.tradeId);}catch(error){if(actor===o.actor()&&e===epoch){const code=(error as {code?:string}).code;if(!wasUncertain&&code&&(code.startsWith('gas_')||['access_denied','trade_party','request_format','side_schedule_request_conflict'].includes(code))){pending=undefined;retain();}}throw error;}finally{sync();}}
  get('gc-form').oninput=e=>{if((e.target as HTMLElement).closest('#gc-physical,#gc-cash'))return;invalidate();};
  get<HTMLFormElement>('gc-form').onsubmit=e=>{e.preventDefault();void o.act(async()=>{invalidate();const command=body(),g=epoch,result=await o.api<Value>('gas/composition/preview',command);if(g!==epoch)return;reviewed=command;render(result,'Unbooked gas composition',command);sync();});};
  get('gc-add-physical').onclick=()=>{physical.push({code:`gas_${++serial}`});invalidate();draw();};get('gc-add-cash').onclick=()=>{cash.push({code:`cash_${++serial}`});invalidate();drawCash();};
  get('gc-book-submit').onclick=()=>void o.act(async()=>{if(!reviewed)throw Error('Preview the exact current composition first.');pending={body:structuredClone(reviewed),uncertain:false};reviewed=undefined;retain();sync();await send();});
- get('gc-retry').onclick=()=>void o.act(send);get('gc-check').onclick=()=>void o.act(async()=>{if(!pending)return;const r=await o.api<Receipt|{found:false}>('gas/composition/status',{operationId:pending.body.operationId});if('tradeId'in r){receipt(r);await open(r.tradeId);await directory();}else get('gc-receipt').textContent='No completed booking found. Retry the original request.';});get('gc-refresh').onclick=()=>void o.act(directory);
+ get('gc-retry').onclick=()=>void o.act(send);get('gc-check').onclick=()=>void o.act(async()=>{if(!pending)return;const r=await o.api<Receipt|{found:false}>('gas/composition/status',{operationId:pending.body.operationId});if('tradeId'in r){receipt(r);await open(r.tradeId);await directory();await o.onBooked?.(r.tradeId);}else get('gc-receipt').textContent='No completed booking found. Retry the original request.';});get('gc-refresh').onclick=()=>void o.act(directory);
  let leaving:((go:boolean)=>void)|undefined;const prompt=get<HTMLDialogElement>('gc-leave');
  function finish(go:boolean){if(go){dirty=false;daily.discard();}prompt.close();const resolve=leaving;leaving=undefined;resolve?.(go);}
  get('gc-keep').onclick=()=>finish(false);get('gc-discard').onclick=()=>finish(true);prompt.oncancel=e=>{e.preventDefault();finish(false);};
  function leave():Promise<boolean>{if((!dirty&&!daily.unsaved())||pending)return Promise.resolve(true);if(leaving)return Promise.resolve(false);prompt.showModal();return new Promise(resolve=>{leaving=resolve;});}
- return{reset,setCatalog,sync,leave,unsaved:()=>dirty||!!pending||daily.unsaved()};
+ return{reset,setCatalog,sync,leave,quantities:(tradeId:string)=>daily.open(tradeId),pending:()=>!!pending||daily.pending(),unsaved:()=>dirty||!!pending||daily.unsaved()};
 }

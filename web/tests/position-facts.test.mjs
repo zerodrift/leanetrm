@@ -43,3 +43,7 @@ test('a historical complete response retains the exact fact context and as-of in
   assert.throws(()=>requirePricedFacts(facts,{...priced,asOf:'2031-11-02T00:00:00Z'},false),/inconsistent page/);
 });
 
+test('physical gas shares mixed fact pages',()=>{
+ const gas={...fact('gas-instrument'),tradeId:'gas-trade',instrumentType:'physical_gas',bookedQuantity:null,bookedUnit:null};
+ assert.deepEqual(readPositionFacts(page([fact('ppa-binding'),gas],2,null),2).positions,[fact('ppa-binding'),gas]);
+});

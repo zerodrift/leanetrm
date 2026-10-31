@@ -160,7 +160,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(group_of('--risk-jobs-check'), 'assistant')
         self.assertEqual(group_of('--hosted-check'), 'workspace')
         for flag in ('--draft-check', '--factor-swap-check', '--index-fixing-check',
-                     '--side-observation-check', '--demo-instruments-check', '--close-out-drafts-check'):
+                     '--side-observation-check', '--demo-instruments-check', '--close-out-drafts-check', '--unified-trading-check'):
             self.assertEqual(group_of(flag), 'trading', flag)
         for flag in ('--swap-risk-holdings-check', '--pilot-close-check', '--connected-portfolio-check',
                      '--valuation-status-check', '--desk-fields-check'):

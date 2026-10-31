@@ -92,11 +92,14 @@ def run_checks(url):
     c.call('gas/editor',{'context':before_booking,'tradeId':booked['tradeId']},expected=422)
     listed=c.call('gas/directory',context)['trades']
     assert any(t['trade_id']==booked['tradeId'] for t in listed)
-    c.call('trading/blotter',{'context':{**context,'convention':'trading_workspace_v1'},'view':{'mode':'trades','bookIds':[body['bookId']],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}},expected=422)
-    scope={'context':{**context,'convention':'trading_workspace_v1'},'view':{'mode':'trades','bookIds':[body['bookId']],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}}
-    for route in ('trading/workspace','trading/workspace/stream'):
-        refused=c.call(route,scope,expected=422)
-        assert refused['code']=='gas_portfolio_scope', (route,refused)
+    shared={**context,'convention':'trading_workspace_v1'}
+    view={'mode':'trades','bookIds':[body['bookId']],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}
+    mixed=c.call('trading/blotter',{'context':shared,'view':view})
+    gas=next(h for h in mixed['holdings'] if h['tradeId']==booked['tradeId'])
+    assert gas['instrumentType']=='physical_gas' and Decimal(gas['presentValue'])==100
+    assert gas['bindingId']==booked['instrumentId']
+    workspace=c.call('trading/workspace',{'context':shared,'view':view,'bookingCatalog':'directory','summaries':[]})
+    assert any(h['tradeId']==booked['tradeId'] for h in workspace['blotter']['holdings'])
     c.call('profile',{'profile':'risk'})
     c.call('gas/book',{**body,'operationId':str(uuid4())},expected=403)
     assert c.call('gas/status',{'operationId':body['operationId']})=={'found':False}

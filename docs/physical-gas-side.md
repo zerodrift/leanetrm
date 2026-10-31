@@ -22,11 +22,11 @@ admits no fuel adjustment. The independent-side profile below admits explicit
 fixed-quantity fuel links. Floating cash, operational fuel treatment and broader
 captured clocks remain separately bounded capabilities.
 
-Operational actuals, physical settlement, inventory and mixed-product portfolio
-risk remain unsupported. Shared blotter, position-fact and portfolio entry points
-refuse a scope containing gas with `gas_portfolio_scope`; they cannot silently
-omit those trades or report a complete mixed-book total. The dedicated gas
-booking directory and individual retained valuation remain available.
+Physical settlement, inventory and gas scenario risk remain unsupported. The common Blotter includes both gas profiles through the native retained-schedule pricer, with a distinct contractual PV measure. One immutable gas instrument is one position binding; physical-side quantities are never summed into a receipt-plus-delivery total. Missing gas market context or started delivery produces an explicit unavailable valuation, while retained terms and daily operational quantities remain readable.
+
+New trade offers Future, Swap, PPA and Physical gas in the same panel. Each form uses its existing preview, booking, status and idempotent recovery operations. A confirmed booking refreshes the common Blotter and opens its exact position when uniquely identified. Gas daily quantities open from that position. PPA lifecycle operations remain native and open in the same panel. Unknown booking outcomes block replacement requests and retain the actor-owned command across editor remounts, including when supplementary browser storage fails.
+
+Mixed interactive and queued risk reports retain the exact gas bindings as `physical_gas_risk_unavailable` exclusions while repricing supported financial/PPA holdings. A gas-only scope cannot return a successful zero risk result. Migration 0150 supplies the minimal temporal gas position inventory to leased risk workers without granting raw gas table access. Automated closes containing gas remain explicitly unsupported. Operational quantity revisions do not change contractual PV or create extra positions.
 
 ## Independent sides and fixed quantity links
 
@@ -427,8 +427,8 @@ verification passed 651 managed core checks, 925 web checks and 44 physical gas
 browser checks. The populated prior-schema upgrade check applies migrations
 0142–0146 and proves existing reference, market, book and party rows remain
 unchanged. That check does not establish replay of an existing financial trade
-or its program history across this upgrade. Gas-bearing ordinary and streamed
-workspace scopes refuse before returning incomplete totals or starting a stream.
+or its program history across this upgrade. The shared-workflow increment below
+supersedes the earlier gas-bearing workspace refusal.
 
 Reference catalog qualification includes 208 exact-version projection and label
 checks. Path tables retain their composite primary-key ordering; gas product
@@ -457,3 +457,29 @@ configured separately. Older independent gas revisions must retain their dated s
 `retainedGasMarkets`. Booked reads select that source by the authorized instrument
 header, including its exact reference revision. Missing or ambiguous retained
 sources refuse explicitly; changing configuration does not rebook a trade.
+
+
+## Shared trading workflow qualification
+
+The common workflow passed 932 web checks, managed API checks and disposable
+PostgreSQL integration checks. The mixed fixture covers futures, financial swaps,
+heat-rate swaps, PPAs and both gas booking profiles. Ordinary, streamed and exact
+individual reads preserve retained position identity and native value measures.
+A real leased worker reproduces mixed financial risk and exact gas exclusions;
+a retained manifest missing those exclusions fails instead of repairing itself.
+
+Browser qualification passed 18 shared-workflow checks at a 1440 px desktop,
+45 gas booking/quantity/setup checks and 39 PPA booking/lifecycle/inspection
+checks, including 390 px PPA layout. A lost accepted gas response with browser
+storage unavailable survives editor detach/reopen and status reconciliation
+without another booking. Closing a ticket clears its browser page-leave warning.
+Nominations remain operational revisions of the same
+trade, with contractual quantities unchanged. Exact PPA market frame selection
+remains explicit when the desk instant cannot uniquely identify one bundle;
+cancelled loads cannot reopen an old trade after an editor reset.
+
+Run `tools/run_preview.py` with
+`--unified-trading-check --browser-check`, `--gas-composition-check --browser-check`
+and `--ppa-bookings-check --browser-check`, supplying the local PostgreSQL,
+managed SDK and browser paths required by the preview tool. These checks do not
+qualify gas scenario risk, operational PV or physical settlement.

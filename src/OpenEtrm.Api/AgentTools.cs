@@ -147,7 +147,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
              "measures":{"type":["array","null"],"items":{"type":"string","enum":["tradeCount","lots","quantity","executionPnl","presentValue"]},"uniqueItems":true,
               "description":"Blotter: empty for trade rows, at least one measure for totals; lots need the contract dimension. Null for a trade."},
              "tradeId":{"type":["string","null"],"pattern":"{{{Uuid}}}","description":"Trade: the trade to read. Null for the blotter."},
-             "instrumentType":{"type":["string","null"],"enum":["future","financial_swap","heat_rate","ppa",null],"description":"Trade: its instrument type. Null for the blotter."},
+             "instrumentType":{"type":["string","null"],"enum":["future","financial_swap","heat_rate","ppa","physical_gas",null],"description":"Trade: its instrument type. Null for the blotter."},
              "revision":{"type":["integer","null"],"minimum":1,
               "description":"Trade: a revision, or null for its latest under the pinned knowledge. Null for the blotter."}},
              "required":["view","mode","bookIds","portfolioIds","groupBy","measures","tradeId","instrumentType","revision"],"additionalProperties":false}
@@ -265,7 +265,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 if(view=="trade")
                 {
                     members.Null("mode","bookIds","portfolioIds","groupBy","measures");
-                    return new(Operations["trades.trade_v1"],new TradeArguments(members.Id("tradeId"),members.Choice("instrumentType","future","financial_swap","heat_rate","ppa"),
+                    return new(Operations["trades.trade_v1"],new TradeArguments(members.Id("tradeId"),members.Choice("instrumentType","future","financial_swap","heat_rate","ppa","physical_gas"),
                         members.Revision("revision")));
                 }
                 members.Null("tradeId","instrumentType","revision");
@@ -575,6 +575,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     async Task<ToolResult> Trade(NpgsqlConnection connection,TradingView view,TradeArguments trade,CancellationToken ct)
     {
         var editor=trade.InstrumentType=="future"?await trades.FuturesTrade(connection,view,trade.TradeId,trade.Revision,ct)
+            :trade.InstrumentType=="physical_gas"?await trades.GasTrade(connection,view,trade.TradeId,trade.Revision,ct)
             :trade.InstrumentType=="ppa"?await trades.PpaTrade(connection,view,trade.TradeId,trade.Revision,ct)
             :await trades.SwapTrade(connection,view,trade.TradeId,trade.Revision,ct);
         var formats=(await DealAmountFormats.All(connection,database.Manifest.CatalogId,ct)).GetValueOrDefault(trade.TradeId);

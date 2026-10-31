@@ -12,9 +12,9 @@ import {readPages,type Step,type Ending,type Usage,type TargetContext} from './a
 export type BlotterLayoutShown={pane:{details:boolean;charts:boolean};poppedOut:boolean};
 export type PageReport={page:string;selection:Record<string,unknown>;layout?:BlotterLayoutShown};
 export type BlotterSelection={mode:'trades'|'pivot';bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[]};
-export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa';revision:number;reference:string};
+export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas';revision:number;reference:string};
 /** A new trade being entered in the Blotter's panel: of its product, or of none until the person chooses one. */
-export type EntryShown={product:'futures'|'swaps'|null};
+export type EntryShown={product:'futures'|'swaps'|'ppa'|'gas'|null};
 /** What PPA bookings shows: the inspected trade's revision, else the book whose PPA trades it lists, else neither. */
 export type PpaShown={trade:{tradeId:string;revision:number}|null;book:string|null};
 // What a web page shows, as the page's own state names it.
@@ -37,7 +37,7 @@ const unopened:readonly string[]=['ppa'];
 const noBlotter={mode:null,portfolioIds:null,groupBy:null,measures:null};
 
 // The page a trade being entered is reported as: one id per product, and one while none is chosen. The assistant reads none of them.
-const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap'} as const;
+const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap',ppa:'blotter_new_ppa',gas:'blotter_new_gas'} as const;
 // The report an ask sends: a read page's selection is its read tool's input for the view the page shows; any other
 // page's is empty. Blotter trade rows name no grouping, which the Blotter keeps for when its totals are shown again. What the
 // Blotter's panel holds comes first, its risk report, a new trade or a position; then its trade rows under the Risk lens, whose
@@ -83,7 +83,7 @@ export function askKnowledge(context:PageContext){
 }
 
 const pageNames:Record<string,string>={curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
-  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',delivery_prices:'Delivery prices',
+  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',blotter_new_ppa:'Blotter',blotter_new_gas:'Blotter',delivery_prices:'Delivery prices',
   custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs & Infrastructure',users_access:'Users & access',
   settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',ppa:'PPA bookings'};
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
@@ -116,6 +116,8 @@ function shows(report:PageReport,names:Names,trade?:string){
     case 'blotter_new_trade':return `A new trade is being started: no product is chosen yet. ${unsent}`;
     case 'blotter_new_future':return `A new future is being entered. ${unsent}`;
     case 'blotter_new_swap':return `A new swap is being entered. ${unsent}`;
+    case 'blotter_new_ppa':return `A new PPA is being entered. ${unsent}`;
+    case 'blotter_new_gas':return `A new physical gas trade is being entered. ${unsent}`;
     default:return 'The assistant does not read this page.';
   }
 }

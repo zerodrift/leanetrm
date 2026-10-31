@@ -2,6 +2,7 @@
 // the main window hands over and the market selection its header makes, and reads every value itself through the API under the session
 // both windows share: it verifies on each read that the account and workspace are still the ones the main window named, and stops showing
 // values, saying why, when they are not, or when the main window signs out, changes account or closes. As it closes it hands its view back.
+import type {ProductTickets} from './product-tickets.js';
 import {apiRefusal} from './api-refusal.js';
 import {prepareAmountDisplay,shownAmounts} from './amount-display.js';
 import {openBlotterChannel,type EndReason} from './blotter-channel.js';
@@ -105,12 +106,15 @@ async function readNavigation(context:BlotterContext){
 // The selection and the navigation read for it are applied together, once both are known to agree.
 function apply(context:BlotterContext,next:MarketNavigation){applied=context;navigation=next;setCurveNames(next.curveNames);}
 
+// PPA and physical gas trades are entered and inspected in the main window, whose editors this window does not host.
+const mainWindowTickets:ProductTickets={async open(product){throw Error(`${product==='ppa'?'PPA':'Physical gas'} trades are entered and inspected in the main window.`);},
+  detach:()=>undefined,active:()=>undefined,unsaved:()=>false,pending:()=>[],sync:()=>undefined};
 const futures=setupFutures({window:{kind:'popout',close:()=>bringBack(),example:tied?.example},api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>scope,knowledge,
   narrow:()=>main.clientWidth<dockedGroupsFrom,canRunRisk:()=>can('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty:false,view:knowledge(),canBook:can('BookTrade')}),
   onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),failed,failureCleared:()=>{$('error').hidden=true;},notice,
   definitionRevision:()=>{if(!navigation)throw Error('The market navigation is still loading.');return navigation.definitionRevision.revisionId;},
-  // This window has no navigation of saved views, Curves & prices, PPA or physical gas bookings: those are the main window's.
-  onViews:()=>undefined,curveListed:()=>false,openCurve:async()=>{throw Error('Curves & prices opens in the main window.');},newPpa:async()=>{throw Error('PPA bookings open in the main window.');},newGas:async()=>{throw Error('Physical gas bookings open in the main window.');},
+  // This window has no navigation of saved views, Curves & prices, or PPA and physical gas editors: those are the main window's.
+  onViews:()=>undefined,curveListed:()=>false,openCurve:async()=>{throw Error('Curves & prices opens in the main window.');},tickets:mainWindowTickets,
   source:()=>{
     if(!applied||!navigation)throw Error('The main window has not handed over the Blotter yet.');
     return {snapshotId:applied.snapshotId,convention:navigation.futuresConvention,...(applied.contextId===null?{}:{context:{contextId:applied.contextId}})};

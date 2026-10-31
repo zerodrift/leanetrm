@@ -1,5 +1,5 @@
 import {sideSession} from './side-session.mjs';
-import {newTrade,openPpaBookings} from './new-trade.mjs';
+import {newTrade,openPpaBookings,closeNewTrade} from './new-trade.mjs';
 import {qualifyProvider,pricedModel} from './model-fixture.mjs';
 import {chooseFutures} from './futures-selection.mjs';
 
@@ -309,22 +309,25 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('Read current page on it is refused page_not_supported, which its step line says in plain words',
     `[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
     +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'delivery_prices',selection:{}})`);
-  // PPA bookings is read once it lists a book (D250): before that Looking at says so and nothing is asked; then Read current
-  // page reads the listed book's PPA trades.
+  // Entry stays in the Blotter; the assistant never reads unsaved PPA terms.
   await openPpaBookings({click,wait,evaluate});
-  await wait(`${q('#ppa-book-filter')}.options.length>1&&${idle}`);
   await set('#assistant-question','Which PPAs are in this book?');
-  await check('Looking at on PPA bookings before a book is listed says to load one, and nothing is asked',
-    `${looking}[0]==='PPA bookings'&&${looking}[1].startsWith('No PPA trades are listed yet')&&${q('#assistant-send')}.disabled`,looking);
-  await set('#ppa-book-filter',await evaluate(`[...${q('#ppa-book-filter')}.options].find(o=>o.value).value`));
-  await click('#ppa-list');await wait(`${q('#ppa-directory-note')}.textContent.includes('PPA trades in the complete selected book scope')&&${idle}`);
-  await script({tools:[['toolu_ppa_panel_01','read_current_page',{}]]},{text:'This book holds no PPA trades.'});
+  await check('Looking at recognizes PPA entry while keeping its unsaved terms unreadable',
+    `${looking}[0]==='Blotter'&&${looking}[1]==='A new PPA is being entered. The assistant does not read a trade being entered.'`,looking);
+  await script({tools:[['toolu_ppa_panel_unsent','read_current_page',{}]]},{text:'I do not read unsaved trade entry.'});
   await ask('Which PPAs are in this book?');await wait(finished);
-  const listedBook=await evaluate(`${q('#ppa-book-filter')}.value`);
-  await check('once a book is listed Looking at says so, and the ask reports that book, which Read current page reads',
-    `${looking}[1].startsWith('PPA trades of the selected book.')&&${q('#assistant-error')}.hidden`
+  await check('reading unsaved PPA entry is refused without including any draft terms',
+    `[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
+    +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'blotter_new_ppa',selection:{}})`);
+  await closeNewTrade({click,evaluate,wait});
+  await script({tools:[['toolu_ppa_panel_01','read_current_page',{}]]},{text:'These are the trades in the Blotter.'});
+  await ask('Which trades are in this view?');await wait(finished);
+  await check('closing entry returns assistant reads to the common Blotter',
+    `${looking}[0]==='Blotter'&&${looking}[1].startsWith('Trade rows')&&${q('#assistant-error')}.hidden`
     +`&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page'`
-    +`&&JSON.stringify(${asks}.at(-1).body.pageReport.selection.bookIds)===${JSON.stringify(JSON.stringify([listedBook]))}`,`[${looking},${q('#assistant-error')}.textContent]`);
+    +`&&${asks}.at(-1).body.pageReport.page==='blotter'&&${asks}.at(-1).body.pageReport.selection.view==='blotter'`,looking);
+
+  await check('closing PPA entry releases its browser page-leave warning',`(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return !event.defaultPrevented;})()`);
 
   // Send becomes Stop during a turn (§10.1).
   await script({hold:'stop',text:'Partial answer. ',tools:[['toolu_panel_07','read_current_page',{}]]});
@@ -460,6 +463,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('Back from it restores the As of date and what the page showed',`${q('#assistant-looking-shows')}.textContent==='Curve directory'&&${q('#error')}.hidden`);
 
   // Another agent starts a new conversation, and the picker preselects the last explicit choice only while it is listed (§10.1).
+  const guideTurns=await evaluate(turns);
   await set('#assistant-agent',secondChoice);
   await check('choosing another agent starts a new conversation',`document.querySelectorAll('#assistant-turns > li').length===0&&${shown('#assistant-empty')}`);
   await reload(`${shown('#assistant-panel')}&&${q('#assistant-agent')}.value!==''`);
@@ -474,7 +478,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#assistant-history-open');await wait(`document.querySelectorAll('#assistant-history-list button').length>0`);
   // Every question of this run went to one conversation with the guide.
   await evaluate(`[...document.querySelectorAll('#assistant-history-list button')].find(b=>b.textContent.includes(${JSON.stringify(guide)})).click()`);
-  await wait(`document.querySelectorAll('#assistant-turns > li').length===21&&!!${latest}.querySelector('.assistant-usage')`);
+  await wait(`document.querySelectorAll('#assistant-turns > li').length===${guideTurns}&&!!${latest}.querySelector('.assistant-usage')`);
   await check('at 390 px the panel covers the width as a sheet that fits it, showing the conversation without identifiers',
     `${q('#assistant-panel')}.getBoundingClientRect().width===document.documentElement.clientWidth&&${fitsWidth}`
     +`&&!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(${q('#assistant-panel')}.innerText)&&${q('#assistant-agent')}.value===${JSON.stringify(guideChoice)}`,

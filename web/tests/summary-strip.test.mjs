@@ -83,7 +83,7 @@ test('a strip kept on screen while the Blotter is read again keeps every last va
 test('before any values, the strip lists every money total the Blotter can show, waiting, never a figure',()=>{
  for(const state of ['pending','unavailable']){
   const strip=waitingStripItems({state,reason:'Retry to value again'},15,money);
-  assert.deepEqual(strip.filter(i=>i.state===state&&i.label!=='Not valued').map(i=>i.label),['Swap PV','Futures execution P&L','Heat-rate PV','PPA value excluding overdue cash']);
+  assert.deepEqual(strip.filter(i=>i.state===state&&i.label!=='Not valued').map(i=>i.label),['Swap PV','Futures execution P&L','Heat-rate PV','PPA value excluding overdue cash','Gas contractual PV']);
   assert.ok(strip.filter(i=>i.state===state).every(i=>i.value===(state==='pending'?'Pending':'Unavailable')&&i.exact===undefined));
   assert.equal(strip.find(i=>i.label==='Positions').value,'15');
  }

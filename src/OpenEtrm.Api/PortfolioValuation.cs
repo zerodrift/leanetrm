@@ -197,7 +197,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     {
         ValidatePolicy(policy);ct.ThrowIfCancellationRequested();
         operation?.Require(data,frame,snapshot,context,bookIds);
-        if(excluded.IsDefault||excluded.Any(e=>e is null||e.InstrumentType is not(FutureType or SwapType or HeatRateType)||!ValuationStatus.PositionSpecific(e.Reason)))
+        if(excluded.IsDefault||excluded.Any(e=>e is null||(e.InstrumentType==GasPositions.Type?e.Reason!=GasPositions.RiskUnavailable:e.InstrumentType is not(FutureType or SwapType or HeatRateType)||!ValuationStatus.PositionSpecific(e.Reason))))
             throw new MarketDataException("risk_contract","A risk run leaves out only held positions, each with a position-specific valuation reason.");
         var exact=PinnedContext.Exact(context);
         await new KnowledgeStore(database.Manifest.CatalogId).Retained(connection,exact,ct);
@@ -205,7 +205,12 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             snapshot.Definitions!=data.DefinitionRevision||frame.ContextId!=exact.ContextId||frame.Id!=snapshot.Id||frame.At!=snapshot.ValuationAt||
             DateOnly.FromDateTime(snapshot.ValuationAt.UtcDateTime)!=PublishedSchedules.ContextDate(exact))
             throw new MarketDataException("portfolio_context","Select explicit books and exact market frames under one certified effective context.");
-        await PhysicalGasStore.RequirePortfolioScope(connection,database.Manifest.CatalogId,bookIds,[],ct);
+        if(closePolicy is not null)await PhysicalGasStore.RequirePortfolioScope(connection,database.Manifest.CatalogId,bookIds,[],ct);
+        var gasExclusions=await GasPositions.RiskExclusions(connection,database.Manifest.CatalogId,bookIds,ct);
+        var retainedGas=excluded.Where(e=>e.InstrumentType==GasPositions.Type).ToImmutableArray();
+        if((retainedGraphs is not null||!retainedGas.IsEmpty)&&(retainedGas.Length!=gasExclusions.Length||!retainedGas.ToHashSet().SetEquals(gasExclusions)))
+            throw new MarketDataException("risk_contract","Retained gas risk exclusions must identify every exact visible gas position in scope.");
+        excluded=[..excluded.Where(e=>e.InstrumentType!=GasPositions.Type),..gasExclusions];
         var known=SchedulePreview.ParseAt(exact.KnownAt);
         snapshot=MarketSnapshotBinding.Bind(snapshot,exact.ContextId!.Value,known);
         if(!MarketSnapshotBinding.Bind(data.Snapshot(frame),exact.ContextId.Value,known).HasSameInputs(snapshot))
