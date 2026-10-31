@@ -3,7 +3,7 @@
 import {idle} from './owned-browser.mjs';
 
 // The form each product opens, and the head the panel then shows.
-const forms={futures:{form:'#futures-new-trade',head:'New future'},swaps:{form:'#swap-editing',head:'New swap'}};
+const forms={futures:{form:'#futures-new-trade',head:'New future'},swaps:{form:'#swap-editing',head:'New swap'},ppa:{form:'#ppa-page',head:'New PPA'},gas:{form:'#gas-page',head:'New physical gas trade'}};
 
 /** Presses New trade and waits for the panel to offer its switch. */
 export async function startNewTrade({click,wait}){
@@ -15,13 +15,15 @@ export async function startNewTrade({click,wait}){
 export async function openPpaBookings({click,wait,evaluate}){
   try{
     await click('#nav-futures');
-    await wait("document.querySelector('#page-title').textContent==='Blotter'&&!document.querySelector('#futures-new').disabled&&"+idle);
+    await wait("document.querySelector('#page-title').textContent==='Blotter'&&"+idle);
   }catch(error){
     const observed=await evaluate("({pricing:document.querySelector('#futures-page').dataset.pricingState,error:document.querySelector('#error').textContent,summary:document.querySelector('#futures-summary').textContent,booking:document.querySelector('#new-trade-availability').textContent})");
     throw Error(error.message+' · observed '+JSON.stringify(observed),{cause:error});
   }
-  await startNewTrade({click,wait});await click('#new-trade-ppa');
-  await wait("document.querySelector('#page-title').textContent==='PPA bookings'&&"+idle);
+  if(await evaluate("[...document.querySelectorAll('#product-trade-pending button')].some(b=>b.textContent==='Reconcile PPA request')")){
+    await evaluate("[...document.querySelectorAll('#product-trade-pending button')].find(b=>b.textContent==='Reconcile PPA request').click()");await wait(idle);
+  }else{await startNewTrade({click,wait});await click('#new-trade-ppa');}
+  await wait("document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#side-panel-form').contains(document.querySelector('#ppa-page'))&&"+idle);
 }
 
 /** Chooses a product in the open panel and waits for its form to be in the panel's form part. */

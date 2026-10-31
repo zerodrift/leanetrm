@@ -33,7 +33,6 @@ internal sealed class TradePositionFacts(PreviewManifest manifest)
         ImmutableArray<Guid> portfolioIds,int offset,int limit,CancellationToken ct)
     {
         RequirePage(offset,limit);
-        await PhysicalGasStore.RequirePortfolioScope(connection,manifest.CatalogId,bookIds,portfolioIds,ct);
         var books=await new FuturesStore(manifest).Books(connection,ct);FuturesStore.ValidateScope(books,bookIds,portfolioIds);
         var selected=books.Where(b=>(bookIds.IsEmpty||bookIds.Contains(b.Id("id")))&&
             (portfolioIds.IsEmpty||portfolioIds.Contains(b.Id("portfolio_id")))).ToImmutableDictionary(b=>b.Id("id"),b=>b.Text("name"));
@@ -117,6 +116,8 @@ internal sealed class TradePositionFacts(PreviewManifest manifest)
             Add(row,"ppa",null,Utc(binding,"coverage_from"),Utc(binding,"coverage_to"),RequiredText(binding,"quantity"),RequiredText(header,"unit"));
         }
         await RequireReferences(connection,references,ct);
+        foreach(var gas in await GasPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(gas.Head,"trade_reference"),gas.Fact()));
         await RequireHeads(connection,scopeBooks,ct);
         if(facts.GroupBy(p=>(p.Position.TradeId,p.Position.BindingId)).Any(g=>g.Count()!=1)||
             facts.GroupBy(p=>p.Position.TradeId).Any(g=>g.Select(p=>p.Position.InstrumentType).Distinct().Count()!=1))throw Missing();
@@ -128,7 +129,8 @@ internal sealed class TradePositionFacts(PreviewManifest manifest)
             SELECT EXISTS(SELECT 1 FROM trading.trades t WHERE t.catalog_id=$1 AND t.book_id=ANY($2::uuid[])
              AND NOT EXISTS(SELECT 1 FROM trading.trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id))
              AND NOT EXISTS(SELECT 1 FROM trading.swap_trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id))
-             AND NOT EXISTS(SELECT 1 FROM trading.ppa_trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id)))
+             AND NOT EXISTS(SELECT 1 FROM trading.ppa_trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id))
+             AND NOT EXISTS(SELECT 1 FROM trading.gas_trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id)))
             """,manifest.CatalogId,books);
         if(Equals(await query.ExecuteScalarAsync(ct),true))throw Missing();
     }

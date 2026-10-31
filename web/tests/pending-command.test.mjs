@@ -54,3 +54,14 @@ test('a restored request keeps the label that names it for the person, and only 
   assert.deepEqual(restoreTradeRequest(JSON.parse(JSON.stringify(saved))),saved);
   assert.equal('label' in restoreTradeRequest({...saved,label:7}),false);
 });
+
+test('actor command retention survives storage failure and editor remount without reusing another actor or resurrecting a completed command',async()=>{
+ const {actorTransport}=await import('../dist/pending-command.js');let actor='desk:a';
+ const stored={body:{operationId:'original-operation',physicalSides:[{code:'receipt',quantity:'1000'}]},uncertain:true};
+ const transport=actorTransport(()=>actor,()=>({getItem(){throw Error('blocked');},setItem(){throw Error('full');},removeItem(){throw Error('blocked');}}));
+ transport.write(stored);stored.body.physicalSides[0].quantity='2000';
+ const reopened=transport.read();assert.equal(reopened.body.operationId,'original-operation');assert.equal(reopened.body.physicalSides[0].quantity,'1000');
+ actor='desk:b';assert.equal(transport.read(),null);
+ actor='desk:a';assert.equal(transport.read().body.operationId,'original-operation');
+ transport.write(undefined);assert.equal(transport.read(),null);
+});

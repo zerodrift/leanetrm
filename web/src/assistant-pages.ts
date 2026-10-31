@@ -6,9 +6,9 @@ import {readPages,type Step,type Ending,type Usage,type TargetContext} from './a
 
 export type PageReport={page:string;selection:Record<string,unknown>};
 export type BlotterSelection={mode:'trades'|'pivot';bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[]};
-export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa';revision:number;reference:string};
+export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas';revision:number;reference:string};
 /** A new trade being entered in the Blotter's panel: of its product, or of none until the person chooses one. */
-export type EntryShown={product:'futures'|'swaps'|null};
+export type EntryShown={product:'futures'|'swaps'|'ppa'|'gas'|null};
 /** What PPA bookings shows: the inspected trade's revision, else the book whose PPA trades it lists, else neither. */
 export type PpaShown={trade:{tradeId:string;revision:number}|null;book:string|null};
 // What a web page shows, as the page's own state names it.
@@ -31,7 +31,7 @@ const unopened:readonly string[]=['ppa'];
 const noBlotter={mode:null,portfolioIds:null,groupBy:null,measures:null};
 
 // The page a trade being entered is reported as: one id per product, and one while none is chosen. The assistant reads none of them.
-const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap'} as const;
+const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap',ppa:'blotter_new_ppa',gas:'blotter_new_gas'} as const;
 // The report an ask sends: a read page's selection is its read tool's input for the view the page shows; any other
 // page's is empty. Blotter trade rows name no grouping, which the Blotter keeps for when its totals are shown again. What the
 // Blotter's panel holds comes first, its risk report, a new trade or a position; then its trade rows under the Risk lens, whose

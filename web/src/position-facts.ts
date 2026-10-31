@@ -4,7 +4,7 @@ import type {Holding} from './desk-model.js';
 // a complete priced response must still describe the same booked bindings.
 export type FactsContext={contextId:string;effectiveOn:string;knownAt:string};
 export type PositionFact={tradeId:string;bindingId:string;revision:number;tradeReference:string;bookId:string;book:string;
-  instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa';marketLabel:string|null;deliveryFrom:string|null;deliveryTo:string|null;
+  instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas';marketLabel:string|null;deliveryFrom:string|null;deliveryTo:string|null;
   bookedQuantity:string|null;bookedUnit:string|null};
 export type PositionFacts={context:FactsContext;asOf:string;positions:PositionFact[];total:number;nextOffset:number|null};
 const invalid='The position facts returned an inconsistent page. Refresh the Blotter.';
@@ -21,7 +21,7 @@ export function readPositionFacts(value:unknown,offset:number,limit:number,previ
   if(previous&&(!sameContext(previous.context,page.context)||previous.asOf!==page.asOf||previous.total!==page.total||previous.nextOffset!==offset))throw Error(invalid);
   for(const position of page.positions){
     if(!position||['tradeId','bindingId','tradeReference','bookId','book'].some(field=>typeof position[field as keyof PositionFact]!=='string')||
-      !Number.isInteger(position.revision)||position.revision<1||!['future','financial_swap','heat_rate','ppa'].includes(position.instrumentType)||
+      !Number.isInteger(position.revision)||position.revision<1||!['future','financial_swap','heat_rate','ppa','physical_gas'].includes(position.instrumentType)||
       ['marketLabel','deliveryFrom','deliveryTo','bookedQuantity','bookedUnit'].some(field=>position[field as keyof PositionFact]!==null&&typeof position[field as keyof PositionFact]!=='string'))throw Error(invalid);
   }
   const positions=[...(previous?.positions??[]),...page.positions];

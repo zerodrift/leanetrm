@@ -1718,3 +1718,10 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .dashboard-add-positions{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end}
 .dashboard-add-positions label{display:flex;flex-direction:column;gap:2px;font-size:12px}
 .dashboard-add-sizes{display:flex;flex-wrap:wrap;gap:8px 16px}
+
+/* The same product form lives in the shared trade panel. */
+.embedded-trade{min-width:0}
+.embedded-trade > .card{margin:0 0 1rem}
+.embedded-trade #ppa-book-directory,.embedded-trade #gc-book-directory,.inspect-trade #gas-composer > section:first-child,.inspect-trade #gas-template{display:none}
+#side-panel .product-switch{flex-wrap:wrap}
+#side-panel .embedded-trade .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}

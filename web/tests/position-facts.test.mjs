@@ -57,3 +57,11 @@ test('an individual position must match its certified facts, exact binding and r
  ])assert.throws(()=>readIndividualPosition(changed,facts,selected),/individual position/);
  assert.throws(()=>readIndividualPosition(value,facts,fact('unlisted')),/individual position/);
 });
+
+test('physical gas shares mixed fact pages and exact individual-position selection',()=>{
+ const gas={...fact('gas-instrument'),tradeId:'gas-trade',instrumentType:'physical_gas',bookedQuantity:null,bookedUnit:null};
+ const facts=readPositionFacts(page([fact('ppa-binding'),gas],2,null),0,64);
+ const value={context,asOf:facts.asOf,holding:{...gas,revision:'1',presentValue:'3200/51'}};
+ assert.equal(readIndividualPosition(value,facts,gas).holding.presentValue,'3200/51');
+ assert.throws(()=>readIndividualPosition({...value,holding:{...value.holding,bindingId:'other'}},facts,gas),/individual position/);
+});

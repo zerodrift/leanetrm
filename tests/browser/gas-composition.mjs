@@ -22,9 +22,12 @@ export async function run(actions){
  await set(cash(0,'stage'),'receipt');await check('changing a fee quantity link invalidates the reviewed booking',"document.querySelector('#gc-book-submit').disabled&&document.querySelector('#gc-result').hidden");
  await submit('#gc-form');await check('a fee on receipt rather than delivery changes PV to62',"document.querySelector('#gc-total').textContent==='Present value: 62 USD'");
  await set(cash(0,'stage'),'delivery');await submit('#gc-form');
- await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/gas/composition/book')&&response.ok)throw new TypeError('Synthetic lost composition booking response');return response;};}`);
+ await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/gas/composition/book')&&response.ok){window.compositionReceipt=await response.clone().json();throw new TypeError('Synthetic lost composition booking response');}return response;};}`);
  await click('#gc-book-submit');await check('an uncertain composition booking retains every side and link',"!document.querySelector('#gc-pending').hidden&&document.querySelector('#gc-policy').disabled");
+ const saved=await evaluate('window.compositionReceipt');
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await set('#snapshot',frame);await wait(idle);await click('#nav-gas');await wait("!document.querySelector('#gc-pending').hidden&&"+idle);await click('#gc-check');
+ await wait("!!document.querySelector('#gas-operations')&&"+idle);
+ await check('recovered composition opens the shared terms',"!!document.querySelector('#gas-operations')");await click('#nav-gas');await evaluate(`[...document.querySelectorAll('#gc-directory button')].find(b=>b.textContent.includes(${JSON.stringify(saved.tradeId)})).click()`);await wait(idle);
  await check('recovery reopens both retained physical schedules and the original PV',"document.querySelector('#gc-pending').hidden&&document.querySelector('#gc-total').textContent==='Present value: 64 USD'&&document.querySelectorAll('#gc-schedules tbody tr').length===62");
  await check('composed bookings have a durable directory entry',"document.querySelectorAll('#gc-directory button').length>=1");
  await check('the multiple-side ticket fits its viewport',"document.documentElement.scrollWidth<=innerWidth");await shot('gas-composition');

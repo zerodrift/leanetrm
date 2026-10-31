@@ -1,3 +1,4 @@
+import {actorTransport} from './pending-command.js';
 import {setupGasComposer} from './gas-composer.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type ValuationMapping={quote:string;group:string;groupAdjustment:string;locationAdjustment:string;index:string;curve:string;marketLocation:string;marketLocationName:string;quantityUnit:string;priceUnit:string;adjustment:string};
@@ -13,7 +14,7 @@ type Result={physical:PhysicalTerms;valuation:Value};
 type Receipt={tradeId:string;instrumentId:string;operationId:string;revision:number};
 const convention='physical_gas_fixed_quantity_v4';
 
-export function setupPhysicalGas(o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;source:()=>{snapshotId:string};historical:()=>boolean;actor:()=>string;busy:()=>boolean}){
+export function setupPhysicalGas(o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;source:()=>{snapshotId:string};historical:()=>boolean;actor:()=>string;busy:()=>boolean;onBooked?:(tradeId:string)=>Promise<void>}){
  const root=document.getElementById('gas-page')!;
  root.innerHTML=`<section class="card"><h2>Physical gas trade</h2><p id="gas-scope" class="field-help"></p>
  <form id="gas-form">
@@ -57,8 +58,9 @@ export function setupPhysicalGas(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  const context=()=>({...o.source(),convention,knowledgeMode:'current'});
  const exact=(q:Quantity)=>q.denominator==='1'?q.numerator:`${q.numerator}/${q.denominator}`;
  const gasDay=(v:PhysicalLocation)=>`${v.clock} · starts ${String(Math.floor(v.dayStartMinute/60)).padStart(2,'0')}:${String(v.dayStartMinute%60).padStart(2,'0')} local time`;
- function retain(){try{if(pending)sessionStorage.setItem(storageKey(),JSON.stringify({body:pending,uncertain}));else sessionStorage.removeItem(storageKey());}catch{/* Preserve the original command in memory. */}}
- function restore(){try{const saved=JSON.parse(sessionStorage.getItem(storageKey())??'null');if(saved?.body?.convention===convention&&typeof saved.body.operationId==='string'){pending=saved.body;uncertain=true;}}catch{/* Browser transport state never grants authority. */}}
+ const transport=actorTransport<{body:Record<string,unknown>;uncertain:boolean}>(storageKey,()=>sessionStorage);
+ function retain(){transport.write(pending?{body:pending,uncertain}:undefined);}
+ function restore(){const saved=transport.read();if(saved?.body?.convention===convention&&typeof saved.body.operationId==='string'){pending=saved.body;uncertain=true;}}
  function selections(id:string,rows:{value:string;label:string}[],selected=''){
   get<HTMLSelectElement>(id).replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(r.label,r.value)));
   input(id).value=rows.some(r=>r.value===selected)?selected:'';
@@ -98,9 +100,9 @@ export function setupPhysicalGas(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  for(const [id,children] of [['gas-product',['gas-pipeline','gas-zone','gas-location']],['gas-pipeline',['gas-zone','gas-location']],['gas-zone',['gas-location']],['gas-location',[]]] as const)
   input(id).onchange=()=>{invalidate();for(const child of children)input(child).value='';physicalChoices();};
  get('gas-form').oninput=()=>invalidate();
- async function load(){reset();if(o.historical())throw Error('Return to working data to enter a gas trade.');const g=generation,c=await o.api<GasCatalog>('gas/catalog',context());if(g!==generation)return;catalog=c;await composer.setCatalog(c);get('gas-scope').textContent=c.scope;
+ async function load(){reset();if(o.historical())throw Error('Return to working data to enter a gas trade.');const g=generation,c=await o.api<GasCatalog>('gas/catalog',context());if(g!==generation)return false;catalog=c;await composer.setCatalog(c);if(g!==generation)return false;get('gas-scope').textContent=c.scope;
   selections('gas-product',[...new Map(c.locations.map(p=>[p.product,{value:p.product,label:p.productName}])).values()]);physicalChoices();selections('gas-book',c.books.map(b=>({value:b.id,label:b.name})));
-  for(const [id,parties] of [['gas-entity',c.legalEntities],['gas-party',c.counterparties]] as const)selections(id,parties.map(p=>({value:JSON.stringify([p.id,p.revision]),label:p.name})));sync();await directory();
+  for(const [id,parties] of [['gas-entity',c.legalEntities],['gas-party',c.counterparties]] as const)selections(id,parties.map(p=>({value:JSON.stringify([p.id,p.revision]),label:p.name})));sync();await directory();return g===generation;
  }
  function terms(){const location=selected();if(!location)throw Error('Select product, pipeline, zone and delivery location.');const [legalEntityId,legalEntityRevision]=JSON.parse(val('gas-entity')),[counterpartyId,counterpartyRevision]=JSON.parse(val('gas-party'));if(val('gas-discount')!=='false')throw Error('Select the valuation policy.');
   return {...context(),gasSetupId:catalog!.gasSetupId,operationId:crypto.randomUUID(),bookId:val('gas-book'),definitionRevisionId:location.definitionRevisionId,pipeline:location.pipeline,zone:location.zone,deliveryPoint:location.deliveryPoint,product:location.product,
@@ -119,10 +121,10 @@ export function setupPhysicalGas(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  get<HTMLFormElement>('gas-form').onsubmit=e=>{e.preventDefault();void o.act(async()=>{invalidate();const body=terms(),g=generation,result=await o.api<Result>('gas/preview',body);if(g!==generation)return;reviewed=body;render(result,'Unbooked preview');sync();});};
  async function open(id:string){const g=generation,result=await o.api<Result>('gas/editor',{context:context(),tradeId:id});if(g!==generation)return;render(result,'Booked trade · retained physical and cash schedules');}
  function receipt(r:Receipt){if(!pending||r.operationId!==pending.operationId||typeof r.tradeId!=='string'||!/^[0-9a-f-]{36}$/i.test(r.tradeId)||typeof r.instrumentId!=='string'||r.revision!==1)throw Error('The booking response could not be reconciled. Check the original request status.');pending=undefined;uncertain=false;reviewed=undefined;retain();get('gas-receipt').textContent=`Booked trade ${r.tradeId} · revision ${r.revision}`;input('gas-trade-id').value=r.tradeId;sync();}
- async function submit(){if(!pending||owner!==o.actor())throw Error('The original submission belongs to a different workspace identity.');const body=pending,previouslyUncertain=uncertain;uncertain=true;retain();try{const r=await o.api<Receipt>('gas/book',body);receipt(r);await open(r.tradeId);await directory();}catch(error){const code=(error as {code?:string}).code;if(!previouslyUncertain&&code&&(code.startsWith('gas_')||['access_denied','trade_party','request_format','side_schedule_request_conflict'].includes(code))){pending=undefined;uncertain=false;retain();}throw error;}finally{sync();}}
+ async function submit(){if(!pending||owner!==o.actor())throw Error('The original submission belongs to a different workspace identity.');const body=pending,previouslyUncertain=uncertain;uncertain=true;retain();try{const r=await o.api<Receipt>('gas/book',body);receipt(r);await open(r.tradeId);await directory();await o.onBooked?.(r.tradeId);}catch(error){const code=(error as {code?:string}).code;if(!previouslyUncertain&&code&&(code.startsWith('gas_')||['access_denied','trade_party','request_format','side_schedule_request_conflict'].includes(code))){pending=undefined;uncertain=false;retain();}throw error;}finally{sync();}}
  get('gas-book-submit').onclick=()=>void o.act(async()=>{if(!reviewed)throw Error('Preview the exact current terms before booking.');pending=structuredClone(reviewed);uncertain=false;reviewed=undefined;retain();sync();await submit();});get('gas-retry').onclick=()=>void o.act(submit);
- get('gas-check').onclick=()=>void o.act(async()=>{if(!pending)return;const r=await o.api<Receipt|{found:false}>('gas/status',{operationId:pending.operationId});if('tradeId'in r){receipt(r);await open(r.tradeId);}else get('gas-receipt').textContent='No completed booking found. Retry the original request.';});
+ get('gas-check').onclick=()=>void o.act(async()=>{if(!pending)return;const r=await o.api<Receipt|{found:false}>('gas/status',{operationId:pending.operationId});if('tradeId'in r){receipt(r);await open(r.tradeId);await o.onBooked?.(r.tradeId);}else get('gas-receipt').textContent='No completed booking found. Retry the original request.';});
  async function directory(){const g=generation,result=await o.api<{trades:{trade_id:string;book:string;quantity:string;direction:string;delivery_from:string;delivery_to:string}[]}>('gas/directory',context());if(g!==generation)return;const table=document.createElement('table'),head=table.createTHead().insertRow();for(const name of ['Trade','Book','Direction','Contract quantity','Delivery']){const th=document.createElement('th');th.textContent=name;head.append(th);}const body=table.createTBody();for(const trade of result.trades){const row=body.insertRow(),button=document.createElement('button');button.type='button';button.className='text-button';button.textContent=trade.trade_id;button.onclick=()=>void o.act(async()=>{input('gas-trade-id').value=trade.trade_id;await open(trade.trade_id);});row.insertCell().append(button);for(const value of [trade.book,trade.direction==='1'?'Receive':'Deliver',trade.quantity,`${trade.delivery_from} to ${trade.delivery_to}`])row.insertCell().textContent=value;}get('gas-directory').replaceChildren(table);}
  get('gas-list').onclick=()=>void o.act(directory);get('gas-open').onclick=()=>void o.act(()=>open(val('gas-trade-id')));
- return {load,reset,sync,leave:composer.leave,unsaved:()=>!!pending||!!reviewed||composer.unsaved()};
+ return {load,reset,sync,inspect:async(tradeId:string)=>{if(await load())await composer.quantities(tradeId);},pending:()=>!!pending||composer.pending(),leave:composer.leave,unsaved:()=>!!pending||!!reviewed||composer.unsaved()};
 }

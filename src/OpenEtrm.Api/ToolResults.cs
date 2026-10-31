@@ -120,6 +120,7 @@ static class ToolResults
     public static ToolResult Trade(object editor,string instrumentType,Dictionary<string,DealAmountFormats.Selection>? formats)
     {
         var read=Node(editor).AsObject();
+        if(instrumentType=="physical_gas"){read["instrumentType"]="physical_gas";return new(read,1,false,References(new JsonArray(read["head"]!.DeepClone())));}
         if(instrumentType=="ppa"){read["instrumentType"]="ppa";return new(read,read["history"]!.AsArray().Count,false,References(read["history"]!.AsArray()));}
         if(instrumentType is "financial_swap" or "heat_rate")
         {

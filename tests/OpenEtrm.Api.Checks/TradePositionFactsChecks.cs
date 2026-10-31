@@ -25,6 +25,8 @@ static class TradePositionFactsChecks
             try{TradePositionFacts.Page(values,offset,limit);throw new Exception("Accepted an unbounded facts page.");}
             catch(MarketDataException error)when(error.Code=="position_page"){}
         }
+        var gasRequest=new TradePositionReadRequest(new FuturesReadRequest(Guid.NewGuid(),"trading_workspace_v1","current",null),Guid.NewGuid(),Guid.NewGuid(),1,"physical_gas");
+        if(TradePositionSelection.From(gasRequest).InstrumentType!="physical_gas")throw new Exception("Physical gas must use the exact shared position selection contract.");
         Console.WriteLine("PASS position facts: stable numeric-reference/binding paging and explicit page bounds");
     }
 }
