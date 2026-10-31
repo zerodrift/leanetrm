@@ -1,5 +1,5 @@
 import {explainUnavailableValue,markUnavailableValue,renderChangeReview,unavailableValueLabel,type ChangeReview} from './saved-trade-terms.js';
-import {priceSourceNote,renderCloseOut,type CloseOutShown,type SwapCloseOut} from './close-out-draft.js';
+import {priceSourceElement,priceSourceNote,renderCloseOut,type CloseOutShown,type SwapCloseOut} from './close-out-draft.js';
 import {mountScheduledFloatingEditor,type ScheduledFloatingTerms} from './scheduled-floating-editor.js';
 import type {CustomProjection} from './swap-projections.js';
 import {tradeAnnotations,type Annotation} from './trade-annotations.js';
@@ -118,7 +118,8 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
  const direction=select(product,'First side direction',[{value:'-1',label:'Pay first / receive second'},{value:'1',label:'Receive first / pay second'}]);identify(direction,'scheduled-direction');
  const discount=select(product,'Discounting',[{value:'none',label:'No discounting · factor 1'},{value:'currency_default',label:'Selected currency default curve'}]);identify(discount,'scheduled-discounting');
  const pricing=select(product,'Fixed price',[{value:'agreed',label:'Enter agreed fixed prices'},{value:'par',label:'Calculate one common par fixed price'}]);identify(pricing,'scheduled-price-mode');
- const priceSource=priceSourceNote(form,target=>(target as HTMLElement|null)?.dataset?.role==='fixed-price'||target===pricing,'scheduled-price-source');pricing.parentElement!.append(priceSource.element);
+ const priceNote=priceSourceElement('scheduled-price-source');pricing.parentElement!.append(priceNote);
+ const priceSource=priceSourceNote(form,target=>(target as HTMLElement|null)?.dataset?.role==='fixed-price'||target===pricing,priceNote,options.zone);
  const precision=input(product,'Par precision · decimal places','number');precision.min='0';precision.max='18';identify(precision,'scheduled-par-precision');
  const revision=select(product,'Trade revision',[]);identify(revision,'scheduled-revision');root.insertBefore(revision.parentElement!,form);revision.parentElement!.hidden=true;
  const reason=input(ownership,'Amendment reason');reason.inputMode='text';identify(reason,'scheduled-reason');reason.maxLength=500;
@@ -229,8 +230,8 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
  /** Opens a new scheduled swap on the terms of a close-out the backend drafted, headed by the draft and its price labelled with its source. */
  async function openCloseOut(terms:Record<string,unknown>,drafted:SwapCloseOut,shown:CloseOutShown){reset();const version=generation,selection=JSON.stringify(options.context());const c=await options.api<ExtendedCatalog>('swaps/catalog',context());if(version!==generation||selection!==JSON.stringify(options.context()))return;
   if(!c.books.some(b=>b.id===terms.bookId))throw Error('The drafted book is not one you can book for.');
-  await populate(c,undefined,{terms:terms as Detail['state']['terms'],show:()=>{renderCloseOut(closeOut,drafted,shown);priceSource.show(shown.priceLabel);}});}
- return{openNew,openCloseOut,openDetail:(value:unknown)=>populate((value as Detail).catalog,value as Detail),reset,sync,refresh(){invalidate();annotations.refresh();sync();},
+  await populate(c,undefined,{terms:terms as Detail['state']['terms'],show:()=>{renderCloseOut(closeOut,drafted,shown);priceSource.show(drafted.price);}});}
+ return{openNew,openCloseOut,openDetail:(value:unknown)=>populate((value as Detail).catalog,value as Detail),reset,sync,refresh(){invalidate();annotations.refresh();priceSource.refresh();sync();},
   /** A booking or amendment the backend refused for good: what was prepared for it is dropped, and the ticket, with what was typed in it, stays to be corrected. */
   unprepare(){invalidate();sync();},
   /** Puts the revision select back on the revision the ticket shows, when the person kept the ticket rather than read another. */

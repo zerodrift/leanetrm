@@ -1,5 +1,5 @@
 import {amountText} from './amount-display.js';
-import {priceSourceNote,renderCloseOut,type CloseOutShown,type FuturesCloseOut} from './close-out-draft.js';
+import {priceSourceElement,priceSourceNote,renderCloseOut,type CloseOutShown,type FuturesCloseOut} from './close-out-draft.js';
 import {draftValuation} from './draft-valuation.js';
 import {trackEdits} from './edit-tracking.js';
 import {futuresContractDescription,futuresContractKey,type FuturesContract} from './futures-contract.js';
@@ -63,7 +63,8 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
  // A close-out draft (blotter-workbench.md, Row context menu) heads the form, and its price is labelled with its source until the price, or
  // the contract it is the curve price of, is changed.
  const closeOut=document.createElement('div');closeOut.id='futures-close-out';closeOut.hidden=true;root.prepend(closeOut);
- const priceSource=priceSourceNote(form,target=>target===field('futures-execution')||target===field('futures-contract'),'futures-price-source');field('futures-execution').parentElement!.append(priceSource.element);
+ const priceNote=priceSourceElement('futures-price-source');field('futures-execution').parentElement!.append(priceNote);
+ const priceSource=priceSourceNote(form,target=>target===field('futures-execution')||target===field('futures-contract'),priceNote,options.zone);
  // The contract the person chose, kept across a read of the catalog that offers it again.
  let selected='';
  function terms(){
@@ -113,11 +114,11 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
    selected=key;instrument.populate(catalog.contracts,key);terms();field('futures-book').value=t.bookId;
    annotations.populate(catalog.bookingActor,catalog,t as Parameters<typeof annotations.populate>[2]);
    field('futures-lots').value=t.lots;field('futures-execution').value=t.executionPrice;
-   renderCloseOut(closeOut,drafted,shown);priceSource.show(shown.priceLabel);draft.reset();edits.clear();sync();
+   renderCloseOut(closeOut,drafted,shown);priceSource.show(drafted.price);draft.reset();edits.clear();sync();
   },
   sync,
   /** The time zone changed: the form's times are written again, and its price, which they were written beside, is cleared. */
-  refresh(){annotations.refresh();draft.reset();},
+  refresh(){annotations.refresh();priceSource.refresh();draft.reset();},
   /** Whether the form is in the panel, and has edits that have not been sent. */
   unsaved:()=>mounted()&&edits.edited(),
   mounted,

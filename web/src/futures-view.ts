@@ -26,7 +26,7 @@ import {setupDock} from './dock.js';
 import {createBlotterOperations,guard,refuse,requireModeColumns,type BlotterCaller,type BlotterOperation} from './blotter-operations.js';
 import {rowMenuItems,type RowMenuAction} from './blotter-row-menu.js';
 import {setupMenu} from './context-menu.js';
-import {closeOutPriceLabel,closeOutRequest,readCloseOutDraft} from './close-out-draft.js';
+import {closeOutRefusal,closeOutRequest,readCloseOutDraft} from './close-out-draft.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
@@ -365,6 +365,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const rowMenu=setupMenu('blotter-row-menu');get('futures-page').append(rowMenu.element);
   function focusRow(key:string){const index=holdings?.holdings.findIndex(h=>rowKey(h)===key)??-1;if(table&&index>=0)table.focusRow(index);}
   function openRowMenu(h:Holding,at:{x:number;y:number}){
+    try{showRowMenu(h,at);}catch(error){options.failed(error);}
+  }
+  function showRowMenu(h:Holding,at:{x:number;y:number}){
     const key=rowKey(h),control=bookingControl(),amend=amendRefusal(h.instrumentType,!!catalog?.canAmendTrades,position.amendState(h));
     const stale=busy()?'The Blotter is busy; try again when it is idle.':!holdings?'Positions open once the Blotter has valued them.':undefined;
     const can={book:control.enabled,amend:amend===null,ask:options.assistant.available(),
@@ -387,30 +390,58 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // Close out (owner, 2026-10-30) opens the backend's draft of the offsetting trade, at the curve price of the read on screen, in the new trade
   // form of its product: a future's after the priced contracts are read, as New trade reads them, a swap's in its ticket. Nothing books
-  // until the person presses Book. What the backend refuses to draft, the details say, in its words, in place of a form.
+  // until the person presses Book. The draft is of the revision the row showed when it was chosen: a read made for the priced contracts
+  // that holds another revision refuses it, saying so.
   async function draftCloseOut(key:string){
     const row=()=>{const h=holdings?.holdings.find(h=>rowKey(h)===key);if(!h)throw refuse('that position is not among the rows on screen');return h;};
-    row();
+    const chosen=row().revision,before=panel.current();
+    // The page's action says its own failures in the banner; the backend's refusal, said in the details, is the operation's answer.
+    let refused:Error|undefined;
     await guarded(async()=>{
-      if(row().instrumentType==='future'&&catalog?.kind!=='priced_contracts')await load('priced_contracts');
+      // The draft is read in the context of the read that holds the priced contracts, or not at all.
+      const priced=()=>catalog?.kind==='priced_contracts'&&!!holdings;
+      if(row().instrumentType==='future'&&!priced()){
+        await load('priced_contracts');
+        if(!priced())throw refuse('the Blotter could not be read with its priced contracts, so nothing was drafted');
+      }
       const h=row(),control=bookingControl();if(!control.enabled)throw Error(control.reason);
+      if(h.revision!==chosen)throw refuse(`${h.tradeReference} is now at revision ${h.revision}, not revision ${chosen} that was chosen; choose Close out again to draft the revision shown`);
       const product=h.instrumentType==='future'?'futures' as const:'swaps' as const;
       let drafted;
       try{drafted=readCloseOutDraft(await api('trading/close-out-draft',closeOutRequest({snapshotId:snapshot,contextId:holdings!.context.contextId},h)),h.instrumentType==='future'?'future':'financial_swap');}
-      catch(error){if((error as {code?:string}).code==='access_denied'){clear();throw error;}await showRefusal(h,error);return;}
-      const shown={reference:h.tradeReference,priceLabel:closeOutPriceLabel(drafted.price,options.zone())},next:PanelMode={kind:'new',product};
-      if(drafted.kind==='future'){await panel.show(next);booking.populate();booking.open();booking.closeOut(drafted,shown);}
-      else{resetForms();await panel.show(next);if(!await swapEditor.openCloseOut(drafted,shown)){await panel.show(newTrade);return;}}
+      catch(error){
+        // The backend's own refusal is said in the details, in place of a form, and still refuses the operation; any other failure is the page's.
+        if((error as {code?:string}).code==='access_denied')clear();
+        refused=closeOutRefusal(error,h.tradeReference);if(!refused)throw error;
+        await showRefusal(refused);return;
+      }
+      const shown={reference:h.tradeReference},next:PanelMode={kind:'new',product};
+      // A draft a form cannot hold whole leaves no form, and the details as they were: never a part-filled form that could be booked.
+      try{
+        if(drafted.kind==='future'){await panel.show(next);booking.populate();booking.open();booking.closeOut(drafted,shown);}
+        else{resetForms();await panel.show(next);if(!await swapEditor.openCloseOut(drafted,shown))throw Error(`The close-out of ${h.tradeReference} was not opened, as the market selection changed while it was read.`);}
+      }catch(error){resetForms();await restoreDetails(before);throw error;}
       showForm();
     });
+    if(refused)throw refused;
     const shown=panel.current();if(shown?.kind==='new'&&shown.product!==null)panel.focusForm();
   }
-  // A draft the backend refused leaves the details on New trade, saying why in place of a form: nothing was drafted.
-  async function showRefusal(h:Holding,error:unknown){
+  // A refused draft leaves the details on New trade, saying why in place of a form: nothing was drafted.
+  async function showRefusal(refused:Error){
     await panel.show(newTrade);
     const said=document.createElement('p');said.id='close-out-refusal';said.className='side-panel-status';said.setAttribute('role','alert');
-    said.textContent=publicText(`Close-out of ${h.tradeReference} was not drafted. ${error instanceof Error?error.message:String(error)}`);
-    panel.element('view').replaceChildren(said);panel.reveal();
+    said.textContent=publicText(refused.message);panel.element('view').replaceChildren(said);panel.reveal();
+  }
+  // The details as they were before a close-out that could not be opened: the position they showed, if it is still on screen, or what else
+  // they showed, without a form; or closed.
+  async function restoreDetails(before:PanelMode){
+    if(before?.kind==='position'){
+      const index=holdings?.holdings.findIndex(h=>h.tradeId===before.tradeId&&h.bindingId===before.bindingId)??-1;
+      if(index>=0){await deskPanel.open(index);return;}
+      panel.reset();return;
+    }
+    if(before===null){panel.reset();return;}
+    await panel.show(before.kind==='new'?newTrade:before);
   }
   // New trade (D221) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
@@ -1242,7 +1273,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // failed action does, and shows no position.
   function perform<O extends BlotterOperation>(operation:O,caller:BlotterCaller={placed:false}){
     options.failureCleared();
-    return operate(operation,caller).catch(error=>{options.failed(error);return undefined;});
+    // A refusal the page has already said where it applies, as the details say a refused close-out, is not said again in the banner.
+    return operate(operation,caller).catch(error=>{if((error as {shown?:boolean}).shown!==true)options.failed(error);return undefined;});
   }
   // Sorting and filtering name columns of the rows on screen, never one a read shows for itself alone.
   function rowColumns(keys:readonly string[]){

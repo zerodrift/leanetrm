@@ -43,46 +43,50 @@ export function readCloseOutDraft(value:unknown,kind:'future'|'financial_swap'):
   return draft as unknown as CloseOutDraft;
 }
 
-/** A drafted future's side and size, as its signed lots state them: selling the lots of a long position, buying those of a short one. */
-export function futuresSide(lots:string):{side:'Buy'|'Sell';lots:string}{
-  const signed=/^(-?)([0-9]+)$/.exec(lots);
-  if(!signed||/^0+$/.test(signed[2]))throw Error('The close-out draft states no whole, nonzero number of lots.');
-  return {side:signed[1]?'Sell':'Buy',lots:signed[2]};
-}
-
-/** What a form shows of the draft it was opened with: whose close-out it is and the price's source, which an edit of the price takes away. */
-export type CloseOutShown={reference:string;priceLabel:string};
-
 /**
- * The label beside a drafted price, saying where it came from until the person changes a price: any input or change in `form` whose
- * target `isPrice` names. Changing it back does not bring the label back; the price is then the person's.
+ * A failed draft read as the details say it: the backend's own close-out refusal, which the details show in place of a form, marked
+ * `shown` so that no banner repeats it, though the operation still rejects with it. Any other failure is not a refusal to show there.
  */
-export function priceSourceNote(form:HTMLElement,isPrice:(target:EventTarget|null)=>boolean,id:string){
-  const note=document.createElement('p');note.id=id;note.className='field-help price-source';note.hidden=true;
-  const clear=()=>{note.hidden=true;note.textContent='';};
-  for(const type of ['input','change'])form.addEventListener(type,event=>{if(!note.hidden&&isPrice(event.target))clear();});
-  return {element:note,show(text:string){note.textContent=text;note.hidden=false;},clear};
+export function closeOutRefusal(error:unknown,reference:string):(Error&{code:'close_out';shown:true})|undefined{
+  if(!(error instanceof Error)||(error as {code?:unknown}).code!=='close_out')return undefined;
+  return Object.assign(Error(`Close-out of ${reference} was not drafted. ${error.message}`),{code:'close_out' as const,shown:true as const});
 }
 
+/** What a form shows of the draft it was opened with: whose close-out it is. */
+export type CloseOutShown={reference:string};
+
 /**
- * The head of a form opened on a draft: the position it closes and the offsetting trade the backend drafted, a future's side and lots, or
- * a swap's remaining periods with their exact quantities and curve prices, the settled ones left out and why its price is not par.
+ * The label beside a drafted price, `note`, saying where it came from: the curve price at its close, written in the zone shown, and again
+ * when that changes (`refresh`). It stays until the person changes a price: any input or change in `form` whose target `isPrice` names.
+ * Changing it back does not bring the label back; the price is then the person's.
+ */
+export function priceSourceNote(form:Pick<EventTarget,'addEventListener'>,isPrice:(target:EventTarget|null)=>boolean,note:Pick<HTMLElement,'hidden'|'textContent'>,zone:()=>string){
+  let shown:Pick<CloseOutPrice,'closeAt'|'closeLabel'>|undefined;
+  const clear=()=>{shown=undefined;note.hidden=true;note.textContent='';};
+  const refresh=()=>{if(shown)note.textContent=closeOutPriceLabel(shown,zone());};
+  for(const type of ['input','change'])form.addEventListener(type,event=>{if(shown&&isPrice(event.target))clear();});
+  return {show(price:Pick<CloseOutPrice,'closeAt'|'closeLabel'>){shown=price;note.hidden=false;refresh();},refresh,clear};
+}
+/** The element a price's label is written in, beside the price. */
+export function priceSourceElement(id:string){const note=document.createElement('p');note.id=id;note.className='field-help price-source';note.hidden=true;return note;}
+
+/**
+ * The head of a form opened on a draft: the position it closes, and what of the draft stays true however the person edits the form. A
+ * swap's remaining periods are listed as drafted, for reference, with the settled ones left out and why its price is not par.
  */
 export function renderCloseOut(host:HTMLElement,draft:CloseOutDraft,shown:CloseOutShown){
   const node=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
   const section=node('section');section.className='close-out-draft';section.setAttribute('aria-label','Close-out draft');
   section.append(node('h3',`Close-out of ${shown.reference}`));
-  if(draft.kind==='future'){
-    const {side,lots}=futuresSide(draft.terms.lots);
-    section.append(node('p',`${side} ${lots} ${lots==='1'?'lot':'lots'} of the same contract at ${draft.price.value} ${draft.price.unit}, the ${shown.priceLabel.replace(/^Curve/,'curve')}. Nothing is booked until you press Book.`));
-  }else{
+  if(draft.kind==='future')section.append(node('p','The offsetting trade of the same contract, in the same book with the same parties. Nothing is booked until you press Book.'));
+  else{
     const table=node('table'),head=node('tr');table.className='close-out-periods';
     for(const label of ['Delivery from','Delivery to (exclusive)','Open quantity','Curve price'])head.append(node('th',label));
     table.append(node('thead'),node('tbody'));table.tHead!.append(head);
     for(const p of draft.periods){const row=node('tr');for(const value of [p.from,p.to,p.quantity,p.price])row.append(node('td',value));table.tBodies[0].append(row);}
-    const settled=draft.settledPeriodsExcluded;
-    section.append(node('p',`${draft.periods.length===1?'The remaining period, reversed at its':`The ${draft.periods.length} remaining periods, reversed, each at its`} ${shown.priceLabel.replace(/^Curve/,'curve')}.${settled?` ${settled} settled ${settled===1?'period is':'periods are'} left untouched.`:''} Nothing is booked until you book the reviewed terms.`),
-      table,node('p',swapCloseOutNote));
+    const settled=draft.settledPeriodsExcluded,count=draft.periods.length;
+    section.append(node('p',`${count===1?'The remaining period':`The ${count} remaining periods`} of the swap, reversed, as drafted:`),table,
+      node('p',`${settled?`${settled} settled ${settled===1?'period is':'periods are'} left untouched. `:''}${swapCloseOutNote} Nothing is booked until you book the reviewed terms.`));
   }
   host.replaceChildren(section);host.hidden=false;
 }

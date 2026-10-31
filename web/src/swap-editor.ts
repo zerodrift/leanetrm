@@ -19,7 +19,7 @@ import {PaymentDateRule,PaymentDayBasis,DateAdjustment,Discounting,type Choice,t
 import {minus,priceUnit,type CurveShape,type Holding,type HoldingFormats} from './desk-model.js';
 import type {AmendState,DetailRead,DetailView,TermSection} from './position-panel.js';
 import {trackEdits} from './edit-tracking.js';
-import {priceSourceNote,renderCloseOut,type CloseOutShown,type SwapCloseOut} from './close-out-draft.js';
+import {priceSourceElement,priceSourceNote,renderCloseOut,type CloseOutShown,type SwapCloseOut} from './close-out-draft.js';
 import {projectionReference,type CustomProjection,type ProjectionChoice} from './swap-projections.js';
 import {publicText,displayInstant,deliveryLabel,curveName,friendly,timeLabels} from './market-view.js';
 import {renderRegularTable} from './regular-table.js';
@@ -325,8 +325,8 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  mountSwapSideEditor('fixed');mountSwapSideEditor('floating');mountFirstFloatingEditor();arrangeSwapSections();
  // A close-out draft heads the ticket (its sides once mounted), and its fixed price is labelled with its source until the price or its pricing choice is changed.
  const closeOut=document.createElement('div');closeOut.id='swap-close-out';closeOut.hidden=true;get('swap-form').before(closeOut);
- const priceSource=priceSourceNote(get('swap-form'),target=>target===field('swap-price')||target===field('swap-price-mode'),'swap-fixed-price-source');
- field('swap-price').after(priceSource.element);
+ const priceNote=priceSourceElement('swap-fixed-price-source');field('swap-price').after(priceNote);
+ const priceSource=priceSourceNote(get('swap-form'),target=>target===field('swap-price')||target===field('swap-price-mode'),priceNote,options.zone);
  const annotations=tradeAnnotations('swap',options.zone);
  // A trade's settlement and P&L view, and the scheduled swap ticket (D214), take the panel's form part as the swap ticket does (D221),
  // each in place of the others. The page opens another revision of a scheduled trade, and the settlement view from a ticket, once it
@@ -569,17 +569,20 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   * its own, each with every term as drafted, its price labelled with its source, for the person to review, preview and book.
   */
  async function openCloseOut(drafted:SwapCloseOut,shown:CloseOutShown):Promise<boolean>{
-  const t=drafted.terms as Terms;
-  if(t.scheduled){reset();await safe(()=>scheduled.openCloseOut(t,drafted,shown));return scheduled.isOpen();}
-  if(!await openNew())return false;
-  const started=generation,source=key();
-  await safe(async()=>{
-   if(!catalog!.books.some(b=>b.id===t.bookId))throw Error('The drafted book is not one you can book for.');
-   fill(t);annotations.populate(catalog!.bookingActor,catalog!,t as Partial<Annotation>);text('swap-template-note','Close-out draft terms. Each side shows its drafted values.');
-   await refreshObservations();if(started!==generation||source!==key())return;
-   renderCloseOut(closeOut,drafted,shown);priceSource.show(shown.priceLabel);edits.clear();sync();
-  });
-  return started===generation&&mounted();
+  // A draft the ticket cannot hold whole leaves no ticket at all, never one part filled that could be booked.
+  try{
+   const t=drafted.terms as Terms;
+   if(t.scheduled){reset();await safe(()=>scheduled.openCloseOut(t,drafted,shown));return scheduled.isOpen();}
+   if(!await openNew())return false;
+   const started=generation,source=key();
+   await safe(async()=>{
+    if(!catalog!.books.some(b=>b.id===t.bookId))throw Error('The drafted book is not one you can book for.');
+    fill(t);annotations.populate(catalog!.bookingActor,catalog!,t as Partial<Annotation>);text('swap-template-note','Close-out draft terms. Each side shows its drafted values.');
+    await refreshObservations();if(started!==generation||source!==key())return;
+    renderCloseOut(closeOut,drafted,shown);priceSource.show(drafted.price);edits.clear();sync();
+   });
+   return started===generation&&mounted();
+  }catch(error){reset();throw error;}
  }
  /**
   * Opens a position's swap at one of its revisions, the latest for none, in the host. Its own revision must hold the position's instrument;
@@ -642,7 +645,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
    if(requested){try{await open(requested.position,requested.revision);}catch(error){if((error as {code?:string}).code!=='access_denied')failedLiveSelection=requested;throw error;}}
    else if(mounted()){catalog=await options.api<Catalog>('swaps/catalog',context());await refreshObservations();previewGeneration++;prepared=undefined;get('swap-result').hidden=true;get('swap-confirmation').hidden=true;dates.invalidate();dates.sync();await draft.liveRefresh();sync();}
   },
-  refresh(){settlement.refresh();scheduled.refresh();annotations.refresh();dates.invalidate();dates.sync();invalidate();},
+  refresh(){settlement.refresh();scheduled.refresh();annotations.refresh();priceSource.refresh();dates.invalidate();dates.sync();invalidate();},
   /** Reads the settlement view's state again when it is open, after the settlement command `operationId` went through, which it may have sent. */
   async reloadSettlement(operationId:string){if(settlement.isOpen())await settlement.liveRefresh(operationId);},
   // The position whose ticket or settlement view is in the host (none for a new swap), and the revision it shows.
