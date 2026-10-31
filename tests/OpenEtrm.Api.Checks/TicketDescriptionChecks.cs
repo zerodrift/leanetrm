@@ -1,0 +1,43 @@
+using System.Collections.Immutable;
+using OpenEtrm.Api;
+using OpenEtrm.MarketData;
+
+internal static class TicketDescriptionChecks
+{
+    public static void Run()
+    {
+        var passed = 0;
+        void Check(string name, Action check) { check(); passed++; Console.WriteLine($"PASS {name}"); }
+        void Reject(string name, TicketDescription description)
+        {
+            try { TicketDescriptions.Validate(description); } catch (MarketDataException error) when (error.Code == "ticket_description") { passed++; Console.WriteLine($"PASS rejects {name}"); return; }
+            throw new Exception($"Expected ticket_description for {name}.");
+        }
+        TicketField Field(string id, string state = "editable", string? band = null, string? choices = null, string? lookup = null, string? soon = null, string? rule = null, params string[] dependsOn) =>
+            new(id, id, id, "text", null, state, false, band, choices, [..dependsOn], lookup, soon, rule);
+        TicketSideKind Kind(string kind, params TicketField[] fields) => new(kind, kind, "blue", 1, 2, [..fields], []);
+        var valid = new TicketDescription("fixture", 1, "flow",
+            [Field("book"), Field("note", "info")],
+            [Kind("buy", Field("buy_start", band: "start"), Field("buy_price", band: "price", dependsOn: "buy_start")), Kind("sell", Field("sell_start", band: "start"))],
+            [new("pv", "PV", null, "money", false)], ["month", "day"], [new("terms", "Terms")], ["new", "booked"]);
+        TicketDescription WithTrade(params TicketField[] fields) => valid with { TradeFields = [..fields] };
+        TicketDescription WithBuy(params TicketField[] fields) => valid with { Sides = [Kind("buy", fields), valid.Sides[1]] };
+        Check("a valid description passes unchanged", () => { if (!ReferenceEquals(TicketDescriptions.Validate(valid), valid)) throw new Exception("Instance changed"); });
+        Reject("a field id repeated across trade and sides", WithTrade(Field("book"), Field("buy_start")));
+        Reject("a state outside the four", WithTrade(Field("book", "hidden")));
+        Reject("a soon field without hover text", WithTrade(Field("book", "soon")));
+        Reject("a soon field with choices", WithTrade(Field("book", "soon", choices: "books", soon: "later")));
+        Reject("a soon field with a lookup", WithTrade(Field("book", "soon", lookup: "books", soon: "later")));
+        Reject("a derived field without a rule", WithTrade(Field("book", "derived")));
+        Reject("a band outside the ticket band", WithTrade(Field("book", band: "footer")));
+        Reject("two fields of one side kind on a band row", WithBuy(Field("a", band: "price"), Field("b", band: "price")));
+        Reject("a dependency on an unknown field", WithTrade(Field("book", dependsOn: "missing")));
+        Reject("a row shape other than flow", valid with { RowShape = "cargo" });
+        Reject("empty levels", valid with { Levels = [] });
+        Reject("levels out of order", valid with { Levels = ["day", "month"] });
+        Reject("a level outside month, day, hour", valid with { Levels = ["week"] });
+        Reject("a minimum above the maximum", valid with { Sides = [valid.Sides[0] with { Min = 3, Max = 2 }] });
+        Reject("a maximum below one", valid with { Sides = [valid.Sides[0] with { Min = 0, Max = 0 }] });
+        Console.WriteLine($"{passed} ticket description checks passed.");
+    }
+}

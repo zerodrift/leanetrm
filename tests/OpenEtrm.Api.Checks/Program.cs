@@ -10,6 +10,7 @@ if(args is ["--position-qualification"]){await PositionQualificationChecks.Run()
 if(args is ["--book-scope"]){BookScopeChecks.Run();return;}
 if(args is ["--database-login-boundaries",var boundaryConnectionFile,var boundaryTracking]){await DatabaseLoginBoundaryChecks.Run(boundaryConnectionFile,bool.Parse(boundaryTracking));return;}
 if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
+if(args is ["--ticket-description"]){TicketDescriptionChecks.Run();return;}
 if(args is ["--booked-programs",var bookedProgramsFixture]){await BookedProgramStorageChecks.Run(bookedProgramsFixture);return;}
 if(args is ["--ppa-blotter-admission"]){await PpaBlotterAdmissionChecks.Run();return;}
 if(args is ["--position-facts"]){TradePositionFactsChecks.Run();return;}
@@ -95,6 +96,7 @@ if (args is ["--schedules"])
     SideObservationCompatibilityChecks.Run();
     ContractObservationAuthoringChecks.Run();
     SchedulePreviewChecks.Run();
+    TicketDescriptionChecks.Run();
     DateWorkspaceChecks.Run();
     SchedulePublicationChecks.Run();
     DirectReadChecks.ReportsDifferences();
