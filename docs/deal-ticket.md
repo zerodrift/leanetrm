@@ -340,6 +340,32 @@ Other pages may adopt the theme; moving them is not part of this project.
 Each move keeps the product's booking contract and removes its old editor
 (no backwards compatibility: there is one entry screen per product, the ticket).
 
+## Current implementation
+
+Physical gas has a description (`physical_gas` v1) and returns a schedule view
+from its preview and booked read; the ticket screen is not built yet.
+
+- Quantities and amounts carry the side's direction: delivered gas and paid
+  cash are negative. Clients show them as reported and never re-sign them or
+  take absolute values. Prices are not signed.
+- A numeric cell is an exact decimal, or an exact `a/b` ratio when the value
+  has no exact decimal at the working scale (a fuel-linked delivery, for
+  example). `trade.payment_at` is an ISO-8601 UTC instant. A blank cell means
+  the level has no value there; it is never zero.
+- When a view cannot be built, the result keeps its valuation and sides, with
+  `schedule: null`, `summaries: null` and `scheduleRefusal: {code, message}`;
+  for example, physical sides on different gas-day clocks.
+- `summaries[].againstMarket` is not defined yet and is always null, so no
+  "vs market" line is drawn.
+- The description caps cash and fee sides at four together, as the booking
+  contract does.
+- Current gas limits: no delivered/remaining split once delivery has started
+  (a started delivery is refused), one forward month, and fixed-offset gas-day
+  clocks.
+- The preview returns `schedule`, `summaries` and `scheduleRefusal` at the top
+  level; the booked read nests the same fields under `valuation`, beside
+  `terms`.
+
 ## Dependencies and order
 
 1. The [Blotter workbench](blotter-workbench.md) merges first. The ticket builds
