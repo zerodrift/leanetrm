@@ -116,13 +116,20 @@ public sealed partial class SwapStore
         string Period((DateOnly From,DateOnly To) p)=>$"The {Date(p.From)} to {Date(p.To)} period";
         var state=await SettlementState(connection,selected.TradeId,ct);
         var occurrences=state.GetProperty("occurrences").EnumerateArray().ToDictionary(o=>o.Id("id"));
-        // Settlement counts only for the head revision's own binding. A determination made under another revision is not
-        // matched to this one's periods, nor silently left out: whether those periods are settled is then ambiguous.
+        // A determination settles a side's period under the revision it was made at and every later one: an amendment keeps
+        // settled periods' terms (settlement_data.guard_swap_amendment) but may give the swap a new binding, so a determination
+        // counts by its side and period, not by binding. One whose side and period match no period of the head revision, or
+        // that was made under a later revision than the head, is not silently left out: the draft is refused.
         var revision=int.Parse(row.Text("revision"),CultureInfo.InvariantCulture);
+        var periodKeys=deliveries.SelectMany(p=>new[]{(0,p.From,p.To),(1,p.From,p.To)}).ToHashSet();
         var determined=state.GetProperty("determinations").EnumerateArray().Select(d=>occurrences[d.Id("occurrence_id")]).Select(o=>
-            int.Parse(o.Text("origin_revision"),CultureInfo.InvariantCulture)==revision&&o.Id("origin_binding_id")==selected.BindingId?
-                (Membership:o.GetProperty("membership_ordinal").GetInt32(),From:Date(o.Text("delivery_from")),To:Date(o.Text("delivery_to"))):
-                throw CloseOutTerms.Refused($"A settlement of this swap was determined under revision {o.Text("origin_revision")}, not its current revision {revision}. Review its settlement before closing it out.")).ToHashSet();
+        {
+            var key=(Membership:o.GetProperty("membership_ordinal").GetInt32(),From:Date(o.Text("delivery_from")),To:Date(o.Text("delivery_to")));
+            if(int.Parse(o.Text("origin_revision"),CultureInfo.InvariantCulture)>revision)
+                throw CloseOutTerms.Refused($"A settlement of this swap was determined under revision {o.Text("origin_revision")}, later than its current revision {revision}.");
+            return periodKeys.Contains(key)?key:
+                throw CloseOutTerms.Refused($"A settlement determined for the {Date(key.From)} to {Date(key.To)} period of side {key.Membership+1} matches no period of the current revision, so what remains open is ambiguous.");
+        }).ToHashSet();
         var open=new List<int>();var settled=0;
         for(var n=0;n<deliveries.Length;n++)
         {

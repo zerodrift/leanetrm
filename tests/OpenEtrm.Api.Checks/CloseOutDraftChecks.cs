@@ -103,6 +103,17 @@ internal static class CloseOutDraftChecks
             Strings(periods,"price").SequenceEqual(remaining.Select(p=>p.Text("februaryMark")))&&
             Strings(periods,"quantity").SequenceEqual(remaining.Select(p=>p.Text("quantity")))&&
             terms.GetProperty("scheduled").GetProperty("second").GetProperty("periods").GetArrayLength()==2,draft);
+        // Settlement determined under an earlier revision still settles the same periods of the amended revision.
+        var amendedSettled=Position("amendedSettled");
+        try
+        {
+            draft=await Draft("february",amendedSettled);periods=draft.GetProperty("periods");
+            Check("a swap settled across an amendment excludes its two settled periods and drafts the amended March",
+                amendedSettled.GetProperty("revision").GetInt32()==2&&draft.GetProperty("settledPeriodsExcluded").GetInt32()==2&&
+                Strings(periods,"from").SequenceEqual(["2021-03-01","2021-04-01"])&&Strings(periods,"quantity").SequenceEqual(["350","400"])&&
+                Strings(periods,"price").SequenceEqual(remaining.Select(p=>p.Text("februaryMark"))),draft);
+        }
+        catch(MarketDataException error){Check("a swap settled across an amendment excludes its two settled periods and drafts the amended March",false,new{error.Code,error.Message});}
         await Refused("a period settled on one side only refuses the whole draft and names that period",()=>Draft("february",Position("partlySettled")),"2021-01-01","settled on one side only");
         // Settlement recorded after a cutoff is not known under it: the same close then sees January fixed and unsettled.
         var unsettled=fixture.GetProperty("unsettledContext").Deserialize<ScheduleContext>(Json)!;

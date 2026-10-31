@@ -80,10 +80,10 @@ def run_checks(url,query,dotnet,owned_root,environment):
     # The knowledge the February close had before any of it was settled.
     unsettled=client.call('swaps/editor',{'context':settlement_context,'tradeId':settled,'revision':None})['context']
     currency=client.call('swaps/editor',{'context':swap_context,'tradeId':scheduled,'revision':None})['valuation']['currency']
-    def determine(trade,membership,period):
-        version=client.call('swaps/settlement/inspect',{'context':settlement_context,'tradeId':trade,'revision':None,'duePolicy':'swap_due_nominal_v1',
+    def determine(trade,membership,period,context=settlement_context,revision=1):
+        version=client.call('swaps/settlement/inspect',{'context':context,'tradeId':trade,'revision':None,'duePolicy':'swap_due_nominal_v1',
                                                          'recognitionPolicy':'swap_completed_period_trading_pnl_v1'})['settlement']['version']
-        request={'context':settlement_context,'tradeId':trade,'expectedRevision':1,'membershipOrdinal':membership,'paymentOrdinal':period,
+        request={'context':context,'tradeId':trade,'expectedRevision':revision,'membershipOrdinal':membership,'paymentOrdinal':period,
                  'currency':currency,'decimalPlaces':2,'roundingPolicy':'currency_minor_units_to_even_v1'}
         calculation=client.call('swaps/settlement/preview',request)
         client.call('swaps/settlement/determine',{'preview':request,'operationId':str(uuid4()),'expectedVersion':version,'previewHash':calculation['previewHash'],
@@ -92,6 +92,16 @@ def run_checks(url,query,dotnet,owned_root,environment):
         for membership in (0,1):
             for trade in (settled,contract_total):determine(trade,membership,period)
     determine(partly,0,0)
+    # Settlement across an amendment (a supported lifecycle): January's and February's fixed sides settle at revision 1, before
+    # any fixing; March's amounts are then amended, which an amendment allows only before fixings; the floating sides settle at
+    # the February close under revision 2. Its occurrences come from both revisions, and the amendment gives it a new binding.
+    amended_settled_terms=scheduled_terms()
+    amended_settled=client.call('swaps/book',amended_settled_terms)['tradeId']
+    for period in (0,1):determine(amended_settled,0,period,context=swap_context)
+    amendment={**amended_settled_terms,'operationId':str(uuid4()),'tradeId':amended_settled,'expectedRevision':1,'effectiveAt':booking['at'],'reason':'Synthetic March quantity correction'}
+    for name in ('first','second'):amendment['scheduled'][name]['periods'][2]['amount']='350'
+    assert client.call('swaps/amend',amendment)['revision']==2
+    for period in (0,1):determine(amended_settled,1,period,revision=2)
 
     # The oracle marks: each period's one projected reset price in the swap editor's own valuation of the unsettled swap.
     def marks(frame):
@@ -120,7 +130,7 @@ def run_checks(url,query,dotnet,owned_root,environment):
                                           legalEntityId=trade_booking()['legalEntityId'],counterpartyId=trade_booking()['counterpartyId']),
                           'amendedFuture':position(amended),'swap':position(swap,quantity='100',mark=rows[swap]['mark']),
                           'scheduled':position(scheduled,periods=[{'from':start,'quantity':amount,'bookingMark':booking_marks[start],'februaryMark':february_marks.get(start)} for (start,_),amount in zip(PERIODS,amounts)]),
-                          'settled':position(settled),'partlySettled':position(partly),'contractTotal':position(contract_total),
+                          'settled':position(settled),'partlySettled':position(partly),'contractTotal':position(contract_total),'amendedSettled':position(amended_settled),
                           'shortFuture':position(short),'floatFloat':position(float_float),'averaged':position(averaged)}}
     path=Path(owned_root)/'close-out-drafts.json';path.write_text(json.dumps(fixture))
     repository=Path(__file__).resolve().parents[1]
