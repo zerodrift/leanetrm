@@ -583,7 +583,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
 
     // A result with the knowledge it was read at (§7.2): the turn's pinned context and cutoff, or for current-only
     // definitions and operational records the instant they were read, never the cutoff; the As of frame where the read
-    // consumed one; the handle of its own target (§7.3); and, from turns_v10, the Blotter's layout its page report states (D263).
+    // consumed one; the handle of its own target (§7.3); and, from turns_v10, the Blotter's layout its page report states (D270).
     internal static JsonObject Envelope(TurnPin pin,ToolOperation operation,DateTimeOffset readAt,ToolResult result,string target,BlotterLayout? layout=null)
     {
         var context=operation.Needs is ToolNeeds.CurrentOnly or ToolNeeds.CurrentOnlyFrame or ToolNeeds.Operational

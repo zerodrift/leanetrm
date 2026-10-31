@@ -553,7 +553,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           and [(s['code'], s['operation'], s['input'], s['access']) for s in steps(disabled)] == [('tool_not_enabled', None, {}, [])], offered)
 
     # The Blotter's layout reaches the model with Read current page's result on the Blotter, as its page report states it, and with no
-    # other result (D263).
+    # other result (D270).
     layout = {'pane': {'details': True, 'charts': False}, 'poppedOut': False}
     fake.respond(stream(tool_use(model_name, [('toolu_layout_1', 'read_current_page', {}), ('toolu_layout_2', 'read_trades', BLOTTER)])),
                  stream(recording(model_name, text='The details are open.')))

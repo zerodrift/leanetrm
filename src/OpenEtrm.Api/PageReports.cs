@@ -7,7 +7,7 @@ namespace OpenEtrm.Api;
 // A page report's page, the read its selection names, once it parses, and the Blotter's layout where it states one.
 sealed record PageRead(string Page,ToolCall? Call,BlotterLayout? Layout);
 
-// What the Blotter showed of its panes and window when the question was asked (D263): whether its details and charts were
+// What the Blotter showed of its panes and window when the question was asked (D270): whether its details and charts were
 // open, each the shown tab of its group in the panes as drawn and not put away, and whether it was in a window of its own.
 sealed record BlotterLayout(bool Details,bool Charts,bool PoppedOut);
 

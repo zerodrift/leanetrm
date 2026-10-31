@@ -70,7 +70,7 @@ its stored events after a sequence, read in their own request context with the r
 recheck, then each piece of answer text the worker publishes once its publication
 recheck has committed, with every other event, steps included, read the same way,
 through to the turn's terminal event, with resume, heartbeats, one stream per turn and
-the refusals §8 lists; the runtime set is `turns_v10` (D193, D239, D245, D260, D263). `ReadModelUsage` reads usage
+the refusals §8 lists; the runtime set is `turns_v10` (D193, D239, D245, D260, D270). `ReadModelUsage` reads usage
 through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and the
 exact cost of priced calls by model, user or agent over a half-open range of local dates
 in a zone prefilled from Profile, a call falling on the day whose bounds hold its start,
@@ -685,7 +685,7 @@ The tool set is fixed; each tool is switched on per agent version.
   operation is `navigation.target_v1`; `turns_v5` adds the curve catalog and
   preparation, `turns_v6` the job reads, `turns_v9` `custom_curves.save_draft_v1`,
   the one write (D260), and `turns_v10` the Blotter's layout on Read current page's
-  result (D263). Contract definitions are read with the schedule
+  result (D270). Contract definitions are read with the schedule
   library, under the one bind a request makes, so the page and the tool share that read.
   A result names its operation, the knowledge it was read at (the pinned context and
   cutoff, or for current-only definitions the read instant) and the frame it consumed,
@@ -901,7 +901,7 @@ The tool set is fixed; each tool is switched on per agent version.
   reports (`blotter` and the `blotter_*` pages) may also carry exactly
   `"layout":{"pane":{"details","charts"},"poppedOut"}`, each a flag: whether its details
   and charts panes were open, each the shown tab of its group in the panes as drawn and
-  not put away, and whether the Blotter was in a window of its own (D263). Looking at
+  not put away, and whether the Blotter was in a window of its own (D270). Looking at
   shows the layout as it shows the selection, so a pane opened or closed since it was
   shown refuses the send as a page change, as any other change does; Read current
   page's result on `blotter` names it, and no other result does.
@@ -1090,7 +1090,7 @@ credential entries read only "key replaced".
   explicit choice (D45) only while it is listed, otherwise "Choose an agent" with the
   composer disabled. A conversation is locked to its agent; another choice starts a
   new conversation.
-- **Looking at:** the page, selection, the Blotter's layout where it reports one (D263)
+- **Looking at:** the page, selection, the Blotter's layout where it reports one (D270)
   and context the next question will pin, or that the page is not supported. The ask
   sends exactly this.
 - **Conversation:** questions; collapsible step lines; streamed answers, incomplete

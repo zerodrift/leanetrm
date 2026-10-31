@@ -493,7 +493,7 @@ static class AgentToolChecks
         Console.WriteLine("PASS a request for a tool the version has not switched on is refused tool_not_enabled before any read");
     }
 
-    // The Blotter's page report may also say which of its panes are open and whether it is in a window of its own (D263), exactly
+    // The Blotter's page report may also say which of its panes are open and whether it is in a window of its own (D270), exactly
     // {pane:{details,charts},poppedOut}, on the pages the Blotter reports and no other. Read current page carries it with the read
     // the report dispatches, under turns_v10.
     static void BlotterLayouts()

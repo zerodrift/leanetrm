@@ -1,10 +1,18 @@
 # Blotter workbench
 
-Status: proposed design, not implementation evidence. It builds on
+Status: implemented locally; not qualified for production. It builds on
 [blotter-desk.md](blotter-desk.md) and replaces that document's desk layout
-and position expansion. Decisions it introduces are listed under
-[Decisions to record](#decisions-to-record) and are added to
-[decisions.md](decisions.md) when implementation starts.
+and position expansion. Its decisions are D271–D276 in
+[decisions.md](decisions.md) (the page report's layout is D270).
+Local page performance: the Blotter p50/p95 was 555/618 ms against the 1000 ms
+budget on a synthetic fixture (24 trades, 16 swaps, 92 contracts, 12 curves,
+40 ms latency, 5 samples); that is a local figure, not a qualification.
+
+Remaining:
+
+- **Hedge…** is left out of the row menu at the owner's request.
+- Streamed "shown of total" copy during first load.
+- A page-performance qualification beyond the local figure above.
 
 ## Why
 
@@ -313,7 +321,10 @@ scope here.
    validates saved layouts.
 3. Nothing else; streaming valuation is its own design.
 
-## Decisions to record
+## Decisions recorded
+
+D271 (grid and details pane), D272 (saved layout), D273 (pop-out), D274
+(close-out drafts), D275 (first load), D276 (busy refusal). The original list:
 
 - The Blotter grid is built once and updated in place; destroying it is
   limited to the cases above.

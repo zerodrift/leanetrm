@@ -5,7 +5,7 @@ import {grantPhrase,type Vendor} from './agent-grants.js';
 import {readPages,type Step,type Ending,type Usage,type TargetContext} from './assistant-events.js';
 
 /**
- * What the Blotter shows of its panes and window, which its report states beside the selection (D263). A pane is open when it is the shown
+ * What the Blotter shows of its panes and window, which its report states beside the selection (D270). A pane is open when it is the shown
  * tab of its group in the panes as drawn and is not put away: one behind another tab of its group is not open. A narrow page draws every
  * pane in one group, so there only the pane that group shows is open (dock-model openTabs). `poppedOut`: the Blotter is in a window of its own.
  */
