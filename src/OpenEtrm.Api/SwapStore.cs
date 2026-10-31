@@ -294,39 +294,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
  // History callers retain every visible revision and the same exact projections.
  internal async Task<ImmutableArray<JsonElement>> Rows(NpgsqlConnection connection,Guid? trade,CancellationToken ct,ImmutableArray<Guid>? latestBooks=null)
  {
-  var rows=await PreviewDatabase.Rows(connection,"""
-  WITH visible_revisions AS MATERIALIZED(
-   SELECT r.* FROM trading.swap_trade_revisions r
-   WHERE r.catalog_id=$1 AND($2::uuid IS NULL OR r.trade_id=$2)
-  ), latest_revisions AS MATERIALIZED(
-   SELECT DISTINCT ON(catalog_id,trade_id) * FROM visible_revisions WHERE $3::boolean
-   ORDER BY catalog_id,trade_id,revision DESC
-  ), selected_revisions AS MATERIALIZED(
-   SELECT * FROM visible_revisions WHERE NOT $3::boolean
-   UNION ALL
-   SELECT * FROM latest_revisions WHERE cardinality($4::uuid[])=0 OR book_id=ANY($4::uuid[])
-  ), projected AS MATERIALIZED(
-   -- Render the selected set once; a per-revision lateral join repeats protected scans.
-   SELECT p.* FROM trading.swap_revision_projection p
-   WHERE p.catalog_id=$1 AND($2::uuid IS NULL OR p.trade_id=$2) AND EXISTS(
-    SELECT 1 FROM selected_revisions r
-    WHERE(p.catalog_id,p.trade_id,p.revision,p.binding_id)=(r.catalog_id,r.trade_id,r.revision,r.binding_id))
-  ), rendered AS MATERIALIZED(
-   SELECT to_jsonb(v)||jsonb_build_object('recorded_at',k.known_from) AS payload,r.catalog_id,r.trade_id,r.revision,r.binding_id
-   FROM selected_revisions r
-   JOIN projected v ON(v.catalog_id,v.trade_id,v.revision,v.binding_id)=(r.catalog_id,r.trade_id,r.revision,r.binding_id)
-   JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order)
-  )
-  SELECT payload FROM(
-   SELECT payload::text,trade_id,revision FROM rendered v
-   UNION ALL
-   SELECT json_build_object('__missing_swap_revision',true)::text,NULL::uuid,NULL::integer
-  WHERE $3::boolean AND EXISTS(
-   SELECT 1 FROM selected_revisions required WHERE NOT EXISTS(
-    SELECT 1 FROM rendered actual WHERE(actual.catalog_id,actual.trade_id,actual.revision,actual.binding_id)=
-     (required.catalog_id,required.trade_id,required.revision,required.binding_id)))
-  )result ORDER BY trade_id,revision
-  """,[manifest.CatalogId,trade is {} id?id:DBNull.Value,latestBooks.HasValue,latestBooks.GetValueOrDefault().IsDefault?Array.Empty<Guid>():latestBooks.GetValueOrDefault().ToArray()],ct);
+  var rows=await PreviewDatabase.Rows(connection,"SELECT x::text FROM trading.read_swap_revisions($1,$2,$3,$4) x ORDER BY (x->>'trade_id')::uuid,(x->>'revision')::integer",[manifest.CatalogId,trade is {} id?id:DBNull.Value,latestBooks.HasValue,latestBooks.GetValueOrDefault().IsDefault?Array.Empty<Guid>():latestBooks.GetValueOrDefault().ToArray()],ct);
   // A visible selected parent cannot disappear through a separately authorized
   // required child join. Compare exact keys in the same statement/snapshot.
   if(rows.Any(row=>row.TryGetProperty("__missing_swap_revision",out _)))throw new PreviewDeniedException();
