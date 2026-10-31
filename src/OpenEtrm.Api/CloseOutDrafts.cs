@@ -43,10 +43,12 @@ public sealed partial class TradeReads
 {
     public Task<object> CloseOutDraft(NpgsqlConnection connection,TradingView view,CloseOutDraftRequest request,CancellationToken ct)
     {
-        if(request.InstrumentType is "heat_rate" or "ppa")throw CloseOutTerms.Refused($"Close-out drafts are not available for {request.InstrumentType} yet.");
         var selected=TradePositionSelection.From(new(request.Context,request.TradeId,request.BindingId,request.Revision,request.InstrumentType));
         return ReadBound(connection,view,async()=>
         {
+            // Authority first, as for the position the draft closes, then what the backend cannot draft.
+            await RequireReadTrades(connection,ct);
+            if(request.InstrumentType is "heat_rate" or "ppa")throw CloseOutTerms.Refused($"Close-out drafts are not available for {request.InstrumentType} yet.");
             var data=await database.Read(connection,ct,observationIds:view.Frame.ObservationIds,
                 referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
             try

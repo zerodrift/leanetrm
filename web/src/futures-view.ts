@@ -23,10 +23,10 @@ import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
 import type {BlotterSelection,EntryShown,TradeShown} from './assistant-pages.js';
 import {isPriceMeasure,priceMeanPolicy,blotterColumns,blotterDockRules,defaultBlotterArrangement,deskFields,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,rowGroups,sidebarViews,withoutColumns,type BlotterView,type RowGroup} from './blotter-layout.js';
 import {setupDock} from './dock.js';
-import {createBlotterOperations,guard,refuse,requireModeColumns,type BlotterCaller,type BlotterOperation} from './blotter-operations.js';
+import {acting,createBlotterOperations,guard,refuse,requireModeColumns,type BlotterCaller,type BlotterOperation} from './blotter-operations.js';
 import {rowMenuItems,type RowMenuAction} from './blotter-row-menu.js';
 import {openBlotterChannel,type EndReason} from './blotter-channel.js';
-import {tieMainWindow,type BlotterContext,type BlotterHeld,type BlotterQuestion} from './blotter-popout.js';
+import {retainedActions,tieMainWindow,type BlotterContext,type BlotterHeld,type BlotterQuestion} from './blotter-popout.js';
 import {setupMenu} from './context-menu.js';
 import {closeOutRefusal,closeOutRequest,readCloseOutDraft} from './close-out-draft.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
@@ -121,14 +121,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
   // bindings. No row is drawn from it.
   let facts:PositionFacts|undefined,pricingRead:Promise<void>=Promise.resolve(),pricingController:AbortController|undefined;
   const factPageSize=64;
-  // A read draws no row before its values: a bar and a status line over the rows say what is happening, or why the read failed, with Retry.
-  type Loading={state:'reading'}|{state:'valuing';total:number}|{state:'failed';reason:string};
+  // A read draws no row before its values: a bar and a status line over the rows say what is happening, or why the read failed, with Retry:
+  // the valuation, or the count of the positions read beside it.
+  type Loading={state:'reading'}|{state:'valuing';total:number}|{state:'failed';read:'count'|'valuation';reason:string};
   let loading:Loading|undefined;
   get('desk-positions').before(get('blotter-progress'),get('blotter-load-status'));
   function showLoad(next:Loading|undefined){
     loading=next;get('blotter-progress').hidden=!next||next.state==='failed';get('blotter-load-status').hidden=!next;get('blotter-retry').hidden=next?.state!=='failed';
     // Streamed batches (acceptValuedRows) will say "Valuing positions · <shown> of <total>" once rows are drawn as they arrive.
-    text('blotter-load-text',!next?'':next.state==='reading'?'Valuing positions':next.state==='failed'?`Valuation failed · ${next.reason}`:`Valuing ${next.total} positions`);
+    text('blotter-load-text',!next?'':next.state==='reading'?'Valuing positions':next.state==='failed'?`${next.read==='count'?'Counting positions failed':'Valuation failed'} · ${next.reason}`:`Valuing ${next.total} positions`);
   }
   // The valued rows of the read under way, in the backend's order, as they have arrived.
   let arrived:Holding[]=[];
@@ -266,14 +267,14 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
   const tie=options.window.kind==='main'&&options.window.example?tieMainWindow({source:location.href,example:options.window.example,grace:3000,session:()=>crypto.randomUUID(),
     channel:openBlotterChannel,open:options.window.open,context:popoutContext,returned:cameBack,reported:()=>{options.reported();options.unsavedChanged();},ask:askAbout}):undefined;
   const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
-    queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
+    queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
   const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
     ask:question=>detailsPane.ask(question),
-    queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
+    queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   // The form of a new future, which the panel hosts as it hosts the forms of the amendments. What it books is kept as the request it was first sent as.
   const booking=setupFuturesBooking({api,act,busy,zone:options.zone,context:readContext,catalog:()=>catalog,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
-    book:async body=>{const command=pending.begin('futures/book',body,undefined,'New futures trade');store();sync();await send(command);}});
+    book:async body=>{takeHanded();const command=pending.begin('futures/book',body,undefined,'New futures trade');store();sync();await send(command);}});
   // The details below the positions: a position's curve, terms, risk and history, and the form of its amendment, a new trade or the risk
   // report. Opening a row opens it; Amend puts the amendment's form in the Terms tab, and a new trade has the whole pane, its form beneath a
   // Future | Swap switch. Collapsing the details returns focus to the row; on a narrow page the positions are shown again instead (modeChanged).
@@ -359,15 +360,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
   // An action of the person's that gives the panel's form up, by reading the Blotter again, which closes the panel, or by leaving it,
   // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
   // control disabled; and is refused, saying so, when the page is or became busy (guard). `kept` hears that the person kept them, for a
-  // control that has already changed. An operation's handler hears a refusal; the person's other controls show it (asked).
+  // control that has already changed. An operation's handler hears a refusal, and a failure the page has said (acting); the person's other
+  // controls show a refusal, and leave a failure to what said it (asked).
   const guarded=(work:()=>Promise<void>,kept?:()=>void)=>guard({busy,leave,act},work,kept);
-  const asked=(work:()=>Promise<void>,kept?:()=>void)=>void guarded(work,kept).catch(options.failed);
-  // Work run as the person's action whose failure, which the page has said, is the operation's too, so whoever dispatched it hears it.
-  async function acted(work:()=>Promise<void>){
-    let failed:unknown;
-    await guarded(async()=>{try{await work();}catch(error){failed=error;throw error;}});
-    if(failed!==undefined)throw Object.assign(failed instanceof Error?failed:Error(String(failed)),{shown:true});
-  }
+  const asked=(work:()=>Promise<void>,kept?:()=>void)=>void guarded(work,kept).catch(error=>{if((error as {shown?:boolean}).shown!==true)options.failed(error);});
   // Leaving the Blotter: no read, form or position of it stays.
   function leavePage(){cancelRead();dropForms();deskPanel.reset();}
   // A trade request whose outcome is not confirmed is owned by the window that sent it, which keeps its Check status and Retry.
@@ -659,14 +655,17 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
   }
   // Whether the pop-out's unconfirmed requests can go to the main window's storage, or why not: another request there is never overwritten,
   // and one that cannot be read is never taken for this one.
+  // Each says what this window can then do with what it keeps (retainedActions).
+  const retainedKinds=()=>({trade:!!pending.command,risk:risk.unconfirmed()});
   function handOverRefusal(storage:Storage):string|undefined{
+    const keeps=()=>retainedActions(retainedKinds());
     try{
       const there=storage.getItem(requestKey(false));
       if(pending.command&&there!==null&&restoreTradeRequest(JSON.parse(there))?.operationId!==pending.command.operationId)
-        return 'The main window already holds another unconfirmed trade request, so this window keeps its own: check its status or retry it here.';
+        return `The main window already holds another unconfirmed trade request, so this window keeps its own: ${keeps()}.`;
       if(risk.unconfirmed()&&(storage.getItem(submissionKey())!==null||storage.getItem(keptSubmissionKey())!==null))
-        return 'The main window already holds a risk submission handed to it, so this window keeps its own: reconcile it here.';
-    }catch{return 'The main window’s stored requests could not be read, so this window keeps its own: check their status here.';}
+        return `The main window already holds a risk submission handed to it, so this window keeps its own: ${keeps()}.`;
+    }catch{return `The main window’s stored requests could not be read, so this window keeps its own: ${keeps()}.`;}
     return undefined;
   }
   // The pop-out hands its unconfirmed trade request and risk submission to the main window's storage, under the account's keys there, as the
@@ -678,11 +677,14 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
     try{
       if(pending.command)storage.setItem(requestKey(false),JSON.stringify(pending.command));
       if(submission)storage.setItem(submissionKey(),JSON.stringify(submission));
-    }catch{return 'The main window could not store the requests this window holds, so it keeps them: check their status here.';}
+    }catch{return `The main window could not store the requests this window holds, so it keeps them: ${retainedActions(retainedKinds())}.`;}
     if(pending.command){pending.clear();uncertain=false;store();}
     if(submission)risk.handedOff();
     sync();return undefined;
   }
+  // A request a pop-out handed over waits in this window's storage until its next idle look. A command of this window's own takes it over
+  // first, so that storing the command never writes over it, and the command is then refused while it is outstanding, as any is (D238).
+  function takeHanded(){if(takeStoredRequest())sync();}
   function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The current visit still retains the exact in-memory request. */}}
   function restore(){
     if(owner===options.profile()){takeStoredRequest();return;}
@@ -713,9 +715,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
   function drawStrip(){
     const host=get('blotter-strip');
     if(holdings&&summaries){strip=summaryStripItems(summaries,{count:holdings.holdings.length,unvalued:holdings.unvaluedPositions},stripRisk(),money);renderSummaryStrip(host,strip);return;}
-    if(kept?.strip){renderSummaryStrip(host,staleStripItems(kept.strip,loading?.state==='failed'?failedStale:staleReason));return;}
+    if(kept?.strip){renderSummaryStrip(host,staleStripItems(kept.strip,loading?.state==='failed'?failedStale[loading.read]:staleReason));return;}
     if(!facts){host.replaceChildren();return;}
-    renderSummaryStrip(host,waitingStripItems(loading?.state==='failed'?{state:'unavailable',reason:'Retry to value again'}:{state:'pending',reason:'Complete selected scope is being valued'},facts.total,money));
+    renderSummaryStrip(host,waitingStripItems(loading?.state==='failed'?{state:'unavailable',reason:loading.read==='count'?'Retry to read again':'Retry to value again'}:{state:'pending',reason:'Complete selected scope is being valued'},facts.total,money));
   }
   // What the run bar says of the run on screen, or nothing while there is none.
   function showRunBar(){
@@ -848,7 +850,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
   function clear(){clearRead(false);}
   // A read again keeps on screen what the read before drew, its rows and the summary strip, charts and summary line, all marked stale
   // with the reason until the new values land.
-  const staleReason='Reading the Blotter again · these values are from the previous read.',failedStale='The Blotter could not be valued again · these values are from the previous read.';
+  const staleReason='Reading the Blotter again · these values are from the previous read.',failedStale={
+    valuation:'The Blotter could not be valued again · these values are from the previous read.',count:'The positions could not be counted again · these values are from the previous read.'};
   // Each pane that keeps values on screen says why itself, so the reason shows whichever panes are open.
   const staleNote=(id:string,host:HTMLElement)=>{const note=document.createElement('p');note.id=id;note.className='table-stale-note';note.setAttribute('role','status');note.hidden=true;host.prepend(note);return note;};
   const staleNotes=[staleNote('desk-stale-note',get('desk')),staleNote('charts-stale-note',get('blotter-pane-charts')),staleNote('details-stale-note',get('blotter-pane-details'))];
@@ -867,6 +870,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
     const keepDetails=keepGrid&&panel.current()?.kind==='position';
     if(keepGrid){if(!keepDetails)table?.selectRow(null);markStale(staleReason);}else markStale(null);
     cancelRead();facts=undefined;arrived=[];showLoad(undefined);get('futures-page').dataset.pricingState='empty';delete get('futures-page').dataset.pricingContext;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';ladderTable=undefined;ladderShown=undefined;inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;if(!keepDetails)deskPanel.reset();lastReadRequest=undefined;text('header-calculation-time','');
+    // The summary strip kept is drawn stale now: a read for the priced contracts reads no position count, which would draw it.
+    if(keepGrid)drawStrip();
     if(!keepGrid){get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');}
     sync();}
   // Starts the Blotter afresh: for another close or context, or for the Blotter opened again, each of which says so of a risk run it
@@ -1101,11 +1106,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
    * and the grid refuses rows added under groups (data-grid appendRows).
    */
   function acceptValuedRows(batch:Holding[]){arrived=[...arrived,...batch];if(holdings)render();}
-  // A read whose values failed keeps what the previous read drew, marked stale, or, on a first load, no rows; the grid pane says why, with Retry.
-  function valuationFailed(error:unknown){
+  // A read whose values or count failed keeps what the previous read drew, marked stale, or, on a first load, no rows; the grid pane says which
+  // failed and why, with Retry.
+  function readFailed(error:unknown,read:'count'|'valuation'){
     get('futures-page').dataset.pricingState='failed';
-    showLoad({state:'failed',reason:error instanceof Error&&error.message?error.message:'The positions could not be valued.'});
-    if(kept)markStale(failedStale);
+    showLoad({state:'failed',read,reason:error instanceof Error&&error.message?error.message:read==='count'?'The positions could not be counted.':'The positions could not be valued.'});
+    if(kept)markStale(failedStale[read]);
     drawStrip();sync();
   }
   async function load(bookingCatalog:BookingCatalog='directory',live=false,background=false){
@@ -1124,7 +1130,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
     const selectedView={mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:view.mode==='pivot'?[...view.groupBy]:[],measures:view.mode==='pivot'?[...view.measures]:[],pivotConvention:view.mode==='pivot'?'trading_blotter_totals_v1':null,priceNumericalPolicy:view.mode==='pivot'&&view.measures.some(m=>isPriceMeasure(m)&&m.endsWith('Mean'))?priceMeanPolicy:null};
     const summaryViews=deskSummaryViews(view.bookIds,view.portfolioIds);
     get('futures-page').dataset.pricingState='pending';if(!live)showLoad({state:'reading'});
-    let factsRead:Promise<void>=Promise.resolve();
+    let factsRead:Promise<void>=Promise.resolve(),countFailed:unknown;
     try{
       if(!live&&bookingCatalog==='directory'){
         const directory=await api<Catalog>('trading/directory',{...request,convention:'trading_workspace_v1'});
@@ -1141,8 +1147,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
           facts=read;if(get('futures-page').hidden||holdings)return;
           if(loading?.state==='reading')showLoad({state:'valuing',total:read.total});
           get('desk').hidden=false;drawStrip();if(!keep)options.onReadContext(read.asOf,read.context.knownAt);sync();
-        })();
-        // Its failure is the valuation's, which awaits it.
+        })().catch(error=>{countFailed=error;throw error;});
+        // The valuation awaits it, and fails with it; the failure is then said as the count's own.
         factsRead.catch(()=>undefined);
       }
     }catch(error){if(started===generation)clear();throw error;}
@@ -1176,7 +1182,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
         if(whereAmI()!==scope){if(controller)return;clear();throw error;}
         if((error as {code?:string}).code==='access_denied')clear();
         // A Blotter read whose values were not drawn says why, once the count read beside it is in, and keeps what the previous read drew.
-        else if(!live&&bookingCatalog==='directory'&&!holdings){await factsRead.catch(()=>undefined);if(started!==generation||get('futures-page').hidden)return;valuationFailed(error);}
+        else if(!live&&bookingCatalog==='directory'&&!holdings){await factsRead.catch(()=>undefined);if(started!==generation||get('futures-page').hidden)return;readFailed(error,error===countFailed?'count':'valuation');}
         else if(!live)clear();
         else{get('futures-page').dataset.pricingState='failed';if(shapes===undefined)noShapes('the refresh that interrupted their read failed');}
         if(background&&!live&&bookingCatalog==='directory'){options.failed(error);return;}
@@ -1383,12 +1389,12 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
     }),
     // Grouping arranges the rows already read; every grouping's subtotals came with them. A grouping the read cannot show is refused in the
     // banner, and the grouping on screen stays.
-    groupRows:async({rowGroup})=>act(async()=>{
+    groupRows:async({rowGroup})=>acting(act,async()=>{
       const shown=view.rowGroup;captureLayout();view.rowGroup=rowGroup;field('blotter-row-group').value=rowGroup??'';
       try{render();}catch(error){view.rowGroup=shown;field('blotter-row-group').value=shown??'';throw error;}
     }),
-    sort:async({sort})=>act(async()=>{rowColumns(sort.map(s=>s.key));captureLayout();view.grid={...view.grid,sort};render();}),
-    filter:async({query,columns})=>act(async()=>{rowColumns(Object.keys(columns));captureLayout();view.query=query;view.columnFilters={...columns};render();}),
+    sort:async({sort})=>acting(act,async()=>{rowColumns(sort.map(s=>s.key));captureLayout();view.grid={...view.grid,sort};render();}),
+    filter:async({query,columns})=>acting(act,async()=>{rowColumns(Object.keys(columns));captureLayout();view.query=query;view.columnFilters={...columns};render();}),
     chooseColumns:async({columns})=>{requireModeColumns(view,columns);captureLayout();view.columns=columns;render();},
     // A position opens only from the read on screen; no position closes the details that show one, asking first about their edits.
     selectPosition:async({key},{placed})=>{
@@ -1404,21 +1410,24 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
       chartsMadeWay=false;view.panes=panes;dock.set(panes);requestAnimationFrame(fitRoom);
     },
     collapsePane:async({pane,collapsed})=>{if(pane==='details')await showDetails(!collapsed);else if(collapsed)dock.collapse(pane);else dock.reveal(pane);},
-    resetLayout:async()=>{chartsMadeWay=false;view.panes=defaultBlotterArrangement();dock.set(view.panes);},
+    // The default arrangement has the details collapsed: details that show something collapse first, as ⌄ collapses them, asking about their
+    // edits, which kept keep the layout as it is; and a page busy before or after the question is refused (guard), as every change is.
+    resetLayout:async()=>guard({busy,act,leave:async()=>{if(panel.current()!==null)await detailsPane.collapse();return panel.current()===null;}},
+      async()=>{chartsMadeWay=false;view.panes=defaultBlotterArrangement();dock.set(view.panes);}),
     // The Blotter pops out into a window of its own with the view it shows, its unsaved edits among them, once the person has said what
     // the details hold may go.
     popOut:async()=>{
       const own=tie;if(!own)throw refuse('the Blotter is already in a window of its own');
-      await acted(async()=>{retainedStays('opens in a window of its own');own.open(handOff());away();});
+      await guarded(async()=>{retainedStays('opens in a window of its own');own.open(handOff());away();});
     },
     // The main window closes the pop-out, which hands back its view as it goes; the pop-out closes itself.
     bringBack:async()=>{
       const shown=options.window;
       // The pop-out's own requests go back with it (handOver), which its window does as it closes.
-      if(shown.kind==='popout'){await acted(async()=>{shown.close();});return;}
+      if(shown.kind==='popout'){await guarded(async()=>{shown.close();});return;}
       const own=tie;if(!own?.out())throw refuse('the Blotter is not in a window of its own');
       if(!await leaveWindow())return;
-      await acted(()=>own.bringBack());
+      await guarded(()=>own.bringBack());
     },
     draftCloseOut:async({key})=>draftCloseOut(key),
     // A position is amended from its details, for the revision they read: a PPA, an account that cannot amend or a revision that cannot be
@@ -1428,7 +1437,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
       if(!h)throw refuse('that position is not among the rows on screen');
       if(!shown||rowKey(shown)!==key)throw refuse('a position is amended from its details, which do not show it');
       const why=amendRefusal(h.instrumentType,!!catalog?.canAmendTrades,position.amendState(h));if(why)throw Error(why);
-      await act(()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision)));
+      await acting(act,()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision)));
     }},{busy});
   // The person's own actions: each takes away what an earlier refusal said, and one refused, before its handler or by it, says why as any
   // failed action does, and shows no position.
@@ -1526,7 +1535,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;newGas:()=>Promis
     // alone, with no values, when there is no main window to hand it to.
     adopt,handOff,handOver,handOverRefusal,retained:()=>!!pending.command||risk.unconfirmed(),
     // Which unconfirmed requests the pop-out keeps, as it says what it can do with each.
-    retainedKinds:()=>({trade:!!pending.command,risk:risk.unconfirmed()}),
+    retainedKinds,
     // The catalog last read says whether the account may book or amend, which Retry is offered by; it holds no values, and the backend
     // authorizes the retry again.
     keepOnlyRetained(){const authority=catalog;leavePage();clear();catalog=authority;retainedOnly=true;get('futures-page').dataset.retainedOnly='';sync();}};

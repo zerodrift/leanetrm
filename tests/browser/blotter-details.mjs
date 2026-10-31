@@ -7,8 +7,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // 1440 by 1050 is the shortest desktop window whose dock holds the summary strip, a 250 px grid and 240 px of open details at once.
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});await wait(idle);
-  // A held read, released by the scenario, shows what the details show while the Blotter is read again.
-  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(String(input)==='/api/trading/workspace'&&window.__detailsHold){window.__detailsHold=false;await new Promise(resolve=>{window.__detailsRelease=resolve;});}return send(input,init);};})()`);
+  // A held read, released by the scenario, shows what the details show while the Blotter is read again; a count of the positions can be
+  // made to fail once.
+  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(String(input)==='/api/trading/workspace'&&window.__detailsHold){window.__detailsHold=false;await new Promise(resolve=>{window.__detailsRelease=resolve;});}
+    if(String(input)==='/api/trading/positions'&&window.__failCount){window.__failCount=false;return new Response(JSON.stringify({code:'request_failed',message:'Synthetic count failure.'}),{status:500,headers:{'Content-Type':'application/json'}});}
+    return send(input,init);};})()`);
   const press=async key=>{const codes={ArrowDown:40,ArrowUp:38,Enter:13,Escape:27};for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode:codes[key]});};
   // The trader can amend; the standard fixture holds the swaps the earlier suites booked beside its futures.
   await persona('trader');
@@ -27,6 +30,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const beside=(direction=1)=>evaluate(`(()=>{const list=${rows},at=list.findIndex(r=>r.dataset.rowKey===${grid}.dataset.selectedRow);return list[at+${direction}]?.dataset.rowKey;})()`);
   const selected=`${grid}.dataset.selectedRow`;
   // What a failed wait observed: the selection, the details' title and mode, the focused element and any question or error.
+  const observedState=`({selected:${grid}.dataset.selectedRow,title:document.querySelector('#details-title')?.textContent,mode:document.querySelector('#position-details')?.dataset.mode,prompt:document.querySelector('#position-details-prompt')?.hidden===false,error:document.querySelector('#error').hidden?'':document.querySelector('#error').textContent})`;
   const observed=async error=>{throw Error(error.message+' · observed '+JSON.stringify(await evaluate(`({selected:${grid}.dataset.selectedRow,title:document.querySelector('#details-title')?.textContent,mode:document.querySelector('#position-details')?.dataset.mode,
     focus:[document.activeElement?.tagName,document.activeElement?.id,document.activeElement?.dataset?.rowKey],prompt:document.querySelector('#position-details-prompt')?.hidden===false,form:document.querySelector('#position-details-form')?.hidden===false,reason:[document.querySelector('#swap-reason')?.value,document.querySelector('#trade-reason')?.value],error:document.querySelector('#error').hidden?'':document.querySelector('#error').textContent})`)));};
   // The panes' room: the details' and the grid's groups, whether Charts is put away, and whether the page itself scrolls.
@@ -104,6 +108,15 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('↓ with an unsaved amendment asks first, and the selection stays',`${selected}===${JSON.stringify(shown)}&&${prompt}.textContent.includes('unsaved changes')`);
   await press('Escape');await wait(`${prompt}.hidden&&${idle}`);
   await check('keeping the edits leaves the selection and the amendment as they were',`${selected}===${JSON.stringify(shown)}&&${reason}?.value==='Synthetic amendment in progress'&&document.querySelector('#position-details')?.hidden===false`);
+  // Reset layout, whose default has the details collapsed, asks first about the edits they hold, as collapsing them does; keeping them keeps
+  // the details, the amendment and the arrangement as they were.
+  const arrangement="JSON.stringify([...document.querySelectorAll('#blotter-dock .dock-group')].map(g=>[g.querySelector('.dock-tab[aria-selected=true],.dock-title')?.textContent,g.hasAttribute('data-collapsed')]))";
+  const arranged=await evaluate(arrangement);
+  await click('#blotter-reset-layout');await wait(`!${prompt}.hidden`).catch(()=>undefined);
+  await check('Reset layout with an unsaved amendment in the details asks first, the details still open',`!${prompt}.hidden&&${prompt}.textContent.includes('unsaved changes')&&document.querySelector('#position-details')?.hidden===false`,observedState);
+  await press('Escape');await wait(`${prompt}.hidden&&${idle}`).catch(()=>undefined);
+  await check('keeping the edits leaves the details, the amendment and the arrangement as they were',
+    `document.querySelector('#position-details')?.hidden===false&&${reason}?.value==='Synthetic amendment in progress'&&${arrangement}===${JSON.stringify(arranged)}`,arrangement);
   // Escape on the row collapses the details too, asking first about the edits; discarding them collapses the pane and focuses the row.
   await evaluate(`${row(JSON.stringify(shown))}.focus()`);await press('Escape');await wait(`!${prompt}.hidden`).catch(observed);
   await check('Escape on the row with an unsaved amendment asks before the details collapse',`document.querySelector('#position-details')?.hidden===false`);
@@ -136,6 +149,22 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('a new read that no longer holds the selected position collapses the details, never leaving the pane empty',`${collapsed}&&document.querySelector('#position-details').hidden`,room);
   await evaluate("(()=>{for(const o of document.querySelector('#blotter-books').options)o.selected=false;})()");
   await click('#blotter-apply');await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`);
+  // A read for the priced contracts, as a future's New trade makes, keeps every summary strip item on screen marked stale until it lands.
+  await click('#futures-new');await wait(`document.querySelector('#position-details')?.dataset.mode==='new'&&!!document.querySelector('#new-trade-futures')&&${idle}`);
+  await evaluate("window.__detailsHold=true;document.querySelector('#new-trade-futures').click()");await wait("typeof window.__detailsRelease==='function'");
+  const strip="[...document.querySelectorAll('#blotter-strip .strip-item')]";
+  await check('a read for the priced contracts keeps every summary strip item on screen, each marked stale',
+    `${strip}.length>0&&${strip}.every(i=>i.hasAttribute('data-stale')&&!!i.querySelector('.strip-stale'))`,`${strip}.map(i=>[i.textContent,i.hasAttribute('data-stale')])`);
+  await evaluate('window.__detailsRelease();window.__detailsRelease=undefined');
+  await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&!!document.querySelector('#position-details-form #futures-new-trade')&&${idle}`).catch(observed);
+  await click('#details-collapse');await wait(`${collapsed}&&${idle}`).catch(observed);
+  // A count of the positions that fails beside the valuation is said as the count's own failure, never as the valuation's.
+  await evaluate("window.__failCount=true;document.querySelector('#futures-refresh').click()");
+  await wait(`document.querySelector('#futures-page').dataset.pricingState==='failed'&&${idle}`).catch(()=>undefined);
+  const loadText="document.querySelector('#blotter-load-text').textContent";
+  await check('a failed count of the positions says so with its reason, and not that the positions could not be valued, with Retry',
+    `${loadText}.includes('Synthetic count failure.')&&!/valu/i.test(${loadText})&&!document.querySelector('#blotter-retry').hidden`,loadText);
+  await click('#blotter-retry');await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`).catch(observed);
   // A row low in the grid stays in view when the details it opens take the lower part of the window.
   await evaluate(`${grid}.dataset.probe='kept'`);await evaluate(frames);
   const low=await evaluate(`(()=>{const h=${holder}.getBoundingClientRect(),list=${rows}.filter(r=>r.getBoundingClientRect().top>=h.top-0.5&&r.getBoundingClientRect().bottom<=h.bottom+0.5);return list.at(-1).dataset.rowKey;})()`);
@@ -233,4 +262,13 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check("a person's double click on a row that still fits beside the details it opens opens the position's own window once, and the details show that row",
     `window.__opened.length===1&&${selected}===${upper}&&document.querySelector('#details-title').textContent.startsWith(${JSON.stringify(upperReference)})`,`[window.__opened.length,${selected},document.querySelector('#details-title').textContent]`);
   await click('#details-collapse');await wait(`${collapsed}&&${idle}`);
+  // A row whose focus was dropped while it could not take it back waits for it only until the trader moves on: a press outside the grid,
+  // however long after, ends the wait, and the row does not take focus later.
+  const waiting=JSON.stringify(await evaluate(`(()=>{const h=${holder}.getBoundingClientRect();return ${rows}.find(r=>{const b=r.getBoundingClientRect();return b.top>=h.top-0.5&&b.bottom<=h.bottom+0.5;}).dataset.rowKey;})()`));
+  await evaluate(`(()=>{const r=${row(waiting)};r.focus({preventScroll:true});r.blur();${grid}.inert=true;})()`);
+  await evaluate('new Promise(r=>setTimeout(r,700))');
+  const outside=await evaluate("(()=>{const b=document.querySelector('#blotter-strip').getBoundingClientRect();return {x:Math.round(b.left+4),y:Math.round(b.top+b.height/2)};})()");
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...outside,button:'left',buttons:1,clickCount:1});await command('Input.dispatchMouseEvent',{type:'mouseReleased',...outside,button:'left',buttons:0,clickCount:1});
+  await evaluate(`(async()=>{${grid}.inert=false;for(let i=0;i<6;i++)await ${frames};})()`);
+  await check('a press outside the grid ends a row\'s wait for its focus: the row does not take it back later',`document.activeElement!==${row(waiting)}`,'[document.activeElement?.tagName,document.activeElement?.className]');
 }

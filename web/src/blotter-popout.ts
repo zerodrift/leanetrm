@@ -15,6 +15,14 @@ export type BlotterShown=Extract<PageState,{page:'futures'}>;
 export type BlotterQuestion={key:string;bookIds:string[];portfolioIds:string[]};
 /** What the pop-out holds that is not yet saved or settled: edits, and requests whose outcome is unconfirmed. */
 export type BlotterHeld={edits:boolean;requests:boolean};
+/**
+ * What a window that keeps its unconfirmed requests can do with them, naming only the controls it has: a trade request has its Check
+ * status and Retry in the window's own request card; a risk submission is reconciled from Recent risk jobs, which only a main window shows.
+ */
+export function retainedActions({trade,risk}:{trade:boolean;risk:boolean}){
+  return trade&&risk?'check the trade request’s status or retry it here, and reconcile the risk submission from Recent risk jobs in a main window'
+    :risk?'reconcile it from Recent risk jobs in a main window':'check its status or retry it here';
+}
 type OpenChannel=typeof openBlotterChannel;
 type Channel=ReturnType<OpenChannel>;
 type Example='baseline'|'exchange';

@@ -5,7 +5,7 @@
 import {apiRefusal} from './api-refusal.js';
 import {prepareAmountDisplay,shownAmounts} from './amount-display.js';
 import {openBlotterChannel,type EndReason} from './blotter-channel.js';
-import {readBlotterWindowUrl,tiePopoutWindow,type BlotterContext} from './blotter-popout.js';
+import {readBlotterWindowUrl,retainedActions,tiePopoutWindow,type BlotterContext} from './blotter-popout.js';
 import type {BlotterView} from './blotter-layout.js';
 import {dockedGroupsFrom} from './dock-model.js';
 import {setupFutures} from './futures-view.js';
@@ -170,10 +170,8 @@ const mainWindow=()=>{const opener=readOpener();return opener&&(!goneDocument||o
 // What this window keeps until a main window can take it, and what it can do with each: a trade request has its Check status and Retry here;
 // a risk submission is reconciled from Recent risk jobs, which needs a main window.
 function keptHere(){
-  const {trade,risk}=futures.retainedKinds();
-  return trade&&risk?'this window keeps its unconfirmed trade request and risk submission until a main window can take them: check the trade request’s status or retry it here, and reconcile the risk submission from Recent risk jobs in a main window'
-    :risk?'this window keeps its unconfirmed risk submission until a main window can take it: reconcile it from Recent risk jobs in a main window'
-    :'this window keeps its unconfirmed trade request until a main window can take it: check its status or retry it here';
+  const kinds=futures.retainedKinds(),{trade,risk}=kinds;
+  return `this window keeps its unconfirmed ${trade&&risk?'trade request and risk submission until a main window can take them':risk?'risk submission until a main window can take it':'trade request until a main window can take it'}: ${retainedActions(kinds)}`;
 }
 function handOver(){
   if(!futures.retained())return undefined;

@@ -208,6 +208,33 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     `window.__reads.filter(r=>r.path==='/api/futures/book').slice(${booksBefore}).map(r=>r.body.operationId)`);
   await holder.close().catch(()=>undefined);
 
+  // What a pop-out hands over waits in the main window's storage until its next idle look. A risk submission there that the report cannot
+  // take is never removed: it stays, and the main window says why.
+  const profile=profileKey.slice('openetrm.futures.request.server_booking_utc_v1.'.length),submissionSlot=JSON.stringify('openetrm.risk.handed-submission.'+profile);
+  await evaluate(`sessionStorage.setItem(${submissionSlot},JSON.stringify({version:1,queued:true,parts:[]}))`);
+  await wait(`!${q('#error')}.hidden&&${q('#error')}.textContent.includes('handed over could not be read')`,10000).catch(()=>undefined);
+  await check('a handed risk submission that cannot be read stays in the main window\'s storage, and the main window says why',
+    `sessionStorage.getItem(${submissionSlot})!==null&&!${q('#error')}.hidden&&${q('#error')}.textContent.includes('handed over could not be read')`,`[sessionStorage.getItem(${submissionSlot}),${q('#error')}.textContent]`);
+  await evaluate(`sessionStorage.removeItem(${submissionSlot})`);
+  // A trade request handed over is never written over by a booking the main window makes before it has looked: the booking takes it over
+  // first, and is refused while it is outstanding, so its Check status and Retry stay, under its first identity.
+  await newTrade({click,wait},'futures');
+  await chooseFutures({evaluate,set,click});await evaluate("document.querySelector('#futures-book').selectedIndex=1;");
+  await set('#futures-lots','1');await set('#futures-execution','2.6');
+  await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");
+  const booksSent=await evaluate("window.__reads.filter(r=>r.path==='/api/futures/book').length");
+  await evaluate(`(()=>{sessionStorage.setItem(${JSON.stringify(profileKey)},JSON.stringify({path:'futures/book',operationId:'synthetic-handed-request',body:{bookId:'synthetic'},label:'Synthetic handed request'}));document.querySelector('#futures-form').requestSubmit();})()`);
+  await wait(`!${q('#futures-pending')}.hidden&&${idle}`,30000).catch(()=>undefined);
+  await check('a booking made in the main window while a handed request waits in its storage takes that request over and is refused, sending nothing',
+    `JSON.stringify(${stored})===${JSON.stringify(JSON.stringify(['synthetic-handed-request']))}&&!${q('#futures-pending')}.hidden&&!${q('#futures-retry')}.hidden&&window.__reads.filter(r=>r.path==='/api/futures/book').length===${booksSent}&&!${q('#error')}.hidden`,
+    `[${stored},${q('#futures-pending')}.hidden,window.__reads.filter(r=>r.path==='/api/futures/book').length,${q('#error')}.textContent]`);
+  // The synthetic request is the main window's now: it goes with a reload, after which the Blotter is read afresh.
+  await evaluate(`sessionStorage.removeItem(${JSON.stringify(profileKey)})`);
+  const before=await evaluate('performance.timeOrigin');await evaluate('setTimeout(()=>location.reload(),0);true');
+  for(let n=0;n<100;n++){if(await command('Page.handleJavaScriptDialog',{accept:true}).then(()=>true,()=>false))break;if(await evaluate(`performance.timeOrigin!==${before}`).catch(()=>false))break;await new Promise(r=>setTimeout(r,50));}
+  await wait(`performance.timeOrigin!==${before}&&${idle}`,60000);
+  await click('#nav-futures',30000);await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${q('#futures-pending')}.hidden&&${idle}`,60000);
+
   // A main window that reloads is handed the pop-out's request once it is back, never while it is going.
   const reloading=await popOut(),reloaded=await holdBooking(reloading);await reported();
   // Requests are never given up, so a change made in the main window while the pop-out holds only requests asks nothing, and they stay.

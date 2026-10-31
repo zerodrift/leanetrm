@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readBlotterOperation,createBlotterOperations,requireModeColumns,guard} from '../dist/blotter-operations.js';
+import {readBlotterOperation,createBlotterOperations,requireModeColumns,guard,acting} from '../dist/blotter-operations.js';
 import {defaultBlotterArrangement} from '../dist/blotter-layout.js';
 
 const pos='71000000-0000-4000-8000-000000000009:72000000-0000-4000-8000-000000000008',book='d1000000-0000-4000-8000-000000000001',portfolio='d2000000-0000-4000-8000-000000000002';
@@ -117,4 +117,18 @@ test('work that asks first about edits is refused, saying so, when the page beca
   busy=false;
   await guard({...page,leave:async()=>false},async()=>{acted.push('kept');},()=>kept.push(true));assert.deepEqual([acted,kept],[[],[true]]);
   await guard({...page,leave:async()=>true},async()=>{acted.push('done');});assert.deepEqual(acted,[true,'done']);
+});
+
+// The page's act says a failure in its banner and resolves; the operation that ran the work still fails, so its caller hears it.
+const saying=said=>async work=>{try{await work();}catch(error){said.push(error.message);}};
+test('work that fails under the page\'s act rejects the operation with that failure, marked as already said',async()=>{
+  const said=[];
+  const failed=await acting(saying(said),async()=>{throw Error('Synthetic read failure.');}).then(()=>null,error=>error);
+  assert.equal(failed?.message,'Synthetic read failure.');assert.equal(failed.shown,true);assert.deepEqual(said,['Synthetic read failure.']);
+  await acting(saying(said),async()=>{});assert.deepEqual(said,['Synthetic read failure.']);
+});
+test('work run after the person agreed to leave their edits rejects the operation when it fails, as it is said once',async()=>{
+  const said=[];
+  const failed=await guard({busy:()=>false,leave:async()=>true,act:saying(said)},async()=>{throw Error('Synthetic refusal of the page.');}).then(()=>null,error=>error);
+  assert.equal(failed?.message,'Synthetic refusal of the page.');assert.equal(failed.shown,true);assert.deepEqual(said,['Synthetic refusal of the page.']);
 });

@@ -29,7 +29,7 @@ def run_checks(url,query,dotnet,owned_root,environment):
     frames=client.call('workspace')['frames']
     booking=next(f for f in frames if f['at'].startswith('2020-12-18'))
     february=next(f for f in frames if f['at'].startswith(FEBRUARY[:19]))
-    futures_context={'snapshotId':booking['id'],'convention':'fixed_total_cash_execution_pnl_v1','knowledgeMode':'current'}
+    futures_context={'snapshotId':booking['id'],'convention':'contract_lot_execution_pnl_v2','knowledgeMode':'current'}
     swap_context={**futures_context,'convention':SWAP_CONVENTION}
     def blotter(frame):
         view={'mode':'trades','bookIds':[],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}
@@ -146,5 +146,19 @@ def run_checks(url,query,dotnet,owned_root,environment):
     repeated=client.call('trading/close-out-draft',pinned)
     assert repeated==client.call('trading/close-out-draft',pinned) and repeated['terms']=={**first['terms'],'knowledgeMode':'retained'} and repeated['price']==first['price'],repeated
     assert client.call('trading/close-out-draft',{**request,'instrumentType':'ppa'},expected=422)['code']=='close_out'
-    print('PASS close-out draft HTTP: the trading read route returns the same reviewed terms twice and refuses with its structured reason',flush=True)
+    # Current trading authority is required before any position is selected, whatever the instrument type: also in a retained context,
+    # whose own knowledge would otherwise only hide the position.
+    client.call('profile',{'profile':'admin'})
+    try:
+        for body in (request,pinned):
+            for instrument in ('future','ppa'):
+                assert client.call('trading/close-out-draft',{**body,'instrumentType':instrument},expected=403)['code']=='access_denied'
+    finally:
+        client.call('profile',{'profile':'trader'})
+    # The daily swap's separate bundle has no frame at the February close: the whole Blotter read there refuses, naming the missing frame.
+    view={'mode':'trades','bookIds':[],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}
+    missing=client.call('trading/blotter',{'context':{**futures_context,'snapshotId':february['id'],'convention':'trading_workspace_v1'},'view':view},expected=422)
+    assert (missing['code'],missing['message'])==('swap_context','No explicit market frame exists for a required retained bundle at this As of time.'),missing
+    print('PASS close-out draft HTTP: the trading read route returns the same reviewed terms twice, refuses with its structured reason and requires current trading authority first',flush=True)
+    print('PASS a Blotter read at a close with no frame for a required retained bundle refuses, naming the missing frame',flush=True)
     return fixture

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {tieMainWindow,tiePopoutWindow,blotterWindowUrl,readBlotterWindowUrl} from '../dist/blotter-popout.js';
+import {tieMainWindow,tiePopoutWindow,blotterWindowUrl,readBlotterWindowUrl,retainedActions} from '../dist/blotter-popout.js';
 import {openBlotterChannel} from '../dist/blotter-channel.js';
 import {newBlotterView} from '../dist/blotter-layout.js';
 
@@ -196,4 +196,11 @@ test('the two ends tie together: hand-off, a report, and the view handed back',a
   pop.tie.report(report,{edits:false,requests:true});await settle();assert.deepEqual(main.tie.shown(),report);assert.deepEqual(main.tie.held(),{edits:false,requests:true});
   pop.tie.leave(grouped);await settle();
   assert.deepEqual(main.calls.returned,[{view:grouped,handedBack:true}]);
+});
+
+test('what a window that keeps its requests can do with them names only the controls it has: a risk submission is reconciled in a main window',()=>{
+  assert.equal(retainedActions({trade:true,risk:false}),'check its status or retry it here');
+  assert.equal(retainedActions({trade:false,risk:true}),'reconcile it from Recent risk jobs in a main window');
+  assert.equal(retainedActions({trade:true,risk:true}),'check the trade request’s status or retry it here, and reconcile the risk submission from Recent risk jobs in a main window');
+  assert.doesNotMatch(retainedActions({trade:false,risk:true}),/here/);
 });

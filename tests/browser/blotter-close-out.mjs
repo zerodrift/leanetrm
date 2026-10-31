@@ -136,6 +136,12 @@ export async function run(page){
     await evaluate(`window.__closeOut.next=${JSON.stringify(next)}`);await closeOut();
     await check(`a ${next==='fail'?'failed draft read':next==='malformed'?'draft of another instrument':'draft for a book not held'} raises the banner and leaves no form`,bannerOnly(text),banner);
   }
+  // A draft the form cannot hold leaves the details as they were: the position they showed is shown again, with no form.
+  await click(`#desk-positions .tabulator-row[data-row-key="${futureKey}"] .desk-reference`);
+  const showsFuture=`document.querySelector('#position-details').dataset.mode==='position'&&!document.querySelector('#position-details').hidden&&document.querySelector('#details-title').textContent.startsWith(${JSON.stringify(reference+' · ')})`;
+  await wait(`${showsFuture}&&${idle}`);
+  await evaluate("window.__closeOut.next='foreignBook'");await closeOut();
+  await check('a draft the form cannot hold shows the position the details showed before, with no form',`${bannerOnly('The drafted book is not one you can book for.')}&&${showsFuture}`,banner);
 
   // Close out… opens the backend's draft in the futures form of the details: the opposite side, the lots and the curve price, labelled.
   await rightClick(page,futureKey);await wait(`!!${menu}`);

@@ -83,15 +83,25 @@ export const createBlotterOperations=(handlers:BlotterOperationHandlers,page:{bu
   };
 
 /**
+ * Runs `work` as the person's action under the page's `act`, which says a failure in its banner. The failure is the operation's too: it
+ * rejects with it, marked `shown`, so that whoever dispatched the operation hears it and the page does not say it twice.
+ */
+export async function acting(act:(work:()=>Promise<void>)=>Promise<void>,work:()=>Promise<void>){
+  let failed:{error:unknown}|undefined;
+  await act(async()=>{try{await work();}catch(error){failed={error};throw error;}});
+  if(failed)throw Object.assign(failed.error instanceof Error?failed.error:Error(String(failed.error)),{shown:true});
+}
+
+/**
  * Work that gives up what the details hold asks the person first, before the page is busy (a question asked then would be asked of a page
- * with every control disabled), then runs under `act`. A page busy before the question, or that became busy while the person was asked, is
- * refused with why, never left to `act` to drop unseen; kept edits keep the work from running, and `kept` hears it.
+ * with every control disabled), then runs as an action (acting). A page busy before the question, or that became busy while the person was
+ * asked, is refused with why, never left to `act` to drop unseen; kept edits keep the work from running, and `kept` hears it.
  */
 export async function guard(page:{busy:()=>boolean;leave:()=>Promise<boolean>;act:(work:()=>Promise<void>)=>Promise<void>},work:()=>Promise<void>,kept?:()=>void){
   if(page.busy())throw busyNow();
   if(!await page.leave()){kept?.();return;}
   if(page.busy())throw busyNow();
-  await page.act(work);
+  await acting(page.act,work);
 }
 
 /** Columns the display mode shown takes, by the saved-view rules (blotter-layout.ts); any other choice is refused. */

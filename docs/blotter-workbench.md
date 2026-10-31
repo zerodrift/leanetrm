@@ -158,7 +158,9 @@ The default arrangement, top to bottom:
   is saved in the named Blotter view. This bumps `BlotterView` to version 6;
   version 5 views follow the existing earlier-version rule. An unsaved
   arrangement persists for the browser session like other unsaved view
-  edits. **Reset layout** restores the default arrangement.
+  edits. **Reset layout** restores the default arrangement; with the details
+  open it first asks about their edits, as collapsing them does, and is
+  refused while the page is busy.
 
 ## Positions grid
 
@@ -227,7 +229,8 @@ The default arrangement, top to bottom:
   summary strip shows totals only when the complete scope is valued;
   meanwhile it shows "Pending" with the reason, as today.
 - A failed valuation keeps the toolbar usable and shows the reason and a
-  Retry in the grid area. A refresh of an already loaded Blotter keeps the
+  Retry in the grid area. A failed count of the positions, read beside the
+  valuation, is said as the count's own failure, with its reason and Retry. A refresh of an already loaded Blotter keeps the
   current rows on screen, marked stale, until the new values replace them in
   place.
 
@@ -299,7 +302,11 @@ Close-out:
 - Booking, amending and close-out work in the pop-out with the same
   operations and guards. A retained trade request is owned by one window at
   a time. (Builder's call: the cross-window channel, for example
-  `BroadcastChannel` with an origin and session check.)
+  `BroadcastChannel` with an origin and session check.) A request the pop-out
+  hands over waits in the main window's storage until the main window takes
+  it; a booking or command made there first takes it over and is refused
+  while it is outstanding, and the pop-out never writes over a request
+  already waiting there.
 
 ## Shared operations
 
@@ -310,7 +317,9 @@ details, arrange/resize/collapse panes, reset layout, pop out/bring back,
 draft close-out, open amendment. The assistant page report (D190/D191)
 reports the selected position, open pane and view as today, plus whether the
 Blotter is popped out. Exposing these operations as assistant tools is out of
-scope here.
+scope here. An operation refused while the page is busy says why; one whose
+work fails is said in the banner and rejects with that failure, so whoever
+dispatched it hears it.
 
 ## Backend changes
 
