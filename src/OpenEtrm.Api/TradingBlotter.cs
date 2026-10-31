@@ -55,6 +55,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
  // The caller has already bound the exact certified market and trading cut.
  internal async Task<BlotterRun?> ReadEmptyDirectory(NpgsqlConnection connection,InputFrame frame,FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,CancellationToken ct)
  {
+  await PhysicalGasStore.RequirePortfolioScope(connection,manifest.CatalogId,view.BookIds,view.PortfolioIds,ct);
   await MarketBundle.Require(connection,manifest,ct);
   // Base revision tables are checked before joins or report filters. A visible
   // revision of either product requires the unchanged complete valuation path.
@@ -66,6 +67,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   var hasRevisions=(bool)(await command.ExecuteScalarAsync(ct)??throw new PreviewDeniedException());
   if(hasRevisions)return null;
   ValidateView(view);ValidateSummaries(view,summaries);
+  await PhysicalGasStore.RequirePortfolioScope(connection,manifest.CatalogId,view.BookIds,view.PortfolioIds,ct);
   var books=await futures.Books(connection,ct);
   FuturesStore.ValidateScope(books,view.BookIds,view.PortfolioIds);
   await MarketBundle.RequireObservationPins(connection,manifest,frame.ObservationIds,ct);
@@ -77,6 +79,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
  internal async Task<BlotterRun> Begin(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,CancellationToken ct)
  {
   ValidateView(view);ValidateSummaries(view,summaries);
+  await PhysicalGasStore.RequirePortfolioScope(connection,manifest.CatalogId,view.BookIds,view.PortfolioIds,ct);
   var tradeView=view with {Mode="trades",GroupBy=[],Measures=[],PivotConvention=null,PriceNumericalPolicy=null};
   var futuresRun=await futures.BlotterRun(connection,data,frame,tradeView,ct);
   var swapRun=await swaps.BlotterRun(connection,data,frame,view.BookIds,view.PortfolioIds,ct);

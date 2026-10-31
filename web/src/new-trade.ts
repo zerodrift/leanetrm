@@ -55,7 +55,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?
  * `choose` hears the product the person chose, `ppa` the wish to book a PPA. The form of the product is the page's to put in the
  * panel's form part.
  */
-export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>void;ppa:()=>void;busy:()=>boolean}){
+export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>void;ppa:()=>void;gas:()=>void;busy:()=>boolean}){
   const head=shell.element('head'),body=shell.element('body');
   const root=el('div','new-trade-head'),title=el('h2','side-panel-title'),switcher=el('div','product-switch'),note=el('p','field-help side-panel-note');
   const buttons=new Map<NewProduct,HTMLButtonElement>(newTradeProducts.map(([product,label])=>{
@@ -65,8 +65,9 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
   note.id='new-trade-note';
   const ppaLine=el('p','field-help side-panel-note'),ppa=el('button','text-button','Open PPA bookings');ppa.type='button';ppa.id='new-trade-ppa';ppa.onclick=()=>o.ppa();
   ppaLine.append('Booking a power purchase agreement? ',ppa);
-  root.append(title,switcher,note,ppaLine);
-  function sync(){for(const button of [...buttons.values(),ppa])button.disabled=o.busy();}
+  const gasLine=el('p','field-help side-panel-note'),gas=el('button','text-button','Open physical gas bookings');gas.type='button';gas.id='new-trade-gas';gas.onclick=()=>o.gas();gasLine.append(gas);
+  root.append(title,switcher,note,ppaLine,gasLine);
+  function sync(){for(const button of [...buttons.values(),ppa,gas])button.disabled=o.busy();}
   return {
     /**
      * Draws the head for a mode, with the switch showing its product, and the body with what the panel says until the form of that product

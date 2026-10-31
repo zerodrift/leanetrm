@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Numerics;
 using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.Gas;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -17,6 +18,7 @@ public static partial class ScheduleDefinitionCompiler
         {
             case SidePaymentSchedule dated:builder.Dated(dated);break;
             case IntervalSideSchedule native:builder.Native(native);break;
+            case PhysicalGasSchedule gas:builder.Gas(gas);break;
             default:throw ScheduleDefinition.Error("The selected Side has no supported complete schedule generator.");
         }
         return builder.Finish();
@@ -131,7 +133,7 @@ public static partial class ScheduleDefinitionCompiler
             var terms=native?null:Digest(new{plan.DeliveryWindow,plan.Currency,Quantity=Closure(quantity:cash)});
             var guard=Row(key+"/value","root","output_guard","money",plan,currency:plan.Currency,
                 parameters:P(("measure",native?"value_excluding_overdue_v1":"present_value_v1"),
-                    ("lifecycle",native?side switch {CertificateDeliverySide=>"certificate_holding_v1",FixedSide or FloatingSide=>"interval_payment_v1",_=>"interval_delivery_v1"}:"undue_payment_v1"),
+                    ("lifecycle",native?side switch {PhysicalGasSide=>"future_gas_delivery_v1",CertificateDeliverySide=>"certificate_holding_v1",FixedSide or FloatingSide=>"interval_payment_v1",_=>"interval_delivery_v1"}:"undue_payment_v1"),
                     ("pricePolicy","selected_context_v1"),
                     ("averaging",native?"none":plan.Averaging?.ToString()??"none"),
                     ("firstFixingAt",native?"none":plan.FirstFixingAt?.ToString("O",System.Globalization.CultureInfo.InvariantCulture)??"none"),
@@ -145,7 +147,7 @@ public static partial class ScheduleDefinitionCompiler
                 Edge(total,"input",guard);contributions.Add(total);activeGrid=selected;
             }
             else contributions.Add(guard);
-            roots.Add(new(key+"/cash",cash,"contractual_amount"));roots.Add(new(key+"/pv",guard,"contribution_pv"));
+            roots.Add(new(key+(side is PhysicalGasSide?"/delivery-value":"/cash"),cash,side is PhysicalGasSide?"physical_value":"contractual_amount"));roots.Add(new(key+"/pv",guard,"contribution_pv"));
             // Only price literals are shared with a later obligation. The full
             // rows/edges remain retained; digest traversal scratch can be reused.
             inputs.Clear();sources.Clear();termsHashes.Clear();return guard;
@@ -170,6 +172,18 @@ public static partial class ScheduleDefinitionCompiler
             else termsHashes.Add(quantity,value);
             return value;
         }
+        private int Lookup(string key,IndexPriceLookup lookup,ScheduleRow plan)
+        {
+            var unit=PriceUnit.FromQuote(lookup.Quote);
+            var price=Row(key,"source","price_lookup","price",plan,unit.Quantity,unit.Currency,unit.Multiplier.ToString(),
+                P(("selection",SelectionIdentity(lookup.Settlement))),lookup.Contract.DeliveryFrom,lookup.Contract.DeliveryTo);
+            Binding(price,"market","contract_price",market:lookup.Market);
+            Binding(price,"index","index",reference:lookup.Index);Binding(price,"quote","quote",reference:lookup.Quote.Key);
+            if(lookup.Fixing is {} fixing)Binding(price,"fixing","index_fixing",reference:fixing.Source,series:fixing.Series,coordinate:fixing.Implementation);
+            if(lookup.CustomProjection is {} custom)Binding(price,"projection","custom_output",market:lookup.Market,
+                entity:custom.CurveId,version:custom.Version,coordinate:custom.OutputNode,position:custom.Position,entityCatalog:custom.CatalogId);
+            return price;
+        }
         public void Dated(SidePaymentSchedule schedule)
         {
             foreach(var plan in schedule.Payments)
@@ -189,18 +203,7 @@ public static partial class ScheduleDefinitionCompiler
                         Binding(price,"quote","quote",reference:observation.Quote.Key);
                         Binding(price,"settlement","settlement_source",reference:observation.Source,series:observation.Series,coordinate:observation.Role.ToString());
                     }
-                    else
-                    {
-                        var lookup=term.Lookup!;var unit=PriceUnit.FromQuote(lookup.Quote);
-                        price=Row(key,"source","price_lookup","price",plan,unit.Quantity,unit.Currency,unit.Multiplier.ToString(),
-                            P(("selection",SelectionIdentity(lookup.Settlement))),lookup.Contract.DeliveryFrom,lookup.Contract.DeliveryTo);
-                        Binding(price,"market","contract_price",market:lookup.Market);
-                        Binding(price,"index","index",reference:lookup.Index);Binding(price,"quote","quote",reference:lookup.Quote.Key);
-                        if(lookup.Fixing is {} fixing)Binding(price,"fixing","index_fixing",reference:fixing.Source,series:fixing.Series,
-                            coordinate:fixing.Implementation);
-                        if(lookup.CustomProjection is {} custom)Binding(price,"projection","custom_output",market:lookup.Market,
-                            entity:custom.CurveId,version:custom.Version,coordinate:custom.OutputNode,position:custom.Position,entityCatalog:custom.CatalogId);
-                    }
+                    else price=Lookup(key,term.Lookup!,plan);
                     if(term.Spread is {} spread)
                     {
                         var adder=Price(key+"/adder",ExactUnitPrice.FromPrice(spread),plan);
@@ -223,6 +226,31 @@ public static partial class ScheduleDefinitionCompiler
                     P(("totalScaledWeight",total.ToString(System.Globalization.CultureInfo.InvariantCulture))));
                 for(var n=0;n<applications.Count;n++)Edge(average,"input",applications[n],n);
                 Complete(prefix,Money(prefix+"/amount",quantity,average,plan),plan,false);
+            }
+        }
+        public void Gas(PhysicalGasSchedule schedule)
+        {
+            foreach(var plan in schedule.Rows)
+            {
+                var assignment=schedule.Side.Assignments.Single(a=>a.From<=plan.DeliveryFrom&&a.To>=plan.DeliveryTo);
+                var prefix="gas/"+plan.Ordinal;var unit=PriceUnit.FromQuote(assignment.Quote);
+                // Period prices remain scalar inputs; delivery quantities and
+                // contributions retain their exact gas-day UTC geometry.
+                var price=Lookup(prefix+"/market",assignment.Lookup,plan);
+                Binding(price,"assignment","gas_assignment",reference:assignment.Key,coordinate:DefinitionIdentity.For(assignment).Canonical,definitions:assignment.Projection.Market.Curve.Revision,code:assignment.Key.Code);
+                Binding(price,"point","location",reference:schedule.Side.DeliveryPoint);
+                Binding(price,"product","gas_product",reference:schedule.Side.Product);
+                var adder=Price(prefix+"/adjustment",ExactUnitPrice.FromPrice(assignment.Adjustment),plan);
+                var adjusted=Row(prefix+"/price","intermediate","price_add","price",plan,unit.Quantity,unit.Currency,unit.Multiplier.ToString());
+                Edge(adjusted,"input",price);Edge(adjusted,"input",adder,1);
+                var interval=plan.Interval!;
+                var grid=ScheduleDefinitionGrid.Capture(grids.Count,prefix+"/day",schedule.Side.Quantities.Clock.Key,
+                    new(plan.DeliveryFrom.Year,plan.DeliveryFrom.Month,1),plan.Ordinal,[interval]);
+                grids.Add(grid);activeGrid=grid.Ordinal;
+                var quantity=Quantity(prefix+"/quantity",plan.AllocatedQuantity,plan);
+                roots.Add(new(prefix+"/quantity",quantity,"schedule_quantity"));
+                Complete(prefix,Money(prefix+"/amount",quantity,adjusted,plan),plan,true);
+                activeGrid=null;
             }
         }
         public void Native(IntervalSideSchedule schedule)
@@ -370,7 +398,7 @@ public static partial class ScheduleDefinitionCompiler
             var sum=Row("side/pv","root","sum","money",null,currency:currency);
             for(var n=0;n<contributions.Count;n++)Edge(sum,"input",contributions[n],n);
             roots.Add(new("pv",sum,"pv"));
-            return new(side.Id,side switch {FixedSide=>"fixed",FloatingSide=>"floating",PowerPhysicalSide=>"power",CertificateDeliverySide=>"certificate",CapacityDeliverySide=>"capacity",_=>throw ScheduleDefinition.Error("Unknown Side family.")},
+            return new(side.Id,side switch {PhysicalGasSide=>"gas",FixedSide=>"fixed",FloatingSide=>"floating",PowerPhysicalSide=>"power",CertificateDeliverySide=>"certificate",CapacityDeliverySide=>"capacity",_=>throw ScheduleDefinition.Error("Unknown Side family.")},
                 DefinitionIdentity.For(side).Canonical,side.PricingBindingIdentity?.Canonical??"",ScheduleDefinition.CurrentSchema,ScheduleDefinition.CurrentGenerator,
                 rows,edges,bindings,roots,ports,grids);
         }

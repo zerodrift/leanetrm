@@ -543,28 +543,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
  }
  private async Task ValidateBookingPrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct) =>
   _ = await WithBookingRead(connection,frame,(selected,pinned)=>Price(connection,selected,pinned,body,null,null,null,ct),ct);
- private async Task<T> WithBookingRead<T>(NpgsqlConnection connection,InputFrame frame,Func<PreviewData,InputFrame,Task<T>> read,CancellationToken ct)
- {
-  // Current-knowledge booking explicitly resolves a certified pricing view.
-  // Its temporary read binding must not turn the ensuing write into a historical write.
-  var context=(await new KnowledgeStore(manifest.CatalogId).Capture(connection,
-   new(Date(DateOnly.FromDateTime(frame.At.UtcDateTime)),null,"current"),ct)).Context;
-  await using(var savepoint=ScheduleStore.Command(connection,"SAVEPOINT connected_booking_price"))await savepoint.ExecuteNonQueryAsync(ct);
-  try
-  {
-   await PinnedContext.BindExact(connection,manifest.CatalogId,context,ct);
-   await using(var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",manifest.CatalogId,frame.At))
-    await trading.ExecuteNonQueryAsync(ct);
-   var pinned=frame with{ContextId=context.ContextId};
-   var selected=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
-   return await read(selected,pinned);
-  }
-  finally
-  {
-   await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT connected_booking_price; RELEASE SAVEPOINT connected_booking_price");
-   await restore.ExecuteNonQueryAsync(CancellationToken.None);
-  }
- }
+ private Task<T> WithBookingRead<T>(NpgsqlConnection connection,InputFrame frame,Func<PreviewData,InputFrame,Task<T>> read,CancellationToken ct)=>
+  TradingBookingRead.Run(database,connection,frame,read,ct);
  public async Task<JsonElement> Status(NpgsqlConnection connection,Guid operation,CancellationToken ct)
  {
   if(operation==Guid.Empty)throw Error("swap_input","A retained operation identity is required.");

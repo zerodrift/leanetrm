@@ -40,6 +40,9 @@ public sealed partial class BookedSideProgram
             if(guard.Parameters["pricePolicy"]!="selected_context_v1")throw Error("The output price policy is unsupported.");
             if(guard.Parameters["lifecycle"]=="undue_payment_v1"&&context.ValuationAt>=guard.ValueAt)
                 throw new MarketDataException("side_payment_due","A due dated payment requires its explicit lifecycle treatment.");
+            if(guard.Parameters["lifecycle"]=="future_gas_delivery_v1"&&
+                Document.Grids[guard.Grid!.Value].Interval(0).Start<=context.ValuationAt)
+                throw new MarketDataException("gas_delivery_lifecycle","A started gas delivery requires its separately supported physical lifecycle and actuals policy.");
             for(var cell=0;cell<needed[guard.Ordinal].Length;cell++)
             {
                 cancellation.ThrowIfCancellationRequested();

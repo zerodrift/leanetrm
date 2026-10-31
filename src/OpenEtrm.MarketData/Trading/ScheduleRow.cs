@@ -18,14 +18,15 @@ public readonly record struct ScheduleRow
     private readonly DatedScheduleRow? dated;
     private readonly IntervalRowBlock? block;
     private readonly int offset;
+    private readonly DeliveryInterval? physicalInterval;
     public bool IsValid=>dated is not null||block is not null;
     private DatedScheduleRow Dated=>dated??throw new MarketDataException("schedule_row_kind","This row has native interval input references.");
     private IntervalRowBlock Block=>block??throw new MarketDataException("schedule_row_kind","This row has dated contractual payment terms.");
     public SidePaymentKey Key=>dated?.Key??Block.Month.Payment;
     public Guid SideId=>Key.SideId;
     public int Ordinal=>dated?.Ordinal??Block.Month.FirstRowOrdinal+offset;
-    public DeliveryInterval? Interval=>block?.Month.Intervals[offset];
-    public ScheduleDeliveryWindow DeliveryWindow=>dated?.DeliveryWindow??new IntervalScheduleWindow(Block.Month.Intervals[offset]);
+    public DeliveryInterval? Interval=>physicalInterval??block?.Month.Intervals[offset];
+    public ScheduleDeliveryWindow DeliveryWindow=>physicalInterval is {} physical?new IntervalScheduleWindow(physical):dated?.DeliveryWindow??new IntervalScheduleWindow(Block.Month.Intervals[offset]);
     public DateOnly DeliveryFrom=>Dated.DeliveryFrom;
     public DateOnly DeliveryTo=>Dated.DeliveryTo;
     public DateTimeOffset PaymentAt=>Key.PaymentAt;
@@ -58,6 +59,8 @@ public readonly record struct ScheduleRow
     internal ScheduleRow(ScheduleRow period,Guid sideId,int ordinal,ExactQuantity allocation)
     {dated=new(period.Dated,sideId,ordinal,allocation);block=null;offset=0;}
     private ScheduleRow(DatedScheduleRow row){dated=row;block=null;offset=0;}
+    private ScheduleRow(DatedScheduleRow row,DeliveryInterval interval){dated=row;block=null;offset=0;physicalInterval=interval;}
+    internal ScheduleRow WithPhysicalInterval(DeliveryInterval interval)=>new(Dated,interval);
     internal ScheduleRow WithRetainedReference(ScheduleDefinition definition,int root)=>new(Dated with{RetainedReference=new(definition,root,null)});
     internal ScheduleRow(IntervalRowBlock block,int offset)
     {

@@ -86,7 +86,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
         ("unit_conversions","from_unit_code,to_unit_code"), ("commodities","code"), ("measurement_bases","code"), ("quantity_specifications","code"),
         ("quote_specifications","code"), ("value_specifications","code"), ("locations","code"), ("clock_rules","code"), ("calendars","code"),
         ("calendar_days","calendar_code,business_date"), ("commodity_units","commodity_code,unit_code"), ("location_types","code"),
-        ("commodity_locations","commodity_code,location_code"), ("exchanges","code"), ("clearing_houses","code"),
+        ("commodity_locations","commodity_code,location_code"), ("pipeline_zones","pipeline_code,zone_code"),
+        ("pipeline_delivery_points","pipeline_code,zone_code,point_code"),
+        ("gas_delivery_conventions","pipeline_code,zone_code,point_code,product_code"), ("gas_meter_assignments","code"), ("exchanges","code"), ("clearing_houses","code"),
         ("exchange_clearing_houses","exchange_code,clearing_house_code"), ("interest_rate_definitions","code"), ("price_index_definitions","code"),
         ("sources","code"), ("product_evidence","product_code,source_code,fact_group"), ("delivery_profiles","code"), ("settlement_targets","code"),
         ("futures_products","code"), ("futures_series","code"),
@@ -338,7 +340,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
     {
         var loaded=new Dictionary<string,ImmutableArray<JsonElement>>();
         var bounded=new HashSet<string>(["futures_series","futures_products","futures_milestones","futures_lot_resolutions",
-            "futures_product_terms","futures_basis_settlements","futures_execution_policies","product_evidence","locations","commodity_locations","calendar_days"]);
+            "futures_product_terms","futures_basis_settlements","futures_execution_policies","product_evidence","locations","commodity_locations","calendar_days","pipeline_zones","pipeline_delivery_points","gas_delivery_conventions","gas_meter_assignments"]);
         async Task<ImmutableArray<JsonElement>> ReadTable(string table,string? column=null,IEnumerable<string>? codes=null)
         {
             // These immutable tables are complete in every read scope. Reuse
@@ -393,6 +395,11 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
             .Concat(Codes(loaded["price_index_definitions"],"location_code")).Distinct().ToArray();
         loaded["locations"]=await ReadTable("locations","code",locations);
         loaded["commodity_locations"]=await ReadTable("commodity_locations","location_code",locations);
+        // Network relationships have explicit authorized consumers; ordinary curve pricing does not load a whole physical network.
+        loaded["pipeline_zones"]=ImmutableArray<JsonElement>.Empty;
+        loaded["pipeline_delivery_points"]=ImmutableArray<JsonElement>.Empty;
+        loaded["gas_delivery_conventions"]=ImmutableArray<JsonElement>.Empty;
+        loaded["gas_meter_assignments"]=ImmutableArray<JsonElement>.Empty;
         loaded["calendar_days"]=includeCalendarDays?await ReadTable("calendar_days"):ImmutableArray<JsonElement>.Empty;
         return loaded;
     }
@@ -506,7 +513,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         var rows=found.Take(pageSize).ToImmutableArray();
         var references=ImmutableDictionary.CreateBuilder<string,ImmutableArray<JsonElement>>();
         references.Add(table,rows);
-        await LinkReferences(connection,revision,rows,references,ct);
+        await LinkReferences(connection,revision,rows,references,ct,table);
         await ReferenceScope(connection,table,ct);
         // Absence is reported only after current authority is proven again.
         if(code is not null&&rows.IsEmpty)throw ReferenceItemMissing();
@@ -516,11 +523,18 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
     // Names for linked codes are exact-version rows of the same revision, not labels
     // borrowed from the business catalog or a preceding page/context.
     private static async Task LinkReferences(NpgsqlConnection connection,ReferenceRevision revision,ImmutableArray<JsonElement> rows,
-        ImmutableDictionary<string,ImmutableArray<JsonElement>>.Builder references,CancellationToken ct)
+        ImmutableDictionary<string,ImmutableArray<JsonElement>>.Builder references,CancellationToken ct,string? table=null)
     {
+        var gasProduct=table is "gas_delivery_conventions" or "gas_meter_assignments";
         foreach(var (target,columns) in ReferenceLabels)
         {
-            var codes=columns.SelectMany(column=>Codes(rows,column)).Distinct().ToArray();
+            var selected=gasProduct?target switch
+            {
+                "commodities"=>[..columns,"product_code"],
+                "futures_products"=>Array.Empty<string>(),
+                _=>columns
+            }:columns;
+            var codes=selected.SelectMany(column=>Codes(rows,column)).Distinct().ToArray();
             if(codes.Length==0)continue;
             var linked=await Rows(connection,$"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{target} WHERE catalog_id=$1 AND revision_id=$2 AND code=ANY($3::text[]) ORDER BY {ReferenceKey(target)})t",[revision.CatalogId,revision.RevisionId,codes],ct);
             references[target]=references.TryGetValue(target,out var existing)
@@ -567,7 +581,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         ("commodities",["commodity_code","fuel_commodity_code","output_commodity_code"]),
         ("currencies",["currency_code","quote_currency_code"]),
         ("units",["unit_code","lot_unit_code","from_unit_code","to_unit_code","quote_unit_code","fuel_unit_code","output_unit_code"]),
-        ("locations",["location_code"]),("location_types",["type_code"]),
+        ("locations",["location_code","pipeline_code","zone_code","point_code"]),("location_types",["type_code"]),
         ("exchanges",["exchange_code"]),("clearing_houses",["clearing_house_code"]),
         ("sources",["source_code","qualification_source_code"]),("futures_products",["product_code"]),("futures_series",["series_code"]),
         ("clock_rules",["clock_code","market_clock_code"]),("calendars",["calendar_code","trading_calendar_code","delivery_calendar_code","settlement_calendar_code"]),

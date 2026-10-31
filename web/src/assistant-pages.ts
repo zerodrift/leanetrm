@@ -17,14 +17,14 @@ export type PageState=
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |{page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
-  |{page:'dashboard'|'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'};
+  |{page:'dashboard'|'gas-setup'|'gas'|'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null}
   |{mode:'retained';contextId:string;effectiveOn:string;knownAtLabel:string;frameId:string|null;frameLabel:string|null}|{mode:'unapplied'};
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
-const unsupported:Record<string,string>={dashboard:'dashboard',delivery:'delivery_prices','interval-series':'interval_series',
+const unsupported:Record<string,string>={dashboard:'dashboard','gas-setup':'gas_setup',gas:'physical_gas',delivery:'delivery_prices','interval-series':'interval_series',
   'interval-curves':'interval_curves',admin:'users_access',ai:'settings_ai'};
 // Pages the assistant reads but Navigate does not open (D250).
 const unopened:readonly string[]=['ppa'];
@@ -75,7 +75,7 @@ export function askKnowledge(context:PageContext){
 const pageNames:Record<string,string>={curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
   reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',delivery_prices:'Delivery prices',
   custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs & Infrastructure',users_access:'Users & access',
-  settings_ai:'AI',dashboard:'Dashboard',ppa:'PPA bookings'};
+  settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',ppa:'PPA bookings'};
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
 const counted=(n:number,noun:string)=>`${n} ${noun}${n===1?'':'s'}`;
 const joined=(names:string[])=>names.length>1?`${names.slice(0,-1).join(', ')} and ${names.at(-1)}`:names[0];
