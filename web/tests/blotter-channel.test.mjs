@@ -5,7 +5,7 @@ import {newBlotterView} from '../dist/blotter-layout.js';
 
 const S='session-a';
 const selection={mode:'trades',bookIds:[],portfolioIds:[],groupBy:[],measures:[]};
-const futures={page:'futures',risk:false,trade:null,entry:null,lens:'values',view:selection};
+const futures={page:'futures',risk:false,trade:null,entry:null,lens:'values',view:selection,pane:{details:false,charts:true},poppedOut:false};
 const valid={
  context:{kind:'context',context:{snapshotId:'snap-1',knowledgeMode:'current',contextId:null,profile:'p1'}},
  view:{kind:'view',view:newBlotterView()},
@@ -43,7 +43,7 @@ test('malformed payloads are refused',()=>{
  assert.throws(()=>readBlotterMessage(msg('ended',{reason:'bored'}),S));
  assert.throws(()=>readBlotterMessage(msg('askAbout',{key:3}),S));
  assert.throws(()=>readBlotterMessage(msg('view',{view:null}),S));
- for(const state of [{...futures,lens:'greeks'},{...futures,risk:'no'},{...futures,trade:{tradeId:'t'}},{...futures,view:{...selection,mode:'x'}},{...futures,entry:{product:'bonds'}},{page:'nowhere'},{page:'market',curve:null,tab:'x'},{page:'market',curve:null},null])
+ for(const state of [{...futures,lens:'greeks'},{...futures,risk:'no'},{...futures,trade:{tradeId:'t'}},{...futures,view:{...selection,mode:'x'}},{...futures,entry:{product:'bonds'}},{...futures,pane:undefined},{...futures,pane:{details:true}},{...futures,pane:{details:true,charts:'no'}},{...futures,poppedOut:1},{page:'nowhere'},{page:'market',curve:null,tab:'x'},{page:'market',curve:null},null])
   assert.throws(()=>readBlotterMessage(msg('pageReport',{state}),S),JSON.stringify(state));
 });
 test('every page state shape is accepted exactly',()=>{

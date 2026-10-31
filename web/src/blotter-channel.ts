@@ -44,7 +44,7 @@ const gridLayout:Parse<GridLayout>=shape({order:list(layoutKey),widths:record(la
 const pageStates:Record<string,Parse<object>>={
   market:shape({curve:orNull(str),tab:oneOf('prices','dependencies','inputs')}),power:shape({frame:bool}),configuration:shape({}),schedules:shape({}),
   reference:shape({table:str,search:str}),parties:shape({kind:str}),
-  futures:shape({risk:bool,trade:orNull(tradeShown),entry:orNull(shape({product:orNull(oneOf('futures','swaps'))})),lens:oneOf('values','risk'),view:selection}),
+  futures:shape({risk:bool,trade:orNull(tradeShown),entry:orNull(shape({product:orNull(oneOf('futures','swaps'))})),lens:oneOf('values','risk'),view:selection,pane:shape({details:bool,charts:bool}),poppedOut:bool}),
   jobs:shape({job:orNull(str)}),ppa:shape({trade:orNull(shape({tradeId:str,revision})),book:orNull(str)}),'custom-curves':shape({curve:orNull(str),unsaved:bool}),
   delivery:shape({}),'interval-series':shape({}),'interval-curves':shape({}),admin:shape({}),ai:shape({})};
 function pageState(state:unknown):PageState{
