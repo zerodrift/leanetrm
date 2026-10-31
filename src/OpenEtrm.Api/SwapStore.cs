@@ -307,7 +307,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
    SELECT * FROM latest_revisions WHERE cardinality($4::uuid[])=0 OR book_id=ANY($4::uuid[])
   ), projected AS MATERIALIZED(
    -- Render the selected set once; a per-revision lateral join repeats protected scans.
-   SELECT p.* FROM trading.swap_revision_projection p WHERE EXISTS(
+   SELECT p.* FROM trading.swap_revision_projection p
+   WHERE p.catalog_id=$1 AND($2::uuid IS NULL OR p.trade_id=$2) AND EXISTS(
     SELECT 1 FROM selected_revisions r
     WHERE(p.catalog_id,p.trade_id,p.revision,p.binding_id)=(r.catalog_id,r.trade_id,r.revision,r.binding_id))
   ), rendered AS MATERIALIZED(
