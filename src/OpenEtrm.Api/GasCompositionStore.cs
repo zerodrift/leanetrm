@@ -25,7 +25,7 @@ internal sealed record GasCompositionDraft(GasCompositionInstrument Instrument,I
 
 public sealed class GasCompositionStore(PreviewDatabase database)
 {
- const string Profile="fixed_gas_composition_v1";
+ internal const string Profile="fixed_gas_composition_v1";
  readonly PhysicalGasStore gas=new(database);
  static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
  static MarketDataException Invalid(string s)=>new("gas_composition_input",s);
