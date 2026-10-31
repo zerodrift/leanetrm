@@ -41,6 +41,7 @@ def run_checks(url,query,dotnet,owned_root,environment):
         return client.call('futures/book',{**futures_context,**trade_booking(),'operationId':str(uuid4()),'bookId':book,'curve':contract['curve'],
                                            'contractId':contract['id'],'lots':lots,'executionPrice':'2.9'})['tradeId']
     future=book_future('40')
+    short=book_future('-15')
     amended=book_future('5')
     earlier=client.call('futures/editor',{'context':futures_context,'tradeId':amended,'revision':None})['context']
     client.call('futures/amend',{**futures_context,**trade_booking(),'operationId':str(uuid4()),'tradeId':amended,'expectedRevision':1,'bookId':book,
@@ -56,16 +57,28 @@ def run_checks(url,query,dotnet,owned_root,environment):
     def fixed(start,end):return {'price':'3','currency':index['currencyCode'],'deliveryFrom':start,'deliveryTo':end,'paymentSchedule':payment}
     common={**swap_context,**trade_booking(),'bookId':book,'executedAt':None,'discounting':False,'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity']}
     swap=client.call('swaps/book',{**common,'operationId':str(uuid4()),'quantity':'100','fixedCoefficient':'-1','fixed':fixed('2021-03-01','2021-04-01'),'floating':floating('2021-03-01','2021-04-01')})['tradeId']
+    # Two floating sides, the same index apart by a spread; a daily-averaged index in the separate daily bundle.
+    float_float=client.call('swaps/book',{**common,'operationId':str(uuid4()),'quantity':'100','fixed':None,'fixedCoefficient':None,'swapType':'financial_floating_floating',
+        'firstCoefficient':'-1','firstFloating':floating('2021-03-01','2021-04-01'),'floating':{**floating('2021-03-01','2021-04-01'),'spread':'0.2'}})['tradeId']
+    daily=next(i for i in swaps['indices'] if i['curve']=='daily_gas')
+    averaged=client.call('swaps/book',{**common,'operationId':str(uuid4()),'definitionRevisionId':daily['definitionRevisionId'],'commodity':daily['commodity'],'quantity':'100','fixedCoefficient':'-1',
+        'fixed':{**fixed('2021-01-01','2021-02-01'),'currency':daily['currencyCode']},
+        'floating':{**floating('2021-01-01','2021-02-01'),'curve':daily['curve'],'index':daily['index'],'currency':daily['currencyCode'],'resetFrequency':'daily','averagingMethod':'arithmetic'}})['tradeId']
     amounts=['100','200','300','400']
-    def side(fixed_side):
-        return {'basis':'period_total','quantity':index['quantityChoices'][0]['specification'],'amount':None,'allocation':None,'priceApplication':'period_average_times_quantity_v1','power':None,
-                'periods':[{'amount':amount,'fixed':fixed(*period) if fixed_side else None,'floating':None if fixed_side else floating(*period)} for period,amount in zip(PERIODS,amounts)]}
-    scheduled_terms={**common,'quantity':None,'fixedCoefficient':None,'fixed':None,'floating':None,'swapType':'scheduled_financial_swap','firstCoefficient':'-1',
-                     'scheduled':{'implementation':'whole_term_scheduled_financial_swap_v1','first':side(True),'second':side(False)}}
-    scheduled,settled,partly=(client.call('swaps/book',{**scheduled_terms,'operationId':str(uuid4())})['tradeId'] for _ in range(3))
+    def side(fixed_side,total=None):
+        return {'basis':'contract_total' if total else 'period_total','quantity':index['quantityChoices'][0]['specification'],'amount':total,'allocation':'equal_periods' if total else None,
+                'priceApplication':'period_average_times_quantity_v1','power':None,
+                'periods':[{'amount':None if total else amount,'fixed':fixed(*period) if fixed_side else None,'floating':None if fixed_side else floating(*period)} for period,amount in zip(PERIODS,amounts)]}
+    def scheduled_terms(total=None):
+        return {**common,'operationId':str(uuid4()),'quantity':None,'fixedCoefficient':None,'fixed':None,'floating':None,'swapType':'scheduled_financial_swap','firstCoefficient':'-1',
+                'scheduled':{'implementation':'whole_term_scheduled_financial_swap_v1','first':side(True,total),'second':side(False,total)}}
+    scheduled,settled,partly=(client.call('swaps/book',scheduled_terms())['tradeId'] for _ in range(3))
+    contract_total=client.call('swaps/book',scheduled_terms('1000'))['tradeId']
 
-    # Settle January and February on both sides of one swap, and only January's fixed side of another, at the February close.
+    # Settle January and February on both sides of two swaps, and only January's fixed side of another, at the February close.
     settlement_context={**swap_context,'snapshotId':february['id']}
+    # The knowledge the February close had before any of it was settled.
+    unsettled=client.call('swaps/editor',{'context':settlement_context,'tradeId':settled,'revision':None})['context']
     currency=client.call('swaps/editor',{'context':swap_context,'tradeId':scheduled,'revision':None})['valuation']['currency']
     def determine(trade,membership,period):
         version=client.call('swaps/settlement/inspect',{'context':settlement_context,'tradeId':trade,'revision':None,'duePolicy':'swap_due_nominal_v1',
@@ -76,7 +89,8 @@ def run_checks(url,query,dotnet,owned_root,environment):
         client.call('swaps/settlement/determine',{'preview':request,'operationId':str(uuid4()),'expectedVersion':version,'previewHash':calculation['previewHash'],
             'duePolicy':'swap_due_nominal_v1','recognitionPolicy':'swap_completed_period_trading_pnl_v1','correctionPolicy':'swap_explicit_correction_due_v1','correctionDueAt':None})
     for period in (0,1):
-        for membership in (0,1):determine(settled,membership,period)
+        for membership in (0,1):
+            for trade in (settled,contract_total):determine(trade,membership,period)
     determine(partly,0,0)
 
     # The oracle marks: each period's one projected reset price in the swap editor's own valuation of the unsettled swap.
@@ -90,17 +104,24 @@ def run_checks(url,query,dotnet,owned_root,environment):
         return {'tradeId':trade,'bindingId':row['bindingId'],'revision':int(row['revision']),'instrumentType':row['instrumentType'],'bookId':row['bookId'],**extra}
     future_row=rows[future]
     pins=",".join(f"'{oid}'" for oid in booking['observationIds'])
-    unpriced=set(query(f"SELECT o.id FROM market_data.observations o JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(o.catalog_id,o.definition_revision_id,o.series_id) "
-                       f"WHERE s.contract_id='{contract['id']}' AND o.id IN ({pins});").split())
-    assert unpriced,'The booking close pins no price of the future contract'
-    fixture={'frames':{'booking':booking,'february':february,'unpriced':{**booking,'id':str(uuid4()),'observationIds':[o for o in booking['observationIds'] if o not in unpriced]}},
-             'earlierContext':earlier,
+    def without(contracts,what):
+        """The booking close without its pinned prices of the given contracts: a close that cannot price them."""
+        removed=set(query(f"SELECT o.id FROM market_data.observations o JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(o.catalog_id,o.definition_revision_id,o.series_id) "
+                          f"WHERE s.contract_id IN ({contracts}) AND o.id IN ({pins});").split())
+        assert removed,'The booking close pins no price of '+what
+        return {**booking,'id':str(uuid4()),'observationIds':[o for o in booking['observationIds'] if o not in removed]}
+    # March of the forward curve and of each curve it is built from.
+    march=(f"SELECT m.contract_id FROM market_data.curve_members m JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(m.catalog_id,m.revision_id,m.contract_id) "
+           f"WHERE m.curve_code IN ('base_forward','future','bridge_basis') AND k.delivery_from='2021-03-01'")
+    fixture={'frames':{'booking':booking,'february':february,'unpriced':without(f"'{contract['id']}'",'the future contract'),'swapUnpriced':without(march,'the March forward')},
+             'earlierContext':earlier,'unsettledContext':unsettled,
              'positions':{'future':position(future,contractId=contract['id'],curve=contract['curve'],mark=future_row['mark'],
                                           priceUnit=f"{contract['currency']}/{contract['unit']}"+('' if contract['quoteMultiplier']=='1' else ' × '+contract['quoteMultiplier']),
                                           legalEntityId=trade_booking()['legalEntityId'],counterpartyId=trade_booking()['counterpartyId']),
                           'amendedFuture':position(amended),'swap':position(swap,quantity='100',mark=rows[swap]['mark']),
                           'scheduled':position(scheduled,periods=[{'from':start,'quantity':amount,'bookingMark':booking_marks[start],'februaryMark':february_marks.get(start)} for (start,_),amount in zip(PERIODS,amounts)]),
-                          'settled':position(settled),'partlySettled':position(partly)}}
+                          'settled':position(settled),'partlySettled':position(partly),'contractTotal':position(contract_total),
+                          'shortFuture':position(short),'floatFloat':position(float_float),'averaged':position(averaged)}}
     path=Path(owned_root)/'close-out-drafts.json';path.write_text(json.dumps(fixture))
     repository=Path(__file__).resolve().parents[1]
     subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--close-out-drafts',str(path)],cwd=repository,env=environment,check=True,timeout=180)

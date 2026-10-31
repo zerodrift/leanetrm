@@ -4,7 +4,6 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Npgsql;
 using OpenEtrm.MarketData;
-using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
 
@@ -35,7 +34,7 @@ internal static class CloseOutTerms
     internal static object Price(InputFrame frame)=>new{source=PriceSource,closeAt=frame.At,closeLabel=Label(frame.At)};
     internal static string Label(DateTimeOffset at)=>at.ToUniversalTime().ToString("d MMM yyyy HH:mm 'UTC'",CultureInfo.InvariantCulture);
     // A booked price is an exact decimal; a curve price that is only an exact fraction would need a rounding policy first.
-    internal static string Exact(ExactUnitPrice mark)=>mark.ToExactString() is var text&&!text.Contains('/')?text:
+    internal static string Exact(string mark)=>!mark.Contains('/')?mark:
         throw Refused("The curve price at this close is not an exact decimal, so it cannot be drafted as a price without a rounding policy.");
     internal static MarketDataException NoMark(string code)=>Refused($"The selected close has no curve price for this position ({code}).");
 }
@@ -101,8 +100,14 @@ public sealed partial class SwapStore
         var row=heads.Single();
         if(row.Text("implementation")==CrossCommodityScheduledSwap.Implementation)throw TradePositionSelection.Unavailable();
         var terms=Terms(data,row,frame.Id);var scheduled=terms.Scheduled;
-        if(scheduled is null?terms.FirstFloating is not null:scheduled.First.Periods.Any(p=>p.Fixed is null))
+        // The first side states the fixed price the draft sets, the second the floating curve price it is set to; each is
+        // checked on its own, so no side's terms are read before its kind is known.
+        if(scheduled is null?terms.FirstFloating is not null:scheduled.First.Periods.All(p=>p.Floating is not null)&&scheduled.Second.Periods.All(p=>p.Floating is not null))
             throw CloseOutTerms.Refused("A swap of two floating sides has no fixed price to close at the curve price.");
+        if(scheduled is null?terms.Fixed is null:scheduled.First.Periods.Any(p=>p.Fixed is null))
+            throw CloseOutTerms.Refused("The swap's first side has no fixed price in every period to close at the curve price.");
+        if(scheduled is null?terms.Floating is null:scheduled.Second.Periods.Any(p=>p.Floating is null))
+            throw CloseOutTerms.Refused("The swap's second side has no floating curve price in every period to close at.");
         // Each side's delivery periods, in contract order.
         (DateOnly From,DateOnly To)[] Deliveries(IEnumerable<(string? From,string? To)> periods)=>[..periods.Select(p=>(Date(p.From),Date(p.To)))];
         var deliveries=Deliveries(scheduled is null?new[]{(terms.Fixed!.DeliveryFrom,terms.Fixed.DeliveryTo)}:scheduled.First.Periods.Select(p=>(p.Fixed!.DeliveryFrom,p.Fixed.DeliveryTo)));
@@ -111,8 +116,13 @@ public sealed partial class SwapStore
         string Period((DateOnly From,DateOnly To) p)=>$"The {Date(p.From)} to {Date(p.To)} period";
         var state=await SettlementState(connection,selected.TradeId,ct);
         var occurrences=state.GetProperty("occurrences").EnumerateArray().ToDictionary(o=>o.Id("id"));
-        var determined=state.GetProperty("determinations").EnumerateArray().Select(d=>occurrences[d.Id("occurrence_id")])
-            .Select(o=>(Membership:o.GetProperty("membership_ordinal").GetInt32(),From:Date(o.Text("delivery_from")),To:Date(o.Text("delivery_to")))).ToHashSet();
+        // Settlement counts only for the head revision's own binding. A determination made under another revision is not
+        // matched to this one's periods, nor silently left out: whether those periods are settled is then ambiguous.
+        var revision=int.Parse(row.Text("revision"),CultureInfo.InvariantCulture);
+        var determined=state.GetProperty("determinations").EnumerateArray().Select(d=>occurrences[d.Id("occurrence_id")]).Select(o=>
+            int.Parse(o.Text("origin_revision"),CultureInfo.InvariantCulture)==revision&&o.Id("origin_binding_id")==selected.BindingId?
+                (Membership:o.GetProperty("membership_ordinal").GetInt32(),From:Date(o.Text("delivery_from")),To:Date(o.Text("delivery_to"))):
+                throw CloseOutTerms.Refused($"A settlement of this swap was determined under revision {o.Text("origin_revision")}, not its current revision {revision}. Review its settlement before closing it out.")).ToHashSet();
         var open=new List<int>();var settled=0;
         for(var n=0;n<deliveries.Length;n++)
         {
@@ -140,16 +150,25 @@ public sealed partial class SwapStore
         FinancialSwapValue value;
         try{value=await Price(connection,data,frame,draft,null,null,null,ct);}
         catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){throw CloseOutTerms.NoMark(error.Code);}
-        DiscountedSidePayment Payment(int slot,(DateOnly From,DateOnly To) period)=>
-            One(value.Sides[slot].Payments.Where(p=>p.Cashflow.Plan.DeliveryFrom==period.From&&p.Cashflow.Plan.DeliveryTo==period.To));
+        DiscountedSidePayment Payment(int slot,(DateOnly From,DateOnly To) period)
+        {
+            var matching=value.Sides[slot].Payments.Where(p=>p.Cashflow.Plan.DeliveryFrom==period.From&&p.Cashflow.Plan.DeliveryTo==period.To).ToArray();
+            return matching.Length==1?matching[0]:
+                throw CloseOutTerms.Refused($"{Period(period)} has no single {(slot==0?"fixed":"floating")} payment in the draft's valuation, so it cannot be closed by itself.");
+        }
+        // A one-period swap's price is the Blotter's own mark: the same holding row, of this one position (as for futures).
+        var held=scheduled is null?(await Holdings(connection,data,frame,[],[],ct,selected)).Rows.Single():(JsonElement?)null;
+        if(held?.OptionalText("unavailableReason") is {} unvalued)throw CloseOutTerms.NoMark(unvalued);
         var periods=open.Select(n=>
         {
             var prices=Payment(1,deliveries[n]).Cashflow.Prices;
             if(prices.Any(p=>p.State!=SchedulePriceState.Projected))
                 throw CloseOutTerms.Refused($"{Period(deliveries[n])} is fixed but not settled. Settle it before closing out the remaining periods.");
             if(prices.Length!=1)throw CloseOutTerms.Refused($"{Period(deliveries[n])} averages several curve prices, so it has no single curve price to close at.");
+            var mark=held is {} blotterRow?blotterRow.OptionalText("mark")??throw CloseOutTerms.Refused("The Blotter states no curve price for this position at this close."):
+                prices[0].ExactPrice.ToExactString();
             var quantity=Payment(0,deliveries[n]).Cashflow.Plan.AllocatedQuantity.Scale(value.Sides[0].Contribution.QuantityRatio).Scale(value.Quantity.Amount);
-            return new{from=Date(deliveries[n].From),to=Date(deliveries[n].To),quantity=QuantityText(quantity),price=CloseOutTerms.Exact(prices[0].ExactPrice)};
+            return new{from=Date(deliveries[n].From),to=Date(deliveries[n].To),quantity=QuantityText(quantity),price=CloseOutTerms.Exact(mark)};
         }).ToArray();
         draft=scheduled is null?draft with{Fixed=draft.Fixed! with{Price=periods[0].price}}:
             draft with{Scheduled=draft.Scheduled! with{First=draft.Scheduled.First with{Periods=[..draft.Scheduled.First.Periods.Select((p,n)=>p with{Fixed=p.Fixed! with{Price=periods[n].price}})]}}};

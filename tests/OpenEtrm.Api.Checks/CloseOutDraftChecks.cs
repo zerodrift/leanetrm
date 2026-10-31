@@ -14,10 +14,11 @@ internal static class CloseOutDraftChecks
         await using var database=new PreviewDatabase(root);
         using var document=JsonDocument.Parse(File.ReadAllText(path));var fixture=document.RootElement;
         var reads=new TradeReads(database);
-        var passed=0;
+        // Every check runs and reports; the run fails at the end if any did.
+        var passed=0;var failed=new List<string>();
         void Check(string name,bool valid,object? detail=null)
         {
-            if(!valid)throw new Exception(name+(detail is null?"":": "+JsonSerializer.Serialize(detail,Json)));
+            if(!valid){failed.Add(name);Console.WriteLine("FAIL close-out draft: "+name+(detail is null?"":": "+JsonSerializer.Serialize(detail,Json)));return;}
             passed++;Console.WriteLine("PASS close-out draft: "+name);
         }
         InputFrame Frame(string name)=>fixture.GetProperty("frames").GetProperty(name).Deserialize<InputFrame>(Json)!;
@@ -32,10 +33,12 @@ internal static class CloseOutDraftChecks
                     position.Id("tradeId"),position.Id("bindingId"),revision??position.GetProperty("revision").GetInt32(),type??position.Text("instrumentType"));
                 return JsonSerializer.SerializeToElement(await reads.CloseOutDraft(connection,view,request,ct),Json);
             },CancellationToken.None);
-        async Task Refused(string name,Func<Task<JsonElement>> read,string reason)
+        // A refusal is a close_out error whose reason states every given phrase; a draft or any other failure fails the check.
+        async Task Refused(string name,Func<Task<JsonElement>> read,params string[] reasons)
         {
-            try{var draft=await read();throw new Exception(name+": a draft was returned: "+draft.GetRawText());}
-            catch(MarketDataException error){Check(name,error.Code=="close_out"&&error.Message.Contains(reason,StringComparison.Ordinal),new{error.Code,error.Message});}
+            try{var draft=await read();Check(name,false,draft);}
+            catch(MarketDataException error){Check(name,error.Code=="close_out"&&reasons.All(r=>error.Message.Contains(r,StringComparison.Ordinal)),new{error.Code,error.Message});}
+            catch(Exception error){Check(name,false,error.GetType().Name+": "+error.Message);}
         }
         static string[] Strings(JsonElement array,string field)=>array.EnumerateArray().Select(e=>e.Text(field)).ToArray();
 
@@ -52,6 +55,10 @@ internal static class CloseOutDraftChecks
             !new[]{"operationId","executedAt","traderId","traderRevision","tradeDate"}.Any(key=>terms.TryGetProperty(key,out _)),terms);
         Check("the same request twice returns identical JSON",(await Draft("booking",future)).GetRawText()==draft.GetRawText());
         await Refused("a future with no mark at the pinned close is refused",()=>Draft("unpriced",future),"no curve price");
+        Check("a short future drafts a purchase of its lots",(await Draft("booking",Position("shortFuture"))).GetProperty("terms").Text("lots")=="15");
+        // Booking admits a future only from its eligibility to its last trading instant (futures_execution); January's has
+        // expired by the February close, so its close-out could not be booked and is refused rather than drafted.
+        await Refused("a future whose contract has expired at the close is refused",()=>Draft("february",future),"does not trade at this close");
 
         // Revisions resolve under the knowledge cutoff: a superseded or not-yet-known revision is refused, never substituted.
         var amended=Position("amendedFuture");var earlier=fixture.GetProperty("earlierContext").Deserialize<ScheduleContext>(Json)!;
@@ -70,6 +77,9 @@ internal static class CloseOutDraftChecks
             periods[0].Text("quantity")==swap.Text("quantity")&&draft.GetProperty("settledPeriodsExcluded").GetInt32()==0,draft);
         Check("the swap draft carries no server-assigned facts or amendment terms",
             !new[]{"operationId","executedAt","traderId","traderRevision","tradeDate","tradeId","expectedRevision","effectiveAt","reason"}.Any(key=>terms.TryGetProperty(key,out _)),terms);
+        await Refused("a swap with no mark at the pinned close is refused",()=>Draft("swapUnpriced",swap),"no curve price");
+        await Refused("a swap of two floating sides is refused",()=>Draft("booking",Position("floatFloat")),"two floating sides");
+        await Refused("a daily-averaged period is refused",()=>Draft("booking",Position("averaged")),"2021-01-01","averages several curve prices");
 
         // A scheduled swap (D214) reverses every period, each at its own mark and with its own quantity.
         var scheduled=Position("scheduled");
@@ -82,7 +92,7 @@ internal static class CloseOutDraftChecks
         Check("the scheduled swap keeps its per-period quantities",
             Strings(periods,"quantity").SequenceEqual(Strings(scheduled.GetProperty("periods"),"quantity"))&&
             Strings(first,"amount").SequenceEqual(Strings(scheduled.GetProperty("periods"),"quantity"))&&terms.GetProperty("quantity").ValueKind==JsonValueKind.Null,draft);
-        await Refused("a period fixed but not settled refuses the whole draft and names that period",()=>Draft("february",scheduled),"2021-01-01");
+        await Refused("a period fixed but not settled refuses the whole draft and names that period",()=>Draft("february",scheduled),"2021-01-01","fixed but not settled");
 
         // Two settled periods are left untouched; the draft covers only the remaining ones.
         var settled=Position("settled");
@@ -93,11 +103,17 @@ internal static class CloseOutDraftChecks
             Strings(periods,"price").SequenceEqual(remaining.Select(p=>p.Text("februaryMark")))&&
             Strings(periods,"quantity").SequenceEqual(remaining.Select(p=>p.Text("quantity")))&&
             terms.GetProperty("scheduled").GetProperty("second").GetProperty("periods").GetArrayLength()==2,draft);
-        await Refused("a period settled on one side only refuses the whole draft and names that period",()=>Draft("february",Position("partlySettled")),"2021-01-01");
+        await Refused("a period settled on one side only refuses the whole draft and names that period",()=>Draft("february",Position("partlySettled")),"2021-01-01","settled on one side only");
+        // Settlement recorded after a cutoff is not known under it: the same close then sees January fixed and unsettled.
+        var unsettled=fixture.GetProperty("unsettledContext").Deserialize<ScheduleContext>(Json)!;
+        await Refused("under a cutoff before the settlements, the settled swap's January is fixed but not settled",
+            ()=>Draft("february",settled,earlier:unsettled),"2021-01-01","fixed but not settled");
+        await Refused("a contract-total swap with settled periods is refused",()=>Draft("february",Position("contractTotal")),"contract-total quantity");
 
         // Close-out of other instrument types is not yet defined.
         foreach(var type in new[]{"heat_rate","ppa"})
             await Refused($"a {type} position is refused",()=>Draft("booking",swap,type:type),$"Close-out drafts are not available for {type} yet.");
+        if(failed.Count!=0)throw new Exception($"{failed.Count} close-out draft checks failed: {string.Join("; ",failed)}");
         Console.WriteLine($"PASS close-out drafts: {passed} checks");
     }
 }
