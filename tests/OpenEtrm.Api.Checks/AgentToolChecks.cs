@@ -502,7 +502,7 @@ static class AgentToolChecks
         string Laid(string page,string selection,string layout=Layout)=>$$"""{"page":"{{page}}","selection":{{selection}},{{layout}}}""";
         var trade=$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":3}""";
         foreach(var (page,selection) in new[]{("blotter",Blotter),("blotter",trade),("blotter_risk","{}"),("blotter_risk_lens","{}"),("blotter_new_trade","{}"),
-            ("blotter_new_future","{}"),("blotter_new_swap","{}")})
+            ("blotter_new_future","{}"),("blotter_new_swap","{}"),("blotter_new_ppa","{}"),("blotter_new_gas","{}")})
             PageReports.Require(Json(Laid(page,selection)));
         Require(PageReports.Dispatch(Json(Laid("blotter",Blotter))) is {Page:"blotter",Call.Operation.Id:"trades.blotter_v1",Layout:{Details:true,Charts:false,PoppedOut:true}}
             &&PageReports.Dispatch(Json(Laid("blotter",trade,""" "layout":{"pane":{"details":false,"charts":true},"poppedOut":false}"""))) is {Layout:{Details:false,Charts:true,PoppedOut:false}}

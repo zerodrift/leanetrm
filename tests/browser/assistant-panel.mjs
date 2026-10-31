@@ -318,14 +318,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await ask('Which PPAs are in this book?');await wait(finished);
   // The report names only the page and the Blotter's layout as drawn, never a term of the PPA being entered.
   await check('reading unsaved PPA entry is refused without including any draft terms',
-    `[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
+    `${latest}.querySelector('.assistant-question')?.textContent==='Which PPAs are in this book?'&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
     +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'blotter_new_ppa',selection:{},layout:JSON.parse(${drawnLayout})})`,
     `JSON.stringify(${asks}.at(-1).body.pageReport)`);
   await closeNewTrade({click,evaluate,wait});
   await script({tools:[['toolu_ppa_panel_01','read_current_page',{}]]},{text:'These are the trades in the Blotter.'});
   await ask('Which trades are in this view?');await wait(finished);
   await check('closing entry returns assistant reads to the common Blotter',
-    `${looking}[0]==='Blotter'&&${looking}[1].startsWith('Trade rows')&&${q('#assistant-error')}.hidden`
+    `${latest}.querySelector('.assistant-question')?.textContent==='Which trades are in this view?'&&${looking}[0]==='Blotter'&&${looking}[1].startsWith('Trade rows')&&${q('#assistant-error')}.hidden`
     +`&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page'`
     +`&&${asks}.at(-1).body.pageReport.page==='blotter'&&${asks}.at(-1).body.pageReport.selection.view==='blotter'`,looking);
 
