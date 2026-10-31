@@ -103,7 +103,7 @@ def check_parent_snapshots(query):
 CREATE SCHEMA observation_integrity_probe;
 ALTER TABLE trading.swap_contract_observation_terms DISABLE TRIGGER immutable_record;
 DO $check$
-DECLARE item record; definition text; selected trading.swap_contract_observation_terms;
+DECLARE item record; definition text; expected_definition text; selected trading.swap_contract_observation_terms;
  alternate_definition uuid='60000000-0000-0000-0000-000000889136'; rejected text;
 BEGIN
  SELECT * INTO STRICT selected FROM trading.swap_contract_observation_terms
@@ -128,8 +128,9 @@ BEGIN
   SELECT pg_get_constraintdef(oid) INTO STRICT definition FROM pg_constraint
    WHERE conrelid=('trading.'||item.table_name)::regclass AND conname=item.constraint_name
     AND contype='f' AND convalidated AND confrelid=('trading.'||item.parent_name)::regclass;
-  IF definition IS DISTINCT FROM 'FOREIGN KEY (catalog_id, side_id, period_ordinal, definition_revision_id, reference_catalog_id, reference_revision_id) REFERENCES trading.'||item.parent_name||
-   '(catalog_id, side_id, '||CASE WHEN item.parent_name='swap_side_periods' THEN 'ordinal' ELSE 'period_ordinal' END||', definition_revision_id, reference_catalog_id, reference_revision_id)'
+  expected_definition := 'FOREIGN KEY (catalog_id, side_id, period_ordinal, definition_revision_id, reference_catalog_id, reference_revision_id) REFERENCES trading.'||item.parent_name||
+   '(catalog_id, side_id, '||(CASE WHEN item.parent_name='swap_side_periods' THEN 'ordinal' ELSE 'period_ordinal' END)||', definition_revision_id, reference_catalog_id, reference_revision_id)';
+  IF definition IS DISTINCT FROM expected_definition
   THEN RAISE EXCEPTION 'Parent snapshot relationship must retain every exact coordinate';END IF;
   CREATE TABLE observation_integrity_probe.parent_probe(catalog_id uuid NOT NULL,side_id uuid NOT NULL,period_ordinal integer NOT NULL,
    definition_revision_id uuid NOT NULL,reference_catalog_id uuid NOT NULL,reference_revision_id uuid NOT NULL);
