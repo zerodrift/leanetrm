@@ -165,7 +165,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const now=options.narrow(),body=get('blotter-pane-details'),focused=body.contains(document.activeElement);
     dock.relayout();
     if(now!==narrowed&&(now||panel.current()!==null))dock.reveal(panel.current()===null?'grid':'details');
-    narrowed=now;
+    narrowed=now;fitRoom();
     if(focused&&!body.contains(document.activeElement)&&!body.hidden)get('position-details').focus({preventScroll:true});
   }
   // Open details keep room of their own (detailsRoom, and a minimum height in app.css): where the arrangement leaves them less, the Charts pane
@@ -181,6 +181,21 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     chartsMadeWay=true;dock.collapse('charts');
   }
   function giveRoomBack(){if(!chartsMadeWay)return;chartsMadeWay=false;if(dock.arrangement().collapsed.includes('charts'))dock.reveal('charts');}
+  // Where the dock cannot hold the grid's and the open details' own minimums beside the summary strip and the collapsed bars, the grid and
+  // the details above one another share what is left evenly, each at least sharedFloor: no pane ever reaches past the dock's foot.
+  const sharedFloor=160;
+  function fitRoom(){
+    const host=get('blotter-dock');host.style.removeProperty('--grid-room');host.style.removeProperty('--details-room');
+    if(panel.current()===null||options.narrow())return;
+    const grid=get('blotter-pane-grid').closest('.dock-group'),details=get('blotter-pane-details').closest('.dock-group');
+    if(!grid||!details)return;
+    const foot=host.getBoundingClientRect().bottom-parseFloat(getComputedStyle(host).paddingBottom);
+    const over=Math.max(...Array.from(host.querySelectorAll('.dock-group'),g=>g.getBoundingClientRect().bottom))-foot;
+    const g=grid.getBoundingClientRect(),d=details.getBoundingClientRect();
+    if(over<=1||d.top<g.bottom-1)return;
+    const share=`${Math.max(sharedFloor,Math.floor((g.height+d.height-over)/2))}px`;
+    host.style.setProperty('--grid-room',share);host.style.setProperty('--details-room',share);
+  }
   // A view the Blotter turns to brings its arrangement with it.
   function showPanes(){chartsMadeWay=false;if(JSON.stringify(dock.arrangement())!==JSON.stringify(view.panes))dock.set(view.panes);}
   get('blotter-reset-layout').onclick=()=>{if(busy())return;chartsMadeWay=false;view.panes=defaultBlotterArrangement();dock.set(view.panes);};
@@ -224,7 +239,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const main=document.querySelector('main')!;
   const editing=()=>editor.unsaved()||swapEditor.unsaved()||booking.unsaved()||risk.edited();
   const detailsPane=setupDetailsPane(get('blotter-pane-details'),{unsaved:editing,busy,step:direction=>void stepPosition(direction),
-    collapsed:()=>{if(!deskPanel.closed())focusSelected();},expand:()=>{dock.reveal('details');makeRoom();},changed:modeChanged});
+    collapsed:()=>{if(!deskPanel.closed())focusSelected();},expand:()=>{dock.reveal('details');makeRoom();fitRoom();},changed:modeChanged});
   const panel=detailsPane.shell;
   placeDock();
   // A request whose outcome is not known is kept with its Check status and Retry in a card on the page, above the panes, whatever the details
@@ -247,12 +262,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(mode?.kind==='contract')drawContract();
     // Details that close collapse, never staying open empty; on a narrow page, where the panes share one group, they give their place back
     // to the positions. Charts that made way for them come back.
-    if(mode===null){if(options.narrow())dock.reveal('grid');else{dock.collapse('details');giveRoomBack();}}
+    if(mode===null){if(options.narrow())dock.reveal('grid');else{dock.collapse('details');giveRoomBack();}fitRoom();}
     renderRisk();options.reported();
   }
-  // The panes stack in one group on a narrow main area: they are placed again when its width changes, not when only its height does.
+  // The panes stack in one group on a narrow main area: they are placed again when its width changes; a change of its height only sizes
+  // the open details' room again.
   let mainWidth=main.clientWidth;
-  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();}}).observe(main);
+  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();}else fitRoom();}).observe(main);
   const positionContext=()=>!holdings&&individual?{...readContext(),knowledgeMode:'retained',contextId:individual.context.contextId}:readContext();
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(positionContext()),onDenied:clear,
     read:async(h,formats)=>{

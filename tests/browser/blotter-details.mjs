@@ -7,6 +7,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // 1440 by 1050 is the shortest desktop window whose dock holds the summary strip, a 250 px grid and 240 px of open details at once.
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});await wait(idle);
+  // A held read, released by the scenario, shows what the details show while the Blotter is read again.
+  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(String(input)==='/api/trading/workspace'&&window.__detailsHold){window.__detailsHold=false;await new Promise(resolve=>{window.__detailsRelease=resolve;});}return send(input,init);};})()`);
   const press=async key=>{const codes={ArrowDown:40,ArrowUp:38,Enter:13,Escape:27};for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode:codes[key]});};
   // The trader can amend; the standard fixture holds the swaps the earlier suites booked beside its futures.
   await persona('trader');
@@ -117,8 +119,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await press('Enter');await wait(`document.querySelector('#position-details')?.hidden===false&&${idle}`);
   await click('#position-details-tabs-history');await wait(`document.querySelector('#position-details-tabs-history').getAttribute('aria-selected')==='true'&&${idle}`);
   const title=await evaluate("document.querySelector('#details-title').textContent");
-  await click('#futures-refresh');await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`);
+  await evaluate("window.__detailsHold=true;document.querySelector('#futures-refresh').click()");await wait("typeof window.__detailsRelease==='function'");
+  await check('while the Blotter is read again, the details keep the position on screen marked stale, with the reason',
+    `(()=>{const note=document.querySelector('#details-stale-note');return document.querySelector('#position-details').classList.contains('stale')&&!document.querySelector('#position-details').hidden&&!!note&&!note.hidden&&note.getClientRects().length>0&&note.textContent.includes('previous read');})()`,
+    "[document.querySelector('#position-details')?.className,document.querySelector('#details-stale-note')?.hidden,document.querySelector('#details-stale-note')?.textContent]");
+  await evaluate('window.__detailsRelease();window.__detailsRelease=undefined');
+  await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`);
   await wait(`document.querySelector('#position-details')?.hidden===false&&document.querySelector('#details-title').textContent===${JSON.stringify(title)}`).catch(observed);
+  await check('once the read lands the details are current again',"!document.querySelector('#position-details').classList.contains('stale')&&document.querySelector('#details-stale-note').hidden");
   await check('a new read shows the selected position again in the details, on its History tab',`document.querySelector('#position-details-tabs-history').getAttribute('aria-selected')==='true'&&${selected}===${JSON.stringify(shown)}&&${kept}`);
   const otherBook=await evaluate(`(()=>{const book=document.querySelector('#position-details-head .side-panel-meta').textContent.split(' · ').at(-1);return [...document.querySelector('#blotter-books').options].find(o=>o.value&&o.textContent!==book)?.value??null;})()`);
   if(!otherBook)throw Error('The fixture needs a second book to read the Blotter without the selected position.');
@@ -149,4 +157,21 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('at 1440 by 1400, ↓ five times beside the open details leaves the first row in view where it was',
     `(()=>{const a=${row(JSON.stringify(first.key))};return !!a&&Math.abs(a.getBoundingClientRect().top-${holder}.getBoundingClientRect().top-${first.top})<=1;})()`,room);
   await click('#details-collapse');await wait(`${collapsed}&&${idle}`);
+  // At 1440 by 900 the dock cannot hold a 250 px grid and 240 px of details beside the summary strip: the two share what is left evenly,
+  // each at least 160 px, and no pane reaches past the dock into the band beneath it.
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});await evaluate(frames);
+  await evaluate(`${rows}.find(r=>{const h=${holder}.getBoundingClientRect(),b=r.getBoundingClientRect();return b.top>=h.top-0.5&&b.bottom<=h.bottom+0.5;}).focus({preventScroll:true})`);
+  await press('Enter');await wait(`document.querySelector('#position-details')?.hidden===false&&${idle}`);await evaluate(frames);
+  const shared=`(()=>{const r=${room};return r.details>=160&&r.grid>=160&&Math.abs(r.details-r.grid)<=2&&r.page[0]<=r.page[1]&&r.groups.every(g=>g[2]<=r.dock+1);})()`;
+  await wait(shared,3000).catch(()=>undefined);
+  await check('at 1440 by 900 the grid and the open details share the room evenly, each at least 160 px, and every pane stays inside the dock',shared,room);
+  // Grown back to 1440 by 1050 with the details open, the panes take their own minimums again.
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
+  await wait(roomy,3000).catch(()=>undefined);
+  await check('a taller window with the details open gives the grid 250 px and the details 240 px again, inside the dock',roomy,room);
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+  await wait(shared,3000).catch(()=>undefined);
+  await check('and a shorter one has them share the room again',shared,room);
+  await click('#details-collapse');await wait(`${collapsed}&&${idle}`);
+  await check('collapsing them there gives the panes back their own sizes inside the dock',`(()=>{const r=${room};return !r.charts&&r.grid>=250&&r.groups.every(g=>g[2]<=r.dock+1);})()`,room);
 }

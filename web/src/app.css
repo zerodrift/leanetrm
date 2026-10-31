@@ -1635,12 +1635,13 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 #blotter-dock .dock-panels{padding:10px 12px}
 /* The summary strip keeps the room its figures need; the positions keep room for a row under their header, however the panes are sized. */
 #blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-summary:not([hidden])){min-height:max-content}
-#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-grid:not([hidden])){min-height:250px}
-/* Open details keep room of their own; the Charts pane makes way for them where the arrangement leaves less (futures-view.ts). */
-#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-details:not([hidden]) #position-details:not([hidden])){min-height:240px}
+#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-grid:not([hidden])){min-height:var(--grid-room,250px)}
+/* Open details keep room of their own; the Charts pane makes way for them where the arrangement leaves less, and on a dock too short for
+   both minimums the grid and the details share it evenly (--grid-room, --details-room: futures-view.ts fitRoom). */
+#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-details:not([hidden]) #position-details:not([hidden])){min-height:var(--details-room,240px)}
 /* The splits that hold them keep that room too, with a collapsed neighbour's bar and divider beside it, so the grid gives way first. */
-#blotter-dock .dock-split:has(#blotter-pane-details:not([hidden]) #position-details:not([hidden])){min-height:240px}
-#blotter-dock .dock-split:has(>.dock-group>.dock-panels>#blotter-pane-details:not([hidden]) #position-details:not([hidden])):has(>.dock-group[data-collapsed]){min-height:284px}
+#blotter-dock .dock-split:has(#blotter-pane-details:not([hidden]) #position-details:not([hidden])){min-height:var(--details-room,240px)}
+#blotter-dock .dock-split:has(>.dock-group>.dock-panels>#blotter-pane-details:not([hidden]) #position-details:not([hidden])):has(>.dock-group[data-collapsed]){min-height:calc(var(--details-room,240px) + 44px)}
 /* The run bar's notes scroll within it, so a run with many keeps the summary pane to a few lines. */
 #blotter-pane-summary .desk-run-notes{max-height:4.4em;overflow-y:auto}
 #blotter-dock .dock-panels:has(>#blotter-pane-grid:not([hidden])){display:flex;flex-direction:column;padding:0;overflow:hidden}
