@@ -120,7 +120,7 @@ const futures=setupFutures({window:{kind:'popout',close:()=>bringBack(),example:
 
 // What the Blotter shows here, and whether its details hold unsaved edits, for the main window: its assistant, and the question it asks
 // before a change of its own gives them up.
-function report(){if(!ended&&started)try{tie?.report({page:'futures',...futures.report()},futures.heldWork());}catch(error){console.error('The Blotter window could not report what it shows.',error);}}
+function report(){if(!ended&&started)try{tie?.report({page:'futures',...futures.report()},{edits:futures.editing(),requests:futures.retained()});}catch(error){console.error('The Blotter window could not report what it shows.',error);}}
 // The Blotter read afresh at the main window's selection, once the account is checked and the navigation read for it.
 async function readAt(context:BlotterContext){
   apply(context,await readNavigation(context));
@@ -161,13 +161,25 @@ function follow(context:BlotterContext){
 // The page this window was popped out of, as it opened it, is the one that says it closed: by the time that word arrives, a reload may already
 // have put another page in its place.
 let goneDocument:Document|undefined;
-const openedBy=(window.opener as Window|null)?.document;
-const mainWindow=()=>{const opener=window.opener as Window|null;return opener&&!opener.closed&&(!goneDocument||opener.document!==goneDocument)?opener:undefined;};
-const keptHere='this window keeps its unconfirmed request until a main window can take it: check its status or retry it here';
+// An opener that cannot be read, as one moved to another site, is gone: this is the one place it is read, which never throws.
+function readOpener():{window:Window;document:Document}|undefined{
+  try{const opener=window.opener as Window|null;return opener&&!opener.closed?{window:opener,document:opener.document}:undefined;}catch{return undefined;}
+}
+const openedBy=readOpener()?.document;
+const mainWindow=()=>{const opener=readOpener();return opener&&(!goneDocument||opener.document!==goneDocument)?opener.window:undefined;};
+// What this window keeps until a main window can take it, and what it can do with each: a trade request has its Check status and Retry here;
+// a risk submission is reconciled from Recent risk jobs, which needs a main window.
+function keptHere(){
+  const {trade,risk}=futures.retainedKinds();
+  return trade&&risk?'this window keeps its unconfirmed trade request and risk submission until a main window can take them: check the trade request’s status or retry it here, and reconcile the risk submission from Recent risk jobs in a main window'
+    :risk?'this window keeps its unconfirmed risk submission until a main window can take it: reconcile it from Recent risk jobs in a main window'
+    :'this window keeps its unconfirmed trade request until a main window can take it: check its status or retry it here';
+}
 function handOver(){
   if(!futures.retained())return undefined;
   const target=mainWindow();
-  return target?futures.handOver(target.sessionStorage):`The main window is gone, so ${keptHere}.`;
+  if(!target)return `The main window is gone, so ${keptHere()}.`;
+  try{return futures.handOver(target.sessionStorage);}catch{return `The main window cannot be reached, so ${keptHere()}.`;}
 }
 // Bring back, from this window or the main one: its requests go first, and a window that cannot hand them over stays open on them, saying
 // why, and the Blotter stays here. The details' edits were asked about and are given up.
@@ -184,7 +196,7 @@ function broughtBack(){if(!ended)try{bringBack();}catch(error){failed(error);}}
 function end(why:string,mainClosed=false){
   if(ended)return;
   if(mainClosed)goneDocument=openedBy;
-  const kept=mainClosed&&futures.retained()?keptHere:handOver();
+  const kept=mainClosed&&futures.retained()?keptHere():handOver();
   if(started)try{tie?.leave(futures.handOff());}catch(error){console.error('The Blotter window could not hand its view back.',error);}
   tie?.close();ended=true;
   futures.leavePage();
@@ -211,7 +223,8 @@ if(tie)liveness=setInterval(()=>{if(retaining)handLater();else if(!mainWindow())
 // here and cannot be handed over.
 window.addEventListener('pagehide',()=>{handOver();if(!ended)tie?.leave(started?futures.handOff():undefined);ended=true;clearInterval(liveness);});
 window.addEventListener('beforeunload',event=>{
-  const target=mainWindow(),stranded=futures.retained()&&(!target||futures.handOverRefusal(target.sessionStorage)!==undefined);
+  let stranded=futures.retained();
+  try{const target=mainWindow();stranded&&=!target||futures.handOverRefusal(target.sessionStorage)!==undefined;}catch{/* A main window that cannot be read takes nothing: the request is stranded. */}
   if(!ended&&futures.editing()||stranded){event.preventDefault();event.returnValue='';}
 });
 $('blotter-window-close').onclick=()=>window.close();

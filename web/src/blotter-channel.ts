@@ -13,7 +13,7 @@ export type BlotterMessage=
   |{v:1;session:string;kind:'view';instance:string;view:BlotterView}
   |{v:1;session:string;kind:'opened';instance:string}|{v:1;session:string;kind:'closed';instance:string}
   |{v:1;session:string;kind:'ended';reason:EndReason}
-  |{v:1;session:string;kind:'pageReport';instance:string;state:PageState;unsaved:boolean}
+  |{v:1;session:string;kind:'pageReport';instance:string;state:PageState;edits:boolean;requests:boolean}
   |{v:1;session:string;kind:'askAbout';instance:string;key:string;bookIds:string[];portfolioIds:string[]};
 
 const refuse=(why:string):never=>{throw Error(`Blotter window message refused: ${why}.`);};
@@ -78,8 +78,9 @@ const bodies:Record<string,Parse<Record<string,unknown>>>={
     return c;}}),
   view:shape({instance,view}),opened:shape({instance}),closed:shape({instance}),
   ended:shape({reason:oneOf<EndReason>('signed_out','account_changed','main_closed','brought_back')}),
-  // A report says whether the pop-out holds unsaved edits; a question names the books and portfolios it was asked in.
-  pageReport:shape({instance,state:pageState,unsaved:bool}),askAbout:shape({instance,key:str,bookIds:strings,portfolioIds:strings})};
+  // A report says apart whether the pop-out holds unsaved edits, which a change can give up, and requests whose outcome is unconfirmed, which
+  // go with the Blotter and are never given up; a question names the books and portfolios it was asked in.
+  pageReport:shape({instance,state:pageState,edits:bool,requests:bool}),askAbout:shape({instance,key:str,bookIds:strings,portfolioIds:strings})};
 
 /** The message if it is version 1, for this session, of a known kind and exactly shaped; otherwise throws and nothing is applied. The result is a new object. */
 export function readBlotterMessage(value:unknown,session:string):BlotterMessage{

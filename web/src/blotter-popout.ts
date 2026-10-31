@@ -13,6 +13,8 @@ export type BlotterContext=Extract<BlotterMessage,{kind:'context'}>['context'];
 export type BlotterShown=Extract<PageState,{page:'futures'}>;
 /** A position the pop-out asks the assistant about, with the books and portfolios its Blotter shows. */
 export type BlotterQuestion={key:string;bookIds:string[];portfolioIds:string[]};
+/** What the pop-out holds that is not yet saved or settled: edits, and requests whose outcome is unconfirmed. */
+export type BlotterHeld={edits:boolean;requests:boolean};
 type OpenChannel=typeof openBlotterChannel;
 type Channel=ReturnType<OpenChannel>;
 type Example='baseline'|'exchange';
@@ -43,8 +45,8 @@ export function readBlotterWindowUrl(href:string):{session:string;example:Exampl
  */
 export function tieMainWindow(o:{source:string;example:Example;grace:number;session:()=>string;channel:OpenChannel;
   open:(url:string,target:string,features:string)=>Popup|null;context:()=>BlotterContext|undefined;
-  returned:(view:BlotterView,handedBack:boolean)=>void;reported:()=>void;ask:(question:BlotterQuestion)=>void}){
-  type Tie={session:string;channel:Channel;popup:Popup;handed:BlotterView;instance?:string;sent?:string;shown?:BlotterShown;unsaved?:boolean;back?:BlotterView;settled:(()=>void)[]};
+  returned:(view:BlotterView,handedBack:boolean,held:BlotterHeld|undefined)=>void;reported:()=>void;ask:(question:BlotterQuestion)=>void}){
+  type Tie={session:string;channel:Channel;popup:Popup;handed:BlotterView;instance?:string;sent?:string;shown?:BlotterShown;held?:BlotterHeld;back?:BlotterView;settled:(()=>void)[]};
   let tie:Tie|undefined;
   const send=(t:Tie,m:Record<string,unknown>)=>t.channel.send({v:1,session:t.session,...m} as BlotterMessage);
   function receive(t:Tie,m:BlotterMessage){
@@ -56,14 +58,14 @@ export function tieMainWindow(o:{source:string;example:Example;grace:number;sess
       case 'view':t.back=m.view;return;
       case 'closed':finish(t);return;
       // Only a report of a popped-out Blotter is relayed as the pop-out's.
-      case 'pageReport':if(m.state.page==='futures'&&m.state.poppedOut){t.shown=m.state;t.unsaved=m.unsaved;o.reported();}return;
+      case 'pageReport':if(m.state.page==='futures'&&m.state.poppedOut){t.shown=m.state;t.held={edits:m.edits,requests:m.requests};o.reported();}return;
       case 'askAbout':o.ask({key:m.key,bookIds:m.bookIds,portfolioIds:m.portfolioIds});return;
     }
   }
   function close(t:Tie){tie=undefined;t.channel.close();}
   function finish(t:Tie){
     close(t);
-    try{o.returned(t.back??t.handed,t.back!==undefined);}finally{for(const settled of t.settled)settled();}
+    try{o.returned(t.back??t.handed,t.back!==undefined,t.held);}finally{for(const settled of t.settled)settled();}
   }
   function follow(){
     const t=tie,context=o.context();
@@ -88,8 +90,8 @@ export function tieMainWindow(o:{source:string;example:Example;grace:number;sess
     },
     /** What the pop-out last reported it shows. */
     shown:()=>tie?.shown,
-    /** Whether the pop-out last reported unsaved edits; undefined before it has reported, when it may hold some. */
-    unsaved:()=>tie?.unsaved,
+    /** What the pop-out last reported it holds; undefined before it has reported. */
+    held:()=>tie?.held,
     follow,
     front(){tie?.popup.focus();},
     /**
@@ -134,7 +136,7 @@ export function tiePopoutWindow(o:{session:string;instance:string;channel:OpenCh
   send({kind:'opened'});
   return {
     /** Reports what the pop-out shows, when that has changed. */
-    report(state:BlotterShown,unsaved:boolean){const next=JSON.stringify([state,unsaved]);if(open&&next!==reported){send({kind:'pageReport',state,unsaved});reported=next;}},
+    report(state:BlotterShown,held:BlotterHeld){const next=JSON.stringify([state,held]);if(open&&next!==reported){send({kind:'pageReport',state,edits:held.edits,requests:held.requests});reported=next;}},
     ask(key:string,scope:{bookIds:string[];portfolioIds:string[]}){send({kind:'askAbout',key,...scope});},
     /** Hands back the view, when the pop-out holds one, and says it closed. */
     leave(view:BlotterView|undefined){

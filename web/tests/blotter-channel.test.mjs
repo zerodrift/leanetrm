@@ -11,7 +11,7 @@ const valid={
  view:{kind:'view',instance:'w1',view:newBlotterView()},
  opened:{kind:'opened',instance:'w1'},closed:{kind:'closed',instance:'w1'},
  ended:{kind:'ended',reason:'signed_out'},
- pageReport:{kind:'pageReport',instance:'w1',state:futures,unsaved:false},
+ pageReport:{kind:'pageReport',instance:'w1',state:futures,edits:false,requests:false},
  askAbout:{kind:'askAbout',instance:'w1',key:'t1:b1',bookIds:['b1'],portfolioIds:[]},
 };
 const msg=(kind,extra={})=>({v:1,session:S,...valid[kind],...extra});
@@ -34,10 +34,11 @@ test('every message but context and ended names the pop-out it concerns',()=>{
  }
  for(const kind of ['context','ended'])assert.throws(()=>readBlotterMessage(msg(kind,{instance:'w1'}),S),kind);
 });
-test('a report says whether the pop-out holds unsaved edits, and a question names the scope it was asked in',()=>{
- for(const unsaved of [true,false])assert.equal(readBlotterMessage(msg('pageReport',{unsaved}),S).unsaved,unsaved);
- for(const unsaved of [undefined,'yes',1,null])assert.throws(()=>readBlotterMessage(msg('pageReport',{unsaved}),S),String(unsaved));
- const {unsaved,...silent}=msg('pageReport');assert.throws(()=>readBlotterMessage(silent,S));
+test('a report says apart whether the pop-out holds unsaved edits and unconfirmed requests, and a question names the scope it was asked in',()=>{
+ for(const edits of [true,false])for(const requests of [true,false]){const read=readBlotterMessage(msg('pageReport',{edits,requests}),S);assert.deepEqual([read.edits,read.requests],[edits,requests]);}
+ for(const bad of [undefined,'yes',1,null]){assert.throws(()=>readBlotterMessage(msg('pageReport',{edits:bad}),S),String(bad));assert.throws(()=>readBlotterMessage(msg('pageReport',{requests:bad}),S),String(bad));}
+ const {edits,...silent}=msg('pageReport');assert.throws(()=>readBlotterMessage(silent,S));
+ assert.throws(()=>readBlotterMessage(msg('pageReport',{unsaved:false}),S));
  assert.deepEqual(readBlotterMessage(msg('askAbout',{bookIds:[],portfolioIds:['p1','p2']}),S).portfolioIds,['p1','p2']);
  for(const scope of [{bookIds:'b1'},{portfolioIds:[1]},{bookIds:undefined}])assert.throws(()=>readBlotterMessage(msg('askAbout',scope),S),JSON.stringify(scope));
 });

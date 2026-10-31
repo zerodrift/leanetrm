@@ -26,7 +26,7 @@ import {setupDock} from './dock.js';
 import {createBlotterOperations,guard,refuse,requireModeColumns,type BlotterCaller,type BlotterOperation} from './blotter-operations.js';
 import {rowMenuItems,type RowMenuAction} from './blotter-row-menu.js';
 import {openBlotterChannel,type EndReason} from './blotter-channel.js';
-import {tieMainWindow,type BlotterContext,type BlotterQuestion} from './blotter-popout.js';
+import {tieMainWindow,type BlotterContext,type BlotterHeld,type BlotterQuestion} from './blotter-popout.js';
 import {setupMenu} from './context-menu.js';
 import {closeOutRefusal,closeOutRequest,readCloseOutDraft} from './close-out-draft.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
@@ -394,8 +394,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // Work the page takes up once it is idle: the Blotter coming back, while the main window is busy with something else.
   function whenIdle(work:()=>void){if(busy())setTimeout(()=>whenIdle(work),50);else work();}
   // The Blotter is back with the view its window handed back, or the one it took there, which is said; the main window reads it afresh.
-  function cameBack(returned:BlotterView,handedBack:boolean){
-    adopt(returned);takeStoredRequest();sync();placeWindow();options.reported();options.unsavedChanged();
+  function cameBack(returned:BlotterView,handedBack:boolean,held:BlotterHeld|undefined){
+    adopt(returned);const arrived=takeStoredRequest();sync();placeWindow();options.reported();options.unsavedChanged();
+    // The pop-out said it held unconfirmed requests: they arrive with it, or the person is told to look for them in its window.
+    if(held?.requests&&!arrived)options.notice('The Blotter’s window said it held a request whose outcome is not confirmed, which did not arrive here. Check its status in that window, if it is still open, or in Recent risk jobs and the trade history.');
     const said=()=>{if(!handedBack)options.notice('The Blotter’s window closed without handing back its view, so the Blotter shows the view it had when it was popped out.');};
     if(get('futures-page').hidden){said();return;}
     whenIdle(()=>void act(()=>load('directory',false,true)).then(said));
@@ -415,15 +417,16 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       throw Error('The Blotter’s window asked about a position this window cannot read, so nothing was put to the assistant.');
     }));
   }
-  // Whether the pop-out holds edits that a change of the main window's context or account would give up: it may, until it has reported.
-  const windowEdits=()=>!!tie?.out()&&tie.unsaved()!==false;
+  // Whether the pop-out holds edits that a change of the main window's context or account would give up: it may, until it has reported. Its
+  // unconfirmed requests are never given up, as they go with the Blotter, so they are not asked about.
+  const windowEdits=()=>!!tie?.out()&&tie.held()?.edits!==false;
   // Asks, in the main window, before a change gives up the edits the pop-out holds: false means the person kept them. One question at a time.
   let askingWindow=false;
   async function leaveWindow(){
     if(!windowEdits())return true;
     if(askingWindow)return false;
     askingWindow=true;
-    try{return await askInPanel(get('blotter-window-question'),{text:'The Blotter’s window holds unsaved edits, or a request whose outcome is not confirmed. This gives up the edits; such a request stays with the Blotter.',keep:'Keep them',go:'Give them up'})(new AbortController().signal);}
+    try{return await askInPanel(get('blotter-window-question'),{text:'The Blotter’s window holds unsaved edits that this gives up.',keep:'Keep them',go:'Give them up'})(new AbortController().signal);}
     finally{askingWindow=false;}
   }
   // A position opens, in the details or a window of its own, only from the read on screen: rows kept from the previous read, or drawn
@@ -635,11 +638,24 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const submissionKey=()=>`openetrm.risk.handed-submission.${options.profile()}`;
   // The requests this window's storage keeps, which it now owns: a trade request it sent before a reload, or one the pop-out handed over
   // as it closed, and a risk submission the pop-out handed over, which is then the report's to reconcile.
+  // A submission is taken from storage only once it is the report's: one refused stays there, said once, never lost.
+  let refusedSubmission:string|undefined;
   function takeStoredRequest(){
+    const before=!!pending.command||risk.unconfirmed();
     if(!pending.command)try{const saved=restoreTradeRequest(JSON.parse(sessionStorage.getItem(storageKey())??'null'));if(saved){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
-    if(options.window.kind!=='main')return;
-    let handed:string|null=null;try{handed=sessionStorage.getItem(submissionKey());sessionStorage.removeItem(submissionKey());}catch{/* No storage, nothing handed over. */}
-    if(handed!==null)try{risk.adopt(JSON.parse(handed));}catch(error){options.failed(error);}
+    if(options.window.kind==='main'){
+      let handed:string|null=null;try{handed=sessionStorage.getItem(submissionKey());}catch{/* No storage, nothing handed over. */}
+      if(handed!==null&&handed!==refusedSubmission){
+        try{risk.adopt(JSON.parse(handed));sessionStorage.removeItem(submissionKey());}catch(error){refusedSubmission=handed;options.failed(error);}
+      }
+    }
+    return !before&&(!!pending.command||risk.unconfirmed());
+  }
+  // The main window says in its storage that it keeps a risk submission of its own, which a pop-out's is then never handed over to replace.
+  const keptSubmissionKey=()=>`openetrm.risk.kept-submission.${options.profile()}`;
+  function markKeptSubmission(){
+    if(options.window.kind!=='main'||!owner)return;
+    try{if(risk.unconfirmed())sessionStorage.setItem(keptSubmissionKey(),'1');else sessionStorage.removeItem(keptSubmissionKey());}catch{/* Without storage no pop-out can be handed anything. */}
   }
   // Whether the pop-out's unconfirmed requests can go to the main window's storage, or why not: another request there is never overwritten,
   // and one that cannot be read is never taken for this one.
@@ -648,7 +664,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       const there=storage.getItem(requestKey(false));
       if(pending.command&&there!==null&&restoreTradeRequest(JSON.parse(there))?.operationId!==pending.command.operationId)
         return 'The main window already holds another unconfirmed trade request, so this window keeps its own: check its status or retry it here.';
-      if(risk.unconfirmed()&&storage.getItem(submissionKey())!==null)
+      if(risk.unconfirmed()&&(storage.getItem(submissionKey())!==null||storage.getItem(keptSubmissionKey())!==null))
         return 'The main window already holds a risk submission handed to it, so this window keeps its own: reconcile it here.';
     }catch{return 'The main window’s stored requests could not be read, so this window keeps its own: check their status here.';}
     return undefined;
@@ -820,6 +836,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(control.reason===null)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby','new-trade-availability');
   }
   function sync(){
+    markKeptSubmission();
     // Release the rows before restoring their control's focus. On entry to
     // busy, position.sync captures that focus before the rows become inert.
     if(!busy())workspace.busy(false);
@@ -1444,6 +1461,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // The new trade the panel holds, as the page reports it: of its product, or of none until the person has chosen one.
   function newTradeShown():EntryShown|null{const mode=panel.current();return mode?.kind==='new'?{product:mode.product}:null;}
   setUp=true;
+  // A main window that reloaded is handed a pop-out's requests once it is back, after its own first read: they are taken, and shown, as
+  // soon as they arrive.
+  if(options.window.kind==='main')setInterval(()=>{if(!busy()&&owner&&owner===options.profile()&&!tie?.out()&&takeStoredRequest())sync();},1000);
   return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),reset,sync,show,
     // The person's saved views, read for the sidebar when they are not read yet.
     async views(){restore();if(!viewsLoaded)await loadViews();},
@@ -1505,8 +1525,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // In the pop-out: the view the main window handed over, the view to hand back, the request to hand over, and the retained request kept
     // alone, with no values, when there is no main window to hand it to.
     adopt,handOff,handOver,handOverRefusal,retained:()=>!!pending.command||risk.unconfirmed(),
-    // What the pop-out holds that a change or its closing could give up or strand: edits, and requests whose outcome is unconfirmed.
-    heldWork:()=>editing()||!!pending.command||risk.unconfirmed(),
+    // Which unconfirmed requests the pop-out keeps, as it says what it can do with each.
+    retainedKinds:()=>({trade:!!pending.command,risk:risk.unconfirmed()}),
     // The catalog last read says whether the account may book or amend, which Retry is offered by; it holds no values, and the backend
     // authorizes the retry again.
     keepOnlyRetained(){const authority=catalog;leavePage();clear();catalog=authority;retainedOnly=true;get('futures-page').dataset.retainedOnly='';sync();}};

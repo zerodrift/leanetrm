@@ -209,14 +209,19 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await holder.close().catch(()=>undefined);
 
   // A main window that reloads is handed the pop-out's request once it is back, never while it is going.
-  const reloading=await popOut(),reloaded=await holdBooking(reloading);
-  // The main window asks before it reloads, as the pop-out holds a request whose outcome is unconfirmed; the person goes on.
+  const reloading=await popOut(),reloaded=await holdBooking(reloading);await reported();
+  // Requests are never given up, so a change made in the main window while the pop-out holds only requests asks nothing, and they stay.
+  const shownDate=await evaluate(`${q('#snapshot')}.value`),otherDate=dates.find(d=>d!==shownDate);
+  await set('#snapshot',otherDate);await wait(`${q('#snapshot')}.value===${JSON.stringify(otherDate)}&&${idle}`,30000);
+  await check('a change in the main window asks nothing while the pop-out holds only unconfirmed requests, which stay with it',
+    `${prompt}.hidden&&${JSON.stringify(await reloading.evaluate("!document.querySelector('#futures-pending').hidden"))}`);
+  // A main window that reloads may ask, as a browser does; the person goes on.
   const loaded=await evaluate('performance.timeOrigin');await evaluate('setTimeout(()=>location.reload(),0);true');
   for(let n=0;n<100;n++){if(await command('Page.handleJavaScriptDialog',{accept:true}).then(()=>true,()=>false))break;if(await evaluate(`performance.timeOrigin!==${loaded}`).catch(()=>false))break;await new Promise(r=>setTimeout(r,50));}
   await wait(`performance.timeOrigin!==${loaded}&&${idle}`,60000);
   await reloading.wait(`${endedText}.includes('its unconfirmed request went to the main window')`,30000);
-  await click('#nav-futures',30000);await wait(`!${q('#futures-pending')}.hidden&&${idle}`,60000);
-  await check('a main window that reloaded takes the pop-out\'s request once it is back, under the same identity',`JSON.stringify(${stored})===${JSON.stringify(JSON.stringify([reloaded]))}`,stored);
+  await wait(`!${q('#futures-pending')}.hidden&&${idle}`,30000);
+  await check('a main window that reloaded shows the pop-out\'s request as soon as it is handed over, under the same identity',`JSON.stringify(${stored})===${JSON.stringify(JSON.stringify([reloaded]))}`,stored);
   await click('#futures-retry',60000);await wait(`${q('#futures-pending')}.hidden&&${idle}`,60000);
   await reloading.close().catch(()=>undefined);
 
@@ -254,6 +259,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await keeper.wait(`document.querySelector('#futures-pending').hidden&&${idle}`,30000);
   await check('and its Retry sends the request under its first identity',JSON.stringify(await keeper.evaluate(`window.__books.length===2&&window.__books.every(id=>id===${JSON.stringify(kept)})`)));
   await keeper.close();
+  // A main window that moves to another site cannot be read: the pop-out treats it as gone, keeps its request, and asks before it closes.
+  const elsewhere=await mainWindow(),stray=await popOut(elsewhere);await holdBooking(stray);
+  await elsewhere.command('Page.navigate',{url:'data:text/html,<p>Elsewhere</p>'});
+  await stray.wait(`${endedText}.startsWith('The main window was closed')&&!document.querySelector('#futures-pending').hidden`,30000);
+  await stray.evaluate('new Promise(resolve=>setTimeout(resolve,2500))');
+  await check('a main window gone to another site leaves the pop-out keeping its request, with no figures, and asking before it closes',
+    JSON.stringify(await stray.evaluate("(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented&&!document.querySelector('#futures-retry').disabled&&!document.querySelector('#desk-positions .tabulator-row');})()")));
+  await stray.close();await elsewhere.close();
   const third=await mainWindow(),silent=await popOut(third);
   await third.evaluate("window.addEventListener('pagehide',event=>event.stopImmediatePropagation(),true);true");
   await third.close();
