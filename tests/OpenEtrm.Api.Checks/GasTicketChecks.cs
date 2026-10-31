@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Text.Json;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
@@ -112,6 +113,121 @@ internal static class GasTicketChecks
         Reject("a malformed entity revision", full with { Trade = Trade.SetItem("legal_entity", $"{Entity}@x") });
         Reject("an entity without a revision", full with { Trade = Trade.SetItem("counterparty", Counterparty.ToString()) });
         Reject("a malformed book", full with { Trade = Trade.SetItem("book", "not-a-guid") });
+        Reject("a draft without trade values", full with { Trade = null! });
+        Reject("a draft without sides", full with { Sides = default });
+        Reject("a missing side", full with { Sides = [Receipt, null!] });
+        Reject("a side without values", Draft(Receipt with { Values = null! }));
+        Reject("a side without a kind", Draft(Receipt, Cash with { Kind = null! }));
+        Reject("a draft without a product", full with { Product = null! });
+        Reject("no draft", null!);
+
+        string Json(GasCompositionRequest request) => JsonSerializer.Serialize(request);
+        string Values(TicketDraft draft) => JsonSerializer.Serialize(new { draft.Product, draft.Version, Trade = draft.Trade.OrderBy(v => v.Key), Sides = draft.Sides.Select(s => new { s.Kind, s.Code, Values = s.Values.OrderBy(v => v.Key) }) });
+        Check("a booked request rebuilds the draft that booked it", () =>
+        {
+            var terms = Map(full);
+            Equal(Values(full), Values(GasTicket.Draft(terms)), "rebuilt draft");
+            Equal(Json(terms), Json(GasTicket.Request(GasTicket.Draft(terms), terms.SnapshotId, terms.KnowledgeMode, terms.OperationId, terms.DefinitionRevisionId)), "round trip");
+            var bare = Map(full with { Trade = Trade.Remove("legal_entity").Remove("counterparty") });
+            Equal(Json(bare), Json(Map(GasTicket.Draft(bare))), "round trip without parties");
+        });
+        Check("a request with half a party reference refuses", () =>
+        {
+            try { GasTicket.Draft(Map(full) with { LegalEntityRevision = null }); } catch (MarketDataException error) when (error.Code == "ticket_input") { return; }
+            throw new Exception("Expected ticket_input for an entity without its revision.");
+        });
+
+        var catalog = JsonDocument.Parse($$$"""
+            {"gasSetupId":"{{{Setup}}}","locations":[
+             {"pipeline":"PA","pipelineName":"Pipeline A","zone":"ZA1","zoneName":"Zone A1","deliveryPoint":"P1","deliveryPointName":"Point 1","clock":"fixed_utc","dayStartMinute":540,"product":"firm","productName":"Firm","valuation":{"quote":"Q"}},
+             {"pipeline":"PA","pipelineName":"Pipeline A","zone":"ZA1","zoneName":"Zone A1","deliveryPoint":"P2","deliveryPointName":"Point 2","clock":"fixed_utc","dayStartMinute":540,"product":"firm","productName":"Firm","valuation":{"quote":"Q"}},
+             {"pipeline":"PA","pipelineName":"Pipeline A","zone":"ZA2","zoneName":"Zone A2","deliveryPoint":"P3","deliveryPointName":"Point 3","clock":"fixed_utc","dayStartMinute":0,"product":"firm","productName":"Firm","valuation":{"quote":"Q"}},
+             {"pipeline":"PB","pipelineName":"Pipeline B","zone":"ZB1","zoneName":"Zone B1","deliveryPoint":"P4","deliveryPointName":"Point 4","clock":"fixed_utc","dayStartMinute":60,"product":"firm","productName":"Firm","valuation":{"quote":"Q"}},
+             {"pipeline":"PC","pipelineName":"Pipeline C","zone":"ZC1","zoneName":"Zone C1","deliveryPoint":"P5","deliveryPointName":"Point 5","clock":"fixed_utc","dayStartMinute":0,"product":"interruptible","productName":"Interruptible","valuation":null}],
+             "tariffs":[{"code":"T1","name":"Usage A","pipeline":"PA","product":"firm","quote":"Q","rate":"0.045","validFrom":"2027-01-01","validTo":"2027-12-31"},
+              {"code":"T2","name":"Usage B","pipeline":"PB","product":"firm","quote":"Q","rate":"0.05","validFrom":"2027-01-01","validTo":"2027-12-31"},
+              {"code":"T3","name":"Usage A later","pipeline":"PA","product":"firm","quote":"Q","rate":"0.06","validFrom":"2027-01-15","validTo":"2027-12-31"}],
+             "books":[{"id":"{{{Book}}}","name":"Synthetic book"}],
+             "legalEntities":[{"id":"{{{Entity}}}","revision":4,"code":"E","name":"Synthetic entity"}],
+             "counterparties":[{"id":"{{{Counterparty}}}","revision":7,"code":"C","name":"Synthetic counterparty"}]}
+            """).RootElement;
+        TicketSideDraft A(TicketSideDraft side) => With(With(With(side, "pipeline", "PA"), "zone", "ZA1"), "delivery_point", "P1");
+        TicketDraft Open(params TicketSideDraft[] sides) => Draft(sides);
+        string Listed(TicketDraft draft, string? side, string field) => string.Join(",", GasTicket.Choices(draft, side, field, catalog).Select(c => c.Value));
+        void Refuses(string code, string name, Action action)
+        {
+            try { action(); } catch (MarketDataException error) when (error.Code == code) { passed++; Console.WriteLine($"PASS {name}"); return; }
+            throw new Exception($"Expected {code} for {name}.");
+        }
+        var fee = With(With(Fee, "fee_source", "RCT"), "fee_tariff", null);
+        Check("zones list only the chosen pipeline's zones", () => Equal("ZA1,ZA2", Listed(Open(A(Receipt)), "RCT", "zone"), "zones"));
+        Check("points list only the chosen zone's points", () => Equal("P1,P2", Listed(Open(A(Receipt)), "RCT", "delivery_point"), "points"));
+        Check("pipelines and products list only valued paths", () => { Equal("PA,PB", Listed(Open(A(Receipt)), "RCT", "pipeline"), "pipelines"); Equal("firm", Listed(Open(A(Receipt)), "RCT", "product"), "products"); });
+        Refuses("ticket_input", "zones without a pipeline refuse", () => GasTicket.Choices(Open(With(Receipt, "pipeline", null)), "RCT", "zone", catalog));
+        Refuses("ticket_input", "choices for an unknown side refuse", () => GasTicket.Choices(Open(A(Receipt)), "NOPE", "zone", catalog));
+        Refuses("ticket_input", "choices for a field of another kind refuse", () => GasTicket.Choices(Open(A(Receipt), Cash), "PAY", "zone", catalog));
+        Refuses("ticket_input", "choices under another gas setup refuse", () => GasTicket.Choices(Open(A(Receipt)) with { Trade = Trade.SetItem("gas_setup", Guid.Empty.ToString()) }, "RCT", "zone", catalog));
+        Refuses("ticket_input", "side choices without the context's gas setup refuse", () => GasTicket.Choices(Open(A(Receipt)) with { Trade = Trade.Remove("gas_setup") }, "RCT", "zone", catalog));
+        Check("side choices without a gas setup read the reference conventions of a context that resolves none", () =>
+        {
+            var reference = JsonDocument.Parse(catalog.GetRawText().Replace($"\"gasSetupId\":\"{Setup}\"", "\"gasSetupId\":null")).RootElement;
+            Equal("ZA1,ZA2", string.Join(",", GasTicket.Choices(Open(A(Receipt)) with { Trade = Trade.Remove("gas_setup") }, "RCT", "zone", reference).Select(c => c.Value)), "reference zones");
+            Equal(null, Map(full with { Trade = Trade.Remove("gas_setup") }).GasSetupId, "booked without a setup");
+        });
+        Refuses("ticket_input", "choices for a field without a list refuse", () => GasTicket.Choices(Open(A(Receipt)), "RCT", "quantity", catalog));
+        Check("party choices are exact '<id>@<revision>' references the booking accepts", () =>
+        {
+            var entity = GasTicket.Choices(full, null, "legal_entity", catalog).Single(); var party = GasTicket.Choices(full, null, "counterparty", catalog).Single();
+            Equal($"{Entity}@4", entity.Value, "entity choice"); Equal("Synthetic entity", entity.Label, "entity label");
+            var r = Map(full with { Trade = Trade.SetItem("legal_entity", entity.Value).SetItem("counterparty", party.Value) });
+            Equal(Entity, r.LegalEntityId, "booked entity"); Equal(7, r.CounterpartyRevision, "booked counterparty revision");
+            Equal(Book.ToString(), Listed(full, null, "book"), "books"); Equal(Setup.ToString(), Listed(full, null, "gas_setup"), "gas setups");
+        });
+        Check("side sources list physical codes, never the side itself for a link", () =>
+        {
+            Equal("DLV", Listed(Open(A(Receipt), A(Linked), Cash), "RCT", "link_source"), "link sources");
+            Equal("RCT,DLV", Listed(Open(A(Receipt), A(Linked), Cash), "PAY", "cash_source"), "cash sources");
+        });
+        Check("usage tariffs list those covering the source side's pipeline, product and term", () => Equal("T1", Listed(Open(A(Receipt), fee), "FEE", "fee_tariff"), "tariffs"));
+        Refuses("ticket_input", "usage tariffs on a receipt-stage fee refuse", () => GasTicket.Choices(Open(A(Receipt), With(fee, "fee_stage", "receipt")), "FEE", "fee_tariff", catalog));
+        Check("every choice field of the description is answered", () =>
+        {
+            var draft = Open(A(Receipt), A(Linked), Cash, fee);
+            foreach (var kind in GasTicket.Description.Sides)
+                foreach (var field in kind.Fields.Where(f => f.Choices is not null))
+                    if (GasTicket.Choices(draft, draft.Sides.First(s => s.Kind == kind.Kind).Code, field.Id, catalog).IsEmpty) throw new Exception($"No choices for {field.Id}.");
+            foreach (var field in GasTicket.Description.TradeFields.Where(f => f.Choices is not null))
+                if (GasTicket.Choices(draft, null, field.Id, catalog).IsEmpty) throw new Exception($"No choices for {field.Id}.");
+        });
+
+        Check("a delivery-stage fee looks up its one eligible tariff rate as a price the booking accepts", () =>
+        {
+            var found = GasTicket.Lookup(Open(A(Receipt), fee), "FEE", "fee_price", catalog);
+            Equal("0.045", found.Value, "tariff rate"); Equal(new TicketSource("tariff", "Tariff Usage A"), found.Source, "tariff source");
+            Equal("0.045", Map(Open(A(Receipt), With(fee, "fee_price", found.Value))).CashSides[0].Price, "booked fee price");
+        });
+        Refuses("ticket_lookup", "a tariff price on a receipt-stage fee refuses", () => GasTicket.Lookup(Open(A(Receipt), With(fee, "fee_stage", "receipt")), "FEE", "fee_price", catalog));
+        Refuses("ticket_lookup", "a tariff price beside a chosen tariff refuses", () => GasTicket.Lookup(Open(A(Receipt), With(fee, "fee_tariff", "T1")), "FEE", "fee_price", catalog));
+        Refuses("ticket_lookup", "a tariff price with no eligible tariff refuses", () => GasTicket.Lookup(Open(With(A(Receipt), "delivery_from", "2026-12-01"), fee), "FEE", "fee_price", catalog));
+        Check("the gas day start comes from the side's point", () =>
+        {
+            var found = GasTicket.Lookup(Open(A(Receipt)), "RCT", "gas_day_start", catalog);
+            Equal("09:00", found.Value, "gas day start"); Equal(new TicketSource("reference", "Point 1 · fixed_utc"), found.Source, "gas day source");
+        });
+        Refuses("ticket_lookup", "a gas day start without a point refuses", () => GasTicket.Lookup(Open(With(A(Receipt), "delivery_point", null)), "RCT", "gas_day_start", catalog));
+        Check("payment lists the sides charged on the gas", () => Equal("PAY,FEE", GasTicket.Lookup(Open(A(Receipt), Cash, fee), "RCT", "payment", catalog).Value, "paying sides"));
+        Refuses("ticket_lookup", "payment with no charged side refuses", () => GasTicket.Lookup(Open(A(Receipt)), "RCT", "payment", catalog));
+        Refuses("ticket_input", "a lookup on a field without one refuses", () => GasTicket.Lookup(Open(A(Receipt)), "RCT", "zone", catalog));
+        Check("a market price probe prices the side's own path and term", () =>
+        {
+            var probe = GasTicket.PriceProbe(Open(A(Receipt), Cash), "RCT", catalog, Snapshot, Definition);
+            Equal(Setup, probe.GasSetupId, "probe setup"); Equal(0, probe.CashSides.Length, "probe cash");
+            var side = probe.PhysicalSides.Single();
+            Equal(("RCT", "PA", "ZA1", "P1", "firm", "2027-01-01", "2027-02-01"), (side.Code, side.Pipeline, side.Zone, side.DeliveryPoint, side.Product, side.DeliveryFrom, side.DeliveryTo), "probe path");
+            Equal(new TicketSource("market", "Point 1 · close 2020-12-18"), GasTicket.MarketPrice(Open(A(Receipt)), "RCT", catalog, "3.1", new(2020, 12, 18)).Source, "market source");
+        });
+        Refuses("ticket_lookup", "a market price on a path missing from the context refuses", () => GasTicket.PriceProbe(Open(With(A(Receipt), "delivery_point", "P9")), "RCT", catalog, Snapshot, Definition));
+        Refuses("ticket_lookup", "a market price without a delivery term refuses", () => GasTicket.PriceProbe(Open(With(A(Receipt), "delivery_to", null)), "RCT", catalog, Snapshot, Definition));
         Console.WriteLine($"{passed} gas ticket checks passed.");
     }
 }

@@ -1,0 +1,55 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Npgsql;
+using OpenEtrm.MarketData;
+
+namespace OpenEtrm.Api;
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record TicketDescriptionRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]string Product);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record TicketFieldRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]TicketDraft Draft,[property:JsonRequired]string? Side,[property:JsonRequired]string Field);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record TicketPreviewRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]TicketDraft Draft);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record TicketBookRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]TicketDraft Draft,[property:JsonRequired]Guid OperationId);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record TicketTradeRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]Guid TradeId,[property:JsonRequired]Guid BindingId,[property:JsonRequired]int Revision);
+
+// Deal ticket reads for physical gas: choices and lookups from the gas catalog under the read's
+// context, and a booked composition trade as the draft that booked it.
+public sealed class GasTicketStore(PreviewDatabase database)
+{
+ const string AmendReason="Gas amendments and physical settlement are not supported yet. Daily quantities are separate operational revisions.";
+ const string CloseOutReason="Gas close-out is not supported yet.";
+ static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
+ readonly PhysicalGasStore gas=new(database);
+ readonly GasCompositionStore composition=new(database);
+
+ public static TicketDescription Description(string product)=>product==GasTicket.Description.Product?GasTicket.Description:
+  throw new MarketDataException("ticket_input",$"No deal ticket describes product '{product}'.");
+
+ async Task<JsonElement> Catalog(NpgsqlConnection c,PreviewData data,InputFrame frame,CancellationToken ct)=>JsonSerializer.SerializeToElement(await gas.CatalogRead(c,data,frame,ct),Json);
+
+ public async Task<object> Choices(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketFieldRequest body,CancellationToken ct)=>
+  new{choices=GasTicket.Choices(body.Draft,body.Side,body.Field,await Catalog(c,data,frame,ct))};
+
+ public async Task<object> Lookup(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketFieldRequest body,CancellationToken ct)
+ {
+  var catalog=await Catalog(c,data,frame,ct);
+  if(GasTicket.LookupOf(body.Draft,body.Side,body.Field)!="market_price")return GasTicket.Lookup(body.Draft,body.Side,body.Field,catalog);
+  var price=await composition.MarketPrice(c,data,frame,GasTicket.PriceProbe(body.Draft,body.Side!,catalog,frame.Id,data.DefinitionRevision.RevisionId),ct);
+  return GasTicket.MarketPrice(body.Draft,body.Side!,catalog,price,TradingView.WorkingDate(frame));
+ }
+
+ // The booked composition trade, selected by its exact binding and revision, as its ticket draft and schedule.
+ public async Task<object> Trade(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketTradeRequest body,CancellationToken ct)
+ {
+  var selected=TradePositionSelection.From(new(body.Context,body.TradeId,body.BindingId,body.Revision,GasPositions.Type));
+  var position=(await GasPositions.Read(c,database.Manifest,[],[],ct,selected)).Single();
+  if(!position.Head.GetProperty("composition").GetBoolean())throw new MarketDataException("ticket_input","This single-point gas trade does not open in the deal ticket yet.");
+  var read=await composition.Read(c,data,frame,body.TradeId,ct);
+  return new{draft=GasTicket.Draft(read.Terms),schedule=read.Valuation.Schedule,summaries=read.Valuation.Summaries,scheduleRefusal=read.Valuation.ScheduleRefusal,
+   actions=new{amend=new{allowed=false,reason=AmendReason},closeOut=new{allowed=false,reason=CloseOutReason}}};
+ }
+}

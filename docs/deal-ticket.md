@@ -365,6 +365,26 @@ from its preview and booked read; the ticket screen is not built yet.
 - The preview returns `schedule`, `summaries` and `scheduleRefusal` at the top
   level; the booked read nests the same fields under `valuation`, beside
   `terms`.
+- The ticket operations are `POST /api/tickets/description`, `choices`,
+  `lookup`, `preview`, `book`, `status` and `trade`. Each runs the gas operation
+  it delegates to, with that operation's permission and context handling; booking
+  in a historical context refuses with `historical_read_only`.
+- A choices or lookup request names a side by its code (`null` for a trade
+  field) and a field by its description id. Catalog choices come from the gas
+  catalog under the request's context and need their parent values: a zone
+  needs its side's pipeline, a point its zone, a usage tariff a delivery-stage
+  fee whose source side has a valued path and delivery term. A side answer
+  refuses (`ticket_input`) when the draft's `gas_setup` is not the one the
+  context resolves; `gas_setup` is empty where the context resolves none.
+- Party choices are `<id>@<revision>`. `market_price` is the single price the
+  side's schedule shows at the read's frame, labelled `"<point> · close <date>"`;
+  `tariff_price` proposes the one eligible tariff rate as a fee price and
+  refuses beside a chosen tariff, which the booking takes without a price. A
+  lookup that cannot resolve refuses with `ticket_lookup`.
+- `trade` opens a booked composition trade by trade, binding and revision as
+  the draft that booked it, with `schedule`, `summaries` and `scheduleRefusal`
+  at the top level. Amend and close-out are unavailable with a reason. A
+  single-point gas trade refuses with `ticket_input`.
 
 ## Dependencies and order
 

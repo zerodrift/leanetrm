@@ -1,11 +1,16 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text.Json;
 using OpenEtrm.MarketData;
 
 namespace OpenEtrm.Api;
 
 public sealed record TicketSideDraft(string Kind,string Code,ImmutableDictionary<string,string> Values);
 public sealed record TicketDraft(string Product,int Version,ImmutableDictionary<string,string> Trade,ImmutableArray<TicketSideDraft> Sides);
+
+public sealed record TicketChoice(string Value,string Label);
+public sealed record TicketSource(string Kind,string Label);
+public sealed record TicketLookup(string Value,TicketSource Source);
 
 public static class GasTicket
 {
@@ -16,7 +21,7 @@ public static class GasTicket
   [Trade("book","Book","Book that holds the trade.","choice",choices:"books"),
    Trade("legal_entity","Legal entity","Our legal entity on the trade.","choice",choices:"legal_entities",required:false),
    Trade("counterparty","Counterparty","The other party to the trade.","choice",choices:"counterparties",required:false),
-   Trade("gas_setup","Gas setup","Gas conventions and market assignments that price the trade.","choice",choices:"gas_setups"),
+   Trade("gas_setup","Gas setup","Published gas conventions and market assignments that price the trade; empty where the context resolves none and the reference conventions apply.","choice",choices:"gas_setups",required:false),
    new("trade_date","Trade date","Date the trade is booked.","date",null,"info",false,null,null,[],"trade_date",null,null)],
   [new(Physical,"Physical","gas",1,4,
     [Field("direction","Direction","Whether gas is delivered or received.","choice","direction",choices:"physical_direction"),
@@ -71,7 +76,7 @@ public static class GasTicket
 
  public static GasCompositionRequest Request(TicketDraft draft,Guid snapshotId,string knowledgeMode,Guid operationId,Guid definitionRevisionId)
  {
-  if(draft.Product!=Description.Product||draft.Version!=Description.Version)throw Bad($"Draft is for {draft.Product} v{draft.Version}, not {Description.Product} v{Description.Version}.");
+  RequireShape(draft);
   Check(Description.TradeFields,draft.Trade,"trade");
   foreach(var side in draft.Sides)
   {
@@ -139,5 +144,145 @@ public static class GasTicket
   return parts.Length==2&&Guid.TryParse(parts[0],out var guid)&&int.TryParse(parts[1],NumberStyles.None,CultureInfo.InvariantCulture,out var revision)?(guid,revision):throw Bad($"Field '{id}' must be '<id>@<revision>'.");
  }
 
+ // A malformed client draft refuses as ticket input, never as a missing object.
+ static void RequireShape(TicketDraft? draft)
+ {
+  if(draft?.Trade is null||draft.Sides.IsDefault||draft.Sides.Any(side=>side?.Values is null))throw Bad("Send the draft's trade values and each side with its values.");
+  if(draft.Product!=Description.Product||draft.Version!=Description.Version)throw Bad($"Draft is for {draft.Product} v{draft.Version}, not {Description.Product} v{Description.Version}.");
+ }
+
+ // The draft a booked request was made from: the inverse of Request.
+ public static TicketDraft Draft(GasCompositionRequest terms)
+ {
+  var trade=new Dictionary<string,string>{["book"]=terms.BookId.ToString()};
+  if(terms.GasSetupId is {} setup)trade["gas_setup"]=setup.ToString();
+  void Party(string id,Guid? party,int? revision)
+  {
+   if(party is null!=revision is null)throw Bad($"The booked '{id}' needs both its id and revision.");
+   if(party is not null)trade[id]=$"{party}@{revision!.Value.ToString(CultureInfo.InvariantCulture)}";
+  }
+  Party("legal_entity",terms.LegalEntityId,terms.LegalEntityRevision);Party("counterparty",terms.CounterpartyId,terms.CounterpartyRevision);
+  static ImmutableDictionary<string,string> Values(params (string Id,string? Value)[] values)=>values.Where(v=>v.Value is not null).ToImmutableDictionary(v=>v.Id,v=>v.Value!);
+  var physical=terms.PhysicalSides.Select(p=>new TicketSideDraft(Physical,p.Code,Values(("direction",p.Direction),("delivery_from",p.DeliveryFrom),("delivery_to",p.DeliveryTo),("product",p.Product),("quantity",p.Quantity),
+   ("quantity_basis",p.QuantityBasis),("pipeline",p.Pipeline),("zone",p.Zone),("delivery_point",p.DeliveryPoint),("link_source",p.Link?.Source),("link_formula",p.Link?.Formula),("link_fraction",p.Link?.Fraction))));
+  var cash=terms.CashSides.Select(s=>{var kind=SideKind(s.Role).Kind;
+   return new TicketSideDraft(kind,s.Code,Values(($"{kind}_direction",s.Direction),($"{kind}_source",s.Source),($"{kind}_stage",s.Stage),($"{kind}_price",s.Price),($"{kind}_payment_at",s.PaymentAt),($"{kind}_tariff",s.TariffCode)));});
+  return new(Description.Product,Description.Version,trade.ToImmutableDictionary(),[..physical,..cash]);
+ }
+
+ // Fixed lists the booking contract admits, and the lists read from the context's gas catalog.
+ static readonly ImmutableDictionary<string,ImmutableArray<TicketChoice>> Fixed=new Dictionary<string,ImmutableArray<TicketChoice>>{
+  ["physical_direction"]=[new("receive","Receive"),new("deliver","Deliver")],["cash_direction"]=[new("pay","Pay"),new("receive","Receive")],
+  ["quantity_basis"]=[new("per_operating_day","Per operating day"),new("period_total_equal_days","Period total over equal days")],
+  ["quantity_stages"]=[new("receipt","Receipt"),new("delivery","Delivery"),new("fuel","Fuel")],
+  ["link_formulas"]=[new("none","None"),new("gross_less_fraction","Gross less fraction"),new("gross_divided_by_one_plus_fraction","Gross divided by one plus fraction")]}.ToImmutableDictionary();
+
+ // The eligible choices for one field, from the gas catalog read under the request's context and filtered by the draft's parent values.
+ public static ImmutableArray<TicketChoice> Choices(TicketDraft draft,string? side,string field,JsonElement catalog)
+ {
+  var (target,f)=Field(draft,side,field);
+  if(Fixed.TryGetValue(f.Choices??throw Bad($"Field '{field}' has no choice list."),out var fixedChoices))return fixedChoices;
+  if(f.Choices=="physical_sides")return[..draft.Sides.Where(s=>s.Kind==Physical&&!(f.Id=="link_source"&&s==target)).Select(s=>new TicketChoice(s.Code,s.Code))];
+  if(target is not null)RequireSetup(draft,catalog);
+  var paths=catalog.GetProperty("locations").EnumerateArray().Where(l=>l.GetProperty("valuation").ValueKind!=JsonValueKind.Null).ToArray();
+  IEnumerable<TicketChoice> Distinct(IEnumerable<JsonElement> rows,string code,string name)=>rows.Select(r=>new TicketChoice(r.Text(code),r.Text(name))).Distinct();
+  IEnumerable<TicketChoice> Parties(string list)=>catalog.GetProperty(list).EnumerateArray().Select(p=>new TicketChoice($"{p.Text("id")}@{p.Text("revision")}",p.Text("name")));
+  return[..f.Choices switch{
+   "books"=>catalog.GetProperty("books").EnumerateArray().Select(b=>new TicketChoice(b.Text("id"),b.Text("name"))),
+   "legal_entities"=>Parties("legalEntities"),"counterparties"=>Parties("counterparties"),
+   "gas_setups"=>catalog.GetProperty("gasSetupId").ValueKind==JsonValueKind.Null?[]:[new TicketChoice(catalog.Text("gasSetupId"),$"Gas setup {catalog.Text("gasSetupId")}")],
+   "pipelines"=>Distinct(paths,"pipeline","pipelineName"),
+   "zones"=>Distinct(paths.Where(p=>p.Text("pipeline")==Term(target!,"pipeline",Bad)),"zone","zoneName"),
+   "delivery_points"=>Distinct(paths.Where(p=>p.Text("pipeline")==Term(target!,"pipeline",Bad)&&p.Text("zone")==Term(target!,"zone",Bad)),"deliveryPoint","deliveryPointName"),
+   "gas_products"=>Distinct(paths,"product","productName"),
+   "usage_tariffs"=>Tariffs(draft,target!,catalog,Bad).Select(t=>new TicketChoice(t.Text("code"),t.Text("name"))),
+   _=>throw new MarketDataException("ticket_description",$"Field '{field}' names choice list '{f.Choices}', which {Description.Product} does not serve.")}];
+ }
+
+ // Values a lookup proposes, in the shape the booking contract admits. Market prices are evaluated by the store from PriceProbe.
+ public static TicketLookup Lookup(TicketDraft draft,string? side,string field,JsonElement catalog)
+ {
+  var (target,f)=Field(draft,side,field);
+  switch(f.Lookup)
+  {
+   case "paid_through":
+    var paying=draft.Sides.Where(s=>s.Kind!=Physical&&s.Values.GetValueOrDefault($"{s.Kind}_source")==target!.Code).Select(s=>s.Code).ToArray();
+    return paying.Length>0?new(string.Join(",",paying),new("ticket","Ticket sides")):throw Unresolved($"No payment or fee side is charged on '{target!.Code}' yet.");
+   case "gas_day_start":
+    RequireSetup(draft,catalog);
+    var path=Path(target!,catalog,Unresolved);var minute=path.GetProperty("dayStartMinute").GetInt32();
+    return new($"{minute/60:00}:{minute%60:00}",new("reference",$"{path.Text("deliveryPointName")} · {path.Text("clock")}"));
+   case "tariff_price":
+    RequireSetup(draft,catalog);
+    if(target!.Values.ContainsKey($"{target.Kind}_tariff"))throw Unresolved("A chosen tariff sets the fee itself; the booking takes no price beside it.");
+    var tariffs=Tariffs(draft,target,catalog,Unresolved).ToArray();
+    return tariffs.Length==1?new(tariffs[0].Text("rate"),new("tariff",$"Tariff {tariffs[0].Text("name")}")):
+     throw Unresolved(tariffs.Length==0?"No configured usage tariff covers the source side's pipeline, product and delivery term.":"More than one configured usage tariff covers the source side; choose one.");
+   case "market_price":throw new InvalidOperationException("Market prices are evaluated from PriceProbe.");
+   case null:throw Bad($"Field '{field}' has no lookup.");
+   default:throw Unresolved($"Lookup '{f.Lookup}' is not available for {Description.Product} yet.");
+  }
+ }
+
+ // The request that evaluates one physical side's market price: its own path and delivery term, one unit received per operating day, no cash.
+ // Price does not depend on the quantity, direction or basis, so the probe states them only to make a complete side.
+ public static GasCompositionRequest PriceProbe(TicketDraft draft,string side,JsonElement catalog,Guid snapshot,Guid definition)
+ {
+  var (target,_)=Field(draft,side,"price");
+  RequireSetup(draft,catalog);
+  var (from,to)=(Term(target!,"delivery_from",Unresolved),Term(target!,"delivery_to",Unresolved));var path=Path(target!,catalog,Unresolved);
+  return new(snapshot,PhysicalGasStore.Convention,"current",GasCompositionStore.Profile,Guid.Empty,Guid.Empty,definition,Id(draft.Trade,"gas_setup"),false,null,null,null,null,
+   [new(target!.Code,path.Text("pipeline"),path.Text("zone"),path.Text("deliveryPoint"),path.Text("product"),"receive",from,to,"per_operating_day","1",null)],[]);
+ }
+
+ public static string? LookupOf(TicketDraft draft,string? side,string field)=>Field(draft,side,field).Field.Lookup;
+
+ // A physical side's evaluated market price, labelled with its point and the close it was priced at.
+ public static TicketLookup MarketPrice(TicketDraft draft,string side,JsonElement catalog,string price,DateOnly close)=>
+  new(price,new("market",$"{Path(Field(draft,side,"price").Side!,catalog,Unresolved).Text("deliveryPointName")} · close {close.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)}"));
+
+ // The side (null for a trade field) and the description field a choices or lookup request names.
+ static (TicketSideDraft? Side,TicketField Field) Field(TicketDraft draft,string? side,string field)
+ {
+  RequireShape(draft);
+  if(side is null)return(null,Description.TradeFields.SingleOrDefault(f=>f.Id==field)??throw Bad($"The trade has no field '{field}'."));
+  var target=draft.Sides.Where(s=>s.Code==side).ToArray() is [var one]?one:throw Bad($"The draft has no single side '{side}'.");
+  var kind=Description.Sides.SingleOrDefault(k=>k.Kind==target.Kind)??throw Bad($"Unknown side kind '{target.Kind}'.");
+  return(target,kind.Fields.SingleOrDefault(f=>f.Id==field)??throw Bad($"The {target.Kind} side has no field '{field}'."));
+ }
+
+ // Side answers come from the gas setup the context resolves, or its reference conventions when it resolves none;
+ // a draft naming another setup, or none where the context resolves one, refuses.
+ static void RequireSetup(TicketDraft draft,JsonElement catalog)
+ {
+  if(draft.Trade.GetValueOrDefault("gas_setup")!=catalog.OptionalText("gasSetupId"))
+   throw Bad(catalog.OptionalText("gasSetupId") is {} setup?$"Choose gas setup {setup}, the one this context resolves.":"This context resolves no gas setup; leave the gas setup empty.");
+ }
+
+ // A value the side must already hold for this answer; refuse names the code of the refusal.
+ static string Term(TicketSideDraft side,string id,Func<string,MarketDataException> refuse)=>
+  side.Values.GetValueOrDefault(id) is {Length:>0} value?value:throw refuse($"Choose the {id.Replace('_',' ')} on side '{side.Code}' first.");
+
+ static JsonElement Path(TicketSideDraft side,JsonElement catalog,Func<string,MarketDataException> refuse)
+ {
+  var key=(Term(side,"pipeline",refuse),Term(side,"zone",refuse),Term(side,"delivery_point",refuse),Term(side,"product",refuse));
+  return catalog.GetProperty("locations").EnumerateArray().Where(l=>(l.Text("pipeline"),l.Text("zone"),l.Text("deliveryPoint"),l.Text("product"))==key).ToArray() is [var one]?one:
+   throw refuse($"Side '{side.Code}' names no single gas path in this context.");
+ }
+
+ // Usage tariffs apply to a delivery-stage fee and must cover its source side's pipeline, product, quote and whole delivery term.
+ static IEnumerable<JsonElement> Tariffs(TicketDraft draft,TicketSideDraft fee,JsonElement catalog,Func<string,MarketDataException> refuse)
+ {
+  if(fee.Values.GetValueOrDefault($"{fee.Kind}_stage")!="delivery")throw refuse("Configured usage tariffs apply only to a delivery-stage fee.");
+  var code=fee.Values.GetValueOrDefault($"{fee.Kind}_source");
+  var source=draft.Sides.Where(s=>s.Kind==Physical&&s.Code==code).ToArray() is [var one]?one:throw refuse("Choose the fee's physical quantity source first.");
+  var path=Path(source,catalog,refuse);
+  if(path.GetProperty("valuation").ValueKind==JsonValueKind.Null)throw refuse($"Side '{source.Code}' has no valued gas path in this context.");
+  var (from,to)=(DateWorkspace.Date(Term(source,"delivery_from",refuse)),DateWorkspace.Date(Term(source,"delivery_to",refuse)));
+  return catalog.GetProperty("tariffs").EnumerateArray().Where(t=>t.Text("pipeline")==path.Text("pipeline")&&t.Text("product")==path.Text("product")&&t.Text("quote")==path.GetProperty("valuation").Text("quote")&&
+   DateWorkspace.Date(t.Text("validFrom"))<=from&&DateWorkspace.Date(t.Text("validTo"))>=to);
+ }
+
+ static MarketDataException Unresolved(string message)=>new("ticket_lookup",message);
  static MarketDataException Bad(string message)=>new("ticket_input",message);
 }

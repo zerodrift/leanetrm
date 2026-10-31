@@ -9,14 +9,15 @@ from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
 
 
-# The schedule columns each side kind declares in the physical_gas v1 ticket description, by booked role.
-DECLARED={'physical':{'quantity','market_price','amount'},'consideration':{'quantity','price','amount'},'fee':{'quantity','price','amount'}}
+# The side kind each booked composition role is drawn as (GasTicket's role map).
+ROLE_KIND={'physical':'physical','consideration':'cash','fee':'fee'}
 
 
-def assert_declared(view,body):
-    """Every cell key is a declared column of its side's kind or a trade column, on every row and the totals."""
+def assert_declared(view,body,description):
+    """Every cell key is a column the served description declares for its side's kind, or a trade column, on every row and the totals."""
+    columns={k['kind']:{c['id'] for c in k['columns']} for k in description['sides']}
     roles={**{s['code']:'physical' for s in body['physicalSides']},**{s['code']:s['role'] for s in body['cashSides']}}
-    expected={f'{code}.{column}' for code,role in roles.items() for column in DECLARED[role]}|{'trade.net_cash','trade.payment_at'}
+    expected={f'{code}.{column}' for code,role in roles.items() for column in columns[ROLE_KIND[role]]}|{f"trade.{c['id']}" for c in description['tradeColumns']}
     for cells in [view['totals'],*(r['cells'] for r in view['rows'])]:
         assert set(cells)==expected,sorted(set(cells)^expected)
 
@@ -26,6 +27,9 @@ def run_checks(url):
     frame=initial_frame(c.call('workspace'),'2020-12-18')
     context={'snapshotId':frame['id'],'convention':'physical_gas_fixed_quantity_v4','knowledgeMode':'current'}
     cat=c.call('gas/catalog',context)
+    description=c.call('tickets/description',{'context':context,'product':'physical_gas'})
+    assert description['product']=='physical_gas' and description['version']==1,description['product']
+    c.call('tickets/description',{'context':context,'product':'power'},expected=422)
     p=next(p for p in cat['locations'] if p['deliveryPoint']=='synthetic_gas_point_a')
     cash=lambda code,role,direction,price:{'code':code,'role':role,'direction':direction,'source':'physical','stage':'delivery','price':price,'tariffCode':None,'paymentAt':'2021-02-05T00:00:00Z'}
     body={**context,**trade_booking(),'operationId':str(uuid4()),'bookId':cat['books'][0]['id'],'definitionRevisionId':p['definitionRevisionId'],
@@ -48,7 +52,7 @@ def run_checks(url):
     assert number(month['trade.net_cash'])==number(month['cash.amount'])+number(month['fee.amount'])==1043770,month['trade.net_cash']
     assert month['trade.payment_at'] is not None and all(d['cells']['cash.amount']['value'] is None for d in days)
     assert view['totals']==month,(view['totals'],month)
-    assert_declared(view,body)
+    assert_declared(view,body,description)
     for side in value['sides']:
         assert number(view['totals'][side['code']+'.amount'])==Fraction(side['presentValue']),(side['code'],side['presentValue'])
     assert value['summaries']==[{'side':code,'billedQuantity':view['totals'][code+'.quantity']['value'],'amount':view['totals'][code+'.amount']['value'],'againstMarket':None}
@@ -80,7 +84,7 @@ def run_checks(url):
                               'product':b_point['product'],'quantity':None,'link':{'source':'receipt','formula':'gross_divided_by_one_plus_fraction','fraction':'0.02'}}]}
     def assert_linked(value):
         view=value['schedule'];assert value['scheduleRefusal'] is None and view is not None,value['scheduleRefusal']
-        assert_declared(view,linked);totals=view['totals']
+        assert_declared(view,linked,description);totals=view['totals']
         for side in value['sides']:
             assert number(totals[side['code']+'.amount'])==Fraction(side['presentValue']),(side['code'],totals[side['code']+'.amount'],side['presentValue'])
         assert totals['delivery.quantity']['value']=='-1550000/51',totals['delivery.quantity']
@@ -99,4 +103,103 @@ def run_checks(url):
     assert read(context)['schedule']==linked_view
     past=read(earlier);assert_linked(past)
     assert past['schedule']==early_view and datetime.fromisoformat(early_view['valuationAt'])==datetime.fromisoformat(earlier_frame['at'])<datetime.fromisoformat(linked_view['valuationAt']),(early_view['valuationAt'],linked_view['valuationAt'])
+    check_ticket_operations(c,context,cat,description,body,view)
     print('PASS deal ticket: gas preview and booked terms return one exact month/day schedule whose totals and amounts agree with side values; mixed gas-day clocks keep their valuation with a schedule refusal; linked receipt and delivery conserve fuel exactly at the current and an earlier As of frame',flush=True)
+
+
+def check_ticket_operations(c,context,cat,description,body,view):
+    """The ticket routes run the gas operations from a ticket draft, under the read's context."""
+    def refused(path,request,code):
+        error=c.call(path,request,expected=422);assert error['code']==code,(path,error)
+    def choices(at,draft,side,field):
+        return [x['value'] for x in c.call('tickets/choices',{'context':at,'draft':draft,'side':side,'field':field})['choices']]
+    def lookup(at,draft,side,field):
+        return c.call('tickets/lookup',{'context':at,'draft':draft,'side':side,'field':field})
+    p=next(p for p in cat['locations'] if p['deliveryPoint']=='synthetic_gas_point_a')
+    # Party choices are exact '<id>@<revision>' references, the shape the booking takes.
+    party=lambda field,id:next(v for v in choices(context,{'product':'physical_gas','version':1,'trade':{},'sides':[]},None,field) if v.startswith(id+'@'))
+    # The draft names the context's gas setup, or none where the context resolves none.
+    setup=lambda setup_id:{} if setup_id is None else {'gas_setup':setup_id}
+    trade={'book':cat['books'][0]['id'],'legal_entity':party('legal_entity',body['legalEntityId']),'counterparty':party('counterparty',body['counterpartyId']),**setup(cat['gasSetupId'])}
+    assert trade['legal_entity']==f"{body['legalEntityId']}@{body['legalEntityRevision']}",trade
+    physical={'direction':'deliver','delivery_from':'2021-01-01','delivery_to':'2021-02-01','product':p['product'],'quantity':'10000','quantity_basis':'per_operating_day',
+              'pipeline':p['pipeline'],'zone':p['zone'],'delivery_point':p['deliveryPoint']}
+    def charge(kind,direction,price):
+        return {f'{kind}_direction':direction,f'{kind}_source':'physical',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':'2021-02-05T00:00:00Z'}
+    draft={'product':'physical_gas','version':1,'trade':trade,'sides':[{'kind':'physical','code':'physical','values':physical},
+           {'kind':'cash','code':'cash','values':charge('cash','receive','3.412')},{'kind':'fee','code':'fee','values':charge('fee','pay','0.045')}]}
+
+    # Choices: a zone lists only its pipeline's valued zones and needs the pipeline; points follow the zone.
+    valued=[l for l in cat['locations'] if l['valuation'] is not None]
+    pipelines={l['pipeline'] for l in valued};assert len(pipelines)>1,pipelines
+    assert set(choices(context,draft,'physical','pipeline'))==pipelines
+    zones=choices(context,draft,'physical','zone')
+    assert set(zones)=={l['zone'] for l in valued if l['pipeline']==p['pipeline']} and not set(zones)&{l['zone'] for l in valued if l['pipeline']!=p['pipeline']},zones
+    assert set(choices(context,draft,'physical','delivery_point'))=={l['deliveryPoint'] for l in valued if (l['pipeline'],l['zone'])==(p['pipeline'],p['zone'])}
+    unpiped={**draft,'sides':[{**draft['sides'][0],'values':{k:v for k,v in physical.items() if k!='pipeline'}},*draft['sides'][1:]]}
+    refused('tickets/choices',{'context':context,'draft':unpiped,'side':'physical','field':'zone'},'ticket_input')
+    refused('tickets/choices',{'context':context,'draft':None,'side':'physical','field':'zone'},'ticket_input')
+
+    # Lookups: a receipt-stage fee has no tariff price; the market price is read at the pinned close, not the newest.
+    receipt_fee={**draft,'sides':[*draft['sides'][:2],{**draft['sides'][2],'values':{**draft['sides'][2]['values'],'fee_stage':'receipt'}}]}
+    refused('tickets/lookup',{'context':context,'draft':receipt_fee,'side':'fee','field':'fee_price'},'ticket_lookup')
+    newest=lookup(context,draft,'physical','price')
+    assert newest['value']==view['totals']['physical.market_price']['value'],(newest,view['totals']['physical.market_price'])
+    assert newest['source']=={'kind':'market','label':f"{p['deliveryPointName']} · close 2020-12-18"},newest['source']
+    earlier={**context,'snapshotId':initial_frame(c.call('workspace'),'2020-12-17')['id']}
+    early_view=c.call('tickets/preview',{'context':earlier,'draft':draft})['schedule']
+    early=lookup(earlier,draft,'physical','price')
+    assert early['value']==early_view['totals']['physical.market_price']['value']!=newest['value'],(early,newest)
+    assert early['source']['label'].endswith('close 2020-12-17'),early['source']
+    start=lookup(context,draft,'physical','gas_day_start')['value'];minute=p['dayStartMinute']
+    assert start==f'{minute//60:02d}:{minute%60:02d}',start
+    assert lookup(context,draft,'physical','payment')['value']=='cash,fee'
+
+    # Preview and book: the mapped draft, with a payment and a fee side, is accepted by the composition store.
+    preview=c.call('tickets/preview',{'context':context,'draft':draft})
+    direct=c.call('gas/composition/preview',body)
+    assert preview['schedule']==view and preview['presentValue']==direct['presentValue'] and preview['sides']==direct['sides'],preview['presentValue']
+    assert [s['role'] for s in preview['sides']]==['physical','consideration','fee'],preview['sides']
+    operation=str(uuid4());request={'context':context,'draft':draft,'operationId':operation}
+    booked=c.call('tickets/book',request)
+    assert c.call('tickets/book',request)==booked and c.call('tickets/status',{'operationId':operation})['tradeId']==booked['tradeId'],booked
+    retained={**context,'knowledgeMode':'retained','contextId':cat['context']['contextId']}
+    refused('tickets/book',{**request,'context':retained,'operationId':str(uuid4())},'historical_read_only')
+    shared={**context,'convention':'trading_workspace_v1'}
+    def fact_for(trade_id,offset=0):
+        page=c.call('trading/positions',{'context':shared,'bookIds':[],'portfolioIds':[],'offset':offset,'limit':64})['positions']
+        assert page,trade_id
+        return next((f for f in page if f['tradeId']==trade_id),None) or fact_for(trade_id,offset+64)
+    fact=fact_for(booked['tradeId'])
+    opened=c.call('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision']})
+    assert opened['draft']==draft,(opened['draft'],draft)
+    assert opened['schedule']==view and opened['summaries']==preview['summaries'] and opened['scheduleRefusal'] is None
+    assert opened['actions']['amend']['allowed'] is False and opened['actions']['closeOut']['allowed'] is False and opened['actions']['amend']['reason'],opened['actions']
+    refused('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':str(uuid4()),'revision':fact['revision']},'position_unavailable')
+    # A single-point gas booking does not open in the ticket yet.
+    single={**context,**{k:body[k] for k in ['legalEntityId','legalEntityRevision','counterpartyId','counterpartyRevision','bookId','definitionRevisionId','gasSetupId']},'operationId':str(uuid4()),
+            'pipeline':p['pipeline'],'zone':p['zone'],'deliveryPoint':p['deliveryPoint'],'product':p['product'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','quantity':'1000',
+            'quantityBasis':'period_total_equal_days','direction':'receive','fixedPrice':'3','usageFee':None,'usageTariffCode':None,'usageFeeDirection':None,'paymentAt':'2021-02-02T00:00:00Z','discounting':False}
+    single_booked=c.call('gas/book',single)
+    single_fact=fact_for(single_booked['tradeId'])
+    refused('tickets/trade',{'context':context,'tradeId':single_fact['tradeId'],'bindingId':single_fact['bindingId'],'revision':single_fact['revision']},'ticket_input')
+
+    # Historical choices: a point retired by a later gas setup stays listed, and priced, in the earlier context.
+    c.call('profile',{'profile':'editor'})
+    authored=c.call('gas-setup/catalog');original=authored['configuration'];retired='synthetic_gas_point_d'
+    without={**original,'paths':[x for x in original['paths'] if x['point']!=retired],'meters':[m for m in original['meters'] if m['point']!=retired]}
+    def publish(configuration,base):
+        saved=c.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':base,'configuration':configuration})
+        c.call('profile',{'profile':'approver'});c.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':saved['setupId']});c.call('profile',{'profile':'editor'})
+        return saved['setupId']
+    later=publish(without,authored['activeSetupId'])
+    c.call('profile',{'profile':'trader'})
+    d=next(l for l in cat['locations'] if l['deliveryPoint']==retired)
+    at_d=lambda setup_id:{**draft,'trade':{**{k:v for k,v in trade.items() if k!='gas_setup'},**setup(setup_id)},'sides':[{**draft['sides'][0],'values':{**physical,'pipeline':d['pipeline'],'zone':d['zone'],'delivery_point':retired,'product':d['product']}}]}
+    assert retired in choices(retained,at_d(cat['gasSetupId']),'physical','delivery_point')
+    assert retired not in choices(context,at_d(later),'physical','delivery_point')
+    refused('tickets/choices',{'context':context,'draft':at_d(cat['gasSetupId']),'side':'physical','field':'delivery_point'},'ticket_input')
+    then=lookup(retained,at_d(cat['gasSetupId']),'physical','price')
+    assert then['value'] and then['source']['label']==f"{d['deliveryPointName']} · close 2020-12-18",then
+    c.call('profile',{'profile':'editor'});publish(original,later);c.call('profile',{'profile':'trader'})
+    print('PASS deal ticket operations: description, catalog choices by parent and context, labelled lookups at the pinned close, mapped drafts preview and book idempotently with payment and fee sides, and a booked trade reopens as its draft',flush=True)
