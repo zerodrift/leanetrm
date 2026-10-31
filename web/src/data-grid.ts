@@ -294,14 +294,22 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   }
   const focusLost=()=>{const active=document.activeElement;return active===null||active===document.body||active===document.documentElement;};
   // Drawing the rows again, whether by the grid's own changes, its scrolling or a resize, detaches them, which drops keyboard focus from a
-  // row without the person moving it: the row has it back once drawn. A press elsewhere moves focus on purpose, and that stands.
+  // row without the person moving it: the row has it back once drawn. A press outside the grid moves focus on purpose, and that stands; a
+  // press on a row is the person choosing it, whose focus the redraw it causes must not take.
   let pressedAt=-Infinity;
-  const pressed=()=>{pressedAt=performance.now();};
+  const pressed=(event:PointerEvent)=>{pressedAt=container.contains(event.target as Node)?-Infinity:performance.now();};
   const rowBlurred=(event:FocusEvent)=>{
     const target=event.target;
     if(event.relatedTarget!==null||!(target instanceof HTMLElement)||!target.classList.contains('tabulator-row')||performance.now()-pressedAt<500)return;
     const key=target.dataset.rowKey;
-    requestAnimationFrame(()=>{const row=key!==undefined&&alive&&focusLost()&&table.getRow(key);if(row&&row.getElement().isConnected)row.getElement().focus({preventScroll:true});});
+    // The row can be drawn again some frames later, as after a scroll, or be out of reach while the page is busy (inert): it is waited for,
+    // for as long as focus stays lost, up to about ten seconds.
+    const giveBack=(frames:number)=>requestAnimationFrame(()=>{
+      if(key===undefined||!alive||!focusLost())return;
+      const row=table.getRow(key),target=row?row.getElement():undefined;
+      if(target?.isConnected&&!target.closest('[inert]'))target.focus({preventScroll:true});else if(row&&frames>0)giveBack(frames-1);
+    });
+    giveBack(600);
   };
   container.addEventListener('focusout',rowBlurred,true);document.addEventListener('pointerdown',pressed,true);
   function safeRowGesture(event:MouseEvent,targetRow:HTMLElement){
@@ -323,15 +331,23 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     if(options.onRowDoubleOpen&&event.detail===2&&row&&doubleCandidate!==undefined&&keyAtElement(row)===doubleCandidate&&safeRowGesture(event,row))event.preventDefault();
   };
   container.addEventListener('mousedown',secondMouseDown,true);
+  // A press on a row of a grid whose rows also open their own view by a double click opens the row once a second press can no longer
+  // follow: opening it can move it from under the pointer (the details taking their room shrink the grid), where the second press of a
+  // person's double click would miss it.
+  const doubleWindow=400;
+  let pendingOpen:ReturnType<typeof setTimeout>|undefined;
+  const cancelPendingOpen=()=>{if(pendingOpen!==undefined){clearTimeout(pendingOpen);pendingOpen=undefined;}};
   table.on('rowClick',(event:MouseEvent,row:GridRow)=>{
     const target=row.getElement();
     if(!safeRowGesture(event,target)){doubleCandidate=undefined;return;}
     if(options.onRowDoubleOpen&&event.detail>1)return;
     doubleCandidate=options.onRowDoubleOpen&&event.detail===1?keyOf(row):undefined;
-    openRow(row);
+    cancelPendingOpen();
+    if(doubleCandidate===undefined){openRow(row);return;}
+    pendingOpen=setTimeout(()=>{pendingOpen=undefined;openRow(row);},doubleWindow);
   });
   // Handle the eligible double click before the grid's cell handler, which
-  // otherwise selects the whole cell even when mousedown was prevented.
+  // otherwise selects the whole cell even when mousedown was prevented. The row the first press chose is opened too.
   const doubleClick=(event:MouseEvent)=>{
     const target=(event.target as Element).closest<HTMLElement>('.tabulator-row'),candidate=doubleCandidate;doubleCandidate=undefined;
     if(!options.onRowDoubleOpen||!target||candidate===undefined||!safeRowGesture(event,target))return;
@@ -485,7 +501,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     focusRow(index:number){const at=keyAt(index);if(at!==null)whenDrawn(at,row=>row.getElement().focus({preventScroll:true}));},
     /** Scrolls the row of a source index into view, in the grid and in the page, as far as it takes to show it, once the grid has drawn again. */
     revealRow(index:number){const at=keyAt(index);if(at!==null)whenDrawn(at,row=>row.getElement().scrollIntoView({block:'nearest'}));},
-    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('pointerdown',pressed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;cancelPendingOpen();container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('pointerdown',pressed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }
 export type GridHandle=ReturnType<typeof renderDataGrid>;

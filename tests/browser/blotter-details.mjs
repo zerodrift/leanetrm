@@ -174,4 +174,53 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('and a shorter one has them share the room again',shared,room);
   await click('#details-collapse');await wait(`${collapsed}&&${idle}`);
   await check('collapsing them there gives the panes back their own sizes inside the dock',`(()=>{const r=${room};return !r.charts&&r.grid>=250&&r.groups.every(g=>g[2]<=r.dock+1);})()`,room);
+  // Dragging the divider between the grid and the open details at 1440 by 900 leaves every pane inside the dock, each of the two at least
+  // 160 px.
+  await evaluate(`${rows}.find(r=>{const h=${holder}.getBoundingClientRect(),b=r.getBoundingClientRect();return b.top>=h.top-0.5&&b.bottom<=h.bottom+0.5;}).focus({preventScroll:true})`);
+  await press('Enter');await wait(`document.querySelector('#position-details')?.hidden===false&&${idle}`);await wait(shared,3000).catch(()=>undefined);
+  const divider=await evaluate(`(()=>{const d=[...document.querySelectorAll('#blotter-dock .dock-divider')].find(d=>d.previousElementSibling?.querySelector('#blotter-pane-grid')&&d.nextElementSibling?.querySelector('#blotter-pane-details'));const b=d.getBoundingClientRect();return {x:b.left+b.width/2,y:b.top+b.height/2};})()`);
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...divider});
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...divider,button:'left',buttons:1,clickCount:1});
+  for(const dy of [40,80,120])await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:divider.x,y:divider.y+dy,button:'left',buttons:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',x:divider.x,y:divider.y+120,button:'left',buttons:0,clickCount:1});
+  await evaluate(frames);await wait(shared,3000).catch(()=>undefined);
+  await check('dragging the divider between the grid and the open details keeps every pane inside the dock, each of the two at least 160 px',shared,room);
+  // Bringing the Charts pane back beside the open details shares the dock again: every pane stays inside it, the grid and details at 160 px or more.
+  await evaluate("document.querySelector('#blotter-dock [data-collapse=charts]').click()");await evaluate(frames);
+  const inside=`(()=>{const r=${room};return !r.charts&&r.details>=160&&r.grid>=160&&r.page[0]<=r.page[1]&&r.groups.every(g=>g[2]<=r.dock+1);})()`;
+  await wait(inside,3000).catch(()=>undefined);
+  await check('bringing Charts back beside the open details keeps every pane inside the dock, the grid and the details at least 160 px',inside,`[${room},document.querySelector('#blotter-dock').style.cssText]`);
+  await click('#details-collapse');await wait(`${collapsed}&&${idle}`);await click('#blotter-reset-layout');await evaluate(frames);
+  // A press on a row opens it and leaves keyboard focus on it as the details take their room: ↓ and Escape work straight after.
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});await evaluate(frames);
+  const pointAt=key=>evaluate(`(()=>{const b=${row(key)}.querySelector('.tabulator-cell').getBoundingClientRect();return {x:b.left+20,y:b.top+b.height/2};})()`);
+  const mouse=async(point,count=1)=>{for(let c=1;c<=count;c++){await command('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',buttons:1,clickCount:c});await command('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',buttons:0,clickCount:c});}};
+  const pressedKey=await evaluate(`(()=>{const h=${holder}.getBoundingClientRect();return ${rows}.find(r=>{const b=r.getBoundingClientRect();return b.top>=h.top-0.5&&b.bottom<=h.bottom+0.5;}).dataset.rowKey;})()`);
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...await pointAt(JSON.stringify(pressedKey))});await mouse(await pointAt(JSON.stringify(pressedKey)));
+  await wait(`document.querySelector('#position-details')?.hidden===false&&${idle}`);await evaluate(frames);
+  const nextKey=await beside();
+  await press('ArrowDown');
+  await wait(`${selected}===${JSON.stringify(nextKey)}&&document.activeElement===${row(JSON.stringify(nextKey))}&&${idle}`).catch(observed);
+  await check('↓ straight after a press on a row selects the next row, with focus on it',`${selected}===${JSON.stringify(nextKey)}&&document.activeElement===${row(JSON.stringify(nextKey))}`);
+  await mouse(await pointAt(JSON.stringify(pressedKey)));await wait(`${selected}===${JSON.stringify(pressedKey)}&&${idle}`);await evaluate(frames);
+  await press('Escape');
+  await wait(`${collapsed}&&document.activeElement===${row(JSON.stringify(pressedKey))}&&${idle}`).catch(observed);
+  await check('Escape straight after a press on a row collapses the details, with focus on the row',`${collapsed}&&document.activeElement===${row(JSON.stringify(pressedKey))}`);
+  // A double click like a person's, on a row cut by the foot of the grid, opens the position's own window once: with the details collapsed,
+  // where the first click opens them, and beside them once open.
+  await evaluate("window.__opened=[];window.open=(...args)=>{window.__opened.push(args[0]);return null;}");
+  for(const open of [false,true]){
+  await evaluate('window.__opened=[]');
+  if(open){await press('Enter');await wait(`document.querySelector('#position-details')?.hidden===false&&${idle}`);}else await wait(collapsed);
+  await evaluate(frames);
+  // The rows are scrolled, where they end flush with the grid's foot, so that one is cut by it.
+  const partly=await evaluate(`(async()=>{const holder=${holder},cut=()=>{const h=holder.getBoundingClientRect();return ${rows}.find(r=>{const b=r.getBoundingClientRect();return b.top<h.bottom-12&&b.bottom>h.bottom+1;});};
+    if(!cut()){holder.scrollTop+=23;await ${frames};}return cut()?.dataset.rowKey??null;})()`);
+  if(!partly)throw Error('No row is cut by the foot of the grid.');
+  const cut=await evaluate(`(()=>{const b=${row(JSON.stringify(partly))}.querySelector('.tabulator-cell').getBoundingClientRect(),h=${holder}.getBoundingClientRect();return {x:b.left+20,y:(b.top+Math.min(b.bottom,h.bottom))/2};})()`);
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...cut});await mouse(cut,2);
+  await wait('window.__opened.length>0',3000).catch(()=>undefined);await evaluate('new Promise(r=>setTimeout(r,600))');
+  await check(`a person\'s double click on a row cut by the foot of the grid, ${open?'beside the open details':'with the details collapsed'}, opens the position\'s own window once`,`window.__opened.length===1&&${selected}===${JSON.stringify(partly)}`,'[window.__opened.length,'+selected+']');
+  await click('#details-collapse');await wait(`${collapsed}&&${idle}`);
+  }
 }

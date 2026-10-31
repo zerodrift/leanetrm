@@ -157,6 +157,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       // Charts put away to make room for the details are this visit's, never the view's; once brought back by the person they are theirs again.
       if(chartsMadeWay&&!arrangement.collapsed.includes('charts'))chartsMadeWay=false;
       view.panes=chartsMadeWay?{...arrangement,collapsed:arrangement.collapsed.filter(tab=>tab!=='charts')}:arrangement;
+      // A divider dragged or a pane moved, put away or brought back changes the room the open details have: it is sized again once drawn.
+      requestAnimationFrame(fitRoom);
     },shown:id=>{if(id==='grid')for(const grid of [table,ladderTable,factsGrid])grid?.relayout();}});
   // A page that has just become narrow shows the positions among its tabs, or the details while they show something; one wide again
   // shows the arrangement as it was, with the details expanded while they show something. Focus in the details stays there.
