@@ -6,7 +6,7 @@ namespace OpenEtrm.Api;
 internal static class TradingBookingRead
 {
  internal static async Task<T> Run<T>(PreviewDatabase database,NpgsqlConnection connection,InputFrame frame,
-  Func<PreviewData,InputFrame,Task<T>> read,CancellationToken ct)
+  Func<PreviewData,InputFrame,Task<T>> read,CancellationToken ct,bool gasMarket=false)
  {
   // Current-knowledge booking explicitly resolves a certified pricing view.
   // Its temporary read binding must not turn the ensuing write into a historical write.
@@ -19,6 +19,11 @@ internal static class TradingBookingRead
    await using(var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,frame.At))
     await trading.ExecuteNonQueryAsync(ct);
    var pinned=frame with{ContextId=context.ContextId};
+   if(gasMarket)
+   {
+    var gas=await GasMarketSelection.Read(database,connection,pinned,ct);
+    return await read(gas.Data,gas.Frame);
+   }
    var selected=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
    return await read(selected,pinned);
   }

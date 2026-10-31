@@ -1039,8 +1039,13 @@ Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession session,F
 // How trading reads publish their results: camel-case members, exact decimals as exact text.
 var tradingJson=new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase,Converters={new ExactDecimalJsonConverter()}};
 // Trading pages without a read operation of their own run their store's read on the shared trading read path.
-Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false)=>
-    TradingRead(c,body,(connection,view,ct)=>tradeReads.Read(connection,view,data=>read(connection,data,view.CalculationFrame,ct),ct),scenario,headTrade,amendmentPreview,expectedConvention,dealRisk);
+Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,Guid? gasTrade=null)=>
+    TradingRead(c,body,(connection,view,ct)=>expectedConvention==PhysicalGasStore.Convention&&GasMarketSelection.Configured(database.Manifest)
+        ?tradeReads.ReadBound(connection,view,async()=>{
+            var selected=await GasMarketSelection.Read(database,connection,view.CalculationFrame,ct,gasTrade);
+            return await read(connection,selected.Data,selected.Frame,ct);
+        },ct)
+        :tradeReads.Read(connection,view,data=>read(connection,data,view.CalculationFrame,ct),ct),scenario,headTrade,amendmentPreview,expectedConvention,dealRisk);
 // The page keeps request policy: conventions, risk and amendment permissions, and the booking and amendment flags.
 Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,TradingView,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,bool combinedWorkspace=false,bool concurrent=false,
     Func<NpgsqlConnection,TradingView,CancellationToken,Task>? recheck=null)
@@ -1198,7 +1203,7 @@ api.MapPost("/gas/instructions",(HttpContext c,PhysicalGasWriteRequest body)=>Fu
 api.MapPost("/gas/directory",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,
  async(connection,data,frame,ct)=>await gasStore.Directory(connection,ct),expectedConvention:PhysicalGasStore.Convention));
 api.MapPost("/gas/editor",(HttpContext c,PhysicalGasEditorRequest body)=>FuturesRead(c,body.Context,
- (connection,data,frame,ct)=>gasStore.Editor(connection,data,frame,body.TradeId,ct),expectedConvention:PhysicalGasStore.Convention));
+ (connection,data,frame,ct)=>gasStore.Editor(connection,data,frame,body.TradeId,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId));
 api.MapPost("/gas/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
 api.MapPost("/gas/book",(HttpContext c,PhysicalGasWriteRequest body)=>Locked(c,async session=>
 {
@@ -1232,7 +1237,7 @@ var gasComposition=new GasCompositionStore(database);
 api.MapPost("/gas/composition/preview",(HttpContext c,GasCompositionRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
  (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention));
 api.MapPost("/gas/composition/editor",(HttpContext c,PhysicalGasEditorRequest body)=>FuturesRead(c,body.Context,
- (connection,data,frame,ct)=>gasComposition.Editor(connection,data,frame,body.TradeId,ct),expectedConvention:PhysicalGasStore.Convention));
+ (connection,data,frame,ct)=>gasComposition.Editor(connection,data,frame,body.TradeId,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId));
 api.MapPost("/gas/composition/directory",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,
  async(connection,data,frame,ct)=>await gasComposition.Directory(connection,ct),expectedConvention:PhysicalGasStore.Convention));
 api.MapPost("/gas/composition/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
