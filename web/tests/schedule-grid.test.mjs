@@ -57,7 +57,14 @@ test('rows keep the exact strings; only the display text is formatted, and total
  assert.deepEqual(g.rows[1],['2026-11-01','-1000','4.5','-4500','1000','3.25','3250','3250','2026-11-25T14:00:00.0000000+00:00']);
  assert.equal(g.rows[0][8],'');
  assert.deepEqual(g.displayRows[1],['2026-11-01','-1,000','4.5','-4,500','1,000','3.25','3,250','3,250','2026-11-25 14:00 +00:00']);
- assert.deepEqual(g.totals,['Total','-1,234,567.5','4.5','-10/3','1,234,567.5','3.25','99','99','2026-11-25 14:00 +00:00']);
+ assert.deepEqual(g.totals,[['Total','-1,234,567.5','4.5','-10/3','1,234,567.5','3.25','99','99','2026-11-25 14:00 +00:00']]);
+});
+
+test('in delivery the totals are the view’s delivered, remaining and total rows, in that order',()=>{
+ const split=cells('-1000','4.5','-4500','3250',null),rest=cells('-1000','4.5','-4500','3250','2026-11-25T14:00:00.0000000+00:00');
+ const g=scheduleGridData(view({delivered:split,remaining:rest,deliveredLeaves:1}),description,sides,'cash-1','day');
+ assert.deepEqual(g.totals,[['Delivered','1,000','3.25','3,250'],['Remaining','1,000','3.25','3,250'],['Total','1,234,567.5','3.25','99']]);
+ assert.throws(()=>scheduleGridData(view({delivered:split}),description,sides,'cash-1','day'),/delivered and remaining together/);
 });
 
 test('changed marks exactly the cells whose value differs from the previous view',()=>{

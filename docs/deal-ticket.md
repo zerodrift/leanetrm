@@ -343,14 +343,23 @@ Each move keeps the product's booking contract and removes its old editor
 ## Current implementation
 
 Physical gas has a description (`physical_gas` v1) and returns a schedule view
-from its preview and booked read; the ticket screen is not built yet.
+from its preview and booked read. The ticket view is drawn but not yet placed
+on a page or wired to the ticket operations.
 
 - The schedule grid (`web/src/schedule-grid.ts`) turns a schedule view into the
   Instrument and side tabs: side-coloured header groups and a Trade group, the
   rows of the chosen level and coarser as a tree, source tags, change markers
   against the previous view, dimmed delivered rows and the view's own totals as
   a pinned row. Exact decimals are shown with digit grouping only; an `a/b`
-  ratio is shown exact. The delivered/remaining split is not drawn yet.
+  ratio is shown exact. In delivery the pinned row holds the view's delivered,
+  remaining and total lines, in that order.
+- The ticket view (`web/src/deal-ticket.ts`) draws the trade strip (state,
+  trade fields, delivered count, status and the model's notices), one card per
+  side whose common band rows share one row grid, the Add side card, the
+  schedule panel and the footer. A side is named by its kind's pill and code;
+  no description declares a side name field yet. Below a container width of
+  640px the cards stack and side chips select a side. Booked mode shows Amend
+  and Close out disabled with the backend's reasons.
 
 - Quantities and amounts carry the side's direction: delivered gas and paid
   cash are negative. Clients show them as reported and never re-sign them or

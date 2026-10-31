@@ -1,0 +1,188 @@
+import type {ScheduleView,TicketChoice,TicketDescription,TicketField,TicketSummary,TradeActions} from './ticket-types.js';
+import {addSide,removeSide,type FieldValue,type TicketSide,type TicketState} from './ticket-model.js';
+import {instantText,numberText,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
+import {emptyGridLayout,renderDataGrid,type GridHandle} from './data-grid.js';
+
+// Draws a deal ticket from its backend description, the model's state and the latest preview: the trade strip, one card per side whose
+// common band rows line up across the cards, and the schedule panel. Every value, aggregate and refusal is the backend's or the model's;
+// the view only lays them out and reports what the person does.
+export type TicketStatus={kind:'current'|'updating'|'stale'|'refused';text:string};
+export type TicketEvents={edit(side:string|null,field:string,value:string):void;accept(side:string|null,field:string):void;selectSide(code:string):void;tab(id:string):void;
+ level(l:string):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void};
+// fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field.
+export type TicketView={state:TicketState;mode:'new'|'booked';actions:TradeActions|null;schedule:ScheduleView|null;previous:ScheduleView|null;summaries:TicketSummary[];
+ status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;on:TicketEvents};
+
+// The common band's rows, in order: TicketBand.Rows in TicketDescriptions.cs.
+const band=['direction','start','end','product','quantity','price','payment'];
+const levelLabels:Readonly<Record<string,string>>={month:'Month',day:'Day',hour:'Hour'};
+
+export function bandRows(d:TicketDescription,kinds:string[]):string[]{
+ const used=new Set(kinds.flatMap(kind=>sideKind(d,kind).fields.flatMap(f=>f.band===null?[]:[f.band])));
+ for(const row of used)if(!band.includes(row))throw Error(`Field band '${row}' is not a common band row.`);
+ return band.filter(row=>used.has(row));
+}
+
+function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?:string){
+ const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;
+}
+const button=(className:string,text:string,click:()=>void)=>{const b=el('button',className,text);b.type='button';b.onclick=()=>click();return b;};
+// What the model refuses, as the reason an action is unavailable; null when it is allowed.
+const refusal=(attempt:()=>unknown)=>{try{attempt();return null;}catch(error){return error instanceof Error?error.message:String(error);}};
+const sideName=(d:TicketDescription,side:TicketSide)=>`${sideKind(d,side.kind).pill} · ${side.code}`;
+const colour=(token:string)=>{if(!/^[a-z][a-z0-9_-]*$/.test(token))throw Error(`A side colour must be a colour token name, not '${token}'.`);return `var(--side-${token})`;};
+
+function editor(f:TicketField,value:string,choices:TicketChoice[]|undefined,edit:(value:string)=>void){
+ let control:HTMLInputElement|HTMLSelectElement;
+ if(f.type==='choice'){
+  const select=el('select','ticket-control'),options=[{value:'',label:'Choose…'},...choices??[]];
+  // A value the current choices do not list (a booked or looked-up value) stays shown as it is, never silently emptied.
+  if(value&&!options.some(c=>c.value===value))options.push({value,label:value});
+  for(const c of options){const option=el('option',undefined,c.label);option.value=c.value;select.append(option);}
+  control=select;
+ }else{const input=el('input','ticket-control');input.type=f.type==='date'?'date':'text';if(f.type==='decimal')input.inputMode='decimal';control=input;}
+ control.value=value;control.setAttribute('aria-label',f.label);control.onchange=()=>edit(control.value);
+ return control;
+}
+
+function fieldRow(o:TicketView,f:TicketField,side:string|null,v:FieldValue|undefined){
+ const key=side===null?f.id:`${side}.${f.id}`,value=v?.value??'',entry=o.mode==='new';
+ const row=el('div',`ticket-field ticket-${f.state}`);row.dataset.field=f.id;row.dataset.state=f.state;
+ const label=el('span','ticket-label',f.label);label.title=f.meaning;
+ const body=el('div','ticket-body');row.append(label,body);
+ const chip=()=>{if(entry&&v?.looked){row.classList.add('ticket-looked');body.append(el('span','ticket-chip',v.looked.label));}};
+ if(f.state==='soon'){
+  // Coming soon: it cannot be entered, holds no value and is never sent; its hover text says what it will do.
+  const control=el('input','ticket-control');control.disabled=true;control.setAttribute('aria-disabled','true');control.setAttribute('aria-label',f.label);control.title=f.soon??'';
+  row.title=f.soon??'';body.append(control,el('span','ticket-soon-tag','Coming soon'));
+ }else if(f.state==='editable'&&entry){
+  chip();body.append(editor(f,value,o.choices[key],next=>o.on.edit(side,f.id,next)));
+  if(f.unit)body.append(el('span','ticket-unit',f.unit));
+  if(v?.offered)body.append(button('ticket-offer',`Use ${v.offered.value} (${v.offered.label})`,()=>o.on.accept(side,f.id)));
+ }else{
+  chip();
+  const shown=f.type==='choice'?o.choices[key]?.find(c=>c.value===value)?.label??value:value;
+  if(shown)body.append(el('span','ticket-value',f.unit?`${shown} ${f.unit}`:shown));
+  if(f.state==='derived'&&f.rule)body.append(el('span','ticket-rule',f.rule));
+ }
+ if(o.fieldErrors[key]){const error=el('p','ticket-error',o.fieldErrors[key]);error.setAttribute('role','alert');row.append(error);}
+ return row;
+}
+
+function summary(s:TicketSummary){
+ const box=el('div','ticket-summary');box.append(el('span','ticket-summary-title','Side summary · from preview'));
+ for(const [label,value] of [['Billed quantity',s.billedQuantity],['Amount',s.amount],['Against market',s.againstMarket]] as const)
+  if(value!==null){const line=el('div','ticket-summary-line');line.append(el('span',undefined,label),el('span','ticket-number',numberText(value)));box.append(line);}
+ return box;
+}
+
+function card(o:TicketView,side:TicketSide,rows:string[]){
+ const d=o.state.description,kind=sideKind(d,side.kind),selected=o.selectedSide===side.code;
+ const node=el('article','ticket-card');node.dataset.side=side.code;node.dataset.kind=side.kind;node.classList.toggle('selected',selected);node.style.setProperty('--side-colour',colour(kind.colour));
+ // A click on a card selects its side and that side's tab; a click on one of its controls is the control's.
+ node.onclick=event=>{if(selected&&o.tab===side.code||(event.target as HTMLElement).closest('input,select,button'))return;o.on.selectSide(side.code);};
+ const head=el('header','ticket-card-head');head.append(el('strong','ticket-side-name',sideName(d,side)),el('span','ticket-pill',kind.pill));
+ if(o.mode==='new'){
+  const reason=refusal(()=>removeSide(o.state,side.code)),remove=button('ticket-remove','Remove',()=>o.on.removeSide(side.code));
+  remove.disabled=reason!==null;remove.title=reason??`Remove ${sideName(d,side)}`;head.append(remove);
+ }
+ node.append(head,el('div','ticket-band-title','Common to all sides'));
+ for(const row of rows){
+  const f=kind.fields.find(x=>x.band===row);
+  // A kind without this term keeps its slot, so the row lines up with the other cards.
+  const slot=f?fieldRow(o,f,side.code,side.values[f.id]):el('div','ticket-slot-empty');
+  slot.dataset.band=row;node.append(slot);
+ }
+ const own=el('div','ticket-own');
+ for(const f of kind.fields.filter(x=>x.band===null))own.append(fieldRow(o,f,side.code,side.values[f.id]));
+ const reported=o.summaries.find(s=>s.side===side.code);if(reported)own.append(summary(reported));
+ node.append(el('div','ticket-band-title ticket-band-own',`${kind.pill} details`),own);
+ return node;
+}
+
+function addCard(o:TicketView){
+ const node=el('div','ticket-add');node.append(el('span','ticket-add-title','Add side'));
+ for(const kind of o.state.description.sides){
+  const reason=refusal(()=>addSide(o.state,kind.kind)),offer=button('ticket-add-kind',kind.pill,()=>o.on.addSide(kind.kind));
+  offer.disabled=reason!==null;if(reason)offer.title=reason;offer.style.setProperty('--side-colour',colour(kind.colour));node.append(offer);
+ }
+ return node;
+}
+
+function strip(o:TicketView){
+ const d=o.state.description,view=o.schedule,node=el('header','ticket-strip');
+ const title=el('div','ticket-title');
+ title.append(el('strong','ticket-product',d.product),el('span','ticket-state',o.mode==='new'?'Draft':!view?'Booked':view.delivered?'Booked · in delivery':'Booked · forward'));
+ const fields=el('div','ticket-trade-fields');for(const f of d.tradeFields)fields.append(fieldRow(o,f,null,o.state.trade[f.id]));
+ node.append(title,fields);
+ if(view?.delivered){
+  const progress=el('div','ticket-progress'),bar=el('progress');bar.max=view.leaves;bar.value=view.deliveredLeaves;
+  progress.append(bar,el('span','ticket-progress-text',`${view.deliveredLeaves} of ${view.leaves} delivered`),el('span','ticket-valuation',`Valued at ${instantText(view.valuationAt)}`));
+  node.append(progress);
+ }
+ const line=el('p','ticket-status',o.status.text);line.dataset.kind=o.status.kind;line.setAttribute('role','status');node.append(line);
+ return node;
+}
+
+function schedulePanel(o:TicketView,sides:ScheduleSide[]){
+ const d=o.state.description,panel=el('section','ticket-schedule'),tabs=el('div','ticket-tabs');tabs.setAttribute('role','tablist');
+ for(const t of scheduleTabs(d,sides)){
+  const tab=button('ticket-tab',t.label,()=>o.on.tab(t.id));tab.dataset.tab=t.id;tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(o.tab===t.id));
+  tab.style.setProperty('--side-colour',colour(t.colour));tabs.append(tab);
+ }
+ const level=el('select','ticket-level');level.dataset.role='level';level.setAttribute('aria-label','Row level');
+ for(const l of o.schedule?.levels??d.levels){
+  const label=levelLabels[l];if(!label)throw Error(`The schedule has the unknown level '${l}'.`);
+  const option=el('option',undefined,label);option.value=l;level.append(option);
+ }
+ level.value=o.level;level.onchange=()=>o.on.level(level.value);
+ const bar=el('div','ticket-schedule-bar');bar.append(tabs,level);
+ const content=el('div','ticket-grid');panel.append(bar,content);
+ return {panel,content};
+}
+
+function foot(o:TicketView){
+ const node=el('footer','ticket-foot');
+ if(o.mode==='new'){
+  node.append(el('span','ticket-note','Green fields were filled from a lookup; edit one and the value is yours.'),button('ticket-preview','Preview',()=>o.on.preview()),button('ticket-book','Book',()=>o.on.book()));
+  return node;
+ }
+ if(!o.actions)throw Error('A booked ticket needs its trade actions.');
+ // The ticket has no amend or close-out mode yet, so these show what the backend says of them and are not offered.
+ for(const [label,action,unbuilt] of [['Amend',o.actions.amend,'This ticket does not open amendments yet.'],['Close out',o.actions.closeOut,'This ticket does not open close-outs yet.']] as const){
+  const b=el('button','ticket-action',label);b.type='button';b.disabled=true;b.title=action.allowed?unbuilt:action.reason;node.append(b);
+ }
+ return node;
+}
+
+export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
+ const d=o.state.description,sides=o.state.sides,rows=bandRows(d,[...new Set(sides.map(s=>s.kind))]);
+ const named:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:sideName(d,s)}));
+ const root=el('div','deal-ticket');root.dataset.mode=o.mode;
+ const notices=el('ul','ticket-notices');for(const text of o.state.notices){const n=el('li','ticket-notice',text);n.setAttribute('role','status');notices.append(n);}
+ // Narrow containers stack the cards; these chips then jump between the sides.
+ const chips=el('nav','ticket-chips');chips.setAttribute('aria-label','Sides');
+ for(const s of named){
+  const chip=button('ticket-side-chip',s.name,()=>o.on.selectSide(s.code));chip.setAttribute('aria-pressed',String(o.selectedSide===s.code));
+  chip.style.setProperty('--side-colour',colour(sideKind(d,s.kind).colour));chips.append(chip);
+ }
+ const deck=el('div','ticket-deck');deck.style.setProperty('--band-rows',String(rows.length));deck.style.setProperty('--cards',String(sides.length));
+ for(const side of sides)deck.append(card(o,side,rows));
+ if(o.mode==='new')deck.append(addCard(o));
+ const {panel,content}=schedulePanel(o,named);
+ root.append(strip(o),...o.state.notices.length?[notices]:[],chips,deck,panel,foot(o));
+ host.replaceChildren(root);
+ let grid:GridHandle|undefined;
+ const shows=o.tab==='instrument'||sides.some(s=>s.code===o.tab);
+ if(!shows)content.append(el('p','muted',`${d.tabs.find(t=>t.id===o.tab)?.label??o.tab} is not drawn in this ticket yet.`));
+ else if(!o.schedule)content.append(el('p','muted','No schedule yet. Preview the trade to draw it.'));
+ else{
+  const g=scheduleGridData(o.schedule,d,named,o.tab,o.level,o.previous??undefined);
+  grid=renderDataGrid(content,'deal-ticket-schedule',`${d.product}:${o.tab}`,g.headers,g.rows,g.numeric,()=>false,{keys:g.columns,displayRows:g.displayRows,rowKeys:g.keys,
+   layout:emptyGridLayout(),onLayout:()=>{},headerGroups:g.headerGroups,totals:g.totals,decorate:(r,c)=>g.decorations[r][c],
+   // The chosen level shows its rows open under their parents; opening and closing a row stays in the grid.
+   tree:{parents:g.parents,open:new Set(g.parents.filter((p):p is string=>p!==null)),onToggle:()=>{}}});
+  if(o.status.kind==='stale')grid.markStale(o.status.text);
+ }
+ return {destroy(){grid?.destroy();host.replaceChildren();}};
+}

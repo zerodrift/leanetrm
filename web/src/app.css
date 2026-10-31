@@ -607,6 +607,82 @@ dialog label{margin-top:16px}
 .standard-data-grid .tabulator-row.delivered-row+.tabulator-row:not(.delivered-row){box-shadow:inset 0 2px 0 var(--warn)}
 .standard-data-grid .tabulator-footer .tabulator-calcs-holder{border-top:2px solid var(--border-strong);background:var(--surface-2)}
 .standard-data-grid .tabulator-footer .tabulator-calcs-holder .tabulator-row{background:var(--surface-2);font-weight:600;font-variant-numeric:tabular-nums}
+.standard-data-grid .grid-total-lines{display:flex;flex-direction:column}
+.standard-data-grid .grid-total-line:not(:last-child){font-weight:500;color:var(--text-2)}
+.standard-data-grid .grid-total-line.grid-negative{color:var(--loss-ink)}
+
+/* Deal ticket (deal-ticket.ts): the trade strip, side cards whose common band rows share one row grid (subgrid) so they line up across
+   the cards, and the schedule panel. The ticket lays out by its container's width: at 640px or less the cards stack and side chips jump
+   between them. */
+.deal-ticket{container-type:inline-size;display:flex;flex-direction:column;gap:14px;font-size:13px}
+.deal-ticket :is(.ticket-strip,.ticket-schedule,.ticket-foot){background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px}
+.ticket-strip{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px}
+.ticket-title{display:flex;flex-direction:column;gap:2px;min-width:140px}
+.ticket-product{font-size:15px;font-weight:700}
+.ticket-state{color:var(--text-3)}
+.ticket-trade-fields{display:flex;flex-wrap:wrap;gap:10px 14px;flex:1 1 auto}
+.ticket-trade-fields .ticket-field{min-width:160px;padding:0;background:none}
+.ticket-progress{display:flex;align-items:center;gap:8px;color:var(--text-2);font-variant-numeric:tabular-nums}
+.ticket-progress progress{width:120px;accent-color:var(--accent)}
+.ticket-valuation{color:var(--text-3);font-size:12px}
+.ticket-status{flex-basis:100%;margin:0;font-size:12px;color:var(--text-3)}
+.ticket-status[data-kind=updating]{color:var(--text-2)}
+.ticket-status[data-kind=stale]{color:var(--warn)}
+.ticket-status[data-kind=refused]{color:var(--danger)}
+.ticket-notices{margin:0;padding:8px 14px;list-style:none;background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius);color:var(--warn)}
+.deal-ticket :is(.ticket-side-chip,.ticket-add-kind,.ticket-preview,.ticket-offer,.ticket-remove,.ticket-action){background:var(--surface);color:var(--text-2);border:1px solid var(--border-strong);font-weight:500}
+.deal-ticket :is(.ticket-side-chip,.ticket-add-kind,.ticket-preview,.ticket-offer,.ticket-remove,.ticket-action):hover:not(:disabled){background:var(--surface-3);border-color:var(--border-strong)}
+.ticket-chips{display:none;flex-wrap:wrap;gap:6px}
+.deal-ticket .ticket-side-chip{border-left:4px solid var(--side-colour);padding:5px 10px}
+.deal-ticket .ticket-side-chip[aria-pressed=true]{background:var(--surface-3);color:var(--text)}
+.ticket-deck{display:grid;grid-template-columns:repeat(var(--cards),minmax(220px,1fr)) minmax(110px,.45fr);grid-template-rows:auto auto repeat(var(--band-rows),auto) auto 1fr;column-gap:14px;overflow-x:auto}
+.deal-ticket[data-mode=booked] .ticket-deck{grid-template-columns:repeat(var(--cards),minmax(220px,1fr))}
+.ticket-card{grid-row:1/-1;display:grid;grid-template-rows:subgrid;min-width:0;background:var(--surface);border:1px solid var(--border);border-top:4px solid var(--side-colour);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow);cursor:pointer}
+.ticket-card.selected{box-shadow:0 0 0 2px var(--side-colour)}
+.ticket-card-head{display:flex;align-items:center;gap:8px;padding:12px 14px 10px}
+.ticket-side-name{font-size:14px;margin-right:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ticket-pill{flex:none;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--side-colour) 14%,var(--surface));color:color-mix(in srgb,var(--side-colour) 65%,var(--text));font-size:11px;font-weight:600}
+.deal-ticket .ticket-remove{padding:2px 8px;font-size:11px}
+.ticket-band-title{padding:5px 14px;background:var(--accent-soft);color:var(--accent-text);font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.ticket-band-title.ticket-band-own{background:var(--surface-3);color:var(--text-3)}
+.ticket-field{display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:0;padding:7px 14px}
+.ticket-label{color:var(--text-3);font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.ticket-body{display:flex;align-items:center;gap:6px;min-height:30px}
+.ticket-control{flex:1 1 auto;min-width:0;height:30px;padding:0 9px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);font-size:13px;font-variant-numeric:tabular-nums}
+.ticket-unit{color:var(--text-3);font-size:12px}
+.ticket-looked .ticket-control{background:var(--accent-soft);border-color:var(--accent-border)}
+.ticket-chip{flex:none;padding:1px 6px;border-radius:999px;background:var(--accent);color:#fff;font-size:10px;font-weight:600;white-space:nowrap}
+.ticket-field:is(.ticket-info,.ticket-derived),.ticket-slot-empty{background:var(--surface-2)}
+.ticket-info .ticket-chip{background:var(--surface-3);color:var(--text-2)}
+.ticket-value{color:var(--text);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.ticket-rule{color:var(--text-3);font-size:11px}
+.ticket-soon .ticket-control{border-style:dashed;background:repeating-linear-gradient(135deg,var(--surface-2) 0 6px,var(--surface-3) 6px 12px);cursor:not-allowed}
+.ticket-soon-tag{flex:none;padding:1px 6px;border:1px dashed var(--border-strong);border-radius:999px;color:var(--text-3);font-size:10px;font-weight:600;white-space:nowrap}
+.deal-ticket .ticket-offer{padding:2px 8px;border-color:var(--accent-border);color:var(--accent-text);font-size:11px}
+.ticket-error{margin:0;color:var(--danger);font-size:12px}
+.ticket-own{display:flex;flex-direction:column}
+.ticket-summary{display:flex;flex-direction:column;gap:6px;margin:10px 14px 14px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+.ticket-summary-title{color:var(--text-3);font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.ticket-summary-line{display:flex;justify-content:space-between;gap:8px}
+.ticket-summary-line span:first-child{color:var(--text-3)}
+.ticket-number{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.ticket-add{grid-row:1/-1;display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:8px;padding:10px;border:1.5px dashed var(--border-strong);border-radius:var(--radius-lg);color:var(--text-3);font-weight:600;text-align:center}
+.deal-ticket .ticket-add-kind{border-left:4px solid var(--side-colour)}
+.ticket-schedule-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:8px}
+.ticket-tabs{display:flex;flex-wrap:wrap;gap:2px;margin-right:auto}
+.deal-ticket .ticket-tab{padding:6px 10px;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--text-2);font-weight:500}
+.deal-ticket .ticket-tab:hover{background:var(--surface-3);border-color:transparent}
+.deal-ticket .ticket-tab[aria-selected=true]{border-bottom-color:var(--side-colour);color:var(--text);font-weight:600}
+.ticket-level{height:30px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface)}
+.ticket-grid{overflow-x:auto}
+.ticket-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px}
+.ticket-note{margin-right:auto;color:var(--text-3);font-size:11px}
+@container (max-width:640px){
+  .ticket-chips{display:flex}
+  .ticket-deck{display:flex;flex-direction:column;gap:12px}
+  .ticket-card{display:flex;flex-direction:column}
+  .ticket-add{flex-direction:row;flex-wrap:wrap}
+}
 .table-workspace-title{margin:12px 16px 0;font-size:13px;font-weight:600;color:var(--text)}
 .table-workspace .table-filters{padding:0 16px;margin:8px 0 10px}
 .table-workspace .standard-data-grid.tabulator{font-size:13px;border-top-color:var(--border)}

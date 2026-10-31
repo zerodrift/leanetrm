@@ -26,13 +26,14 @@ type Cells=(string|HTMLElement)[][];
 // with room for all of them shows all.
 // tree: each source row's parent row key (null at the top), drawn as rows that open in place; `open` names the rows drawn open, and
 // onToggle hears the person opening or closing one.
-// totals: one display string per column, drawn as a row pinned below the rows; the grid never computes it.
+// totals: rows of one display string per column, drawn in order as lines of one row pinned below the rows (the total last, as below a
+// delivered and a remaining line); the grid never computes them.
 // headerGroups: column indices under a header in a colour token's colour (`--side-<colour>` in app.css).
 // decorate: a cell's value sources, whether it changed since the last read and whether its row is delivered; null for none.
 type Chosen=void|boolean|Promise<boolean>;
 export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>Chosen;onRowSelect?:(index:number)=>Chosen;onRowEscape?:()=>void;onRowMenu?:(index:number,at:{x:number;y:number})=>void;onRowDoubleOpen?:(index:number)=>void;
   cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[];
-  tree?:{parents:(string|null)[];open:ReadonlySet<string>;onToggle:(key:string,open:boolean)=>void};totals?:string[];headerGroups?:{title:string;colour:string;columns:number[]}[];
+  tree?:{parents:(string|null)[];open:ReadonlySet<string>;onToggle:(key:string,open:boolean)=>void};totals?:string[][];headerGroups?:{title:string;colour:string;columns:number[]}[];
   decorate?:(index:number,column:number)=>{sources:string[];changed:boolean;delivered:boolean}|null};
 /**
  * What a grid is built for and cannot change while it stands: its key, scope and columns. A later render with the same identity changes the
@@ -136,7 +137,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     const i=options.keys.indexOf(key),group=columnGroupOf(key,i),title=publicText(group?.measureTitle??headers[i]);
     const definition={title,titleFormatter:()=>document.createTextNode(title),field:field(i),visible:shown(i),minWidth:100,width:options.layout.widths[key],resizable:true,headerSort:!options.visual?.includes(i),hozAlign:numeric.includes(i)?'right':'left',cssClass:numeric.includes(i)?'grid-number':'',formatter:(cell:any)=>{const index=Number(cell.getRow().getData().__sourceIndex),rich=options.cells?.(index,i);if(rich)return decorated(rich,index,i);const span=document.createElement('span');span.textContent=publicText(options.displayRows?.[index]?.[i]??cell.getValue());if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';if(options.cellTitles?.[index]?.[i]!==undefined)span.title=publicText(options.cellTitles[index][i]);else if(options.displayRows?.[index]?.[i]!==undefined)span.title=String(cell.getValue());return decorated(span,index,i);},headerWordWrap:true,
       sorter:numeric.includes(i)?(a:string,b:string)=>a===''?(b===''?0:-1):b===''?1:compareDecimalStrings(a,b):'string',
-      ...(options.totals?{bottomCalc:()=>options.totals![i],bottomCalcFormatter:(cell:any)=>{const span=el('span',String(cell.getValue()));if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';return span;}}:{})};
+      ...(options.totals?{bottomCalc:()=>options.totals!.map(row=>row[i]),bottomCalcFormatter:(cell:any)=>{const lines=el('span');lines.className='grid-total-lines';
+        for(const value of cell.getValue() as string[]){const line=el('span',value);line.className=numeric.includes(i)&&value.startsWith('-')?'grid-total-line grid-negative':'grid-total-line';lines.append(line);}
+        return lines;}}:{})};
     if(!group){definitions.push(definition);continue;}
     let parent=groups.get(group.key);if(!parent){const title=publicText(group.title);parent={columns:[]};groups.set(group.key,parent);definitions.push({...parent,title,titleFormatter:()=>groupTitle(title,group.colour),headerHozAlign:'center',cssClass:group.colour===null?'pivot-column-group':'grid-header-group'});}
     parent.columns.push(definition);
@@ -195,12 +198,12 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     return top as Record<string,string>[];
   }
   const rowData=()=>{
-    if(options.totals&&options.totals.length!==headers.length)throw Error('The totals row needs one value for each column.');
+    if(options.totals?.some(row=>row.length!==headers.length))throw Error('Each totals row needs one value for each column.');
     const flat=values.map((row,index)=>({...Object.fromEntries(row.map((cell,i)=>[field(i),cell])),__sourceIndex:String(index),__key:keys[index]}))
       .sort((a,b)=>options.group?options.group.order.indexOf(groupOf(a))-options.group.order.indexOf(groupOf(b)):0);
     return options.tree?nested(flat):flat;
   };
-  const height=()=>options.fill?'100%':Math.min(560,Math.max(140,values.length*(options.rowHeight??35)+(options.group?.order.length??0)*36+(groups.size?82:46)+(options.totals?36:0)))+'px';
+  const height=()=>options.fill?'100%':Math.min(560,Math.max(140,values.length*(options.rowHeight??35)+(options.group?.order.length??0)*36+(groups.size?82:46)+(options.totals?options.totals.length*24+14:0)))+'px';
   let drawnHeight=height();
   const table=new TabulatorFull(container,{
     index:'__key',
