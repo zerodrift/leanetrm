@@ -147,6 +147,10 @@ export function amendNote(accountCanAmend:boolean,revision:AmendState|undefined)
   if(!accountCanAmend)return 'This account cannot amend trades in this market context.';
   return revision&&!revision.allowed?`This position cannot be amended: ${revision.reason}`:null;
 }
+/** Why a position cannot be amended from the Blotter, or null: a PPA is amended in PPA bookings; another as the head's note says, from the
+ *  revision once it is read. */
+export const amendRefusal=(instrumentType:string,accountCanAmend:boolean,revision:AmendState|undefined)=>
+  instrumentType==='ppa'?'PPA amendments and terminations are made in PPA bookings.':amendNote(accountCanAmend,revision);
 /**
  * The head's amendment control: Amend while there is nothing against it, none, with the reason in view, when there is, and Close
  * editor for as long as the form is open, which can always be closed.
@@ -195,7 +199,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
   amendment:{open:(h:Holding)=>void;shown:(h:Holding)=>boolean;close:()=>Promise<void>};
   openCurve?:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
 }){
-  let input:PositionInput|undefined,tab:PositionTab='curve',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
+  let input:PositionInput|undefined,tab:PositionTab='terms',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
   // Whether the last drawing found the position's amendment open, and whether the person has just opened it, which takes focus into it.
   let amending=false,focusOnOpen=false,reading:{key:string;done:Promise<unknown>}|undefined;
   // What the Terms tab drew beyond its sections, which is taken down whenever the tab is drawn again or the panel is cleared.
@@ -369,13 +373,20 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     if(reason===null)control.removeAttribute('aria-describedby');else control.setAttribute('aria-describedby',note.id);
   }
   return {
-    /** Shows a position on its requested tab, or Terms when none is selected. */
-    show(next:PositionInput,start:PositionTab='terms'){
-      input=next;tab=start;detail=undefined;held=undefined;generation++;
-      const available=o.tabs?positionTabs.filter(([id])=>o.tabs!.includes(id)):positionTabs;
+    /**
+     * Shows a position on its requested tab, or on the tab last chosen, Terms at first: a trader moving between positions keeps reading
+     * the same tab of each.
+     */
+    show(next:PositionInput,requested?:PositionTab){
+      const available=o.tabs?positionTabs.filter(([id])=>o.tabs!.includes(id)):positionTabs,start=requested??tab;
       if(!available.some(([id])=>id===start))throw Error('Choose an available position tab.');
+      input=next;tab=start;detail=undefined;held=undefined;generation++;
       tabs=setupTabs(shell.element('tabs'),available,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>{tab=id as PositionTab;paint();shell.element('body').scrollTop=0;}});
       paint();
+    },
+    /** Whether the revision of this position the panel has read can be amended, once read; nothing for another position or before. */
+    amendState(h:Holding):AmendState|undefined{
+      return input&&input.holding.tradeId===h.tradeId&&input.holding.bindingId===h.bindingId&&detail?.state==='ready'&&detail.key===key(input)?detail.read.amend:undefined;
     },
     /** Draws the same position again from a newer read of the desk. */
     update(next:PositionInput){input=next;paint();},

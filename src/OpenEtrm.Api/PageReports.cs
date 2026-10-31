@@ -4,13 +4,17 @@ using OpenEtrm.MarketData;
 
 namespace OpenEtrm.Api;
 
-// A page report's page and the read its selection names, once it parses.
-sealed record PageRead(string Page,ToolCall? Call);
+// A page report's page, the read its selection names, once it parses, and the Blotter's layout where it states one.
+sealed record PageRead(string Page,ToolCall? Call,BlotterLayout? Layout);
+
+// What the Blotter showed of its panes and window when the question was asked (D271): whether its details and charts were
+// open, each the shown tab of its group in the panes as drawn and not put away, and whether it was in a window of its own.
+sealed record BlotterLayout(bool Details,bool Charts,bool PoppedOut);
 
 // The page a question was asked from (docs/ai-assistant.md §7.3, §8): exactly {"page","selection"}, the page one of a
-// closed set with one id per navigable view. A supported page's selection is an input of its read tool for one of the
-// views the page shows; an unsupported page's selection is empty. Ask refuses any other report before admission, and
-// Read current page dispatches the stored report with the same parser.
+// closed set with one id per navigable view, and on a page the Blotter reports optionally its "layout". A supported page's
+// selection is an input of its read tool for one of the views the page shows; an unsupported page's selection is empty.
+// Ask refuses any other report before admission, and Read current page dispatches the stored report with the same parser.
 static class PageReports
 {
     // A page: the tool that reads it, the operations behind the views it shows and, for a page the assistant reads, the
@@ -36,6 +40,9 @@ static class PageReports
     }.ToImmutableDictionary(StringComparer.Ordinal);
 
     static Page Unsupported()=>new(null,[],null);
+
+    // The pages the Blotter reports, which alone may state its layout.
+    static readonly ImmutableHashSet<string> BlotterPages=["blotter","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","blotter_new_ppa","blotter_new_gas"];
 
     // The pages the assistant reads, those Navigate opens, and those it does not read.
     internal static IEnumerable<string> Supported=>Pages.Where(p=>p.Value.Tool is not null).Select(p=>p.Key);
@@ -68,19 +75,38 @@ static class PageReports
 
     static PageRead? Read(JsonElement report)
     {
-        if(report.ValueKind!=JsonValueKind.Object||!report.EnumerateObject().Select(m=>m.Name).Order(StringComparer.Ordinal).SequenceEqual(["page","selection"])
-            ||report.GetProperty("page") is not {ValueKind:JsonValueKind.String} named||!Pages.TryGetValue(named.GetString()!,out var page))
+        if(report.ValueKind!=JsonValueKind.Object)return null;
+        var members=report.EnumerateObject().Select(m=>m.Name).Order(StringComparer.Ordinal).ToArray();
+        var laid=members.SequenceEqual(["layout","page","selection"]);
+        if(!laid&&!members.SequenceEqual(["page","selection"])||report.GetProperty("page") is not {ValueKind:JsonValueKind.String} named||!Pages.TryGetValue(named.GetString()!,out var page))
             return null;
-        var (id,selection)=(named.GetString()!,report.GetProperty("selection"));
-        if(page.Tool is null)return selection.ValueKind==JsonValueKind.Object&&!selection.EnumerateObject().Any()?new(id,null):null;
+        var id=named.GetString()!;
+        BlotterLayout? layout=null;
+        if(laid&&(!BlotterPages.Contains(id)||(layout=Layout(report.GetProperty("layout"))) is null))return null;
+        var selection=report.GetProperty("selection");
+        if(page.Tool is null)return selection.ValueKind==JsonValueKind.Object&&!selection.EnumerateObject().Any()?new(id,null,layout):null;
         try
         {
             // Curve builder reports the curve it has open, if any, and whether it holds unsaved edits, and reads its catalog (D260).
-            if(id=="custom_curves"){_=OpenCurve(selection);return new(id,AgentTools.Parse(page.Tool,NoInput));}
+            if(id=="custom_curves"){_=OpenCurve(selection);return new(id,AgentTools.Parse(page.Tool,NoInput),layout);}
             var call=AgentTools.Parse(page.Tool,selection);
-            return new(id,page.Operations.Contains(call.Operation.Id)&&Shows(id,call)?call:null);
+            return new(id,page.Operations.Contains(call.Operation.Id)&&Shows(id,call)?call:null,layout);
         }
-        catch(ToolRefusal){return new(id,null);}
+        catch(ToolRefusal){return new(id,null,layout);}
+    }
+
+    // The Blotter's layout: exactly {"pane":{"details","charts"},"poppedOut"}, each a flag; anything else is none.
+    static BlotterLayout? Layout(JsonElement layout)
+    {
+        try
+        {
+            var members=new ToolInput(layout);
+            members.Exactly("pane","poppedOut");
+            var pane=members.Members("pane");
+            pane.Exactly("details","charts");
+            return new(pane.Flag("details"),pane.Flag("charts"),members.Flag("poppedOut"));
+        }
+        catch(ToolRefusal){return null;}
     }
 
     static readonly JsonElement NoInput=JsonDocument.Parse("{}").RootElement.Clone();

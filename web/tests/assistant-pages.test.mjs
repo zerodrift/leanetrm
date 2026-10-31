@@ -8,6 +8,7 @@ import {pageReport,lookingAt,askKnowledge,changesContext,targetAction,Navigation
 
 const book='d1000000-0000-4000-8000-000000000001',portfolio='d2000000-0000-4000-8000-000000000002',trade='71000000-0000-4000-8000-000000000009';
 const context='c1000000-0000-4000-8000-000000000001',frame='f1000000-0000-4000-8000-000000000001',other='f2000000-0000-4000-8000-000000000002';
+const open={pane:{details:true,charts:true},poppedOut:false},layout={pane:{details:true,charts:true},poppedOut:false};
 const blotter={mode:'trades',bookIds:[book],portfolioIds:[],groupBy:['contract'],measures:['lots']};
 
 test('Curves & prices reports the directory with no curve, the curve on Prices and Dependencies, and its observations on Inputs',()=>{
@@ -28,13 +29,13 @@ test('every other page reports the view it shows in its read tool input form, an
   assert.deepEqual(pageReport({page:'reference',table:'units',search:'mega'}),{page:'reference_data',selection:{table:'units',search:'mega'}});
   assert.deepEqual(pageReport({page:'parties',kind:'counterparty'}),{page:'parties',selection:{kind:'counterparty'}});
   // Trade rows name no grouping; the Blotter keeps its pivot choices for when totals are shown again.
-  assert.deepEqual(pageReport({page:'futures',risk:false,trade:null,entry:null,view:blotter}),{page:'blotter',selection:{view:'blotter',mode:'trades',bookIds:[book],portfolioIds:[],
+  assert.deepEqual(pageReport({page:'futures',...open,risk:false,trade:null,entry:null,view:blotter}),{page:'blotter',layout,selection:{view:'blotter',mode:'trades',bookIds:[book],portfolioIds:[],
     groupBy:[],measures:[],tradeId:null,instrumentType:null,revision:null}});
-  assert.deepEqual(pageReport({page:'futures',risk:false,trade:null,entry:null,view:{...blotter,mode:'pivot',portfolioIds:[portfolio]}}).selection,{view:'blotter',mode:'pivot',
+  assert.deepEqual(pageReport({page:'futures',...open,risk:false,trade:null,entry:null,view:{...blotter,mode:'pivot',portfolioIds:[portfolio]}}).selection,{view:'blotter',mode:'pivot',
     bookIds:[book],portfolioIds:[portfolio],groupBy:['contract'],measures:['lots'],tradeId:null,instrumentType:null,revision:null});
-  assert.deepEqual(pageReport({page:'futures',risk:false,trade:{tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'},entry:null,view:blotter}),
-    {page:'blotter',selection:{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:trade,instrumentType:'future',revision:2}});
-  assert.deepEqual(pageReport({page:'futures',risk:true,trade:null,entry:null,view:blotter}),{page:'blotter_risk',selection:{}});
+  assert.deepEqual(pageReport({page:'futures',...open,risk:false,trade:{tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'},entry:null,view:blotter}),
+    {page:'blotter',layout,selection:{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:trade,instrumentType:'future',revision:2}});
+  assert.deepEqual(pageReport({page:'futures',...open,risk:true,trade:null,entry:null,view:blotter}),{page:'blotter_risk',selection:{},layout});
   for(const [page,id] of [['dashboard','dashboard'],['gas-setup','gas_setup'],['gas','physical_gas'],['delivery','delivery_prices'],['interval-series','interval_series'],['interval-curves','interval_curves'],
     ['admin','users_access'],['ai','settings_ai']])assert.deepEqual(pageReport({page}),{page:id,selection:{}});
 });
@@ -76,7 +77,7 @@ test('Looking at names the page, what it shows and the context the next question
   const working={mode:'current',frameId:frame,frameLabel:'18 Dec 2020 16:00'};
   assert.deepEqual(lookingAt(pageReport({page:'market',curve:'future',tab:'inputs'}),working,names),
     {page:'Curves & prices',shows:'Inputs of Synthetic future',context:'Working data · As of 18 Dec 2020 16:00',supported:true,askable:true});
-  assert.deepEqual(lookingAt(pageReport({page:'futures',risk:false,trade:{tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'},entry:null,view:blotter}),working,names,
+  assert.deepEqual(lookingAt(pageReport({page:'futures',...open,risk:false,trade:{tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'},entry:null,view:blotter}),working,names,
     {trade:'TR-000009'}).shows,'Trade TR-000009, revision 2');
   assert.deepEqual(lookingAt(pageReport({page:'admin'}),working,names),
     {page:'Users & access',shows:'The assistant does not read this page.',context:'Working data · As of 18 Dec 2020 16:00',supported:false,askable:true});
@@ -102,14 +103,14 @@ test('Looking at says what each read page shows in words, never with an identifi
     {page:'Reference data',shows:'No table is shown yet',context:'Working data · As of 18 Dec 2020 16:00',supported:true,askable:false});
   assert.equal(shows({page:'parties',kind:'legal_entity'}),'Legal entities');
   assert.equal(shows({page:'parties',kind:'counterparty'}),'Counterparties');
-  assert.equal(shows({page:'futures',risk:false,trade:null,view:blotter}),'Trade rows · 1 book');
-  assert.equal(shows({page:'futures',risk:false,trade:null,view:{...blotter,bookIds:[]}}),'Trade rows · every book you can read');
-  assert.equal(shows({page:'futures',risk:false,trade:null,view:{...blotter,mode:'pivot',bookIds:[],portfolioIds:[portfolio,book],groupBy:['contract','instrumentType']}}),
+  assert.equal(shows({page:'futures',...open,risk:false,trade:null,view:blotter}),'Trade rows · 1 book');
+  assert.equal(shows({page:'futures',...open,risk:false,trade:null,view:{...blotter,bookIds:[]}}),'Trade rows · every book you can read');
+  assert.equal(shows({page:'futures',...open,risk:false,trade:null,view:{...blotter,mode:'pivot',bookIds:[],portfolioIds:[portfolio,book],groupBy:['contract','instrumentType']}}),
     'Totals by contract and instrument type · 2 portfolios');
-  assert.equal(shows({page:'futures',risk:false,trade:null,view:{...blotter,mode:'pivot',bookIds:[],groupBy:['commodity','instrumentType'],measures:['tradeCount']}}),
+  assert.equal(shows({page:'futures',...open,risk:false,trade:null,view:{...blotter,mode:'pivot',bookIds:[],groupBy:['commodity','instrumentType'],measures:['tradeCount']}}),
     'Totals by commodity and instrument type · every book you can read');
-  assert.deepEqual(lookingAt(pageReport({page:'futures',risk:true,trade:null,entry:null,view:blotter}),working,names),
-    {page:'Blotter',shows:'The assistant does not read risk results.',context:'Working data · As of 18 Dec 2020 16:00',supported:false,askable:true});
+  assert.deepEqual(lookingAt(pageReport({page:'futures',...open,risk:true,trade:null,entry:null,view:blotter}),working,names),
+    {page:'Blotter',shows:'The assistant does not read risk results.',layout:'Details open · Charts open · Main window',context:'Working data · As of 18 Dec 2020 16:00',supported:false,askable:true});
   // A historical selection that is not yet applied pins nothing the page shows, so nothing can be asked.
   assert.deepEqual(lookingAt(pageReport({page:'schedules'}),{mode:'unapplied'},names),
     {page:'Schedules',shows:'Schedule library',context:'Historical selection not applied · apply it to ask about it',supported:true,askable:false});
@@ -280,7 +281,7 @@ test('PPA bookings reports the inspected PPA or the listed book, which the assis
 
 test('a new trade in the Blotter\'s panel is reported by its product, and no unsent entry is read',()=>{
   for(const [product,id] of [[null,'blotter_new_trade'],['futures','blotter_new_future'],['swaps','blotter_new_swap'],['ppa','blotter_new_ppa'],['gas','blotter_new_gas']])
-    assert.deepEqual(pageReport({page:'futures',risk:false,trade:null,entry:{product},view:blotter}),{page:id,selection:{}});
+    assert.deepEqual(pageReport({page:'futures',...open,risk:false,trade:null,entry:{product},view:blotter}),{page:id,selection:{},layout});
   const names={curve:String,table:String},current={mode:'current',frameId:frame,frameLabel:'18 Dec 2020'};
   for(const [id,shown] of [['blotter_new_trade','A new trade is being started: no product is chosen yet. The assistant does not read a trade being entered.'],
     ['blotter_new_future','A new future is being entered. The assistant does not read a trade being entered.'],['blotter_new_swap','A new swap is being entered. The assistant does not read a trade being entered.'],['blotter_new_ppa','A new PPA is being entered. The assistant does not read a trade being entered.'],['blotter_new_gas','A new physical gas trade is being entered. The assistant does not read a trade being entered.']]){
@@ -290,14 +291,14 @@ test('a new trade in the Blotter\'s panel is reported by its product, and no uns
 });
 
 test('risk results keep the page report they had, ahead of a trade entry, and a trade open in the panel is not an entry',()=>{
-  assert.deepEqual(pageReport({page:'futures',risk:true,trade:null,entry:{product:'futures'},view:blotter}),{page:'blotter_risk',selection:{}});
+  assert.deepEqual(pageReport({page:'futures',...open,risk:true,trade:null,entry:{product:'futures'},view:blotter}),{page:'blotter_risk',selection:{},layout});
   const shown={tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'};
-  assert.equal(pageReport({page:'futures',risk:false,trade:shown,entry:null,view:blotter}).page,'blotter');
+  assert.equal(pageReport({page:'futures',...open,risk:false,trade:shown,entry:null,view:blotter}).page,'blotter');
 });
 
 test('the trade rows in the Risk lens are reported as the Blotter\'s risk results, which the assistant does not read, and the Values lens as the rows',()=>{
-  assert.deepEqual(pageReport({page:'futures',risk:false,trade:null,entry:null,lens:'risk',view:blotter}),{page:'blotter_risk_lens',selection:{}});
-  assert.deepEqual(pageReport({page:'futures',risk:false,trade:null,entry:null,lens:'values',view:blotter}),pageReport({page:'futures',risk:false,trade:null,entry:null,view:blotter}));
+  assert.deepEqual(pageReport({page:'futures',...open,risk:false,trade:null,entry:null,lens:'risk',view:blotter}),{page:'blotter_risk_lens',selection:{},layout});
+  assert.deepEqual(pageReport({page:'futures',...open,risk:false,trade:null,entry:null,lens:'values',view:blotter}),pageReport({page:'futures',...open,risk:false,trade:null,entry:null,view:blotter}));
   const names={curve:String,table:String},current={mode:'current',frameId:frame,frameLabel:'18 Dec 2020'};
   assert.deepEqual(lookingAt({page:'blotter_risk_lens',selection:{}},current,names),
     {page:'Blotter',shows:'Risk results on the trade rows. The assistant does not read risk results.',context:'Working data · As of 18 Dec 2020',supported:false,askable:true});
@@ -305,9 +306,9 @@ test('the trade rows in the Risk lens are reported as the Blotter\'s risk result
 
 test('what the panel holds is reported ahead of the lens: its risk report, a trade being entered, or the position it shows',()=>{
   const shown={tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'};
-  assert.equal(pageReport({page:'futures',risk:true,trade:null,entry:null,lens:'risk',view:blotter}).page,'blotter_risk');
-  assert.equal(pageReport({page:'futures',risk:false,trade:null,entry:{product:'swaps'},lens:'risk',view:blotter}).page,'blotter_new_swap');
-  assert.deepEqual(pageReport({page:'futures',risk:false,trade:shown,entry:null,lens:'risk',view:blotter}),pageReport({page:'futures',risk:false,trade:shown,entry:null,lens:'values',view:blotter}));
+  assert.equal(pageReport({page:'futures',...open,risk:true,trade:null,entry:null,lens:'risk',view:blotter}).page,'blotter_risk');
+  assert.equal(pageReport({page:'futures',...open,risk:false,trade:null,entry:{product:'swaps'},lens:'risk',view:blotter}).page,'blotter_new_swap');
+  assert.deepEqual(pageReport({page:'futures',...open,risk:false,trade:shown,entry:null,lens:'risk',view:blotter}),pageReport({page:'futures',...open,risk:false,trade:shown,entry:null,lens:'values',view:blotter}));
 });
 
 test('Save curve draft is named in plain words, with each of its refusals',()=>{
@@ -316,4 +317,39 @@ test('Save curve draft is named in plain words, with each of its refusals',()=>{
     ['custom_curve_agent_scope','the assistant saves only new curves and its own drafts'],['custom_curve_conflict','the curve, its code or its inputs changed'],
     ['delegation_denied','your authoring or the agent’s grant does not allow it']])
     assert.equal(stepLine({ordinal:2,tool:'save_custom_curve_draft',code}),`Save curve draft · ${reason}`);
+});
+
+test('the Blotter report carries its pane state and whether it is popped out, and names no identifier for them',()=>{
+  const base={page:'futures',...open,risk:false,trade:null,entry:null,lens:'values',view:blotter};
+  const closed=pageReport({...base,pane:{details:false,charts:false},poppedOut:false});
+  assert.deepEqual(closed.layout,{pane:{details:false,charts:false},poppedOut:false});
+  const out=pageReport({...base,pane:{details:true,charts:false},poppedOut:true});
+  assert.deepEqual(out.layout,{pane:{details:true,charts:false},poppedOut:true});
+  assert.deepEqual(out.selection,closed.selection);
+  assert.equal(out.page,'blotter');
+  for(const state of [{...base,risk:true},{...base,entry:{product:'swaps'}},{...base,lens:'risk'}])
+    assert.deepEqual(pageReport({...state,pane:{details:true,charts:true},poppedOut:true}).layout,{pane:{details:true,charts:true},poppedOut:true});
+  assert.equal(pageReport({page:'admin'}).layout,undefined);
+});
+test('Looking at shows the Blotter\'s layout, and what it saved is compared with it, so a pane opened or closed since refuses the ask as a page change',async()=>{
+  const {lookingKey}=await import('../dist/assistant-pages.js');
+  const state={page:'futures',risk:false,trade:null,entry:null,lens:'values',view:blotter},names={curve:String,table:String},context={mode:'current',frameId:null,frameLabel:null};
+  const at=(pane,poppedOut,view=blotter)=>({report:pageReport({...state,view,pane,poppedOut}),context});
+  assert.notEqual(lookingKey(at({details:true,charts:true},false)),lookingKey(at({details:false,charts:true},false)));
+  assert.notEqual(lookingKey(at({details:true,charts:true},false)),lookingKey(at({details:true,charts:true},true)));
+  assert.equal(lookingKey(at({details:true,charts:false},false)),lookingKey(at({details:true,charts:false},false)));
+  for(const [pane,poppedOut,line] of [[{details:true,charts:false},false,'Details open · Charts closed · Main window'],
+    [{details:false,charts:true},true,'Details closed · Charts open · Pop-out window']])
+    assert.equal(lookingAt(at(pane,poppedOut).report,context,names).layout,line);
+  // A page with no layout shows none.
+  assert.equal(Object.hasOwn(lookingAt(pageReport({page:'schedules'}),context,names),'layout'),false);
+});
+test('an ask sends the Blotter report whole, its layout with it, and a kept ask keeps it',async()=>{
+  const assistant=await import('../dist/assistant-pages.js');
+  assert.equal(assistant.askReport,undefined);
+  const report=pageReport({page:'futures',...open,risk:false,trade:null,entry:null,lens:'values',view:blotter,pane:{details:true,charts:false},poppedOut:true});
+  const body={conversationId:null,agentId:book,version:2,question:'What is open?',pageReport:report,knowledge:{mode:'current',contextId:null,frameId:frame}};
+  const stored={operationId:trade,path:'assistant/turns/ask',body};
+  assert.deepEqual(keptAsk(JSON.stringify(stored)).body.pageReport,report);
+  assert.equal(keptAsk(JSON.stringify({...stored,body:{...body,pageReport:{...report,extra:1}}})),undefined);
 });

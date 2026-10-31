@@ -153,6 +153,51 @@ export function summaryTiles(summaries:readonly Summary[]):Tile[]{
   });
 }
 
+/** One figure of the summary strip: its words, its display text and, for an amount, the backend's exact decimal string, and whether it
+ *  states the complete scope, or why not; and, when it is the figure of the previous read kept on screen, why it is stale. */
+export type StripItem={label:string;value:string;exact?:string;currency?:string;sign?:'pos'|'neg'|'zero';state:'complete'|'pending'|'unavailable';reason?:string;stale?:string};
+/** The desk summaries of the read on screen; or why there are none yet, with the money totals the positions read will have. */
+export type StripSummaries=readonly Summary[]|{state:'pending'|'unavailable';reason:string;totals:readonly Tile['key'][]};
+/** The positions read, and how many of them the close cannot value, which is not known before the whole scope is valued. */
+export type StripPositions={count:number;unvalued:number|null};
+/**
+ * The risk status: no run at this close, with what running one does or why this account cannot; a run whose results are not shown, with
+ * why; or a run's results: what it ran with its shock count, and per currency its largest move, or why nothing moves, and what it leaves out.
+ */
+export type StripRisk={state:'none';reason:string}|{state:'pending'|'unavailable';value:string;reason:string}
+  |{state:'results';label:string;moves:readonly {currency:string;text:string;exact:string;sign:'positive'|'negative'|'zero';hint:string}[];empty:string|null;note:string|null};
+/** What each money total is called, on the strip and over its split by book. */
+export const tileLabels:Readonly<Record<Tile['key'],string>>={swapPv:'Swap PV',futuresPnl:'Futures execution P&L',heatRatePv:'Heat-rate PV',ppaValue:'PPA value excluding overdue cash',gasPv:'Gas contractual PV'};
+const stripSign={positive:'pos',negative:'neg',zero:'zero'} as const;
+const reasons=(...parts:(string|null|undefined)[])=>{const text=parts.filter(Boolean).join(' · ');return text?{reason:text}:{};};
+/**
+ * The summary strip: each money total per exact currency, swap PV and futures execution P&L apart, never added; then the positions read,
+ * those not valued and the risk status. Every figure is a backend total in `money`'s display text; nothing is computed here.
+ */
+export function summaryStripItems(summaries:StripSummaries,positions:StripPositions,risk:StripRisk,money:Format):StripItem[]{
+  const waiting=(label:string,why:{state:'pending'|'unavailable';reason:string}):StripItem=>({label,value:why.state==='pending'?'Pending':'Unavailable',state:why.state,reason:why.reason});
+  const total=(label:string,row:TileRow):StripItem=>row.total===null?{label,value:'Not valued',currency:row.currency,state:'unavailable',...reasons(row.note)}
+    :{label,value:signedText(row.total,money),exact:row.total,currency:row.currency,sign:stripSign[signOf(row.total)],state:'complete',...reasons(row.note)};
+  const totals:StripItem[]='state' in summaries?summaries.totals.map(key=>waiting(tileLabels[key],summaries))
+    :summaryTiles(summaries).flatMap(tile=>tile.rows.length?tile.rows.map(row=>total(tileLabels[tile.key],row)):[{label:tileLabels[tile.key],value:'None',state:'complete',...reasons(tile.note)}]);
+  // The count not valued comes with the valued scope, and only with it.
+  if(!Number.isInteger(positions.count)||positions.count<0||(positions.unvalued===null)!==('state' in summaries))throw Error(inconsistent);
+  const unvalued:StripItem='state' in summaries?waiting('Not valued',summaries):{label:'Not valued',value:String(excludedPositions(positions.unvalued)),state:'complete'};
+  const status:StripItem[]=risk.state==='none'?[{label:'Risk',value:'Not run',state:'complete',...reasons(risk.reason)}]
+    :risk.state!=='results'?[{label:'Risk',value:risk.value,state:risk.state,...reasons(risk.reason)}]
+    :risk.empty!==null?[{label:risk.label,value:risk.empty,state:'complete',...reasons(risk.note)}]
+    :risk.moves.map(move=>({label:risk.label,value:move.text,exact:move.exact,currency:move.currency,sign:stripSign[move.sign],state:'complete',...reasons(move.hint,risk.note)}));
+  return [...totals,{label:'Positions',value:String(positions.count),state:'complete'},unvalued,...status];
+}
+
+/** The strip of the previous read, kept on screen while the Blotter is read again or after that read failed: each figure as it was, with
+ *  its own reason, and why it is stale. */
+export function staleStripItems(items:readonly StripItem[],reason:string):StripItem[]{return items.map(item=>({...item,stale:reason}));}
+/** The strip before any values: every money total the Blotter can show, pending or unavailable with why, beside the positions read. */
+export function waitingStripItems(why:{state:'pending'|'unavailable';reason:string},count:number,money:Format):StripItem[]{
+  return summaryStripItems({...why,totals:Object.keys(tileLabels) as Tile['key'][]},{count,unvalued:null},{state:'none',reason:'Available after the complete valuation'},money);
+}
+
 export type MixSegment={key:string;commodity:string;commodityName:string;instrumentType:string;label:string;trades:number};
 export type PositionsTile={count:number;segments:MixSegment[];note:string|null};
 /**
@@ -359,6 +404,8 @@ export function quantityText(row:Pick<DeskRow,'instrumentType'|'quantity'|'quant
   if(row.quantity===null){if(row.quantityNote===null)throw Error('A position without a quantity must say why.');return row.quantityNote;}
   return row.instrumentType==='future'?signedText(row.quantity,format):minus(format(row.quantity));
 }
+/** The grid's key of a position's row: its trade and binding. Its revision is row data, so an amended trade keeps its row. */
+export const rowKey=(position:{tradeId:string;bindingId:string})=>position.tradeId+':'+position.bindingId;
 /**
  * The position rows: instrument pill, market and delivery, size with lots or the swap's direction, price and mark in their unit,
  * and value with its measure, or the reason the close cannot value it. A valued position states its value, and a valued

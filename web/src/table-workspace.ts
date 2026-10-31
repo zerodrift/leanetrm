@@ -1,14 +1,14 @@
-import {renderDataGrid} from './data-grid.js';
+import {gridIdentity,renderDataGrid,type GridHandle} from './data-grid.js';
 
 type Choice=readonly [string,string];
 // note: a line of the consumer's own under the toolbar, such as why one of its actions is not offered.
-// lead: the consumer's own content between the toolbar and the table, across the workspace's whole width, such as summary tiles.
-// overview: more of it, in the column of the table and above its heading, such as charts. aside: a panel the consumer docks beside the overview and the table.
-// rowGroups: how trade rows can be grouped; the Group by control, in the heading row above the table, also offers None, an empty value.
-// lens: a control of the consumer's own beside the rows' heading, such as a choice of what the rows show.
+// body: the consumer's own content under the toolbar, such as panes, and rows: where in it the rows' title and table are drawn; their
+// table takes the height `rows` gives it.
+// rowGroups: how trade rows can be grouped; the Group by control, in the toolbar, also offers None, an empty value.
+// lens: a control of the consumer's own in the toolbar, such as a choice of what the rows show.
 type WorkspaceOptions={
   key:string;rowMode:string;rowLabel:string;dimensions:readonly Choice[];measures:readonly Choice[];
-  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;note?:HTMLElement;lead?:HTMLElement;overview?:HTMLElement;aside?:HTMLElement;rowGroups?:readonly Choice[];lens?:HTMLElement;
+  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;onScope:()=>void;note?:HTMLElement;body:HTMLElement;rows:HTMLElement;rowGroups?:readonly Choice[];lens?:HTMLElement;
 };
 
 /** Shared presentation shell. Consumers supply authorized rows and server pivot operations. */
@@ -31,13 +31,13 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   function labeled(parent:HTMLElement,label:string,control:HTMLElement){const wrap=node('div'),caption=node('label',label);if(control.id)caption.htmlFor=control.id;wrap.append(caption,control);parent.append(wrap);}
   const savePanel=menu('Save view','settings'),name=node('input',undefined,'name');name.maxLength=60;name.placeholder='Name this view';labeled(savePanel,'View name',name);
   const sidebar=node('input',undefined,'sidebar');sidebar.type='checkbox';const sidebarChoice=node('label');sidebarChoice.className='table-menu-check';sidebarChoice.append(sidebar,' Show in the sidebar');savePanel.append(sidebarChoice);
-  const saveActions=node('div');saveActions.className='table-menu-actions';saveActions.append(button('Save view','save'),button('Delete view','delete'),button('Reload views','views-reload'));savePanel.append(saveActions);
+  const saveActions=node('div');saveActions.className='table-menu-actions';saveActions.append(button('Save view','save'),button('Delete view','delete'),button('Reload views','views-reload'),button('Reset layout','reset-layout'));savePanel.append(saveActions);
   const note=node('p','Named views are saved to your account. Reload views restores the selected saved layout. Dates and market inputs are selected separately.','view-note');note.className='field-help';savePanel.append(note);
   const columnsPanel=menu('Columns','columns'),columnChoices=node('div',undefined,'column-choices');columnChoices.className='table-field-choices';columnsPanel.append(columnChoices);
   const columnNote=node('p','Filters on hidden columns stay active. Pivot units and currencies stay visible.');columnNote.className='field-help';columnsPanel.append(columnNote);
   const scopePanel=menu('Book / portfolio','scope');
   for(const [key,label] of options.scopes){const select=node('select',undefined,key);select.multiple=true;select.size=4;labeled(scopePanel,label+' · none selected means all',select);}
-  const scopeApply=button('Apply filters','scope-apply');scopeApply.onclick=()=>{options.onApply();};scopePanel.append(scopeApply);
+  const scopeApply=button('Apply filters','scope-apply');scopeApply.onclick=()=>{options.onScope();};scopePanel.append(scopeApply);
   const pivotPanel=menu('Pivot','pivot');const builderHeading=node('div');builderHeading.className='pivot-builder-heading';const introduction=node('div');introduction.append(node('strong','Build a pivot'),node('p','Arrange your rows, columns and values. Drag dimensions between axes or use the arrow controls.'));builderHeading.append(introduction);pivotPanel.append(builderHeading);
   const mode=node('select',undefined,'mode');mode.append(new Option(options.rowLabel,options.rowMode),new Option('Pivot table','pivot'));labeled(pivotPanel,'Display',mode);
   const fields=node('div',undefined,'pivot-fields');fields.className='pivot-builder';fields.hidden=true;
@@ -51,19 +51,23 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   const chartKind=node('select',undefined,'chart-kind');chartKind.append(new Option('Grouped bars','bar'),new Option('Line plot','line'),new Option('Heatmap','heatmap'));labeled(chartPanel,'Plot style',chartKind);
   const chartHelp=node('p','Charts follow the selected pivot axes. Trade rows show dated contracts by book and market. Units and currencies have separate panels; table row filters do not change the chart.');chartHelp.className='field-help';chartPanel.append(chartHelp);
   const chartApply=button('Apply chart','chart-apply');chartApply.onclick=()=>options.onApply();chartPanel.append(chartApply);
-  const actions=node('div');actions.className='table-workspace-actions';for(const [id,label] of options.actions)actions.append(button(label,id));toolbar.append(actions);
-  // One line above the rows: what they are, how they are grouped, and the grid's search and row count.
-  const heading=node('div');heading.className='table-workspace-heading';
-  const title=node('h3',options.rowLabel,'table-title');title.className='table-workspace-title';heading.append(title,...(options.lens?[options.lens]:[]));
+  // The toolbar's own row of what the rows show: the lens, their grouping, and the grid's search and row count, then the actions.
+  // Grouping and the search keep to one line, which wraps as one.
+  if(options.lens)toolbar.append(options.lens);
+  const rowControls=node('div');rowControls.className='table-workspace-rows';toolbar.append(rowControls);
   if(options.rowGroups){
     const wrap=node('label',undefined,'row-group-control'),caption=node('span','Group by'),select=node('select',undefined,'row-group');wrap.className='table-group-by';
-    select.append(...options.rowGroups.map(([key,label])=>new Option(label,key)),new Option('None',''));wrap.append(caption,select);heading.append(wrap);
+    select.append(...options.rowGroups.map(([key,label])=>new Option(label,key)),new Option('None',''));wrap.append(caption,select);rowControls.append(wrap);
   }
-  const filters=node('div',undefined,'filters');filters.className='table-workspace-filters';heading.append(filters);
+  const filters=node('div',undefined,'filters');filters.className='table-workspace-filters';rowControls.append(filters);
+  const actions=node('div');actions.className='table-workspace-actions';for(const [id,label] of options.actions)actions.append(button(label,id));toolbar.append(actions);
+  // One line above the rows: what they are, and the pivot's axes.
+  const heading=node('div');heading.className='table-workspace-heading';
+  const title=node('h3',options.rowLabel,'table-title');title.className='table-workspace-title';heading.append(title);
   const definition=node('div',undefined,'definition');definition.className='table-view-definition';definition.hidden=true;const content=node('div',undefined,'rows');content.className='table-wrap';
-  const main=node('div');main.className='table-workspace-main';main.append(...(options.overview?[options.overview]:[]),heading,definition,content);
-  const stage=node('div');stage.className='table-workspace-stage';stage.append(main,...(options.aside?[options.aside]:[]));
-  shell.append(toolbar,...(options.note?[options.note]:[]),...(options.lead?[options.lead]:[]),stage);host.replaceChildren(shell);
+  options.rows.prepend(heading,definition,content);
+  const stage=node('div');stage.className='table-workspace-stage';stage.append(options.body);
+  shell.append(toolbar,...(options.note?[options.note]:[]),stage);host.replaceChildren(shell);
   shell.addEventListener('keydown',event=>{if(event.key==='Escape'){const open=menus.find(m=>m.open);if(open){open.open=false;open.querySelector('summary')?.focus();}}});
   function fillChoices(target:HTMLElement,choices:readonly Choice[],selected:string[],change:(values:string[])=>void,required:string[]=[]){
     const order=[...choices].sort(([a],[b])=>{const ai=selected.indexOf(a),bi=selected.indexOf(b);return (ai<0?choices.length:ai)-(bi<0?choices.length:bi);});
@@ -86,12 +90,31 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
     if(axis){target.ondragover=event=>{event.preventDefault();};target.ondrop=event=>{event.preventDefault();const key=event.dataTransfer?.getData('text/plain');if(key&&options.dimensions.some(d=>d[0]===key)){const before=(event.target as HTMLElement).closest<HTMLElement>('label');move(key,target,before?.parentElement===target?before:undefined);}};}
   }
   function setPivot(dimensions:string[],measures:string[],splitBy:string[]=[]){fillChoices(fields.querySelector('#'+options.key+'-dimensions')!,options.dimensions,dimensions.filter(d=>!splitBy.includes(d)),()=>{});fillChoices(fields.querySelector('#'+options.key+'-split-dimensions')!,options.dimensions,splitBy,()=>{});fillChoices(fields.querySelector('#'+options.key+'-measures')!,options.measures,measures,()=>{});}
-  let grid:ReturnType<typeof renderDataGrid>|undefined;
+  type GridArguments=Parameters<typeof renderDataGrid> extends [HTMLElement,...infer Rest]?Rest:never;
+  // The grid on screen, and what it was built for (gridIdentity).
+  let grid:GridHandle|undefined,identity='';
+  // Builds the grid afresh: for its first rows, or rows of another kind, such as a pivot's in place of trade rows.
+  function render(...[key,scope,headers,rows,numeric,isBusy,gridOptions]:GridArguments){
+    grid?.destroy();
+    const built={...gridOptions,toolbarHost:filters,fill:true};
+    grid=renderDataGrid(content,key,scope,headers,rows,numeric,isBusy,built);identity=gridIdentity(key,scope,headers,numeric,built);
+    return grid;
+  }
   return {
-    clear(){grid?.destroy();grid=undefined;content.replaceChildren();definition.replaceChildren();definition.hidden=true;},
+    clear(){grid?.destroy();grid=undefined;identity='';content.replaceChildren();definition.replaceChildren();definition.hidden=true;},
     describe(axes:{label:string;values:string[]}[]){definition.replaceChildren(...axes.map(axis=>{const group=node('div'),label=node('span',axis.label);group.append(label,...(axis.values.length?axis.values:['None']).map(value=>node('strong',value)));return group;}));definition.hidden=!axes.length;},
     busy(value:boolean){content.inert=value;},
-    render(...[key,scope,headers,rows,numeric,isBusy,gridOptions]:Parameters<typeof renderDataGrid> extends [HTMLElement,...infer Rest]?Rest:never){grid?.destroy();grid=renderDataGrid(content,key,scope,headers,rows,numeric,isBusy,{...gridOptions,toolbarHost:filters});return grid;},
+    /**
+     * Changes the grid on screen in place when it was built for the same key, scope and columns, so the person keeps their place in it;
+     * otherwise builds it afresh.
+     */
+    update(...[key,scope,headers,rows,numeric,isBusy,gridOptions]:GridArguments){
+      const next={...gridOptions,toolbarHost:filters,fill:true};
+      if(!grid||gridIdentity(key,scope,headers,numeric,next)!==identity)return render(key,scope,headers,rows,numeric,isBusy,gridOptions);
+      void grid.reconfigure(rows,next);return grid;
+    },
+    /** Marks the rows on screen as no longer stating the current read, with the reason, or clears the mark (null). */
+    stale(reason:string|null){grid?.markStale(reason);},
     columns(choices:readonly Choice[],selected:string[],change:(values:string[])=>void,required:string[]=[]){fillChoices(columnChoices,choices,selected,change,required);},
     pivot:setPivot,
     closeMenus(){for(const menu of menus)menu.open=false;},

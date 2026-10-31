@@ -1,7 +1,7 @@
 import type {Holding} from './desk-model.js';
 
-// Booked facts are a separate read from valuation. Pages share one context;
-// a complete priced response must still describe the same booked bindings.
+// Booked facts are a separate read from valuation. The Blotter reads their first page for the count of positions it is valuing, and never
+// draws rows from it; the complete priced response must still describe the same booked bindings.
 export type FactsContext={contextId:string;effectiveOn:string;knownAt:string};
 export type PositionFact={tradeId:string;bindingId:string;revision:number;tradeReference:string;bookId:string;book:string;
   instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas';marketLabel:string|null;deliveryFrom:string|null;deliveryTo:string|null;
@@ -12,21 +12,22 @@ const changed='The booked positions changed while values were loading. Refresh t
 const key=(position:{tradeId:string;bindingId:string})=>JSON.stringify([position.tradeId,position.bindingId]);
 const sameContext=(left:FactsContext,right:FactsContext)=>left.contextId===right.contextId&&left.effectiveOn===right.effectiveOn&&left.knownAt===right.knownAt;
 
-export function readPositionFacts(value:unknown,offset:number,limit:number,previous?:PositionFacts):PositionFacts{
+/** The first page of the booked positions, of at most `limit`, with the total the whole selection holds. */
+export const readPositionFacts=(value:unknown,limit:number)=>readPositionFactsPage(value,limit,0);
+/** The page of the booked positions from `offset`, of at most `limit`, with the total the whole selection holds. */
+export function readPositionFactsPage(value:unknown,limit:number,offset:number):PositionFacts{
   const page=value as PositionFacts;
-  if(!page||typeof page.context?.contextId!=='string'||!page.context.contextId||typeof page.context.effectiveOn!=='string'||
+  if(!Number.isSafeInteger(offset)||offset<0||!page||typeof page.context?.contextId!=='string'||!page.context.contextId||typeof page.context.effectiveOn!=='string'||
     typeof page.context.knownAt!=='string'||typeof page.asOf!=='string'||!Array.isArray(page.positions)||
-    !Number.isInteger(page.total)||page.total<offset||page.positions.length>limit||offset+page.positions.length>page.total||
-    (offset<page.total&&page.positions.length===0)||page.nextOffset!==(offset+page.positions.length<page.total?offset+page.positions.length:null))throw Error(invalid);
-  if(previous&&(!sameContext(previous.context,page.context)||previous.asOf!==page.asOf||previous.total!==page.total||previous.nextOffset!==offset))throw Error(invalid);
+    !Number.isInteger(page.total)||page.positions.length>limit||offset+page.positions.length>page.total||
+    (page.total>offset&&page.positions.length===0)||page.nextOffset!==(offset+page.positions.length<page.total?offset+page.positions.length:null))throw Error(invalid);
   for(const position of page.positions){
     if(!position||['tradeId','bindingId','tradeReference','bookId','book'].some(field=>typeof position[field as keyof PositionFact]!=='string')||
       !Number.isInteger(position.revision)||position.revision<1||!['future','financial_swap','heat_rate','ppa','physical_gas'].includes(position.instrumentType)||
       ['marketLabel','deliveryFrom','deliveryTo','bookedQuantity','bookedUnit'].some(field=>position[field as keyof PositionFact]!==null&&typeof position[field as keyof PositionFact]!=='string'))throw Error(invalid);
   }
-  const positions=[...(previous?.positions??[]),...page.positions];
-  if(new Set(positions.map(key)).size!==positions.length)throw Error(invalid);
-  return {...page,positions};
+  if(new Set(page.positions.map(key)).size!==page.positions.length)throw Error(invalid);
+  return page;
 }
 
 export function requirePricedFacts(facts:PositionFacts,priced:{context:FactsContext;asOf:string;holdings:{tradeId:string;bindingId:string;revision:string|number}[]},historical:boolean){
@@ -44,11 +45,4 @@ export function readSelectedPosition(value:unknown,context:FactsContext,asOf:str
    String(holding.revision)!==String(selected.revision)||holding.instrumentType!==selected.instrumentType)
   throw Error('The individual position does not match its booked facts. Refresh the Blotter.');
  return response;
-}
-/** A single valuation belongs only to its requested, already displayed fact. */
-export function readIndividualPosition(value:unknown,facts:PositionFacts,selected:PositionFact):IndividualPosition{
-  const response=readSelectedPosition(value,facts.context,facts.asOf,selected);
-  if(!facts.positions.some(fact=>key(fact)===key(selected)&&fact.revision===selected.revision)||response.holding.bookId!==selected.bookId)
-    throw Error('The individual position does not match its booked facts. Refresh the Blotter.');
-  return response;
 }

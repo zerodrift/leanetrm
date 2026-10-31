@@ -1,5 +1,5 @@
-// The Blotter desk's use of its side panel: which position the panel shows, found again in each read the desk draws, and what
-// the desk does when the person opens a row or closes the panel.
+// The Blotter desk's use of its Details pane: which position the pane shows, found again in each read the desk draws, and what
+// the desk does when the person opens a row or collapses the details.
 import type {Holding} from './desk-model.js';
 import type {PositionInput,PositionTab} from './position-panel.js';
 import {sameMode,type PanelMode,type SidePanel} from './side-panel.js';
@@ -76,7 +76,8 @@ export function bookedPosition(holdings:readonly TradeKey[],receipt:{tradeId?:st
 /**
  * The panel's position follows the read the desk has drawn. `shell` and `position` are the panel and the view it draws a position
  * with; `holdings` are the positions of the read on screen in the order of the desk's rows, and `input` what the desk drew for
- * one, or nothing when it draws no positions. `grid` marks the open row, brings it into view and takes focus back to it.
+ * one, or nothing when it draws no positions. `grid` marks the open row, brings a row opened from elsewhere than the grid into view,
+ * and takes focus back to the row when the person collapses the details.
  */
 export function setupDeskPanel(o:{
   shell:Pick<SidePanel,'show'|'reset'|'current'>;
@@ -104,13 +105,18 @@ export function setupDeskPanel(o:{
     if(opening&&reveal)o.grid()?.revealRow(index);
   }
   return {
-    /** Opens the position of a row, on a tab when one is named. The row that is already open is only given focus: its tab and its reads stay. */
-    async open(index:number,tab?:PositionTab,reveal=true){
+    /**
+     * Opens the position of a row, on a tab when one is named, and answers whether it is shown: false when the person kept edits the panel
+     * holds, or the read holds no such row. The row that is already open is only shown again: its tab and its reads stay.
+     */
+    async open(index:number,tab?:PositionTab,reveal=true):Promise<boolean>{
       const h=o.holdings()?.[index];
-      if(!h||!o.input(index))return;
+      if(!h||!o.input(index))return false;
       const mode=positionMode(h),shown=sameMode(o.shell.current(),mode);
       // The person may be asked first, and a newer read may land while they decide: the position is looked up when they have.
-      if(await o.shell.show(mode)&&!shown)draw(true,tab,reveal);
+      if(!await o.shell.show(mode))return false;
+      if(!shown)draw(true,tab,reveal);
+      return true;
     },
     /** The workspace row of the position the panel shows now in the read on screen, or nothing. */
     shown(){
@@ -121,8 +127,8 @@ export function setupDeskPanel(o:{
     },
     /** The desk has drawn its read again, or its curves have arrived. */
     sync:()=>draw(false),
-    /** The person closed the panel. */
-    closed(){const row=openedAt;drop();if(row!==undefined)o.grid()?.focusRow(row);},
+    /** The person collapsed the details: focus goes back to the row they showed. Answers whether there was one. */
+    closed(){const row=openedAt;drop();if(row!==undefined)o.grid()?.focusRow(row);return row!==undefined;},
     /** The panel moved to another mode: the position and its row are forgotten, and focus stays where the person put it. */
     left:drop,
     /** The reads the panel was opened from no longer stand. */

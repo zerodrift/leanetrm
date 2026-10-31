@@ -526,7 +526,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
  {
   // This cache cannot outlive the authorized read operation. Economic identity
   // includes discounting and distinguishes unit work under this context.
-  var markets=rows.Any(r=>r.Id("definition_revision_id")!=data.DefinitionRevision.RevisionId)?await database.ReadSwapMarkets(connection,frame,ct,data):[];
+  // Every other bundle a held swap is booked in is required at this close: one with no frame there refuses the read, saying so.
+  var required=rows.Select(r=>r.Id("definition_revision_id")).Where(r=>r!=data.DefinitionRevision.RevisionId).ToHashSet();
+  var markets=required.Count==0?[]:await database.ReadSwapMarkets(connection,frame,ct,data,required);
   var values=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),FinancialSwapEvaluation>();
   var unvalued=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),string>();
   var identities=new Dictionary<Guid,((DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId) Key,FinancialSwapInstrument Instrument)>();

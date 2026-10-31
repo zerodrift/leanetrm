@@ -13,11 +13,11 @@ export async function run(a){
  const frame=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()`);
  await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
  await check('one blotter includes futures, financial swaps, heat rates, PPAs and physical gas',`['future','financial_swap','heat_rate','ppa','physical_gas'].every(t=>window.tradeReads.at(-1)?.blotter.holdings.some(h=>h.instrumentType===t))`,`({types:window.tradeReads.at(-1)?.blotter.holdings.map(h=>h.instrumentType),error:document.querySelector('#error').textContent})`);
- await check('gas has an explicit contractual PV measure in the common workspace',`document.querySelector('#desk-tile-gasPv')?.textContent.includes('Gas contractual PV')`);
+ await check('gas has an explicit contractual PV measure in the common workspace',`[...document.querySelectorAll('#blotter-strip .strip-item .strip-label')].some(l=>l.textContent==='Gas contractual PV')`);
  await capture('unified-blotter');
  for(const [product,selector] of [['futures','#futures-new-trade'],['swaps','#swap-editing'],['ppa','#ppa-page'],['gas','#gas-page']]){
   await newTrade(a,product);
-  await check(product+' enters through the same trade panel',`document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#side-panel-form').contains(document.querySelector('${selector}'))&&!document.querySelector('${selector}').hidden`);
+  await check(product+' enters through the same trade panel',`document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#position-details-form').contains(document.querySelector('${selector}'))&&!document.querySelector('${selector}').hidden`);
   await closeNewTrade(a);
   await check(product+' closes without retaining a browser page-leave warning',`(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return !event.defaultPrevented;})()`);
  }
@@ -44,12 +44,12 @@ export async function run(a){
  await closeNewTrade(a);
  await check('common workflow offers recovery before another new trade',`document.querySelector('#futures-new').disabled&&[...document.querySelectorAll('#futures-retained button')].some(b=>b.textContent==='Reconcile physical gas request')`);
  await evaluate(`[...document.querySelectorAll('#futures-retained button')].find(b=>b.textContent==='Reconcile physical gas request').click()`);await wait(idle);
- await check('remount restores the same pending request with storage unavailable',`!document.querySelector('#gc-pending').hidden&&document.querySelector('#side-panel-form').contains(document.querySelector('#gc-page')??document.querySelector('#gas-page'))`);
+ await check('remount restores the same pending request with storage unavailable',`!document.querySelector('#gc-pending').hidden&&document.querySelector('#position-details-form').contains(document.querySelector('#gc-page')??document.querySelector('#gas-page'))`);
  await click('#gc-check');
  await wait(`!!document.querySelector('#gas-operations')&&${idle}`);
  await check('confirmed booking opens common retained trade terms exactly once',`window.bookRequests.length===1&&window.tradeReads.at(-1).blotter.holdings.filter(h=>h.tradeId===window.bookReceipt.tradeId).length===1&&document.querySelector('#position-details').textContent.includes('Physical gas trade')`, `({error:document.querySelector('#error').textContent,details:document.querySelector('#position-details').textContent})`);
  await click('#gas-operations');
- await check('daily operations open from that position without changing its contract',`document.querySelector('#position-details-form').contains(document.querySelector('#gq-grid'))&&document.querySelectorAll('#gq-grid tbody tr').length===62`, `({error:document.querySelector('#error').textContent,rows:document.querySelectorAll('#gq-grid tbody tr').length,mode:document.querySelector('#side-panel').dataset.mode,form:document.querySelector('#side-panel-form').hidden,parent:document.querySelector('#gas-page').parentElement.id})`);
+ await check('daily operations open from that position without changing its contract',`document.querySelector('#position-details-form').contains(document.querySelector('#gq-grid'))&&document.querySelectorAll('#gq-grid tbody tr').length===62`, `({error:document.querySelector('#error').textContent,rows:document.querySelectorAll('#gq-grid tbody tr').length,mode:document.querySelector('#position-details').dataset.mode,form:document.querySelector('#position-details-form').hidden,parent:document.querySelector('#gas-page').parentElement.id})`);
  await set('#gq-row','0');await set('#gq-kind','nominated');await set('#gq-status','provisional');await set('#gq-quantity','31');await set('#gq-evidence','Daily nomination');await submit('#gq-form');
  await check('operational revision preserves contractual delivery quantities',`document.querySelector('#gq-grid tbody tr').textContent.includes('1000/31')&&document.querySelector('#gq-grid tbody tr').textContent.includes('31 · provisional')`);
  await check('all integrated forms fit the desktop viewport',`document.documentElement.scrollWidth<=innerWidth`);
