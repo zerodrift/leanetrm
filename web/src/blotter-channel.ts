@@ -6,14 +6,15 @@ import {parseBlotterViews,validLayoutField,type BlotterView} from './blotter-lay
 import type {PageState} from './assistant-pages.js';
 import type {GridLayout} from './data-grid.js';
 
-export type EndReason='signed_out'|'account_changed'|'main_closed';
+// `brought_back`: the main window brings the Blotter back, having asked about the pop-out's edits; the pop-out hands it back and closes.
+export type EndReason='signed_out'|'account_changed'|'main_closed'|'brought_back';
 export type BlotterMessage=
   {v:1;session:string;kind:'context';context:{snapshotId:string;knowledgeMode:string;contextId:string|null;profile:string}}
   |{v:1;session:string;kind:'view';instance:string;view:BlotterView}
   |{v:1;session:string;kind:'opened';instance:string}|{v:1;session:string;kind:'closed';instance:string}
   |{v:1;session:string;kind:'ended';reason:EndReason}
-  |{v:1;session:string;kind:'pageReport';instance:string;state:PageState}
-  |{v:1;session:string;kind:'askAbout';instance:string;key:string};
+  |{v:1;session:string;kind:'pageReport';instance:string;state:PageState;unsaved:boolean}
+  |{v:1;session:string;kind:'askAbout';instance:string;key:string;bookIds:string[];portfolioIds:string[]};
 
 const refuse=(why:string):never=>{throw Error(`Blotter window message refused: ${why}.`);};
 const isObject=(x:unknown):x is Record<string,unknown>=>typeof x==='object'&&x!==null&&!Array.isArray(x);
@@ -76,8 +77,9 @@ const bodies:Record<string,Parse<Record<string,unknown>>>={
     if((c.knowledgeMode==='retained')!==(c.contextId!==null))refuse('the knowledge mode and context id disagree');
     return c;}}),
   view:shape({instance,view}),opened:shape({instance}),closed:shape({instance}),
-  ended:shape({reason:oneOf<EndReason>('signed_out','account_changed','main_closed')}),
-  pageReport:shape({instance,state:pageState}),askAbout:shape({instance,key:str})};
+  ended:shape({reason:oneOf<EndReason>('signed_out','account_changed','main_closed','brought_back')}),
+  // A report says whether the pop-out holds unsaved edits; a question names the books and portfolios it was asked in.
+  pageReport:shape({instance,state:pageState,unsaved:bool}),askAbout:shape({instance,key:str,bookIds:strings,portfolioIds:strings})};
 
 /** The message if it is version 1, for this session, of a known kind and exactly shaped; otherwise throws and nothing is applied. The result is a new object. */
 export function readBlotterMessage(value:unknown,session:string):BlotterMessage{

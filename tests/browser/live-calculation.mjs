@@ -1,6 +1,7 @@
 import {sideSession} from './side-session.mjs';
+import {popOut} from './blotter-window.mjs';
 
-export async function run({command,evaluate,wait,click,persona,set,submit,check,shot,idle,url}){
+export async function run({command,evaluate,wait,click,persona,set,submit,check,shot,idle,url,tab}){
  await command('Runtime.enable');await command('Page.enable');await command('Network.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.liveResponses=[];window.liveRequests=[];window.liveTasks=[];new PerformanceObserver(list=>window.liveTasks.push(...list.getEntries().map(e=>e.duration))).observe({type:'longtask',buffered:true});{const fetch=window.fetch;window.fetch=async(path,init)=>{window.liveRequests.push(String(path));if(window.holdShapes&&String(path)==='/api/market/curve-shapes'){window.holdShapes=false;await new Promise(resolve=>window.releaseShapes=resolve);}if(window.failLiveWorkspace&&String(path)==='/api/trading/workspace'){window.failLiveWorkspace=false;return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}if((window.failLivePreview&&String(path)==='/api/custom-curves/preview')||(window.failLiveEditor&&['/api/swaps/editor','/api/futures/editor'].includes(String(path)))){window.failLivePreview=false;window.failLiveEditor=false;return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}let response=await fetch(path,init);if(window.loseRiskJob&&String(path)==='/api/portfolio/risk/jobs'&&init?.method==='POST'&&response.ok){window.loseRiskJob=false;throw new TypeError('Synthetic lost risk job reply');}if(window.dropRiskTarget&&String(path)==='/api/portfolio/risk/catalog'&&response.ok){const data=await response.json(),id=window.dropRiskTarget;window.dropRiskTarget=undefined;data.scenarioTargets=data.scenarioTargets.filter(t=>t.id!==id);response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}if(window.refuseDesk&&String(path)==='/api/trading/workspace'&&response.ok){window.refuseDesk=false;const data=await response.json(),market=data.summaries[3],swap=market.groups.find(g=>g.instrumentType==='financial_swap');market.groups.push({...swap,quantitySpecification:{...swap.quantitySpecification,code:'other_quantity'},unit:'other unit'});for(const group of data.summaries[0].groups)if(group.instrumentType==='future')group.executionPnl='4242.5';for(const holding of data.blotter.holdings)if(holding.instrumentType==='future')holding.executionPrice='9.995';response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}if(response.headers.get('content-type')?.includes('application/json'))window.liveResponses.push({path:String(path),data:await response.clone().json()});return response;};}`});
@@ -205,4 +206,18 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
   `[${directoryReads}.at(-1).data,${factReads}.at(-1).data,document.querySelector('#error').textContent,document.querySelector('#new-trade-availability').textContent,document.querySelector('#blotter-load-status').textContent]`);
  await click('#futures-refresh');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&"+idle);
  console.log('LIVE browser synthetic workload:',JSON.stringify(await evaluate("({requests:window.liveRequests.length,longTasks:window.liveTasks.length,maxLongTaskMilliseconds:Math.max(0,...window.liveTasks),heapBytes:performance.memory?.usedJSHeapSize})")));
+ // The pop-out Blotter follows live corrections as the main window reads them: a new generation is read again keeping what its details hold (D222).
+ await persona('risk');await click('#example');await click('#nav-futures');
+ if(await evaluate("!document.querySelector('#follow-live').hidden"))await click('#follow-live');
+ await wait("document.querySelector('#live-status').dataset.state==='live'&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&"+idle,60000);
+ const popup=await popOut({command,evaluate,url,tab});
+ await popup.click('#blotter-risk');await popup.wait(reportOpen+'&&'+idle,30000);
+ await popup.click('input[name=risk-choice][value=held]');await popup.wait("!!document.querySelector('#risk-size-0')&&"+idle,30000);
+ await popup.evaluate("(()=>{const n=document.querySelector('#risk-size-0');n.focus();n.select();})()");await popup.command('Input.insertText',{text:'0.25'});
+ const popupReads="performance.getEntriesByType('resource').filter(r=>new URL(r.name).pathname==='/api/trading/workspace').length",popupBefore=await popup.evaluate(popupReads);
+ await correct('base','3.391');
+ await popup.wait(`${popupReads}>${popupBefore}&&`+idle,60000);
+ await check('a live correction reads the pop-out Blotter again as the main window reads one, keeping the edits its details hold',
+  JSON.stringify(await popup.evaluate("document.querySelector('#position-details').dataset.mode==='risk'&&document.querySelector('input[name=risk-choice][value=held]').checked&&document.querySelector('#risk-size-0').value==='0.25'&&!document.querySelector('#notice').textContent.includes('given up')")));
+ await popup.close();
 }

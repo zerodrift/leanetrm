@@ -1694,3 +1694,7 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .blotter-window-ended{padding:14px;border:1px solid var(--danger-border);border-radius:var(--radius);background:var(--danger-soft);color:var(--danger)}
 .blotter-away{max-width:640px}
 .blotter-away p{margin:8px 0 16px}
+/* A question the main window asks before a change gives up the edits the popped-out Blotter holds. */
+.blotter-window-question .side-panel-prompt{margin:0 0 12px;padding:10px 16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
+/* A pop-out whose main window is gone keeps only its unconfirmed trade request, with Check status and Retry, and no values. */
+#futures-page[data-retained-only]>:not(#futures-retained){display:none}

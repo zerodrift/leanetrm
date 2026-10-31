@@ -151,9 +151,17 @@ async function act(work:()=>Promise<void>,{keepNotice=false}={}){
 // false means the person kept the amendment.
 // `move` says what the move does to a custom curve's edits: 'discards' them (another page, context or account), changes the close ('closes'), which
 // keeps the graph and gives up only an unpublished effective-version timeline, or 'keeps' them (preferences, following live). The Blotter's amendment
-// is asked about for every move, and always through its own leave, which also closes its forms.
-type Move='discards'|'closes'|'keeps';
+// is asked about for every move, and always through its own leave, which also closes its forms. 'page' moves to another page and leaves the
+// context and account as they are, so the Blotter popped out of this window keeps its edits; every other move but 'keeps' gives them up, which is
+// asked about first, whichever page this window shows.
+type Move='discards'|'closes'|'keeps'|'page';
+let keptWindowEdits=false;
 async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
+  keptWindowEdits=false;
+  if(move!=='keeps'&&move!=='page'&&futures.windowEdits()){
+    if(modal?.open)modal.close();
+    if(!await futures.leaveWindow()){keptWindowEdits=true;return false;}
+  }
   if(page==='futures'){
     if(modal?.open&&futures.editing())modal.close();
     return futures.leave();
@@ -163,17 +171,17 @@ async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
   if(!customCurves.holds(scope))return true;
   if(modal?.open)modal.close();
   if(!await customCurves.leave(scope))return false;
-  if(move==='discards')customCurves.discard();
+  if(move==='discards'||move==='page')customCurves.discard();
   return true;
 }
 // Whether the page showing holds edits that a move to another page, context or account gives up: the Blotter's amendment, or a custom curve's unsaved edits.
-function holdsEdits(){return page==='futures'?futures.editing():page==='custom-curves'&&customCurves.holds('edits');}
+function holdsEdits(){return futures.windowEdits()||(page==='futures'?futures.editing():page==='custom-curves'&&customCurves.holds('edits'));}
 // What the profile dialog does gives up what the Blotter holds, which is asked about with the dialog closed, for a modal dialog keeps the panel, and
 // the question, out of reach. Keeping the amendment leaves the dialog closed and nothing done, which is said, for a closed dialog looks like a done one.
 async function mayLeaveForDialog(notDone:string,move:Move='discards'){
   if(busy)return false;
   if(await mayLeave(move,$<HTMLDialogElement>('profile-dialog')))return true;
-  notice(page==='futures'?`${notDone}, because you kept the amendment you were editing.`:`${notDone} · your curve edits are unchanged.`);
+  notice(keptWindowEdits?`${notDone}, because you kept the edits in the Blotter’s window.`:page==='futures'?`${notDone}, because you kept the amendment you were editing.`:`${notDone} · your curve edits are unchanged.`);
   return false;
 }
 // Runs `work` as an action, once the person has agreed to leave what the page holds. A discarded curve that the work then failed to leave is read again.
@@ -719,7 +727,7 @@ function setHostMode(mode:string){
 const bootstrapPath='bootstrap?includeFrames=false';
 const startupBootstrapPath=bootstrapPath+'&includeAccess=true';
 async function profileChoices(initial?:ProfileChoices){const boot=initial??await api<ProfileChoices>(bootstrapPath);setHostMode(boot.mode);$('preview-access').hidden=hostedPilot;$('sign-out').hidden=!hostedPilot;choose('profile',[...boot.profiles,...boot.customProfiles.filter(p=>!boot.profiles.some(base=>base.id===p.id))].map(p=>({value:p.id,name:p.name})),currentProfile);const name=select('profile').selectedOptions[0]?.textContent??'Current user';text('profile-label',name);text('profile-avatar',name.slice(0,1));text('profile-title',name);text('profile-access','Current permissions: '+(permissions.length?permissions.map(p=>friendly(p.replace(/([a-z])([A-Z])/g,'$1 $2'))).join(', '):'No workspace access'));$('profile-open').setAttribute('aria-label','Profile · '+name);}
-$('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were not signed out'))return;futures.ended('signed_out');await act(async()=>{await api('logout',{});location.assign('/auth');});})();
+$('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were not signed out'))return;await act(async()=>{futures.ended('signed_out');await api('logout',{});location.assign('/auth');});})();
 async function loadIdentity(initialAccess?:unknown){
   $('curve-price-navigation').hidden=true;customCurves.reset();$('custom-curves-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
@@ -900,7 +908,7 @@ async function showPage(next:string){
 }
 // Pages that read the selected historical view apply a changed one before they open.
 const readsContext=['market','custom-curves','delivery','reference','configuration','parties','futures'];
-const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);});
+const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
 for(const name of ['market','custom-curves','delivery','interval-series','interval-curves','jobs','power','reference','schedules','configuration','parties','admin','ai','futures'])
   $('nav-'+name).onclick=navigate(name);
 // The saved Blotter views the person lists in the sidebar, each under the Blotter, which is marked while none of them is the view it shows.
@@ -912,7 +920,7 @@ function renderBlotterViews(){
     const entry=document.createElement('button'),icon=document.createElement('span'),label=document.createElement('span');
     entry.type='button';entry.className='nav-item nav-view';entry.classList.toggle('active',name===shown);entry.title=entry.ariaLabel=`Blotter view · ${name}`;entry.disabled=busy;
     icon.className='nav-icon';icon.ariaHidden='true';icon.textContent='▤';label.className='nav-text';label.textContent=name;entry.append(icon,label);
-    entry.onclick=()=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('futures');if(futures.poppedOut()){futures.front();notice('The Blotter is in its own window, now in front. Choose the saved view there.');return;}futures.reset('read');await futures.openView(name);if(select('snapshot').value)await futures.load();});
+    entry.onclick=()=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('futures');if(futures.poppedOut()){futures.front();notice('The Blotter is in its own window, now in front. Choose the saved view there.');return;}futures.reset('read');await futures.openView(name);if(select('snapshot').value)await futures.load();},contextDirty?'discards':'page');
     return entry;
   }));
 }
@@ -1074,7 +1082,7 @@ window.addEventListener('pagehide',()=>futures.ended('main_closed'));
 const askBeforeUnload=(event:BeforeUnloadEvent)=>{if(sessionEnded)return;event.preventDefault();event.returnValue='';};
 let askingBeforeUnload=false;
 function syncUnloadQuestion(){
-  const holds=futures.editing()||customCurves.editing();
+  const holds=futures.editing()||customCurves.editing()||futures.windowEdits();
   if(holds===askingBeforeUnload)return;
   askingBeforeUnload=holds;
   if(holds)window.addEventListener('beforeunload',askBeforeUnload);else window.removeEventListener('beforeunload',askBeforeUnload);

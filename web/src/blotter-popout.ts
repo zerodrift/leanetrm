@@ -2,7 +2,7 @@
 // blotter-channel.ts. The main window opens the pop-out for a session of its own, adopts the first window that says it opened, hands it
 // the view and the context, and from then on hears only that window: what it shows, a position it asks about and, as it closes, its view.
 // The pop-out takes its one hand-off, follows every context the main window sends and ends when told. Neither end acts on what it sends.
-import type {openBlotterChannel,BlotterMessage,EndReason} from './blotter-channel.js';
+import {readBlotterMessage,type openBlotterChannel,type BlotterMessage,type EndReason} from './blotter-channel.js';
 import type {BlotterView} from './blotter-layout.js';
 import type {PageState} from './assistant-pages.js';
 import {refuse} from './blotter-operations.js';
@@ -11,6 +11,8 @@ import {refuse} from './blotter-operations.js';
 export type BlotterContext=Extract<BlotterMessage,{kind:'context'}>['context'];
 /** What a popped-out Blotter shows, as the page reports it. */
 export type BlotterShown=Extract<PageState,{page:'futures'}>;
+/** A position the pop-out asks the assistant about, with the books and portfolios its Blotter shows. */
+export type BlotterQuestion={key:string;bookIds:string[];portfolioIds:string[]};
 type OpenChannel=typeof openBlotterChannel;
 type Channel=ReturnType<OpenChannel>;
 type Example='baseline'|'exchange';
@@ -41,8 +43,8 @@ export function readBlotterWindowUrl(href:string):{session:string;example:Exampl
  */
 export function tieMainWindow(o:{source:string;example:Example;grace:number;session:()=>string;channel:OpenChannel;
   open:(url:string,target:string,features:string)=>Popup|null;context:()=>BlotterContext|undefined;
-  returned:(view:BlotterView,handedBack:boolean)=>void;reported:()=>void;ask:(key:string)=>void}){
-  type Tie={session:string;channel:Channel;popup:Popup;handed:BlotterView;instance?:string;sent?:string;shown?:BlotterShown;back?:BlotterView;settled:(()=>void)[]};
+  returned:(view:BlotterView,handedBack:boolean)=>void;reported:()=>void;ask:(question:BlotterQuestion)=>void}){
+  type Tie={session:string;channel:Channel;popup:Popup;handed:BlotterView;instance?:string;sent?:string;shown?:BlotterShown;unsaved?:boolean;back?:BlotterView;settled:(()=>void)[]};
   let tie:Tie|undefined;
   const send=(t:Tie,m:Record<string,unknown>)=>t.channel.send({v:1,session:t.session,...m} as BlotterMessage);
   function receive(t:Tie,m:BlotterMessage){
@@ -54,8 +56,8 @@ export function tieMainWindow(o:{source:string;example:Example;grace:number;sess
       case 'view':t.back=m.view;return;
       case 'closed':finish(t);return;
       // Only a report of a popped-out Blotter is relayed as the pop-out's.
-      case 'pageReport':if(m.state.page==='futures'&&m.state.poppedOut){t.shown=m.state;o.reported();}return;
-      case 'askAbout':o.ask(m.key);return;
+      case 'pageReport':if(m.state.page==='futures'&&m.state.poppedOut){t.shown=m.state;t.unsaved=m.unsaved;o.reported();}return;
+      case 'askAbout':o.ask({key:m.key,bookIds:m.bookIds,portfolioIds:m.portfolioIds});return;
     }
   }
   function close(t:Tie){tie=undefined;t.channel.close();}
@@ -75,7 +77,10 @@ export function tieMainWindow(o:{source:string;example:Example;grace:number;sess
     open(view:BlotterView){
       if(tie)throw refuse('the Blotter is already in a window of its own');
       if(!o.context())throw refuse('choose a market date, and apply a changed context, before the Blotter opens in a window of its own');
-      const session=o.session(),handed=structuredClone(view);let t:Tie|undefined;
+      const session=o.session();let t:Tie|undefined,handed:BlotterView;
+      // The view is read as the pop-out will read it, so a pop-out never waits for a hand-off it would refuse.
+      try{handed=(readBlotterMessage({v:1,session,kind:'view',instance:session,view},session) as Extract<BlotterMessage,{kind:'view'}>).view;}
+      catch(error){throw refuse(`the view cannot be handed to another window (${(error as Error).message})`);}
       const channel=o.channel(session,m=>{if(t)receive(t,m);});
       const popup=o.open(blotterWindowUrl(o.source,{session,example:o.example}),'_blank',features);
       if(!popup){channel.close();throw Error('The browser did not open the Blotter’s window. Allow pop-up windows for this site, then press Pop out again.');}
@@ -83,18 +88,21 @@ export function tieMainWindow(o:{source:string;example:Example;grace:number;sess
     },
     /** What the pop-out last reported it shows. */
     shown:()=>tie?.shown,
+    /** Whether the pop-out last reported unsaved edits; undefined before it has reported, when it may hold some. */
+    unsaved:()=>tie?.unsaved,
     follow,
     front(){tie?.popup.focus();},
     /**
-     * Closes the pop-out, which hands back its view as it goes, and settles once the Blotter is back. A window that stays open, as one asking
-     * about edits it holds does, keeps the Blotter; one that closed without a word gives it back as it was handed.
+     * Brings the Blotter back, once the person has been asked about the pop-out's edits: an adopted pop-out is told so, and hands back its
+     * view and closes itself; any other window is closed. Settles once the Blotter is back. A window that stays open keeps the Blotter; one
+     * that closed without a word gives it back as it was handed.
      */
     async bringBack(){
       const t=tie;
       if(!t)throw refuse('the Blotter is not in a window of its own');
       const back=new Promise<void>(resolve=>t.settled.push(resolve));
       if(!t.popup.closed){
-        t.popup.close();
+        if(t.instance!==undefined)send(t,{kind:'ended',reason:'brought_back'});else t.popup.close();
         await Promise.race([back,new Promise(resolve=>setTimeout(resolve,o.grace))]);
         if(tie!==t)return back;
         if(!t.popup.closed)throw refuse('the Blotter’s window stayed open, as it may hold edits; bring the Blotter back from that window');
@@ -110,11 +118,14 @@ export function tieMainWindow(o:{source:string;example:Example;grace:number;sess
 export type MainWindowTie=ReturnType<typeof tieMainWindow>;
 
 /** The pop-out's end, which says it opened as it is tied. Once ended, or once it has left, it sends and hears nothing. */
-export function tiePopoutWindow(o:{session:string;instance:string;channel:OpenChannel;handed:(view:BlotterView)=>void;context:(context:BlotterContext)=>void;ended:(reason:EndReason)=>void}){
+export function tiePopoutWindow(o:{session:string;instance:string;channel:OpenChannel;handed:(view:BlotterView)=>void;context:(context:BlotterContext)=>void;ended:(reason:EndReason)=>void;
+  broughtBack:()=>void}){
   let open=true,handed=false,reported:string|undefined;
   const channel=o.channel(o.session,m=>{
     if(!open)return;
     if(m.kind==='context')o.context(m.context);
+    // Brought back, the pop-out stays tied until it has handed back its view (leave); any other ending closes the tie at once.
+    else if(m.kind==='ended'&&m.reason==='brought_back')o.broughtBack();
     else if(m.kind==='ended'){close();o.ended(m.reason);}
     else if(m.kind==='view'&&m.instance===o.instance&&!handed){handed=true;o.handed(m.view);}
   });
@@ -123,8 +134,8 @@ export function tiePopoutWindow(o:{session:string;instance:string;channel:OpenCh
   send({kind:'opened'});
   return {
     /** Reports what the pop-out shows, when that has changed. */
-    report(state:BlotterShown){const next=JSON.stringify(state);if(open&&next!==reported){send({kind:'pageReport',state});reported=next;}},
-    ask(key:string){send({kind:'askAbout',key});},
+    report(state:BlotterShown,unsaved:boolean){const next=JSON.stringify([state,unsaved]);if(open&&next!==reported){send({kind:'pageReport',state,unsaved});reported=next;}},
+    ask(key:string,scope:{bookIds:string[];portfolioIds:string[]}){send({kind:'askAbout',key,...scope});},
     /** Hands back the view, when the pop-out holds one, and says it closed. */
     leave(view:BlotterView|undefined){
       if(!open)return;

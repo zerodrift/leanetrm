@@ -17,7 +17,7 @@ import {loadPreferences,newPreferences,type Preferences} from './preferences.js'
 
 const $=<T extends HTMLElement=HTMLElement>(id:string):T=>{const node=document.getElementById(id);if(!node)throw Error('This window could not load. Close it and pop the Blotter out again.');return node as T;};
 const text=(id:string,value:string)=>{$(id).textContent=publicText(value);};
-const ends:Record<EndReason,string>={signed_out:'Signed out in the main window',account_changed:'The account changed in the main window',main_closed:'The main window was closed'};
+const ends:Record<Exclude<EndReason,'brought_back'>,string>={signed_out:'Signed out in the main window',account_changed:'The account changed in the main window',main_closed:'The main window was closed'};
 
 // The session and example come from the fragment, which is taken off the address at once: a reload or a copy of this window is not tied.
 let tied:{session:string;example:'baseline'|'exchange'}|undefined,untied:string|undefined;
@@ -26,7 +26,8 @@ history.replaceState(null,'',location.pathname);
 if(tied&&!window.opener)untied='This Blotter window has no main window. Close it, and pop the Blotter out from the main window.';
 const apiRoot=tied?.example==='exchange'?'/examples/exchange/api/':'/api/';
 
-let busy=false,ended=false,csrf='',permissions:string[]=[],profile='',scope='',navigation:MarketNavigation|undefined;
+// `ended`: the tie is over and no value is shown; `retaining`: with the main window gone, only an unconfirmed trade request is kept, with its controls.
+let busy=false,ended=false,retaining=false,hosted=false,csrf='',permissions:string[]=[],profile='',scope='',navigation:MarketNavigation|undefined;
 let prefs:Preferences=newPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone);
 // The context the main window last sent, and the one this window's Blotter reads at.
 let latest:BlotterContext|undefined,applied:BlotterContext|undefined,handed:BlotterView|undefined,started=false;
@@ -44,34 +45,44 @@ async function transport<T>(path:string,body?:unknown,signal?:AbortSignal):Promi
     body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000)});}
   catch{throw Object.assign(Error(body!==undefined?'We could not confirm the result. Check the Blotter before trying again.':'This window could not connect.'),{code:'response_unknown'});}
   if(response.status===401){end('Signed out · sign in again in the main window');throw Object.assign(Error('Sign in to continue.'),{code:'sign_in_required'});}
-  if(!response.ok)throw await apiRefusal(path,response,false);
+  if(!response.ok)throw await apiRefusal(path,response,hosted);
   return response.json() as Promise<T>;
 }
+// Every read is followed by a check of the account: an action's at its end, and one made in the background, as a risk job's timer makes, at once.
 async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
   const payload=await transport<T>(path,body,signal),displayed=shownAmounts(path,payload);
   if(displayed!==undefined)await prepareAmountDisplay(displayed,request=>transport<string[]>('amounts/display',request,signal));
+  if(!busy)checkAccount();
   return payload;
+}
+let checking=false;
+function checkAccount(){
+  if(checking||ended||!started)return;
+  checking=true;void verify().then(report,error=>{if(!ended)failed(error);}).finally(()=>{checking=false;});
 }
 
 function syncControls(){
-  document.querySelectorAll<HTMLButtonElement|HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>('button,input,select,textarea').forEach(n=>n.disabled=busy||ended);
+  document.querySelectorAll<HTMLButtonElement|HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>('button,input,select,textarea').forEach(n=>n.disabled=busy||ended&&!(retaining&&n.closest('#futures-retained')));
   $<HTMLButtonElement>('blotter-window-close').disabled=false;
   futures.sync();document.body.setAttribute('aria-busy',String(busy));
 }
 // Actions run one at a time. Each ends by checking that the account is still the main window's, and then reports what the window shows.
 async function act(work:()=>Promise<void>){
-  if(busy||ended)return;
+  if(busy||ended&&!retaining)return;
   busy=true;syncControls();$('error').hidden=true;$('notice').hidden=true;text('status','Loading…');
   try{await work();text('status','Blotter · its own window, tied to the main window.');}
   catch(error){if(!ended)failed(error);}
   finally{busy=false;syncControls();}
-  if(!ended&&started)void verify().then(report).catch(error=>{if(!ended)failed(error);});
+  checkAccount();
 }
 const whenIdle=(work:()=>void)=>{if(busy)setTimeout(()=>whenIdle(work),50);else work();};
 
 // The account, workspace and permissions of this window's session, which must be those the main window named.
 async function verify(){
-  const boot=await transport<{csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;access:{profile:string;permissions:string[]}|null}>('bootstrap?includeFrames=false&includeAccess=true');
+  const boot=await transport<{mode:string;csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;access:{profile:string;permissions:string[]}|null}>('bootstrap?includeFrames=false&includeAccess=true');
+  // The workspace's mode decides how a refusal is worded, as the main window's does; an unknown one is refused.
+  if(boot.mode!=='hosted-pilot'&&boot.mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Close this window and pop the Blotter out again.');
+  hosted=boot.mode==='hosted-pilot';
   const identity=[boot.runId,boot.tenantId,boot.workspaceId,boot.profile].join(':');
   if(!boot.profile||!boot.csrfToken||!boot.access||boot.access.profile!==boot.profile||!Array.isArray(boot.access.permissions))throw Error('This window could not verify its account. Close it and pop the Blotter out again.');
   if(identity!==latest?.profile){end('This window’s account is not the main window’s, so it shows no values');throw Error('The account changed.');}
@@ -88,10 +99,12 @@ async function readNavigation(context:BlotterContext){
   const sameKnowledge=context.knowledgeMode==='retained'?next.context?.contextId===context.contextId:next.context===null;
   if(next.profile!==profile||!sameKnowledge||!next.frames.some(f=>f.id===context.snapshotId))
     throw Error('The market date or context the main window shows could not be read in this window. Choose it again in the main window.');
-  navigation=next;setCurveNames(next.curveNames);
+  return next;
 }
+// The selection and the navigation read for it are applied together, once both are known to agree.
+function apply(context:BlotterContext,next:MarketNavigation){applied=context;navigation=next;setCurveNames(next.curveNames);}
 
-const futures=setupFutures({window:{kind:'popout',close:()=>window.close()},api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>scope,knowledge,
+const futures=setupFutures({window:{kind:'popout',close:()=>window.close(),example:tied?.example},api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>scope,knowledge,
   narrow:()=>main.clientWidth<dockedGroupsFrom,canRunRisk:()=>can('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty:false,view:knowledge(),canBook:can('BookTrade')}),
   onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),failed,failureCleared:()=>{$('error').hidden=true;},notice,
   definitionRevision:()=>{if(!navigation)throw Error('The market navigation is still loading.');return navigation.definitionRevision.revisionId;},
@@ -101,14 +114,15 @@ const futures=setupFutures({window:{kind:'popout',close:()=>window.close()},api,
     if(!applied||!navigation)throw Error('The main window has not handed over the Blotter yet.');
     return {snapshotId:applied.snapshotId,convention:navigation.futuresConvention,...(applied.contextId===null?{}:{context:{contextId:applied.contextId}})};
   },
-  reported:report,unsavedChanged:syncUnloadQuestion,
-  assistant:{available:()=>can('UseAgents'),about:({key})=>{try{tie?.ask(key);window.opener?.focus();}catch(error){failed(error);}}}});
+  reported:report,unsavedChanged:()=>{syncUnloadQuestion();report();},
+  assistant:{available:()=>can('UseAgents'),about:({key,bookIds,portfolioIds})=>{try{tie?.ask(key,{bookIds,portfolioIds});window.opener?.focus();}catch(error){failed(error);}}}});
 
-// What the Blotter shows here, for the main window's assistant.
-function report(){if(!ended&&started)try{tie?.report({page:'futures',...futures.report()});}catch(error){console.error('The Blotter window could not report what it shows.',error);}}
-// The Blotter at the main window's selection, once the account is checked: the navigation read for it, and the Blotter read afresh at it.
+// What the Blotter shows here, and whether its details hold unsaved edits, for the main window: its assistant, and the question it asks
+// before a change of its own gives them up.
+function report(){if(!ended&&started)try{tie?.report({page:'futures',...futures.report()},futures.editing());}catch(error){console.error('The Blotter window could not report what it shows.',error);}}
+// The Blotter read afresh at the main window's selection, once the account is checked and the navigation read for it.
 async function readAt(context:BlotterContext){
-  applied=context;await readNavigation(context);
+  apply(context,await readNavigation(context));
   $('futures-page').hidden=false;
   futures.reset('inputs');await futures.load();
 }
@@ -117,40 +131,69 @@ function start(){
   started=true;const view=handed;
   void act(async()=>{await verify();futures.adopt(view);await readAt(latest!);});
 }
-// A selection made in the main window is applied here at once, once this window is idle; edits a form here held at the last one are given up, which is said.
+// A selection made in the main window is applied here once this window is idle. A new generation of the live corrections followed is read as
+// the main window reads one, keeping what the details hold (D222); any other change gives up the details' edits, which the main window asked
+// about first, and which is said here.
 function follow(context:BlotterContext){
   latest=context;
   if(!started){start();return;}
   whenIdle(()=>{
     if(ended||JSON.stringify(latest)===JSON.stringify(applied))return;
-    const edits=futures.editing(),next=latest!;
-    futures.leavePage();
+    const next=latest!;
     void act(async()=>{
-      try{await verify();await readAt(next);}catch(error){futures.reset('inputs');throw error;}
-      if(edits)notice('The main window changed the market selection, so the edits in this window’s details were given up.');
+      try{
+        await verify();
+        const read=await readNavigation(next),live=navigation?.live?.id;
+        if(live!==undefined&&read.live?.id===live){apply(next,read);await futures.liveRefresh();return;}
+        const edits=futures.editing();
+        futures.leavePage();apply(next,read);
+        $('futures-page').hidden=false;futures.reset('inputs');await futures.load();
+        if(edits)notice('The main window changed the market selection, so the edits in this window’s details were given up.');
+      }catch(error){futures.reset('inputs');throw error;}
     });
   });
 }
-// The window stops showing values and says why; it keeps nothing it read.
-function end(why:string){
+// The trade request this window awaits the outcome of goes to the main window, which then owns it, while there is one to take it.
+const mainWindow=()=>window.opener&&!window.opener.closed?window.opener as Window:undefined;
+function handRequest(){
+  const target=mainWindow();
+  try{if(target&&!futures.handRequest(target.sessionStorage))notice('The main window already holds another unconfirmed request, so this window keeps its own.');}
+  catch(error){console.error('The Blotter window could not hand its request to the main window.',error);}
+}
+// The main window brings the Blotter back, having asked about what this window's details hold: they are given up, its request and view handed
+// back, and the window closes, with nothing left to ask about.
+function broughtBack(){
   if(ended)return;
-  ended=true;tie?.close();clearInterval(liveness);
-  futures.leavePage();futures.reset(null);setCurveNames([]);navigation=undefined;applied=undefined;
-  $('futures-page').hidden=true;text('header-calculation-time','');$('error').hidden=true;$('notice').hidden=true;
-  text('blotter-window-ended',why);$('blotter-window-ended').hidden=false;$('blotter-window-close').hidden=false;text('status','');
+  handRequest();futures.leavePage();
+  try{tie?.leave(started?futures.handOff():undefined);}finally{ended=true;clearInterval(liveness);syncUnloadQuestion();window.close();}
+}
+// The window stops showing values and says why; it keeps nothing it read. One that ends for a reason of its own first hands back its view
+// and request and says it closed, so the main window no longer relays what it showed. With the main window gone, an unconfirmed trade
+// request stays here alone, with Check status and Retry.
+function end(why:string,mainGone=false){
+  if(ended)return;
+  if(!mainGone)handRequest();
+  if(started)try{tie?.leave(futures.handOff());}catch(error){console.error('The Blotter window could not hand its view back.',error);}
+  tie?.close();ended=true;clearInterval(liveness);
+  futures.leavePage();
+  retaining=mainGone&&futures.retained();
+  if(retaining)futures.keepOnlyRetained();else{futures.reset(null);$('futures-page').hidden=true;}
+  setCurveNames([]);text('header-calculation-time','');$('error').hidden=true;$('notice').hidden=true;
+  text('blotter-window-ended',why+(retaining?' · this window keeps its unconfirmed trade request: check its status or retry it here':''));$('blotter-window-ended').hidden=false;$('blotter-window-close').hidden=false;text('status','');
   syncUnloadQuestion();syncControls();
 }
 
 const tie=tied&&!untied?tiePopoutWindow({session:tied.session,instance:crypto.randomUUID(),channel:openBlotterChannel,
-  handed:view=>{handed=view;start();},context:follow,ended:reason=>end(ends[reason])}):undefined;
+  handed:view=>{handed=view;start();},context:follow,ended:reason=>{if(reason!=='brought_back')end(ends[reason],reason==='main_closed');},broughtBack}):undefined;
 if(!tie)end(untied!);
 // A main window gone without a word, as one that crashed, is noticed too.
-if(tie)liveness=setInterval(()=>{if(!window.opener||window.opener.closed)end(ends.main_closed);},1000);
-// Closing hands the view back; the browser asks first while the details hold edits or a trade request awaits its outcome here.
-window.addEventListener('pagehide',()=>{if(!ended)tie?.leave(started?futures.handOff():undefined);ended=true;clearInterval(liveness);});
+if(tie)liveness=setInterval(()=>{if(!mainWindow())end(ends.main_closed,true);},1000);
+// Closing hands the view and an unconfirmed request back; the browser asks first while the details hold edits, or a request awaits its
+// outcome here with no main window to take it.
+window.addEventListener('pagehide',()=>{if(!ended){handRequest();tie?.leave(started?futures.handOff():undefined);}ended=true;clearInterval(liveness);});
 function askBeforeUnload(event:BeforeUnloadEvent){event.preventDefault();event.returnValue='';}
 function syncUnloadQuestion(){
-  const holds=!ended&&(futures.editing()||futures.unsaved());
+  const holds=!ended&&futures.editing()||futures.retained()&&!mainWindow();
   if(holds===asking)return;
   asking=holds;
   if(holds)window.addEventListener('beforeunload',askBeforeUnload);else window.removeEventListener('beforeunload',askBeforeUnload);

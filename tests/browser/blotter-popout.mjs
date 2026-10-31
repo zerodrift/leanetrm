@@ -2,6 +2,7 @@ import {sideSession} from './side-session.mjs';
 import {newTrade} from './new-trade.mjs';
 import {qualifyProvider,pricedModel} from './model-fixture.mjs';
 import {chooseFutures} from './futures-selection.mjs';
+import {popOut as openPopOut} from './blotter-window.mjs';
 
 // The pop-out Blotter (blotter-workbench.md, Pop-out Blotter), after the assistant panel in the assistant check's preview: the Blotter opens
 // in a window of its own, tied to the main window, which shows where it went and can bring it back. The pop-out follows the main window's
@@ -42,26 +43,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await evaluate(`${q('#futures-form')}.requestSubmit()`);await wait("document.querySelector('#position-details')?.dataset.mode==='position'&&"+idle,30000);
   const reference=await evaluate("document.querySelector('#position-details-head .side-panel-reference').textContent");
 
-  // Presses a control with the pointer, as a person does: a window opens only on a person's gesture.
-  async function press(driver,selector){
-    const {x,y}=await driver.evaluate(`(()=>{const r=${q(selector)}.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
-    for(const type of ['mousePressed','mouseReleased'])await driver.command('Input.dispatchMouseEvent',{type,x,y,button:'left',buttons:type==='mousePressed'?1:0,clickCount:1});
-  }
-  // Pops the Blotter out of `driver`'s window and attaches to the window that opens, once it has drawn its rows.
-  async function popOut(driver){
-    const before=(await command('Target.getTargets')).targetInfos.map(t=>t.targetId);
-    await press(driver,'#blotter-popout');
-    let target;for(let n=0;n<200&&!target;n++){target=(await command('Target.getTargets')).targetInfos.find(t=>t.type==='page'&&!before.includes(t.targetId)&&t.url.startsWith(url+'/blotter.html'));if(!target)await new Promise(r=>setTimeout(r,50));}
-    if(!target)throw Error('Pop out opened no Blotter window · '+JSON.stringify(await driver.evaluate(`({error:${q('#error')}.textContent,notice:${q('#notice')}.textContent})`)));
-    const popup=await tab(target.targetId);
-    // A browser opens the window at the size Pop out asks for; this headless one is given it.
-    await popup.command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
-    await popup.wait(`${idle}&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&document.querySelector('#futures-page').dataset.pricingState==='complete'`,60000).catch(async error=>{
-      throw Error(error.message+' · popup '+JSON.stringify(await popup.evaluate("({url:location.href,busy:document.body.getAttribute('aria-busy'),pricing:document.querySelector('#futures-page').dataset.pricingState,rows:document.querySelectorAll('#desk-positions .tabulator-row').length,keyed:document.querySelectorAll('#desk-positions .tabulator-row[data-row-key]').length,grid:document.querySelector('#blotter-pane-grid').getBoundingClientRect().height,window:[innerWidth,innerHeight],text:document.body.innerText.slice(0,1500)})")));});
-    return popup;
-  }
+  const popOut=driver=>openPopOut({command,evaluate,url,tab},driver);
   const away="document.querySelector('#blotter-away')";
-  const popup=await popOut({command,evaluate});
+  const popup=await popOut();
   await check('Pop out opens the Blotter in its own window, which reads its rows itself, with nothing of the session left in its address',
     JSON.stringify(await popup.evaluate("location.pathname==='/blotter.html'&&location.hash===''&&location.search===''&&window.opener!==null&&!document.querySelector('#futures-page').hidden&&performance.getEntriesByType('resource').some(r=>new URL(r.name).pathname==='/api/trading/workspace')")));
   await check('the main window shows that the Blotter is in its own window, with Bring back and no Blotter controls',
@@ -70,12 +54,32 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const firstAsOf=await popup.evaluate(asOf),firstValues=await popup.evaluate("document.querySelector('#blotter-strip').textContent");
   await check('the pop-out says the As of and knowledge cutoff it reads at',JSON.stringify(/^As of .+ · knowledge cutoff .+/.test(firstAsOf)));
 
-  // A change of the market date in the main window, made on another page, is applied in the pop-out at once.
-  await click('#nav-market',30000);await set('#snapshot',dates[1]);await wait(idle,30000);
+  // Edits the pop-out holds are asked about in the main window before a change made there gives them up; a move to another page is not one.
+  const prompt=q('#blotter-window-question-prompt');
+  const answer=label=>evaluate(`[...${prompt}.querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(label)}).click()`);
+  // The pop-out reports its edits a moment after they are made.
+  const reported=()=>evaluate('new Promise(resolve=>setTimeout(resolve,500))');
+  // Typed as a person types: only the person's own input is an edit of a form.
+  const lots=async(driver,value)=>{
+    await newTrade({click:driver.click,wait:driver.wait},'futures');
+    await driver.evaluate("(()=>{const n=document.querySelector('#futures-lots');n.focus();n.select();})()");await driver.command('Input.insertText',{text:value});await reported();
+  };
+  await lots(popup,'2');
+  await click('#nav-market',30000);
+  await check('moving to another page of the main window asks nothing of the pop-out\'s edits',`${prompt}.hidden&&${q('#page-title')}.textContent==='Curves & prices'`);
+  await set('#snapshot',dates[1]);await wait(`!${prompt}.hidden`).catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify({main:await evaluate(`({snapshot:${q('#snapshot')}.value,first:${JSON.stringify(dates[0])},notice:${q('#notice')}.textContent,error:${q('#error')}.textContent})`),
+    popup:await popup.evaluate("({mode:document.querySelector('#position-details').dataset.mode,lots:document.querySelector('#futures-lots')?.value,notice:document.querySelector('#notice').textContent,asOf:document.querySelector('#header-calculation-time').textContent})")}));});
+  await check('a change of the market date in the main window first asks about the edits the pop-out holds',`${prompt}.textContent.includes('The Blotter’s window holds unsaved edits that this gives up.')`,`${prompt}.textContent`);
+  await answer('Keep them');await wait(`${prompt}.hidden&&${idle}`);await reported();
+  await check('keeping them leaves the main window on its date and the pop-out on its edits',
+    `${q('#snapshot')}.value===${JSON.stringify(dates[0])}&&${JSON.stringify(await popup.evaluate(`document.querySelector('#futures-lots').value==='2'&&${asOf}===${JSON.stringify(firstAsOf)}`))}`);
+  // Giving them up changes the date there, which is applied in the pop-out at once, and the pop-out says its edits went.
+  await set('#snapshot',dates[1]);await wait(`!${prompt}.hidden`);await answer('Give them up');await wait(idle,30000);
   await popup.wait(`${idle}&&${asOf}!==${JSON.stringify(firstAsOf)}&&document.querySelector('#futures-page').dataset.pricingState==='complete'`,60000);
   const followed=await popup.evaluate(`(()=>{const reads=performance.getEntriesByType('resource').filter(r=>new URL(r.name).pathname==='/api/trading/workspace');return reads.length>=2;})()`);
   await check('the pop-out follows the market date the main window chose on Curves & prices: its As of and values are read again',
     JSON.stringify(followed&&await popup.evaluate(`${asOf}!==${JSON.stringify(firstAsOf)}&&(document.querySelector('#blotter-strip').textContent)!==${JSON.stringify(firstValues)}`)));
+  await check('and says the edits in its details were given up',JSON.stringify(await popup.evaluate("document.querySelector('#notice').textContent.includes('the edits in this window’s details were given up')")));
 
   // Group the rows in the pop-out: the main window's assistant hears what the pop-out shows, labelled as from it.
   await popup.evaluate("(()=>{const s=document.querySelector('#blotter-row-group');s.value='market';s.dispatchEvent(new Event('change',{bubbles:true}));})()");
@@ -118,8 +122,13 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     `${shown('#blotter-away')}&&${q('#futures-page')}.hidden&&window.__reads.filter(r=>r.path==='/api/trading/workspace').length===${readsBefore}&&${JSON.stringify(await popup.evaluate('window.__fronted'))}>0`,
     `[${shown('#blotter-away')},window.__reads.filter(r=>r.path==='/api/trading/workspace').length,${JSON.stringify(await popup.evaluate('window.__fronted'))}]`);
 
+  // Bring back asks first about edits the pop-out holds, which keeping leaves where they are.
+  await lots(popup,'4');
+  await click('#blotter-bring-back');await wait(`!${prompt}.hidden`);await answer('Keep them');await wait(`${prompt}.hidden&&${idle}`);
+  await check('Bring back asks about the edits the pop-out holds, and keeping them leaves the Blotter in its window',
+    `${shown('#blotter-away')}&&${JSON.stringify((await command('Target.getTargets')).targetInfos.some(t=>t.url.startsWith(url+'/blotter.html')))}&&${JSON.stringify(await popup.evaluate("document.querySelector('#futures-lots').value==='4'"))}`);
   // Bring back hands the pop-out's view, with its unsaved grouping, to the main window, which reads the Blotter itself.
-  await click('#blotter-bring-back',60000);
+  await click('#blotter-bring-back');await wait(`!${prompt}.hidden`);await answer('Give them up');
   await wait(`${q('#blotter-away')}.hidden&&!${q('#futures-page')}.hidden&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`,60000);
   await check('Bring back closes the pop-out and the main Blotter shows the grouping chosen there, unsaved',
     `${q('#blotter-row-group')}.value==='market'&&${q('#blotter-saved')}.value===''&&window.__reads.filter(r=>r.path==='/api/trading/workspace').length>${readsBefore}`
@@ -130,7 +139,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // The pop-out stops showing values, saying why, when the main window signs out, changes account or closes.
   const endedText="document.querySelector('#blotter-window-ended').textContent";
   const blank=`${shown('#blotter-window-ended')}&&document.querySelector('#futures-page').hidden&&!document.querySelector('#desk-positions .tabulator-row')`;
-  const signedOut=await popOut({command,evaluate});
+  const signedOut=await popOut();
   // This preview has no sign-in, so its Sign out button is hidden and its logout refused: the pop-out ends on the main window's word.
   await click('#profile-open');await evaluate(`${q('#sign-out')}.click()`);
   await signedOut.wait(`${endedText}==='Signed out in the main window'`,30000);
@@ -140,21 +149,64 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await signedOut.close();
 
   await click('#nav-futures',30000);await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`,60000);
-  const changed=await popOut({command,evaluate});
+  const changed=await popOut();
   await persona('editor');
   await changed.wait(`${endedText}==='The account changed in the main window'`,30000);
   await check('changing account in the main window leaves the pop-out saying so, with no figures',JSON.stringify(await changed.evaluate(blank)));
   await changed.close();await persona('trader');
 
-  // A main window of its own, closed outright.
-  const second=await tab();await second.command('Page.enable');await second.command('Runtime.enable');
-  await second.command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
-  await second.command('Page.navigate',{url:url+'/'});await second.wait(idle,30000);
-  if(!await second.evaluate(`!!${q('#snapshot')}.value`)){await second.evaluate(`(()=>{const s=${q('#snapshot')};s.value=${JSON.stringify(dates[0])};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await second.wait(idle,30000);}
-  await second.evaluate(`${q('#nav-futures')}.click()`);await second.wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`,60000);
-  const orphan=await popOut(second);
+  // A trade request the pop-out sent whose outcome is not known goes back with the Blotter to the main window, which then owns it: its Retry
+  // sends the request under the identity it was first sent with.
+  await click('#nav-futures',30000);await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`,60000);
+  const holder=await popOut();
+  await newTrade({click:holder.click,wait:holder.wait},'futures');
+  await chooseFutures({evaluate:holder.evaluate,set:holder.set,click:holder.click});await holder.evaluate("document.querySelector('#futures-book').selectedIndex=1;");
+  await holder.set('#futures-lots','1');await holder.set('#futures-execution','2.6');
+  await holder.evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");
+  await holder.evaluate("(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(String(input).endsWith('/futures/book')){window.__held=JSON.parse(init.body).operationId;throw new TypeError('Synthetic lost connection');}return send(input,init);};})()");
+  await holder.evaluate("document.querySelector('#futures-form').requestSubmit()");
+  await holder.wait(`!!window.__held&&!document.querySelector('#futures-pending').hidden&&${idle}`,30000);
+  const held=await holder.evaluate('window.__held');
+  // Bring back from the pop-out, which asks about what its details still hold.
+  await holder.evaluate("setTimeout(()=>{document.querySelector('#blotter-popout').click();setTimeout(()=>document.querySelector('#position-details-prompt:not([hidden]) button:not(.secondary)')?.click(),300);},0);true");
+  await wait(`${q('#blotter-away')}.hidden&&!${q('#futures-pending')}.hidden&&${idle}`,60000);
+  const stored=`Object.keys(sessionStorage).filter(k=>k.startsWith('openetrm.futures.request.server_booking_utc_v1.')&&!k.includes('blotter-window.')).map(k=>JSON.parse(sessionStorage.getItem(k)).operationId)`;
+  await check('closing the pop-out hands its unconfirmed trade request to the main window, which shows it with Check status and Retry under the same identity',
+    `JSON.stringify(${stored})===${JSON.stringify(JSON.stringify([held]))}&&!${q('#futures-reconcile')}.hidden&&!${q('#futures-retry')}.hidden`,stored);
+  const booksBefore=await evaluate("window.__reads.filter(r=>r.path==='/api/futures/book').length");
+  await click('#futures-retry',60000);await wait(`${q('#futures-pending')}.hidden&&${idle}`,60000);
+  await check('and its Retry sends that request again under that identity, never a second one',
+    `(()=>{const sent=window.__reads.filter(r=>r.path==='/api/futures/book').slice(${booksBefore}).map(r=>r.body.operationId);return sent.length>0&&sent.every(id=>id===${JSON.stringify(held)});})()`,
+    `window.__reads.filter(r=>r.path==='/api/futures/book').slice(${booksBefore}).map(r=>r.body.operationId)`);
+  await holder.close().catch(()=>undefined);
+
+  // A pop-out whose session no longer holds the main window's account stops showing values, and hands the Blotter back.
+  const mismatched=await popOut();
+  await mismatched.evaluate("(async()=>{const boot=await(await fetch('/api/bootstrap?includeFrames=false')).json();await fetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify({profile:'editor'})});document.querySelector('#futures-refresh').click();})()");
+  await mismatched.wait(`${endedText}.startsWith('This window’s account is not the main window’s')`,30000);
+  await check('a pop-out that finds another account than the main window\'s shows no figures',JSON.stringify(await mismatched.evaluate(blank)));
+  await wait(`${q('#blotter-away')}.hidden`,30000);
+  await check('and hands the Blotter back to the main window',`${q('#blotter-away')}.hidden`);
+  await mismatched.close();await persona('trader');
+
+  // A main window of its own, closed outright: with its word, and without one, as a crashed window gives none.
+  async function mainWindow(){
+    const other=await tab();await other.command('Page.enable');await other.command('Runtime.enable');
+    await other.command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
+    await other.command('Page.navigate',{url:url+'/'});await other.wait(idle,30000);
+    if(!await other.evaluate(`!!${q('#snapshot')}.value`)){await other.evaluate(`(()=>{const s=${q('#snapshot')};s.value=${JSON.stringify(dates[0])};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await other.wait(idle,30000);}
+    await other.evaluate(`${q('#nav-futures')}.click()`);await other.wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`,60000);
+    return other;
+  }
+  const second=await mainWindow(),orphan=await popOut(second);
   await second.close();
   await orphan.wait(`${endedText}==='The main window was closed'`,30000);
   await check('closing the main window leaves the pop-out saying so, with no figures',JSON.stringify(await orphan.evaluate(blank)));
   await orphan.close();
+  const third=await mainWindow(),silent=await popOut(third);
+  await third.evaluate("window.addEventListener('pagehide',event=>event.stopImmediatePropagation(),true);true");
+  await third.close();
+  await silent.wait(`${endedText}==='The main window was closed'`,30000);
+  await check('a main window gone without a word is noticed by the pop-out itself, which then shows no figures',JSON.stringify(await silent.evaluate(blank)));
+  await silent.close();
 }

@@ -17,7 +17,7 @@ function mainWindow(over={}){
   let shown=context;
   const tie=tieMainWindow({source:'http://127.0.0.1:5173/?example=exchange',example:'exchange',grace:150,session:()=>SESSION,channel:openBlotterChannel,
     open:(url,target,features)=>{calls.opened.push({url,target,features});return win;},context:()=>shown,
-    returned:(view,handedBack)=>calls.returned.push({view,handedBack}),reported:()=>calls.reported++,ask:key=>calls.asked.push(key),...over});
+    returned:(view,handedBack)=>calls.returned.push({view,handedBack}),reported:()=>calls.reported++,ask:question=>calls.asked.push(question),...over});
   return {tie,calls,win,show:next=>{shown=next;}};
 }
 // The other end, as a raw channel of the session: what it hears, and what it says.
@@ -44,6 +44,9 @@ test('popping out opens the Blotter window for a fresh session, and refuses with
   assert.match(calls.opened[0].features,/popup/);assert.doesNotMatch(calls.opened[0].features,/noopener/);
   assert.throws(()=>tie.open(handed),/already in a window of its own/);
   tie.end('main_closed');
+  // A view the other window could not read is refused before any window opens.
+  const unreadable=mainWindow();
+  assert.throws(()=>unreadable.tie.open({...handed,columns:[]}),/cannot be handed/);assert.equal(unreadable.tie.out(),false);assert.equal(unreadable.calls.opened.length,0);
   const none=mainWindow({context:()=>undefined});
   assert.throws(()=>none.tie.open(handed),/market date/);assert.equal(none.tie.out(),false);assert.equal(none.calls.opened.length,0);
   const blocked=mainWindow({open:()=>null});
@@ -59,7 +62,7 @@ test('the main window adopts the first pop-out that says it opened, hands it the
   assert.deepEqual(pop.heard[0],{v:1,session:SESSION,kind:'view',instance:'w1',view:handed});
   assert.deepEqual(pop.heard[1].context,context);
   pop.heard.length=0;
-  pop.send('opened',{instance:'w2'});pop.send('pageReport',{instance:'w2',state:report});pop.send('askAbout',{instance:'w2',key:'t:b'});pop.send('closed',{instance:'w2'});
+  pop.send('opened',{instance:'w2'});pop.send('pageReport',{instance:'w2',state:report,unsaved:false});pop.send('askAbout',{instance:'w2',key:'t:b',bookIds:[],portfolioIds:[]});pop.send('closed',{instance:'w2'});
   // The main window acts on nothing it sends itself.
   pop.send('context',{context});pop.send('ended',{reason:'signed_out'});
   await settle();
@@ -82,12 +85,15 @@ test('the context is sent again only when it changes, and only to an adopted pop
 test('the adopted pop-out\'s report is relayed only as a popped-out Blotter, and its question is passed on',async()=>{
   const {tie,calls}=mainWindow(),pop=peer();
   tie.open(handed);pop.send('opened',{instance:'w1'});await settle();
-  pop.send('pageReport',{instance:'w1',state:report});await settle();
-  assert.deepEqual(tie.shown(),report);assert.equal(calls.reported,1);
-  pop.send('pageReport',{instance:'w1',state:{...report,poppedOut:false}});pop.send('pageReport',{instance:'w1',state:{page:'market',curve:null,tab:'prices'}});await settle();
-  assert.deepEqual(tie.shown(),report);assert.equal(calls.reported,1);
-  pop.send('askAbout',{instance:'w1',key:'trade:binding'});await settle();
-  assert.deepEqual(calls.asked,['trade:binding']);
+  // Until it has reported, the pop-out may hold edits.
+  assert.equal(tie.unsaved(),undefined);
+  pop.send('pageReport',{instance:'w1',state:report,unsaved:true});await settle();
+  assert.deepEqual(tie.shown(),report);assert.equal(tie.unsaved(),true);assert.equal(calls.reported,1);
+  pop.send('pageReport',{instance:'w1',state:{...report,poppedOut:false},unsaved:false});pop.send('pageReport',{instance:'w1',state:{page:'market',curve:null,tab:'prices'},unsaved:false});await settle();
+  assert.deepEqual(tie.shown(),report);assert.equal(tie.unsaved(),true);assert.equal(calls.reported,1);
+  pop.send('pageReport',{instance:'w1',state:report,unsaved:false});await settle();assert.equal(tie.unsaved(),false);
+  pop.send('askAbout',{instance:'w1',key:'trade:binding',bookIds:['book'],portfolioIds:[]});await settle();
+  assert.deepEqual(calls.asked,[{key:'trade:binding',bookIds:['book'],portfolioIds:[]}]);
   tie.end('main_closed');pop.close();
 });
 
@@ -104,10 +110,12 @@ test('a pop-out that closes hands back its view, or the main window keeps the on
   pop.close();
 });
 
-test('Bring back closes the pop-out and settles once it has handed back, at once when it is already gone, and refuses when it stays open',async()=>{
+test('Bring back asks the pop-out to come back and settles once it has handed back, at once when it is already gone, and refuses when it stays open',async()=>{
   const open=mainWindow(),pop=peer();
-  open.tie.open(handed);pop.send('opened',{instance:'w1'});await settle();
-  const back=open.tie.bringBack();assert.equal(open.win.closes,1);
+  open.tie.open(handed);pop.send('opened',{instance:'w1'});await settle();pop.heard.length=0;
+  // An adopted pop-out is told why it ends, and closes itself: the main window has asked about its edits, which it never asks again.
+  const back=open.tie.bringBack();await settle();
+  assert.deepEqual(pop.heard.map(m=>[m.kind,m.reason]),[['ended','brought_back']]);assert.equal(open.win.closes,0);
   pop.send('view',{instance:'w1',view:grouped});pop.send('closed',{instance:'w1'});
   await back;assert.deepEqual(open.calls.returned,[{view:grouped,handedBack:true}]);
   await assert.rejects(open.tie.bringBack(),/not in a window of its own/);
@@ -137,8 +145,8 @@ test('the main window brings its pop-out to the front',()=>{
 });
 
 function popoutWindow(instance='w1'){
-  const calls={handed:[],contexts:[],ended:[]};
-  const tie=tiePopoutWindow({session:SESSION,instance,channel:openBlotterChannel,handed:view=>calls.handed.push(view),context:c=>calls.contexts.push(c),ended:reason=>calls.ended.push(reason)});
+  const calls={handed:[],contexts:[],ended:[],back:0};
+  const tie=tiePopoutWindow({session:SESSION,instance,channel:openBlotterChannel,handed:view=>calls.handed.push(view),context:c=>calls.contexts.push(c),ended:reason=>calls.ended.push(reason),broughtBack:()=>calls.back++});
   return {tie,calls};
 }
 
@@ -148,20 +156,29 @@ test('a pop-out says it opened, takes only its own hand-off once, follows every 
   main.send('view',{instance:'w2',view:grouped});main.send('view',{instance:'w1',view:handed});main.send('view',{instance:'w1',view:grouped});
   main.send('context',{context});
   // A pop-out acts on nothing a pop-out says.
-  main.send('opened',{instance:'w2'});main.send('closed',{instance:'w2'});main.send('pageReport',{instance:'w2',state:report});main.send('askAbout',{instance:'w2',key:'k'});
+  main.send('opened',{instance:'w2'});main.send('closed',{instance:'w2'});main.send('pageReport',{instance:'w2',state:report,unsaved:false});main.send('askAbout',{instance:'w2',key:'k',bookIds:[],portfolioIds:[]});
   await settle();
   assert.deepEqual(calls.handed,[handed]);assert.deepEqual(calls.contexts,[context]);assert.deepEqual(calls.ended,[]);
   main.heard.length=0;
-  tie.report(report);tie.report(report);tie.ask('trade:binding');await settle();
-  assert.deepEqual(main.heard.map(m=>m.kind),['pageReport','askAbout']);assert.equal(main.heard[0].instance,'w1');assert.deepEqual(main.heard[0].state,report);
+  tie.report(report,false);tie.report(report,false);tie.report(report,true);tie.ask('trade:binding',{bookIds:['book'],portfolioIds:[]});await settle();
+  assert.deepEqual(main.heard.map(m=>m.kind),['pageReport','pageReport','askAbout']);assert.equal(main.heard[0].instance,'w1');assert.deepEqual(main.heard[0].state,report);
+  assert.deepEqual(main.heard.map(m=>m.unsaved),[false,true,undefined]);assert.deepEqual(main.heard[2].bookIds,['book']);
   main.heard.length=0;
   main.send('ended',{reason:'main_closed'});await settle();
   assert.deepEqual(calls.ended,['main_closed']);
-  main.send('context',{context});tie.report({...report,lens:'risk'});tie.ask('k');tie.leave(grouped);await settle();
+  main.send('context',{context});tie.report({...report,lens:'risk'},false);tie.ask('k',{bookIds:[],portfolioIds:[]});tie.leave(grouped);await settle();
   assert.deepEqual(calls.contexts.length,1);assert.deepEqual(main.heard,[]);
   main.close();
 });
 
+test('a pop-out brought back stays tied until it has handed back its view',async()=>{
+  const main=peer(),{tie,calls}=popoutWindow();await settle();main.heard.length=0;
+  main.send('ended',{reason:'brought_back'});await settle();
+  assert.equal(calls.back,1);assert.deepEqual(calls.ended,[]);
+  tie.leave(grouped);await settle();
+  assert.deepEqual(main.heard.map(m=>m.kind),['view','closed']);
+  main.close();
+});
 test('a pop-out leaving hands back its view and says it closed, once',async()=>{
   const main=peer(),{tie}=popoutWindow();await settle();main.heard.length=0;
   tie.leave(grouped);tie.leave(grouped);await settle();
@@ -176,7 +193,7 @@ test('the two ends tie together: hand-off, a report, and the view handed back',a
   const main=mainWindow();main.tie.open(handed);
   const pop=popoutWindow();await settle();
   assert.deepEqual(pop.calls.handed,[handed]);assert.deepEqual(pop.calls.contexts,[context]);
-  pop.tie.report(report);await settle();assert.deepEqual(main.tie.shown(),report);
+  pop.tie.report(report,false);await settle();assert.deepEqual(main.tie.shown(),report);assert.equal(main.tie.unsaved(),false);
   pop.tie.leave(grouped);await settle();
   assert.deepEqual(main.calls.returned,[{view:grouped,handedBack:true}]);
 });

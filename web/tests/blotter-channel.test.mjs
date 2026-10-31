@@ -11,14 +11,14 @@ const valid={
  view:{kind:'view',instance:'w1',view:newBlotterView()},
  opened:{kind:'opened',instance:'w1'},closed:{kind:'closed',instance:'w1'},
  ended:{kind:'ended',reason:'signed_out'},
- pageReport:{kind:'pageReport',instance:'w1',state:futures},
- askAbout:{kind:'askAbout',instance:'w1',key:'t1:b1'},
+ pageReport:{kind:'pageReport',instance:'w1',state:futures,unsaved:false},
+ askAbout:{kind:'askAbout',instance:'w1',key:'t1:b1',bookIds:['b1'],portfolioIds:[]},
 };
 const msg=(kind,extra={})=>({v:1,session:S,...valid[kind],...extra});
 
 test('one valid message per kind is accepted and returned as sent',()=>{
  for(const kind of Object.keys(valid))assert.deepEqual(readBlotterMessage(msg(kind),S),msg(kind),kind);
- for(const reason of ['signed_out','account_changed','main_closed'])assert.equal(readBlotterMessage(msg('ended',{reason}),S).reason,reason);
+ for(const reason of ['signed_out','account_changed','main_closed','brought_back'])assert.equal(readBlotterMessage(msg('ended',{reason}),S).reason,reason);
 });
 test('another session id, another version and an unknown kind are refused',()=>{
  assert.throws(()=>readBlotterMessage(msg('opened',{session:'session-b'}),S));
@@ -33,6 +33,13 @@ test('every message but context and ended names the pop-out it concerns',()=>{
   for(const bad of ['',7,null,'x'.repeat(201)])assert.throws(()=>readBlotterMessage(msg(kind,{instance:bad}),S),kind+' '+bad);
  }
  for(const kind of ['context','ended'])assert.throws(()=>readBlotterMessage(msg(kind,{instance:'w1'}),S),kind);
+});
+test('a report says whether the pop-out holds unsaved edits, and a question names the scope it was asked in',()=>{
+ for(const unsaved of [true,false])assert.equal(readBlotterMessage(msg('pageReport',{unsaved}),S).unsaved,unsaved);
+ for(const unsaved of [undefined,'yes',1,null])assert.throws(()=>readBlotterMessage(msg('pageReport',{unsaved}),S),String(unsaved));
+ const {unsaved,...silent}=msg('pageReport');assert.throws(()=>readBlotterMessage(silent,S));
+ assert.deepEqual(readBlotterMessage(msg('askAbout',{bookIds:[],portfolioIds:['p1','p2']}),S).portfolioIds,['p1','p2']);
+ for(const scope of [{bookIds:'b1'},{portfolioIds:[1]},{bookIds:undefined}])assert.throws(()=>readBlotterMessage(msg('askAbout',scope),S),JSON.stringify(scope));
 });
 test('extra fields are refused at every level',()=>{
  for(const kind of Object.keys(valid))assert.throws(()=>readBlotterMessage(msg(kind,{figures:'1'}),S),kind);
