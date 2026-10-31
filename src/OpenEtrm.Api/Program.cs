@@ -1242,9 +1242,10 @@ api.MapPost("/gas/composition/directory",(HttpContext c,FuturesReadRequest body)
  async(connection,data,frame,ct)=>await gasComposition.Directory(connection,ct),expectedConvention:PhysicalGasStore.Convention));
 api.MapPost("/gas/composition/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
 api.MapPost("/gas/composition/book",(HttpContext c,GasCompositionRequest body)=>Locked(c,session=>BookGasComposition(c,session,body)));
-void RequireGasBooking(PreviewSession session,string? knowledgeMode)
+// Booking takes working data only: no selected historical context, current knowledge and no captured context.
+void RequireGasBooking(PreviewSession session,string? knowledgeMode,Guid? contextId=null)
 {
- if(session.MarketContext is not null||knowledgeMode!="current")throw new MarketDataException("historical_read_only","Return to working data to book.");
+ if(session.MarketContext is not null||knowledgeMode!="current"||contextId is not null)throw new MarketDataException("historical_read_only","Return to working data to book.");
 }
 // Books one composition under the session's gate: staging, locking and publication are idempotent by operation id (D238).
 async Task<IResult> BookGasComposition(HttpContext c,PreviewSession session,GasCompositionRequest body)
@@ -1282,7 +1283,7 @@ api.MapPost("/tickets/trade",(HttpContext c,TicketTradeRequest body)=>FuturesRea
 api.MapPost("/tickets/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
 // Booking maps the draft against the definition revision its booking read resolves for the selected frame.
 api.MapPost("/tickets/book",(HttpContext c,TicketBookRequest body)=>Locked(c,session=>{
- var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode);
+ var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
  return BookGasComposition(c,session,TicketRequest(body.Draft,context,body.OperationId,GasMarketSelection.Select(database.Manifest,Frame(session,context.SnapshotId)).Revision));
 }));
 

@@ -378,11 +378,18 @@ from its preview and booked read; the ticket screen is not built yet.
   context resolves; `gas_setup` is empty where the context resolves none.
 - Party choices are `<id>@<revision>`. `market_price` is the single price the
   side's schedule shows at the read's frame, labelled `"<point> · close <date>"`;
-  `tariff_price` proposes the one eligible tariff rate as a fee price and
-  refuses beside a chosen tariff, which the booking takes without a price. A
-  lookup that cannot resolve refuses with `ticket_lookup`.
+  `eligible_tariff` (on `fee_tariff`) proposes the code of the one tariff
+  eligible for a delivery-stage fee without a manual price; the booking resolves
+  and pins the rate. No lookup fills a price field. A lookup that cannot resolve
+  refuses with `ticket_lookup`.
+- Party and book choices are trading records read under the request's bound
+  context, so a historical context lists the revisions it knows.
+- Booking takes working data only: a selected historical context, retained
+  knowledge or a captured `contextId` refuses with `historical_read_only`, and
+  another convention refuses.
 - `trade` opens a booked composition trade by trade, binding and revision as
-  the draft that booked it, with `schedule`, `summaries` and `scheduleRefusal`
+  the draft that booked it (refusing `ticket_input` when that draft does not map
+  back to exactly the stored terms), with `schedule`, `summaries` and `scheduleRefusal`
   at the top level. Amend and close-out are unavailable with a reason. A
   single-point gas trade refuses with `ticket_input`.
 

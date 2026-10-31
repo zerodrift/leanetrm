@@ -200,15 +200,28 @@ internal static class GasTicketChecks
                 if (GasTicket.Choices(draft, null, field.Id, catalog).IsEmpty) throw new Exception($"No choices for {field.Id}.");
         });
 
-        Check("a delivery-stage fee looks up its one eligible tariff rate as a price the booking accepts", () =>
+        Check("a delivery-stage fee looks up its one eligible tariff as the exact reference the booking takes", () =>
         {
-            var found = GasTicket.Lookup(Open(A(Receipt), fee), "FEE", "fee_price", catalog);
-            Equal("0.045", found.Value, "tariff rate"); Equal(new TicketSource("tariff", "Tariff Usage A"), found.Source, "tariff source");
-            Equal("0.045", Map(Open(A(Receipt), With(fee, "fee_price", found.Value))).CashSides[0].Price, "booked fee price");
+            var found = GasTicket.Lookup(Open(A(Receipt), fee), "FEE", "fee_tariff", catalog);
+            Equal("T1", found.Value, "tariff code"); Equal(new TicketSource("tariff", "Tariff Usage A"), found.Source, "tariff source");
+            var booked = Map(Open(A(Receipt), With(fee, "fee_tariff", found.Value))).CashSides[0];
+            Equal(("T1", (string?)null), (booked.TariffCode, booked.Price), "booked tariff without a price");
         });
-        Refuses("ticket_lookup", "a tariff price on a receipt-stage fee refuses", () => GasTicket.Lookup(Open(A(Receipt), With(fee, "fee_stage", "receipt")), "FEE", "fee_price", catalog));
-        Refuses("ticket_lookup", "a tariff price beside a chosen tariff refuses", () => GasTicket.Lookup(Open(A(Receipt), With(fee, "fee_tariff", "T1")), "FEE", "fee_price", catalog));
-        Refuses("ticket_lookup", "a tariff price with no eligible tariff refuses", () => GasTicket.Lookup(Open(With(A(Receipt), "delivery_from", "2026-12-01"), fee), "FEE", "fee_price", catalog));
+        Check("no lookup copies a value into a price field", () =>
+        {
+            var priced = GasTicket.Description.Sides.SelectMany(k => k.Fields).Where(f => f.Id is "cash_price" or "fee_price").ToArray();
+            Equal(2, priced.Length, "price fields"); if (priced.Any(f => f.Lookup is not null)) throw new Exception("A price field declares a lookup.");
+        });
+        Refuses("ticket_lookup", "a tariff lookup on a receipt-stage fee refuses", () => GasTicket.Lookup(Open(A(Receipt), With(fee, "fee_stage", "receipt")), "FEE", "fee_tariff", catalog));
+        Refuses("ticket_lookup", "a tariff lookup beside a manual fee price refuses", () => GasTicket.Lookup(Open(A(Receipt), With(fee, "fee_price", "0.045")), "FEE", "fee_tariff", catalog));
+        Refuses("ticket_lookup", "a tariff lookup with no eligible tariff refuses", () => GasTicket.Lookup(Open(With(A(Receipt), "delivery_from", "2026-12-01"), fee), "FEE", "fee_tariff", catalog));
+        Refuses("ticket_lookup", "a tariff lookup with several eligible tariffs refuses", () => GasTicket.Lookup(Open(With(A(Receipt), "delivery_from", "2027-01-15"), fee), "FEE", "fee_tariff", catalog));
+        Check("a booked request reopens as its draft only when the draft maps back to it exactly", () =>
+        {
+            Equal(Values(full), Values(GasTicket.Reopen(Map(full))), "reopened draft");
+        });
+        Refuses("ticket_input", "booked terms on another convention do not reopen", () => GasTicket.Reopen(Map(full) with { Convention = "physical_gas_fixed_quantity_v3" }));
+        Refuses("ticket_input", "booked terms without an explicit discounting policy do not reopen", () => GasTicket.Reopen(Map(full) with { Discounting = null }));
         Check("the gas day start comes from the side's point", () =>
         {
             var found = GasTicket.Lookup(Open(A(Receipt)), "RCT", "gas_day_start", catalog);

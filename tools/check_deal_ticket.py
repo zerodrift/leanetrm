@@ -140,9 +140,19 @@ def check_ticket_operations(c,context,cat,description,body,view):
     refused('tickets/choices',{'context':context,'draft':unpiped,'side':'physical','field':'zone'},'ticket_input')
     refused('tickets/choices',{'context':context,'draft':None,'side':'physical','field':'zone'},'ticket_input')
 
-    # Lookups: a receipt-stage fee has no tariff price; the market price is read at the pinned close, not the newest.
-    receipt_fee={**draft,'sides':[*draft['sides'][:2],{**draft['sides'][2],'values':{**draft['sides'][2]['values'],'fee_stage':'receipt'}}]}
-    refused('tickets/lookup',{'context':context,'draft':receipt_fee,'side':'fee','field':'fee_price'},'ticket_lookup')
+    # Lookups: a tariff is proposed as its exact reference, never as a price, and only for a delivery-stage fee;
+    # the market price is read at the pinned close, not the newest.
+    unpriced={k:v for k,v in draft['sides'][2]['values'].items() if k!='fee_price'}
+    with_fee=lambda values:{**draft,'sides':[*draft['sides'][:2],{**draft['sides'][2],'values':values}]}
+    refused('tickets/lookup',{'context':context,'draft':with_fee({**unpriced,'fee_stage':'receipt'}),'side':'fee','field':'fee_tariff'},'ticket_lookup')
+    refused('tickets/lookup',{'context':context,'draft':draft,'side':'fee','field':'fee_tariff'},'ticket_lookup')
+    refused('tickets/lookup',{'context':context,'draft':draft,'side':'fee','field':'fee_price'},'ticket_input')
+    eligible=[t for t in cat['tariffs'] if (t['pipeline'],t['product'],t['quote'])==(p['pipeline'],p['product'],p['valuation']['quote']) and t['validFrom']<='2021-01-01' and t['validTo']>='2021-02-01']
+    assert len(eligible)==1,eligible
+    tariff=lookup(context,with_fee(unpriced),'fee','fee_tariff')
+    assert (tariff['value'],tariff['source'])==(eligible[0]['code'],{'kind':'tariff','label':f"Tariff {eligible[0]['name']}"}),tariff
+    tariffed=c.call('tickets/preview',{'context':context,'draft':with_fee({**unpriced,'fee_tariff':tariff['value']})})
+    assert tariffed['schedule']['totals']['fee.price']['value']==eligible[0]['rate'],(tariffed['schedule']['totals']['fee.price'],eligible[0]['rate'])
     newest=lookup(context,draft,'physical','price')
     assert newest['value']==view['totals']['physical.market_price']['value'],(newest,view['totals']['physical.market_price'])
     assert newest['source']=={'kind':'market','label':f"{p['deliveryPointName']} · close 2020-12-18"},newest['source']
@@ -165,6 +175,8 @@ def check_ticket_operations(c,context,cat,description,body,view):
     assert c.call('tickets/book',request)==booked and c.call('tickets/status',{'operationId':operation})['tradeId']==booked['tradeId'],booked
     retained={**context,'knowledgeMode':'retained','contextId':cat['context']['contextId']}
     refused('tickets/book',{**request,'context':retained,'operationId':str(uuid4())},'historical_read_only')
+    refused('tickets/book',{**request,'context':{**context,'contextId':cat['context']['contextId']},'operationId':str(uuid4())},'historical_read_only')
+    refused('tickets/book',{**request,'context':{**context,'convention':'trading_workspace_v1'},'operationId':str(uuid4())},'swap_context')
     shared={**context,'convention':'trading_workspace_v1'}
     def fact_for(trade_id,offset=0):
         page=c.call('trading/positions',{'context':shared,'bookIds':[],'portfolioIds':[],'offset':offset,'limit':64})['positions']
@@ -201,5 +213,16 @@ def check_ticket_operations(c,context,cat,description,body,view):
     refused('tickets/choices',{'context':context,'draft':at_d(cat['gasSetupId']),'side':'physical','field':'delivery_point'},'ticket_input')
     then=lookup(retained,at_d(cat['gasSetupId']),'physical','price')
     assert then['value'] and then['source']['label']==f"{d['deliveryPointName']} · close 2020-12-18",then
-    c.call('profile',{'profile':'editor'});publish(original,later);c.call('profile',{'profile':'trader'})
-    print('PASS deal ticket operations: description, catalog choices by parent and context, labelled lookups at the pinned close, mapped drafts preview and book idempotently with payment and fee sides, and a booked trade reopens as its draft',flush=True)
+    c.call('profile',{'profile':'editor'});publish(original,later)
+
+    # Historical party choices: a counterparty revised after a context was captured lists its earlier revision there.
+    party={'kind':'counterparty','id':None,'expectedRevision':None,'code':'ticket_counterparty','name':'Synthetic ticket counterparty','effectiveAt':'2020-12-01T00:00:00Z'}
+    first=c.call('parties/save',{**party,'operationId':str(uuid4())})
+    c.call('profile',{'profile':'trader'})
+    captured={**context,'knowledgeMode':'retained','contextId':c.call('gas/catalog',context)['context']['contextId']}
+    c.call('profile',{'profile':'editor'})
+    second=c.call('parties/save',{**party,'operationId':str(uuid4()),'id':first['id'],'expectedRevision':1,'name':'Revised synthetic ticket counterparty','effectiveAt':'2020-12-02T00:00:00Z'})
+    c.call('profile',{'profile':'trader'})
+    listed=lambda at:[v for v in choices(at,{'product':'physical_gas','version':1,'trade':{},'sides':[]},None,'counterparty') if v.startswith(first['id']+'@')]
+    assert second['revision']==2 and listed(captured)==[f"{first['id']}@1"] and listed(context)==[f"{first['id']}@2"],(listed(captured),listed(context))
+    print('PASS deal ticket operations: description, catalog and party choices by parent and context, exact tariff references and labelled market prices at the pinned close, mapped drafts preview and book idempotently with payment and fee sides, working-data-only booking, and a booked trade reopens as its draft',flush=True)

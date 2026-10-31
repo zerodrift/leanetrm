@@ -68,9 +68,9 @@ public static class GasTicket
     Follows("start","From"),Follows("end","To"),
     Own("source","Quantity source","Physical side whose quantity this amount is charged on.","choice","quantity","physical_sides"),
     Own("stage","Quantity stage","Receipt, delivery or fuel quantity of the source side.","choice",choices:"quantity_stages"),
-    Own("price","Price","Price per unit of the source quantity.","decimal","price",required:!fee,lookup:fee?"tariff_price":null),
+    Own("price","Price","Price per unit of the source quantity.","decimal","price",required:!fee),
     Own("payment_at","Payment at","When the amount is paid.","datetime","payment"),
-    ..fee?[Own("tariff","Tariff","Configured usage tariff that sets the price.","choice",choices:"usage_tariffs",required:false)]:Array.Empty<TicketField>()],
+    ..fee?[Own("tariff","Tariff","Configured usage tariff that sets the price.","choice",choices:"usage_tariffs",required:false,lookup:"eligible_tariff")]:Array.Empty<TicketField>()],
    [new("quantity","Quantity","MMBtu","quantity",false),new("price","Price",null,"price",false),new("amount","Amount",null,"money",false)]);
  }
 
@@ -170,6 +170,15 @@ public static class GasTicket
   return new(Description.Product,Description.Version,trade.ToImmutableDictionary(),[..physical,..cash]);
  }
 
+ // The draft a booked request reopens as. The draft must map back to exactly the stored terms;
+ // terms it cannot express refuse rather than open as a different trade.
+ public static TicketDraft Reopen(GasCompositionRequest terms)
+ {
+  var draft=Draft(terms);
+  var mapped=Request(draft,terms.SnapshotId,terms.KnowledgeMode,terms.OperationId,terms.DefinitionRevisionId);
+  return JsonSerializer.Serialize(mapped)==JsonSerializer.Serialize(terms)?draft:throw Bad("The booked terms hold values the deal ticket cannot express, so the trade does not open in it.");
+ }
+
  // Fixed lists the booking contract admits, and the lists read from the context's gas catalog.
  static readonly ImmutableDictionary<string,ImmutableArray<TicketChoice>> Fixed=new Dictionary<string,ImmutableArray<TicketChoice>>{
   ["physical_direction"]=[new("receive","Receive"),new("deliver","Deliver")],["cash_direction"]=[new("pay","Pay"),new("receive","Receive")],
@@ -212,11 +221,12 @@ public static class GasTicket
     RequireSetup(draft,catalog);
     var path=Path(target!,catalog,Unresolved);var minute=path.GetProperty("dayStartMinute").GetInt32();
     return new($"{minute/60:00}:{minute%60:00}",new("reference",$"{path.Text("deliveryPointName")} · {path.Text("clock")}"));
-   case "tariff_price":
+   // The exact tariff reference, which the booking resolves and pins itself; a rate is never copied into the fee price.
+   case "eligible_tariff":
     RequireSetup(draft,catalog);
-    if(target!.Values.ContainsKey($"{target.Kind}_tariff"))throw Unresolved("A chosen tariff sets the fee itself; the booking takes no price beside it.");
+    if(target!.Values.ContainsKey($"{target.Kind}_price"))throw Unresolved("A manual fee price is set; the booking takes a tariff only without one.");
     var tariffs=Tariffs(draft,target,catalog,Unresolved).ToArray();
-    return tariffs.Length==1?new(tariffs[0].Text("rate"),new("tariff",$"Tariff {tariffs[0].Text("name")}")):
+    return tariffs.Length==1?new(tariffs[0].Text("code"),new("tariff",$"Tariff {tariffs[0].Text("name")}")):
      throw Unresolved(tariffs.Length==0?"No configured usage tariff covers the source side's pipeline, product and delivery term.":"More than one configured usage tariff covers the source side; choose one.");
    case "market_price":throw new InvalidOperationException("Market prices are evaluated from PriceProbe.");
    case null:throw Bad($"Field '{field}' has no lookup.");

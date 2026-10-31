@@ -29,6 +29,8 @@ public sealed class GasTicketStore(PreviewDatabase database)
  public static TicketDescription Description(string product)=>product==GasTicket.Description.Product?GasTicket.Description:
   throw new MarketDataException("ticket_input",$"No deal ticket describes product '{product}'.");
 
+ // The catalog's books and parties are trading records under row security: the bound read context
+ // shows only those known and effective in it, so historical choices list that context's revisions.
  async Task<JsonElement> Catalog(NpgsqlConnection c,PreviewData data,InputFrame frame,CancellationToken ct)=>JsonSerializer.SerializeToElement(await gas.CatalogRead(c,data,frame,ct),Json);
 
  public async Task<object> Choices(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketFieldRequest body,CancellationToken ct)=>
@@ -49,7 +51,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
   var position=(await GasPositions.Read(c,database.Manifest,[],[],ct,selected)).Single();
   if(!position.Head.GetProperty("composition").GetBoolean())throw new MarketDataException("ticket_input","This single-point gas trade does not open in the deal ticket yet.");
   var read=await composition.Read(c,data,frame,body.TradeId,ct);
-  return new{draft=GasTicket.Draft(read.Terms),schedule=read.Valuation.Schedule,summaries=read.Valuation.Summaries,scheduleRefusal=read.Valuation.ScheduleRefusal,
+  return new{draft=GasTicket.Reopen(read.Terms),schedule=read.Valuation.Schedule,summaries=read.Valuation.Summaries,scheduleRefusal=read.Valuation.ScheduleRefusal,
    actions=new{amend=new{allowed=false,reason=AmendReason},closeOut=new{allowed=false,reason=CloseOutReason}}};
  }
 }
