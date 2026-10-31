@@ -76,6 +76,12 @@ internal static class ContractObservationSideChecks
         var undiscounted=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
         var storedBase=sources.Evaluate(stored,side.Id,baseMarket,undiscounted);
         var storedShift=sources.Evaluate(stored,side.Id,shiftedMarket,undiscounted);
+        var receipts=storedShift.SourceReceipt?.Cells.Values.OfType<ScheduleContractObservationEvidence>().ToArray()
+            ??throw new Exception("Contract observation inputs require source evidence.");
+        if(receipts.Length!=3||receipts.Any(receipt=>receipt.Resolution.Lineage.IsEmpty)||
+            receipts.Count(receipt=>receipt.Resolution.State==SchedulePriceState.Actual)!=2||
+            !receipts.Select(receipt=>receipt.Lookup).ToHashSet().SetEquals(lookups))
+            throw new Exception("Retained observation receipts must preserve every exact sample and actual/projected state.");
         Equal(storedBase.PresentValue.Numerator,"80");Equal(storedBase.PresentValue.Denominator,"3");
         Equal(storedShift.PresentValue.Numerator,"83");Equal(storedShift.PresentValue.Denominator,"3");
         Equal(sources.Evaluate(stored,side.Id,baseMarket,undiscounted).PresentValue.Numerator,"80");

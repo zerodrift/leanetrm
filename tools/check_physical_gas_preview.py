@@ -112,6 +112,18 @@ def run_shape_checks(query, manifest, receipt):
     the separate byte/relational seal checks exercised by the shared suite.
     """
     catalog=manifest['catalogId']; instrument=receipt['instrumentId']
+    from check_booked_side_programs import runtime_query
+    trade=receipt['tradeId']
+    operation=query(f"SELECT operation_id FROM trading.gas_trade_revisions WHERE(catalog_id,trade_id)=('{catalog}','{trade}');")
+    assert query(f"SELECT mapping_count FROM trading.instrument_schedule_cell_seals WHERE(catalog_id,request_id)=('{catalog}','{operation}');")=='0'
+    changed=f"ALTER TABLE trading.trades DISABLE TRIGGER ALL;UPDATE trading.trades SET request=request||jsonb_build_object('syntheticMismatch',true) WHERE(catalog_id,id)=('{catalog}','{trade}');"
+    runtime_query(query,manifest,f"""DO $test$ BEGIN BEGIN
+      PERFORM security.publish_side_schedules('{catalog}','{operation}','{instrument}');
+      RAISE EXCEPTION 'gas_command_mismatch_accepted';
+      EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'side_schedule_command' THEN RAISE;END IF;END;END $test$;""",prefix=changed,commit=False)
+    assert query("SELECT has_function_privilege('openetrm_runtime','security.publish_admitted_side_schedules(uuid,uuid,uuid)','EXECUTE');")=='f'
+    print('PASS gas retained publication: zero-map seal, exact accepted command and private underlying publisher',flush=True)
+
     assert query("SELECT has_function_privilege('openetrm_risk_worker','security.capture_date_context(uuid,date,timestamptz)','EXECUTE'),has_function_privilege('openetrm_risk_worker','security.capture_pre_gas_setup_context(uuid,date,timestamptz)','EXECUTE');")=='t|f'
     query(f"""BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;
       DO $test$ BEGIN BEGIN
@@ -202,7 +214,6 @@ def run_shape_checks(query, manifest, receipt):
     print('PASS physical gas: additional permissive policies cannot bypass current authority',flush=True)
 
     import json
-    from check_booked_side_programs import runtime_query
     original=json.loads(query(f"SELECT request::text FROM trading.trades WHERE(catalog_id,id)=('{catalog}','{receipt['tradeId']}');"))
     original['operationId']=str(uuid4());original['fuelFraction']='0.02'
     encoded=json.dumps(original).replace("'","''")

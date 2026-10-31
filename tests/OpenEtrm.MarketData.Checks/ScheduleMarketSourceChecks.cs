@@ -17,6 +17,12 @@ internal static class ScheduleMarketSourceChecks
         var factors=new ExplicitDiscounting(ExactDecimal.Parse("0.9"),DiscountFactorSource.Explicit);
         var result=sources.Evaluate(program,swap.Floating.Id,market,factors);
         Equal(result.PresentValue.ToExactString(),"2.925");
+        var receipt=result.SourceReceipt??throw new Exception("Source evaluation must retain input evidence.");
+        Equal(receipt.Program.ContentDigest,BookedSideProgram.Digest(program.Write()));
+        if(receipt.SideId!=swap.Floating.Id||receipt.Cells.IsEmpty||
+            !receipt.Cells.Values.OfType<ScheduleDatedPriceEvidence>().Any(value=>value.Resolution.Lineage.Count>0)||
+            !receipt.Cells.Values.OfType<ScheduleDiscountEvidence>().Any(value=>value.Factor.DiscountFactor==ExactDecimal.Parse("0.9")))
+            throw new Exception("Dated inputs must retain exact price lineage and discount evidence.");
         // Standalone stored programs have the same admission boundary as API
         // booking: a dated scalar price cannot discard its actual-fixing source.
         var definition=ScheduleDefinitionCompiler.Generate(swap.Floating);
@@ -35,11 +41,24 @@ internal static class ScheduleMarketSourceChecks
             var physical=instrument.Memberships[0].Side;var stored=Load(physical);
             var df=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
             var priced=native.Evaluate(stored,physical.Id,m.Build,df);
+            CheckReceipt(priced,stored);
+            var volumeEvidence=priced.SourceReceipt!.Cells.Values.OfType<ScheduleVolumeEvidence>().ToArray();
+            var priceEvidence=priced.SourceReceipt.Cells.Values.OfType<ScheduleNativePriceEvidence>().ToArray();
+            if(volumeEvidence.Length==0||priceEvidence.Length==0||volumeEvidence.Any(value=>value.Volume.Asset!=f.Asset.Key)||
+                priceEvidence.Any(value=>value.Resolution.ForwardLineage.Count==0))throw new Exception("Native evidence lost quantity or price lineage.");
+            var partial=native.Evaluate(stored,physical.Id,m.Build,df,coverage:new(f.From.AddHours(1),f.From.AddHours(3)));
+            CheckReceipt(partial,stored);
+            if(partial.SourceReceipt!.Cells.Values.OfType<ScheduleVolumeEvidence>().Any(value=>value.Volume.Interval.Start<f.From.AddHours(1)||value.Volume.Interval.End>f.From.AddHours(3)))
+                throw new Exception("Excluded cells must not produce source receipts.");
             Equal(priced.PresentValue.ToExactString(),"7570.5"); //721h ×0.25 ×42
             var bumped=m.Model.Scenarios(m.Build,[m.Bumps["synthetic_energy"]]).Single();
-            Equal(native.Evaluate(stored,physical.Id,bumped.Up,df).PresentValue.ToExactString(),"7750.75");
+            var shocked=native.Evaluate(stored,physical.Id,bumped.Up,df);
+            CheckReceipt(shocked,stored);
+            if(!shocked.SourceReceipt!.Cells.Keys.Any(key=>key.ScenarioId==shocked.ScenarioId))throw new Exception("Shocked inputs must retain their scenario identity.");
+            Equal(shocked.PresentValue.ToExactString(),"7750.75");
             Equal(native.Evaluate(stored,physical.Id,bumped.Down,df).PresentValue.ToExactString(),"7390.25");
             Equal(native.Evaluate(stored,physical.Id,m.Build,df).PresentValue.ToExactString(),"7570.5");
+            Equal(native.Evaluate(stored,physical.Id,m.Build,df,coverage:new(f.From.AddHours(1),f.From.AddHours(3))).PresentValue.ToExactString(),"21");
             Reject("side_market_sources",()=>new ScheduleMarketSources(m.Build.Graph.Plan.Context,bumped.Up,oracle.Reference,oracle.Read,
                 oracle.KnowledgePolicy,oracle.Policy,[],[]));
             Reject("side_market_sources",()=>new ScheduleMarketSources(new ResolvedCalculationContext(Guid.NewGuid(),"different",m.Snapshot.ValuationAt,oracle.KnownAt,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff),m.Build,oracle.Reference,
@@ -65,6 +84,9 @@ internal static class ScheduleMarketSourceChecks
                 oracle.Reference with{Assets=oracle.Reference.Assets.SetItem(f.Asset.Key,changed)},oracle.Read,oracle.KnowledgePolicy,oracle.Policy,[],[]);
             Equal(changedSources.Evaluate(Load(capacity.Memberships[0].Side),capacity.Memberships[0].Side.Id,m.Build,df).PresentValue.ToExactString(),"72");
         }
+        ConnectedProjectionSources();
+        InstrumentConnections();
+        InstrumentPorts();
         FixingLookups();
         HistoricalSources();
         NativeIndexedCadence();
@@ -72,6 +94,141 @@ internal static class ScheduleMarketSourceChecks
         PhysicalQuoteScale();
         Console.WriteLine("PASS common schedule market sources: stored dated/native instructions resolve prices, volumes, capacity and discount inputs without Side terms");
     }
+    private static void ConnectedProjectionSources()
+    {
+        var f=new IndexFixingChecks.FixingFixture(monthly:true);
+        var at=f.Fixings[0].FixingAt.AddDays(-2);var snapshot=f.Snapshot(at).WithKnowledge(Guid.NewGuid(),at);
+        var native=f.Model.Build(snapshot,f.Floating().Dependencies);
+        var projection=new CustomCurveProjectionBinding(f.Base.Revision.CatalogId,Guid.NewGuid(),1,"synthetic_output",0,
+            CustomCurveProjectionBinding.SupportedSelection,CustomCurveProjectionBinding.SupportedImplementation);
+        var side=f.Floating().WithCustomProjection(projection);var program=Load(side);
+        var export=f.Model.Compile(snapshot,f.Floating().Dependencies,false,native.Graph.Plan.Context);
+        var original=export.Points[(f.Projections[0].Market,InputUse.Variable)];
+        var source=export.Definitions.SelectMany(d=>d.Points).Single(p=>p.Key==original);
+        var output=source with{Key=new(new(f.Base.Revision,"synthetic_custom_projection"),Guid.NewGuid()),
+            Expression=new ConnectedWeightedSum([new(CurvePointReference.Exact(original),ExactDecimal.Parse("1.5"))])};
+        var plan=ConnectedCurves.Compile(export.Definitions.Add(new(output.Key.Curve,[output])),[output.Key],native.Graph.Plan.Context,new ExactBindings());
+        var graph=ConnectedScenario.Base(plan);var connected=ConnectedValuation.Prepare(graph,snapshot);
+        var mapping=ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(side.Dependencies.Single(),output.Key);
+        var basis=native.BindConnected(connected,mapping,default);
+        ScheduleMarketSources Sources(CurveBuild market)=>new(plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,
+            PendingActualsPolicy.RequireActuals,[..side.GenerateSchedule().Rows.SelectMany(row=>row.Prices).Select(price=>price.Lookup!).Distinct()],[]);
+        var adapter=Sources(basis);var discount=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
+        var value=adapter.Evaluate(program,side.Id,basis,discount);
+        Equal(value.PresentValue.ToExactString(),"16.5");
+        CheckReceipt(value,program);
+        if(value.SourceReceipt!.Cells.Values.OfType<ScheduleDatedPriceEvidence>().Single().Lookup.CustomProjection!=projection)
+            throw new Exception("Connected output evidence must retain the exact contractual projection.");
+        var child=graph.WithShifts([new(CurveShockCoordinate.ComputedOutput,new ParallelCurveTarget(output.Key.Curve),
+            source.Unit,ExactDecimal.Parse("2"),CurveShift.ParentAdditive)]);
+        var shifted=native.BindConnected(connected.WithScenario(child),mapping,default);
+        Equal(adapter.Evaluate(program,side.Id,shifted,discount).PresentValue.ToExactString(),"18.5");
+        Reject("side_market_sources",()=>Sources(shifted));
+        Reject("side_market_sources",()=>adapter.Evaluate(program,side.Id,native,discount));
+        Reject("risk_dependency",()=>Sources(native).Evaluate(program,side.Id,native,discount));
+    }
+    private sealed class ExactBindings:ICurveBindingResolver
+    {
+        public CurveKey Resolve(LogicalCurveKey key,ResolvedCalculationContext context)=>throw new Exception("Exact references required.");
+        public void RequireVisible(CurveKey key,ResolvedCalculationContext context){}
+    }
+    private static void InstrumentConnections()
+    {
+        foreach(var minutes in new[]{60,15})
+        {
+            var f=new PpaAcceptanceFixture(minutes);var m=f.Market(f.From.AddDays(-1));var contract=f.Physical(volume:true);
+            var oracle=f.Prepare(m,[contract]);var context=m.Build.Graph.Plan.Context;
+            var sources=new ScheduleMarketSources(context,m.Build,oracle.Reference,oracle.Read with{Curves=ImmutableDictionary<CurveKey,PreparedCurve>.Empty},
+                oracle.KnowledgePolicy,oracle.Policy,[],[]);
+            var delivery=contract.Memberships[0].Side;var payment=contract.Memberships[1].Side;
+            var output=Load(delivery);var input=Load(payment);
+            var normalization=DefinitionIdentity.For(delivery.Terms.Normalization).Canonical;
+            var members=ImmutableArray.Create(new InstrumentScheduleMember(delivery.Id,output,normalization,null),new InstrumentScheduleMember(payment.Id,input,normalization,null));
+            var root=output.Document.Roots.Single(root=>root.Measure=="schedule_quantity");
+            var connections=input.Document.Instructions.Where(row=>row.Bindings.Any(binding=>binding.Kind=="sibling_quantity")).Select(row=>
+                new InstrumentQuantityConnection(payment.Id,row.Output.Ordinal,delivery.Id,root.Name,
+                    [..Enumerable.Range(0,input.Document.Grids[row.Output.Grid!.Value].CellCount)],
+                    [..Enumerable.Range(0,input.Document.Grids[row.Output.Grid!.Value].CellCount)])).ToImmutableArray();
+            var execution=new InstrumentScheduleExecution(contract.Id,members,connections);
+            var df=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
+            var connected=execution.Evaluate(payment.Id,sources,m.Build,df);
+            if(!connected.Value.SourceReceipt!.Cells.Values.OfType<SchedulePortEvidence>().Any()||
+                !connected.MemberValues[delivery.Id].SourceReceipt!.Cells.Values.OfType<ScheduleVolumeEvidence>().Any())
+                throw new Exception("Instrument must retain provider evidence separately from received port values.");
+            Equal(connected.Value.PresentValue.ToExactString(),"7210");
+            var masked=execution.Evaluate(payment.Id,sources,m.Build,df,coverage:new(f.From.AddHours(1),f.From.AddHours(3)));
+            var provider=masked.MemberValues[delivery.Id];
+            var providerEvidence=provider.SourceReceipt!.Cells.Values.OfType<ScheduleVolumeEvidence>().ToArray();
+            if(provider.RequestedOutputs.Contains("pv")||provider.SourceReceipt.Cells.Values.OfType<ScheduleDiscountEvidence>().Any()||
+                providerEvidence.Length!=120/minutes||providerEvidence.Any(value=>value.Volume.Interval.Start<f.From.AddHours(1)||value.Volume.Interval.End>f.From.AddHours(3)))
+                throw new Exception("Quantity-only provider receipts must contain only the instrument's demanded interval cells.");
+            Equal(masked.Value.PresentValue.ToExactString(),"20");
+            var originalBytes=input.Write();var alternate=f.Physical().Memberships[0].Side;var alternateProgram=Load(alternate);
+            var alternateMembers=ImmutableArray.Create(new InstrumentScheduleMember(alternate.Id,alternateProgram,DefinitionIdentity.For(alternate.Terms.Normalization).Canonical,null),members[1]);
+            var alternateConnections=connections.Select(connection=>connection with{OutputSide=alternate.Id}).ToImmutableArray();
+            Reject("instrument_schedule_connection",()=>new InstrumentScheduleExecution(Guid.NewGuid(),alternateMembers,alternateConnections));
+            var another=new InstrumentScheduleMember(Guid.NewGuid(),output,normalization,null);
+            alternateMembers=[another,members[1]];alternateConnections=[..connections.Select(connection=>connection with{OutputSide=another.SideId})];
+            Equal(new InstrumentScheduleExecution(Guid.NewGuid(),alternateMembers,alternateConnections).Evaluate(payment.Id,sources,m.Build,df).Value.PresentValue.ToExactString(),"7210");
+            if(!originalBytes.SequenceEqual(input.Write()))throw new Exception("An instrument connection must not rewrite or specialize the independent receiving Side.");
+            var combined=new FixedSide(Guid.NewGuid(),f.Terms(new SlotQuantity([new(PpaRole.EnergyDelivery),new(PpaRole.EnergyDelivery,1)]),normalization:f.Normalization([f.Asset.Key])),
+                new FlatPrice(new(ExactDecimal.Parse("40"),f.EnergyPrice)));
+            var combinedProgram=Load(combined);var combinedInputs=combinedProgram.Document.Instructions.Where(row=>row.Bindings.Any(binding=>binding.Kind=="sibling_quantity")).ToArray();
+            var combinedMembers=ImmutableArray.Create(members[0],alternateMembers[0],new InstrumentScheduleMember(combined.Id,combinedProgram,normalization,null));
+            var combinedConnections=combinedInputs.Select((row,n)=>new InstrumentQuantityConnection(combined.Id,row.Output.Ordinal,n==0?delivery.Id:another.SideId,root.Name,
+                [..Enumerable.Range(0,combinedProgram.Document.Grids[row.Output.Grid!.Value].CellCount)],
+                [..Enumerable.Range(0,combinedProgram.Document.Grids[row.Output.Grid!.Value].CellCount)])).ToImmutableArray();
+            Equal(new InstrumentScheduleExecution(Guid.NewGuid(),combinedMembers,combinedConnections).Evaluate(combined.Id,sources,m.Build,df).Value.PresentValue.ToExactString(),"14420");
+            var firstBranch=Guid.NewGuid();var secondBranch=Guid.NewGuid();
+            var diamondMembers=ImmutableArray.Create(members[0],new InstrumentScheduleMember(firstBranch,input,normalization,null),
+                new InstrumentScheduleMember(secondBranch,input,normalization,null),combinedMembers[2]);
+            var diamondConnections=connections.Select(connection=>connection with{InputSide=firstBranch})
+                .Concat(connections.Select(connection=>connection with{InputSide=secondBranch}))
+                .Concat(combinedConnections.Select(connection=>connection with{OutputSide=connection.OutputSide==delivery.Id?firstBranch:secondBranch})).ToImmutableArray();
+            var diamond=new InstrumentScheduleExecution(Guid.NewGuid(),diamondMembers,diamondConnections)
+                .Evaluate(combined.Id,sources,m.Build,df,coverage:new(f.From.AddHours(1),f.From.AddHours(3)));
+            Equal(diamond.Value.PresentValue.ToExactString(),"40");
+            if(diamond.MemberValues.Count!=4||diamond.MemberValues.Where(pair=>pair.Key!=combined.Id).Any(pair=>pair.Value.RequestedOutputs.Contains("pv")))
+                throw new Exception("A shared upstream member must execute once for merged quantity demands, without pricing intermediate sides.");
+            var delivered=new PowerPhysicalSide(Guid.NewGuid(),f.Terms(f.Volume with{Stage=QuantityStage.Delivered}),f.Asset.Location);
+            var deliveredMember=new InstrumentScheduleMember(delivered.Id,Load(delivered),normalization,null);
+            var mixedConnections=combinedConnections.Select(connection=>connection.OutputSide==another.SideId?connection with{OutputSide=delivered.Id}:connection).ToImmutableArray();
+            Reject("ppa_quantity_source",()=>new InstrumentScheduleExecution(Guid.NewGuid(),[members[0],deliveredMember,combinedMembers[2]],mixedConnections).Evaluate(combined.Id,sources,m.Build,df));
+            Reject("instrument_schedule_connection",()=>new InstrumentScheduleExecution(contract.Id,members,[]));
+            Reject("instrument_schedule_connection",()=>new InstrumentScheduleExecution(contract.Id,members,connections.SetItem(0,connections[0] with{OutputSide=payment.Id})));
+            Reject("instrument_schedule_connection",()=>new InstrumentScheduleExecution(contract.Id,members,connections.SetItem(0,connections[0] with{OutputCells=connections[0].OutputCells.SetItem(0,1)})));
+            using var cancelled=new CancellationTokenSource();cancelled.Cancel();
+            try{execution.Evaluate(payment.Id,sources,m.Build,df,cancelled.Token);throw new Exception("Cancelled instrument execution returned a value.");}
+            catch(OperationCanceledException){}
+        }
+    }
+
+    private static void InstrumentPorts()
+    {
+        foreach(var minutes in new[]{60,15})
+        {
+            var f=new PpaAcceptanceFixture(minutes);var m=f.Market(f.From.AddDays(-1));var instrument=f.Physical(volume:true);
+            var oracle=f.Prepare(m,[instrument]);var context=m.Build.Graph.Plan.Context;
+            var sources=new ScheduleMarketSources(context,m.Build,oracle.Reference,oracle.Read with{Curves=ImmutableDictionary<CurveKey,PreparedCurve>.Empty},
+                oracle.KnowledgePolicy,oracle.Policy,[],[]);
+            var side=instrument.Memberships[1].Side;var program=Load(side);var demand=program.Inputs(context);
+            var ports=new Dictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>>();
+            foreach(var input in demand.Sources.Where(input=>program.Document.Instructions[input.Instruction].Bindings.Any(binding=>binding.Kind=="sibling_quantity")))
+            {
+                var row=program.Document.Instructions[input.Instruction].Output;
+                ports.Add(new(input.Instruction,m.Build.Pricing.ScenarioId),new(context,m.Build.Pricing.ScenarioId,
+                    ScheduleValueColumn.Input(row,[..Enumerable.Repeat(new ScheduleNumber(minutes,240),input.Uses.Length)],
+                        [..Enumerable.Repeat(ScheduleCellState.From(VolumeState.Forecast,null) with{Stage=QuantityStage.Generated},input.Uses.Length)])));
+            }
+            var df=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
+            Equal(sources.Evaluate(demand,side.Id,m.Build,df,ports).PresentValue.ToExactString(),"7210");
+            Reject("side_input_port",()=>sources.Evaluate(demand,side.Id,m.Build,df,new Dictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>>()));
+            var address=ports.Keys.First();var value=ports[address];
+            ports[address]=value with{ScenarioId="another_scenario"};
+            Reject("side_input_port",()=>sources.Evaluate(demand,side.Id,m.Build,df,ports));
+        }
+    }
+
     private static void FixingLookups()
     {
         var fixture=new IndexFixingChecks.FixingFixture();var side=fixture.Floating();var program=Load(side);
@@ -156,6 +313,12 @@ internal static class ScheduleMarketSourceChecks
         var side=instrument.Memberships[0].Side;var program=Load(side);
         var df=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
         var result=source.Evaluate(program,side.Id,market.Build,df);
+        CheckReceipt(result,program);
+        var volumes=result.SourceReceipt!.Cells.Values.OfType<ScheduleVolumeEvidence>().ToArray();
+        var prices=result.SourceReceipt.Cells.Values.OfType<ScheduleNativePriceEvidence>().ToArray();
+        if(volumes.Length==0||prices.Length==0||volumes.Any(value=>value.Volume.State!=VolumeState.Metered||value.Volume.KnownAt!=f.To)||
+            prices.Any(value=>value.Resolution.Actual is null||value.Resolution.State!=IntervalPriceState.Actual))
+            throw new Exception("Historical receipts must retain selected meter knowledge and actual price observations.");
         Equal(result.PresentValue.ToExactString(),"0");
         // Physical delivery is outside PV after delivery/value date; cash evidence remains 721×50/200×42.
         var amounts=result.Contributions.SelectMany(c=>c.Amount.Values).ToArray();
@@ -163,6 +326,17 @@ internal static class ScheduleMarketSourceChecks
         Equal(cash.ToExactString(),"7570.5");
         if(result.Contributions.SelectMany(c=>c.Amount.States).Any(state=>state.Quantity!=VolumeState.Metered||state.Prices!=SchedulePriceFacts.Actual))
             throw new Exception("Delivered quantities and prices must retain their actual states.");
+    }
+    private static void CheckReceipt(BookedSideEvaluation value,BookedSideProgram program)
+    {
+        var receipt=value.SourceReceipt??throw new Exception("Missing source receipt.");
+        var expected=new HashSet<ScheduleSourceCell>();
+        foreach(var source in program.Inputs(value.Context,coverage:value.Coverage).Sources)
+        foreach(var lane in new[]{(Id:value.BaseScenarioId,Mask:ScheduleInputLanes.Base),(Id:value.ScenarioId,Mask:ScheduleInputLanes.Scenario)})
+        for(var cell=0;cell<source.Uses.Length;cell++)
+            if((source.Uses[cell]&lane.Mask)!=0)expected.Add(new(source.Instruction,cell,lane.Id));
+        if(!expected.SetEquals(receipt.Cells.Keys))throw new Exception("Receipt must cover exactly the demanded source cells and lanes.");
+        Equal(receipt.Program.ContentDigest,BookedSideProgram.Digest(program.Write()));
     }
     private static void Reject(string code,Action action)
     {try{action();}catch(MarketDataException error)when(error.Code==code){return;}throw new Exception("Expected "+code);}

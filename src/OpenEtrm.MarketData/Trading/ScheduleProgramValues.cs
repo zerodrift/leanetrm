@@ -44,6 +44,7 @@ public readonly record struct ScheduleNumber
 public enum SchedulePriceFacts:byte { None=0,Fixed=1,Projected=2,Actual=4,Modeled=8,PublishedFixing=16,Estimated=32 }
 public readonly record struct ScheduleCellState(VolumeState? Quantity,SchedulePriceFacts Prices)
 {
+    public QuantityStage? Stage { get; init; }
     public static ScheduleCellState From(VolumeState? quantity,RowPriceState? price)=>new(quantity,price switch
     {
         null=>SchedulePriceFacts.None,RowPriceState.Fixed=>SchedulePriceFacts.Fixed,RowPriceState.Projected=>SchedulePriceFacts.Projected,
@@ -74,11 +75,16 @@ public sealed record ScheduleValueColumn(string Kind,int? Grid,ReferenceKey? Uni
                 ((uses[cell]&required)!=0)!=(presence==ScheduleCellPresence.Resolved))
                 throw new MarketDataException("side_input_column","Resolve exactly the demanded source cells; only a lifecycle guard can exclude PV.");
             if(presence==ScheduleCellPresence.NotDemanded)continue;
-            if(!Values[cell].IsValid||state.Quantity is {} quantity&&!Enum.IsDefined(quantity)||((int)state.Prices&~63)!=0||
+            if(!Values[cell].IsValid||state.Stage is {} stage&&!Enum.IsDefined(stage)||state.Quantity is {} quantity&&!Enum.IsDefined(quantity)||((int)state.Prices&~63)!=0||
                 Kind=="price"&&(state.Prices==SchedulePriceFacts.None||state.Quantity is not null)||
                 Kind=="quantity"&&(state.Quantity is null||state.Prices!=SchedulePriceFacts.None)||
                 Kind=="factor"&&(state.Quantity is not null||state.Prices!=SchedulePriceFacts.None))
                 throw new MarketDataException("side_input_column","Resolved values require explicit valid numbers and cell states.");
+            if(Kind=="quantity"&&state.Quantity!=VolumeState.Contractual&&state.Stage is null||Kind!="quantity"&&state.Stage is not null)
+                throw new MarketDataException("side_input_column","Resolved volume inputs require their explicit quantity stage.");
+            if(Kind=="quantity"&&output.Operation=="quantity_input"&&output.Parameters["stage"]!="declared_port_v1"&&
+                (!Enum.TryParse<QuantityStage>(output.Parameters["stage"],out var declared)||state.Stage!=declared))
+                throw new MarketDataException("side_input_column","A quantity source must retain the stored requested stage.");
             if(Kind=="quantity")ExactQuantity.RequireRange(Values[cell].Numerator,Values[cell].Denominator);
             if(Kind=="factor"&&Values[cell].Decimal().CompareTo(default)<=0)
                 throw new MarketDataException("side_payment_factors","A discount input must be a strictly positive exact working decimal.");
@@ -94,6 +100,11 @@ public sealed record ScheduleLaneColumns(ScheduleValueColumn Base,ScheduleValueC
 public sealed record BookedSideEvaluation(ResolvedCalculationContext Context,string BaseScenarioId,string ScenarioId,string ScheduleManifest,
     ImmutableArray<ScheduleLaneColumns> Values,ImmutableArray<ScheduleDefinitionRoot> Roots,ImmutableArray<ScheduleContribution> Contributions)
 {
+    // Pure interpreter calls have no source evidence. Market-source execution supplies it.
+    public ScheduleSourceReceipt? SourceReceipt { get; init; }
+    public DeliveryCoverage? Coverage { get; init; }
+    public ImmutableArray<string> RequestedOutputs { get; init; }=["pv"];
+    public ImmutableArray<ScheduleQuantityDemand> QuantityOutputs { get; init; }=[];
     public const string NumericalPolicy="exact_schedule_program_v1";
     public ImmutableArray<ExactQuantity> QuantityValues(string output,ExactDecimal scale)
     {
@@ -118,6 +129,7 @@ public sealed record BookedSideEvaluation(ResolvedCalculationContext Context,str
     {
         get
         {
+            if(!RequestedOutputs.Contains("pv"))throw new MarketDataException("side_schedule_program","This execution did not request present value.");
             var value=Values[Roots.Single(root=>root.Name=="pv").Row].Scenario;
             if(value.Kind!="money"||value.Grid is not null||value.Values.Length!=1||value.Currency is not {} currency||value.Presence[0]!=ScheduleCellPresence.Resolved)
                 throw new MarketDataException("side_schedule_program","The booked PV root must resolve to one exact cash amount.");

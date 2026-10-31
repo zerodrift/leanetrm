@@ -241,10 +241,10 @@ internal sealed partial class RetainedScheduleStore
         await using var query=ScheduleStore.Command(connection,"SELECT security.publish_side_schedules($1,$2,$3)",Catalog,request,instrument);
         await query.ExecuteNonQueryAsync(ct);
     }
-    internal async Task Publish(NpgsqlConnection connection,Guid request,CancellationToken ct)
+    internal async Task<Guid> Publish(NpgsqlConnection connection,Guid request,CancellationToken ct)
     {
         await using var query=ScheduleStore.Command(connection,"SELECT security.publish_operation_side_schedules($1,$2)",Catalog,request);
-        await query.ExecuteNonQueryAsync(ct);
+        return (Guid)(await query.ExecuteScalarAsync(ct))!;
     }
     internal async Task<ImmutableDictionary<Guid,ScheduleDefinition>> Load(NpgsqlConnection connection,Guid instrument,
         Guid? context,DateTimeOffset? asOf,CancellationToken cancellation,bool recoverMissing=false)

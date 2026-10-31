@@ -232,7 +232,7 @@ app.Use(async (context,next)=>
     {
         var (status,code,message)=Failure(e,apiPath,context);
         if(e is PostgresException pg)app.Logger.LogWarning("Database operation rejected: {SqlState}",pg.SqlState);
-        if (status==500)
+        if (status is 500 or 503)
         {
             app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
             var inner=e.InnerException;
@@ -592,7 +592,7 @@ Task<IResult> SavePpa(HttpContext c,PpaWriteRequest body,string action)=>Locked(
         if(terms is not null)
         {
             var preparation=terms.Generate(c.RequestAborted);
-            await retained.Stage(profile,body.OperationId,new{action,request=body},permission,body.TradeId,body.ExpectedRevision,preparation,c.RequestAborted);
+            await retained.Stage(profile,body.OperationId,PpaStore.BookingCommand(frame,body,action),permission,body.TradeId,body.ExpectedRevision,preparation,c.RequestAborted);
             staged=true;
         }
     }
@@ -600,7 +600,11 @@ Task<IResult> SavePpa(HttpContext c,PpaWriteRequest body,string action)=>Locked(
     {
         if(staged)await retained.Lock(connection,body.OperationId,ct);
         var value=await ppaStore.Save(connection,frame,body,action,ct);
-        if(staged&&value is not PpaRevisionRefusal)await retained.Publish(connection,body.OperationId,ct);
+        if(staged&&value is not PpaRevisionRefusal)
+        {
+            var instrument=await retained.Publish(connection,body.OperationId,ct);
+            await ppaStore.VerifyPublishedPrograms(connection,frame,body.OperationId,instrument,ct);
+        }
         ct.ThrowIfCancellationRequested();var bytes=PpaStore.Response(value);
         await ppaStore.Recheck(connection,frame,ct);
         if(value is PpaRevisionRefusal refusal)await ppaStore.RecheckRefusal(connection,refusal,ct);
@@ -1389,15 +1393,21 @@ Task<IResult> SaveSwap(HttpContext c,SwapWriteRequest body,bool amend)=>Locked(c
  var terms=await database.WithIdentity(profile,permission,async(connection,ct)=>
  {
   var status=await swapStore.Status(connection,body.OperationId,ct);
-  return status.TryGetProperty("tradeId",out _)?null:await swapStore.PrepareScheduleTerms(connection,await database.Read(connection,ct),frame,body,ct);
+  if(status.TryGetProperty("tradeId",out _))return (Terms:(RetainedScheduleTerms?)null,Command:(JsonElement?)null);
+  var prepared=await swapStore.PrepareScheduleTerms(connection,await database.Read(connection,ct),frame,body,ct);
+  return (Terms:(RetainedScheduleTerms?)prepared,Command:(JsonElement?)await swapStore.ScheduleCommand(connection,frame,body,prepared.Reference,ct));
  },c.RequestAborted);
- if(terms is not null)await retained.Stage(profile,body.OperationId,body,permission,body.TradeId,body.ExpectedRevision,terms.Generate(c.RequestAborted),c.RequestAborted);
+ if(terms.Terms is not null)await retained.Stage(profile,body.OperationId,terms.Command!.Value,permission,body.TradeId,body.ExpectedRevision,terms.Terms.Generate(c.RequestAborted),c.RequestAborted);
  return await database.WithIdentity(profile,permission,async(connection,ct)=>
  {
-  if(terms is not null)await retained.Lock(connection,body.OperationId,ct);
+  if(terms.Terms is not null)await retained.Lock(connection,body.OperationId,ct);
   await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(ct);
   var receipt=await swapStore.Save(connection,await database.Read(connection,ct),frame,body,ct);
-  if(terms is not null)await retained.Publish(connection,body.OperationId,ct);
+  if(terms.Terms is not null)
+  {
+   var instrument=await retained.Publish(connection,body.OperationId,ct);
+   await swapStore.VerifyPublishedPrograms(connection,await database.Read(connection,ct),frame,body.OperationId,instrument,ct);
+  }
   return Results.Ok(receipt);
  },c.RequestAborted);
 });

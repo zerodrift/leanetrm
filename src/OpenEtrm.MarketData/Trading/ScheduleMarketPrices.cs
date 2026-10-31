@@ -6,7 +6,7 @@ namespace OpenEtrm.MarketData.Trading;
 
 public sealed partial class ScheduleMarketSources
 {
-    private (ExactUnitPrice Price,SchedulePriceFacts State) ContractObservation(BookedSideInstruction instruction,CurveBuild market)
+    private (ExactUnitPrice Price,SchedulePriceFacts State,ScheduleSourceEvidence Evidence) ContractObservation(BookedSideInstruction instruction,CurveBuild market)
     {
         if(contractObservations is null)throw Invalid("The retained contract observation requires its exact context-bound source samples.");
         var bound=instruction.Bindings.Single(binding=>binding.Port=="market").Market;
@@ -14,10 +14,10 @@ public sealed partial class ScheduleMarketSources
             ContractObservationScheduleSource.Read(instruction,lookup.Contract,lookup.Quote)==lookup).ToArray();
         if(candidates.Length!=1)throw Invalid("The stored contract observation requires one exact admitted sample without reselection.");
         var resolved=contractObservations.Resolve(candidates[0],market.Graph);RequireUnit(resolved.Price,instruction.Output);
-        return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected);
+        return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected,new ScheduleContractObservationEvidence(candidates[0],resolved));
     }
 
-    private (ExactUnitPrice Price,SchedulePriceFacts State) Dated(BookedSideInstruction instruction,CurveBuild market)
+    private (ExactUnitPrice Price,SchedulePriceFacts State,ScheduleSourceEvidence Evidence) Dated(BookedSideInstruction instruction,CurveBuild market)
     {
         var row=instruction.Output;var bindings=instruction.Bindings.ToDictionary(binding=>binding.Port);
         if(!bindings.ContainsKey("market")||!bindings.ContainsKey("index")||!bindings.ContainsKey("quote")||!bindings.TryGetValue("fixing",out var fixing))
@@ -43,10 +43,10 @@ public sealed partial class ScheduleMarketSources
             throw Invalid("Gas price metadata must retain the complete qualified assignment lookup, including fixing time.");
         var resolved=PeriodPriceSelector.Resolve(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default));
         RequireUnit(resolved.Price,row);
-        return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected);
+        return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected,new ScheduleDatedPriceEvidence(candidates[0],resolved));
     }
 
-    private (ExactUnitPrice Price,SchedulePriceFacts State) Native(BookedSideInstruction instruction,ScheduleDefinitionGrid grid,int cell,string family,IntervalPriceResolver resolver,ValuedAttribute? nativePriceAttribute)
+    private (ExactUnitPrice Price,SchedulePriceFacts State,ScheduleSourceEvidence Evidence) Native(BookedSideInstruction instruction,ScheduleDefinitionGrid grid,int cell,string family,IntervalPriceResolver resolver,ValuedAttribute? nativePriceAttribute)
     {
         RequireNative(grid);var row=instruction.Output;var interval=grid.Interval(cell);var binding=instruction.Bindings.Single(value=>value.Port is "curve" or "location");
         CurveKey curve;PriceSettlementSelection? selection=null;LocationAssignment? assignment=null;
@@ -125,6 +125,6 @@ public sealed partial class ScheduleMarketSources
             price=ExactUnitPrice.FromFraction(price.NumeratorValue*price.Unit.Multiplier.ScaledValue,
                 price.DenominatorValue*ExactDecimal.WorkingScale,new(price.Unit.Currency,price.Unit.Quantity,ExactDecimal.Parse("1")));
         }
-        RequireUnit(price,row);return(price,state);
+        RequireUnit(price,row);return(price,state,new ScheduleNativePriceEvidence(prepared,resolved,assignment,price,state));
     }
 }
