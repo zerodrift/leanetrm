@@ -1,0 +1,392 @@
+# Deal ticket
+
+Status: proposed design, not implementation evidence. Decisions it introduces
+are listed under [Decisions to record](#decisions-to-record) and are added to
+[decisions.md](decisions.md) when implementation starts.
+
+## Why
+
+Every sided product has its own hand-built entry screen today: the swap editor,
+the scheduled-swap editor, the physical gas editor and the PPA editor. Each
+looks and behaves differently, the PPA entry has never been intuitive, and the
+next products (physical crude, LNG cargoes, freight, battery, gas storage) would
+each bring another. Traders cannot compare the sides of a trade at a glance, and
+reference choices and looked-up values are filled differently on each screen.
+
+The deal ticket is one way to enter and read every sided trade. The backend
+describes each product; the browser draws any product from that description in
+one layout. A new product is backend work plus its description, with no new
+screen. The same ticket shows a new trade, a booked trade opened from the
+Blotter, an amendment and a close-out, and it shows the trade's schedules as the
+person edits.
+
+The ticket also leads product work. A product's ticket shows every field the
+product will have. Fields the backend does not use yet are drawn as
+*coming soon* (below), so each product's remaining work is visible on screen.
+
+## Goals
+
+1. One ticket for every sided product: physical gas, financial gas and power
+   swaps (including scheduled swaps), heat-rate swaps and PPAs move onto it in
+   this project.
+2. Sides read side by side. Fields that every side has line up across the
+   sides; each side's own fields follow.
+3. Drop-downs list exactly the eligible reference data for the field, filtered
+   by the choices already made. Values the backend can look up (prices, tariff
+   rates, payment dates, gas-day starts, asset nodes) are filled in and say
+   where they came from.
+4. The trade's schedules are visible while editing and update after each change.
+   The joint instrument schedule is the main view; each side has its own.
+5. A booked trade shows what is settled fact and what is still forward: every
+   value says where it came from.
+6. New products plug in through their description. Coming-soon fields make a
+   product demonstrable before all of its fields are implemented, without
+   pretending they are.
+7. A table widget that renders every grid in the ticket beautifully, reusable by
+   other pages.
+
+## Non-goals
+
+- New product backends (crude, LNG, freight, battery, storage, pipeline crude).
+  Each is its own later project that starts from its ticket.
+- Futures entry. A future has no sides and gets no artificial one (architecture,
+  §Instruments). Its tables take the new grid look only.
+- The Blotter's panes, docking, row menu and pop-out. The
+  [Blotter workbench](blotter-workbench.md) owns them; this ticket is what its
+  Details pane shows for a sided position.
+- Changing what a product books, values or settles. Moving a product onto the
+  ticket keeps its booking contract, preview, idempotency and refusals.
+
+## Anti-goals
+
+These would make the work a failure even if the screens looked right.
+
+- **Business rules in the browser.** Totals, net cash, spark spreads, quantity
+  derivations, TOU evaluation, schedules, payment dates and lookups come from
+  the backend. The browser formats exact decimal strings and never computes an
+  amount.
+- **Silent defaults.** A looked-up value is a visible, labelled proposal the
+  person can see and change. A missing lookup is an empty field with the
+  backend's reason, never a guess. Nothing is filled from a previous trade,
+  another side or a product-wide default unless the description declares that
+  lookup.
+- **Fields that pretend.** A field that is shown as a term is captured, used by
+  a backend consumer and tested (the field admission rule in
+  [physical gas terms](physical-gas-field-contract.md)). A field that is not
+  yet used is drawn as coming soon and is never sent.
+- **A second set of booking paths.** The ticket calls the same authorized
+  operations as the API, imports and agents.
+- **One-off product screens creeping back.** A product that does not fit the
+  description is a gap in the description, solved there.
+
+## Constraints
+
+From [AGENTS.md](../AGENTS.md) and the architecture, restated where the ticket
+touches them:
+
+- TypeScript is presentation only. The product description, lookups, previews,
+  schedules and summaries are backend operations.
+- Missing, ambiguous or conflicting behavior raises a structured error, shown on
+  the field or side it concerns, with its reason.
+- Reference choices are exact-version references, not names.
+- Historical context (business time and knowledge cutoff) applies to every
+  description, drop-down, lookup and preview read. A booked trade opened as of
+  an earlier date shows the choices and values of that context.
+- Every write is idempotent (D238). Previews are reads; booking keeps its
+  request id and first outcome.
+- UI and agents use the same operations. An agent can read a product's
+  description and fill a ticket through the same contract.
+- No new dependency. The grid uses Tabulator 6.6.1, already in `web/package.json`.
+- Synthetic data in examples, fixtures and checks.
+
+## Layout
+
+Decided with the owner. Mockups were reviewed in the brainstorming session; this
+section describes them.
+
+### Trade strip
+
+Across the top: the product and the trade's state (Draft, Booked · forward,
+Booked · in delivery), then trade-level fields: trade date, book, counterparty,
+agreement and the other trade facts the product's description lists. In
+delivery, the strip adds a progress bar (for example, "Day 20 of 31 · 61%
+delivered") and the delivered and remaining figures the backend reports.
+
+### Side cards
+
+One card per side, side by side, in instrument order. A card has a coloured top
+edge and a pill for its kind (Physical, Payment, Floating, Fee, Cargo, Freight,
+Attributes), its name, then two bands:
+
+1. **Common to all sides** (green band). The same rows in every card, in the
+   same order, at the same height: Direction, Start, End, Product / TOU,
+   Quantity, Price, Payment. Labels may differ per side ("Price per
+   MMBtu", "Rate per MMBtu"); the row is the same kind of field. The cards share
+   one row grid so these rows line up exactly. Each row holds the term in the
+   shape the booking contract admits: Payment holds the payment rule
+   ("Month end + 20 business days"), not a date; the dates it produces appear in
+   the schedule.
+2. **Side details** (grey band). The side's own fields, at their natural height:
+   pipeline, zone and point; index and pricing window; heat rate and unit
+   conversion; asset, node and meter; tariff; route and vessel class.
+
+Where a side cannot take a common field, its slot holds read-only information
+on a grey background instead of an empty hole, so the row still lines up:
+
+- a physical side's Price slot shows the market price at its point, with the
+  curve and close it came from;
+- a physical side's Payment slot shows which cash sides pay for it;
+- a derived quantity shows its rule ("Power MWh × 7.50 · from heat rate").
+
+Where a card ends before its neighbours, the space holds a **side summary** from
+the latest preview: billed quantity, amount, and contract against market. After
+the cards, a dashed **Add side** card offers the side kinds the product admits.
+
+Clicking a card selects it and selects that side's schedule tab.
+
+### Schedule panel
+
+Below the cards, one grid with tabs:
+
+- **Instrument** (first, open by default): the joint schedule of the whole trade.
+  Each side is a column group in its card's colour; a final **Trade** group
+  holds net cash, payment date and product-specific trade measures (spark
+  spread for a heat-rate swap). All values come from the backend.
+- One tab per side with that side's full schedule.
+
+A toolbar holds the row level, a row filter, a column picker, CSV export and the
+preview status ("Up to date · previewed after your last change", "Updating…",
+"Preview refused: <reason>"). A totals row is pinned at the bottom.
+
+**Mixed granularity.** Sides may run on different periods (daily delivery,
+monthly payment; hourly generation, monthly payment). The Instrument schedule is
+a tree whose levels are the product's periods. Each side shows its values on the
+rows of its own granularity and on every coarser row as the backend's
+aggregate; on a finer row a coarser side's cells are blank. Net cash and other
+trade measures sit on the rows the backend reports them for (payment periods)
+and aggregate upward. (Design call.)
+
+**Additional tabs.** Views the current editors offer beyond terms and
+schedules (draft risk, PPA break-even, swap observation and fixing inspection,
+technical lineage) become further tabs after the side tabs, shown only for the
+products whose backend offers them. They keep their existing operations.
+(Design call.)
+
+**Per-period inputs.** Inputs entered per period rather than per side (a
+scheduled swap's explicit period quantities, physical gas daily quantity
+records, PPA profiles) are editable cells in that side's tab, drawn with the
+same field states as card fields. The description marks which schedule columns
+are inputs. (Design call.)
+
+**Row shapes.** The description declares one of two:
+
+- **Flow-shaped** (gas, pipeline crude, swaps, heat rates, PPAs, power): rows are
+  delivery periods. The row level switches Month / Day / Hour, offering only
+  the levels the product's granularity has, and a month opens in place to its
+  days and a day to its hours. Fifteen hourly years stay usable because only
+  opened groups are loaded.
+- **Cargo-shaped** (crude cargoes, LNG, freight): one row per lift, with laycan,
+  bill-of-lading date, quantity with tolerance, pricing window, price and
+  amount. The row level switches Lift / Pricing day. A pricing window shows its
+  days as small squares, filled once fixed, with the anchor day outlined.
+  No product in this project is cargo-shaped, so the cargo shape is designed
+  here and built with the first cargo product, which is its consumer (AGENTS.md:
+  no addition without a current consumer). The description schema leaves room
+  for it. (Design call.)
+
+**Changes.** After an edit, cells whose values moved carry a small amber marker
+until the next edit.
+
+**Sources.** Every value carries a small tag naming where it came from, as the
+backend reports it: Contract, Fwd, Fixed, Settled, Actual, Meter, Nominated,
+Estimated, Nominal, "3 of 5 fixed". In delivery, a line marks the valuation
+date, delivered rows are dimmed, and the totals split into delivered, remaining
+and total. The ticket shows a tag only when the backend supplies it; it never
+infers that a value is actual from its date.
+
+### Footer
+
+Preview and Book (or Save amendment, Book close-out), with the note that green
+fields were filled from a lookup.
+
+### Pane width
+
+The ticket lays out by the width of its container, not the window:
+
+- **Wide** (the New trade page, a wide Details pane, the pop-out): cards side by
+  side over the grid, as above.
+- **Narrow** (a narrow Details pane): cards stack. A strip of side chips at the
+  top jumps between them and selects the side's tab. The grid keeps the
+  Instrument tab and scrolls sideways.
+
+## Field states
+
+Every field in the description has exactly one state. The ticket draws each the
+same way on every product.
+
+| State | Drawn as | Sent with the trade |
+| --- | --- | --- |
+| Editable | Input or drop-down | Yes |
+| Looked up | Green field with a chip naming the source ("Close 30 Oct", "Tariff T-2", "Calendar", "Asset") | Yes, as the value shown |
+| Derived | Read-only value with its rule | No; the backend derives it |
+| Information | Grey read-only slot | No; not a term |
+| Coming soon | Greyed, hatched, dashed, with a *Coming soon* tag; hover explains what it will do | No; holds no value |
+
+Rules:
+
+- A lookup proposes the value in the shape the booking contract admits (a
+  payment rule, an exact reference, a decimal string), never a derived form the
+  contract does not take.
+- Lookup chips are an entry aid. Booking stores the value, not where it was
+  looked up, so a booked trade's fields show no chips; its schedule shows the
+  value sources the backend reports. (Design call.)
+- A looked-up value is a proposal made by a backend lookup the description
+  declares for that field. Editing it removes the chip; the value is then the
+  person's and is never re-filled. A later change upstream (a new point, a new
+  close) offers the lookup again on that field instead of overwriting it.
+- A lookup that cannot resolve leaves the field empty with the backend's reason.
+- A drop-down lists the eligible exact-version references for the field under
+  the ticket's context, filtered by the choices it depends on (a point by its
+  zone, an index by its commodity). Changing a parent choice clears dependent
+  choices that are no longer eligible and says so; it does not pick a
+  replacement.
+- A coming-soon field cannot be focused for entry, has no value, and is omitted
+  from preview and booking requests. Its hover text comes from the description.
+  When the backend admits the field, its description changes its state; no
+  screen code changes.
+
+## Product description
+
+The backend serves, per product and version, a description the ticket draws.
+Its exact schema is left to the builder (below); it must express:
+
+- the product, its version and its row shape (flow or cargo);
+- trade-level fields;
+- the side kinds the product admits, with minimum and maximum counts, and for
+  each kind: its pill, colour role, name, common-band fields and detail fields;
+- for each field: its business meaning, type, unit, required condition, state,
+  the reference read that lists its choices and the choices it depends on, and
+  any lookup that proposes its value;
+- the schedule columns for the Instrument tab and each side tab, by column
+  group, with units;
+- the operations for preview, book, amend and close-out, which are the
+  product's existing authorized operations.
+
+The description carries no business rule. It names operations and fields; the
+operations hold the rules. Its fields are the same fields the booking
+contract admits, so the description and the contract cannot disagree: a field
+in the description that the contract does not admit is a check failure, unless
+it is coming soon.
+
+Products whose sides follow the [D253 side model](decisions.md#d253--one-side-model-parameters-a-whole-term-schedule-rows-read-from-the-graph)
+describe its parameters directly (delivery terms, quantity rule, price term,
+observation rule, payment rule). Physical gas keeps its own side families
+([physical gas](physical-gas-side.md)) and describes them the same way.
+
+## Live preview
+
+After an edit, once the edit settles, the ticket sends the whole draft to the
+product's preview operation and redraws the side summaries and the schedule from
+the result. Only the latest preview's result is drawn; an older response that
+arrives late is discarded. A refused preview keeps the last good schedule on
+screen marked stale, with the refusal's reason on the fields it names. A
+preview never books and never writes.
+
+## Modes
+
+| Mode | Opened from | Editable |
+| --- | --- | --- |
+| New | New trade; the Blotter's New trade | All editable fields |
+| Booked | A Blotter row (Details pane), its pop-out | None; the Amend action opens the amendment mode |
+| Amend | Amend… in the row menu or the ticket | The fields the amendment operation admits at the valuation date; others show a lock with the reason |
+| Close-out | Close out… in the row menu | The close-out draft's fields, pre-filled by the backend close-out draft |
+
+A mode is offered only where the product has the operation. Today physical gas
+has no amendment beyond its daily quantity records, and the Blotter workbench's
+close-out draft refuses heat-rate swaps and PPAs; the ticket shows those actions
+unavailable with the backend's reason rather than building new operations.
+Product-specific actions the backend offers (PPA terminate) appear as their own
+actions. (Design call.)
+
+The unsaved-edit guard of the Blotter workbench applies before the ticket shows
+another position or closes.
+
+## Table widget
+
+The grid is the existing Tabulator wrapper (`data-grid.ts`, as the Blotter
+workbench leaves it) with a new theme and the features the schedule panel needs:
+
+- grouped column headers coloured by side;
+- tree rows (Month → Day → Hour; Lift → Pricing day) opening in place, loading
+  children on demand;
+- a pinned totals row;
+- source tags, change markers and the valuation-date line as cell decorations;
+- tabular figures, units in headers, right-aligned numbers, dimmed past rows,
+  hover highlight;
+- the toolbar above (row level, filter, columns, CSV, status).
+
+Other pages may adopt the theme; moving them is not part of this project.
+
+## Products in this project
+
+| Product | Sides | Row shape | Notes |
+| --- | --- | --- | --- |
+| Physical gas | Physical delivery, fixed payment, fees; independent and linked physical sides | Flow (day) | Both today's templates; fuel links show as derived quantities |
+| Financial gas swap | Fixed and floating | Flow (month, day) | Includes scheduled swaps |
+| Financial power swap | Fixed and floating | Flow (month, day, hour) | Product / TOU in the common band |
+| Heat-rate swap | Power leg and fuel leg, both floating | Flow (month, day, hour) | Fuel quantity derived from the heat rate factor |
+| PPA | Physical generation, payment, attributes | Flow (month, day, hour) | Meter and estimate sources; certificate fields coming soon where not admitted |
+
+Each move keeps the product's booking contract and removes its old editor
+(no backwards compatibility: there is one entry screen per product, the ticket).
+
+## Dependencies and order
+
+1. The [Blotter workbench](blotter-workbench.md) merges first. The ticket builds
+   on its grid wrapper and appears in its Details pane.
+2. The shared trading workflow admits physical gas (pull request 152, "Unify
+   physical gas and existing instruments in the shared trading workflow")
+   before the physical gas move, so booked gas trades open from the Blotter
+   like every other product. The gas move is planned against that workflow.
+3. Products whose sides are moving to the D253 model describe the model that is
+   implemented when they move. Where D253 is not yet qualified for a product,
+   the description follows that product's current booking contract, and
+   changes when D253 lands.
+4. Before each product moves, the owner supplies its coming-soon field
+   inventory: the fields the product needs beyond what today's screens
+   capture, each with its business meaning and hover text, written in this
+   project's own words. Physical gas starts from
+   [physical gas terms](physical-gas-field-contract.md). A product with no
+   inventory yet moves with only its supported fields.
+5. Build order: the description contract and table widget; then physical gas
+   (the richest current product); then swaps and heat rates; then PPAs.
+
+## Verification
+
+- Behaviour tests first for each piece (TDD): description validity, field
+  states, dependent drop-down clearing, lookup chips and their removal on edit,
+  coming-soon omission from requests, late preview responses discarded, and
+  each product's booking unchanged through the ticket.
+- A check that each description agrees with its booking contract.
+- Browser checks for each product: enter, preview, book, reopen, and each mode
+  the product offers; wide and narrow panes.
+- Independent adversarial review before publication (temporal context on
+  lookups and drop-downs, async preview ordering).
+
+## Left to the builder
+
+- The description's schema, transport and versioning.
+- Colours for side kinds within the existing theme tokens.
+- Debounce timing for live preview.
+- Narrow and wide breakpoints of the container.
+- How many rows of a level load at a time.
+
+## Decisions to record
+
+- **Deal ticket.** One description-driven ticket draws every sided product for
+  new, booked, amend and close-out; product editors are removed as products
+  move.
+- **Field states.** Editable, looked up, derived, information and coming soon,
+  with the rules above; coming-soon fields are never sent.
+- **Schedule panel.** Joint Instrument schedule first, a tab per side, flow and
+  cargo row shapes, backend-reported value sources.
