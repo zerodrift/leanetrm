@@ -453,6 +453,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   function settle(h:Holding){asked(()=>swapEditor.openSettlement(h));}
   // A row's menu (blotter-workbench.md, Row context menu): each action the account may not take now is shown with why. Rows kept on
   // screen from an earlier read, or drawn while the page is busy, offer nothing, saying why. Escape gives focus back to the row.
+  // The body is marked while the Blotter shows, for the layout that fills the window with it (app.css).
+  {const page=get('futures-page'),mark=()=>document.body.classList.toggle('blotter-shown',!page.hidden);new MutationObserver(mark).observe(page,{attributes:true,attributeFilter:['hidden']});mark();}
   const rowMenu=setupMenu('blotter-row-menu');get('futures-page').append(rowMenu.element);
   // The position and revision a row's menu was opened on, while the Close out chosen from it runs: an operation names only its position.
   let menuRevision:{key:string;revision:string}|undefined;

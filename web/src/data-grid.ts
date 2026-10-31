@@ -131,7 +131,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // The room a table has changes with its container's width, which is not the window's: it is fitted again when that changes, at the place
   // the person last left it.
   let width=0;
-  const resizing=new ResizeObserver(()=>{if(!alive||container.clientWidth===width)return;width=container.clientWidth;const at=lastPlace;void change(fit,at&&(()=>at));});
+    const resizing=new ResizeObserver(()=>{if(!alive||container.clientWidth===width)return;width=container.clientWidth;const at=lastPlace;void change(fit,at&&(()=>at));});
   resizing.observe(container);
   // The row the consumer has open, and the row selected, by key: marked whenever their elements are drawn.
   let opened:string|null=null,selected:string|null=null,selectionLost=false,selectionChanged:((key:string|null)=>void)|undefined;
@@ -143,9 +143,14 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     target.classList.toggle('open-row',isOpen);if(isOpen)target.setAttribute('aria-current','true');else target.removeAttribute('aria-current');
     target.classList.toggle('selected-row',key===selected);target.setAttribute('aria-selected',String(key===selected));
   }
+  // Marks again only the rows whose marks changed, the ones that were and are selected or open: a grid of many thousands of rows is not
+  // walked for each selection. Rows drawn later are marked as they are drawn.
+  let marked:{selected:string|null;opened:string|null}={selected:null,opened:null};
   function markRows(){
     if(selected===null)delete container.dataset.selectedRow;else container.dataset.selectedRow=selected;
-    if(ready&&alive)for(const row of table.getRows())markRow(row);
+    if(!ready||!alive)return;
+    for(const key of new Set([marked.selected,marked.opened,selected,opened]))if(key!==null){const row=table.getRow(key);if(row)markRow(row);}
+    marked={selected,opened};
   }
   // Grouped rows start in the order of their groups, which Tabulator keeps as it meets them; a group the filters empty disappears.
   const groupOf=(data:Record<string,string>)=>options.group!.keys[Number(data.__sourceIndex)];

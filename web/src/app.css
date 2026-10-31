@@ -1652,10 +1652,11 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 /* The Blotter workbench (blotter-workbench.md, Layout): beside the navigation the Blotter fills the window, which never scrolls. The
    toolbar keeps its row; the panes share the rest and scroll within themselves, the positions grid within its own rows. A narrow
    window has the navigation above the page, and the Blotter fills what is left of it; a phone's page scrolls, and the panes keep the
-   dock's own height. */
+   dock's own height. The page marks the body while the Blotter shows (blotter-shown): a :has() over the whole body made every change
+   anywhere on a large page check it again. */
 @media(min-width:481px){
-  main:has(>#futures-page:not([hidden])){box-sizing:border-box;display:flex;flex-direction:column;height:100vh;overflow:hidden}
-  main:has(>#futures-page:not([hidden]))>:not(#futures-page){flex:none}
+  body.blotter-shown main{box-sizing:border-box;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  body.blotter-shown main>:not(#futures-page){flex:none}
   #futures-page:not([hidden]){display:flex;flex:1 1 0;flex-direction:column;min-height:0}
   #futures-page>:not(#blotter-workspace){flex:none}
   #blotter-workspace{flex:1 1 0;min-height:0}
@@ -1665,10 +1666,10 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
   #blotter-dock.tab-dock{height:auto}
 }
 @media(min-width:481px) and (max-width:760px){
-  body:has(#futures-page:not([hidden])){display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  body.blotter-shown{display:flex;flex-direction:column;height:100vh;overflow:hidden}
   /* The navigation above the Blotter keeps to a band of its own, which scrolls, so the panes keep room for the positions. */
-  body:has(#futures-page:not([hidden]))>.sidebar{flex:none;max-height:min(40vh,240px);overflow-y:auto}
-  body:has(#futures-page:not([hidden]))>main{flex:1 1 0;height:auto;min-height:0}
+  body.blotter-shown>.sidebar{flex:none;max-height:min(40vh,240px);overflow-y:auto}
+  body.blotter-shown>main{flex:1 1 0;height:auto;min-height:0}
 }
 #blotter-dock.tab-dock{min-height:0;padding:10px;background:var(--bg)}
 /* The saved views list keeps its whole label; the search beside it gives way first. */
