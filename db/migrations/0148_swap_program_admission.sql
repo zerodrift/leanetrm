@@ -177,6 +177,8 @@ BEGIN
  SELECT request INTO accepted FROM(
   SELECT r.request FROM trading.ppa_trade_revisions r WHERE(r.catalog_id,r.operation_id,r.actor_id)=(catalog,operation,staged.actor_id)
   UNION ALL SELECT r.request-'sideFixings' FROM trading.swap_trade_revisions r WHERE(r.catalog_id,r.operation_id,r.actor_id)=(catalog,operation,staged.actor_id)
+  UNION ALL SELECT t.request FROM trading.gas_trade_revisions r JOIN trading.trades t ON(t.catalog_id,t.id)=(r.catalog_id,r.trade_id)
+   WHERE(r.catalog_id,r.operation_id,r.actor_id,r.instrument_id)=(catalog,operation,staged.actor_id,instrument)
  ) booking;
  IF accepted IS NULL OR sha256(convert_to(accepted::text,'UTF8')) IS DISTINCT FROM staged.command_hash
  THEN RAISE EXCEPTION 'side_schedule_command';END IF;

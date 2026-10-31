@@ -78,11 +78,11 @@ native quantity/price and discount resolvers under an exact graph context. Its
 API metadata decoder resolves qualified fixing publication times without Side
 terms. Native contribution coverage and managed instrument-owned quantity connections
 now have focused execution checks. Booking-time cell mappings and their authorized
-direct loader are implemented under migration 0142, with explicit rebooking
+direct loader are implemented under migration 0147, with explicit rebooking
 required. PPA booking verifies sealed identities against persisted members before
 commit. PPA and swap execution metadata load directly from typed headers,
 including exact factor/native-unit conversion and period-allocation checks.
-Migration 0143 applies booking-time publication identity checks to swaps.
+Migration 0148 applies booking-time publication identity checks to swaps.
 In-memory source receipts and bounded dated custom-output scenarios have managed
 checks. Durable receipts, production input concurrency, broader custom-output
 integration and the booked portfolio/worker cutover remain work; these checks do

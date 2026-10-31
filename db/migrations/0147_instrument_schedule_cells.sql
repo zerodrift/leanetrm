@@ -220,6 +220,7 @@ BEGIN
    ON(b.catalog_id,b.trade_id,b.revision)=(r.catalog_id,r.trade_id,r.revision)
    WHERE(r.catalog_id,r.operation_id)=(catalog,operation) AND NOT EXISTS(SELECT 1 FROM trading.ppa_revision_bindings old
     WHERE(old.catalog_id,old.trade_id,old.revision,old.binding_id)=(r.catalog_id,r.trade_id,r.previous_revision,b.binding_id))
+  UNION ALL SELECT instrument_id FROM trading.gas_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)
  ) replacements;
  PERFORM security.publish_side_schedules(catalog,operation,instrument);
  RETURN instrument;
