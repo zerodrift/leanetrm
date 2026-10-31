@@ -14,8 +14,11 @@ export type BlotterOperation=
 /** What an operation answers once done: a position selection whether the position is shown, false when the person kept edits the details
  *  hold; every other operation nothing. */
 export type BlotterAnswer<K extends BlotterOperation['kind']>=K extends 'selectPosition'?boolean:void;
-/** Each kind's handler, which acts on it and is told how the caller asks (`Via`: the page says whether the person's own move placed the row). */
-export type BlotterOperationHandlers<Via=void>={[K in BlotterOperation['kind']]:(operation:Extract<BlotterOperation,{kind:K}>,via:Via)=>Promise<BlotterAnswer<K>>};
+/** How the caller asks: `placed`, the person's own ↓ ↑ in the grid or ◂ ▸ in the details placed the row they moved to, so showing its
+ *  position does not scroll to it. */
+export type BlotterCaller={placed:boolean};
+/** Each kind's handler, which acts on it as the caller asks. */
+export type BlotterOperationHandlers={[K in BlotterOperation['kind']]:(operation:Extract<BlotterOperation,{kind:K}>,caller:BlotterCaller)=>Promise<BlotterAnswer<K>>};
 
 /** A refusal of an operation, with why: an operation that does not read, and one its handler cannot carry out where the Blotter is. */
 export const refuse=(why:string)=>Error(`The Blotter operation was refused: ${why}.`);
@@ -69,12 +72,13 @@ export function readBlotterOperation(value:unknown):BlotterOperation{
 }
 
 /** One entry point for every action: the operation is read here, whoever built it, then goes to the handler of its own kind and to no other,
- *  whose answer it gives. */
-export const createBlotterOperations=<Via=void>(handlers:BlotterOperationHandlers<Via>)=>
-  async<O extends BlotterOperation>(operation:O,via:Via):Promise<BlotterAnswer<O['kind']>>=>{
+ *  whose answer it gives. While the page is busy nothing is done, and the caller is told so, rather than an action being dropped unseen. */
+export const createBlotterOperations=(handlers:BlotterOperationHandlers,page:{busy:()=>boolean})=>
+  async<O extends BlotterOperation>(operation:O,caller:BlotterCaller):Promise<BlotterAnswer<O['kind']>>=>{
     const read=readBlotterOperation(operation);
     if(!Object.hasOwn(handlers,read.kind))throw refuse(`${read.kind} has no handler`);
-    return await (handlers[read.kind] as (operation:BlotterOperation,via:Via)=>Promise<BlotterAnswer<O['kind']>>)(read,via);
+    if(page.busy())throw refuse('the Blotter is busy; try again when it is idle');
+    return await (handlers[read.kind] as (operation:BlotterOperation,caller:BlotterCaller)=>Promise<BlotterAnswer<O['kind']>>)(read,caller);
   };
 
 /** Columns the display mode shown takes, by the saved-view rules (blotter-layout.ts); any other choice is refused. */

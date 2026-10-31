@@ -147,6 +147,10 @@ export function amendNote(accountCanAmend:boolean,revision:AmendState|undefined)
   if(!accountCanAmend)return 'This account cannot amend trades in this market context.';
   return revision&&!revision.allowed?`This position cannot be amended: ${revision.reason}`:null;
 }
+/** Why a position cannot be amended from the Blotter, or null: a PPA is amended in PPA bookings; another as the head's note says, from the
+ *  revision once it is read. */
+export const amendRefusal=(instrumentType:string,accountCanAmend:boolean,revision:AmendState|undefined)=>
+  instrumentType==='ppa'?'PPA amendments and terminations are made in PPA bookings.':amendNote(accountCanAmend,revision);
 /**
  * The head's amendment control: Amend while there is nothing against it, none, with the reason in view, when there is, and Close
  * editor for as long as the form is open, which can always be closed.
@@ -379,6 +383,10 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
       input=next;tab=start;detail=undefined;held=undefined;generation++;
       tabs=setupTabs(shell.element('tabs'),available,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>{tab=id as PositionTab;paint();shell.element('body').scrollTop=0;}});
       paint();
+    },
+    /** Whether the revision of this position the panel has read can be amended, once read; nothing for another position or before. */
+    amendState(h:Holding):AmendState|undefined{
+      return input&&input.holding.tradeId===h.tradeId&&input.holding.bindingId===h.bindingId&&detail?.state==='ready'&&detail.key===key(input)?detail.read.amend:undefined;
     },
     /** Draws the same position again from a newer read of the desk. */
     update(next:PositionInput){input=next;paint();},

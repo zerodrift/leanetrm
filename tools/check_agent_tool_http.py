@@ -552,6 +552,20 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           disabled['state'] == 'completed' and offered == ['read_current_page', 'read_market_data']
           and [(s['code'], s['operation'], s['input'], s['access']) for s in steps(disabled)] == [('tool_not_enabled', None, {}, [])], offered)
 
+    # The Blotter's layout reaches the model with Read current page's result on the Blotter, as its page report states it, and with no
+    # other result (D263).
+    layout = {'pane': {'details': True, 'charts': False}, 'poppedOut': False}
+    fake.respond(stream(tool_use(model_name, [('toolu_layout_1', 'read_current_page', {}), ('toolu_layout_2', 'read_trades', BLOTTER)])),
+                 stream(recording(model_name, text='The details are open.')))
+    since = len(fake.received)
+    laid, _ = settled(ask(report={'page': 'blotter', 'selection': BLOTTER, 'layout': layout})['turn'])
+    given = answers(requests(since)[-1])
+    check("Read current page's result on the Blotter carries the layout its page report states, exactly, beside the read it dispatches; "
+          "Read trades' result carries none",
+          laid['state'] == 'completed' and given['toolu_layout_1'][0]['operation'] == 'trades.blotter_v1' and given['toolu_layout_1'][0].get('layout') == layout
+          and not given['toolu_layout_1'][1] and given['toolu_layout_2'][0]['operation'] == 'trades.blotter_v1' and 'layout' not in given['toolu_layout_2'][0],
+          {k: (sorted(v[0]), v[1]) for k, v in given.items()})
+
     # A historical view without a frame (§7.2): current-only definitions and frame-consuming reads are refused before reading, and
     # the curve directory reads at the retained context.
     selected = trader.call('market/context', {'effectiveOn': '2020-12-18', 'mode': 'current', 'selection': 'latest_correction'})['context']

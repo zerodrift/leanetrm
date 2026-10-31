@@ -110,7 +110,7 @@ test('Looking at says what each read page shows in words, never with an identifi
   assert.equal(shows({page:'futures',...open,risk:false,trade:null,view:{...blotter,mode:'pivot',bookIds:[],groupBy:['commodity','instrumentType'],measures:['tradeCount']}}),
     'Totals by commodity and instrument type · every book you can read');
   assert.deepEqual(lookingAt(pageReport({page:'futures',...open,risk:true,trade:null,entry:null,view:blotter}),working,names),
-    {page:'Blotter',shows:'The assistant does not read risk results.',context:'Working data · As of 18 Dec 2020 16:00',supported:false,askable:true});
+    {page:'Blotter',shows:'The assistant does not read risk results.',layout:'Details open · Charts open · Main window',context:'Working data · As of 18 Dec 2020 16:00',supported:false,askable:true});
   // A historical selection that is not yet applied pins nothing the page shows, so nothing can be asked.
   assert.deepEqual(lookingAt(pageReport({page:'schedules'}),{mode:'unapplied'},names),
     {page:'Schedules',shows:'Schedule library',context:'Historical selection not applied · apply it to ask about it',supported:true,askable:false});
@@ -331,12 +331,18 @@ test('the Blotter report carries its pane state and whether it is popped out, an
     assert.deepEqual(pageReport({...state,pane:{details:true,charts:true},poppedOut:true}).layout,{pane:{details:true,charts:true},poppedOut:true});
   assert.equal(pageReport({page:'admin'}).layout,undefined);
 });
-test('what Looking at saved is compared without the layout, which Looking at does not show',async()=>{
+test('Looking at shows the Blotter\'s layout, and what it saved is compared with it, so a pane opened or closed since refuses the ask as a page change',async()=>{
   const {lookingKey}=await import('../dist/assistant-pages.js');
-  const state={page:'futures',risk:false,trade:null,entry:null,lens:'values',view:blotter};
-  const at=(pane,poppedOut,view=blotter)=>({report:pageReport({...state,view,pane,poppedOut}),context:{mode:'current',frameId:null,frameLabel:null}});
-  assert.equal(lookingKey(at({details:true,charts:true},false)),lookingKey(at({details:false,charts:true},true)));
-  assert.notEqual(lookingKey(at({details:true,charts:true},false,{...blotter,mode:'pivot'})),lookingKey(at({details:true,charts:true},false)));
+  const state={page:'futures',risk:false,trade:null,entry:null,lens:'values',view:blotter},names={curve:String,table:String},context={mode:'current',frameId:null,frameLabel:null};
+  const at=(pane,poppedOut,view=blotter)=>({report:pageReport({...state,view,pane,poppedOut}),context});
+  assert.notEqual(lookingKey(at({details:true,charts:true},false)),lookingKey(at({details:false,charts:true},false)));
+  assert.notEqual(lookingKey(at({details:true,charts:true},false)),lookingKey(at({details:true,charts:true},true)));
+  assert.equal(lookingKey(at({details:true,charts:false},false)),lookingKey(at({details:true,charts:false},false)));
+  for(const [pane,poppedOut,line] of [[{details:true,charts:false},false,'Details open · Charts closed · Main window'],
+    [{details:false,charts:true},true,'Details closed · Charts open · Pop-out window']])
+    assert.equal(lookingAt(at(pane,poppedOut).report,context,names).layout,line);
+  // A page with no layout shows none.
+  assert.equal(Object.hasOwn(lookingAt(pageReport({page:'schedules'}),context,names),'layout'),false);
 });
 test('an ask sends the Blotter report whole, its layout with it, and a kept ask keeps it',async()=>{
   const assistant=await import('../dist/assistant-pages.js');

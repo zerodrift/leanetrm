@@ -73,9 +73,8 @@ export function pageReport(state:PageState):PageReport{
   }
 }
 
-// What Looking at showed, kept to compare with the page at send: the page, its selection and context, which it shows. The Blotter's layout
-// is sent as it is at send and is not shown, so a pane opened or closed since never refuses an ask.
-export const lookingKey=({report,context}:{report:PageReport;context:PageContext})=>JSON.stringify([report.page,report.selection,context]);
+// What Looking at showed, kept to compare with the page at send: the report it shows whole, the Blotter's layout too, and its context.
+export const lookingKey=({report,context}:{report:PageReport;context:PageContext})=>JSON.stringify([report.page,report.selection,report.layout??null,context]);
 
 // The knowledge an ask pins: working data only at a chosen As of frame, the selected historical view with or without one.
 export function askKnowledge(context:PageContext){
@@ -126,13 +125,17 @@ function contextLine(context:PageContext){
   if(context.mode==='current')return `Working data · ${frame||'choose an As of date to ask about it'}`;
   return `Historical view · ${context.effectiveOn}, as known at ${context.knownAtLabel} · ${frame||'no As of date chosen'}`;
 }
-// Looking at: the page, what it shows and the context the next question will pin, or that the page is not read.
+// Looking at's line for the Blotter's layout: its details and charts open or closed, and the window it is in.
+const layoutLine=({pane,poppedOut}:BlotterLayoutShown)=>
+  [`Details ${pane.details?'open':'closed'}`,`Charts ${pane.charts?'open':'closed'}`,poppedOut?'Pop-out window':'Main window'].join(' · ');
+// Looking at: the page, what it shows, the Blotter's layout where it reports one, and the context the next question will pin, or that the
+// page is not read.
 export function lookingAt(report:PageReport,context:PageContext,names:Names,extra:{trade?:string}={}){
   if(!Object.hasOwn(pageNames,report.page))throw inconsistent();
   // A page whose report names no selection yet, Reference data before it shows a table or PPA bookings before it lists a
   // book, has nothing to be asked from.
   const named=!(report.page==='reference_data'&&report.selection.table===''||report.page==='ppa'&&report.selection.view==='ppa_book'&&!(report.selection.bookIds as string[]).length);
-  return {page:pageNames[report.page],shows:shows(report,names,extra.trade),context:contextLine(context),supported:readPages.includes(report.page)||unopened.includes(report.page),
+  return {page:pageNames[report.page],shows:shows(report,names,extra.trade),...(report.layout?{layout:layoutLine(report.layout)}:{}),context:contextLine(context),supported:readPages.includes(report.page)||unopened.includes(report.page),
     askable:named&&askKnowledge(context)!==undefined};
 }
 

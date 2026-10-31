@@ -52,6 +52,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const looking="['#assistant-looking-page','#assistant-looking-shows','#assistant-looking-context'].map(s=>document.querySelector(s).textContent)";
   // The Blotter's layout as the dock draws it: a pane is open when its body is shown, the shown tab of its group and not put away (D263).
   const drawnLayout=`JSON.stringify({pane:{details:${shown('#blotter-pane-details')},charts:${shown('#blotter-pane-charts')}},poppedOut:false})`;
+  // Looking at's line for that layout.
+  const drawnLine=`[${shown('#blotter-pane-details')}?'Details open':'Details closed',${shown('#blotter-pane-charts')}?'Charts open':'Charts closed','Main window'].join(' · ')`;
+  const layoutLine=`${q('#assistant-looking-layout')}`;
   const agentsRead="window.__requests.some(r=>r.path==='/api/assistant/agents')";
   const buttons=`[...(${latest}?.querySelector('.assistant-target')?.querySelectorAll('button')??[])].map(b=>b.textContent).join()`;
   const press=label=>evaluate(`[...${latest}.querySelector('.assistant-target').querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(label)}).click()`);
@@ -192,7 +195,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('and its layout: the details open on the trade, the charts open as drawn, and the Blotter in the main window, not popped out',
     `(()=>{const l=${asks}.at(-1).body.pageReport.layout;return Object.keys(l).join()==='pane,poppedOut'&&Object.keys(l.pane).join()==='details,charts'&&l.pane.details===true&&l.poppedOut===false&&JSON.stringify(l)===${drawnLayout};})()`,
     `[JSON.stringify(${asks}.at(-1).body.pageReport.layout),${drawnLayout}]`);
+  await check('Looking at shows the layout the ask sends: the details open on the trade, the charts as drawn, the main window',
+    `!${layoutLine}.hidden&&${layoutLine}.textContent===${drawnLine}&&${layoutLine}.textContent.startsWith('Details open · ')`,`[${layoutLine}.textContent,${drawnLine}]`);
   await click('#details-collapse');
+  await check('closing the details changes what Looking at shows of the layout at once, so the next ask sends what it says',
+    `${layoutLine}.textContent===${drawnLine}&&${layoutLine}.textContent.startsWith('Details closed · ')`,`[${layoutLine}.textContent,${drawnLine}]`);
   await check('closing the panel returns Looking at to the Blotter\'s rows',`${looking}[1].startsWith('Trade rows · ')&&(${q('#position-details')}?.hidden!==false)`,looking);
   // An amendment under way holds a live move away from the page, like any other unsaved edit, and Back brings the trade back in the panel.
   await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");

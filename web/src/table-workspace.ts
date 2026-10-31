@@ -8,7 +8,7 @@ type Choice=readonly [string,string];
 // lens: a control of the consumer's own in the toolbar, such as a choice of what the rows show.
 type WorkspaceOptions={
   key:string;rowMode:string;rowLabel:string;dimensions:readonly Choice[];measures:readonly Choice[];
-  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;note?:HTMLElement;body:HTMLElement;rows:HTMLElement;rowGroups?:readonly Choice[];lens?:HTMLElement;
+  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;onScope:()=>void;note?:HTMLElement;body:HTMLElement;rows:HTMLElement;rowGroups?:readonly Choice[];lens?:HTMLElement;
 };
 
 /** Shared presentation shell. Consumers supply authorized rows and server pivot operations. */
@@ -37,7 +37,7 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   const columnNote=node('p','Filters on hidden columns stay active. Pivot units and currencies stay visible.');columnNote.className='field-help';columnsPanel.append(columnNote);
   const scopePanel=menu('Book / portfolio','scope');
   for(const [key,label] of options.scopes){const select=node('select',undefined,key);select.multiple=true;select.size=4;labeled(scopePanel,label+' · none selected means all',select);}
-  const scopeApply=button('Apply filters','scope-apply');scopeApply.onclick=()=>{options.onApply();};scopePanel.append(scopeApply);
+  const scopeApply=button('Apply filters','scope-apply');scopeApply.onclick=()=>{options.onScope();};scopePanel.append(scopeApply);
   const pivotPanel=menu('Pivot','pivot');const builderHeading=node('div');builderHeading.className='pivot-builder-heading';const introduction=node('div');introduction.append(node('strong','Build a pivot'),node('p','Arrange your rows, columns and values. Drag dimensions between axes or use the arrow controls.'));builderHeading.append(introduction);pivotPanel.append(builderHeading);
   const mode=node('select',undefined,'mode');mode.append(new Option(options.rowLabel,options.rowMode),new Option('Pivot table','pivot'));labeled(pivotPanel,'Display',mode);
   const fields=node('div',undefined,'pivot-fields');fields.className='pivot-builder';fields.hidden=true;

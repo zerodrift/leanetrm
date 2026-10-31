@@ -397,10 +397,11 @@ export function setupAssistant(options:PanelOptions){
     try{
       const place=options.place(),seen=lookingAt(place.report,place.context,options.names(),{trade:options.trade()});
       text('assistant-looking-page',seen.page);text('assistant-looking-shows',seen.shows);text('assistant-looking-context',seen.context);
+      get('assistant-looking-layout').hidden=seen.layout===undefined;text('assistant-looking-layout',seen.layout??'');
       lookedAt=lookingKey(place);askable=seen.askable;
     }catch{
       text('assistant-looking-page','This page');text('assistant-looking-shows','The assistant cannot tell what this page shows. Reload it.');
-      text('assistant-looking-context','');lookedAt='';askable=false;
+      text('assistant-looking-context','');get('assistant-looking-layout').hidden=true;text('assistant-looking-layout','');lookedAt='';askable=false;
     }
   }
   function sync(){

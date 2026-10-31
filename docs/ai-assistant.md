@@ -902,8 +902,9 @@ The tool set is fixed; each tool is switched on per agent version.
   `"layout":{"pane":{"details","charts"},"poppedOut"}`, each a flag: whether its details
   and charts panes were open, each the shown tab of its group in the panes as drawn and
   not put away, and whether the Blotter was in a window of its own (D263). Looking at
-  does not show the layout, so a pane opened or closed after it was shown never refuses
-  the ask; Read current page's result on `blotter` names it, and no other result does.
+  shows the layout as it shows the selection, so a pane opened or closed since it was
+  shown refuses the send as a page change, as any other change does; Read current
+  page's result on `blotter` names it, and no other result does.
   The page is one page identifier per
   navigable view from a closed set, `curves`, `contract_definitions`, `schedules`,
   `power_tous`, `reference_data`, `parties`, `blotter`, `custom_curves`, `jobs` and
@@ -1089,8 +1090,9 @@ credential entries read only "key replaced".
   explicit choice (D45) only while it is listed, otherwise "Choose an agent" with the
   composer disabled. A conversation is locked to its agent; another choice starts a
   new conversation.
-- **Looking at:** the page, selection and context the next question will pin, or that
-  the page is not supported. The ask sends exactly this.
+- **Looking at:** the page, selection, the Blotter's layout where it reports one (D263)
+  and context the next question will pin, or that the page is not supported. The ask
+  sends exactly this.
 - **Conversation:** questions; collapsible step lines; streamed answers, incomplete
   ones marked; cards; "Took you to …" notices with Back, which restores page, record,
   filters and context; and a usage line per answer (tokens by dimension, cost per

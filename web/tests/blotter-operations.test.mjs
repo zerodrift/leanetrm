@@ -47,13 +47,13 @@ test('an operation that is not exactly one of the kinds is refused',()=>{
 test('the dispatcher calls exactly the matching handler with that operation',async()=>{
   const calls=[];
   const handlers=Object.fromEntries(Object.keys(examples).map(kind=>[kind,async op=>{calls.push([kind,op]);}]));
-  const dispatch=createBlotterOperations(handlers);
+  const dispatch=createBlotterOperations(handlers,{busy:()=>false});
   for(const op of Object.values(examples)){calls.length=0;await dispatch(op);assert.deepEqual(calls,[[op.kind,op]]);}
 });
 test('a handler failure reaches the caller',async()=>{
   const handlers=Object.fromEntries(Object.keys(examples).map(kind=>[kind,async()=>{}]));
   handlers.popOut=async()=>{throw Error('refused');};
-  await assert.rejects(createBlotterOperations(handlers)(examples.popOut),/refused/);
+  await assert.rejects(createBlotterOperations(handlers,{busy:()=>false})(examples.popOut,{placed:false}),/refused/);
 });
 
 test('a view name follows the saved-view rule, trimmed',()=>{
@@ -67,7 +67,7 @@ test('kind must be an own field, not an inherited one',()=>{
 test('the dispatcher validates the operation itself and looks handlers up only by own key',async()=>{
   const calls=[];
   const handlers=Object.fromEntries(Object.keys(examples).map(kind=>[kind,async op=>{calls.push(op);}]));
-  const dispatch=createBlotterOperations(handlers);
+  const dispatch=createBlotterOperations(handlers,{busy:()=>false});
   for(const kind of ['constructor','toString','__proto__','hasOwnProperty'])await assert.rejects(dispatch({kind}),Error,kind);
   await assert.rejects(dispatch({kind:'popOut',extra:1}),Error);
   await assert.rejects(dispatch({kind:'collapsePane',pane:'grid',collapsed:true}),Error);
@@ -78,7 +78,7 @@ test('the dispatcher answers what the handler answers, a position selection whet
   const seen=[];
   const handlers=Object.fromEntries(Object.keys(examples).map(kind=>[kind,async(op,via)=>{seen.push([kind,via]);}]));
   handlers.selectPosition=async(op,via)=>{seen.push(['selectPosition',via]);return via.placed;};
-  const dispatch=createBlotterOperations(handlers);
+  const dispatch=createBlotterOperations(handlers,{busy:()=>false});
   assert.equal(await dispatch(examples.selectPosition,{placed:true}),true);
   assert.equal(await dispatch(examples.selectPosition,{placed:false}),false);
   assert.equal(await dispatch(examples.resetLayout,{placed:false}),undefined);
@@ -93,4 +93,15 @@ test('chosen columns must belong to the display mode shown, by the saved-view ru
   for(const [view,columns] of [[trades,['book','tradeCount']],[trades,['book','markMean']],[pivot,['book','presentValue','unit','currency','market']],
     [pivot,['book','presentValue','currency']],[pivot,['book','presentValue','unit']],[prices,['book','markMean','unit','currency']]])
     assert.throws(()=>requireModeColumns(view,columns),/The Blotter operation was refused: /,JSON.stringify([view,columns]));
+});
+
+test('the dispatcher refuses every operation while the page is busy, before any handler, and says so',async()=>{
+  const calls=[];let busy=true;
+  const handlers=Object.fromEntries(Object.keys(examples).map(kind=>[kind,async op=>{calls.push(op.kind);}]));
+  const dispatch=createBlotterOperations(handlers,{busy:()=>busy});
+  for(const op of Object.values(examples))await assert.rejects(dispatch(op,{placed:false}),/The Blotter operation was refused: the Blotter is busy; try again when it is idle\./,op.kind);
+  assert.deepEqual(calls,[]);
+  // A malformed operation is refused for what it is, busy or not.
+  await assert.rejects(dispatch({kind:'popOut',extra:1},{placed:false}),/popOut takes exactly no fields/);
+  busy=false;await dispatch(examples.resetLayout,{placed:false});assert.deepEqual(calls,['resetLayout']);
 });

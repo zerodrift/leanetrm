@@ -107,6 +107,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
       await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
       await check('once the new values land, nothing is marked stale',`(()=>${staleParts}.every(n=>!n.classList.contains('stale'))&&[...document.querySelectorAll('#desk-positions .table-stale-note,#desk-stale-note,#charts-stale-note')].every(n=>n.hidden))()`);
     });
+    // An operation the person dispatches while the page is busy with a read is refused, saying so, and changes nothing.
+    const grouping=await evaluate("document.querySelector('#blotter-row-group').value");
+    await evaluate("window.__placeHold=true;document.querySelector('#blotter-apply').click()");await wait("typeof window.__placeRelease==='function'");
+    await evaluate("(()=>{const s=document.querySelector('#blotter-row-group');s.value=s.value==='market'?'book':'market';s.dispatchEvent(new Event('change'));})()");
+    await check('a grouping chosen while the Blotter is being read is refused because the page is busy, and the grouping shown stays',
+      `!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.includes('The Blotter operation was refused: the Blotter is busy; try again when it is idle.')`
+      +`&&document.querySelector('#blotter-row-group').value===${JSON.stringify(grouping)}`,"[document.querySelector('#error').hidden,document.querySelector('#error').textContent,document.querySelector('#blotter-row-group').value]");
+    await evaluate('window.__placeRelease();window.__placeRelease=undefined');
+    await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
     await kept(`narrowing the window to 1200 px`,()=>command('Emulation.setDeviceMetricsOverride',{width:1200,height,deviceScaleFactor:1,mobile:false}));
     await kept(`widening it to ${width} px again`,()=>command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false}));
     // A risk run's results turn the lens to Risk; Values and Risk then switch in place, the same grid showing the other lens's columns.

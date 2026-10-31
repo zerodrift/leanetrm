@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {positionRows} from '../dist/desk-model.js';
-import {positionSummary,curveView,openCurveTarget,positionTabs,riskEmpty,riskTabView,amendNote,amendControl,curveNote} from '../dist/position-panel.js';
+import {positionSummary,curveView,openCurveTarget,positionTabs,riskEmpty,riskTabView,amendNote,amendControl,amendRefusal,curveNote} from '../dist/position-panel.js';
 import {chartOptions} from '../dist/chart-view.js';
 import {setCurveNames} from '../dist/market-view.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
@@ -242,4 +242,13 @@ test('a PPA the close cannot value states its booked facts and none of its valua
  const labels=h=>positionSummary(h,positionRows([h])[0],formats).facts.map(f=>f.label);
  assert.ok(['Complete PV','Overdue known','Overdue estimated'].every(l=>labels(valued).includes(l)));
  assert.ok(labels(unvalued).includes('Quantity')&&!['Complete PV','Overdue known','Overdue estimated'].some(l=>labels(unvalued).includes(l)));
+});
+
+test('why a position cannot be amended here: a PPA in PPA bookings; another as its note says once its revision is read',()=>{
+  assert.equal(amendRefusal('ppa',true,{allowed:true,reason:null}),'PPA amendments and terminations are made in PPA bookings.');
+  assert.equal(amendRefusal('future',true,{allowed:false,reason:'Read-only trade revision'}),'This position cannot be amended: Read-only trade revision');
+  assert.equal(amendRefusal('financial_swap',false,undefined),'This account cannot amend trades in this market context.');
+  assert.equal(amendRefusal('future',true,{allowed:true,reason:null}),null);
+  // Before its revision is read nothing is known against it: the form's own read decides.
+  assert.equal(amendRefusal('future',true,undefined),null);
 });

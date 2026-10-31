@@ -23,13 +23,13 @@ import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
 import type {BlotterSelection,EntryShown,TradeShown} from './assistant-pages.js';
 import {isPriceMeasure,priceMeanPolicy,blotterColumns,blotterDockRules,defaultBlotterArrangement,deskFields,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,rowGroups,sidebarViews,withoutColumns,type BlotterView,type RowGroup} from './blotter-layout.js';
 import {setupDock} from './dock.js';
-import {createBlotterOperations,refuse,requireModeColumns,type BlotterOperation} from './blotter-operations.js';
+import {createBlotterOperations,refuse,requireModeColumns,type BlotterCaller,type BlotterOperation} from './blotter-operations.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
 import {commodityColors,deskGroups,rowKey,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,projectsFromSeveralCurves,pvChartPanels,severalCurvesShape,signOf,signedText,staleStripItems,summaryStripItems,waitingStripItems,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type StripItem,type StripRisk,type Summary} from './desk-model.js';
 import {liveRefreshPlan,riskRefreshPlan,sameMode,type PanelMode,type RiskRefresh} from './side-panel.js';
-import {setupPositionPanel,type PositionInput,type PositionRisk} from './position-panel.js';
+import {amendRefusal,setupPositionPanel,type PositionInput,type PositionRisk} from './position-panel.js';
 import {setupDetailsPane} from './details-pane.js';
 import {bookedPosition,followedPosition,positionIndex,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
 import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderBookBars,renderDeskCharts,renderPositionMix,renderRunBar,renderSummaryStrip,riskColumns,riskGroupHeader,type LensRowView} from './desk-view.js';
@@ -76,8 +76,9 @@ const numericFields=['tradeCount','lots','quantity','executionPrice','mark','exe
 const curvesPerShapeRead=64;
 
 export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
-  // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused.
-  failed:(error:unknown)=>void;notice:(message:string)=>void;
+  // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused; and
+  // takes that away again once the person acts anew.
+  failed:(error:unknown)=>void;failureCleared:()=>void;notice:(message:string)=>void;
   // The definition revision of the curves the selected close prices; positions of another revision get no shape from it.
   definitionRevision:()=>string;
   // The saved views the person lists in the sidebar, and the one the Blotter shows, whenever the saved views are read or the shown one changes.
@@ -99,7 +100,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const workspace=createTableWorkspace(get('blotter-workspace'),{
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
     pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
-    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Run risk'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(()=>load('directory',false,true)),
+    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Run risk'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(()=>load('directory',false,true)),onScope:()=>void perform({kind:'chooseScope',bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}),
     note:get('new-trade-availability'),body:get('blotter-dock'),rows:get('blotter-pane-grid'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),lens:get('desk-lens'),
   });
   // Existing booking controls share the table toolbar.
@@ -170,7 +171,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       if(chartsMadeWay&&!arrangement.collapsed.includes('charts'))chartsMadeWay=false;
       view.panes=chartsMadeWay?{...arrangement,collapsed:arrangement.collapsed.filter(tab=>tab!=='charts')}:arrangement;
       // A divider dragged or a pane moved, put away or brought back changes the room the open details have: it is sized again once drawn.
-      requestAnimationFrame(fitRoom);
+      // Which panes are open is part of what the page reports.
+      requestAnimationFrame(fitRoom);options.reported();
     },shown:id=>{if(id==='grid')for(const grid of [table,ladderTable])grid?.relayout();}});
   // A page that has just become narrow shows the positions among its tabs, or the details while they show something; one wide again
   // shows the arrangement as it was, with the details expanded while they show something. Focus in the details stays there.
@@ -279,10 +281,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(mode===null){if(options.narrow())dock.reveal('grid');else{dock.collapse('details');giveRoomBack();}fitRoom();}
     renderRisk();options.reported();
   }
-  // The panes stack in one group on a narrow main area: they are placed again when its width changes; a change of its height only sizes
-  // the open details' room again.
+  // The panes stack in one group on a narrow main area: they are placed again when its width changes, which can change which are open,
+  // part of what the page reports; a change of its height only sizes the open details' room again.
   let mainWidth=main.clientWidth;
-  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();}else fitRoom();}).observe(main);
+  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();options.reported();}else fitRoom();}).observe(main);
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
@@ -844,7 +846,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const rowKeys=rawRows.map(row=>{const label=gridColumns.filter(c=>!c.numeric).map(c=>row[c.key]??'').join('\u0000'),repeat=seen.get(label)??0;seen.set(label,repeat+1);return repeat?label+'\u0000'+repeat:label;});
     table=workspace.update('desk-positions',scope+':pivot',gridColumns.map(c=>c.title),rawRows.map(row=>gridColumns.map(c=>row[c.key]??'')),gridColumns.flatMap((c,i)=>c.numeric?[i]:[]),busy,{displayRows,keys:tableColumns,rowKeys,columnGroups:matrix?Object.fromEntries(matrix.columns.filter(c=>c.groupKey).map(c=>[c.key,{key:c.groupKey!,title:c.groupTitle!,measureTitle:c.measureTitle!}])):undefined,layout:view.grid,onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,visible:gridVisible,initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true});
     // No column chosen is no choice: the choices are drawn again as they were.
-    workspace.columns(columns,columns.filter((_,i)=>visible[i]).map(c=>c[0]),selected=>{if(busy())return;if(selected.length)void perform({kind:'chooseColumns',columns:selected});else render();},required);
+    workspace.columns(columns,columns.filter((_,i)=>visible[i]).map(c=>c[0]),selected=>{if(selected.length)void perform({kind:'chooseColumns',columns:selected});else if(!busy())render();},required);
     get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(required.includes(n.value)){n.checked=true;n.disabled=true;}});
   }
 
@@ -1075,7 +1077,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   field('blotter-mode').onchange=()=>{if(busy())return;get('blotter-pivot-fields').hidden=field('blotter-mode').value!=='pivot';};
   // Grouping arranges the rows already read; every grouping's subtotals came with them. A grouping the read cannot show is
   // refused in the banner, and the grouping on screen stays.
-  field('blotter-row-group').onchange=()=>void perform({kind:'groupRows',rowGroup:(field('blotter-row-group').value||null) as RowGroup});
+  // The control shows the grouping the Blotter shows, also after one it refused.
+  field('blotter-row-group').onchange=()=>void perform({kind:'groupRows',rowGroup:(field('blotter-row-group').value||null) as RowGroup}).then(()=>{field('blotter-row-group').value=view.rowGroup??'';});
   get('blotter-apply').onclick=()=>guarded(load);
   get('blotter-save').onclick=()=>guarded(async()=>{
     const draft=readView();const next=parseBlotterViews(JSON.stringify([{...draft,name:field('blotter-name').value}]))[0];
@@ -1119,22 +1122,23 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     view=next;viewControls();await load();
   }
   // Every Blotter action is an operation (blotter-operations.ts), which the toolbar, keys, panes and menus dispatch here, as the assistant
-  // will: each kind has the one handler below. The person's own ↓ ↑ in the grid and ◂ ▸ in the details place the row they move to
-  // (`placed`), so showing its position does not scroll to it. Sorting and filtering in the grid's headers, moving, resizing and putting
-  // panes away in the dock, and the details' own collapse belong to those components, which tell the view (onLayout, changed, collapsed).
-  type Via={placed:boolean};
-  const operate=createBlotterOperations<Via>({
+  // will: each kind has the one handler below, and none runs while the page is busy. Sorting and filtering in the grid's headers, moving,
+  // resizing and putting panes away in the dock, and the details' own collapse belong to those components, which tell the view (onLayout,
+  // changed, collapsed).
+  const operate=createBlotterOperations({
     selectView:async({name})=>guarded(async()=>{
       if(earlierViews.includes(name)){field('blotter-name').value=name;options.notice(earlierFormatNote(name));return;}
       const saved=savedViews.find(v=>v.name===name);if(!saved)throw refuse(`no saved view is named ${name}`);
       useSaved(saved);workspace.closeMenus();await load();
     },()=>{field('blotter-saved').value=draftBase?.name??'';}),
-    // The books and portfolios are those the scope lists offer; the Blotter is read again for them, its other controls as they stand.
-    chooseScope:async({bookIds,portfolioIds})=>{
+    // The books and portfolios are those the scope lists offer once the person has said what the details held may go; the Blotter is read
+    // again for them, its other controls as they stand. One no longer listed is refused, never dropped.
+    chooseScope:async({bookIds,portfolioIds})=>guarded(async()=>{
       const scope=[['blotter-books',bookIds],['blotter-portfolios',portfolioIds]] as const;
       for(const [id,ids] of scope)if(ids.some(chosen=>!Array.from(get<HTMLSelectElement>(id).options,o=>o.value).includes(chosen)))throw refuse('a book or portfolio is not one the Blotter lists');
-      await guarded(async()=>{for(const [id,ids] of scope)for(const option of get<HTMLSelectElement>(id).options)option.selected=ids.includes(option.value);await load('directory',false,true);});
-    },
+      for(const [id,ids] of scope)for(const option of get<HTMLSelectElement>(id).options)option.selected=ids.includes(option.value);
+      await load('directory',false,true);
+    }),
     // Grouping arranges the rows already read; every grouping's subtotals came with them. A grouping the read cannot show is refused in the
     // banner, and the grouping on screen stays.
     groupRows:async({rowGroup})=>act(async()=>{
@@ -1143,7 +1147,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     }),
     sort:async({sort})=>act(async()=>{rowColumns(sort.map(s=>s.key));captureLayout();view.grid={...view.grid,sort};render();}),
     filter:async({query,columns})=>act(async()=>{rowColumns(Object.keys(columns));captureLayout();view.query=query;view.columnFilters={...columns};render();}),
-    chooseColumns:async({columns})=>{if(busy())return;requireModeColumns(view,columns);captureLayout();view.columns=columns;render();},
+    chooseColumns:async({columns})=>{requireModeColumns(view,columns);captureLayout();view.columns=columns;render();},
     // A position opens only from the read on screen; no position closes the details that show one, asking first about their edits.
     selectPosition:async({key},{placed})=>{
       if(key===null){if(panel.current()?.kind==='position')await detailsPane.collapse();return panel.current()?.kind!=='position';}
@@ -1154,26 +1158,30 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     },
     details:async({open})=>showDetails(open),
     arrange:async({panes})=>{
-      if(busy())return;
       if(panes.collapsed.includes('details')!==dock.arrangement().collapsed.includes('details'))throw refuse('the details open and close with what they show');
       chartsMadeWay=false;view.panes=panes;dock.set(panes);requestAnimationFrame(fitRoom);
     },
     collapsePane:async({pane,collapsed})=>{if(pane==='details')await showDetails(!collapsed);else if(collapsed)dock.collapse(pane);else dock.reveal(pane);},
-    resetLayout:async()=>{if(busy())return;chartsMadeWay=false;view.panes=defaultBlotterArrangement();dock.set(view.panes);},
+    resetLayout:async()=>{chartsMadeWay=false;view.panes=defaultBlotterArrangement();dock.set(view.panes);},
     // Refused until the pop-out and close-out drafts are built.
     popOut:async()=>{throw refuse('the Blotter does not open in a window of its own yet');},
     bringBack:async()=>{throw refuse('the Blotter is not in a window of its own');},
     draftCloseOut:async()=>{throw refuse('close-out drafts are not offered yet');},
-    // A position is amended from its details, whose Amend offers it for the revision they read.
+    // A position is amended from its details, for the revision they read: a PPA, an account that cannot amend or a revision that cannot be
+    // amended is refused with why.
     amend:async({key})=>{
       const h=holdings?.holdings.find(h=>rowKey(h)===key),shown=deskPanel.shown();
       if(!h)throw refuse('that position is not among the rows on screen');
-      if(!catalog?.canAmendTrades)throw refuse('your access does not amend trades');
       if(!shown||rowKey(shown)!==key)throw refuse('a position is amended from its details, which do not show it');
+      const why=amendRefusal(h.instrumentType,!!catalog?.canAmendTrades,position.amendState(h));if(why)throw Error(why);
       await act(()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision)));
-    }});
-  // The person's own actions: one refused, before its handler or by it, says why as any failed action does, and shows no position.
-  function perform<O extends BlotterOperation>(operation:O,via:Via={placed:false}){return operate(operation,via).catch(error=>{options.failed(error);return undefined;});}
+    }},{busy});
+  // The person's own actions: each takes away what an earlier refusal said, and one refused, before its handler or by it, says why as any
+  // failed action does, and shows no position.
+  function perform<O extends BlotterOperation>(operation:O,caller:BlotterCaller={placed:false}){
+    options.failureCleared();
+    return operate(operation,caller).catch(error=>{options.failed(error);return undefined;});
+  }
   // Sorting and filtering name columns of the rows on screen, never one a read shows for itself alone.
   function rowColumns(keys:readonly string[]){
     if(!holdings||!table)throw refuse('the Blotter shows no rows to sort or filter');
@@ -1187,7 +1195,6 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(panel.current()===null)throw refuse('the details open on what they show, and show nothing');
     panel.reveal();
   }
-  get('blotter-scope-apply').onclick=()=>void perform({kind:'chooseScope',bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')});
   // The trade the panel shows, as the page reports it: its position, at the revision the Blotter holds, or at the one its form shows
   // while its form is open, which can be an earlier one.
   function shownTrade():TradeShown|null{
