@@ -4,13 +4,20 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // Something on the page a person can see: not hidden, and drawn.
   const shown=selector=>`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return !!n&&!n.hidden&&n.getClientRects().length>0;})()`;
   const valuedRows="document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)').length";
-  const strip="[...document.querySelectorAll('#blotter-strip .strip-item')].map(i=>({label:i.querySelector('.strip-label').textContent,value:i.querySelector('.strip-value').textContent,state:i.dataset.state,flag:i.querySelector('.strip-stale')?.textContent??null}))";
+  const strip="[...document.querySelectorAll('#blotter-strip .strip-item')].map(i=>({label:i.querySelector('.strip-label').textContent,value:i.querySelector('.strip-value').textContent,state:i.dataset.state,reason:i.querySelector('.strip-reason')?.textContent??null,flag:i.querySelector('.strip-stale')?.textContent??null}))";
+  const moneyTotals=['Swap PV','Futures execution P&L','Heat-rate PV','PPA value excluding overdue cash'];
+  // The person's place in the rows: the selected row, the grid's scroll offset and the first row in its view.
+  const place="(()=>{const h=document.querySelector('#desk-positions .tabulator-tableholder'),top=h.getBoundingClientRect().top;return {selected:document.querySelector('#desk-positions .selected-row')?.dataset.rowKey??null,scroll:h.scrollTop,first:[...h.querySelectorAll('.tabulator-row[data-row-key]')].find(r=>r.getBoundingClientRect().bottom>top+1)?.dataset.rowKey??null};})()";
+  // The toolbar a failed read leaves usable: book scope, the As-of date, New trade, Refresh and Retry.
+  const toolbarUsable="!document.querySelector('#blotter-scope').inert&&!document.querySelector('#snapshot').disabled&&!document.querySelector('#futures-new').disabled&&!document.querySelector('#futures-refresh').disabled&&!document.querySelector('#blotter-retry').disabled";
+  const notOffered="document.querySelector('#desk-positions [role=grid]')?.getAttribute('aria-disabled')==='true'&&getComputedStyle(document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')).cursor==='default'";
   // A panel left on the choice of a product: asking for one, with neither chosen, and with no form of either in it.
   const choice="(()=>{const panel=document.querySelector('#position-details');return !panel.hidden&&panel.dataset.mode==='new'&&panel.getAttribute('aria-label')==='New trade'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.getAttribute('aria-pressed')==='false')&&document.querySelector('#position-details-form').hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#swap-editing').hidden&&document.querySelector('#position-details-view').textContent.includes('Choose Future or Swap');})()";
-  await command('Page.enable');await command('Runtime.enable');await command('Page.navigate',{url});
+  // Wide enough that the positions and the details show side by side, as the place checks need.
+  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});await command('Page.navigate',{url});
   await wait(idle+"&&document.querySelectorAll('.curve-button').length>0");
   await evaluate(`(()=>{const send=window.fetch;window.__loadingOriginalFetch=send;window.__loadingReads=[];window.fetch=async(input,init)=>{
-    if(String(input)==='/api/trading/positions'){const response=await send(input,init);window.__loadingFacts=await response.clone().json();return response;}
+    if(String(input)==='/api/trading/positions'){if(window.__holdFacts){window.__holdFacts=false;await new Promise(resolve=>{window.__releaseFacts=resolve;});}const response=await send(input,init);window.__loadingFacts=await response.clone().json();return response;}
     if(String(input)==='/api/trading/blotter'&&window.__holdChart){window.__holdChart=false;await new Promise(resolve=>{window.__releaseChart=resolve;});}
     if(String(input)!=='/api/trading/workspace')return send(input,init);
     const body=JSON.parse(init.body);window.__loadingReads.push({body});
@@ -27,28 +34,55 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     await persona('trader');
     const selected=await evaluate("[...document.querySelector('#snapshot').options].at(-1).value");
     await set('#snapshot',selected);
-    // First load: no row is drawn before its values arrive; a progress bar and the count being valued say what is happening.
-    await evaluate("window.__holdValuation=true;document.querySelector('#nav-futures').click()");
-    await wait("typeof window.__releaseValuation==='function'&&!!window.__loadingFacts&&document.body.getAttribute('aria-busy')==='false'");
+    // A first load whose valuation fails draws no row, never a zero total, and says why with a Retry; the toolbar stays usable.
+    await evaluate("window.__failValuation=true;document.querySelector('#nav-futures').click()");
+    await wait("document.querySelector('#futures-page').dataset.pricingState==='failed'&&"+idle);
+    await check('a first load whose valuation fails draws no row and says why, with a Retry in the grid pane',
+      `${valuedRows}===0&&${shown('#blotter-load-status')}&&document.querySelector('#blotter-load-text').textContent.startsWith('Valuation failed · ')&&${shown('#blotter-retry')}&&document.querySelector('#blotter-pane-grid').contains(document.querySelector('#blotter-retry'))&&document.querySelector('#blotter-progress').hidden`,
+      "document.querySelector('#blotter-load-status').textContent");
+    await check('and its summary strip lists every money total Unavailable, never zero, pointing at Retry',`(()=>{const items=${strip},totals=${JSON.stringify(moneyTotals)};return totals.every(label=>items.some(i=>i.label===label&&i.value==='Unavailable'&&i.state==='unavailable'&&i.reason==='Retry to value again'))&&items.filter(i=>totals.includes(i.label)).every(i=>i.value==='Unavailable');})()`,strip);
+    await check('and the toolbar stays usable: book scope, As of, New trade, Refresh and Retry',toolbarUsable,`[...document.querySelectorAll('#blotter-scope,#snapshot,#futures-new,#futures-refresh,#blotter-retry')].map(n=>[n.id,n.inert,n.disabled])`);
+    // First load: no row is drawn before its values arrive; the booked count and the valuation are read together, and the status counts the
+    // positions being valued once the count is in.
+    await evaluate("window.__holdFacts=true;window.__holdValuation=true;document.querySelector('#blotter-retry').click()");
+    await wait("typeof window.__releaseFacts==='function'&&typeof window.__releaseValuation==='function'");
+    await check('the count of booked positions and their valuation are read together, the status saying Valuing positions until the count is in',
+      `${valuedRows}===0&&${shown('#blotter-progress')}&&document.querySelector('#blotter-load-text').textContent==='Valuing positions'`,"document.querySelector('#blotter-load-status').textContent");
+    await evaluate('window.__releaseFacts();window.__releaseFacts=null');
+    await wait("!!window.__loadingFacts&&document.querySelector('#blotter-load-text').textContent==='Valuing '+window.__loadingFacts.total+' positions'&&document.body.getAttribute('aria-busy')==='false'");
     await check('while the first valuation runs, no row is drawn, the progress bar shows and the status counts the positions being valued',
-      `${valuedRows}===0&&${shown('#blotter-progress')}&&${shown('#blotter-load-status')}&&document.querySelector('#blotter-load-text').textContent==='Valuing '+window.__loadingFacts.total+' positions'&&window.__loadingFacts.total>0`,
+      `${valuedRows}===0&&${shown('#blotter-progress')}&&${shown('#blotter-load-status')}&&window.__loadingFacts.total>0`,
       "({rows:"+valuedRows+",progress:document.querySelector('#blotter-progress')?.hidden,status:document.querySelector('#blotter-load-status')?.textContent,total:window.__loadingFacts?.total})");
-    // The panes may share tabs at this window's size: the strip's own pane is drawn, whichever tab is in front.
-    await check('and the summary strip, drawn, says its totals are pending',`(()=>{const items=${strip};return !document.querySelector('#desk').hidden&&['Swap PV','Futures execution P&L'].every(label=>items.some(i=>i.label===label&&i.value==='Pending'&&i.state==='pending'));})()`,strip);
+    await check('and the summary strip, on screen, lists every money total pending',`(()=>{const items=${strip};return ${shown('#blotter-strip')}&&${JSON.stringify(moneyTotals)}.every(label=>items.some(i=>i.label===label&&i.value==='Pending'&&i.state==='pending'));})()`,strip);
     await evaluate('window.__releaseValuation();window.__releaseValuation=null');
     await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-export').disabled&&"+idle);
-    await check('once valued, the rows appear and the progress bar and status go',`${valuedRows}>0&&document.querySelector('#blotter-progress').hidden&&document.querySelector('#blotter-load-status').hidden`);
-    // A refresh that fails keeps the rows and summary it had, marked stale, with the reason and a Retry.
-    const before=await evaluate(strip);
+    await check('once valued, the rows appear and the progress bar and status go',`${valuedRows}>0&&document.querySelector('#blotter-progress').hidden&&document.querySelector('#blotter-load-status').hidden&&document.querySelector('#desk-positions [role=grid]').getAttribute('aria-disabled')!=='true'`);
+    // A refresh that fails keeps the rows and summary it had, marked stale, with the reason and a Retry, and the person's place in them.
+    const pressed=await evaluate(`(async()=>{const h=document.querySelector('#desk-positions .tabulator-tableholder');h.scrollTop=Math.floor((h.scrollHeight-h.clientHeight)/2);
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const box=h.getBoundingClientRect();
+      return [...h.querySelectorAll('.tabulator-row[data-row-key]')].find(r=>{const b=r.getBoundingClientRect();return b.top>=box.top&&b.bottom<=box.bottom;}).dataset.rowKey;})()`);
+    await click(`#desk-positions .tabulator-row[data-row-key="${pressed}"]`);
+    await wait("document.querySelector('#position-details')?.hidden===false&&"+idle);
+    const at=await evaluate(place),before=await evaluate(strip);
     await evaluate("window.__failValuation=true;document.querySelector('#futures-refresh').click()");
     await wait("document.querySelector('#futures-page').dataset.pricingState==='failed'&&"+idle);
     await check('a failed refresh keeps the rows on screen, marked stale, with the reason and a Retry in the grid pane',
       `${valuedRows}>0&&document.querySelector('#desk-positions .standard-data-grid').classList.contains('stale')&&${shown('#blotter-load-status')}&&document.querySelector('#blotter-load-text').textContent.startsWith('Valuation failed · ')&&document.querySelector('#blotter-load-text').textContent.length>'Valuation failed · '.length&&${shown('#blotter-retry')}&&document.querySelector('#blotter-pane-grid').contains(document.querySelector('#blotter-load-status'))&&document.querySelector('#blotter-progress').hidden`,
-      "({status:document.querySelector('#blotter-load-status').textContent,stale:document.querySelector('#desk-positions .standard-data-grid')?.className})");
-    await check('and the summary strip keeps its last values, each flagged Stale',`(()=>{const items=${strip},last=${JSON.stringify(before)};return items.length===last.length&&items.every((i,n)=>i.label===last[n].label&&i.value===last[n].value&&i.state==='stale'&&i.flag==='Stale');})()`,strip);
-    await click('#blotter-retry');
+      "({status:document.querySelector('#blotter-load-status').textContent,stale:document.querySelector('#desk-positions .standard-data-grid')?.className,progress:document.querySelector('#blotter-progress').hidden})");
+    await check('and those rows are not offered: the grid says so, and they show no pointer',notOffered,"({disabled:document.querySelector('#desk-positions [role=grid]')?.getAttribute('aria-disabled'),cursor:getComputedStyle(document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')).cursor})");
+    await check('and the toolbar stays usable',toolbarUsable,"[...document.querySelectorAll('#blotter-scope,#snapshot,#futures-new,#futures-refresh,#blotter-retry')].map(n=>[n.id,n.inert,n.disabled])");
+    await check('and the summary strip keeps its last values and their own reasons, each flagged Stale',`(()=>{const items=${strip},last=${JSON.stringify(before)};return items.length===last.length&&items.every((i,n)=>i.label===last[n].label&&i.value===last[n].value&&i.state===last[n].state&&i.reason===last[n].reason&&i.flag==='Stale');})()`,strip);
+    await check('and the person keeps their place: the selected row, the scroll offset and the first row in view',`JSON.stringify(${place})===${JSON.stringify(JSON.stringify(at))}`,place);
+    await evaluate("window.__failValuation=true;document.querySelector('#blotter-retry').click()");
+    await wait("document.querySelector('#futures-page').dataset.pricingState==='failed'&&"+idle);
+    await check('a Retry that fails again still keeps the rows stale, in place, with the earlier strip',`${valuedRows}>0&&document.querySelector('#desk-positions .standard-data-grid').classList.contains('stale')&&JSON.stringify(${place})===${JSON.stringify(JSON.stringify(at))}&&(()=>{const items=${strip};return items.length===${before.length}&&items.every(i=>i.flag==='Stale');})()`,`[${place},${strip}]`);
+    await evaluate("window.__holdValuation=true;document.querySelector('#blotter-retry').click()");await wait("typeof window.__releaseValuation==='function'");
+    await check('while the Retry is read, the rows stay on screen stale, in place',`${valuedRows}>0&&document.querySelector('#desk-positions .standard-data-grid').classList.contains('stale')&&JSON.stringify(${place})===${JSON.stringify(JSON.stringify(at))}`,place);
+    await evaluate('window.__releaseValuation();window.__releaseValuation=null');
     await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
-    await check('Retry values the Blotter again, and nothing stays marked stale',`${valuedRows}>0&&!document.querySelector('#desk-positions .standard-data-grid').classList.contains('stale')&&document.querySelector('#blotter-load-status').hidden&&(${strip}).every(i=>i.state!=='stale')`);
+    await check('and once valued, the values replace the stale ones in place: the same selected row and first row in view',`(()=>{const now=${place},was=${JSON.stringify(at)};return now.selected===was.selected&&now.first===was.first;})()`,place);
+    await click('#details-collapse');
+    await check('Retry values the Blotter again, and nothing stays marked stale',`${valuedRows}>0&&!document.querySelector('#desk-positions .standard-data-grid').classList.contains('stale')&&document.querySelector('#blotter-load-status').hidden&&(${strip}).every(i=>i.flag===null)&&document.querySelector('#desk-positions [role=grid]').getAttribute('aria-disabled')!=='true'`);
     await check('Blotter reads a directory and usable holdings without pricing booking choices',"(()=>{const read=window.__loadingReads.at(-1);return read.body.bookingCatalog==='directory'&&read.data.catalog.kind==='directory'&&!Object.hasOwn(read.data.catalog,'contracts')&&document.querySelector('#futures-contract').options.length===1&&!document.querySelector('#futures-new').disabled;})()");
     const count=await evaluate('window.__loadingReads.length');
     await startNewTrade({click,wait});

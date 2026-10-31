@@ -1664,7 +1664,7 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .strip-reason{font-size:11.5px;color:var(--text-2);overflow-wrap:anywhere}
 .strip-item[data-state=pending] .strip-value,.strip-item[data-state=unavailable] .strip-value{font-size:14px;color:var(--text-2)}
 .strip-item[data-state=pending] .strip-reason,.strip-item[data-state=unavailable] .strip-reason{color:var(--warn)}
-.strip-item[data-state=stale] .strip-value{color:var(--text-2)}
+.strip-item[data-stale] .strip-value{color:var(--text-2)}
 .strip-stale{font-size:10.5px;font-weight:650;letter-spacing:.3px;text-transform:uppercase;color:var(--warn);cursor:help}
 /* A read under way: a thin bar over the rows, moving while nothing says how far the read has come, and the status line beneath it. */
 .blotter-progress{position:relative;height:3px;margin:0 12px;overflow:hidden;border-radius:2px;background:var(--surface-3)}
@@ -1673,6 +1673,8 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 @media(prefers-reduced-motion:reduce){.blotter-progress::after{animation:none;width:100%;opacity:.5}}
 .blotter-load-status{display:flex;align-items:center;gap:10px;margin:0;padding:6px 12px;font-size:12.5px;color:var(--text-2)}
 .blotter-load-status button{padding:3px 10px;font-size:12px}
+/* Rows kept stale from the previous read are not offered: opening one only says why. */
+.table-workspace #desk-positions [role=grid][aria-disabled=true] .tabulator-row.openable-row{cursor:default}
 .desk-book-bars{display:grid;gap:5px}.desk-book-bars+.desk-book-bars{margin-top:10px;padding-top:8px;border-top:1px solid var(--border)}
 #desk-chart-mix .desk-legend{margin-top:8px}
 #blotter-pane-charts{display:grid;gap:12px}

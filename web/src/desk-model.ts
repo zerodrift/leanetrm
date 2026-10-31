@@ -153,8 +153,8 @@ export function summaryTiles(summaries:readonly Summary[]):Tile[]{
 }
 
 /** One figure of the summary strip: its words, its display text and, for an amount, the backend's exact decimal string, and whether it
- *  states the complete scope, or why not; or, stale, that it is the figure of the previous read, kept on screen, and why. */
-export type StripItem={label:string;value:string;exact?:string;currency?:string;sign?:'pos'|'neg'|'zero';state:'complete'|'pending'|'unavailable'|'stale';reason?:string};
+ *  states the complete scope, or why not; and, when it is the figure of the previous read kept on screen, why it is stale. */
+export type StripItem={label:string;value:string;exact?:string;currency?:string;sign?:'pos'|'neg'|'zero';state:'complete'|'pending'|'unavailable';reason?:string;stale?:string};
 /** The desk summaries of the read on screen; or why there are none yet, with the money totals the positions read will have. */
 export type StripSummaries=readonly Summary[]|{state:'pending'|'unavailable';reason:string;totals:readonly Tile['key'][]};
 /** The positions read, and how many of them the close cannot value, which is not known before the whole scope is valued. */
@@ -189,8 +189,13 @@ export function summaryStripItems(summaries:StripSummaries,positions:StripPositi
   return [...totals,{label:'Positions',value:String(positions.count),state:'complete'},unvalued,...status];
 }
 
-/** The strip of the previous read, kept on screen while the Blotter is read again or after that read failed: each figure as it was, stale, with why. */
-export function staleStripItems(items:readonly StripItem[],reason:string):StripItem[]{return items.map(item=>({...item,state:'stale',reason}));}
+/** The strip of the previous read, kept on screen while the Blotter is read again or after that read failed: each figure as it was, with
+ *  its own reason, and why it is stale. */
+export function staleStripItems(items:readonly StripItem[],reason:string):StripItem[]{return items.map(item=>({...item,stale:reason}));}
+/** The strip before any values: every money total the Blotter can show, pending or unavailable with why, beside the positions read. */
+export function waitingStripItems(why:{state:'pending'|'unavailable';reason:string},count:number,money:Format):StripItem[]{
+  return summaryStripItems({...why,totals:Object.keys(tileLabels) as Tile['key'][]},{count,unvalued:null},{state:'none',reason:'Available after the complete valuation'},money);
+}
 
 export type MixSegment={key:string;commodity:string;commodityName:string;instrumentType:string;label:string;trades:number};
 export type PositionsTile={count:number;segments:MixSegment[];note:string|null};
