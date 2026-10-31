@@ -230,7 +230,7 @@ app.Use(async (context,next)=>
     {
         var (status,code,message)=Failure(e,apiPath,context);
         if(e is PostgresException pg)app.Logger.LogWarning("Database operation rejected: {SqlState}",pg.SqlState);
-        if (status==500)
+        if (status is 500 or 503)
         {
             app.Logger.LogError("Preview operation failed: {ErrorType}",e.GetType().Name);
             var inner=e.InnerException;
