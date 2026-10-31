@@ -151,7 +151,7 @@ public static class ScheduleOperations
     };
     public static ImmutableHashSet<string> BindingKinds { get; }=ImmutableHashSet.Create(StringComparer.Ordinal,
         "contract_price","index_fixing","curve_interval","custom_output","quantity_source","asset","clock","calendar",
-        "rate_curve","sibling_quantity","quantity_unit","currency","location","index","quote");
+        "rate_curve","sibling_quantity","quantity_unit","currency","location","index","quote","gas_assignment","gas_product");
     public static void Require(ScheduleDefinitionRow row)
     {
         if(row.Operation is null||row.Parameters is null||!Parameters.TryGetValue(row.Operation,out var keys)||

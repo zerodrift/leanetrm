@@ -1,5 +1,6 @@
 using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.Gas;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -8,6 +9,16 @@ public sealed partial class ScheduleMarketSources
     private (ExactUnitPrice Price,SchedulePriceFacts State) Dated(BookedSideInstruction instruction,CurveBuild market)
     {
         var row=instruction.Output;var bindings=instruction.Bindings.ToDictionary(binding=>binding.Port);
+        GasValuationAssignment? gasAssignment=null;
+        if(bindings.TryGetValue("assignment",out var assignment))
+        {
+            var matching=gasAssignments.Where(a=>a.Key==assignment.Reference&&a.Point==bindings["point"].Reference&&
+                a.Product==bindings["product"].Reference&&DefinitionIdentity.For(a).Canonical==assignment.Coordinate&&
+                a.From==row.ObservationFrom&&a.To==row.ObservationTo&&a.Lookup.Market==bindings["market"].Market&&
+                a.Quote.Key==bindings["quote"].Reference&&a.Settlement.SelectedIndex==bindings["index"].Reference).ToArray();
+            if(matching.Length!=1)throw Invalid("The gas price requires its exact admitted point/product assignment and complete definition.");
+            gasAssignment=matching[0];
+        }
         if(!bindings.ContainsKey("market")||!bindings.ContainsKey("index")||!bindings.ContainsKey("quote"))
             throw Invalid("A scalar price requires the supported exact dated market, index and quote bindings.");
         var candidates=dated.Where(lookup=>lookup.Market==bindings["market"].Market&&lookup.Index==bindings["index"].Reference&&
@@ -17,6 +28,8 @@ public sealed partial class ScheduleMarketSources
             (bindings.TryGetValue("projection",out var projection)?lookup.CustomProjection is {} p&&p.CatalogId==projection.EntityCatalog&&p.CurveId==projection.Entity&&
                 p.Version==projection.Version&&p.OutputNode==projection.Coordinate&&p.Position==projection.Position:lookup.CustomProjection is null)).Distinct().ToArray();
         if(candidates.Length!=1)throw Invalid("A stored dated lookup requires one exact admitted contract, quote, fixing and projection definition.");
+        if(gasAssignment is not null&&candidates[0]!=gasAssignment.Lookup)
+            throw Invalid("Gas price metadata must retain the complete qualified assignment lookup, including fixing time.");
         var resolved=PeriodPriceSelector.Resolve(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default));
         RequireUnit(resolved.Price,row);
         return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected);

@@ -144,7 +144,7 @@ public sealed partial class BookedSideProgram
             {
                 var lifecycle=row.Parameters["lifecycle"];
                 var dated=lifecycle=="undue_payment_v1";
-                if(lifecycle is not("undue_payment_v1" or "interval_payment_v1" or "interval_delivery_v1" or "certificate_holding_v1")||
+                if(lifecycle is not("undue_payment_v1" or "interval_payment_v1" or "interval_delivery_v1" or "certificate_holding_v1" or "future_gas_delivery_v1")||
                     row.ValueAt is not {} valueAt||!TradingInstant.IsSupported(valueAt)||row.Currency is null||
                     dated!=(row.Grid is null)||row.Parameters["measure"]!=(dated?"present_value_v1":"value_excluding_overdue_v1"))
                     throw Error("An output requires its explicit supported lifecycle, measure, value date and delivery shape.");

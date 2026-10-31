@@ -29,6 +29,10 @@ internal sealed record RetainedScheduleTerms(DefinitionRevision Definitions,Refe
             definitions.Add(definition.SideId==side.Id?definition:definition.WithSideId(side.Id));
         }
         RetainedScheduleLimits.Require(definitions);
+        if(Instrument is OpenEtrm.MarketData.Gas.PhysicalGasInstrument gas)
+            outputs.Add(new(0,"quantity",gas.UnitQuantity.Specification,DefinitionIdentity.For(gas.Delivery.Quantities).Canonical));
+        if(Instrument is OpenEtrm.MarketData.Gas.GasCompositionInstrument composition)
+            for(var n=0;n<composition.Physical.Length;n++)outputs.Add(new(n,"quantity",composition.UnitQuantity.Specification,DefinitionIdentity.For(composition.Physical[n].Side.Quantities).Canonical));
         if(Instrument is PpaInstrument ppa)
         {
             for(var slot=0;slot<ppa.Memberships.Length;slot++)
@@ -456,7 +460,7 @@ internal sealed partial class RetainedScheduleStore
         if(binding.Reference is {} reference)
         {
             row["reference_catalog_id"]=reference.Revision.CatalogId;row["reference_revision_id"]=reference.Revision.RevisionId;
-            row[binding.Kind switch{"index_fixing"=>"source_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code","sibling_quantity"=>"quantity_code",_=>throw Error("This binding kind cannot carry a reference key.")}]=reference.Code;
+            row[binding.Kind switch{"index_fixing"=>"source_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code","sibling_quantity"=>"quantity_code","gas_assignment"=>"gas_assignment_code","gas_product"=>"gas_product_code",_=>throw Error("This binding kind cannot carry a reference key.")}]=reference.Code;
         }
         if(binding.Market is {} market)
         {
@@ -469,7 +473,7 @@ internal sealed partial class RetainedScheduleStore
         if(binding.Definitions is {} definitions)
         {
             row["source_catalog_id"]=definitions.CatalogId;row["definition_revision_id"]=definitions.RevisionId;
-            row[binding.Kind switch{"curve_interval"=>shaped is true?"shaped_curve_code":"curve_code","quantity_source"=>"quantity_source_code","asset"=>"asset_code",_=>throw Error("This binding kind cannot carry a definition key.")}]=binding.Code??throw Error("A definition binding requires its exact code.");
+            row[binding.Kind switch{"curve_interval"=>shaped is true?"shaped_curve_code":"curve_code","quantity_source"=>"quantity_source_code","asset"=>"asset_code","gas_assignment"=>"gas_assignment_code",_=>throw Error("This binding kind cannot carry a definition key.")}]=binding.Code??throw Error("A definition binding requires its exact code.");
         }
         if(binding.Kind=="custom_output")
         {
@@ -494,13 +498,13 @@ internal sealed partial class RetainedScheduleStore
     private static ScheduleDefinitionBinding ReadBinding(ScheduleFields row)
     {
         var kind=row.Text("kind");ReferenceKey? reference=null;CurveRequest? market=null;SeriesKey? series=null;DefinitionRevision? definitions=null;string? code=null;
-        var referenceCode=kind switch{"index_fixing"=>"source_code","sibling_quantity"=>"quantity_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code",_=>null};
+        var referenceCode=kind switch{"index_fixing"=>"source_code","sibling_quantity"=>"quantity_code","location"=>"location_code","index"=>"index_code","quote"=>"quote_code","gas_assignment"=>"gas_assignment_code","gas_product"=>"gas_product_code",_=>null};
         if(referenceCode is not null&&row.OptionalText(referenceCode) is {} value)reference=new(new(row.Id("reference_catalog_id"),row.Id("reference_revision_id")),value);
         if(row.OptionalId("contract_id") is {} contract)
         {var d=new DefinitionRevision(row.Id("source_catalog_id"),row.Id("definition_revision_id"));market=new(new(d,row.Text("curve_code")),new(d,contract));}
         if(row.OptionalId("series_id") is {} source)series=new(new(row.Id("source_catalog_id"),row.Id("definition_revision_id")),source);
-        if(kind is "curve_interval" or "quantity_source" or "asset")
-        {definitions=new(row.Id("source_catalog_id"),row.Id("definition_revision_id"));code=row.OptionalText(kind switch{"curve_interval"=>row.OptionalText("shaped_curve_code") is null?"curve_code":"shaped_curve_code","quantity_source"=>"quantity_source_code",_=>"asset_code"});}
+        if(kind is "curve_interval" or "quantity_source" or "asset" or "gas_assignment")
+        {definitions=new(row.Id("source_catalog_id"),row.Id("definition_revision_id"));code=row.OptionalText(kind switch{"curve_interval"=>row.OptionalText("shaped_curve_code") is null?"curve_code":"shaped_curve_code","quantity_source"=>"quantity_source_code","gas_assignment"=>"gas_assignment_code",_=>"asset_code"});}
         return new(row.Integer("row_ordinal"),row.Text("port"),kind,reference,market,series,row.OptionalId("custom_curve_id"),row.OptionalInteger("custom_version"),row.OptionalText("coordinate"),row.OptionalInteger("position"),definitions,code,row.OptionalId("custom_catalog_id"));
     }
 }

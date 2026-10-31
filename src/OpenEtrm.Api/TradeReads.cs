@@ -108,7 +108,7 @@ public sealed partial class TradeReads
         =>ReadBound(connection,view,async()=>
             (readWithoutMarket is null?null:await readWithoutMarket())??await read(await database.Read(connection,ct,
                 observationIds:view.Frame.ObservationIds,referenceScope:referenceScope,observationScope:observationScope)),ct);
-    private async Task<object> ReadBound(NpgsqlConnection connection,TradingView view,Func<Task<object>> read,CancellationToken ct)
+    internal async Task<object> ReadBound(NpgsqlConnection connection,TradingView view,Func<Task<object>> read,CancellationToken ct)
     {
         var catalog=database.Manifest.CatalogId;
         await view.Bind(connection,catalog,ct);

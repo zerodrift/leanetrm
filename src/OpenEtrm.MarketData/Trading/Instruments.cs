@@ -113,7 +113,7 @@ public abstract record SidedInstrument : Instrument
     {
         if (id == Guid.Empty || sides.IsDefaultOrEmpty || sides.Any(m => m is null || m.Side is null))
             throw new MarketDataException("instrument_definition", "An instrument requires an exact identity and at least one valid side membership.");
-        if(sides.Any(m=>m.QuantityRatio is not null)&&this is not (ScheduledFinancialSwap or CrossCommodityScheduledSwap))
+        if(sides.Any(m=>m.QuantityRatio is not null)&&this is not (ScheduledFinancialSwap or CrossCommodityScheduledSwap or OpenEtrm.MarketData.Gas.GasCompositionInstrument))
             throw new MarketDataException("instrument_definition","Quantity-ratio memberships require the scheduled swap contract version.");
         Sides = sides;
     }

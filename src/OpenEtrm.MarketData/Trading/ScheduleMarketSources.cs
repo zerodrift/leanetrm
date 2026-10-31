@@ -2,6 +2,7 @@ using OpenEtrm.MarketData.CustomCurves;
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.Gas;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -17,6 +18,19 @@ public sealed partial class ScheduleMarketSources
     private readonly ImmutableArray<IndexPriceLookup> dated;
     private readonly ImmutableArray<PriceSettlementSelection> selections;
     private readonly VolumeContext? volumeContext;
+    private readonly ImmutableArray<GasValuationAssignment> gasAssignments=[];
+
+    public ScheduleMarketSources(ResolvedCalculationContext context,CurveBuild basis,
+        IntervalReferenceData? reference,IntervalReadData? read,IntervalKnowledgePolicy knowledgePolicy,
+        PendingActualsPolicy pending,ImmutableArray<IndexPriceLookup> dated,ImmutableArray<PriceSettlementSelection> selections,
+        ImmutableArray<GasValuationAssignment> gasAssignments)
+        :this(context,basis,reference,read,knowledgePolicy,pending,dated,selections)
+    {
+        if(gasAssignments.IsDefaultOrEmpty||gasAssignments.Any(a=>a is null)||
+            gasAssignments.Select(a=>(a.Key,a.From,a.To)).Distinct().Count()!=gasAssignments.Length)
+            throw Invalid("Gas sources require distinct qualified assignment definitions.");
+        this.gasAssignments=gasAssignments;
+    }
 
     public ScheduleMarketSources(ResolvedCalculationContext context,CurveBuild basis,
         IntervalReferenceData? reference,IntervalReadData? read,IntervalKnowledgePolicy knowledgePolicy,

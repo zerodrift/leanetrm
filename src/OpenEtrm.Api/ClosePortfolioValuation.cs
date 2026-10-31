@@ -52,7 +52,9 @@ public sealed class ClosePortfolioValuation(PreviewDatabase database)
         ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,CancellationToken ct,
         CloseBookRiskDefinition? ppaPolicy=null,InputFrame? retainedFrame=null)
     {
-        ValidatePolicy(policy);ct.ThrowIfCancellationRequested();
+        ValidatePolicy(policy);
+        await PhysicalGasStore.RequirePortfolioScope(connection,database.Manifest.CatalogId,bookIds,[],ct);
+        ct.ThrowIfCancellationRequested();
         var exact=PinnedContext.Exact(context);
         await new KnowledgeStore(database.Manifest.CatalogId).Retained(connection,exact,ct);
         await using(var guard=ScheduleStore.Command(connection,"SELECT security.require_bound_market_context($1,$2,$3)",database.Manifest.CatalogId,exact.ContextId!.Value,snapshot.ValuationAt))

@@ -6,6 +6,17 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D263 adds the local [physical gas booking slice](physical-gas-side.md): fixed
+contractual delivery, independent consideration and optional usage fee, shared
+retained executable schedules, and an authorized preview/book/reopen ticket.
+Shared curve groups, point price adjustments, dated direct-meter schedule attribution
+and configured per-unit tariffs are wired into that bounded profile. The
+Gas delivery setup editor saves immutable drafts, previews resolution/coverage and
+publishes versioned economic settings; saved trades retain their setup pins. Usage fees
+have independent pay/receive directions. The fixed-quantity composition ticket now adds independently directed physical
+and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. Physical completion, operational PV and settlement remain work. Mixed-product blotter and risk
+scopes containing gas refuse until their complete integration is supported.
+
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.
 Heat-rate examples use the existing typed factor contract and independent
