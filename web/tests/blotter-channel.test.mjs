@@ -87,3 +87,50 @@ test('send reaches the other window and close stops delivery',()=>{
  assert.equal(b.length,1);
  ca.close();
 });
+
+// Review round 1
+test('a view grid with extra fields is refused (1)',()=>{
+ const v=newBlotterView();
+ for(const grid of [{...v.grid,pv:'123.45'},{...v.grid,sort:[{key:'book',direction:'asc',pv:'1'}]},{...v.grid,widths:{book:'12'}}])
+  assert.throws(()=>readBlotterMessage(msg('view',{view:{...v,grid}}),S),JSON.stringify(grid));
+});
+test('the message read is a new object of checked values, never the received one (2)',()=>{
+ assert.throws(()=>readBlotterMessage(msg('view',{view:{...newBlotterView(),query:new Date(0)}}),S));
+ assert.throws(()=>readBlotterMessage(msg('view',{view:{...newBlotterView(),columnFilters:new Map()}}),S));
+ const input=msg('pageReport'),out=readBlotterMessage(input,S);
+ assert.notEqual(out,input);assert.notEqual(out.state,input.state);assert.notEqual(out.state.view,input.state.view);
+ const sent=msg('view'),read=readBlotterMessage(sent,S);
+ assert.notEqual(read.view,sent.view);assert.notEqual(read.view.grid,sent.view.grid);
+});
+test('lists with extra properties or holes are refused (3)',()=>{
+ for(const bookIds of [new Array(1),Object.assign(['a'],{pv:'1'}),Object.assign([],{pv:'1'})])assert.throws(()=>readBlotterMessage(msg('pageReport',{state:{...futures,view:{...selection,bookIds}}}),S));
+});
+test('revisions are positive safe whole numbers (4)',()=>{
+ const trade=r=>({tradeId:'t',instrumentType:'future',revision:r,reference:'F'});
+ for(const r of [1e300,-1,0,1.5,'1'])assert.throws(()=>readBlotterMessage(msg('pageReport',{state:{...futures,trade:trade(r)}}),S),String(r));
+ assert.throws(()=>readBlotterMessage(msg('pageReport',{state:{page:'ppa',trade:{tradeId:'t',revision:0},book:null}}),S));
+});
+test('text is bounded and the knowledge mode must be known (5)',()=>{
+ const long='x'.repeat(201),ctx=valid.context.context;
+ assert.throws(()=>readBlotterMessage(msg('askAbout',{key:long}),S));
+ assert.throws(()=>readBlotterMessage(msg('context',{context:{...ctx,snapshotId:long}}),S));
+ assert.throws(()=>readBlotterMessage(msg('pageReport',{state:{page:'market',curve:long,tab:'prices'}}),S));
+ assert.throws(()=>readBlotterMessage(msg('context',{context:{...ctx,knowledgeMode:'latest'}}),S));
+ assert.throws(()=>readBlotterMessage(msg('context',{context:{...ctx,knowledgeMode:'retained'}}),S));
+ assert.throws(()=>readBlotterMessage(msg('context',{context:{...ctx,contextId:'c1'}}),S));
+ assert.equal(readBlotterMessage(msg('context',{context:{...ctx,knowledgeMode:'retained',contextId:'c1'}}),S).context.contextId,'c1');
+});
+test('a receiver that throws is reported, a refused message is not (6)',()=>{
+ globalThis.BroadcastChannel=FakeChannel;
+ const logged=[],original=console.error;console.error=(...a)=>logged.push(a);
+ try{
+  const raw=new FakeChannel('openetrm-blotter'),ch=openBlotterChannel(S,()=>{throw new Error('boom');});
+  raw.postMessage(msg('opened',{session:'other'}));assert.equal(logged.length,0);
+  raw.postMessage(msg('opened'));assert.equal(logged.length,1);assert.match(String(logged[0][1]),/boom/);
+  ch.close();raw.close();
+ }finally{console.error=original;}
+});
+test('only own properties count as fields (7)',()=>{
+ const inherited=Object.create({key:'k'});Object.assign(inherited,{v:1,session:S,kind:'askAbout'});
+ assert.throws(()=>readBlotterMessage(inherited,S));
+});
