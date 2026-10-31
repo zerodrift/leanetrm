@@ -62,6 +62,10 @@ export function moveTab(l:DockLayout,tab:string,target:{group:number;edge:DropEd
   return moved??l;
 }
 
+/** The tabs open in an arrangement as drawn, a narrow page's one group too: each group's shown tab unless it is put away. A tab behind
+ *  another in its group is not open. */
+export const openTabs=(a:Arrangement)=>groupsOf(a.layout).filter(g=>!a.collapsed.includes(g.active)).map(g=>g.active);
+
 /** Shows `tab` in the group that holds it. */
 export function select(l:DockLayout,tab:string):DockLayout{
   if(!groupsOf(l).some(g=>g.tabs.includes(tab)))return l;

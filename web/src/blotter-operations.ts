@@ -2,7 +2,7 @@
 // menus dispatch them, and the assistant will; this module only reads and routes them, so a handler is the one place an action happens.
 import {parseArrangement,type Arrangement} from './dock-model.js';
 import type {GridLayout} from './data-grid.js';
-import {blotterColumns,blotterDockRules,blotterPanes,rowGroups,validColumnFilters,validIds,validSort,validPositionKey,validViewName,type RowGroup} from './blotter-layout.js';
+import {blotterColumns,blotterDockRules,blotterPanes,columnsFitMode,quoteUnitsShown,rowGroups,validColumnFilters,validIds,validSort,validPositionKey,validViewName,type BlotterView,type RowGroup} from './blotter-layout.js';
 
 export type BlotterPane=typeof blotterPanes[number];
 export type BlotterOperation=
@@ -11,9 +11,14 @@ export type BlotterOperation=
   |{kind:'selectPosition';key:string|null}|{kind:'details';open:boolean}|{kind:'arrange';panes:Arrangement}
   |{kind:'collapsePane';pane:BlotterPane;collapsed:boolean}|{kind:'resetLayout'}|{kind:'popOut'}|{kind:'bringBack'}
   |{kind:'draftCloseOut';key:string}|{kind:'amend';key:string};
-export type BlotterOperationHandlers={[K in BlotterOperation['kind']]:(operation:Extract<BlotterOperation,{kind:K}>)=>Promise<void>};
+/** What an operation answers once done: a position selection whether the position is shown, false when the person kept edits the details
+ *  hold; every other operation nothing. */
+export type BlotterAnswer<K extends BlotterOperation['kind']>=K extends 'selectPosition'?boolean:void;
+/** Each kind's handler, which acts on it and is told how the caller asks (`Via`: the page says whether the person's own move placed the row). */
+export type BlotterOperationHandlers<Via=void>={[K in BlotterOperation['kind']]:(operation:Extract<BlotterOperation,{kind:K}>,via:Via)=>Promise<BlotterAnswer<K>>};
 
-const refuse=(why:string)=>Error(`The Blotter operation was refused: ${why}.`);
+/** A refusal of an operation, with why: an operation that does not read, and one its handler cannot carry out where the Blotter is. */
+export const refuse=(why:string)=>Error(`The Blotter operation was refused: ${why}.`);
 // An operation is exactly its kind and fields: a missing, extra or mistyped one is refused, never defaulted or dropped.
 const exactly=(value:Record<string,unknown>,...fields:string[])=>{
   const keys=Object.keys(value).sort(),wanted=['kind',...fields].sort();
@@ -63,9 +68,18 @@ export function readBlotterOperation(value:unknown):BlotterOperation{
   }
 }
 
-/** One entry point for every action: the operation is read here, whoever built it, then goes to the handler of its own kind and to no other. */
-export const createBlotterOperations=(handlers:BlotterOperationHandlers)=>async(operation:BlotterOperation):Promise<void>=>{
-  const read=readBlotterOperation(operation);
-  if(!Object.hasOwn(handlers,read.kind))throw refuse(`${read.kind} has no handler`);
-  await (handlers[read.kind] as (operation:BlotterOperation)=>Promise<void>)(read);
-};
+/** One entry point for every action: the operation is read here, whoever built it, then goes to the handler of its own kind and to no other,
+ *  whose answer it gives. */
+export const createBlotterOperations=<Via=void>(handlers:BlotterOperationHandlers<Via>)=>
+  async<O extends BlotterOperation>(operation:O,via:Via):Promise<BlotterAnswer<O['kind']>>=>{
+    const read=readBlotterOperation(operation);
+    if(!Object.hasOwn(handlers,read.kind))throw refuse(`${read.kind} has no handler`);
+    return await (handlers[read.kind] as (operation:BlotterOperation,via:Via)=>Promise<BlotterAnswer<O['kind']>>)(read,via);
+  };
+
+/** Columns the display mode shown takes, by the saved-view rules (blotter-layout.ts); any other choice is refused. */
+export function requireModeColumns(view:Pick<BlotterView,'mode'|'groupBy'|'measures'>,columns:readonly string[]){
+  if(!columnsFitMode(view,columns))throw refuse(view.mode==='trades'?'trade rows do not show trade counts or price measures'
+    :'a pivot shows only its own dimensions and measures, with their units and currencies');
+  if(!quoteUnitsShown(view,columns))throw refuse('a pivot of prices shows their quote units');
+}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {collapse,defaultLayout,moveTab,resize,moveArrangement,restoreArrangement,select,showTab,splitsOf,toggleCollapsed} from '../dist/dock-model.js';
+import {collapse,defaultLayout,moveTab,openTabs,resize,moveArrangement,restoreArrangement,select,showTab,splitsOf,toggleCollapsed} from '../dist/dock-model.js';
 
 const tabs=['outputs','graph','configuration','versions','lineage'];
 const rules={maxDepth:2,fixed:[],ratioRange:[0.2,0.8]};
@@ -227,4 +227,16 @@ test('moving a put-away tab, or a tab into a group, leaves no stale collapse',()
  assert.deepEqual(left.collapsed,[]);
  // A move that changes nothing returns the arrangement as it was.
  assert.equal(moveArrangement(away,'lineage',{group:1,edge:'centre'},rules),away);
+});
+
+test('a tab is open when it is its group\'s shown tab and not put away, in the arrangement drawn, a narrow page\'s one group too',()=>{
+ const layout=split('column',group(['summary']),split('column',group(['grid']),split('row',group(['details','charts'],'details'),group(['notes']))));
+ assert.deepEqual(openTabs({layout,collapsed:[]}),['summary','grid','details','notes']);
+ // A tab behind another in its group is not open, nor is a put-away one.
+ assert.deepEqual(openTabs({layout,collapsed:['details','notes']}),['summary','grid']);
+ assert.deepEqual(openTabs({layout:select(layout,'charts'),collapsed:[]}),['summary','grid','charts','notes']);
+ // A narrow page draws every tab in one group: only the tab it shows is open, unless that one is put away.
+ assert.deepEqual(openTabs({layout:collapse(layout),collapsed:[]}),['summary']);
+ assert.deepEqual(openTabs({layout:select(collapse(layout),'details'),collapsed:[]}),['details']);
+ assert.deepEqual(openTabs({layout:select(collapse(layout),'details'),collapsed:['details']}),[]);
 });

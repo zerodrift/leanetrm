@@ -23,6 +23,7 @@ import {renderChart,clearChart,type ChartSpec} from './chart-view.js';
 import type {BlotterSelection,EntryShown,TradeShown} from './assistant-pages.js';
 import {isPriceMeasure,priceMeanPolicy,blotterColumns,blotterDockRules,defaultBlotterArrangement,deskFields,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,rowGroups,sidebarViews,withoutColumns,type BlotterView,type RowGroup} from './blotter-layout.js';
 import {setupDock} from './dock.js';
+import {createBlotterOperations,refuse,requireModeColumns,type BlotterOperation} from './blotter-operations.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
@@ -74,7 +75,9 @@ const numericFields=['tradeCount','lots','quantity','executionPrice','mark','exe
 // At most this many curves are shaped in one read (market/curve-shapes).
 const curvesPerShapeRead=64;
 
-export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;readFailed:(error:unknown)=>void;notice:(message:string)=>void;
+export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
+  // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused.
+  failed:(error:unknown)=>void;notice:(message:string)=>void;
   // The definition revision of the curves the selected close prices; positions of another revision get no shape from it.
   definitionRevision:()=>string;
   // The saved views the person lists in the sidebar, and the one the Blotter shows, whenever the saved views are read or the shown one changes.
@@ -209,7 +212,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // A view the Blotter turns to brings its arrangement with it.
   function showPanes(){chartsMadeWay=false;if(JSON.stringify(dock.arrangement())!==JSON.stringify(view.panes))dock.set(view.panes);}
-  get('blotter-reset-layout').onclick=()=>{if(busy())return;chartsMadeWay=false;view.panes=defaultBlotterArrangement();dock.set(view.panes);};
+  get('blotter-reset-layout').onclick=()=>void perform({kind:'resetLayout'});
   // The risk report of the panel's Risk report mode, for the books and context of the read on screen. What it holds outlives the panel's
   // other modes, so its results stay while a position is looked at; a new read of the Blotter clears it.
   const risk=setupRisk({api,act,busy,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,onChange:riskChanged,edited:options.unsavedChanged,scope:()=>{
@@ -288,7 +291,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       return stale?{...read,view:zone=>({...read.view(zone),actions:undefined})}:read;
     },
     amendment:{
-      open:h=>void act(()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision))),
+      open:h=>void perform({kind:'amend',key:rowKey(h)}),
       // A future's form is open for its binding, a swap's for its instrument.
       shown:h=>{const future=editor.shown(),swap=swapEditor.shown();return !!future&&future.tradeId===h.tradeId&&future.bindingId===h.bindingId||!!swap&&swap.tradeId===h.tradeId&&swap.contractId===h.contractId;},
       close:async()=>{await leave();},
@@ -315,7 +318,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const mode=panel.current();
     if(busy()||!table||!holdings||mode?.kind!=='position')return;
     const at=positionIndex(holdings.holdings,mode),next=at<0?null:table.rowAfter(at,direction);
-    if(next!==null)await deskPanel.open(next,undefined,false);
+    if(next!==null)await perform({kind:'selectPosition',key:rowKey(holdings.holdings[next])},{placed:true});
   }
   // Gives the forms the panel hosts up, without asking, and updates the panel's controls for what it then shows.
   function resetForms(){editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();}
@@ -329,7 +332,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // An action of the person's that gives the panel's form up, by reading the Blotter again, which closes the panel, or by leaving it,
   // asks first about the edits the panel holds, before the page is busy: a question asked then would be asked of a page with every
   // control disabled. `kept` hears that the person kept them, for a control that has already changed.
-  function guarded(work:()=>Promise<void>,kept?:()=>void){void (async()=>{if(busy())return;if(await leave())await act(work);else kept?.();})();}
+  async function guarded(work:()=>Promise<void>,kept?:()=>void){if(busy())return;if(await leave())await act(work);else kept?.();}
   // A position opens, in the details or a window of its own, only from the read on screen: rows kept from the previous read, or drawn
   // while the read is under way, say so.
   const notOpened=()=>options.notice('Positions open once the Blotter has valued them.');
@@ -732,11 +735,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>shown?riskGroupHeader(headers.get(key)!,count,leftOut(key)):groupHeader(headers.get(key)!,count,money)}:undefined,
       initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
       // A row opened is brought into view once the details have taken their room, when they leave it beneath the grid's foot.
-      onRowOpen:index=>{if(holdings)return deskPanel.open(index);notOpened();return false;},
-      onRowSelect:index=>holdings&&following()?deskPanel.open(index,undefined,false):true,onRowEscape:()=>{if(panel.current()!==null)void detailsPane.collapse();},onRowDoubleOpen:index=>popout(held[index])});
-    workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>{
-      if(busy())return;captureLayout();view.columns=selected;render();
-    },[...deskFields]);
+      onRowOpen:index=>perform({kind:'selectPosition',key:rowKey(held[index])}).then(shown=>shown===true),
+      onRowSelect:index=>holdings&&following()?perform({kind:'selectPosition',key:rowKey(held[index])},{placed:true}).then(shown=>shown===true):true,
+      onRowEscape:()=>void perform({kind:'details',open:false}),onRowDoubleOpen:index=>popout(held[index])});
+    workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>void perform({kind:'chooseColumns',columns:selected}),[...deskFields]);
   }
   // The reports of the run on screen whose parts have results: a part that failed or has none is said so by the run bar, never read as zero.
   const shownReports=()=>inline?.state==='shown'?risk.current()?.parts.flatMap(p=>p.report?[p.report]:[])??[]:[];
@@ -788,7 +790,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       const held=holdings?.holdings.find(h=>positionKey(h)===position.key),format=held?holdingFormats(held):undefined;
       button.append(node('span','',`${position.tradeReference} · ${position.label}`),node('span','',`${format?(ladderValue==='delta'?format.factor:format.money)(position.exact):position.exact} ${position.unit}`));
       button.title=publicText(`${position.exact} ${position.unit}`);
-      button.onclick=()=>{const index=holdings?.holdings.findIndex(h=>positionKey(h)===position.key)??-1;if(index>=0)void deskPanel.open(index);else options.notice(`${position.tradeReference} is not in this Blotter read.`);};
+      button.onclick=()=>{const held=holdings?.holdings.find(h=>positionKey(h)===position.key);if(held)void perform({kind:'selectPosition',key:rowKey(held)});else options.notice(`${position.tradeReference} is not in this Blotter read.`);};
       item.append(button);list.append(item);
     }
     panel.element('view').replaceChildren(
@@ -841,10 +843,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const seen=new Map<string,number>();
     const rowKeys=rawRows.map(row=>{const label=gridColumns.filter(c=>!c.numeric).map(c=>row[c.key]??'').join('\u0000'),repeat=seen.get(label)??0;seen.set(label,repeat+1);return repeat?label+'\u0000'+repeat:label;});
     table=workspace.update('desk-positions',scope+':pivot',gridColumns.map(c=>c.title),rawRows.map(row=>gridColumns.map(c=>row[c.key]??'')),gridColumns.flatMap((c,i)=>c.numeric?[i]:[]),busy,{displayRows,keys:tableColumns,rowKeys,columnGroups:matrix?Object.fromEntries(matrix.columns.filter(c=>c.groupKey).map(c=>[c.key,{key:c.groupKey!,title:c.groupTitle!,measureTitle:c.measureTitle!}])):undefined,layout:view.grid,onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,visible:gridVisible,initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true});
-    workspace.columns(columns,columns.filter((_,i)=>visible[i]).map(c=>c[0]),selected=>{
-      if(busy())return;
-      if(!selected.length){render();return;}captureLayout();view.columns=selected;render();
-    },required);
+    // No column chosen is no choice: the choices are drawn again as they were.
+    workspace.columns(columns,columns.filter((_,i)=>visible[i]).map(c=>c[0]),selected=>{if(busy())return;if(selected.length)void perform({kind:'chooseColumns',columns:selected});else render();},required);
     get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(required.includes(n.value)){n.checked=true;n.disabled=true;}});
   }
 
@@ -935,13 +935,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
         else if(!live&&bookingCatalog==='directory'&&!holdings){await factsRead.catch(()=>undefined);if(started!==generation||get('futures-page').hidden)return;valuationFailed(error);}
         else if(!live)clear();
         else{get('futures-page').dataset.pricingState='failed';if(shapes===undefined)noShapes('the refresh that interrupted their read failed');}
-        if(background&&!live&&bookingCatalog==='directory'){options.readFailed(error);return;}
+        if(background&&!live&&bookingCatalog==='directory'){options.failed(error);return;}
         throw error;
       }finally{if(pricingController===controller)pricingController=undefined;}
     };
     pricingRead=finish();
     if(background&&!live&&bookingCatalog==='directory'){
-      void pricingRead.catch(error=>{if(started===generation&&whereAmI()===scope&&!get('futures-page').hidden)options.readFailed(error);});
+      void pricingRead.catch(error=>{if(started===generation&&whereAmI()===scope&&!get('futures-page').hidden)options.failed(error);});
     }else await pricingRead;
   }
   // Every row's curve unavailable, with the reason.
@@ -1075,10 +1075,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   field('blotter-mode').onchange=()=>{if(busy())return;get('blotter-pivot-fields').hidden=field('blotter-mode').value!=='pivot';};
   // Grouping arranges the rows already read; every grouping's subtotals came with them. A grouping the read cannot show is
   // refused in the banner, and the grouping on screen stays.
-  field('blotter-row-group').onchange=()=>void act(async()=>{
-    const shown=view.rowGroup;captureLayout();view.rowGroup=(field('blotter-row-group').value||null) as RowGroup;
-    try{render();}catch(error){view.rowGroup=shown;field('blotter-row-group').value=shown??'';throw error;}
-  });
+  field('blotter-row-group').onchange=()=>void perform({kind:'groupRows',rowGroup:(field('blotter-row-group').value||null) as RowGroup});
   get('blotter-apply').onclick=()=>guarded(load);
   get('blotter-save').onclick=()=>guarded(async()=>{
     const draft=readView();const next=parseBlotterViews(JSON.stringify([{...draft,name:field('blotter-name').value}]))[0];
@@ -1089,7 +1086,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // An earlier-format view is named so it can be saved again under its name, and explained as a notice, not an error.
   // A saved view the person chooses becomes the view the Blotter reads, the base of its next save.
   function useSaved(saved:BlotterView){draftBase={name:saved.name,version:versions.get(saved.name)!};table=undefined;view=structuredClone(saved);showPanes();field('blotter-name').value=view.name;field('blotter-saved').value=view.name;viewControls();}
-  field('blotter-saved').onchange=()=>guarded(async()=>{const name=field('blotter-saved').value;if(earlierViews.includes(name)){field('blotter-name').value=name;options.notice(earlierFormatNote(name));return;}const saved=savedViews.find(v=>v.name===name);if(!saved)return;useSaved(saved);workspace.closeMenus();await load();},()=>{field('blotter-saved').value=draftBase?.name??'';});
+  // Choosing the unsaved current view is no choice: the list shows the view the Blotter shows again.
+  field('blotter-saved').onchange=()=>{const name=field('blotter-saved').value;if(name)void perform({kind:'selectView',name});else field('blotter-saved').value=draftBase?.name??'';};
   get('blotter-views-reload').onclick=()=>guarded(async()=>{
     const name=field('blotter-saved').value;
     await loadViews();
@@ -1120,6 +1118,76 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(view.mode!==next.mode||JSON.stringify([view.groupBy,view.splitBy,view.measures])!==JSON.stringify([next.groupBy,next.splitBy,next.measures]))relayout(next);
     view=next;viewControls();await load();
   }
+  // Every Blotter action is an operation (blotter-operations.ts), which the toolbar, keys, panes and menus dispatch here, as the assistant
+  // will: each kind has the one handler below. The person's own ↓ ↑ in the grid and ◂ ▸ in the details place the row they move to
+  // (`placed`), so showing its position does not scroll to it. Sorting and filtering in the grid's headers, moving, resizing and putting
+  // panes away in the dock, and the details' own collapse belong to those components, which tell the view (onLayout, changed, collapsed).
+  type Via={placed:boolean};
+  const operate=createBlotterOperations<Via>({
+    selectView:async({name})=>guarded(async()=>{
+      if(earlierViews.includes(name)){field('blotter-name').value=name;options.notice(earlierFormatNote(name));return;}
+      const saved=savedViews.find(v=>v.name===name);if(!saved)throw refuse(`no saved view is named ${name}`);
+      useSaved(saved);workspace.closeMenus();await load();
+    },()=>{field('blotter-saved').value=draftBase?.name??'';}),
+    // The books and portfolios are those the scope lists offer; the Blotter is read again for them, its other controls as they stand.
+    chooseScope:async({bookIds,portfolioIds})=>{
+      const scope=[['blotter-books',bookIds],['blotter-portfolios',portfolioIds]] as const;
+      for(const [id,ids] of scope)if(ids.some(chosen=>!Array.from(get<HTMLSelectElement>(id).options,o=>o.value).includes(chosen)))throw refuse('a book or portfolio is not one the Blotter lists');
+      await guarded(async()=>{for(const [id,ids] of scope)for(const option of get<HTMLSelectElement>(id).options)option.selected=ids.includes(option.value);await load('directory',false,true);});
+    },
+    // Grouping arranges the rows already read; every grouping's subtotals came with them. A grouping the read cannot show is refused in the
+    // banner, and the grouping on screen stays.
+    groupRows:async({rowGroup})=>act(async()=>{
+      const shown=view.rowGroup;captureLayout();view.rowGroup=rowGroup;field('blotter-row-group').value=rowGroup??'';
+      try{render();}catch(error){view.rowGroup=shown;field('blotter-row-group').value=shown??'';throw error;}
+    }),
+    sort:async({sort})=>act(async()=>{rowColumns(sort.map(s=>s.key));captureLayout();view.grid={...view.grid,sort};render();}),
+    filter:async({query,columns})=>act(async()=>{rowColumns(Object.keys(columns));captureLayout();view.query=query;view.columnFilters={...columns};render();}),
+    chooseColumns:async({columns})=>{if(busy())return;requireModeColumns(view,columns);captureLayout();view.columns=columns;render();},
+    // A position opens only from the read on screen; no position closes the details that show one, asking first about their edits.
+    selectPosition:async({key},{placed})=>{
+      if(key===null){if(panel.current()?.kind==='position')await detailsPane.collapse();return panel.current()?.kind!=='position';}
+      if(!holdings){notOpened();return false;}
+      const index=holdings.holdings.findIndex(h=>rowKey(h)===key);
+      if(index<0||!positionInput(index))throw refuse('that position is not among the rows on screen');
+      return deskPanel.open(index,undefined,!placed);
+    },
+    details:async({open})=>showDetails(open),
+    arrange:async({panes})=>{
+      if(busy())return;
+      if(panes.collapsed.includes('details')!==dock.arrangement().collapsed.includes('details'))throw refuse('the details open and close with what they show');
+      chartsMadeWay=false;view.panes=panes;dock.set(panes);requestAnimationFrame(fitRoom);
+    },
+    collapsePane:async({pane,collapsed})=>{if(pane==='details')await showDetails(!collapsed);else if(collapsed)dock.collapse(pane);else dock.reveal(pane);},
+    resetLayout:async()=>{if(busy())return;chartsMadeWay=false;view.panes=defaultBlotterArrangement();dock.set(view.panes);},
+    // Refused until the pop-out and close-out drafts are built.
+    popOut:async()=>{throw refuse('the Blotter does not open in a window of its own yet');},
+    bringBack:async()=>{throw refuse('the Blotter is not in a window of its own');},
+    draftCloseOut:async()=>{throw refuse('close-out drafts are not offered yet');},
+    // A position is amended from its details, whose Amend offers it for the revision they read.
+    amend:async({key})=>{
+      const h=holdings?.holdings.find(h=>rowKey(h)===key),shown=deskPanel.shown();
+      if(!h)throw refuse('that position is not among the rows on screen');
+      if(!catalog?.canAmendTrades)throw refuse('your access does not amend trades');
+      if(!shown||rowKey(shown)!==key)throw refuse('a position is amended from its details, which do not show it');
+      await act(()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision)));
+    }});
+  // The person's own actions: one refused, before its handler or by it, says why as any failed action does, and shows no position.
+  function perform<O extends BlotterOperation>(operation:O,via:Via={placed:false}){return operate(operation,via).catch(error=>{options.failed(error);return undefined;});}
+  // Sorting and filtering name columns of the rows on screen, never one a read shows for itself alone.
+  function rowColumns(keys:readonly string[]){
+    if(!holdings||!table)throw refuse('the Blotter shows no rows to sort or filter');
+    const other=keys.find(key=>!tableColumns.includes(key)||transientKeys.has(key));
+    if(other!==undefined)throw refuse(`${other} is not a column of the rows shown`);
+  }
+  // The details open while they show something, a position, a new trade, the risk report or a ladder contract, and are never open empty;
+  // closing them asks first about their edits.
+  async function showDetails(open:boolean){
+    if(!open){if(panel.current()!==null)await detailsPane.collapse();return;}
+    if(panel.current()===null)throw refuse('the details open on what they show, and show nothing');
+    panel.reveal();
+  }
+  get('blotter-scope-apply').onclick=()=>void perform({kind:'chooseScope',bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')});
   // The trade the panel shows, as the page reports it: its position, at the revision the Blotter holds, or at the one its form shows
   // while its form is open, which can be an earlier one.
   function shownTrade():TradeShown|null{
@@ -1164,10 +1232,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // not a Display choice not yet applied: the person's view is never changed to fit it.
     requireTradeRows:()=>requireTradeRows(view.mode),
     // What the Blotter shows: its risk report, the trade in its panel, the new trade entered there, or the view its last read applied.
-    report:()=>{const {collapsed}=dock.arrangement();return {risk:panel.current()?.kind==='risk',trade:shownTrade(),entry:newTradeShown(),lens:lensShown()||ladderOn()?'risk' as const:'values' as const,
+    report:()=>({risk:panel.current()?.kind==='risk',trade:shownTrade(),entry:newTradeShown(),lens:lensShown()||ladderOn()?'risk' as const:'values' as const,
       view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]},
-      // A pane is reported open unless the arrangement collapses it. Pop-out is not built yet: Task 7b/10 wires poppedOut.
-      pane:{details:!collapsed.includes('details'),charts:!collapsed.includes('charts')},poppedOut:false};},
+      // A pane is open as the dock draws it (BlotterLayoutShown). The Blotter is in no window of its own until the pop-out is built.
+      pane:{details:dock.showing('details'),charts:dock.showing('charts')},poppedOut:false}),
     // A form of the panel with edits not yet sent, the risk report's setup among them, or a trade request or risk job whose outcome is unconfirmed.
     unsaved:()=>!!pending.command||editing()||risk.unconfirmed(),
     // Whether the panel holds the form of an amendment or of a new trade, or a risk report's setup, with edits, and the question asked before it is given up: false means the person kept it. The forms

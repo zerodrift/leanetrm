@@ -115,7 +115,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     internal static readonly ImmutableArray<AgentTool> Tools=
     [
         Tool("read_current_page","Reads the page the user asked from, with what it had selected then, at the knowledge and As of frame pinned when "+
-            "the question was asked. Navigating while you answer changes nothing it reads. Takes no input.",
+            "the question was asked. Navigating while you answer changes nothing it reads. On the Blotter, layout says whether its details and "+
+            "charts panes were open and whether the Blotter was in a window of its own. Takes no input.",
             """
             {"type":"object","properties":{},"additionalProperties":false}
             """,[]),
@@ -403,7 +404,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         var (tool,input)=(request.Name,(JsonElement?)request.Input);
         ToolStep Before(string code,JsonElement? kept)=>new(tool,null,kept,code,null,[],Refusal(code),ToolStepEnd.Refusal);
         ToolCall call;
-        bool dispatched;
+        PageRead? dispatched;
         try
         {
             (call,dispatched)=Requested(turn,request);
@@ -430,29 +431,30 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 (connection,read)=>Read(connection,turn.Pin,call,read),ct);
             if(!result.Access.IsDefaultOrEmpty)access=[..access.Concat(result.Access).Distinct()];
             if(operation.Id=="custom_curves.prepare_v1")result.Value["proposal"]=new JsonObject{["turnId"]=turn.TurnId.ToString(),["step"]=targets.Steps+1};
-            return Returned(tool,request.Input,call,turn.Pin,readAt!.Value,access,result,targets.Next);
+            return Returned(tool,request.Input,call,turn.Pin,readAt!.Value,access,result,targets.Next,dispatched?.Layout);
         }
         catch(Exception e)
         {
             var (code,end)=Classify(e);
             if(end==ToolStepEnd.Failure)logger.LogError("A tool read failed: {ErrorType}",e.GetType().Name);
             if(end!=ToolStepEnd.Refusal)return Step(code,null,end);
-            var shown=Shown(operation,dispatched,code!);
+            var shown=Shown(operation,dispatched is not null,code!);
             return Step(shown,Refusal(shown),end);
         }
     }
 
     // A read's step once it returned (§7.3): its result within the runtime set's row and byte bounds, with the targets it
-    // issues numbered from the turn's next handle; otherwise result_too_large, never a truncated result, issuing none.
-    // Rows are counted before any target is issued, and bytes after, since handles count toward them.
+    // issues numbered from the turn's next handle and, for Read current page on the Blotter, the layout its report states;
+    // otherwise result_too_large, never a truncated result, issuing none. Rows are counted before any target is issued, and
+    // bytes after, since handles count toward them.
     internal static ToolStep Returned(string tool,JsonElement input,ToolCall call,TurnPin pin,DateTimeOffset readAt,ImmutableArray<ReadAccess> access,
-        ToolResult result,int next)
+        ToolResult result,int next,BlotterLayout? layout=null)
     {
         ToolStep Step(string? code,string content,ToolStepEnd end)=>new(tool,call.Operation.Id,input,code,readAt,access,content,end);
         var tooLarge=Step("result_too_large",Refusal("result_too_large"),ToolStepEnd.Refusal);
         if(result.Rows>RuntimeSet.ToolResultRows)return tooLarge;
         var issued=NavigationTargets.Issue(call,result.Value,next);
-        return Bounded(Envelope(pin,call.Operation,readAt,result,issued[0].Handle),result.Rows) is {} content?Step(null,content,ToolStepEnd.Result) with{Issued=issued}
+        return Bounded(Envelope(pin,call.Operation,readAt,result,issued[0].Handle,layout),result.Rows) is {} content?Step(null,content,ToolStepEnd.Result) with{Issued=issued}
             :tooLarge;
     }
 
@@ -508,21 +510,21 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         dispatched&&operation.SelectionRefusals.Contains(code)?"page_selection_unavailable":code;
 
     // The call a request names: its own read, or for Read current page the read its stored page report dispatches, while
-    // the version has that read's tool switched on.
-    internal static (ToolCall Call,bool Dispatched) Requested(TurnReads turn,ModelToolRequest request)
+    // the version has that read's tool switched on, with that report.
+    internal static (ToolCall Call,PageRead? Dispatched) Requested(TurnReads turn,ModelToolRequest request)
     {
         // The adapter fails a call that requests a tool it did not offer, so this is defense in depth: such a request
         // reads nothing, and the database records no step for a tool the version has not switched on (turn_input), a
         // write it does not take, which fails the turn agent_runtime_unavailable.
         if(!turn.Tools.Contains(request.Name))throw new ToolRefusal("tool_not_enabled");
-        if(request.Name!="read_current_page")return(Parse(request.Name,request.Input),false);
+        if(request.Name!="read_current_page")return(Parse(request.Name,request.Input),null);
         new ToolInput(request.Input).Exactly();
         return PageReports.Dispatch(turn.PageReport) switch
         {
             null=>throw new ToolRefusal("page_not_supported"),
             {Call:null}=>throw new ToolRefusal("page_selection_unavailable"),
             {Call:{} call} when!turn.Tools.Contains(call.Operation.Tool)=>throw new ToolRefusal("tool_not_enabled"),
-            {Call:{} call}=>(call,true)
+            {Call:{} call} read=>(call,read)
         };
     }
 
@@ -581,8 +583,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
 
     // A result with the knowledge it was read at (§7.2): the turn's pinned context and cutoff, or for current-only
     // definitions and operational records the instant they were read, never the cutoff; the As of frame where the read
-    // consumed one; and the handle of its own target (§7.3).
-    internal static JsonObject Envelope(TurnPin pin,ToolOperation operation,DateTimeOffset readAt,ToolResult result,string target)
+    // consumed one; the handle of its own target (§7.3); and, from turns_v10, the Blotter's layout its page report states (D263).
+    internal static JsonObject Envelope(TurnPin pin,ToolOperation operation,DateTimeOffset readAt,ToolResult result,string target,BlotterLayout? layout=null)
     {
         var context=operation.Needs is ToolNeeds.CurrentOnly or ToolNeeds.CurrentOnlyFrame or ToolNeeds.Operational
             ?new JsonObject{["knowledge"]=operation.Needs==ToolNeeds.Operational?"current_operations":"current_definitions",["readAt"]=JsonSerializer.SerializeToNode(readAt)}
@@ -592,6 +594,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         var envelope=new JsonObject{["operation"]=operation.Id,["context"]=context};
         if(result.Displayed)envelope["amountDisplay"]=ToolAmountDisplay.Implementation;
         envelope["target"]=target;
+        if(layout is {} shown)envelope["layout"]=new JsonObject{["pane"]=new JsonObject{["details"]=shown.Details,["charts"]=shown.Charts},["poppedOut"]=shown.PoppedOut};
         envelope["result"]=result.Value;
         return envelope;
     }
@@ -640,6 +643,8 @@ sealed class ToolInput
     }
     public Guid Id(string name)=>Canonical(Member(name,JsonValueKind.String));
     public bool Flag(string name)=>members.TryGetValue(name,out var value)&&value.ValueKind is JsonValueKind.True or JsonValueKind.False?value.GetBoolean():throw Invalid();
+    // A member that is an object, read as members of its own.
+    public ToolInput Members(string name)=>new(Member(name,JsonValueKind.Object));
 
     public ImmutableArray<Guid> Ids(string name)
     {

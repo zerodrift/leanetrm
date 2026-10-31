@@ -693,7 +693,8 @@ runs them ([ai-assistant.md](ai-assistant.md) §7.2, §7.4, §8):
   worker's memory and reach only the model; a refusal carries only its code and fixed
   text, never the read's message, and logs name error types only.
 - **Page reports:** an ask's page report is exactly one page of the closed set with a
-  selection its read can take; any other is refused `page_report_invalid` before
+  selection its read can take and, on a page the Blotter reports only, its exact layout
+  of three flags, which names no identifier (D263); any other is refused `page_report_invalid` before
   admission, writing nothing. A repeat of an ask admitted under `turns_v1` with such a
   report is refused too, the one repeat this change does not answer as its original
   did. Read current page dispatches only the report stored at ask, so navigation during

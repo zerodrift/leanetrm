@@ -4,7 +4,11 @@
 import {grantPhrase,type Vendor} from './agent-grants.js';
 import {readPages,type Step,type Ending,type Usage,type TargetContext} from './assistant-events.js';
 
-/** What the Blotter shows of its panes and window. It is the page's own state, never part of the selection an ask sends (askReport). */
+/**
+ * What the Blotter shows of its panes and window, which its report states beside the selection (D263). A pane is open when it is the shown
+ * tab of its group in the panes as drawn and is not put away: one behind another tab of its group is not open. A narrow page draws every
+ * pane in one group, so there only the pane that group shows is open (dock-model openTabs). `poppedOut`: the Blotter is in a window of its own.
+ */
 export type BlotterLayoutShown={pane:{details:boolean;charts:boolean};poppedOut:boolean};
 export type PageReport={page:string;selection:Record<string,unknown>;layout?:BlotterLayoutShown};
 export type BlotterSelection={mode:'trades'|'pivot';bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[]};
@@ -69,10 +73,9 @@ export function pageReport(state:PageState):PageReport{
   }
 }
 
-// The report an ask sends: the server accepts exactly a page and its selection (PageReports.cs), so the layout stays with the page.
-export const askReport=({page,selection}:PageReport)=>({page,selection});
-// What Looking at showed, kept to compare with the page at send: only what the person is shown and the ask sends, so client-only layout never refuses an ask.
-export const lookingKey=(place:{report:PageReport;context:PageContext})=>JSON.stringify([askReport(place.report),place.context]);
+// What Looking at showed, kept to compare with the page at send: the page, its selection and context, which it shows. The Blotter's layout
+// is sent as it is at send and is not shown, so a pane opened or closed since never refuses an ask.
+export const lookingKey=({report,context}:{report:PageReport;context:PageContext})=>JSON.stringify([report.page,report.selection,context]);
 
 // The knowledge an ask pins: working data only at a chosen As of frame, the selected historical view with or without one.
 export function askKnowledge(context:PageContext){
@@ -266,7 +269,7 @@ export function keptAsk(stored:string|null){
     if(!exact(v,['operationId','path','body'])||!isUuid(v.operationId)||v.path!=='assistant/turns/ask'
       ||!exact(b,['conversationId','agentId','version','question','pageReport','knowledge'])||b.conversationId!==null&&!isUuid(b.conversationId)
       ||!isUuid(b.agentId)||!Number.isSafeInteger(b.version)||b.version<1||typeof b.question!=='string'||!b.question.trim()
-      ||!exact(b.pageReport,['page','selection'])||!exact(k,['mode','contextId','frameId']))return undefined;
+      ||!exact(b.pageReport,['page','selection'])&&!exact(b.pageReport,['page','selection','layout'])||!exact(k,['mode','contextId','frameId']))return undefined;
     return {operationId:v.operationId as string,path:v.path as string,body:b as Record<string,unknown>,uncertain:true};
   }catch{return undefined;/* Invalid browser state keeps no request. */}
 }

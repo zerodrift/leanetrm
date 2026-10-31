@@ -50,6 +50,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const notice=`${latest}?.querySelector('.assistant-target')`;
   const asks="window.__requests.filter(r=>r.path==='/api/assistant/turns/ask')";
   const looking="['#assistant-looking-page','#assistant-looking-shows','#assistant-looking-context'].map(s=>document.querySelector(s).textContent)";
+  // The Blotter's layout as the dock draws it: a pane is open when its body is shown, the shown tab of its group and not put away (D263).
+  const drawnLayout=`JSON.stringify({pane:{details:${shown('#blotter-pane-details')},charts:${shown('#blotter-pane-charts')}},poppedOut:false})`;
   const agentsRead="window.__requests.some(r=>r.path==='/api/assistant/agents')";
   const buttons=`[...(${latest}?.querySelector('.assistant-target')?.querySelectorAll('button')??[])].map(b=>b.textContent).join()`;
   const press=label=>evaluate(`[...${latest}.querySelector('.assistant-target').querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(label)}).click()`);
@@ -154,7 +156,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await ask('Take me to the schedules.');await wait(finished);
   await check('a live target that would leave unsaved booking edits does not move the page: its notice says so and offers Go anyway',
     `${q('#page-title')}.textContent==='Blotter'&&${shown('#futures-new-trade')}&&${notice}.textContent.includes('Go would leave unsaved changes on this page.')&&${buttons}==='Go anyway'`
-    +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'blotter_new_future',selection:{}})`,`${notice}?.textContent`);
+    +`&&(()=>{const r=${asks}.at(-1).body.pageReport;return r.page==='blotter_new_future'&&JSON.stringify(r.selection)==='{}'&&r.layout.pane.details&&JSON.stringify(r.layout)===${drawnLayout};})()`,
+    `[${notice}?.textContent,JSON.stringify(${asks}.at(-1).body.pageReport),${drawnLayout}]`);
   // The page report names the new trade in the panel, and its product: the assistant is told what the page shows, and reads no unsent entry.
   await check('Looking at names the new future being entered, and says the assistant does not read it',`JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter','A new future is being entered. The assistant does not read a trade being entered.']))}`,looking);
   await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Schedules'&&${idle}`);
@@ -186,6 +189,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await ask('What is this trade?');await wait(finished);
   await check('the assistant is asked while the trade is open, and the ask reports it: its page report names the trade, its kind and its revision',
     `(()=>{const r=${asks}.at(-1).body.pageReport,s=r.selection;return r.page==='blotter'&&s.view==='trade'&&typeof s.tradeId==='string'&&['future','financial_swap'].includes(s.instrumentType)&&s.revision===${revision}&&s.mode===null&&s.groupBy===null;})()`,`JSON.stringify(${asks}.at(-1).body.pageReport)`);
+  await check('and its layout: the details open on the trade, the charts open as drawn, and the Blotter in the main window, not popped out',
+    `(()=>{const l=${asks}.at(-1).body.pageReport.layout;return Object.keys(l).join()==='pane,poppedOut'&&Object.keys(l.pane).join()==='details,charts'&&l.pane.details===true&&l.poppedOut===false&&JSON.stringify(l)===${drawnLayout};})()`,
+    `[JSON.stringify(${asks}.at(-1).body.pageReport.layout),${drawnLayout}]`);
   await click('#details-collapse');
   await check('closing the panel returns Looking at to the Blotter\'s rows',`${looking}[1].startsWith('Trade rows · ')&&(${q('#position-details')}?.hidden!==false)`,looking);
   // An amendment under way holds a live move away from the page, like any other unsaved edit, and Back brings the trade back in the panel.

@@ -3,7 +3,7 @@
 // context-menu key or Shift+F10); a divider resizes a split; a group's collapse button puts its shown tab away to a one-line bar. The
 // arrangement is this viewer's presentation state: the caller restores it into `initial` and stores what `changed` hears.
 // A narrow page shows every tab in one group and leaves the saved arrangement for when the page is wide again.
-import {type Arrangement,type DockLayout,type DockRules,type DropEdge,type Group,type Split,collapse,groupsOf,moveArrangement,moveTab,resize,showTab,splitsOf,toggleCollapsed} from './dock-model.js';
+import {type Arrangement,type DockLayout,type DockRules,type DropEdge,type Group,type Split,collapse,groupsOf,moveArrangement,moveTab,openTabs,resize,showTab,splitsOf,toggleCollapsed} from './dock-model.js';
 import {menuKey,placeOf,setupMenu,type MenuItem} from './context-menu.js';
 import {tabAfterKey} from './side-panel.js';
 
@@ -131,7 +131,7 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   }
   /** Tells `o.shown` of the tabs that have just come into view. */
   function announce(){
-    const now=new Set(groupsOf(shown.layout).filter(g=>!shown.collapsed.includes(g.active)).map(g=>g.active)),fresh=[...now].filter(id=>!visible.has(id));
+    const now=new Set(openTabs(shown)),fresh=[...now].filter(id=>!visible.has(id));
     visible=now;for(const id of fresh)o.shown?.(id);
   }
   /** Draws `shown` again, keeping focus on what had it. The first drawing announces nothing: the page draws what it shows first itself. */

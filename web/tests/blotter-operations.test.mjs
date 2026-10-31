@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readBlotterOperation,createBlotterOperations} from '../dist/blotter-operations.js';
+import {readBlotterOperation,createBlotterOperations,requireModeColumns} from '../dist/blotter-operations.js';
 import {defaultBlotterArrangement} from '../dist/blotter-layout.js';
 
 const pos='71000000-0000-4000-8000-000000000009:72000000-0000-4000-8000-000000000008',book='d1000000-0000-4000-8000-000000000001',portfolio='d2000000-0000-4000-8000-000000000002';
@@ -72,4 +72,25 @@ test('the dispatcher validates the operation itself and looks handlers up only b
   await assert.rejects(dispatch({kind:'popOut',extra:1}),Error);
   await assert.rejects(dispatch({kind:'collapsePane',pane:'grid',collapsed:true}),Error);
   assert.deepEqual(calls,[]);
+});
+
+test('the dispatcher answers what the handler answers, a position selection whether the position is shown, and hands it the caller\'s context',async()=>{
+  const seen=[];
+  const handlers=Object.fromEntries(Object.keys(examples).map(kind=>[kind,async(op,via)=>{seen.push([kind,via]);}]));
+  handlers.selectPosition=async(op,via)=>{seen.push(['selectPosition',via]);return via.placed;};
+  const dispatch=createBlotterOperations(handlers);
+  assert.equal(await dispatch(examples.selectPosition,{placed:true}),true);
+  assert.equal(await dispatch(examples.selectPosition,{placed:false}),false);
+  assert.equal(await dispatch(examples.resetLayout,{placed:false}),undefined);
+  assert.deepEqual(seen,[['selectPosition',{placed:true}],['selectPosition',{placed:false}],['resetLayout',{placed:false}]]);
+});
+
+test('chosen columns must belong to the display mode shown, by the saved-view rules',()=>{
+  const trades={mode:'trades',groupBy:[],measures:[]},pivot={mode:'pivot',groupBy:['book'],measures:['presentValue']},prices={mode:'pivot',groupBy:['book'],measures:['markMean']};
+  for(const [view,columns] of [[trades,['book','market','memo']],[pivot,['book','presentValue','unit','currency']],[pivot,['book','unit','currency','instrumentType']],
+    [prices,['book','markMean','unit','currency','priceUnit']]])
+    assert.doesNotThrow(()=>requireModeColumns(view,columns),JSON.stringify([view,columns]));
+  for(const [view,columns] of [[trades,['book','tradeCount']],[trades,['book','markMean']],[pivot,['book','presentValue','unit','currency','market']],
+    [pivot,['book','presentValue','currency']],[pivot,['book','presentValue','unit']],[prices,['book','markMean','unit','currency']]])
+    assert.throws(()=>requireModeColumns(view,columns),/The Blotter operation was refused: /,JSON.stringify([view,columns]));
 });

@@ -50,6 +50,13 @@ export const validIds=(v:unknown):v is string[]=>Array.isArray(v)&&v.length<=256
 /** A position row's key: tradeId:bindingId (desk-model's rowKey), both identifiers. */
 export const validPositionKey=(key:unknown):key is string=>typeof key==='string'&&/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}:[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(key);
 export const validViewName=(name:unknown):name is string=>typeof name==='string'&&!!name.trim()&&name.length<=60;
+/** Whether a display mode shows these columns: trade rows never a pivot's trade count or price measures; a pivot only its dimensions and
+ *  measures, with their instrument types, units, currencies and quote units, always naming the units and currencies. */
+export const columnsFitMode=(v:{mode:'trades'|'pivot';groupBy:readonly string[];measures:readonly string[]},columns:readonly string[])=>v.mode==='trades'
+  ?!columns.some(c=>c==='tradeCount'||isPriceMeasure(c))
+  :columns.every(c=>[...v.groupBy,...v.measures,'instrumentType','unit','currency','priceUnit'].includes(c))&&columns.includes('unit')&&columns.includes('currency');
+/** Whether a pivot of prices shows their quote units, as every price pivot must. */
+export const quoteUnitsShown=(v:{mode:'trades'|'pivot';measures:readonly string[]},columns:readonly string[])=>v.mode!=='pivot'||!v.measures.some(isPriceMeasure)||columns.includes('priceUnit');
 export function parseBlotterViews(raw:string):BlotterView[]{
  const rows=JSON.parse(raw);if(!Array.isArray(rows)||rows.length>20)throw Error('Saved blotter views could not be read.');
  const list=(value:unknown,allowed:readonly string[],max=allowed.length):string[]=>{if(!Array.isArray(value)||value.length>max||value.some(x=>typeof x!=='string'||!allowed.includes(x))||new Set(value).size!==value.length)throw Error('Invalid saved view choices.');return [...value];};
@@ -61,8 +68,8 @@ export function parseBlotterViews(raw:string):BlotterView[]{
   const splitBy=list(v.splitBy,groupChoices.map(c=>c[0]));
   const columns=list(v.columns,blotterColumns.map(c=>c[0])),groupBy=list(v.groupBy,groupChoices.map(c=>c[0])),measures=list(v.measures,measureChoices.map(c=>c[0]));
   if(splitBy.some(d=>!groupBy.includes(d))||splitBy.length&&(!groupBy.some(d=>!splitBy.includes(d))||v.mode!=='pivot'))throw Error('Choose separate pivot rows and columns.');
-  if(v.mode==='trades'&&columns.some(c=>c==='tradeCount'||isPriceMeasure(c))||v.mode==='pivot'&&(columns.some(c=>![...groupBy,...measures,'instrumentType','unit','currency','priceUnit'].includes(c))||!columns.includes('unit')||!columns.includes('currency')))throw Error('Saved columns must belong to the selected display mode.');
-  if(v.mode==='pivot'&&measures.some(isPriceMeasure)&&!columns.includes('priceUnit'))throw Error('Price pivots require their quote units.');
+  if(!columnsFitMode({mode:v.mode,groupBy,measures},columns))throw Error('Saved columns must belong to the selected display mode.');
+  if(!quoteUnitsShown({mode:v.mode,measures},columns))throw Error('Price pivots require their quote units.');
   if(!columns.length||v.mode==='pivot'&&(!groupBy.length||!measures.length||measures.includes('lots')&&!groupBy.includes('contract')))throw Error('Choose pivot dimensions and measures; lots require dated-contract grouping.');
   if(!validColumnFilters(v.columnFilters))throw Error('Invalid saved filters.');
   const panes=parseArrangement(v.panes,blotterPanes,blotterDockRules);

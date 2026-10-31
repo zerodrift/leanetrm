@@ -331,16 +331,19 @@ test('the Blotter report carries its pane state and whether it is popped out, an
     assert.deepEqual(pageReport({...state,pane:{details:true,charts:true},poppedOut:true}).layout,{pane:{details:true,charts:true},poppedOut:true});
   assert.equal(pageReport({page:'admin'}).layout,undefined);
 });
-test('what Looking at saved is compared without the client-only layout',async()=>{
+test('what Looking at saved is compared without the layout, which Looking at does not show',async()=>{
   const {lookingKey}=await import('../dist/assistant-pages.js');
   const state={page:'futures',risk:false,trade:null,entry:null,lens:'values',view:blotter};
   const at=(pane,poppedOut,view=blotter)=>({report:pageReport({...state,view,pane,poppedOut}),context:{mode:'current',frameId:null,frameLabel:null}});
   assert.equal(lookingKey(at({details:true,charts:true},false)),lookingKey(at({details:false,charts:true},true)));
   assert.notEqual(lookingKey(at({details:true,charts:true},false,{...blotter,mode:'pivot'})),lookingKey(at({details:true,charts:true},false)));
 });
-test('an ask sends only the page and its selection; the layout stays with the page',async()=>{
-  const {askReport}=await import('../dist/assistant-pages.js');
+test('an ask sends the Blotter report whole, its layout with it, and a kept ask keeps it',async()=>{
+  const assistant=await import('../dist/assistant-pages.js');
+  assert.equal(assistant.askReport,undefined);
   const report=pageReport({page:'futures',...open,risk:false,trade:null,entry:null,lens:'values',view:blotter,pane:{details:true,charts:false},poppedOut:true});
-  assert.deepEqual(Object.keys(askReport(report)).sort(),['page','selection']);
-  assert.deepEqual(askReport(report).selection,report.selection);
+  const body={conversationId:null,agentId:book,version:2,question:'What is open?',pageReport:report,knowledge:{mode:'current',contextId:null,frameId:frame}};
+  const stored={operationId:trade,path:'assistant/turns/ask',body};
+  assert.deepEqual(keptAsk(JSON.stringify(stored)).body.pageReport,report);
+  assert.equal(keptAsk(JSON.stringify({...stored,body:{...body,pageReport:{...report,extra:1}}})),undefined);
 });
