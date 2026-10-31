@@ -118,7 +118,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    {
     var clock=members.Where(m=>m.Role=="physical").Select(m=>m.Clock).Distinct().ToArray();
     if(clock.Length!=1)throw new MarketDataException("schedule_view","A gas schedule view requires every physical side to share one gas-day clock.");
-    schedule=ScheduleViews.Build(views.ToImmutable(),GasTicket.Description.Levels,clock[0].Boundary,market.Graph.Plan.Context.ValuationAt);
+    schedule=ScheduleViews.Build(views.ToImmutable(),GasTicket.Description.Levels,clock[0].Boundary);
    }
    catch(MarketDataException error)when(error.Code is "schedule_view" or "gas_day_boundary"){refusal=new{code=error.Code,message=error.Message};}
   // No contract-against-market measure is defined for these sides yet, so none is reported.

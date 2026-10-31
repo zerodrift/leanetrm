@@ -31,7 +31,7 @@ internal static class ScheduleViewChecks
     {
         var before=From.AddDays(-1);
         var daily=Daily(31,before,_=>(N("10000"),VolumeState.Contractual),_=>(N("3.412"),SchedulePriceFacts.Fixed));
-        var view=ScheduleViews.Build([daily],Levels,Utc,before);
+        var view=ScheduleViews.Build([daily],Levels,Utc);
         var month=Row(view,"2031-12");var days=view.Rows.Where(row=>row.Level=="day").ToArray();
         Equal(month.Cells["physical.quantity"].Value,"310000");
         if(days.Length!=31||days[0].Key!="2031-12-01"||days[0].OperatingDate!="2031-12-01"||days.Any(day=>day.Parent!="2031-12")||
@@ -40,7 +40,7 @@ internal static class ScheduleViewChecks
         Pass("daily quantities sum exactly to the month");
 
         var cash=Cash("cash","3.412",1,before);var fee=Cash("fee","0.045",-1,before);
-        view=ScheduleViews.Build([daily,cash,fee],Levels,Utc,before);month=Row(view,"2031-12");
+        view=ScheduleViews.Build([daily,cash,fee],Levels,Utc);month=Row(view,"2031-12");
         if(view.Rows.Where(row=>row.Level=="day").Any(day=>day.Cells["cash.amount"].Value is not null||day.Cells["cash.price"].Value is not null||
             !day.Cells["cash.amount"].Sources.IsEmpty))
             throw new Exception("A monthly payment side is blank on day rows.");
@@ -49,18 +49,18 @@ internal static class ScheduleViewChecks
 
         Equal(month.Cells["physical.price"].Value,"3.412");
         var uneven=Daily(31,before,_=>(N("10000"),VolumeState.Contractual),day=>(N(day==4?"3.413":"3.412"),SchedulePriceFacts.Fixed));
-        var unevenView=ScheduleViews.Build([uneven],Levels,Utc,before);
+        var unevenView=ScheduleViews.Build([uneven],Levels,Utc);
         if(Row(unevenView,"2031-12").Cells["physical.price"].Value is not null||Row(unevenView,"2031-12-05").Cells["physical.price"].Value!="3.413")
             throw new Exception("A coarse price is set only when all children agree.");
         Pass("coarse price is set only when all children agree");
 
         Equal(month.Cells["physical.amount"].Value,"1057720");
         var third=Daily(1,before,_=>(new(1,3),VolumeState.Contractual),_=>(N("3"),SchedulePriceFacts.Fixed));
-        var thirdDay=Row(ScheduleViews.Build([third],Levels,Utc,before),"2031-12-01");
+        var thirdDay=Row(ScheduleViews.Build([third],Levels,Utc),"2031-12-01");
         Equal(thirdDay.Cells["physical.amount"].Value,"1");Equal(thirdDay.Cells["physical.quantity"].Value,"1/3");
-        var scaled=Row(ScheduleViews.Build([daily with{Scale=D("2"),Coefficient=S(-1)}],Levels,Utc,before),"2031-12");
+        var scaled=Row(ScheduleViews.Build([daily with{Scale=D("2"),Coefficient=S(-1)}],Levels,Utc),"2031-12");
         Equal(scaled.Cells["physical.quantity"].Value,"-620000");Equal(scaled.Cells["physical.amount"].Value,"-2115440");Equal(scaled.Cells["physical.price"].Value,"3.412");
-        var share=Row(ScheduleViews.Build([daily with{Coefficient=S(50,51)}],Levels,Utc,before),"2031-12");
+        var share=Row(ScheduleViews.Build([daily with{Coefficient=S(50,51)}],Levels,Utc),"2031-12");
         Equal(share.Cells["physical.quantity"].Value,"15500000/51");Equal(share.Cells["physical.amount"].Value,"52886000/51");
         Pass("amounts keep exact decimals");
 
@@ -72,7 +72,7 @@ internal static class ScheduleViewChecks
 
         var sourced=Daily(31,before,day=>(N("10000"),day==0?VolumeState.Metered:VolumeState.Contractual),
             _=>(N("3.412"),SchedulePriceFacts.Projected|SchedulePriceFacts.PublishedFixing));
-        var sourcedView=ScheduleViews.Build([sourced],Levels,Utc,before);
+        var sourcedView=ScheduleViews.Build([sourced],Levels,Utc);
         Sources(Row(sourcedView,"2031-12").Cells["physical.quantity"],"contract","meter");
         Sources(Row(sourcedView,"2031-12-01").Cells["physical.quantity"],"meter");
         Sources(Row(sourcedView,"2031-12-02").Cells["physical.price"],"fwd","fixed");
@@ -83,7 +83,7 @@ internal static class ScheduleViewChecks
             throw new Exception("Before the first day nothing is delivered.");
         var at=From.AddDays(19);
         var delivered=ScheduleViews.Build([Daily(31,at,_=>(N("10000"),VolumeState.Contractual),_=>(N("3.412"),SchedulePriceFacts.Fixed)),
-            Cash("cash","3.412",1,at),Cash("fee","0.045",-1,at)],Levels,Utc,at);
+            Cash("cash","3.412",1,at),Cash("fee","0.045",-1,at)],Levels,Utc);
         if(delivered.DeliveredLeaves!=19||delivered.Leaves!=31||delivered.Delivered is null||delivered.Remaining is null||delivered.ValuationAt!=at||
             !Row(delivered,"2031-12-19").Delivered||Row(delivered,"2031-12-20").Delivered||Row(delivered,"2031-12").Delivered)
             throw new Exception("Rows ending by the valuation instant are delivered.");
@@ -95,15 +95,37 @@ internal static class ScheduleViewChecks
                 throw new Exception("Delivered plus remaining equals the totals.");
         Pass("rows ending by the valuation instant are delivered");
 
+        // Demand reads a cell paid by the valuation instant in the base lane only; the view shows it from that lane.
+        var paid=Daily(31,PayAt.AddDays(1),_=>(N("10000"),VolumeState.Contractual),_=>(N("3.412"),SchedulePriceFacts.Fixed));
+        var baseOnly=paid with{Evaluation=paid.Evaluation with{Values=[..paid.Evaluation.Values.Select(lanes=>new ScheduleLaneColumns(lanes.Base,
+            lanes.Scenario with{Presence=[..Enumerable.Repeat(ScheduleCellPresence.NotDemanded,lanes.Scenario.Presence.Length)]}))]}};
+        foreach(var side in new[]{paid,baseOnly})
+        {
+            var shown=ScheduleViews.Build([side],Levels,Utc);
+            Equal(Row(shown,"2031-12").Cells["physical.amount"].Value,"1057720");Equal(Row(shown,"2031-12-31").Cells["physical.quantity"].Value,"10000");
+            if(shown.DeliveredLeaves!=31||!shown.Rows.All(row=>row.Delivered))throw new Exception("Every paid row is delivered.");
+        }
+        Pass("cells paid by the valuation instant show from the lane demand resolved");
+
+        // An amount beyond the working decimal range is shown as its exact ratio.
+        var large=Row(ScheduleViews.Build([Daily(1,before,_=>(new(System.Numerics.BigInteger.Pow(10,24),1),VolumeState.Contractual),_=>(N("1"),SchedulePriceFacts.Fixed))],Levels,Utc),"2031-12-01");
+        Equal(large.Cells["physical.amount"].Value,"1000000000000000000000000/1");
+        Pass("values beyond the working decimal range keep their exact ratio");
+
+        var quantityRow=daily.Program.Document.Instructions.Single(instruction=>instruction.Output.Operation=="amount").Inputs["quantity"][0];
+        var quantities=daily.Evaluation.Values[quantityRow];
+        var shortQuantity=daily with{Evaluation=daily.Evaluation with{Values=daily.Evaluation.Values.SetItem(quantityRow,new(quantities.Base,
+            quantities.Scenario with{Values=quantities.Scenario.Values[..2],States=quantities.Scenario.States[..2],Presence=quantities.Scenario.Presence[..2]}))}};
+        Reject("schedule_view",()=>ScheduleViews.Build([shortQuantity],Levels,Utc));
         var partial=Daily(31,before,_=>(N("10000"),VolumeState.Contractual),_=>(N("3.412"),SchedulePriceFacts.Fixed),new(From,From.AddDays(10)));
-        Reject("schedule_view",()=>ScheduleViews.Build([partial],Levels,Utc,before));
-        Reject("schedule_view",()=>ScheduleViews.Build([daily,cash],Levels,day=>new(day.ToDateTime(TimeOnly.MinValue),TimeSpan.FromHours(-5)),before));
-        Reject("schedule_view",()=>ScheduleViews.Build([daily,cash,Cash("euro","3.412",1,before,EuroQuote)],Levels,Utc,before));
-        Reject("schedule_view",()=>ScheduleViews.Build([daily],Levels,Utc,at));
-        Reject("schedule_view",()=>ScheduleViews.Build([daily],["month"],Utc,before));
-        Reject("schedule_view",()=>ScheduleViews.Build([cash],["day"],Utc,before));
-        Reject("schedule_view",()=>ScheduleViews.Build([daily,daily],Levels,Utc,before));
-        Pass("missing cells, clock disagreement, mixed net-cash currencies, valuation mismatch and unsupported levels refuse");
+        Reject("schedule_view",()=>ScheduleViews.Build([partial],Levels,Utc));
+        Reject("schedule_view",()=>ScheduleViews.Build([daily,cash],Levels,day=>new(day.ToDateTime(TimeOnly.MinValue),TimeSpan.FromHours(-5))));
+        Reject("schedule_view",()=>ScheduleViews.Build([daily,cash,Cash("euro","3.412",1,before,EuroQuote)],Levels,Utc));
+        Reject("schedule_view",()=>ScheduleViews.Build([daily,Cash("cash","3.412",1,before,known:before.AddHours(-1))],Levels,Utc));
+        Reject("schedule_view",()=>ScheduleViews.Build([daily],["month"],Utc));
+        Reject("schedule_view",()=>ScheduleViews.Build([cash],["day"],Utc));
+        Reject("schedule_view",()=>ScheduleViews.Build([daily,daily],Levels,Utc));
+        Pass("missing cells, malformed operands, clock disagreement, mixed net-cash currencies, sides under different contexts and unsupported levels refuse");
         GasComposition();
     }
 
@@ -133,7 +155,7 @@ internal static class ScheduleViewChecks
             return new(code,evaluation,program,D("10000"),S(coefficient),Columns);
         }
         ImmutableArray<SideViewInput> sides=[Side("physical",physical,1),Side("cash",Fixed("3.412"),-1),Side("fee",Fixed("0.045"),-1)];
-        var view=ScheduleViews.Build(sides,Levels,clock.Boundary,before);
+        var view=ScheduleViews.Build(sides,Levels,clock.Boundary);
         var month=Row(view,from.ToString("yyyy-MM",System.Globalization.CultureInfo.InvariantCulture));
         var days=view.Rows.Where(row=>row.Parent==month.Key).ToArray();
         if(to.DayNumber-from.DayNumber!=31||month.Start!=clock.Boundary(from)||month.End!=clock.Boundary(to)||month.Start.UtcDateTime.Hour!=15||
@@ -143,7 +165,7 @@ internal static class ScheduleViewChecks
         Equal(month.Cells["physical.quantity"].Value,"310000");Equal(month.Cells["physical.amount"].Value,"1057720");
         Equal(month.Cells["cash.amount"].Value,"-1057720");Equal(month.Cells["fee.amount"].Value,"-13950");
         Equal(month.Cells["trade.net_cash"].Value,"-1071670");Equal(days[0].Cells["physical.price"].Value,"3.412");
-        Reject("schedule_view",()=>ScheduleViews.Build(sides,Levels,Utc,before));
+        Reject("schedule_view",()=>ScheduleViews.Build(sides,Levels,Utc));
         Pass("a 09:00 gas composition anchors days and its cash month on the gas-day boundary");
     }
 
@@ -159,12 +181,12 @@ internal static class ScheduleViewChecks
         }));
         return new("physical",evaluation,program,D("1"),S(1),Columns);
     }
-    private static SideViewInput Cash(string code,string price,int direction,DateTimeOffset valuation,QuoteSpecification? quote=null)
+    private static SideViewInput Cash(string code,string price,int direction,DateTimeOffset valuation,QuoteSpecification? quote=null,DateTimeOffset? known=null)
     {
         var q=quote??Quote;
         var side=new FixedSide(Guid.NewGuid(),new FlatPrice(new UnitPrice(D(price),q)),q,new(D("1"),q.Quantity),
             [new(DateOnly.FromDateTime(From.UtcDateTime),DateOnly.FromDateTime(From.AddDays(31).UtcDateTime),PayAt,new(310000,1),null)]);
-        var program=Load(ScheduleDefinitionCompiler.Generate(side));var demand=program.Inputs(Context(valuation));
+        var program=Load(ScheduleDefinitionCompiler.Generate(side));var demand=program.Inputs(Context(valuation,known));
         var evaluation=program.Execute(demand,"base","base",Inputs(program,demand,(_,_)=>(N("1"),default)));
         return new(code,evaluation,program,D("1"),S(direction),Columns);
     }
@@ -198,7 +220,9 @@ internal static class ScheduleViewChecks
         var bytes=BookedSideProgram.Compile(definition).Write();
         return BookedSideProgram.Read(bytes,new(BookedSideProgram.Digest(bytes),definition.Manifest,definition.Family,definition.EconomicIdentity,definition.PricingBindingIdentity));
     }
-    private static ResolvedCalculationContext Context(DateTimeOffset at)=>new(Guid.NewGuid(),"synthetic_schedule_view_v1",at,at,at,at);
+    // Sides evaluated at one instant share one context; a different knowledge cutoff is another context.
+    private static readonly Guid ContextId=Guid.NewGuid();
+    private static ResolvedCalculationContext Context(DateTimeOffset at,DateTimeOffset? known=null)=>new(ContextId,"synthetic_schedule_view_v1",at,known??at,at,at);
     private static Dictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>> Inputs(BookedSideProgram program,ScheduleInputDemandSet demand,
         Func<ScheduleDefinitionRow,int,(ScheduleNumber Number,ScheduleCellState State)> resolve)
     {
