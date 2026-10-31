@@ -1,7 +1,7 @@
 // The message channel between the main window and a popped-out Blotter (docs/blotter-workbench.md, Pop-out Blotter).
 // Messages carry selections only, never figures: the pop-out reads every value itself under its own session cookie. Both
 // ends read each message strictly (own session, version 1, known kind, no extra fields) and drop what they refuse.
-import {parseBlotterViews,type BlotterView} from './blotter-layout.js';
+import {parseBlotterViews,validLayoutField,type BlotterView} from './blotter-layout.js';
 import type {PageState} from './assistant-pages.js';
 import type {GridLayout} from './data-grid.js';
 
@@ -32,12 +32,14 @@ const shape=<T extends Record<string,unknown>>(fields:{[K in keyof T]:Parse<T[K]
   if(!isObject(x)||Object.keys(x).length!==names.length||!names.every(k=>Object.hasOwn(x,k)))refuse('an object has missing or extra fields');
   return Object.fromEntries(names.map(k=>[k,(fields as Record<string,Parse<unknown>>)[k]((x as Record<string,unknown>)[k])])) as T;
 };
-const record=<T>(parse:Parse<T>):Parse<Record<string,T>>=>x=>isObject(x)?Object.fromEntries(Object.keys(x).map(k=>[k,parse(x[k])])):refuse('a map is malformed');
+const record=<T>(key:Parse<string>,parse:Parse<T>):Parse<Record<string,T>>=>x=>isObject(x)?Object.fromEntries(Object.keys(x).map(k=>[key(k),parse(x[k])])):refuse('a map is malformed');
 const strings=list(str);
 
 const selection=shape({mode:oneOf('trades','pivot'),bookIds:strings,portfolioIds:strings,groupBy:strings,measures:strings});
 const tradeShown=shape({tradeId:str,instrumentType:oneOf('future','financial_swap','heat_rate','ppa'),revision,reference:str});
-const gridLayout:Parse<GridLayout>=shape({order:strings,widths:record(x=>Number.isSafeInteger(x)?x as number:refuse('a width is not a whole number')),sort:list(shape({key:str,direction:oneOf('asc','desc')}))});
+// Grid keys are columns, which may be pivot keys longer than ordinary text, so the saved-view rule decides them.
+const layoutKey:Parse<string>=x=>typeof x==='string'&&validLayoutField(x)?x:refuse('a grid column is unknown');
+const gridLayout:Parse<GridLayout>=shape({order:list(layoutKey),widths:record(layoutKey,x=>Number.isSafeInteger(x)?x as number:refuse('a width is not a whole number')),sort:list(shape({key:layoutKey,direction:oneOf('asc','desc')}))});
 // One entry per PageState variant (assistant-pages.ts); the fields besides `page` are parsed exactly.
 const pageStates:Record<string,Parse<object>>={
   market:shape({curve:orNull(str),tab:oneOf('prices','dependencies','inputs')}),power:shape({frame:bool}),configuration:shape({}),schedules:shape({}),
@@ -67,6 +69,7 @@ const knowledgeModes=['current','retained'] as const;
 const bodies:Record<string,Parse<Record<string,unknown>>>={
   context:shape({context:x=>{
     const c=shape({snapshotId:str,knowledgeMode:oneOf(...knowledgeModes),contextId:orNull(str),profile:str})(x);
+    if(c.contextId==='')refuse('the context id is empty');
     // A retained read names its context and a current one names none.
     if((c.knowledgeMode==='retained')!==(c.contextId!==null))refuse('the knowledge mode and context id disagree');
     return c;}}),
@@ -78,9 +81,10 @@ const bodies:Record<string,Parse<Record<string,unknown>>>={
 export function readBlotterMessage(value:unknown,session:string):BlotterMessage{
   if(!isObject(value))refuse('it is not an object');
   const m=value as Record<string,unknown>;
-  if(m.v!==1)refuse('it is not version 1');
-  if(m.session!==session)refuse('it belongs to another session');
-  if(typeof m.kind!=='string'||!Object.hasOwn(bodies,m.kind))refuse('its kind is unknown');
+  const own=(k:string)=>Object.hasOwn(m,k);
+  if(!own('v')||m.v!==1)refuse('it is not version 1');
+  if(!own('session')||m.session!==session)refuse('it belongs to another session');
+  if(!own('kind')||typeof m.kind!=='string'||!Object.hasOwn(bodies,m.kind))refuse('its kind is unknown');
   const {v,session:_,kind,...body}=m;
   return {v:1,session,kind,...bodies[kind as string](body)} as BlotterMessage;
 }

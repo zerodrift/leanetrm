@@ -134,3 +134,22 @@ test('only own properties count as fields (7)',()=>{
  const inherited=Object.create({key:'k'});Object.assign(inherited,{v:1,session:S,kind:'askAbout'});
  assert.throws(()=>readBlotterMessage(inherited,S));
 });
+
+// Review round 2
+test('a saved view with a long valid pivot column key is accepted (R2-1)',()=>{
+ const id='a'.repeat(80),key='pivot:'+JSON.stringify([JSON.stringify([id,id,id]),'lots']);
+ assert.ok(key.length>200&&key.length<=512);
+ const view={...newBlotterView(),grid:{order:[key],widths:{[key]:120},sort:[{key,direction:'asc'}]}};
+ assert.deepEqual(readBlotterMessage(msg('view',{view}),S).view.grid,view.grid);
+ assert.throws(()=>readBlotterMessage(msg('view',{view:{...view,grid:{...view.grid,order:['bogus']}}}),S));
+});
+test('v, session and kind count only as own properties (R2-2)',()=>{
+ const base=Object.create({v:1,session:S,kind:'opened'});
+ assert.throws(()=>readBlotterMessage(base,S));
+ const partly=Object.assign(Object.create({kind:'opened'}),{v:1,session:S});
+ assert.throws(()=>readBlotterMessage(partly,S));
+});
+test('a retained context needs a non-empty context id (R2-3)',()=>{
+ const ctx={...valid.context.context,knowledgeMode:'retained'};
+ assert.throws(()=>readBlotterMessage(msg('context',{context:{...ctx,contextId:''}}),S));
+});
