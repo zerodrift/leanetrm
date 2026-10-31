@@ -3,6 +3,8 @@
 import type {BlotterOperation} from './blotter-operations.js';
 import type {MenuItem} from './context-menu.js';
 
+/** What Ask the assistant about this position puts in the assistant's composer, for the person to send or change. */
+export const askAboutText=(reference:string)=>`Tell me about position ${reference}: what it holds, what it is worth and its risk.`;
 /** An item's action: a Blotter operation, or one of the row's own, which the page carries out for the row the menu was opened on. */
 export type RowMenuAction=BlotterOperation|{kind:'openWindow'|'copyId'|'ask'};
 type Refusable='book'|'amend'|'ask';

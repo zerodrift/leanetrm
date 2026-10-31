@@ -1,6 +1,7 @@
 // The message channel between the main window and a popped-out Blotter (docs/blotter-workbench.md, Pop-out Blotter).
 // Messages carry selections only, never figures: the pop-out reads every value itself under its own session cookie. Both
-// ends read each message strictly (own session, version 1, known kind, no extra fields) and drop what they refuse.
+// ends read each message strictly (own session, version 1, known kind, no extra fields) and drop what they refuse. Every message but the
+// main window's context and ending, which concern every window of its session, names the pop-out instance it concerns (blotter-popout.ts).
 import {parseBlotterViews,validLayoutField,type BlotterView} from './blotter-layout.js';
 import type {PageState} from './assistant-pages.js';
 import type {GridLayout} from './data-grid.js';
@@ -8,11 +9,11 @@ import type {GridLayout} from './data-grid.js';
 export type EndReason='signed_out'|'account_changed'|'main_closed';
 export type BlotterMessage=
   {v:1;session:string;kind:'context';context:{snapshotId:string;knowledgeMode:string;contextId:string|null;profile:string}}
-  |{v:1;session:string;kind:'view';view:BlotterView}
-  |{v:1;session:string;kind:'opened'}|{v:1;session:string;kind:'closed'}
+  |{v:1;session:string;kind:'view';instance:string;view:BlotterView}
+  |{v:1;session:string;kind:'opened';instance:string}|{v:1;session:string;kind:'closed';instance:string}
   |{v:1;session:string;kind:'ended';reason:EndReason}
-  |{v:1;session:string;kind:'pageReport';state:PageState}
-  |{v:1;session:string;kind:'askAbout';key:string};
+  |{v:1;session:string;kind:'pageReport';instance:string;state:PageState}
+  |{v:1;session:string;kind:'askAbout';instance:string;key:string};
 
 const refuse=(why:string):never=>{throw Error(`Blotter window message refused: ${why}.`);};
 const isObject=(x:unknown):x is Record<string,unknown>=>typeof x==='object'&&x!==null&&!Array.isArray(x);
@@ -65,6 +66,7 @@ function view(value:unknown):BlotterView{
 }
 
 const knowledgeModes=['current','retained'] as const;
+const instance:Parse<string>=x=>str(x)===''?refuse('the window instance is empty'):x as string;
 // What follows `v`, `session` and `kind`, parsed exactly.
 const bodies:Record<string,Parse<Record<string,unknown>>>={
   context:shape({context:x=>{
@@ -73,9 +75,9 @@ const bodies:Record<string,Parse<Record<string,unknown>>>={
     // A retained read names its context and a current one names none.
     if((c.knowledgeMode==='retained')!==(c.contextId!==null))refuse('the knowledge mode and context id disagree');
     return c;}}),
-  view:shape({view}),opened:shape({}),closed:shape({}),
+  view:shape({instance,view}),opened:shape({instance}),closed:shape({instance}),
   ended:shape({reason:oneOf<EndReason>('signed_out','account_changed','main_closed')}),
-  pageReport:shape({state:pageState}),askAbout:shape({key:str})};
+  pageReport:shape({instance,state:pageState}),askAbout:shape({instance,key:str})};
 
 /** The message if it is version 1, for this session, of a known kind and exactly shaped; otherwise throws and nothing is applied. The result is a new object. */
 export function readBlotterMessage(value:unknown,session:string):BlotterMessage{

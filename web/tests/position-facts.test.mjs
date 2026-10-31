@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readPositionFacts,requirePricedFacts} from '../dist/position-facts.js';
+import {readPositionFacts,readPositionFactsPage,requirePricedFacts} from '../dist/position-facts.js';
 
 const context={contextId:'synthetic-context-1',effectiveOn:'2031-11-01',knownAt:'2031-11-01T12:00:00Z'};
 const fact=(bindingId,revision=1)=>({tradeId:'synthetic-trade',bindingId,revision,tradeReference:'Synthetic trade',bookId:'synthetic-book',book:'Synthetic book',
@@ -14,6 +14,15 @@ test('a first page states the total being valued and refuses an inconsistent pag
   // A wrong cursor either way, an empty page of a selection that holds positions, a repeated binding, and more than the limit.
   for(const [wrong,limit] of [[page([fact('first')],2,null),64],[page([fact('first')],1,1),64],[page([],2,0),64],[page([fact('first'),fact('first')],2,null),64],[page([fact('first'),fact('second')],3,2),1]])
     assert.throws(()=>readPositionFacts(wrong,limit),/inconsistent page/);
+});
+
+test('a later page continues from its offset, and its cursor is checked from there',()=>{
+  const later=readPositionFactsPage(page([fact('third')],4,3),1,2);
+  assert.deepEqual([later.total,later.nextOffset,later.positions],[4,3,[fact('third')]]);
+  assert.equal(readPositionFactsPage(page([fact('last')],4,null),64,3).nextOffset,null);
+  for(const [wrong,offset] of [[page([fact('third')],4,1),2],[page([fact('third')],4,null),2],[page([fact('a'),fact('b')],3,null),2],[page([],4,null),2]])
+    assert.throws(()=>readPositionFactsPage(wrong,64,offset),/inconsistent page/,JSON.stringify(wrong));
+  assert.throws(()=>readPositionFactsPage(page([fact('a')],4,3),64,-1),/inconsistent page/);
 });
 
 test('current priced results may advance knowledge only while preserving all booked bindings',()=>{

@@ -1687,3 +1687,10 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .dock-split[data-direction=row]>.dock-group[data-collapsed] .dock-title{writing-mode:vertical-rl;white-space:nowrap}
 .dock-divider[aria-disabled=true]{cursor:default}
 .dock-divider[aria-disabled=true]::after{display:none}
+
+/* The Blotter popped out (blotter-workbench.md, Pop-out Blotter): in its own window it has no navigation beside it and fills the window;
+   the main window says where it went. A window that stops says why in place of the Blotter. */
+.blotter-window main{margin-left:0;max-width:none}
+.blotter-window-ended{padding:14px;border:1px solid var(--danger-border);border-radius:var(--radius);background:var(--danger-soft);color:var(--danger)}
+.blotter-away{max-width:640px}
+.blotter-away p{margin:8px 0 16px}

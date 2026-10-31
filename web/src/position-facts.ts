@@ -13,12 +13,14 @@ const key=(position:{tradeId:string;bindingId:string})=>JSON.stringify([position
 const sameContext=(left:FactsContext,right:FactsContext)=>left.contextId===right.contextId&&left.effectiveOn===right.effectiveOn&&left.knownAt===right.knownAt;
 
 /** The first page of the booked positions, of at most `limit`, with the total the whole selection holds. */
-export function readPositionFacts(value:unknown,limit:number):PositionFacts{
+export const readPositionFacts=(value:unknown,limit:number)=>readPositionFactsPage(value,limit,0);
+/** The page of the booked positions from `offset`, of at most `limit`, with the total the whole selection holds. */
+export function readPositionFactsPage(value:unknown,limit:number,offset:number):PositionFacts{
   const page=value as PositionFacts;
-  if(!page||typeof page.context?.contextId!=='string'||!page.context.contextId||typeof page.context.effectiveOn!=='string'||
+  if(!Number.isSafeInteger(offset)||offset<0||!page||typeof page.context?.contextId!=='string'||!page.context.contextId||typeof page.context.effectiveOn!=='string'||
     typeof page.context.knownAt!=='string'||typeof page.asOf!=='string'||!Array.isArray(page.positions)||
-    !Number.isInteger(page.total)||page.positions.length>limit||page.positions.length>page.total||
-    (page.total>0&&page.positions.length===0)||page.nextOffset!==(page.positions.length<page.total?page.positions.length:null))throw Error(invalid);
+    !Number.isInteger(page.total)||page.positions.length>limit||offset+page.positions.length>page.total||
+    (page.total>offset&&page.positions.length===0)||page.nextOffset!==(offset+page.positions.length<page.total?offset+page.positions.length:null))throw Error(invalid);
   for(const position of page.positions){
     if(!position||['tradeId','bindingId','tradeReference','bookId','book'].some(field=>typeof position[field as keyof PositionFact]!=='string')||
       !Number.isInteger(position.revision)||position.revision<1||!['future','financial_swap','heat_rate','ppa'].includes(position.instrumentType)||

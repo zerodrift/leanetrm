@@ -8,11 +8,11 @@ const selection={mode:'trades',bookIds:[],portfolioIds:[],groupBy:[],measures:[]
 const futures={page:'futures',risk:false,trade:null,entry:null,lens:'values',view:selection,pane:{details:false,charts:true},poppedOut:false};
 const valid={
  context:{kind:'context',context:{snapshotId:'snap-1',knowledgeMode:'current',contextId:null,profile:'p1'}},
- view:{kind:'view',view:newBlotterView()},
- opened:{kind:'opened'},closed:{kind:'closed'},
+ view:{kind:'view',instance:'w1',view:newBlotterView()},
+ opened:{kind:'opened',instance:'w1'},closed:{kind:'closed',instance:'w1'},
  ended:{kind:'ended',reason:'signed_out'},
- pageReport:{kind:'pageReport',state:futures},
- askAbout:{kind:'askAbout',key:'t1:b1'},
+ pageReport:{kind:'pageReport',instance:'w1',state:futures},
+ askAbout:{kind:'askAbout',instance:'w1',key:'t1:b1'},
 };
 const msg=(kind,extra={})=>({v:1,session:S,...valid[kind],...extra});
 
@@ -25,6 +25,14 @@ test('another session id, another version and an unknown kind are refused',()=>{
  assert.throws(()=>readBlotterMessage(msg('opened',{v:2}),S));
  assert.throws(()=>readBlotterMessage(msg('opened',{kind:'shutdown'}),S));
  for(const bad of [null,undefined,'opened',7,[],{}])assert.throws(()=>readBlotterMessage(bad,S));
+});
+test('every message but context and ended names the pop-out it concerns',()=>{
+ for(const kind of ['view','opened','closed','pageReport','askAbout']){
+  const {instance,...unnamed}=msg(kind);
+  assert.throws(()=>readBlotterMessage(unnamed,S),kind);
+  for(const bad of ['',7,null,'x'.repeat(201)])assert.throws(()=>readBlotterMessage(msg(kind,{instance:bad}),S),kind+' '+bad);
+ }
+ for(const kind of ['context','ended'])assert.throws(()=>readBlotterMessage(msg(kind,{instance:'w1'}),S),kind);
 });
 test('extra fields are refused at every level',()=>{
  for(const kind of Object.keys(valid))assert.throws(()=>readBlotterMessage(msg(kind,{figures:'1'}),S),kind);

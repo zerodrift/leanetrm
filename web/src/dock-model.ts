@@ -3,6 +3,9 @@
 // sit in which group, which are collapsed, how groups split, and how a drop, a saved arrangement or a narrow screen changes it.
 // Drawing and storage belong to the caller.
 
+/** The main area's width, in pixels, from which a dock shows its groups side by side or above one another; a narrower one stacks its tabs in one group. */
+export const dockedGroupsFrom=960;
+
 export type DockLayout=
   |{kind:'group';tabs:string[];active:string}
   |{kind:'split';direction:'row'|'column';ratio:number;children:[DockLayout,DockLayout]};

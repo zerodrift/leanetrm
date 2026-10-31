@@ -1,6 +1,6 @@
 import {readPpaView} from './ppa-trade-view.js';
 import {openPositionWindow,type PositionWindowSelection} from './position-window-selection.js';
-import {readPositionFacts,requirePricedFacts,type PositionFacts} from './position-facts.js';
+import {readPositionFacts,readPositionFactsPage,requirePricedFacts,type PositionFacts} from './position-facts.js';
 import {amountText,prepareAmountDisplay} from './amount-display.js';
 import {type PartyCatalog,type Trader} from './trade-annotations.js';
 import {setupSwapEditor,readSwapView} from './swap-editor.js';
@@ -25,6 +25,8 @@ import {isPriceMeasure,priceMeanPolicy,blotterColumns,blotterDockRules,defaultBl
 import {setupDock} from './dock.js';
 import {createBlotterOperations,guard,refuse,requireModeColumns,type BlotterCaller,type BlotterOperation} from './blotter-operations.js';
 import {rowMenuItems,type RowMenuAction} from './blotter-row-menu.js';
+import {openBlotterChannel,type EndReason} from './blotter-channel.js';
+import {tieMainWindow,type BlotterContext} from './blotter-popout.js';
 import {setupMenu} from './context-menu.js';
 import {closeOutRefusal,closeOutRequest,readCloseOutDraft} from './close-out-draft.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
@@ -97,7 +99,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // Whether the page is too narrow to show the panes side by side or above one another.
   narrow:()=>boolean;
   // The page assistant, when the account may use it: a row's menu asks it about a position, which the details then show it.
-  assistant:{available:()=>boolean;draft:(text:string)=>void}}){
+  assistant:{available:()=>boolean;about:(position:{key:string;reference:string})=>void};
+  // The window the Blotter is in (blotter-workbench.md, Pop-out Blotter): the main window, which pops it out into a window of its own that
+  // `open` opens and brings it back; or that window, which `close`s to bring it back.
+  window:{kind:'main';example:'baseline'|'exchange';open:(url:string,target:string,features:string)=>Window|null}|{kind:'popout';close:()=>void}}){
   const {api,act,busy}=options;
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
@@ -105,7 +110,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   const workspace=createTableWorkspace(get('blotter-workspace'),{
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
     pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
-    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Run risk'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>asked(()=>load('directory',false,true)),onScope:()=>void perform({kind:'chooseScope',bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}),
+    scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Run risk'],['refresh','Refresh'],['export','Export'],['new','New trade'],['popout',options.window.kind==='main'?'Pop out':'Bring back']],onApply:()=>asked(()=>load('directory',false,true)),onScope:()=>void perform({kind:'chooseScope',bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}),
     note:get('new-trade-availability'),body:get('blotter-dock'),rows:get('blotter-pane-grid'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),lens:get('desk-lens'),
   });
   // Existing booking controls share the table toolbar.
@@ -223,6 +228,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // A view the Blotter turns to brings its arrangement with it.
   function showPanes(){chartsMadeWay=false;if(JSON.stringify(dock.arrangement())!==JSON.stringify(view.panes))dock.set(view.panes);}
   get('blotter-reset-layout').onclick=()=>void perform({kind:'resetLayout'});
+  get('blotter-popout').onclick=()=>void perform({kind:options.window.kind==='main'?'popOut':'bringBack'});
+  if(options.window.kind==='main')get('blotter-bring-back').onclick=()=>void perform({kind:'bringBack'});
   // The risk report of the panel's Risk report mode, for the books and context of the read on screen. What it holds outlives the panel's
   // other modes, so its results stay while a position is looked at; a new read of the Blotter clears it.
   const risk=setupRisk({api,act,busy,zone:options.zone,profile:options.profile,canRun:()=>options.canRunRisk()&&!!holdings,onDenied:clear,onChange:riskChanged,edited:options.unsavedChanged,scope:()=>{
@@ -247,7 +254,16 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const values=get('desk-ladder-value');values.hidden=lens!=='ladder';
     for(const button of values.querySelectorAll<HTMLButtonElement>('[data-ladder-value]')){button.setAttribute('aria-pressed',String(button.dataset.ladderValue===ladderValue));button.disabled=busy();}
   }
-  function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};}
+  function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained' as const:'current' as const,...(source.context?{contextId:source.context.contextId}:{})};}
+  // The main window's tie to the Blotter popped out of it (blotter-popout.ts), which follows what the header selects: the close, the
+  // knowledge and the account. Its convention is not a selection, and the pop-out reads its own; a selection the header cannot state now,
+  // an unapplied context or no close, leaves the pop-out where it is.
+  function popoutContext():BlotterContext|undefined{
+    let read;try{read=readContext();}catch{return undefined;}
+    return {snapshotId:read.snapshotId,knowledgeMode:read.knowledgeMode,contextId:read.contextId??null,profile:options.profile()};
+  }
+  const tie=options.window.kind==='main'?tieMainWindow({source:location.href,example:options.window.example,grace:3000,session:()=>crypto.randomUUID(),
+    channel:openBlotterChannel,open:options.window.open,context:popoutContext,returned:cameBack,reported:options.reported,ask:key=>void askAbout(key)}):undefined;
   const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
@@ -345,6 +361,55 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // control that has already changed. An operation's handler hears a refusal; the person's other controls show it (asked).
   const guarded=(work:()=>Promise<void>,kept?:()=>void)=>guard({busy,leave,act},work,kept);
   const asked=(work:()=>Promise<void>,kept?:()=>void)=>void guarded(work,kept).catch(options.failed);
+  // Work run as the person's action whose failure, which the page has said, is the operation's too, so whoever dispatched it hears it.
+  async function acted(work:()=>Promise<void>){
+    let failed:unknown;
+    await guarded(async()=>{try{await work();}catch(error){failed=error;throw error;}});
+    if(failed!==undefined)throw Object.assign(failed instanceof Error?failed:Error(String(failed)),{shown:true});
+  }
+  // Leaving the Blotter: no read, form or position of it stays.
+  function leavePage(){cancelRead();dropForms();deskPanel.reset();}
+  // A trade request whose outcome is not confirmed is owned by the window that sent it, which keeps its Check status and Retry.
+  const retainedStays=(move:string)=>{if(pending.command)throw refuse(`a trade request whose outcome is not confirmed stays with the window that sent it; check its status before the Blotter ${move}`);};
+  // The view as it stands, its unsaved edits among them, in its saved form: what one window hands the other.
+  function handOff(){return parseBlotterViews(JSON.stringify([readView()]))[0];}
+  // A view the other window handed over, shown as the person left it there: unsaved.
+  function adopt(handed:BlotterView){
+    restore();view=structuredClone(handed);draftBase=undefined;table=undefined;showPanes();field('blotter-name').value=view.name;field('blotter-saved').value='';viewControls();
+    // A narrow window shows the positions among the stacked panes, as it does once it has become narrow.
+    if(options.narrow())dock.reveal('grid');
+  }
+  // On the Blotter's page the main window shows the Blotter, or, while it is popped out, where it went.
+  function placeWindow(){
+    const page=get('futures-page'),placeholder=get('blotter-away');
+    if(!tie||page.hidden&&placeholder.hidden)return;
+    page.hidden=tie.out();placeholder.hidden=!tie.out();
+  }
+  // The Blotter popped out leaves nothing of itself in the main window.
+  function away(){leavePage();clear();placeWindow();options.reported();}
+  // Work the page takes up once it is idle: the Blotter coming back, while the main window is busy with something else.
+  function whenIdle(work:()=>void){if(busy())setTimeout(()=>whenIdle(work),50);else work();}
+  // The Blotter is back with the view its window handed back, or the one it took there, which is said; the main window reads it afresh.
+  function cameBack(returned:BlotterView,handedBack:boolean){
+    adopt(returned);placeWindow();options.reported();
+    const said=()=>{if(!handedBack)options.notice('The Blotter’s window closed without handing back its view, so the Blotter shows the view it had when it was popped out.');};
+    if(get('futures-page').hidden){said();return;}
+    whenIdle(()=>void act(()=>load('directory',false,true)).then(said));
+  }
+  // A position the pop-out asks the assistant about, found in the main window's own read of the booked positions it may read: the pop-out
+  // names only its key.
+  async function askAbout(key:string){
+    try{
+      const context={...readContext(),convention:'trading_workspace_v1'};
+      for(let offset:number|null=0;offset!==null;){
+        const page=readPositionFactsPage(await api('trading/positions',{context,bookIds:[],portfolioIds:[],offset,limit:factPageSize}),factPageSize,offset);
+        const found=page.positions.find(p=>`${p.tradeId}:${p.bindingId}`===key);
+        if(found){window.focus();options.assistant.about({key,reference:found.tradeReference});return;}
+        offset=page.nextOffset;
+      }
+      throw Error('The Blotter’s window asked about a position this window cannot read, so nothing was put to the assistant.');
+    }catch(error){options.failed(error);}
+  }
   // A position opens, in the details or a window of its own, only from the read on screen: rows kept from the previous read, or drawn
   // while the read is under way, say so.
   const notOpened=()=>options.notice('Positions open once the Blotter has valued them.');
@@ -388,7 +453,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
         focusRow(key);return;
       // Amend and Ask act on the position the details show, which they show first, asking about what the details hold.
       case 'amend':if(await perform({kind:'selectPosition',key})===true)await perform(action);return;
-      case 'ask':if(await perform({kind:'selectPosition',key})===true)options.assistant.draft(`Tell me about position ${h.tradeReference}: what it holds, what it is worth and its risk.`);return;
+      case 'ask':if(await perform({kind:'selectPosition',key})===true)options.assistant.about({key,reference:h.tradeReference});return;
       default:await perform(action);
     }
   }
@@ -545,7 +610,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     savedViews=read.views;earlierViews=read.earlier;versions=new Map(saved.map(v=>[v.layout.name,v.version]));viewsLoaded=true;viewControls();
   }
 
-  const storageKey=()=>`openetrm.futures.request.server_booking_utc_v1.${options.profile()}`;
+  // A trade request whose outcome is unconfirmed stays with the window that sent it: the pop-out keeps its own, never the main window's, which
+  // its storage holds a copy of from when it opened.
+  const storageKey=()=>`openetrm.futures.request.server_booking_utc_v1.${options.window.kind==='popout'?'blotter-window.':''}${options.profile()}`;
   function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The current visit still retains the exact in-memory request. */}}
   function restore(){
     if(owner===options.profile())return;
@@ -733,7 +800,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     sync();}
   // Starts the Blotter afresh: for another close or context, or for the Blotter opened again, each of which says so of a risk run it
   // clears; or, for another account, saying nothing, as everything the page held goes.
-  function reset(cause:ReadCause|null){if(cause)replaceRead(cause);else clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
+  function reset(cause:ReadCause|null){
+    // Another account ends a Blotter popped out for the last one, which the account's change said first.
+    if(cause===null&&tie?.out()){tie.end('account_changed');placeWindow();}
+    if(cause)replaceRead(cause);else clear();restore();forgetViews();viewControls();snapshot='';get('futures-pending').hidden=true;}
   // A new read of the Blotter replaces the one a run on screen was made at: the run is cleared and the page says why (D222). A live
   // correction and a settlement record say so in their own words.
   function replaceRead(cause:ReadCause,keepGrid=false){if(risk.current())options.notice(readNotes[cause]);clearRead(keepGrid);}
@@ -968,6 +1038,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     drawStrip();sync();
   }
   async function load(bookingCatalog:BookingCatalog='directory',live=false,background=false){
+    // A Blotter in a window of its own is read there.
+    if(tie?.out())return;
     // A read awaiting its values has only its book scope to change; its other controls belong to the view.
     const account=owner;restore();if(!viewsLoaded)await loadViews();view=parseBlotterViews(JSON.stringify([!holdings&&loading?{...view,bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}:readView()]))[0];const source=options.source();
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before reading holdings.');
@@ -1262,9 +1334,19 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     },
     collapsePane:async({pane,collapsed})=>{if(pane==='details')await showDetails(!collapsed);else if(collapsed)dock.collapse(pane);else dock.reveal(pane);},
     resetLayout:async()=>{chartsMadeWay=false;view.panes=defaultBlotterArrangement();dock.set(view.panes);},
-    // Refused until the pop-out is built.
-    popOut:async()=>{throw refuse('the Blotter does not open in a window of its own yet');},
-    bringBack:async()=>{throw refuse('the Blotter is not in a window of its own');},
+    // The Blotter pops out into a window of its own with the view it shows, its unsaved edits among them, once the person has said what
+    // the details hold may go.
+    popOut:async()=>{
+      const own=tie;if(!own)throw refuse('the Blotter is already in a window of its own');
+      await acted(async()=>{retainedStays('opens in a window of its own');own.open(handOff());away();});
+    },
+    // The main window closes the pop-out, which hands back its view as it goes; the pop-out closes itself.
+    bringBack:async()=>{
+      const shown=options.window;
+      if(shown.kind==='popout'){await acted(async()=>{retainedStays('comes back to the main window');shown.close();});return;}
+      const own=tie;if(!own?.out())throw refuse('the Blotter is not in a window of its own');
+      await acted(()=>own.bringBack());
+    },
     draftCloseOut:async({key})=>draftCloseOut(key),
     // A position is amended from its details, for the revision they read: a PPA, an account that cannot amend or a revision that cannot be
     // amended is refused with why.
@@ -1340,15 +1422,28 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // not a Display choice not yet applied: the person's view is never changed to fit it.
     requireTradeRows:()=>requireTradeRows(view.mode),
     // What the Blotter shows: its risk report, the trade in its panel, the new trade entered there, or the view its last read applied.
-    report:()=>({risk:panel.current()?.kind==='risk',trade:shownTrade(),entry:newTradeShown(),lens:lensShown()||ladderOn()?'risk' as const:'values' as const,
-      view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]},
-      // A pane is open as the dock draws it (BlotterLayoutShown). The Blotter is in no window of its own until the pop-out is built.
-      pane:{details:dock.showing('details'),charts:dock.showing('charts')},poppedOut:false}),
+    // While the Blotter is popped out, that is what its window last reported; before it has, the main window cannot say.
+    report(){
+      if(tie?.out()){
+        const shown=tie.shown();if(!shown)throw Error('The Blotter’s window has not said what it shows yet.');
+        const {page,...state}=shown;return state;
+      }
+      return {risk:panel.current()?.kind==='risk',trade:shownTrade(),entry:newTradeShown(),lens:lensShown()||ladderOn()?'risk' as const:'values' as const,
+        view:{mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:[...view.groupBy],measures:[...view.measures]},
+        // A pane is open as the dock draws it (BlotterLayoutShown).
+        pane:{details:dock.showing('details'),charts:dock.showing('charts')},poppedOut:options.window.kind==='popout'};
+    },
     // A form of the panel with edits not yet sent, the risk report's setup among them, or a trade request or risk job whose outcome is unconfirmed.
     unsaved:()=>!!pending.command||editing()||risk.unconfirmed(),
     // Whether the panel holds the form of an amendment or of a new trade, or a risk report's setup, with edits, and the question asked before it is given up: false means the person kept it. The forms
     // are dropped without a question when the page is left on the person's word, as the assistant's Go anyway is.
     editing,leave,dropForms,cancelRead,
     // A page exit has already passed its unsaved-edit guard. Clear the details as well as forms, without returning focus to a row.
-    leavePage(){cancelRead();dropForms();deskPanel.reset();}};
+    leavePage,
+    // The Blotter popped out of the main window (blotter-workbench.md, Pop-out Blotter): whether it is, bringing its window to the front,
+    // sending it the context the header selects now, and ending it, saying why, when the main window signs out, changes account or closes.
+    poppedOut:()=>!!tie?.out(),front:()=>tie?.front(),follow(){if(!busy())try{tie?.follow();}catch(error){options.failed(error);}},
+    ended(reason:EndReason){tie?.end(reason);placeWindow();},
+    // In the pop-out: the view the main window handed over, and the view to hand back.
+    adopt,handOff};
 }
