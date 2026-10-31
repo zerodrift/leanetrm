@@ -153,8 +153,9 @@ async function act(work:()=>Promise<void>,{keepNotice=false}={}){
 // keeps the graph and gives up only an unpublished effective-version timeline, or 'keeps' them (preferences, following live). The Blotter's amendment
 // is asked about for every move, and always through its own leave, which also closes its forms. 'page' moves to another page and leaves the
 // context and account as they are, so the Blotter popped out of this window keeps its edits; every other move but 'keeps' gives them up, which is
-// asked about first, whichever page this window shows.
-type Move='discards'|'closes'|'keeps'|'page';
+// asked about first, whichever page this window shows. 'follows' starts following live corrections, which keeps a custom curve's edits but
+// changes the context the Blotter popped out of this window reads.
+type Move='discards'|'closes'|'keeps'|'page'|'follows';
 let keptWindowEdits=false;
 async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
   keptWindowEdits=false;
@@ -166,7 +167,7 @@ async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
     if(modal?.open&&futures.editing())modal.close();
     return futures.leave();
   }
-  if(page!=='custom-curves'||move==='keeps')return true;
+  if(page!=='custom-curves'||move==='keeps'||move==='follows')return true;
   const scope=move==='closes'?'timeline':'edits';
   if(!customCurves.holds(scope))return true;
   if(modal?.open)modal.close();
@@ -727,7 +728,9 @@ function setHostMode(mode:string){
 const bootstrapPath='bootstrap?includeFrames=false';
 const startupBootstrapPath=bootstrapPath+'&includeAccess=true';
 async function profileChoices(initial?:ProfileChoices){const boot=initial??await api<ProfileChoices>(bootstrapPath);setHostMode(boot.mode);$('preview-access').hidden=hostedPilot;$('sign-out').hidden=!hostedPilot;choose('profile',[...boot.profiles,...boot.customProfiles.filter(p=>!boot.profiles.some(base=>base.id===p.id))].map(p=>({value:p.id,name:p.name})),currentProfile);const name=select('profile').selectedOptions[0]?.textContent??'Current user';text('profile-label',name);text('profile-avatar',name.slice(0,1));text('profile-title',name);text('profile-access','Current permissions: '+(permissions.length?permissions.map(p=>friendly(p.replace(/([a-z])([A-Z])/g,'$1 $2'))).join(', '):'No workspace access'));$('profile-open').setAttribute('aria-label','Profile · '+name);}
-$('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were not signed out'))return;await act(async()=>{futures.ended('signed_out');await api('logout',{});location.assign('/auth');});})();
+$('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were not signed out'))return;await act(async()=>{futures.ended('signed_out');try{await api('logout',{});}catch(error){await blotterBack();throw error;}location.assign('/auth');});})();
+// A sign-out or account change that failed after it ended the popped-out Blotter shows the Blotter here again, read afresh, rather than an empty page.
+async function blotterBack(){if(page==='futures'&&select('snapshot').value){futures.reset('read');await futures.load();}}
 async function loadIdentity(initialAccess?:unknown){
   $('curve-price-navigation').hidden=true;customCurves.reset();$('custom-curves-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
@@ -759,7 +762,7 @@ async function loadIdentity(initialAccess?:unknown){
   }
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
 }
-$('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was not switched'))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;futures.ended('account_changed');await api('profile',{profile:next});currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
+$('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was not switched'))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;futures.ended('account_changed');try{await api('profile',{profile:next});}catch(error){await blotterBack();throw error;}currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
 // A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
 function closeChanged(){
   shownClose=select('snapshot').value;closeBasis=undefined;
@@ -836,7 +839,7 @@ $('follow-live').onclick=()=>leaving(async()=>{
  const selected=await api<LiveContextUpdate>('market/live',{snapshotId:frame().id,policy:'selected_facts_latest_committed_corrections_v1'});
  if(navigation){navigation.context=selected.context;navigation.live=selected.live;}
  contextDirty=false;connectLive(selected.live);lastLiveUpdate=selected;liveUpdates?.offer({...selected,generation:selected.live.generation});
-},'keeps');
+},'follows');
 $('live-retry').onclick=()=>{if(liveStream?.readyState===EventSource.CLOSED&&navigation?.live){liveStream=undefined;connectLive(navigation.live);}else if(lastLiveUpdate)liveUpdates?.offer({...lastLiveUpdate,generation:lastLiveUpdate.live.generation},true);};
 // The contract panel of Curves & prices docks beside the page when the main area has the room and the assistant is closed; Curve builder
 // shows its views' tab groups side by side only from a main area this wide (dock.ts).
@@ -1069,7 +1072,8 @@ function tableName(code:string){
 $('assistant-hide').onclick=()=>{prefs.assistantHidden=true;persist();assistant.sync();};
 const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,api,root:apiRoot,identity:()=>administrationScope+':'+currentProfile,zone:()=>prefs.timeZone,
   available:()=>can('UseAgents'),pageBusy:()=>busy,act,place,names:()=>({curve:curveName,table:tableName}),
-  trade:()=>futures.report().trade?.reference,unsaved,open:target=>showTarget(target.page,target.selection,target.kind),
+  // The Blotter popped out of this window may hold edits a move gives up, whichever page this window shows.
+  trade:()=>futures.report().trade?.reference,unsaved:()=>unsaved()||futures.windowEdits(),open:target=>showTarget(target.page,target.selection,target.kind),
   // A proposed curve or a saved draft opens under the header the page shows (D260).
   go:async target=>{if(target.kind!=='proposal'&&target.kind!=='draft')await selectContext(target.context);await showTarget(target.page,target.selection,target.kind);},restore:restorePlace});
 // Coming back to the window asks whether a newer close arrived while it was away.

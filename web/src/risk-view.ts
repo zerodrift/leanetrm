@@ -640,6 +640,35 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     inputsChanged(carrying:boolean){const kept=carrying?carried??choicesNow():undefined;reset();carry(kept);},
     edited,
     unconfirmed:()=>submissions.has(options.profile()),
+    /**
+     * The account's unconfirmed submission as another window of the Blotter takes it over (blotter-workbench.md, Pop-out Blotter): each part's
+     * request, the job it is known as without its result, which that window reads itself, why it failed, and the request an unconfirmed part
+     * was sent as, under its identity. Undefined when there is none.
+     */
+    handOff(){
+      const current=submissions.get(options.profile());if(!current)return undefined;
+      return {version:1,queued:current.queued,id:current.id??null,context:current.context??null,asOf:current.asOf??null,setup:current.setup??null,scope:current.scope??null,
+        parts:current.parts.map(p=>{const {result,...job}=p.job??{} as Job;return {request:p.request??null,job:p.job?job:null,failure:p.failure??null,command:p.recovery?.command??null};})};
+    },
+    /** Forgets the account's unconfirmed submission, once another window has taken it over. */
+    handedOff(){const kept=submissions.get(options.profile());submissions.delete(options.profile());if(kept&&run===kept)forgetRun();sync();},
+    /** Takes over an unconfirmed submission another window handed over, which is shown, to reconcile, when the report opens; one it cannot read is refused. */
+    adopt(value:unknown){
+      const given=value as ReturnType<NonNullable<typeof this.handOff>>&{};
+      const text=(x:unknown)=>typeof x==='string'&&x.length>0;
+      if(!given||given.version!==1||typeof given.queued!=='boolean'||!Array.isArray(given.parts)||!given.parts.length||given.parts.some(p=>!p||typeof p!=='object'||
+        p.command!==null&&(!text(p.command.operationId)||p.command.path!=='portfolio/risk/jobs'||!p.command.body||typeof p.command.body!=='object')||p.job!==null&&!text(p.job.id))||
+        !given.parts.some(p=>p.command!==null))throw Error('The unconfirmed risk submission the Blotter’s window handed over could not be read. Check Risk jobs for its outcome.');
+      if(submissions.has(options.profile()))throw Error('An unconfirmed risk submission is already kept here, so the one the Blotter’s window held was not taken over. Check Risk jobs for its outcome.');
+      const parts:Part[]=given.parts.map(p=>{
+        const part:Part={...(p.request?{request:p.request as Request}:{}),...(p.job?{job:p.job as Job}:{}),...(p.failure!==null?{failure:p.failure}:{})};
+        if(p.command){part.recovery=new PendingCommand(knownRiskRejection);part.recovery.command={...structuredClone(p.command),uncertain:true};}
+        return part;
+      });
+      submissions.set(options.profile(),{key:++runs,queued:given.queued,parts,...(given.id?{id:given.id}:{}),...(given.context?{context:given.context}:{}),
+        ...(given.asOf?{asOf:given.asOf}:{}),...(given.setup?{setup:given.setup}:{}),...(given.scope?{scope:given.scope}:{})});
+      sync();
+    },
     /** Whether a queued part of the run on screen is still under way. */
     running,
     current,download,

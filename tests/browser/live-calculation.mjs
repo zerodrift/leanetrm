@@ -219,5 +219,19 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  await popup.wait(`${popupReads}>${popupBefore}&&`+idle,60000);
  await check('a live correction reads the pop-out Blotter again as the main window reads one, keeping the edits its details hold',
   JSON.stringify(await popup.evaluate("document.querySelector('#position-details').dataset.mode==='risk'&&document.querySelector('input[name=risk-choice][value=held]').checked&&document.querySelector('#risk-size-0').value==='0.25'&&!document.querySelector('#notice').textContent.includes('given up')")));
- await popup.close();
+ const prompt="document.querySelector('#blotter-window-question-prompt')";
+ const answer=label=>evaluate(`[...${prompt}.querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(label)}).click()`);
+ // A risk submission the pop-out queued whose outcome is not known goes back with the Blotter, under its first identity.
+ const popupSizes=await popup.evaluate("document.querySelectorAll('#risk-sizes input').length");
+ for(let index=1;index<popupSizes;index++)if(!await popup.evaluate(`document.querySelector('#risk-size-${index}').value`))await popup.set(`#risk-size-${index}`,'0.05');
+ await popup.evaluate("(()=>{const send=window.fetch;window.__riskSent=[];window.fetch=async(input,init)=>{if(String(input).endsWith('/portfolio/risk/jobs')&&init?.method==='POST'){window.__riskSent.push(JSON.parse(init.body).requestId);throw new TypeError('Synthetic lost connection');}return send(input,init);};document.querySelector('#risk-queue').click();})()");
+ await popup.wait("window.__riskSent.length>0&&"+idle,60000);
+ const riskHeld=await popup.evaluate('[...new Set(window.__riskSent)].sort()');
+ await evaluate("(()=>{const send=window.fetch;window.__riskJobs=[];window.fetch=async(input,init)=>{if(String(input).endsWith('/portfolio/risk/jobs')&&init?.method==='POST')window.__riskJobs.push(JSON.parse(init.body).requestId);return send(input,init);};})()");
+ await click('#blotter-bring-back');await wait(`!${prompt}.hidden`);await answer('Give them up');
+ await wait("document.querySelector('#blotter-away').hidden&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&"+idle,60000);
+ await click('#blotter-risk');await wait("!document.querySelector('#risk-job-retry').hidden&&"+idle,30000);
+ await click('#risk-job-retry',60000);
+ await check('Bring back hands the pop-out\'s unconfirmed risk submission to the main window, whose Retry sends each part under its first identity',
+  `JSON.stringify([...new Set(window.__riskJobs)].sort())===${JSON.stringify(JSON.stringify(riskHeld))}`,'window.__riskJobs');
 }

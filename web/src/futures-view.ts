@@ -371,9 +371,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // Leaving the Blotter: no read, form or position of it stays.
   function leavePage(){cancelRead();dropForms();deskPanel.reset();}
   // A trade request whose outcome is not confirmed is owned by the window that sent it, which keeps its Check status and Retry.
-  // A pop-out's trade request goes back with the Blotter (handRequest); a risk submission, and a main window's request, stay.
-  const retainedStays=(move:string,request:boolean)=>{
-    if(request&&pending.command||risk.unconfirmed())throw refuse(`a request whose outcome is not confirmed stays with the window that sent it; check its status before the Blotter ${move}`);
+  // A main window's unconfirmed requests stay with it; a pop-out's go back with the Blotter (handOver).
+  const retainedStays=(move:string)=>{
+    if(pending.command||risk.unconfirmed())throw refuse(`a request whose outcome is not confirmed stays with the window that sent it; check its status before the Blotter ${move}`);
   };
   // The view as it stands, its unsaved edits among them, in its saved form: what one window hands the other.
   function handOff(){return parseBlotterViews(JSON.stringify([readView()]))[0];}
@@ -423,7 +423,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(!windowEdits())return true;
     if(askingWindow)return false;
     askingWindow=true;
-    try{return await askInPanel(get('blotter-window-question'),{text:'The Blotter’s window holds unsaved edits that this gives up.',keep:'Keep them',go:'Give them up'})(new AbortController().signal);}
+    try{return await askInPanel(get('blotter-window-question'),{text:'The Blotter’s window holds unsaved edits, or a request whose outcome is not confirmed. This gives up the edits; such a request stays with the Blotter.',keep:'Keep them',go:'Give them up'})(new AbortController().signal);}
     finally{askingWindow=false;}
   }
   // A position opens, in the details or a window of its own, only from the read on screen: rows kept from the previous read, or drawn
@@ -631,22 +631,45 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // its storage holds a copy of from when it opened.
   const requestKey=(popout:boolean)=>`openetrm.futures.request.server_booking_utc_v1.${popout?'blotter-window.':''}${options.profile()}`;
   const storageKey=()=>requestKey(options.window.kind==='popout');
-  // The request this window's storage keeps, which it now owns: one it sent before a reload, or one the pop-out handed over as it closed.
+  // Where the pop-out hands an unconfirmed risk submission to the main window, which takes it over as its own.
+  const submissionKey=()=>`openetrm.risk.handed-submission.${options.profile()}`;
+  // The requests this window's storage keeps, which it now owns: a trade request it sent before a reload, or one the pop-out handed over
+  // as it closed, and a risk submission the pop-out handed over, which is then the report's to reconcile.
   function takeStoredRequest(){
-    if(pending.command)return;
-    try{const saved=restoreTradeRequest(JSON.parse(sessionStorage.getItem(storageKey())??'null'));if(saved){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
+    if(!pending.command)try{const saved=restoreTradeRequest(JSON.parse(sessionStorage.getItem(storageKey())??'null'));if(saved){pending.command=saved;uncertain=true;}}catch{/* An unreadable local draft grants no authority. */}
+    if(options.window.kind!=='main')return;
+    let handed:string|null=null;try{handed=sessionStorage.getItem(submissionKey());sessionStorage.removeItem(submissionKey());}catch{/* No storage, nothing handed over. */}
+    if(handed!==null)try{risk.adopt(JSON.parse(handed));}catch(error){options.failed(error);}
   }
-  // The pop-out hands its unconfirmed request to the main window's storage, under the account's key there, as the Blotter goes back: the
-  // request is then the main window's, with its Check status and Retry. One already there for another request is never overwritten.
-  function handRequest(storage:Storage){
-    const command=pending.command;if(!command)return true;
-    const there=storage.getItem(requestKey(false));
-    if(there!==null&&restoreTradeRequest(JSON.parse(there))?.operationId!==command.operationId)return false;
-    storage.setItem(requestKey(false),JSON.stringify(command));pending.clear();uncertain=false;store();sync();return true;
+  // Whether the pop-out's unconfirmed requests can go to the main window's storage, or why not: another request there is never overwritten,
+  // and one that cannot be read is never taken for this one.
+  function handOverRefusal(storage:Storage):string|undefined{
+    try{
+      const there=storage.getItem(requestKey(false));
+      if(pending.command&&there!==null&&restoreTradeRequest(JSON.parse(there))?.operationId!==pending.command.operationId)
+        return 'The main window already holds another unconfirmed trade request, so this window keeps its own: check its status or retry it here.';
+      if(risk.unconfirmed()&&storage.getItem(submissionKey())!==null)
+        return 'The main window already holds a risk submission handed to it, so this window keeps its own: reconcile it here.';
+    }catch{return 'The main window’s stored requests could not be read, so this window keeps its own: check their status here.';}
+    return undefined;
+  }
+  // The pop-out hands its unconfirmed trade request and risk submission to the main window's storage, under the account's keys there, as the
+  // Blotter goes back: they are then the main window's, with Check status, Retry and Reconcile, under their first identities. Undefined once
+  // handed over; otherwise why they stay.
+  function handOver(storage:Storage):string|undefined{
+    const why=handOverRefusal(storage);if(why)return why;
+    const submission=risk.handOff();
+    try{
+      if(pending.command)storage.setItem(requestKey(false),JSON.stringify(pending.command));
+      if(submission)storage.setItem(submissionKey(),JSON.stringify(submission));
+    }catch{return 'The main window could not store the requests this window holds, so it keeps them: check their status here.';}
+    if(pending.command){pending.clear();uncertain=false;store();}
+    if(submission)risk.handedOff();
+    sync();return undefined;
   }
   function store(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The current visit still retains the exact in-memory request. */}}
   function restore(){
-    if(owner===options.profile())return;
+    if(owner===options.profile()){takeStoredRequest();return;}
     owner=options.profile();pending.clear();uncertain=false;view=newBlotterView();showPanes();forgetViews();draftBase=undefined;field('blotter-name').value='';text('blotter-view-note','Named views are saved to your account. Dates and market inputs are selected separately.');get('blotter-column-choices').replaceChildren();text('blotter-table-title','Positions');workspace.closeMenus();viewControls();
     takeStoredRequest();
   }
@@ -1369,12 +1392,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // the details hold may go.
     popOut:async()=>{
       const own=tie;if(!own)throw refuse('the Blotter is already in a window of its own');
-      await acted(async()=>{retainedStays('opens in a window of its own',true);own.open(handOff());away();});
+      await acted(async()=>{retainedStays('opens in a window of its own');own.open(handOff());away();});
     },
     // The main window closes the pop-out, which hands back its view as it goes; the pop-out closes itself.
     bringBack:async()=>{
       const shown=options.window;
-      if(shown.kind==='popout'){await acted(async()=>{retainedStays('comes back to the main window',false);shown.close();});return;}
+      // The pop-out's own requests go back with it (handOver), which its window does as it closes.
+      if(shown.kind==='popout'){await acted(async()=>{shown.close();});return;}
       const own=tie;if(!own?.out())throw refuse('the Blotter is not in a window of its own');
       if(!await leaveWindow())return;
       await acted(()=>own.bringBack());
@@ -1480,5 +1504,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     windowEdits,leaveWindow,
     // In the pop-out: the view the main window handed over, the view to hand back, the request to hand over, and the retained request kept
     // alone, with no values, when there is no main window to hand it to.
-    adopt,handOff,handRequest,retained:()=>!!pending.command,keepOnlyRetained(){leavePage();clear();retainedOnly=true;get('futures-page').dataset.retainedOnly='';sync();}};
+    adopt,handOff,handOver,handOverRefusal,retained:()=>!!pending.command||risk.unconfirmed(),
+    // What the pop-out holds that a change or its closing could give up or strand: edits, and requests whose outcome is unconfirmed.
+    heldWork:()=>editing()||!!pending.command||risk.unconfirmed(),
+    // The catalog last read says whether the account may book or amend, which Retry is offered by; it holds no values, and the backend
+    // authorizes the retry again.
+    keepOnlyRetained(){const authority=catalog;leavePage();clear();catalog=authority;retainedOnly=true;get('futures-page').dataset.retainedOnly='';sync();}};
 }

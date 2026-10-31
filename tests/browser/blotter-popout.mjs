@@ -69,10 +69,16 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('moving to another page of the main window asks nothing of the pop-out\'s edits',`${prompt}.hidden&&${q('#page-title')}.textContent==='Curves & prices'`);
   await set('#snapshot',dates[1]);await wait(`!${prompt}.hidden`).catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify({main:await evaluate(`({snapshot:${q('#snapshot')}.value,first:${JSON.stringify(dates[0])},notice:${q('#notice')}.textContent,error:${q('#error')}.textContent})`),
     popup:await popup.evaluate("({mode:document.querySelector('#position-details').dataset.mode,lots:document.querySelector('#futures-lots')?.value,notice:document.querySelector('#notice').textContent,asOf:document.querySelector('#header-calculation-time').textContent})")}));});
-  await check('a change of the market date in the main window first asks about the edits the pop-out holds',`${prompt}.textContent.includes('The Blotter’s window holds unsaved edits that this gives up.')`,`${prompt}.textContent`);
+  await check('a change of the market date in the main window first asks about the edits the pop-out holds',`${prompt}.textContent.includes('The Blotter’s window holds unsaved edits')`,`${prompt}.textContent`);
   await answer('Keep them');await wait(`${prompt}.hidden&&${idle}`);await reported();
   await check('keeping them leaves the main window on its date and the pop-out on its edits',
     `${q('#snapshot')}.value===${JSON.stringify(dates[0])}&&${JSON.stringify(await popup.evaluate(`document.querySelector('#futures-lots').value==='2'&&${asOf}===${JSON.stringify(firstAsOf)}`))}`);
+  // Following live corrections changes what the pop-out reads too, so it asks the same.
+  await click('#follow-live');await wait(`!${prompt}.hidden`,10000);
+  await check('Follow live corrections asks first about the edits the pop-out holds',`${prompt}.textContent.includes('The Blotter’s window holds unsaved edits')`);
+  await answer('Keep them');await wait(`${prompt}.hidden&&${idle}`);
+  await check('and keeping them leaves the main window off live corrections and the pop-out on its edits',
+    `${q('#live-status')}.hidden&&${q('#workspace-mode-label')}.textContent.startsWith('Working data')&&${JSON.stringify(await popup.evaluate("document.querySelector('#futures-lots').value==='2'"))}`);
   // Giving them up changes the date there, which is applied in the pop-out at once, and the pop-out says its edits went.
   await set('#snapshot',dates[1]);await wait(`!${prompt}.hidden`);await answer('Give them up');await wait(idle,30000);
   await popup.wait(`${idle}&&${asOf}!==${JSON.stringify(firstAsOf)}&&document.querySelector('#futures-page').dataset.pricingState==='complete'`,60000);
@@ -124,6 +130,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
 
   // Bring back asks first about edits the pop-out holds, which keeping leaves where they are.
   await lots(popup,'4');
+  // A live target of the assistant does not move this window either while the pop-out holds edits: its notice says so and offers Go anyway.
+  const turns="document.querySelectorAll('#assistant-turns > li').length",turnsBefore=await evaluate(turns);
+  await script({tools:[['toolu_popout_02','navigate',{page:'schedules',target:null}]]},{text:'Here are the schedules.'});
+  await set('#assistant-question','Take me to the schedules.');await wait(`!${q('#assistant-send')}.disabled`);await evaluate(`${q('#assistant-composer')}.requestSubmit()`);
+  const notice="document.querySelector('#assistant-turns > li:last-child .assistant-target')";
+  await wait(`${turns}>${turnsBefore}&&${q('#assistant-send')}.textContent==='Send'&&!!${notice}&&${idle}`,60000);
+  await check('an assistant target does not move the main window while the pop-out holds edits: it says so and offers Go anyway',
+    `${q('#page-title')}.textContent==='Blotter'&&${notice}.textContent.includes('Go would leave unsaved changes')&&[...${notice}.querySelectorAll('button')].some(b=>b.textContent==='Go anyway')`,`${notice}?.textContent`);
   await click('#blotter-bring-back');await wait(`!${prompt}.hidden`);await answer('Keep them');await wait(`${prompt}.hidden&&${idle}`);
   await check('Bring back asks about the edits the pop-out holds, and keeping them leaves the Blotter in its window',
     `${shown('#blotter-away')}&&${JSON.stringify((await command('Target.getTargets')).targetInfos.some(t=>t.url.startsWith(url+'/blotter.html')))}&&${JSON.stringify(await popup.evaluate("document.querySelector('#futures-lots').value==='4'"))}`);
@@ -144,8 +158,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await click('#profile-open');await evaluate(`${q('#sign-out')}.click()`);
   await signedOut.wait(`${endedText}==='Signed out in the main window'`,30000);
   await check('signing out in the main window leaves the pop-out saying so, with no figures',JSON.stringify(await signedOut.evaluate(blank)));
-  await evaluate(`${q('#profile-dialog')}.open&&${q('#profile-close')}.click()`);await wait(idle);
+  // The failed logout reads the Blotter again behind the dialog, whose controls wait for it.
+  await wait(idle,60000);await evaluate(`${q('#profile-dialog')}.open&&${q('#profile-close')}.click()`);await wait(`!${q('#profile-dialog')}.open&&${idle}`);
   await check('and the main window no longer holds a Blotter in another window',`${q('#blotter-away')}.hidden`);
+  await wait(`!${q('#futures-page')}.hidden&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`,60000);
+  await check('a sign-out that fails shows the main window\'s own Blotter again, read afresh, never an empty page',`!${q('#futures-page')}.hidden&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')`);
   await signedOut.close();
 
   await click('#nav-futures',30000);await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`,60000);
@@ -158,15 +175,26 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // A trade request the pop-out sent whose outcome is not known goes back with the Blotter to the main window, which then owns it: its Retry
   // sends the request under the identity it was first sent with.
   await click('#nav-futures',30000);await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&${idle}`,60000);
-  const holder=await popOut();
-  await newTrade({click:holder.click,wait:holder.wait},'futures');
-  await chooseFutures({evaluate:holder.evaluate,set:holder.set,click:holder.click});await holder.evaluate("document.querySelector('#futures-book').selectedIndex=1;");
-  await holder.set('#futures-lots','1');await holder.set('#futures-execution','2.6');
-  await holder.evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");
-  await holder.evaluate("(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(String(input).endsWith('/futures/book')){window.__held=JSON.parse(init.body).operationId;throw new TypeError('Synthetic lost connection');}return send(input,init);};})()");
-  await holder.evaluate("document.querySelector('#futures-form').requestSubmit()");
-  await holder.wait(`!!window.__held&&!document.querySelector('#futures-pending').hidden&&${idle}`,30000);
-  const held=await holder.evaluate('window.__held');
+  // Books a future in `driver`'s Blotter whose first send is lost, so its outcome is not known, and gives the identity it was sent under.
+  async function holdBooking(driver){
+    await newTrade({click:driver.click,wait:driver.wait},'futures');
+    await chooseFutures({evaluate:driver.evaluate,set:driver.set,click:driver.click});await driver.evaluate("document.querySelector('#futures-book').selectedIndex=1;");
+    await driver.set('#futures-lots','1');await driver.set('#futures-execution','2.6');
+    await driver.evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");
+    await driver.evaluate("(()=>{const send=window.fetch;window.__books=[];window.__lose=true;window.fetch=async(input,init)=>{if(String(input).endsWith('/futures/book')){window.__books.push(JSON.parse(init.body).operationId);if(window.__lose){window.__lose=false;throw new TypeError('Synthetic lost connection');}}return send(input,init);};})()");
+    await driver.evaluate("document.querySelector('#futures-form').requestSubmit()");
+    await driver.wait(`window.__books.length===1&&!document.querySelector('#futures-pending').hidden&&${idle}`,30000);
+    return driver.evaluate('window.__books[0]');
+  }
+  const holder=await popOut(),held=await holdBooking(holder);
+  // A main window that already holds another request is never handed this one: the pop-out stays open on its request and says why.
+  const profileKey=await holder.evaluate("Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.futures.request.server_booking_utc_v1.blotter-window.')).replace('blotter-window.','')");
+  await evaluate(`sessionStorage.setItem(${JSON.stringify(profileKey)},JSON.stringify({path:'futures/book',operationId:'synthetic-other-request',body:{}}))`);
+  await holder.evaluate("setTimeout(()=>{document.querySelector('#blotter-popout').click();setTimeout(()=>document.querySelector('#position-details-prompt:not([hidden]) button:not(.secondary)')?.click(),300);},0);true");
+  await holder.wait(`!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.includes('already holds another unconfirmed trade request')&&${idle}`,30000);
+  await check('a pop-out whose request the main window cannot take stays open on it, saying why, with the Blotter still there',
+    `${shown('#blotter-away')}&&${JSON.stringify(await holder.evaluate("!document.querySelector('#futures-pending').hidden&&!document.querySelector('#futures-page').hidden"))}`);
+  await evaluate(`sessionStorage.removeItem(${JSON.stringify(profileKey)})`);
   // Bring back from the pop-out, which asks about what its details still hold.
   await holder.evaluate("setTimeout(()=>{document.querySelector('#blotter-popout').click();setTimeout(()=>document.querySelector('#position-details-prompt:not([hidden]) button:not(.secondary)')?.click(),300);},0);true");
   await wait(`${q('#blotter-away')}.hidden&&!${q('#futures-pending')}.hidden&&${idle}`,60000);
@@ -179,6 +207,18 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     `(()=>{const sent=window.__reads.filter(r=>r.path==='/api/futures/book').slice(${booksBefore}).map(r=>r.body.operationId);return sent.length>0&&sent.every(id=>id===${JSON.stringify(held)});})()`,
     `window.__reads.filter(r=>r.path==='/api/futures/book').slice(${booksBefore}).map(r=>r.body.operationId)`);
   await holder.close().catch(()=>undefined);
+
+  // A main window that reloads is handed the pop-out's request once it is back, never while it is going.
+  const reloading=await popOut(),reloaded=await holdBooking(reloading);
+  // The main window asks before it reloads, as the pop-out holds a request whose outcome is unconfirmed; the person goes on.
+  const loaded=await evaluate('performance.timeOrigin');await evaluate('setTimeout(()=>location.reload(),0);true');
+  for(let n=0;n<100;n++){if(await command('Page.handleJavaScriptDialog',{accept:true}).then(()=>true,()=>false))break;if(await evaluate(`performance.timeOrigin!==${loaded}`).catch(()=>false))break;await new Promise(r=>setTimeout(r,50));}
+  await wait(`performance.timeOrigin!==${loaded}&&${idle}`,60000);
+  await reloading.wait(`${endedText}.includes('its unconfirmed request went to the main window')`,30000);
+  await click('#nav-futures',30000);await wait(`!${q('#futures-pending')}.hidden&&${idle}`,60000);
+  await check('a main window that reloaded takes the pop-out\'s request once it is back, under the same identity',`JSON.stringify(${stored})===${JSON.stringify(JSON.stringify([reloaded]))}`,stored);
+  await click('#futures-retry',60000);await wait(`${q('#futures-pending')}.hidden&&${idle}`,60000);
+  await reloading.close().catch(()=>undefined);
 
   // A pop-out whose session no longer holds the main window's account stops showing values, and hands the Blotter back.
   const mismatched=await popOut();
@@ -203,6 +243,17 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await orphan.wait(`${endedText}==='The main window was closed'`,30000);
   await check('closing the main window leaves the pop-out saying so, with no figures',JSON.stringify(await orphan.evaluate(blank)));
   await orphan.close();
+  // With the main window gone, a request whose outcome is not known stays in the pop-out alone, with Check status and Retry, and no figures.
+  const other=await mainWindow(),keeper=await popOut(other),kept=await holdBooking(keeper);
+  await other.close();
+  await keeper.wait(`${endedText}.startsWith('The main window was closed')&&!document.querySelector('#futures-pending').hidden`,30000);
+  await check('a pop-out whose main window closed keeps only its unconfirmed request, with Check status and Retry, and shows no figures',
+    JSON.stringify(await keeper.evaluate("!document.querySelector('#futures-retry').disabled&&!document.querySelector('#futures-reconcile').disabled&&!document.querySelector('#desk-positions .tabulator-row')&&getComputedStyle(document.querySelector('#blotter-workspace')).display==='none'")),
+    '('+JSON.stringify(await keeper.evaluate("({retry:document.querySelector('#futures-retry').disabled,reconcile:document.querySelector('#futures-reconcile').disabled,rows:document.querySelectorAll('#desk-positions .tabulator-row').length,workspace:getComputedStyle(document.querySelector('#blotter-workspace')).display,page:document.querySelector('#futures-page').hidden,only:document.querySelector('#futures-page').dataset.retainedOnly,ended:document.querySelector('#blotter-window-ended').textContent})"))+')');
+  await keeper.evaluate("document.querySelector('#futures-retry').click()");
+  await keeper.wait(`document.querySelector('#futures-pending').hidden&&${idle}`,30000);
+  await check('and its Retry sends the request under its first identity',JSON.stringify(await keeper.evaluate(`window.__books.length===2&&window.__books.every(id=>id===${JSON.stringify(kept)})`)));
+  await keeper.close();
   const third=await mainWindow(),silent=await popOut(third);
   await third.evaluate("window.addEventListener('pagehide',event=>event.stopImmediatePropagation(),true);true");
   await third.close();
