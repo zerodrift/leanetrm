@@ -71,6 +71,8 @@ export function pageReport(state:PageState):PageReport{
 
 // The report an ask sends: the server accepts exactly a page and its selection (PageReports.cs), so the layout stays with the page.
 export const askReport=({page,selection}:PageReport)=>({page,selection});
+// What Looking at showed, kept to compare with the page at send: only what the person is shown and the ask sends, so client-only layout never refuses an ask.
+export const lookingKey=(place:{report:PageReport;context:PageContext})=>JSON.stringify([askReport(place.report),place.context]);
 
 // The knowledge an ask pins: working data only at a chosen As of frame, the selected historical view with or without one.
 export function askKnowledge(context:PageContext){

@@ -47,13 +47,16 @@ export function validLayoutField(key:string):boolean{
 export const validSort=(sort:unknown):sort is GridLayout['sort']=>Array.isArray(sort)&&sort.length<=16&&!sort.some((x:{key:string;direction:string})=>!x||!validLayoutField(x.key)||!['asc','desc'].includes(x.direction))&&new Set(sort.map((x:{key:string})=>x.key)).size===sort.length;
 export const validColumnFilters=(filters:unknown):filters is Record<string,string>=>!!filters&&typeof filters==='object'&&!Array.isArray(filters)&&!Object.entries(filters).some(([key,value])=>!validLayoutField(key)||typeof value!=='string'||value.length>200);
 export const validIds=(v:unknown):v is string[]=>Array.isArray(v)&&v.length<=256&&!v.some(x=>typeof x!=='string'||!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(x))&&new Set(v).size===v.length;
+/** A position row's key: tradeId:bindingId (desk-model's rowKey), both identifiers. */
+export const validPositionKey=(key:unknown):key is string=>typeof key==='string'&&/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}:[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(key);
+export const validViewName=(name:unknown):name is string=>typeof name==='string'&&!!name.trim()&&name.length<=60;
 export function parseBlotterViews(raw:string):BlotterView[]{
  const rows=JSON.parse(raw);if(!Array.isArray(rows)||rows.length>20)throw Error('Saved blotter views could not be read.');
  const list=(value:unknown,allowed:readonly string[],max=allowed.length):string[]=>{if(!Array.isArray(value)||value.length>max||value.some(x=>typeof x!=='string'||!allowed.includes(x))||new Set(value).size!==value.length)throw Error('Invalid saved view choices.');return [...value];};
  const ids=(v:unknown):string[]=>{if(!validIds(v))throw Error('Invalid saved book selection.');return [...v];};
  const result=rows.map(v=>{
   if(isEarlierFormat(v))throw Error('Saved blotter view is from an earlier version.');
-  if(v?.version!==blotterVersion||typeof v.sidebar!=='boolean'||typeof v.name!=='string'||!v.name.trim()||v.name.length>60||!['trades','pivot'].includes(v.mode)||typeof v.query!=='string'||v.query.length>200)throw Error('Invalid saved blotter view.');
+  if(v?.version!==blotterVersion||typeof v.sidebar!=='boolean'||!validViewName(v.name)||!['trades','pivot'].includes(v.mode)||typeof v.query!=='string'||v.query.length>200)throw Error('Invalid saved blotter view.');
   if(v.rowGroup!==null&&!rowGroups.includes(v.rowGroup))throw Error('Invalid saved view choices.');
   const splitBy=list(v.splitBy,groupChoices.map(c=>c[0]));
   const columns=list(v.columns,blotterColumns.map(c=>c[0])),groupBy=list(v.groupBy,groupChoices.map(c=>c[0])),measures=list(v.measures,measureChoices.map(c=>c[0]));

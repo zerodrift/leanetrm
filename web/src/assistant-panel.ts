@@ -7,7 +7,7 @@ import {PendingCommand} from './pending-command.js';
 import type {Vendor} from './agent-grants.js';
 import {streamFrame,streamOrder,readEvents,newTurnView,applyEvent,type TurnView,type TurnEvent,type Target,type StreamItem} from './assistant-events.js';
 import {lookingAt,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,startsOver,usageLine,consentText,grantExpiry,
-  askReport,agentChoice,preselect,conversationChoice,panelMessage,keptAsk,isUuid,type Place,type Names,type UsableAgent} from './assistant-pages.js';
+  askReport,lookingKey,agentChoice,preselect,conversationChoice,panelMessage,keptAsk,isUuid,type Place,type Names,type UsableAgent} from './assistant-pages.js';
 import {answerBlocks,renderBlocks} from './assistant-text.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
@@ -288,7 +288,7 @@ export function setupAssistant(options:PanelOptions){
     else{
       agent=chosen();if(!agent)return;
       const place=options.place(),knowledge=askKnowledge(place.context);
-      if(JSON.stringify([place.report,place.context])!==lookedAt){error='The page changed. Check Looking at, then send again.';sync();return;}
+      if(lookingKey(place)!==lookedAt){error='The page changed. Check Looking at, then send again.';sync();return;}
       if(!knowledge||!askable||options.pageBusy()||!question.value.trim()||asking.command)return;
       command=asking.begin('assistant/turns/ask',{conversationId:conversation?.id??null,agentId:agent.id,version:agent.version,question:question.value,
         pageReport:askReport(place.report),knowledge});
@@ -397,7 +397,7 @@ export function setupAssistant(options:PanelOptions){
     try{
       const place=options.place(),seen=lookingAt(place.report,place.context,options.names(),{trade:options.trade()});
       text('assistant-looking-page',seen.page);text('assistant-looking-shows',seen.shows);text('assistant-looking-context',seen.context);
-      lookedAt=JSON.stringify([place.report,place.context]);askable=seen.askable;
+      lookedAt=lookingKey(place);askable=seen.askable;
     }catch{
       text('assistant-looking-page','This page');text('assistant-looking-shows','The assistant cannot tell what this page shows. Reload it.');
       text('assistant-looking-context','');lookedAt='';askable=false;
