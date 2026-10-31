@@ -30,7 +30,10 @@ CREATE VIEW trading.swap_revision_projection WITH(security_invoker=true) AS
     (SELECT jsonb_build_object('catalogId',p.catalog_id,'curveId',p.curve_id,'version',p.version,'outputNode',p.output_node,'position',p.position,'selection',p.selection,'implementation',p.implementation) FROM trading.custom_curve_projection_bindings p WHERE(p.catalog_id,p.id)=(s.catalog_id,s.custom_projection_id)) AS custom_projection,
     (SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(f.catalog_id,f.payment_rule_id)) AS fixed_payment_rule,
     (SELECT jsonb_build_object('frequency',p.frequency,'rule',p.rule,'days',p.days,'dayOfMonth',p.day_of_month,'dayBasis',p.day_basis,'shortMonth',p.short_month,'adjustment',p.adjustment,'calendar',p.calendar_code,'implementation',p.implementation) FROM trading.swap_payment_rules p WHERE(p.catalog_id,p.id)=(s.catalog_id,s.payment_rule_id)) AS floating_payment_rule
-   FROM trading.swap_trade_revisions r JOIN trading.swap_instruments i ON(i.catalog_id,i.instrument_id)=(r.catalog_id,r.instrument_id)
+   FROM trading.swap_trade_revisions r
+   -- Keep the instrument lookup dependent on its exact revision, not a catalog scan.
+   JOIN LATERAL(SELECT * FROM trading.swap_instruments i
+    WHERE(i.catalog_id,i.instrument_id)=(r.catalog_id,r.instrument_id) OFFSET 0)i ON true
    LEFT JOIN LATERAL(
     SELECT f.fixed_price,f.delivery_from,f.delivery_to,f.payment_at,f.payment_rule_id,f.catalog_id,f.id FROM trading.swap_fixed_sides f WHERE(f.catalog_id,f.id)=(i.catalog_id,i.fixed_side_id)
     UNION ALL
@@ -73,11 +76,11 @@ WITH visible_revisions AS MATERIALIZED(
    UNION ALL
    SELECT * FROM latest_revisions WHERE cardinality($4::uuid[])=0 OR book_id=ANY($4::uuid[])
   ), projected AS MATERIALIZED(
-   -- Render the selected set once; a per-revision lateral join repeats protected scans.
-   SELECT p.* FROM trading.swap_revision_projection p
-   WHERE p.catalog_id=$1 AND($2::uuid IS NULL OR p.trade_id=$2) AND EXISTS(
-    SELECT 1 FROM selected_revisions r
-    WHERE(p.catalog_id,p.trade_id,p.revision,p.binding_id)=(r.catalog_id,r.trade_id,r.revision,r.binding_id))
+   -- Resolve only the selected exact revisions before projecting their terms.
+   SELECT p.* FROM selected_revisions r
+   CROSS JOIN LATERAL(SELECT p.* FROM trading.swap_revision_projection p
+    WHERE(p.catalog_id,p.trade_id,p.revision,p.binding_id)=
+     (r.catalog_id,r.trade_id,r.revision,r.binding_id) OFFSET 0)p
   ), rendered AS MATERIALIZED(
    SELECT to_jsonb(v)||jsonb_build_object('recorded_at',k.known_from) AS payload,r.catalog_id,r.trade_id,r.revision,r.binding_id
    FROM selected_revisions r

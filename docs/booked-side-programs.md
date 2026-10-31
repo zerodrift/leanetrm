@@ -268,8 +268,10 @@ and the committed knowledge-receipt inner join. A separate operation-authorized
 reader supplies uncommitted terms only to the owning current write operation.
 Both readers use the same financial projection; no second reconstruction is
 maintained. Normal holdings reads use one security-invoker batch function over the shared
-view, restricted to exact revision keys. The selected set is projected once in a materialized query,
-avoiding repeated protected scans and rendering of unrelated visible revisions.
+view, restricted to exact revision keys. The selected set is projected once in a
+materialized query. Dependent exact-key lookups select each revision and its
+instrument before rendering terms, avoiding repeated catalog-wide protected
+scans and rendering of superseded or unrelated revisions.
 The committed receipt join remains in the same statement. JIT is disabled only
 inside that bounded read, including its nested side-term projections; PostgreSQL
 restores the caller’s setting on return or failure. Header readers declare their
