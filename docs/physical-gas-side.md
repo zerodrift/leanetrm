@@ -468,11 +468,12 @@ individual reads preserve retained position identity and native value measures.
 A real leased worker reproduces mixed financial risk and exact gas exclusions;
 a retained manifest missing those exclusions fails instead of repairing itself.
 
-Browser qualification passed 14 shared-workflow checks at a 1440 px desktop,
+Browser qualification passed 18 shared-workflow checks at a 1440 px desktop,
 45 gas booking/quantity/setup checks and 39 PPA booking/lifecycle/inspection
 checks, including 390 px PPA layout. A lost accepted gas response with browser
 storage unavailable survives editor detach/reopen and status reconciliation
-without another booking. Nominations remain operational revisions of the same
+without another booking. Closing a ticket clears its browser page-leave warning.
+Nominations remain operational revisions of the same
 trade, with contractual quantities unchanged. Exact PPA market frame selection
 remains explicit when the desk instant cannot uniquely identify one bundle;
 cancelled loads cannot reopen an old trade after an editor reset.

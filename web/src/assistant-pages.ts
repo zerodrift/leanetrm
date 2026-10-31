@@ -73,7 +73,7 @@ export function askKnowledge(context:PageContext){
 }
 
 const pageNames:Record<string,string>={curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
-  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',delivery_prices:'Delivery prices',
+  reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',blotter_new_ppa:'Blotter',blotter_new_gas:'Blotter',delivery_prices:'Delivery prices',
   custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs & Infrastructure',users_access:'Users & access',
   settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',ppa:'PPA bookings'};
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
@@ -106,6 +106,8 @@ function shows(report:PageReport,names:Names,trade?:string){
     case 'blotter_new_trade':return `A new trade is being started: no product is chosen yet. ${unsent}`;
     case 'blotter_new_future':return `A new future is being entered. ${unsent}`;
     case 'blotter_new_swap':return `A new swap is being entered. ${unsent}`;
+    case 'blotter_new_ppa':return `A new PPA is being entered. ${unsent}`;
+    case 'blotter_new_gas':return `A new physical gas trade is being entered. ${unsent}`;
     default:return 'The assistant does not read this page.';
   }
 }

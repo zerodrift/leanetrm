@@ -1,6 +1,6 @@
 // Positions expand beneath their source row. New trade and Risk retain the side panel.
 // Exercise the same edits, context fencing and keyboard paths in each surface.
-import {chooseProduct,newTrade,startNewTrade} from './new-trade.mjs';
+import {chooseProduct,newTrade,startNewTrade,closeNewTrade} from './new-trade.mjs';
 const panel="(document.querySelector('#position-details')??{hidden:true})",side="document.querySelector('#side-panel')";
 const tiles="JSON.stringify([...document.querySelectorAll('.desk-tile')].map(t=>{const r=t.getBoundingClientRect();return [r.left+scrollX,r.top+scrollY,r.width,r.height].map(Math.round);}))";
 const rowSelector=kind=>`#desk-positions .tabulator-row:not(.tabulator-group):has(.desk-pill-${kind})`;
@@ -411,18 +411,18 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await set('#date-context-on',otherDate);await wait(idle);
   await check('a change in the open time controls is made without a question when the form holds no edits',`${prompt}.hidden&&${contextNote}.includes('Context changed')&&document.querySelector('#trade-editing').hidden`,`[${prompt}.textContent,${contextNote}]`);
   await restoreBlotter();await click('#close-view-context');
-  // New trade for a PPA leaves the Blotter for the PPA bookings page.
+  // PPA entry shares the product panel and its unsaved-edit guard.
   await amend(refB);
   await startNewTrade({click,wait});await click('#new-trade-ppa');
-  await check('New trade for a PPA leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='PPA bookings'`,`[${prompt}.textContent,${title}]`);
-  await back();
+  await check('New trade for a PPA leaves a form with no edits without a question',`${prompt}.hidden&&${title}==='Blotter'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#side-panel-form').contains(document.querySelector('#ppa-page'))`,`[${prompt}.textContent,${title}]`);
+  await closeNewTrade({click,evaluate,wait});await back();
   await newTrade({click,wait},'futures');await typeInto('#futures-lots','5');
   await click('#new-trade-ppa');await asks();
-  await check('New trade for a PPA, which leaves the Blotter, asks first, and keeping the edits leaves the Blotter and the new trade as they were',`${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&${newForm}&&document.querySelector('#futures-lots').value==='5'`,`[${prompt}.textContent,${title}]`);
+  await check('Switching to PPA asks first, and keeping edits preserves the current trade',`${prompt}.querySelectorAll('button').length===2&&${title}==='Blotter'&&${newForm}&&document.querySelector('#futures-lots').value==='5'`,`[${prompt}.textContent,${title}]`);
   await answer(0);
   await click('#new-trade-ppa');await asks();await answer(1);await wait(idle);
-  await check('and agreeing opens the PPA bookings page',`${title}==='PPA bookings'`,title);
-  await back();
+  await check('and agreeing opens the PPA form in the common workspace',`${title}==='Blotter'&&document.querySelector('#side-panel-title').textContent==='New PPA'&&document.querySelector('#side-panel-form').contains(document.querySelector('#ppa-page'))`,title);
+  await closeNewTrade({click,evaluate,wait});await back();
   await check('the Blotter comes back without the form: it starts fresh',`${side}.hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#trade-editing').hidden`);
 
   // The form of a new trade is the panel's too: what is typed in it is an edit like an amendment's, and a switch of product, a closing of the

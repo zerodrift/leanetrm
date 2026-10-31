@@ -1,7 +1,7 @@
 import {chooseProduct,newTrade,startNewTrade} from './new-trade.mjs';
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){
-  // A panel left on the choice of a product: asking for one, with neither chosen, and with no form of either in it.
-  const choice="(()=>{const panel=document.querySelector('#side-panel');return !panel.hidden&&panel.dataset.mode==='new'&&panel.getAttribute('aria-label')==='New trade'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.getAttribute('aria-pressed')==='false')&&document.querySelector('#side-panel-form').hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#swap-editing').hidden&&document.querySelector('#side-panel-view').textContent.includes('Choose Future or Swap');})()";
+  // A panel left on the choice of a product: asking for one, with none chosen and no product form in it.
+  const choice="(()=>{const panel=document.querySelector('#side-panel');return !panel.hidden&&panel.dataset.mode==='new'&&panel.getAttribute('aria-label')==='New trade'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.getAttribute('aria-pressed')==='false')&&document.querySelector('#side-panel-form').hidden&&document.querySelector('#futures-new-trade').hidden&&document.querySelector('#swap-editing').hidden&&document.querySelector('#side-panel-view').textContent.includes('Choose an instrument type');})()";
   await command('Page.enable');await command('Runtime.enable');await command('Page.navigate',{url});
   await wait(idle+"&&document.querySelectorAll('.curve-button').length>0");
   await evaluate(`(()=>{const send=window.fetch;window.__loadingOriginalFetch=send;window.__loadingReads=[];window.fetch=async(input,init)=>{
@@ -22,7 +22,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     await check('Blotter reads a directory and usable holdings without pricing booking choices',"(()=>{const read=window.__loadingReads.at(-1);return read.body.bookingCatalog==='directory'&&read.data.catalog.kind==='directory'&&!Object.hasOwn(read.data.catalog,'contracts')&&document.querySelector('#futures-contract').options.length===1&&!document.querySelector('#futures-new').disabled;})()");
     const count=await evaluate('window.__loadingReads.length');
     await startNewTrade({click,wait});
-    await check('New trade opens its Future | Swap switch in the panel, with neither chosen, without requesting futures prices',`document.querySelector('#side-panel').dataset.mode==='new'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.getAttribute('aria-pressed')==='false')&&document.querySelector('#side-panel-form').hidden&&window.__loadingReads.length===${count}`);await click('#side-panel-close');
+    await check('New trade opens all product choices with none selected, without requesting futures prices',`document.querySelector('#side-panel').dataset.mode==='new'&&[...document.querySelectorAll('#new-trade-product button')].every(b=>b.getAttribute('aria-pressed')==='false')&&document.querySelector('#side-panel-form').hidden&&window.__loadingReads.length===${count}`);await click('#side-panel-close');
     await newTrade({click,wait},'swaps');
     await check('choosing a swap does not load a futures booking catalog',`!document.querySelector('#swap-editing').hidden&&!document.querySelector('#side-panel').hidden&&window.__loadingReads.length===${count}`);await click('#side-panel-close');
     await newTrade({click,wait},'futures');

@@ -249,7 +249,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   },notice:options.notice});
   // Gives the forms the panel hosts up, without asking, and places the panel again for what it then shows: a panel left by its settlement
   // view, however it is left, a switch of mode among the ways, has its own width again.
-  function resetForms(){options.tickets.detach();editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();}
+  // The leave guard must read the final state after every editor has reset.
+  function resetForms(){options.tickets.detach();editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();queueMicrotask(options.unsavedChanged);}
   // Gives the panel's forms up without asking, for a page that is left on the person's word, so that no form stays held that they cannot return to.
   // A new trade has nothing but its form, so the panel it was in is closed with it.
   function dropForms(){resetForms();closeNew();options.reported();}

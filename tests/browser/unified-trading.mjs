@@ -19,6 +19,7 @@ export async function run(a){
   await newTrade(a,product);
   await check(product+' enters through the same trade panel',`document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#side-panel-form').contains(document.querySelector('${selector}'))&&!document.querySelector('${selector}').hidden`);
   await closeNewTrade(a);
+  await check(product+' closes without retaining a browser page-leave warning',`(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return !event.defaultPrevented;})()`);
  }
  await newTrade(a,'gas');
  const field=(n,key)=>`#gc-physical [data-physical="${n}"] [data-field="${key}"]`;
