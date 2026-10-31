@@ -13,8 +13,8 @@ public sealed record ScheduleViewRow(string Key,string? Parent,string Level,Date
 public sealed record ScheduleView(ImmutableArray<string> Levels,ImmutableArray<ScheduleViewRow> Rows,ImmutableDictionary<string,ScheduleViewCell> Totals,
     ImmutableDictionary<string,ScheduleViewCell>? Delivered,ImmutableDictionary<string,ScheduleViewCell>? Remaining,int DeliveredLeaves,int Leaves,DateTimeOffset? ValuationAt);
 // Scale is the trade's booked quantity scaling and Coefficient the side's signed
-// membership; both apply to quantities and amounts, never to prices.
-public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,BookedSideProgram Program,ExactDecimal Scale,ExactDecimal Coefficient,
+// membership, an exact ratio; both apply to quantities and amounts, never to prices.
+public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,BookedSideProgram Program,ExactDecimal Scale,SignedRatio Coefficient,
     ImmutableArray<(string Column,ScheduleViewMeasure Measure)> Columns);
 
 // Every value comes from an evaluated contribution: its amount, and the quantity
@@ -72,14 +72,14 @@ public static class ScheduleViews
         if(string.IsNullOrWhiteSpace(side.Code)||side.Code.Contains('.')||side.Code=="trade"||side.Evaluation is null||side.Program is null||
             side.Columns.IsDefaultOrEmpty||side.Columns.Any(column=>string.IsNullOrWhiteSpace(column.Column)||!Enum.IsDefined(column.Measure))||
             side.Columns.Select(column=>column.Column).Distinct(StringComparer.Ordinal).Count()!=side.Columns.Length||
-            side.Scale.CompareTo(default)<=0||side.Coefficient.CompareTo(default)==0)
+            side.Scale.CompareTo(default)<=0||side.Coefficient.Denominator.Sign<=0||side.Coefficient.Numerator.IsZero)
             throw Error("Each side requires a plain code, its evaluated program, distinct explicit columns, a positive scale and a nonzero coefficient.");
         var evaluation=side.Evaluation;var document=side.Program.Document;
         if(evaluation.ScheduleManifest!=document.ScheduleManifest||evaluation.Values.Length!=document.Instructions.Length||evaluation.Contributions.IsDefaultOrEmpty)
             throw Error("A side evaluation must belong to its program and report its contributions.");
         if(evaluation.BaseScenarioId!=evaluation.ScenarioId)throw Error("A schedule view shows one scenario; its base and scenario lanes must be the same.");
         if(valuationAt is {} at&&at!=evaluation.Context.ValuationAt)throw Error("The view valuation instant must equal each side's evaluation context.");
-        var scale=Ratio(side.Scale)*Ratio(side.Coefficient);
+        var scale=Ratio(side.Scale)*side.Coefficient;
         (ReferenceKey?,ReferenceKey?,ReferenceKey?,string?,ReferenceKey?)? units=null;
         var pieces=new List<Piece>();
         foreach(var contribution in evaluation.Contributions)

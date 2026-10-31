@@ -33,6 +33,7 @@ def main():
     parser.add_argument('--gas-quantity-benchmark',action='store_true',help='Measure owned daily gas quantity grids with authorized revision history')
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
     parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
+    parser.add_argument('--deal-ticket-check',action='store_true',help='Qualify the deal ticket schedule view of composed gas trades')
     parser.add_argument('--gas-setup-check',action='store_true',help='Qualify versioned gas setup authoring and trade pins')
     parser.add_argument('--physical-gas-check',action='store_true',help='Qualify physical gas preview, durable schedules and booking UI operations')
     parser.add_argument('--demo-instruments-check',action='store_true',help='Verify mixed synthetic PPA and heat-rate bookings, blotter and risk')
@@ -113,7 +114,7 @@ def main():
     if args.unified_trading_check:
         args.demo_instruments_check=True;args.physical_gas_check=True
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
-    if args.gas_setup_check or args.gas_composition_check or args.gas_daily_quantity_check: args.physical_gas_check=True
+    if args.gas_setup_check or args.gas_composition_check or args.deal_ticket_check or args.gas_daily_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
     if args.retained_schedule_check or args.physical_gas_check: args.check=True
     fixing_frames=args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
@@ -578,6 +579,9 @@ def main():
                 if args.gas_composition_check:
                     from check_gas_composition import run_checks as check_gas_composition
                     check_gas_composition(url,query,manifest,run_worker=risk_worker_runner())
+                if args.deal_ticket_check:
+                    from check_deal_ticket import run_checks as check_deal_ticket
+                    check_deal_ticket(url)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

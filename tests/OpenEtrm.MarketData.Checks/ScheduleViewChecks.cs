@@ -4,6 +4,7 @@ using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Shared.Numerics;
 
 // Synthetic December 2031 gas-day sides. The daily side is a hand-built
 // delivery program whose quantities and prices are explicit source inputs; the
@@ -24,6 +25,7 @@ internal static class ScheduleViewChecks
         [("quantity",ScheduleViewMeasure.Quantity),("price",ScheduleViewMeasure.Price),("amount",ScheduleViewMeasure.Amount)];
     private static ExactDecimal D(string text)=>ExactDecimal.Parse(text);
     private static ScheduleNumber N(string text)=>ScheduleNumber.Parse(text);
+    private static SignedRatio S(int numerator,int denominator=1)=>new(numerator,denominator);
 
     internal static void Run()
     {
@@ -56,8 +58,10 @@ internal static class ScheduleViewChecks
         var third=Daily(1,before,_=>(new(1,3),VolumeState.Contractual),_=>(N("3"),SchedulePriceFacts.Fixed));
         var thirdDay=Row(ScheduleViews.Build([third],Levels,Utc,before),"2031-12-01");
         Equal(thirdDay.Cells["physical.amount"].Value,"1");Equal(thirdDay.Cells["physical.quantity"].Value,"1/3");
-        var scaled=Row(ScheduleViews.Build([daily with{Scale=D("2"),Coefficient=D("-1")}],Levels,Utc,before),"2031-12");
+        var scaled=Row(ScheduleViews.Build([daily with{Scale=D("2"),Coefficient=S(-1)}],Levels,Utc,before),"2031-12");
         Equal(scaled.Cells["physical.quantity"].Value,"-620000");Equal(scaled.Cells["physical.amount"].Value,"-2115440");Equal(scaled.Cells["physical.price"].Value,"3.412");
+        var share=Row(ScheduleViews.Build([daily with{Coefficient=S(50,51)}],Levels,Utc,before),"2031-12");
+        Equal(share.Cells["physical.quantity"].Value,"15500000/51");Equal(share.Cells["physical.amount"].Value,"52886000/51");
         Pass("amounts keep exact decimals");
 
         Equal(month.Cells["trade.net_cash"].Value,"1043770");Equal(view.Totals["trade.net_cash"].Value,"1043770");
@@ -121,14 +125,14 @@ internal static class ScheduleViewChecks
         FixedSide Fixed(string price)=>new(Guid.NewGuid(),new FlatPrice(new UnitPrice(D(price),f.Quote)),f.Quote,new(D("1"),f.Quote.Quantity),
             [new(from,to,clock.Boundary(to).AddDays(2),new(to.DayNumber-from.DayNumber,1),null)]);
         var before=clock.Boundary(from).AddDays(-1);
-        SideViewInput Side(string code,Side side,string coefficient)
+        SideViewInput Side(string code,Side side,int coefficient)
         {
             var program=Load(ScheduleDefinitionCompiler.Generate(side));var demand=program.Inputs(Context(before));
             var evaluation=program.Execute(demand,"base","base",Inputs(program,demand,(row,_)=>row.Operation=="price_lookup"?
                 (N("3.412"),new(null,SchedulePriceFacts.Projected)):(N("1"),default)));
-            return new(code,evaluation,program,D("10000"),D(coefficient),Columns);
+            return new(code,evaluation,program,D("10000"),S(coefficient),Columns);
         }
-        ImmutableArray<SideViewInput> sides=[Side("physical",physical,"1"),Side("cash",Fixed("3.412"),"-1"),Side("fee",Fixed("0.045"),"-1")];
+        ImmutableArray<SideViewInput> sides=[Side("physical",physical,1),Side("cash",Fixed("3.412"),-1),Side("fee",Fixed("0.045"),-1)];
         var view=ScheduleViews.Build(sides,Levels,clock.Boundary,before);
         var month=Row(view,from.ToString("yyyy-MM",System.Globalization.CultureInfo.InvariantCulture));
         var days=view.Rows.Where(row=>row.Parent==month.Key).ToArray();
@@ -153,7 +157,7 @@ internal static class ScheduleViewChecks
             "price_lookup"=>(price(cell).Item1,new(null,price(cell).Item2)),
             _=>(N("1"),default)
         }));
-        return new("physical",evaluation,program,D("1"),D("1"),Columns);
+        return new("physical",evaluation,program,D("1"),S(1),Columns);
     }
     private static SideViewInput Cash(string code,string price,int direction,DateTimeOffset valuation,QuoteSpecification? quote=null)
     {
@@ -162,7 +166,7 @@ internal static class ScheduleViewChecks
             [new(DateOnly.FromDateTime(From.UtcDateTime),DateOnly.FromDateTime(From.AddDays(31).UtcDateTime),PayAt,new(310000,1),null)]);
         var program=Load(ScheduleDefinitionCompiler.Generate(side));var demand=program.Inputs(Context(valuation));
         var evaluation=program.Execute(demand,"base","base",Inputs(program,demand,(_,_)=>(N("1"),default)));
-        return new(code,evaluation,program,D("1"),D(direction.ToString(System.Globalization.CultureInfo.InvariantCulture)),Columns);
+        return new(code,evaluation,program,D("1"),S(direction),Columns);
     }
     private static ScheduleDefinition DailyDefinition(int days)
     {
