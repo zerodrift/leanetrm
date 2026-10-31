@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
@@ -23,6 +25,8 @@ public sealed record FuturesBlotterRequest(FuturesReadRequest Context,FuturesBlo
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record TradingWorkspaceRequest(FuturesReadRequest Context,FuturesBlotterView View,string? BookingCatalog=null,ImmutableArray<FuturesBlotterView> Summaries=default,bool Progressive=false);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record TradingWorkspaceStreamRequest(FuturesReadRequest Context,FuturesBlotterView View,string? BookingCatalog=null,ImmutableArray<FuturesBlotterView> Summaries=default);
 
 public sealed partial class FuturesStore(PreviewManifest manifest)
 {
@@ -110,6 +114,30 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
     internal Task<object> Position(NpgsqlConnection connection,PreviewData data,InputFrame frame,TradePositionSelection selected,CancellationToken ct)
         =>Holdings(connection,data,frame,null,ct,selected);
     private async Task<object> Holdings(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBlotterView? view,CancellationToken ct,TradePositionSelection? selected=null)
+        =>Price(await Scope(connection,data,view,ct,selected),data,frame);
+    // The Blotter's futures: the positions in scope, read before any is valued, then valued together as one unit, since the shared
+    // D220 build isolates position-specific failures across all of them at once.
+    internal async Task<FuturesBlotterRun> BlotterRun(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBlotterView view,CancellationToken ct)
+        =>new(this,await Scope(connection,data,view??throw Error("blotter_view","Supply an explicit blotter view."),ct),data,frame);
+    internal sealed class FuturesBlotterRun(FuturesStore store,HeldScope scope,PreviewData data,InputFrame frame):IBlotterProductRun
+    {
+        public int Positions{get;}=scope.Resolved.Trades.Sum(t=>t.Instruments.Length);
+        // Known once Units completes.
+        internal int EvaluatedContracts{get;private set;}
+        internal JsonNode? Totals{get;private set;}
+        public async IAsyncEnumerable<ImmutableArray<JsonObject>> Units([EnumeratorCancellation]CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            var priced=JsonSerializer.SerializeToNode(store.Price(scope,data,frame),TradingBlotter.Json)!.AsObject();
+            EvaluatedContracts=priced["evaluatedContracts"]!.GetValue<int>();Totals=priced["totals"];
+            ImmutableArray<JsonObject> rows=[..priced["holdings"]!.AsArray().Select(n=>n!.DeepClone().AsObject())];
+            if(!rows.IsEmpty)yield return rows;
+        }
+    }
+    // A futures read's books, view and held trades, before any is valued.
+    internal sealed record HeldScope(ImmutableArray<JsonElement> Books,FuturesBlotterView? View,ImmutableArray<BlotterDimension> Dimensions,
+        ImmutableArray<BlotterMeasure> Measures,ResolvedTrades Resolved);
+    private async Task<HeldScope> Scope(NpgsqlConnection connection,PreviewData data,FuturesBlotterView? view,CancellationToken ct,TradePositionSelection? selected=null)
     {
         var books=await Books(connection,ct);
         var dimensions=ImmutableArray<BlotterDimension>.Empty;var measures=ImmutableArray<BlotterMeasure>.Empty;
@@ -124,7 +152,11 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
             if(view.Mode=="pivot")FuturesBlotter.Validate(dimensions,measures,view.PivotConvention??"");
             else if(dimensions.Length!=0 || measures.Length!=0 || view.PivotConvention is not null)throw Error("blotter_view","Trade rows do not select pivot rules.");
         }
-        var resolved=await ReadTrades(connection,data,books,view?.BookIds??[],view?.PortfolioIds??[],ct,selected);
+        return new(books,view,dimensions,measures,await ReadTrades(connection,data,books,view?.BookIds??[],view?.PortfolioIds??[],ct,selected));
+    }
+    private object Price(HeldScope scope,PreviewData data,InputFrame frame)
+    {
+        var (books,view,dimensions,measures,resolved)=scope;
         var rows=resolved.Rows;var trades=resolved.Trades;
         var snapshot=data.Snapshot(frame);
         var (build,unvalued)=ValuationStatus.BuildValued(held=>data.Model.Build(snapshot,held),trades.SelectMany(t=>t.Instruments.Select(p=>FuturesExecution.Require(p).MarketBinding.Market)).Distinct().ToImmutableArray());

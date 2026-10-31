@@ -28,11 +28,11 @@ internal static class SwapHoldingMarketChecks
                     }
                 };
                 ActivitySource.AddActivityListener(listener);
-                var holdings=await new SwapStore(database).Holdings(connection,data,view.CalculationFrame,[],[],ct);
-                var supplemental=holdings.Rows.Where(row=>row.Id("definitionRevisionId")!=data.DefinitionRevision.RevisionId&&
+                var rows=(await new SwapStore(database).Holdings(connection,data,view.CalculationFrame,[],[],ct)).Rows.Select(row=>JsonSerializer.SerializeToElement(row)).ToArray();
+                var supplemental=rows.Where(row=>row.Id("definitionRevisionId")!=data.DefinitionRevision.RevisionId&&
                     row.GetProperty("quantity").ValueKind==JsonValueKind.Null).ToArray();
-                if(supplemental.Length==0||!holdings.Rows.Any(row=>row.Text("settlement")=="Active"))
-                    throw new Exception($"The market-read regression requires supplemental scheduled holdings and active lifecycle holdings: supplemental={supplemental.Length}, active={holdings.Rows.Count(row=>row.Text("settlement")=="Active")}, availability reads={availabilityReads}.");
+                if(supplemental.Length==0||!rows.Any(row=>row.Text("settlement")=="Active"))
+                    throw new Exception($"The market-read regression requires supplemental scheduled holdings and active lifecycle holdings: supplemental={supplemental.Length}, active={rows.Count(row=>row.Text("settlement")=="Active")}, availability reads={availabilityReads}.");
                 var expected=database.Manifest.SwapMarkets?.Length??0;
                 if(expected==0||availabilityReads!=expected)
                     throw new Exception($"One Holdings read must load supplemental markets once: expected {expected} availability reads, got {availabilityReads}.");

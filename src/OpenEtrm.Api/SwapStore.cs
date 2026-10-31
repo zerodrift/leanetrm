@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Npgsql;
@@ -530,8 +531,16 @@ public sealed partial class SwapStore(PreviewDatabase database)
   await using var command=ScheduleStore.Command(connection,"SELECT security.swap_operation_status($1,$2)::text",manifest.CatalogId,operation);
   return JsonSerializer.Deserialize<JsonElement>(await command.ExecuteScalarAsync(ct) is string text?text:"{\"found\":false}");
  }
- internal sealed record HoldingsResult(JsonElement[] Rows,int Valuations,int SupplementalMarketLoads,ImmutableArray<(JsonElement Row,string Reason)> Unvalued);
+ internal sealed record HoldingsResult(ImmutableArray<JsonObject> Rows,int Valuations,int SupplementalMarketLoads,ImmutableArray<(JsonElement Row,string Reason)> Unvalued);
  internal async Task<HoldingsResult> Holdings(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
+ {
+  var run=await BlotterRun(connection,data,frame,bookIds,portfolioIds,ct,selected);
+  var rows=ImmutableArray.CreateBuilder<JsonObject>();
+  await foreach(var unit in run.Units(ct))rows.AddRange(unit);
+  return new(rows.ToImmutable(),run.Valuations,run.SupplementalMarketLoads,run.Unvalued);
+ }
+ // The Blotter's swaps and heat-rate swaps: each held trade's head revision in scope, read before any is valued.
+ internal async Task<SwapBlotterRun> BlotterRun(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
  {
   var books=await new FuturesStore(manifest).Books(connection,ct);FuturesStore.ValidateScope(books,bookIds,portfolioIds);
   var rows=(await Rows(connection,selected?.TradeId,ct)).GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!).Where(r=>
@@ -539,7 +548,32 @@ public sealed partial class SwapStore(PreviewDatabase database)
   selected?.Require(rows);
   if(selected is not null&&rows.Any(r=>(r.Text("implementation")==CrossCommodityScheduledSwap.Implementation?"heat_rate":"financial_swap")!=selected.InstrumentType))
    throw TradePositionSelection.Unavailable();
-  var result=new List<JsonElement>();
+  return new(this,connection,data,frame,books,rows);
+ }
+ internal sealed class SwapBlotterRun(SwapStore store,NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<JsonElement> books,JsonElement[] rows):IBlotterProductRun
+ {
+  public int Positions=>rows.Length;
+  // Known once Units completes.
+  internal int Valuations{get;private set;}
+  internal int SupplementalMarketLoads{get;private set;}
+  internal ImmutableArray<(JsonElement Row,string Reason)> Unvalued{get;private set;}=[];
+  // Each held trade is one unit, in the order of its rows; the run's caches are shared by its trades.
+  public async IAsyncEnumerable<ImmutableArray<JsonObject>> Units([EnumeratorCancellation]CancellationToken ct)
+  {
+   var work=new Work();
+   await foreach(var unit in store.Value(connection,data,frame,books,rows,work,ct).WithCancellation(ct))
+   {
+    // Request-local work so far: each valuation attempted, whether or not the close could value it.
+    (Valuations,SupplementalMarketLoads,Unvalued)=(work.Valuations,work.SupplementalMarketLoads,work.Unvalued.ToImmutable());
+    yield return unit;
+   }
+  }
+ }
+ // The request-local work a run has done so far: valuations attempted, market loads beyond the context's own and positions left unvalued.
+ private sealed class Work{internal int Valuations;internal int SupplementalMarketLoads;internal readonly ImmutableArray<(JsonElement Row,string Reason)>.Builder Unvalued=ImmutableArray.CreateBuilder<(JsonElement Row,string Reason)>();}
+ private async IAsyncEnumerable<ImmutableArray<JsonObject>> Value(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<JsonElement> books,JsonElement[] rows,
+  Work work,[EnumeratorCancellation]CancellationToken ct)
+ {
   // This cache cannot outlive the authorized read operation. Economic identity
   // includes discounting and distinguishes unit work under this context.
   var markets=rows.Any(r=>r.Id("definition_revision_id")!=data.DefinitionRevision.RevisionId)?await database.ReadSwapMarkets(connection,frame,ct,data):[];
@@ -548,9 +582,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var identities=new Dictionary<Guid,((DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId) Key,FinancialSwapInstrument Instrument)>();
   var schedules=new RetainedScheduleStore(database);
   var sourceHistories=new ContractObservationSamples.History();
-  var unvaluedRows=ImmutableArray.CreateBuilder<(JsonElement Row,string Reason)>();
   // A scheduled swap, or one whose settlement lifecycle is under way, is valued for its own binding.
   var bindingValuations=0;
+  work.SupplementalMarketLoads=markets.IsEmpty?0:1;
   foreach(var row in rows)
   {
    var terms=Terms(data,row,frame.Id);var id=row.Id("instrument_id");
@@ -599,11 +633,10 @@ public sealed partial class SwapStore(PreviewDatabase database)
     else held=new(null,null,unvalued[key],"Projection",null);
    }
    var holding=HoldingRow(source,row,book,terms,instrument,held);
-   if(held.Reason is {} unvaluedReason)unvaluedRows.Add((row,unvaluedReason));
-   result.Add(holding);
+   if(held.Reason is {} unvaluedReason)work.Unvalued.Add((row,unvaluedReason));
+   work.Valuations=values.Count+unvalued.Count+bindingValuations;
+   yield return [JsonNode.Parse(holding.GetRawText())!.AsObject()];
   }
-  // Request-local work: each valuation attempted, whether or not the close could value it.
-  return new(result.ToArray(),values.Count+unvalued.Count+bindingValuations,markets.IsEmpty?0:1,unvaluedRows.ToImmutable());
  }
  // What a held swap's valuation at the close states: its value, its mark when it has one curve price, or the position-specific
  // reason the close cannot value it; whether it is valued as a projection or by its settlement lifecycle, and that lifecycle's measures.
