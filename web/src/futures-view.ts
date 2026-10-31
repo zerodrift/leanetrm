@@ -24,6 +24,9 @@ import type {BlotterSelection,EntryShown,TradeShown} from './assistant-pages.js'
 import {isPriceMeasure,priceMeanPolicy,blotterColumns,blotterDockRules,defaultBlotterArrangement,deskFields,groupChoices,measureChoices,newBlotterView,parseBlotterViews,pivotColumns,readSavedViews,rowGroups,sidebarViews,withoutColumns,type BlotterView,type RowGroup} from './blotter-layout.js';
 import {setupDock} from './dock.js';
 import {createBlotterOperations,guard,refuse,requireModeColumns,type BlotterCaller,type BlotterOperation} from './blotter-operations.js';
+import {rowMenuItems,type RowMenuAction} from './blotter-row-menu.js';
+import {setupMenu} from './context-menu.js';
+import {closeOutPriceLabel,closeOutRequest,readCloseOutDraft} from './close-out-draft.js';
 import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
@@ -92,7 +95,9 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // The panel's form started or stopped holding unsaved edits.
   unsavedChanged:()=>void;
   // Whether the page is too narrow to show the panes side by side or above one another.
-  narrow:()=>boolean}){
+  narrow:()=>boolean;
+  // The page assistant, when the account may use it: a row's menu asks it about a position, which the details then show it.
+  assistant:{available:()=>boolean;draft:(text:string)=>void}}){
   const {api,act,busy}=options;
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
@@ -355,6 +360,58 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
   function settle(h:Holding){asked(()=>swapEditor.openSettlement(h));}
+  // A row's menu (blotter-workbench.md, Row context menu): each action the account may not take now is shown with why. Rows kept on
+  // screen from an earlier read, or drawn while the page is busy, offer nothing, saying why. Escape gives focus back to the row.
+  const rowMenu=setupMenu('blotter-row-menu');get('futures-page').append(rowMenu.element);
+  function focusRow(key:string){const index=holdings?.holdings.findIndex(h=>rowKey(h)===key)??-1;if(table&&index>=0)table.focusRow(index);}
+  function openRowMenu(h:Holding,at:{x:number;y:number}){
+    const key=rowKey(h),control=bookingControl(),amend=amendRefusal(h.instrumentType,!!catalog?.canAmendTrades,position.amendState(h));
+    const stale=busy()?'The Blotter is busy; try again when it is idle.':!holdings?'Positions open once the Blotter has valued them.':undefined;
+    const can={book:control.enabled,amend:amend===null,ask:options.assistant.available(),
+      why:{book:control.reason??undefined,amend:amend??undefined,ask:'Your role does not include the page assistant.'},...(stale===undefined?{}:{stale})};
+    rowMenu.open(`Position ${h.tradeReference}`,rowMenuItems({key,instrumentType:h.instrumentType,reference:h.tradeReference},can,action=>void rowAction(h,action)),at,()=>focusRow(key));
+  }
+  async function rowAction(h:Holding,action:RowMenuAction){
+    const key=rowKey(h);
+    switch(action.kind){
+      case 'openWindow':popout(h);return;
+      case 'copyId':
+        try{await navigator.clipboard.writeText(h.tradeReference);options.notice(`Trade ID ${h.tradeReference} copied.`);}
+        catch(error){options.failed(Error(`The trade ID could not be copied: ${error instanceof Error?error.message:String(error)}`));}
+        focusRow(key);return;
+      // Amend and Ask act on the position the details show, which they show first, asking about what the details hold.
+      case 'amend':if(await perform({kind:'selectPosition',key})===true)await perform(action);return;
+      case 'ask':if(await perform({kind:'selectPosition',key})===true)options.assistant.draft(`Tell me about position ${h.tradeReference}: what it holds, what it is worth and its risk.`);return;
+      default:await perform(action);
+    }
+  }
+  // Close out (owner, 2026-10-30) opens the backend's draft of the offsetting trade, at the curve price of the read on screen, in the new trade
+  // form of its product: a future's after the priced contracts are read, as New trade reads them, a swap's in its ticket. Nothing books
+  // until the person presses Book. What the backend refuses to draft, the details say, in its words, in place of a form.
+  async function draftCloseOut(key:string){
+    const row=()=>{const h=holdings?.holdings.find(h=>rowKey(h)===key);if(!h)throw refuse('that position is not among the rows on screen');return h;};
+    row();
+    await guarded(async()=>{
+      if(row().instrumentType==='future'&&catalog?.kind!=='priced_contracts')await load('priced_contracts');
+      const h=row(),control=bookingControl();if(!control.enabled)throw Error(control.reason);
+      const product=h.instrumentType==='future'?'futures' as const:'swaps' as const;
+      let drafted;
+      try{drafted=readCloseOutDraft(await api('trading/close-out-draft',closeOutRequest({snapshotId:snapshot,contextId:holdings!.context.contextId},h)),h.instrumentType==='future'?'future':'financial_swap');}
+      catch(error){if((error as {code?:string}).code==='access_denied'){clear();throw error;}await showRefusal(h,error);return;}
+      const shown={reference:h.tradeReference,priceLabel:closeOutPriceLabel(drafted.price,options.zone())},next:PanelMode={kind:'new',product};
+      if(drafted.kind==='future'){await panel.show(next);booking.populate();booking.open();booking.closeOut(drafted,shown);}
+      else{resetForms();await panel.show(next);if(!await swapEditor.openCloseOut(drafted,shown)){await panel.show(newTrade);return;}}
+      showForm();
+    });
+    const shown=panel.current();if(shown?.kind==='new'&&shown.product!==null)panel.focusForm();
+  }
+  // A draft the backend refused leaves the details on New trade, saying why in place of a form: nothing was drafted.
+  async function showRefusal(h:Holding,error:unknown){
+    await panel.show(newTrade);
+    const said=document.createElement('p');said.id='close-out-refusal';said.className='side-panel-status';said.setAttribute('role','alert');
+    said.textContent=publicText(`Close-out of ${h.tradeReference} was not drafted. ${error instanceof Error?error.message:String(error)}`);
+    panel.element('view').replaceChildren(said);panel.reveal();
+  }
   // New trade (D221) opens the panel on its Future | Swap switch with no product chosen, and reads nothing until the person chooses one.
   // It is offered only where the backend allows booking; the toolbar says why when it does not, so no field opens where booking is impossible.
   // What the panel held is left only when the person says so, which is asked before the page is busy.
@@ -744,7 +801,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       // A row opened is brought into view once the details have taken their room, when they leave it beneath the grid's foot.
       onRowOpen:index=>perform({kind:'selectPosition',key:rowKey(held[index])}).then(shown=>shown===true),
       onRowSelect:index=>holdings&&following()?perform({kind:'selectPosition',key:rowKey(held[index])},{placed:true}).then(shown=>shown===true):true,
-      onRowEscape:()=>void perform({kind:'details',open:false}),onRowDoubleOpen:index=>popout(held[index])});
+      onRowEscape:()=>void perform({kind:'details',open:false}),onRowMenu:(index,at)=>openRowMenu(held[index],at),onRowDoubleOpen:index=>popout(held[index])});
     workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>void perform({kind:'chooseColumns',columns:selected}),[...deskFields]);
   }
   // The reports of the run on screen whose parts have results: a part that failed or has none is said so by the run bar, never read as zero.
@@ -1168,10 +1225,10 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     },
     collapsePane:async({pane,collapsed})=>{if(pane==='details')await showDetails(!collapsed);else if(collapsed)dock.collapse(pane);else dock.reveal(pane);},
     resetLayout:async()=>{chartsMadeWay=false;view.panes=defaultBlotterArrangement();dock.set(view.panes);},
-    // Refused until the pop-out and close-out drafts are built.
+    // Refused until the pop-out is built.
     popOut:async()=>{throw refuse('the Blotter does not open in a window of its own yet');},
     bringBack:async()=>{throw refuse('the Blotter is not in a window of its own');},
-    draftCloseOut:async()=>{throw refuse('close-out drafts are not offered yet');},
+    draftCloseOut:async({key})=>draftCloseOut(key),
     // A position is amended from its details, for the revision they read: a PPA, an account that cannot amend or a revision that cannot be
     // amended is refused with why.
     amend:async({key})=>{

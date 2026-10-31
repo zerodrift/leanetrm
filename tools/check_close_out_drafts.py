@@ -24,6 +24,7 @@ def prepare(market,manifest):
 
 
 def run_checks(url,query,dotnet,owned_root,environment):
+    """Run the close-out draft checks and return the fixture they booked, which the browser scenario reads."""
     client=PreviewClient(url);client.bootstrap();client.call('profile',{'profile':'trader'})
     frames=client.call('workspace')['frames']
     booking=next(f for f in frames if f['at'].startswith('2020-12-18'))
@@ -61,7 +62,8 @@ def run_checks(url,query,dotnet,owned_root,environment):
     float_float=client.call('swaps/book',{**common,'operationId':str(uuid4()),'quantity':'100','fixed':None,'fixedCoefficient':None,'swapType':'financial_floating_floating',
         'firstCoefficient':'-1','firstFloating':floating('2021-03-01','2021-04-01'),'floating':{**floating('2021-03-01','2021-04-01'),'spread':'0.2'}})['tradeId']
     daily=next(i for i in swaps['indices'] if i['curve']=='daily_gas')
-    averaged=client.call('swaps/book',{**common,'operationId':str(uuid4()),'definitionRevisionId':daily['definitionRevisionId'],'commodity':daily['commodity'],'quantity':'100','fixedCoefficient':'-1',
+    # In a book of its own: the February close cannot value this daily swap, so the browser reads only the first book's Blotter there.
+    averaged=client.call('swaps/book',{**common,'bookId':catalog['books'][1]['id'],'operationId':str(uuid4()),'definitionRevisionId':daily['definitionRevisionId'],'commodity':daily['commodity'],'quantity':'100','fixedCoefficient':'-1',
         'fixed':{**fixed('2021-01-01','2021-02-01'),'currency':daily['currencyCode']},
         'floating':{**floating('2021-01-01','2021-02-01'),'curve':daily['curve'],'index':daily['index'],'currency':daily['currencyCode'],'resetFrequency':'daily','averagingMethod':'arithmetic'}})['tradeId']
     amounts=['100','200','300','400']
@@ -145,3 +147,4 @@ def run_checks(url,query,dotnet,owned_root,environment):
     assert repeated==client.call('trading/close-out-draft',pinned) and repeated['terms']=={**first['terms'],'knowledgeMode':'retained'} and repeated['price']==first['price'],repeated
     assert client.call('trading/close-out-draft',{**request,'instrumentType':'ppa'},expected=422)['code']=='close_out'
     print('PASS close-out draft HTTP: the trading read route returns the same reviewed terms twice and refuses with its structured reason',flush=True)
+    return fixture

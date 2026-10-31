@@ -1113,11 +1113,15 @@ button.custom-curve-dot.connectable:hover,button.custom-curve-dot.connectable:fo
 .custom-curve-connect{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 10px;padding:7px 10px 7px 12px;border:1px solid var(--accent-border);border-radius:var(--radius);background:var(--accent-soft);color:var(--accent-text);font-size:12.5px}
 .custom-curve-connect[hidden]{display:none}
 .custom-curve-connect span{flex:1}.custom-curve-connect .secondary{padding:4px 10px;font-size:12px}
-.custom-curve-menu,.dock-menu{position:fixed;z-index:40;display:grid;min-width:188px;max-width:min(320px,calc(100vw - 16px));max-height:min(360px,calc(100vh - 16px));overflow:auto;padding:4px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);box-shadow:0 10px 30px rgb(0 0 0/.18)}
-.custom-curve-menu[hidden],.dock-menu[hidden]{display:none}
-.custom-curve-menu [role=menuitem],.dock-menu [role=menuitem]{min-height:0;padding:6px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text);font-size:12.5px;font-weight:500;text-align:left;white-space:normal}
-.custom-curve-menu [role=menuitem]:hover:not([aria-disabled]),.custom-curve-menu [role=menuitem]:focus,.dock-menu [role=menuitem]:hover:not([aria-disabled]),.dock-menu [role=menuitem]:focus{background:var(--accent-soft);color:var(--accent-text);outline:none}
-.custom-curve-menu [role=menuitem][aria-disabled],.dock-menu [role=menuitem][aria-disabled]{color:var(--text-3);cursor:default}
+.custom-curve-menu,.dock-menu,.blotter-row-menu{position:fixed;z-index:40;display:grid;min-width:188px;max-width:min(320px,calc(100vw - 16px));max-height:min(360px,calc(100vh - 16px));overflow:auto;padding:4px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);box-shadow:0 10px 30px rgb(0 0 0/.18)}
+.custom-curve-menu[hidden],.dock-menu[hidden],.blotter-row-menu[hidden]{display:none}
+.custom-curve-menu [role=menuitem],.dock-menu [role=menuitem],.blotter-row-menu [role=menuitem]{min-height:0;padding:6px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text);font-size:12.5px;font-weight:500;text-align:left;white-space:normal}
+.custom-curve-menu [role=menuitem]:hover:not([aria-disabled]),.custom-curve-menu [role=menuitem]:focus,.dock-menu [role=menuitem]:hover:not([aria-disabled]),.dock-menu [role=menuitem]:focus,.blotter-row-menu [role=menuitem]:hover:not([aria-disabled]),.blotter-row-menu [role=menuitem]:focus{background:var(--accent-soft);color:var(--accent-text);outline:none}
+.custom-curve-menu [role=menuitem][aria-disabled],.dock-menu [role=menuitem][aria-disabled],.blotter-row-menu [role=menuitem][aria-disabled]{color:var(--text-3);cursor:default}
+/* A disabled item's reason, beneath its label. */
+[role=menuitem] .menu-reason{display:block;margin-top:2px;font-size:11.5px;font-weight:400;color:var(--text-3)}
+.close-out-draft{margin:0 0 12px}.close-out-draft h3{margin:0 0 4px}.close-out-periods{border-collapse:collapse;font-size:12.5px;margin:6px 0}.close-out-periods th,.close-out-periods td{padding:3px 8px;text-align:left;border-bottom:1px solid var(--border)}
+.price-source{margin:4px 0 0}
 .custom-curve-hint{margin:10px 0 0;font-size:12px;color:var(--text-3)}
 #custom-curves-expression textarea{display:block;width:100%;margin:8px 0 12px;font-family:var(--mono);resize:vertical}
 .custom-curve-outputs-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:220px;padding:32px 16px;text-align:center;border:1px dashed var(--border-strong);border-radius:var(--radius-lg);color:var(--text-2);font-size:13px}

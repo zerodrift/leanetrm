@@ -673,7 +673,12 @@ def main():
                 check_swap_risk_holdings(url,query,manifest,dotnet,temporary,app_env,psql)
             elif args.close_out_drafts_check:
                 from check_close_out_drafts import run_checks as check_close_out_drafts
-                check_close_out_drafts(url,query,dotnet,temporary,app_env)
+                close_out_fixture=check_close_out_drafts(url,query,dotnet,temporary,app_env)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'closeOut':close_out_fixture}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--close-out'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=240):raise RuntimeError('Owned Blotter close-out browser checks failed')
             elif args.pilot_close_check:
                 from check_pilot_close import run_checks as check_pilot_close
                 check_pilot_close(url,query,manifest,psql,app_env)

@@ -3,6 +3,7 @@ import {compareDecimalStrings} from './analytics-model.js';
 import {matchesTableRow,columnValues,validNumericFilter} from './regular-table.js';
 import {publicText} from './market-view.js';
 import {retainPlace,type Place} from './grid-place.js';
+import {menuKey,placeOf} from './context-menu.js';
 export type GridLayout={order:string[];widths:Record<string,number>;sort:{key:string;direction:'asc'|'desc'}[]};
 export const emptyGridLayout=():GridLayout=>({order:[],widths:{},sort:[]});
 /** Rows under headers, in the order given: each source row's group key and the header drawn for each key. */
@@ -17,13 +18,14 @@ type Cells=(string|HTMLElement)[][];
 // onRowOpen: the person opens a row (a click, Enter or the space bar); onRowSelect: they move the selection to the next or previous row (↓, ↑).
 // Each may answer false, as when the person keeps unsaved edits the consumer asked about: the selection then stays where it was.
 // onRowEscape: the person presses Escape on a row, as to collapse what the row opened.
+// onRowMenu: the person asks for a row's menu (a right-click, the context-menu key or Shift+F10), to be opened at `at`.
 // stretch: the last column fills the grid's remaining width.
 // toolbarHost: where the filter toolbar (search, column filters, row count) is drawn, when not above the table.
 // fill: the table takes the height its host gives it, such as a pane's, and its rows scroll within it; otherwise it is sized to its rows.
 // giveUp: columns, by index, that the grid gives up in this order, one at a time, only while the columns it shows do not fit its width. A grid
 // with room for all of them shows all.
 type Chosen=void|boolean|Promise<boolean>;
-export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>Chosen;onRowSelect?:(index:number)=>Chosen;onRowEscape?:()=>void;onRowDoubleOpen?:(index:number)=>void;
+export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>Chosen;onRowSelect?:(index:number)=>Chosen;onRowEscape?:()=>void;onRowMenu?:(index:number,at:{x:number;y:number})=>void;onRowDoubleOpen?:(index:number)=>void;
   cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[]};
 /**
  * What a grid is built for and cannot change while it stands: its key, scope and columns. A later render with the same identity changes the
@@ -161,6 +163,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
         if(['Enter',' '].includes(event.key)){event.preventDefault();openRow(row);}
         else if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();step(keyOf(row),event.key==='ArrowDown'?1:-1);}
         else if(event.key==='Escape'&&options.onRowEscape&&current()){event.preventDefault();options.onRowEscape();}
+        else if(menuKey(event)&&options.onRowMenu){event.preventDefault();openMenu(target,placeOf(target));}
       };}
       markRow(row);
     },
@@ -353,6 +356,14 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     event.preventDefault();event.stopPropagation();options.onRowDoubleOpen(index);
   };
   container.addEventListener('dblclick',doubleClick,true);
+  // A row's menu opens where it was asked for: at the pointer, or under the row when the keyboard asked (the context-menu key's own event).
+  function openMenu(target:HTMLElement,at:{x:number;y:number}){const index=keys.indexOf(target.dataset.rowKey??'');if(index>=0)options.onRowMenu?.(index,at);}
+  const rowMenu=(event:MouseEvent)=>{
+    const target=(event.target as Element).closest<HTMLElement>('.tabulator-row[data-row-key]');
+    if(!options.onRowMenu||!target||(event.target as Element).closest('a,input,select,textarea,[contenteditable=true]'))return;
+    event.preventDefault();openMenu(target,event.button===2?{x:event.clientX,y:event.clientY}:placeOf(target));
+  };
+  container.addEventListener('contextmenu',rowMenu,true);
   const searched=(cells:string[],index:number)=>options.searchText?[...cells,options.searchText[index]]:cells;
   function matches(row:Record<string,string>){return matchesTableRow(searched(headers.map((_,i)=>row[field(i)]),Number(row.__sourceIndex)),state.query,state.columns,options.visible,numeric);}
   const matchesSource=(index:number)=>matchesTableRow(searched(values[index],index),state.query,state.columns,options.visible,numeric);
@@ -509,7 +520,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       // The grid that was pressed is on the page already: only its rows are scrolled.
       whenDrawn(at,()=>undefined,undefined,(_row,view)=>{const top=view.getBoundingClientRect().top;return press>=top&&press<top+view.clientHeight;});
     },
-    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('pointerdown',pressed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('contextmenu',rowMenu,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('pointerdown',pressed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }
 export type GridHandle=ReturnType<typeof renderDataGrid>;

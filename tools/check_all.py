@@ -74,7 +74,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('scheduled swap settlement, delegated operations and lifecycle browser', [*preview, '--scheduled-swap-check', '--browser-check', '--browser', str(browser)], suite='settlement')
     preview_check('typed factor units, cross-commodity lifecycle and risk', [*preview, '--factor-swap-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('published index fixing price and risk', [*preview, '--index-fixing-check'], suite='trading')
-    preview_check('Blotter close-out drafts, settled periods and refusals', [*preview, '--close-out-drafts-check'], suite='trading')
+    preview_check('Blotter close-out drafts, settled periods, refusals and browser', [*preview, '--close-out-drafts-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('side observation authoring, storage and valued schedules', [*preview, '--side-observation-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('mapped collected power interval settlement', [*preview, '--power-actual-check'])
     preview_check('audited interval series', [*preview, '--interval-series-check', '--browser-check', '--browser', str(browser)])

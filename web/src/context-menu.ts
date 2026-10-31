@@ -2,8 +2,8 @@
 // Home and End move between its items; Escape or Tab closes it and returns focus to what opened it; a press outside closes it.
 import {publicText} from './market-view.js';
 
-/** An item without `run` is shown, disabled, to say why nothing is offered. */
-export type MenuItem={label:string;run?:()=>void};
+/** An item without `run` is shown, disabled, to say why nothing is offered; one `disabled` is shown with that reason beneath its label. */
+export type MenuItem={label:string;run?:()=>void;disabled?:string};
 
 export function setupMenu(className:string){
   const menu=document.createElement('div');menu.className=className;menu.setAttribute('role','menu');menu.hidden=true;
@@ -13,7 +13,8 @@ export function setupMenu(className:string){
     close();if(!items.length)return;back=returnTo;expanded=trigger;expanded?.setAttribute('aria-expanded','true');menu.setAttribute('aria-label',name);
     menu.replaceChildren(...items.map(item=>{
       const entry=document.createElement('button');entry.type='button';entry.textContent=publicText(item.label);entry.setAttribute('role','menuitem');entry.tabIndex=-1;
-      if(item.run)entry.onclick=()=>{close(false);item.run!();};else entry.setAttribute('aria-disabled','true');return entry;}));
+      if(item.disabled!==undefined){const why=document.createElement('span');why.className='menu-reason';why.textContent=publicText(item.disabled);entry.append(why);}
+      if(item.run&&item.disabled===undefined)entry.onclick=()=>{close(false);item.run!();};else entry.setAttribute('aria-disabled','true');return entry;}));
     menu.hidden=false;const box=menu.getBoundingClientRect();
     menu.style.left=Math.max(8,Math.min(at.x,innerWidth-box.width-8))+'px';menu.style.top=Math.max(8,Math.min(at.y,innerHeight-box.height-8))+'px';
     // Focus the first item offered, or the first item when none is, so that Escape always closes the menu from the keyboard.

@@ -1,4 +1,5 @@
 import {amountText} from './amount-display.js';
+import {priceSourceNote,renderCloseOut,type CloseOutShown,type FuturesCloseOut} from './close-out-draft.js';
 import {draftValuation} from './draft-valuation.js';
 import {trackEdits} from './edit-tracking.js';
 import {futuresContractDescription,futuresContractKey,type FuturesContract} from './futures-contract.js';
@@ -59,6 +60,10 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
    return {context:options.context(),curve:c.curve,contractId:c.id,lots:field('futures-lots').value,executionPrice:field('futures-execution').value};
   }});
  form.addEventListener('input',draft.reset);
+ // A close-out draft (blotter-workbench.md, Row context menu) heads the form, and its price is labelled with its source until the price, or
+ // the contract it is the curve price of, is changed.
+ const closeOut=document.createElement('div');closeOut.id='futures-close-out';closeOut.hidden=true;root.prepend(closeOut);
+ const priceSource=priceSourceNote(form,target=>target===field('futures-execution')||target===field('futures-contract'),'futures-price-source');field('futures-execution').parentElement!.append(priceSource.element);
  // The contract the person chose, kept across a read of the catalog that offers it again.
  let selected='';
  function terms(){
@@ -95,7 +100,21 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
   /** Puts the form in the panel's form part, empty of what an earlier one held. */
   open(){options.host().append(root);root.hidden=false;edits.clear();sync();},
   /** Takes the form out of the panel and forgets everything it held: its values, its price and the person's edits. */
-  reset(){shelf.append(root);root.hidden=true;instrument.clear();draft.reset();form.reset();edits.clear();selected='';text('futures-terms','Select a dated contract to see its terms.');sync();},
+  reset(){shelf.append(root);root.hidden=true;instrument.clear();draft.reset();form.reset();edits.clear();selected='';closeOut.replaceChildren();closeOut.hidden=true;priceSource.clear();text('futures-terms','Select a dated contract to see its terms.');sync();},
+  /**
+   * Fills the open form with a close-out the backend drafted: its book, contract, parties, lots and price, each as drafted, for the person to
+   * review and book. A draft the form cannot hold as drafted, such as a contract the priced catalog does not offer, is refused, never altered.
+   */
+  closeOut(drafted:FuturesCloseOut,shown:CloseOutShown){
+   const catalog=priced(),t=drafted.terms;if(!catalog)throw Error('The priced futures contracts are not read, so the close-out cannot be shown.');
+   const key=futuresContractKey({curve:t.curve,id:t.contractId});
+   if(!catalog.contracts.some(c=>futuresContractKey(c)===key))throw Error('The drafted contract is not offered for booking at this close.');
+   if(!catalog.books.some(b=>b.id===t.bookId))throw Error('The drafted book is not one you can book for.');
+   selected=key;instrument.populate(catalog.contracts,key);terms();field('futures-book').value=t.bookId;
+   annotations.populate(catalog.bookingActor,catalog,t as Parameters<typeof annotations.populate>[2]);
+   field('futures-lots').value=t.lots;field('futures-execution').value=t.executionPrice;
+   renderCloseOut(closeOut,drafted,shown);priceSource.show(shown.priceLabel);draft.reset();edits.clear();sync();
+  },
   sync,
   /** The time zone changed: the form's times are written again, and its price, which they were written beside, is cleared. */
   refresh(){annotations.refresh();draft.reset();},
