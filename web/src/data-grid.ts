@@ -151,12 +151,13 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   }
   // Virtual redraws can replace a row element between the two clicks. The
   // immutable source index identifies the same position within this grid.
-  let doubleCandidate:number|undefined;
+  let doubleCandidate:number|undefined,completedDouble=false;
   const indexAt=(element:HTMLElement)=>{const row=table.getRows().find(row=>row.getElement()===element);return row?sourceIndex(row):undefined;};
   // A second native mousedown selects a word before dblclick. Keep text
   // selection available for drags and existing selections; suppress only that
   // automatic selection for a second click on the same eligible row.
   const secondMouseDown=(event:MouseEvent)=>{
+    completedDouble=false;
     const row=(event.target as Element).closest<HTMLElement>('.tabulator-row');
     if(options.onRowDoubleOpen&&event.detail===2&&row&&doubleCandidate!==undefined&&indexAt(row)===doubleCandidate&&safeRowGesture(event,row))event.preventDefault();
   };
@@ -171,12 +172,17 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Handle the eligible double click before the grid's cell handler, which
   // otherwise selects the whole cell even when mousedown was prevented.
   const doubleClick=(event:MouseEvent)=>{
+    if(event.type==='mouseup'&&event.detail!==2)return;
+    if(event.type==='dblclick'&&completedDouble){event.preventDefault();event.stopPropagation();completedDouble=false;return;}
     const target=(event.target as Element).closest<HTMLElement>('.tabulator-row'),candidate=doubleCandidate;doubleCandidate=undefined;
     if(!options.onRowDoubleOpen||!target||candidate===undefined||!safeRowGesture(event,target))return;
     const index=indexAt(target);if(index!==candidate)return;
     if(index===undefined||!Number.isInteger(index)||index<0||index>=rows.length)return;
-    event.preventDefault();event.stopPropagation();options.onRowDoubleOpen(index);
+    event.preventDefault();event.stopPropagation();completedDouble=true;options.onRowDoubleOpen(index);
   };
+  // Cell formatting can replace the pressed descendant before release, so
+  // Chrome may omit dblclick. Complete the same safe row gesture on mouseup.
+  container.addEventListener('mouseup',doubleClick,true);
   container.addEventListener('dblclick',doubleClick,true);
   const searched=(cells:string[],index:number)=>options.searchText?[...cells,options.searchText[index]]:cells;
   function matches(row:Record<string,string>){return matchesTableRow(searched(headers.map((_,i)=>row[field(i)]),Number(row.__sourceIndex)),state.query,state.columns,options.visible,numeric);}
@@ -275,6 +281,6 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     focusRow(index:number){whenDrawn(index,row=>row.getElement().focus({preventScroll:true}));},
     /** Scrolls the row of a source index into view, in the grid and in the page, as far as it takes to show it, once the grid has drawn again. */
     revealRow(index:number){whenDrawn(index,row=>row.getElement().scrollIntoView({block:'nearest'}));},
-    destroy(){if(!alive)return;alive=false;resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',keepDetailFocusOnScroll,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);document.removeEventListener('focusin',focusChanged,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('mouseup',doubleClick,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',keepDetailFocusOnScroll,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);document.removeEventListener('focusin',focusChanged,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }

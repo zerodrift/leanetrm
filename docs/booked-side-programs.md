@@ -268,8 +268,8 @@ and the committed knowledge-receipt inner join. A separate operation-authorized
 reader supplies uncommitted terms only to the owning current write operation.
 Both readers use the same financial projection; no second reconstruction is
 maintained. Normal holdings reads join its security-invoker view directly on exact
-revision keys. A correlated projection boundary keeps those keys inside the
-rendering step, avoiding repeated rendering of unrelated visible revisions.
+revision keys. The selected set is projected once in a materialized query,
+avoiding repeated protected scans and rendering of unrelated visible revisions.
 The committed receipt join remains in the same statement.
 Migration 0143 requires an explicit rebooking schema window.
 
