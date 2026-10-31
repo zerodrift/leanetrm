@@ -38,6 +38,10 @@ internal static class TicketDescriptionChecks
         Reject("a level outside month, day, hour", valid with { Levels = ["week"] });
         Reject("a minimum above the maximum", valid with { Sides = [valid.Sides[0] with { Min = 3, Max = 2 }] });
         Reject("a maximum below one", valid with { Sides = [valid.Sides[0] with { Min = 0, Max = 0 }] });
+        Reject("a negative minimum", valid with { Sides = [valid.Sides[0] with { Min = -1 }] });
+        foreach (var state in new[] { "info", "derived", "soon" })
+            Reject($"a required {state} field", WithTrade(Field("book", state, soon: "later", rule: "copied") with { Required = true }));
+        Reject("a mode outside new, booked, amend and close-out", valid with { Modes = ["new", "draft"] });
         Console.WriteLine($"{passed} ticket description checks passed.");
     }
 }
