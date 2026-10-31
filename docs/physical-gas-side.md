@@ -429,3 +429,8 @@ browser checks. The populated prior-schema upgrade check applies migrations
 unchanged. That check does not establish replay of an existing financial trade
 or its program history across this upgrade. Gas-bearing ordinary and streamed
 workspace scopes refuse before returning incomplete totals or starting a stream.
+
+Reference catalog qualification includes 208 exact-version projection and label
+checks. Path tables retain their composite primary-key ordering; gas product
+fields resolve commodity labels while futures product fields retain their own
+reference contract.

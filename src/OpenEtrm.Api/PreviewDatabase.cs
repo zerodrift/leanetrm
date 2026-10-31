@@ -513,7 +513,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
         var rows=found.Take(pageSize).ToImmutableArray();
         var references=ImmutableDictionary.CreateBuilder<string,ImmutableArray<JsonElement>>();
         references.Add(table,rows);
-        await LinkReferences(connection,revision,rows,references,ct);
+        await LinkReferences(connection,revision,rows,references,ct,table);
         await ReferenceScope(connection,table,ct);
         // Absence is reported only after current authority is proven again.
         if(code is not null&&rows.IsEmpty)throw ReferenceItemMissing();
@@ -523,11 +523,18 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_
     // Names for linked codes are exact-version rows of the same revision, not labels
     // borrowed from the business catalog or a preceding page/context.
     private static async Task LinkReferences(NpgsqlConnection connection,ReferenceRevision revision,ImmutableArray<JsonElement> rows,
-        ImmutableDictionary<string,ImmutableArray<JsonElement>>.Builder references,CancellationToken ct)
+        ImmutableDictionary<string,ImmutableArray<JsonElement>>.Builder references,CancellationToken ct,string? table=null)
     {
+        var gasProduct=table is "gas_delivery_conventions" or "gas_meter_assignments";
         foreach(var (target,columns) in ReferenceLabels)
         {
-            var codes=columns.SelectMany(column=>Codes(rows,column)).Distinct().ToArray();
+            var selected=gasProduct?target switch
+            {
+                "commodities"=>[..columns,"product_code"],
+                "futures_products"=>Array.Empty<string>(),
+                _=>columns
+            }:columns;
+            var codes=selected.SelectMany(column=>Codes(rows,column)).Distinct().ToArray();
             if(codes.Length==0)continue;
             var linked=await Rows(connection,$"SELECT row_to_json(t)::text FROM(SELECT * FROM ref_data.{target} WHERE catalog_id=$1 AND revision_id=$2 AND code=ANY($3::text[]) ORDER BY {ReferenceKey(target)})t",[revision.CatalogId,revision.RevisionId,codes],ct);
             references[target]=references.TryGetValue(target,out var existing)

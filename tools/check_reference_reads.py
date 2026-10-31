@@ -61,13 +61,16 @@ def run_checks(c, check):
             'futures_execution_policies': ['series_code', 'implementation'],
             'futures_lot_resolutions': ['series_code'],
             'futures_product_terms': ['product_code'],
-            'futures_basis_settlements': ['series_code']}
+            'futures_basis_settlements': ['series_code'],
+            'pipeline_zones': ['pipeline_code', 'zone_code'],
+            'pipeline_delivery_points': ['pipeline_code', 'zone_code', 'point_code'],
+            'gas_delivery_conventions': ['pipeline_code', 'zone_code', 'point_code', 'product_code']}
     label_fields = {
         'commodities': ['commodity_code', 'fuel_commodity_code', 'output_commodity_code'],
         'currencies': ['currency_code', 'quote_currency_code'],
         'units': ['unit_code', 'lot_unit_code', 'from_unit_code', 'to_unit_code',
                   'quote_unit_code', 'fuel_unit_code', 'output_unit_code'],
-        'locations': ['location_code'], 'location_types': ['type_code'],
+        'locations': ['location_code', 'pipeline_code', 'zone_code', 'point_code'], 'location_types': ['type_code'],
         'exchanges': ['exchange_code'], 'clearing_houses': ['clearing_house_code'],
         'sources': ['source_code'], 'futures_products': ['product_code'],
         'futures_series': ['series_code'], 'clock_rules': ['clock_code', 'market_clock_code'],
@@ -86,7 +89,12 @@ def run_checks(c, check):
               and response['referenceScope'] == 'selected_table'
               and response['table'] == table and set(response['tables']) == set(references))
         label_source = {**references, **full['unitCatalog']['references']} if table in full['unitCatalog']['references'] else references
+        gas_product = table in ('gas_delivery_conventions', 'gas_meter_assignments')
         for target, columns in label_fields.items():
+            if gas_product and target == 'commodities':
+                columns = [*columns, 'product_code']
+            elif gas_product and target == 'futures_products':
+                columns = []
             wanted = {r.get(column) for r in response['rows'] for column in columns} - {None}
             if wanted:
                 actual = {r['code']: r for r in response['references'].get(target, [])}
@@ -192,7 +200,7 @@ def run_checks(c, check):
           and canonical(read['executionPolicies']) ==
           canonical([r for r in references['futures_execution_policies'] if r['series_code'] in codes]))
     linked = {'exchanges': ['exchange_code'], 'clearing_houses': ['clearing_house_code'],
-              'commodities': ['commodity_code'], 'locations': ['location_code'], 'currencies': ['quote_currency_code'],
+              'commodities': ['commodity_code'], 'locations': ['location_code', 'pipeline_code', 'zone_code', 'point_code'], 'currencies': ['quote_currency_code'],
               'units': ['lot_unit_code', 'quote_unit_code'], 'clock_rules': ['market_clock_code'],
               'calendars': ['trading_calendar_code', 'delivery_calendar_code', 'settlement_calendar_code']}
     check('futures product read links exact-revision rows for every code the product names',
