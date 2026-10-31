@@ -1,11 +1,17 @@
-import test from 'node:test';
+import test,{afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {tieMainWindow,tiePopoutWindow,blotterWindowUrl,readBlotterWindowUrl,retainedActions} from '../dist/blotter-popout.js';
 import {openBlotterChannel} from '../dist/blotter-channel.js';
 import {newBlotterView} from '../dist/blotter-layout.js';
 
-// Both ends talk over the real BroadcastChannel, which delivers to the other channels of its name a moment later.
-const settle=()=>new Promise(resolve=>setTimeout(resolve,30));
+// Both ends talk over the real BroadcastChannel, which delivers to the other channels of its name a moment later: settle gives every
+// message sent so far time to arrive, even on a loaded machine, and until waits for one that must.
+const settle=()=>new Promise(resolve=>setTimeout(resolve,100));
+async function until(arrived){for(const end=Date.now()+2000;!arrived()&&Date.now()<end;)await new Promise(resolve=>setTimeout(resolve,10));}
+// Every channel a test opens is closed after it, so a failed assertion cannot leave one holding the test process open.
+const channels=[];
+const openChannel=(...args)=>{const channel=openBlotterChannel(...args);channels.push(channel);return channel;};
+afterEach(()=>{for(const channel of channels.splice(0))channel.close();});
 const SESSION='6f1c2a7e-3b4d-4c5e-8f60-718293a4b5c6';
 const context={snapshotId:'snap-1',knowledgeMode:'current',contextId:null,profile:'run:tenant:workspace:trader'};
 const handed={...newBlotterView(),rowGroup:'book'},grouped={...newBlotterView(),rowGroup:'market'};
@@ -15,14 +21,14 @@ const report={page:'futures',risk:false,trade:null,entry:null,lens:'values',view
 function mainWindow(over={}){
   const calls={opened:[],returned:[],reported:0,asked:[]},win={closed:false,closes:0,fronted:0,close(){this.closes++;this.closed=true;},focus(){this.fronted++;}};
   let shown=context;
-  const tie=tieMainWindow({source:'http://127.0.0.1:5173/?example=exchange',example:'exchange',grace:150,session:()=>SESSION,channel:openBlotterChannel,
+  const tie=tieMainWindow({source:'http://127.0.0.1:5173/?example=exchange',example:'exchange',grace:150,session:()=>SESSION,channel:openChannel,
     open:(url,target,features)=>{calls.opened.push({url,target,features});return win;},context:()=>shown,
     returned:(view,handedBack)=>calls.returned.push({view,handedBack}),reported:()=>calls.reported++,ask:question=>calls.asked.push(question),...over});
   return {tie,calls,win,show:next=>{shown=next;}};
 }
 // The other end, as a raw channel of the session: what it hears, and what it says.
 function peer(){
-  const heard=[],channel=openBlotterChannel(SESSION,m=>heard.push(m));
+  const heard=[],channel=openChannel(SESSION,m=>heard.push(m));
   return {heard,send:(kind,fields={})=>channel.send({v:1,session:SESSION,kind,...fields}),close:()=>channel.close()};
 }
 
@@ -57,7 +63,7 @@ test('popping out opens the Blotter window for a fresh session, and refuses with
 
 test('the main window adopts the first pop-out that says it opened, hands it the view and context, and hears no other',async()=>{
   const {tie,calls}=mainWindow(),pop=peer();
-  tie.open(handed);pop.send('opened',{instance:'w1'});await settle();
+  tie.open(handed);pop.send('opened',{instance:'w1'});await until(()=>pop.heard.length>=2);await settle();
   assert.deepEqual(pop.heard.map(m=>m.kind),['view','context']);
   assert.deepEqual(pop.heard[0],{v:1,session:SESSION,kind:'view',instance:'w1',view:handed});
   assert.deepEqual(pop.heard[1].context,context);
@@ -146,7 +152,7 @@ test('the main window brings its pop-out to the front',()=>{
 
 function popoutWindow(instance='w1'){
   const calls={handed:[],contexts:[],ended:[],back:0};
-  const tie=tiePopoutWindow({session:SESSION,instance,channel:openBlotterChannel,handed:view=>calls.handed.push(view),context:c=>calls.contexts.push(c),ended:reason=>calls.ended.push(reason),broughtBack:()=>calls.back++});
+  const tie=tiePopoutWindow({session:SESSION,instance,channel:openChannel,handed:view=>calls.handed.push(view),context:c=>calls.contexts.push(c),ended:reason=>calls.ended.push(reason),broughtBack:()=>calls.back++});
   return {tie,calls};
 }
 
