@@ -89,6 +89,7 @@ internal static class GasTicketChecks
         Reject("no physical side", Draft(Cash));
         Reject("five physical sides", Draft(Enumerable.Range(0, 5).Select(n => With(Receipt, "quantity", "1") with { Code = $"S{n}" }).ToArray()));
         Reject("five cash sides", Draft([Receipt, ..Enumerable.Range(0, 5).Select(n => Cash with { Code = $"C{n}" })]));
+        Reject("five cash and fee sides together", Draft([Receipt, ..Enumerable.Range(0, 3).Select(n => Cash with { Code = $"C{n}" }), ..Enumerable.Range(0, 2).Select(n => Fee with { Code = $"F{n}", Values = Fee.Values.SetItem("fee_source", "RCT") })]));
         Reject("an unknown side kind", Draft(Receipt, Side("swap", "X")));
         Reject("a repeated side code", Draft(Receipt, Cash with { Code = "RCT" }));
         Reject("a blank side code", Draft(Receipt with { Code = "" }));

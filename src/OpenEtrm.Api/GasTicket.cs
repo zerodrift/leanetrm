@@ -35,6 +35,8 @@ public static class GasTicket
     [new("quantity","Quantity","MMBtu","quantity",false),new("market_price","Market price",null,"price",false)]),
    CashKind("cash","Payment","cash",false),
    CashKind("fee","Fee","fee",true)],
+  // The composition contract admits at most four cash sides, fees included.
+  [new(["cash","fee"],4)],
   [new("net_cash","Net cash",null,"money",false),new("payment_at","Payment at",null,"time",false)],
   ["month","day"],[new("links","Quantity links")],["new","booked"]));
 
@@ -77,6 +79,11 @@ public static class GasTicket
   {
    var count=draft.Sides.Count(s=>s.Kind==kind.Kind);
    if(count<kind.Min||count>kind.Max)throw Bad($"Use {kind.Min} to {kind.Max} {kind.Kind} sides, not {count}.");
+  }
+  foreach(var limit in Description.SideLimits)
+  {
+   var count=draft.Sides.Count(s=>limit.Kinds.Contains(s.Kind));
+   if(count>limit.Max)throw Bad($"Use at most {limit.Max} {string.Join(" and ",limit.Kinds)} sides together, not {count}.");
   }
   var physical=draft.Sides.Where(s=>s.Kind==Physical).ToArray();
   var codes=physical.Select(s=>s.Code).ToHashSet();

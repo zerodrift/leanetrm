@@ -19,6 +19,7 @@ internal static class TicketDescriptionChecks
         var valid = new TicketDescription("fixture", 1, "flow",
             [Field("book"), Field("note", "info")],
             [Kind("buy", Field("buy_start", band: "start"), Field("buy_price", band: "price", dependsOn: "buy_start")), Kind("sell", Field("sell_start", band: "start"))],
+            [new(["buy", "sell"], 3)],
             [new("pv", "PV", null, "money", false)], ["month", "day"], [new("terms", "Terms")], ["new", "booked"]);
         TicketDescription WithTrade(params TicketField[] fields) => valid with { TradeFields = [..fields] };
         TicketDescription WithBuy(params TicketField[] fields) => valid with { Sides = [Kind("buy", fields), valid.Sides[1]] };
@@ -38,6 +39,9 @@ internal static class TicketDescriptionChecks
         Reject("a level outside month, day, hour", valid with { Levels = ["week"] });
         Reject("a minimum above the maximum", valid with { Sides = [valid.Sides[0] with { Min = 3, Max = 2 }] });
         Reject("a maximum below one", valid with { Sides = [valid.Sides[0] with { Min = 0, Max = 0 }] });
+        Reject("a side limit naming an unknown kind", valid with { SideLimits = [new(["buy", "swap"], 3)] });
+        Reject("a side limit naming a kind twice", valid with { SideLimits = [new(["buy", "buy"], 3)] });
+        Reject("a side limit below its kinds' minimum sides", valid with { SideLimits = [new(["buy", "sell"], 1)] });
         Reject("a negative minimum", valid with { Sides = [valid.Sides[0] with { Min = -1 }] });
         foreach (var state in new[] { "info", "derived", "soon" })
             Reject($"a required {state} field", WithTrade(Field("book", state, soon: "later", rule: "copied") with { Required = true }));

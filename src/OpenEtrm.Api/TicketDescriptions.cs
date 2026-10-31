@@ -7,8 +7,10 @@ public static class TicketBand { public static readonly ImmutableArray<string> R
 public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule);
 public sealed record TicketColumn(string Id,string Label,string? Unit,string Measure,bool Input);
 public sealed record TicketSideKind(string Kind,string Pill,string Colour,int Min,int Max,ImmutableArray<TicketField> Fields,ImmutableArray<TicketColumn> Columns);
+// At most Max sides of the named kinds together; each kind keeps its own Min and Max.
+public sealed record TicketSideLimit(ImmutableArray<string> Kinds,int Max);
 public sealed record TicketTab(string Id,string Label);
-public sealed record TicketDescription(string Product,int Version,string RowShape,ImmutableArray<TicketField> TradeFields,ImmutableArray<TicketSideKind> Sides,ImmutableArray<TicketColumn> TradeColumns,ImmutableArray<string> Levels,ImmutableArray<TicketTab> Tabs,ImmutableArray<string> Modes);
+public sealed record TicketDescription(string Product,int Version,string RowShape,ImmutableArray<TicketField> TradeFields,ImmutableArray<TicketSideKind> Sides,ImmutableArray<TicketSideLimit> SideLimits,ImmutableArray<TicketColumn> TradeColumns,ImmutableArray<string> Levels,ImmutableArray<TicketTab> Tabs,ImmutableArray<string> Modes);
 
 public static class TicketDescriptions
 {
@@ -37,6 +39,12 @@ public static class TicketDescriptions
    if(side.Min<0||side.Min>side.Max||side.Max<1)Fail(d,$"side kind '{side.Kind}' needs 0 <= min <= max and 1 <= max");
    var rows=side.Fields.Where(f=>f.Band is not null).GroupBy(f=>f.Band).FirstOrDefault(g=>g.Count()>1);
    if(rows is not null)Fail(d,$"side kind '{side.Kind}' has more than one field on band row '{rows.Key}'");
+  }
+  foreach(var limit in d.SideLimits)
+  {
+   var kinds=limit.Kinds.Select(kind=>d.Sides.SingleOrDefault(side=>side.Kind==kind)).ToArray();
+   if(kinds.Length==0||kinds.Contains(null)||limit.Kinds.Distinct().Count()!=kinds.Length)Fail(d,"a side limit must name distinct declared side kinds");
+   if(limit.Max<Math.Max(1,kinds.Sum(kind=>kind!.Min)))Fail(d,$"the side limit on {string.Join(", ",limit.Kinds)} is below one or their minimum sides");
   }
   return d;
  }
