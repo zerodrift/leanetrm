@@ -20,7 +20,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // The job checks may have registered another close of the date already: any two of the date's closes share the view's context.
   await check('a historical view lists the closes of 2020-12-18, the one just registered among them, all at one instant',`${JSON.stringify(closes)}.length>=2&&${JSON.stringify(second)}==='2020-12-18T16:00:00+00:00'`,JSON.stringify([closes,second]));
 
-  const panelRisk="(()=>{const panel=document.querySelector('#side-panel');return !panel.hidden&&panel.dataset.mode==='risk'&&!document.querySelector('#risk-report').hidden;})()";
+  const panelRisk="(()=>{const panel=document.querySelector('#position-details');return !panel.hidden&&panel.dataset.mode==='risk'&&!document.querySelector('#risk-report').hidden;})()";
   const inline="(()=>{const bar=document.querySelector('#desk-run');return !bar.hidden&&!document.querySelector('#desk-lens').hidden&&document.querySelector('#desk-lens [data-lens=risk]').getAttribute('aria-pressed')==='true';})()";
   const elsewhere="(()=>!document.querySelector('#desk-run').hidden&&document.querySelector('#desk-lens').hidden&&[...document.querySelectorAll('#desk-run-notes li')].some(li=>li.textContent.startsWith('This run was made at another close, context or books than the Blotter read on screen'))&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-value').textContent==='Results made elsewhere'&&!document.querySelector('#risk-export').hidden)()";
   const workspace="window.__riskReads.filter(r=>r.path==='/api/trading/workspace')";
@@ -62,12 +62,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const dropped=parts.findIndex((part,index)=>part.moved.some(reference=>parts.every((other,o)=>o===index||!other.moved.includes(reference))));
   await check('the queued run has parts, one of which alone moves a position',`${parts.length}>1&&${dropped}>=0&&${JSON.stringify(parts.map(p=>p.run?.part))}.join()===${JSON.stringify(parts.map((_,i)=>i+1))}.join()`,JSON.stringify(parts.map(p=>[p.run,p.moved.length])));
   await evaluate(`window.__dropFromHistory=${JSON.stringify(parts[dropped].id)}`);
-  await click('#side-panel-close');await openReport();await fromHistory('run:'+parts[0].run.id);
+  await click('#details-collapse');await openReport();await fromHistory('run:'+parts[0].run.id);
   const name=`Part ${dropped+1} of ${parts.length}`;
   await check('a part the job history no longer lists is missing from it, in the run bar and in the report\'s list of parts, never not yet queued',
     `[...document.querySelectorAll('#desk-run-notes li')].some(li=>li.textContent===${JSON.stringify(`${name} has no results: it is missing from the job history.`)})&&[...document.querySelectorAll('#risk-job-parts li')].some(li=>li.textContent===${JSON.stringify(`${name} · Missing from the job history`)})&&!document.querySelector('#desk-run').textContent.includes('not yet queued')`,
     "[[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent),[...document.querySelectorAll('#risk-job-parts li')].map(li=>li.textContent)]");
-  await click('#side-panel-close');
+  await click('#details-collapse');
   // Every position the run values is in each part's report; those no listed part moves are not known.
   const unknown=await evaluate(`(()=>{const listed=${JSON.stringify(parts.filter((_,i)=>i!==dropped).map(p=>p.moved))}.flat(),valued=window.__riskReads.findLast(r=>r.path.startsWith('/api/portfolio/risk/jobs/')&&r.data?.id===${JSON.stringify(parts[0].id)}).data.result.factors[0].positions.map(p=>p.tradeReference);
     return [...new Set(valued)].filter(reference=>!listed.includes(reference));})()`);

@@ -14,12 +14,15 @@ type Cells=(string|HTMLElement)[][];
 // group: rows under headers (GridGroupOption).
 // rowKeys: each source row's own identity, such as its trade and binding, which the selection, the open row and the place in the rows follow
 // through new data. A grid given none names its rows by their place in the rows it was given.
+// onRowOpen: the person opens a row (a click, Enter or the space bar); onRowSelect: they move the selection to the next or previous row (↓, ↑).
+// Each may answer false, as when the person keeps unsaved edits the consumer asked about: the selection then stays where it was.
 // stretch: the last column fills the grid's remaining width.
 // toolbarHost: where the filter toolbar (search, column filters, row count) is drawn, when not above the table.
 // fill: the table takes the height its host gives it, such as a pane's, and its rows scroll within it; otherwise it is sized to its rows.
-// giveUp: columns, by index, that the grid gives up in this order, one at a time, only while the columns it shows do not fit its width, as a
-// consumer that takes room from it asks; `fitColumns` changes them while the grid stands. A grid with room for all of them shows all.
-export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>void;onRowDoubleOpen?:(index:number)=>void;
+// giveUp: columns, by index, that the grid gives up in this order, one at a time, only while the columns it shows do not fit its width. A grid
+// with room for all of them shows all.
+type Chosen=void|boolean|Promise<boolean>;
+export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>Chosen;onRowSelect?:(index:number)=>Chosen;onRowDoubleOpen?:(index:number)=>void;
   cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[]};
 /**
  * What a grid is built for and cannot change while it stands: its key, scope and columns. A later render with the same identity changes the
@@ -93,11 +96,6 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   document.addEventListener('pointermove',pointerMove,true);
   document.addEventListener('pointercancel',cancelGesture,true);
   document.addEventListener('scroll',cancelGesture,true);
-  // Deferred row positioning must yield to a later focus move, including one inside the detail.
-  // The control in the open detail focused last, while focus stays in the detail: focus moving anywhere else forgets it.
-  let focusVersion=0,lastDetailFocus:HTMLElement|undefined;
-  const focusChanged=(event:FocusEvent)=>{focusVersion++;lastDetailFocus=event.target instanceof HTMLElement&&detail?.body.contains(event.target)?event.target:undefined;};
-  document.addEventListener('focusin',focusChanged,true);
   const field=(i:number)=>'c'+i;
   const ordered=(layout:GridLayout)=>[...layout.order.filter(k=>options.keys.includes(k)),...options.keys.filter(k=>!layout.order.includes(k))];
   // The columns the grid gives up in this order while they do not fit it, and those it has given up now.
@@ -128,14 +126,12 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     for(const i of order){if(!overflows())break;left.add(i);lay(left);}
   }
   // The room a table has changes with its container's width, which is not the window's: it is fitted again when that changes, at the place
-  // the person last left it. An open detail keeps its own place and focus as it reflows (resizeDetail), so its rows are only fitted.
+  // the person last left it.
   let width=0;
-  const resizing=new ResizeObserver(()=>{if(!alive||container.clientWidth===width)return;width=container.clientWidth;sizeDetail();if(detail){fit();return;}const at=lastPlace;void change(fit,at&&(()=>at));});
+  const resizing=new ResizeObserver(()=>{if(!alive||container.clientWidth===width)return;width=container.clientWidth;const at=lastPlace;void change(fit,at&&(()=>at));});
   resizing.observe(container);
   // The row the consumer has open, and the row selected, by key: marked whenever their elements are drawn.
   let opened:string|null=null,selected:string|null=null,selectionLost=false,selectionChanged:((key:string|null)=>void)|undefined;
-  let detail:{key:string;body:HTMLElement}|undefined;
-  function sizeDetail(){const holder=container.querySelector<HTMLElement>('.tabulator-tableholder');if(detail&&holder)detail.body.style.maxWidth=holder.clientWidth+'px';}
   const sourceIndex=(row:GridRow)=>Number(row.getData().__sourceIndex);
   const keyOf=(row:GridRow)=>row.getData().__key;
   const keyAt=(index:number|null)=>index===null?null:requested[index]??null;
@@ -143,8 +139,6 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     const target=row.getElement(),key=keyOf(row),isOpen=key===opened;target.dataset.rowKey=key;
     target.classList.toggle('open-row',isOpen);if(isOpen)target.setAttribute('aria-current','true');else target.removeAttribute('aria-current');
     target.classList.toggle('selected-row',key===selected);target.setAttribute('aria-selected',String(key===selected));
-    if(detail?.key===key&&detail.body.parentElement!==target)target.append(detail.body);
-    if(options.onRowOpen)target.setAttribute('aria-expanded',String(detail?.key===key));
   }
   function markRows(){
     if(selected===null)delete container.dataset.selectedRow;else container.dataset.selectedRow=selected;
@@ -161,7 +155,11 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     data:rowData(),
     rowFormatter:(row:any)=>{
       const target=row.getElement() as HTMLElement;
-      if(options.onRowOpen){target.tabIndex=0;target.classList.add('openable-row');target.setAttribute('aria-label','Open row details');target.onkeydown=event=>{if(event.target===target&&['Enter',' '].includes(event.key)){event.preventDefault();openRow(row);}};}
+      if(options.onRowOpen){target.tabIndex=0;target.classList.add('openable-row');target.setAttribute('aria-label','Open row details');target.onkeydown=event=>{
+        if(event.target!==target)return;
+        if(['Enter',' '].includes(event.key)){event.preventDefault();openRow(row);}
+        else if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();step(keyOf(row),event.key==='ArrowDown'?1:-1);}
+      };}
       markRow(row);
     },
     columns:definitions,
@@ -180,30 +178,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     ...(options.group?{groupBy:groupOf}:{}),
     initialSort:options.layout.sort.filter(s=>options.keys.includes(s.key)).map(s=>({column:field(options.keys.indexOf(s.key)),dir:s.direction})),
   });
-  // A resize or sort detaches and reattaches the row, including its persistent
-  // detail. Preserve its focused control without taking focus from another one.
-  const focusedDetail=()=>{const active=document.activeElement;return active instanceof HTMLElement&&detail?.body.contains(active)?active:undefined;};
-  function restoreDetailFocus(held:HTMLElement|undefined){
-    const active=document.activeElement;
-    if(held?.isConnected&&detail?.body.contains(held)&&!detail.body.hidden&&
-      (active===null||active===document.body||active===document.documentElement))held.focus({preventScroll:true});
-  }
-  let detailFocus:HTMLElement|undefined,renderFocusVersion=0;
-  table.on('renderStarted',()=>{if(detailFocus===undefined){detailFocus=focusedDetail();renderFocusVersion=focusVersion;}});
-  // A render gives back only focus that was in the detail when it started: to where it then was, or, if the person moved it within the
-  // detail meanwhile (an arrow key along its tabs), to where they moved it. Focus that was elsewhere, as after a click on a header, stays.
-  table.on('renderComplete',()=>{
-    const started=detailFocus,moved=focusVersion!==renderFocusVersion&&lastDetailFocus&&detail?.body.contains(lastDetailFocus)?lastDetailFocus:undefined;
-    detailFocus=undefined;if(started)restoreDetailFocus(moved??started);
-  });
-  // Focusing a prompt or a field can scroll the virtual viewport too. Capture
-  // its focus before Tabulator handles that scroll and rebuilds the visible rows.
-  // Focus the person moves meanwhile, as a tab key does, stands: an older control is never focused again over it.
-  const keepDetailFocusOnScroll=()=>{const held=focusedDetail(),at=focusVersion;if(held)requestAnimationFrame(()=>{if(alive&&focusVersion===at)restoreDetailFocus(held);});};
-  container.addEventListener('scroll',keepDetailFocusOnScroll,true);
-
   // The person's place: every change of the rows, their grouping, sorting, filters or columns, and of the grid's width, keeps the first row
   // in view where it was and the selected row selected (grid-place). Changes run one at a time, each from the place the last one left.
+  // Drawing the rows again detaches them, so a row that had keyboard focus has it back afterwards, unless the person has moved it.
   const holder=()=>container.querySelector<HTMLElement>('.tabulator-tableholder');
   function capture():Place{
     const view=holder();
@@ -223,8 +200,8 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     restoring={version,place};
     try{await settle(version,place,view,row);}finally{if(restoring?.version===version)restoring=undefined;}
   }
-  // Whether a row is drawn within the grid's viewport.
-  function inView(row:GridRow,view:HTMLElement){const target=row.getElement();if(!target.isConnected)return false;const box=target.getBoundingClientRect(),port=view.getBoundingClientRect();return box.bottom>port.top&&box.top<port.bottom;}
+  // Whether a row is drawn whole within the grid's viewport.
+  function inView(row:GridRow,view:HTMLElement){const target=row.getElement();if(!target.isConnected)return false;const box=target.getBoundingClientRect(),port=view.getBoundingClientRect();return box.top>=port.top-0.5&&box.bottom<=port.bottom+0.5;}
   async function settle(version:number,place:Place,view:HTMLElement|null,row:GridRow|false){
     if(!view||!row)return;
     const away=()=>{const target=row.getElement();return target.isConnected?target.getBoundingClientRect().top-view.getBoundingClientRect().top-place.offset:undefined;};
@@ -234,41 +211,23 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       await frame();if(version!==placing||!alive)return;
       if(Math.abs(away()??Infinity)<1){lastPlace=capture();return;}
     }
-    // A person working in the open detail sees the rows where they are: an anchor still in view is near enough, and scrolling would draw
-    // the rows again under them.
-    if(focusedDetail()&&inView(row,view))return;
-    // Scrolling rebuilds virtual rows without the table's render events, detaching the open detail and any focus in it. The focus is put
-    // back only where it was: a key pressed meanwhile has moved it on, and that move stands.
-    const held=focusedDetail(),at=focusVersion;
-    try{await row.scrollTo('top',false);}catch{return;}finally{if(focusVersion===at)restoreDetailFocus(held);}
+    try{await row.scrollTo('top',false);}catch{return;}
     // The virtual renderer estimates the heights of rows it has not drawn, so the row is measured where it lands and moved again until it holds.
     for(let tries=0;tries<4&&version===placing&&alive;tries++){
       // A short viewport's rows are drawn again on the frame after a scroll: the anchor is measured once it is drawn.
       let delta=away();if(delta===undefined){await frame();if(version!==placing||!alive)return;delta=away();}
       if(delta===undefined)return;
       if(Math.abs(delta)<1)break;
-      const focused=focusedDetail(),moved=focusVersion;view.scrollTop+=delta;await frame();if(focusVersion===moved)restoreDetailFocus(focused);
+      view.scrollTop+=delta;await frame();
     }
     if(version===placing&&alive)lastPlace=capture();
   }
-  // A full redraw rebuilds the virtual renderer's estimates and scrolls to the top: the horizontal place is kept, and the first row in view
-  // where it was, as far as the rows drawn at the old scroll offset show it.
-  function redraw(place=capture()){
-    const view=holder(),top=view?.scrollTop??0,left=view?.scrollLeft??0,held=focusedDetail(),at=focusVersion;
+  // A full redraw rebuilds the virtual renderer's estimates and scrolls to the top: it is drawn at the scroll offsets it had, and the change it
+  // is part of then restores the first row in view.
+  function redraw(){
+    const view=holder(),top=view?.scrollTop??0,left=view?.scrollLeft??0;
     table.redraw(true);
-    if(!view)return;
-    view.scrollTop=top;view.scrollLeft=left;placeNow(place);
-    // The rows are drawn again at the restored offset on its scroll event, which can detach and reattach the open detail.
-    if(held&&view.scrollTop!==0)requestAnimationFrame(()=>requestAnimationFrame(()=>{if(alive&&focusVersion===at)restoreDetailFocus(held);}));
-  }
-  // Moves the anchor back to its offset at once, when its row is drawn: a later scroll the person or a caller makes must not be undone.
-  function placeNow(place:Place){
-    placing++;
-    const view=holder(),row=place.anchor===null?false:table.getRow(place.anchor),target=row?row.getElement():undefined;
-    if(view&&row&&focusedDetail()&&inView(row,view))return;
-    const delta=view&&target?.isConnected?target.getBoundingClientRect().top-view.getBoundingClientRect().top-place.offset:0;
-    // Even a fraction of a pixel would scroll, and a scroll draws the virtual rows again, detaching a detail being opened.
-    if(Math.abs(delta)>=1)view!.scrollTop+=delta;
+    if(view){view.scrollTop=top;view.scrollLeft=left;}
   }
   // The place a change starts from: the one still being restored, or where the rows are now.
   const aimedPlace=()=>restoring&&restoring.version===placing?restoring.place:capture();
@@ -276,15 +235,14 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     // A grid destroyed while a change waited has nothing left to change.
     if(!alive)return;
     if(!ready){await work();return;}
-    const before={...(from?.()??aimedPlace()),selected},previous=shownKeys();
+    const before={...(from?.()??aimedPlace()),selected},previous=shownKeys(),focused=focusedRow();
     updating=true;try{await work();}finally{updating=false;}
     if(!alive)return;
     const kept=retainPlace(before,previous,shownKeys());
     if(kept.selectionLost){selected=null;selectionLost=true;markRows();report();selectionChanged?.(null);}
-    void restore(kept.place);
+    void restore(kept.place).then(()=>{const row=focused!==undefined&&alive&&focusLost()&&table.getRow(focused);if(row)row.getElement().focus({preventScroll:true});});
   }
-  // The place is taken when the change is asked for, unless earlier changes are still to run: what draws in between, such as the open
-  // detail sizing itself, must not become the place kept.
+  // The place is taken when the change is asked for, unless earlier changes are still to run: the place they leave is the one kept.
   let waiting=0;
   function change(work:()=>void|Promise<void>,from?:()=>Place){
     const asked=from??(waiting===0&&ready&&alive?(place=>()=>place)(aimedPlace()):undefined);
@@ -294,9 +252,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Where the person scrolls to is the place a change of width keeps: by then the rows have already moved.
   const watchPlace=()=>{if(watching||!alive)return;watching=requestAnimationFrame(()=>{watching=0;if(alive&&ready&&!updating)lastPlace=capture();});};
   container.addEventListener('scroll',watchPlace,true);
-  // The person scrolling the rows themselves, by wheel, touch, the scrollbar or a paging key, supersedes a place still being restored
-  // and an opened row still being brought into view: where they scroll to stands.
-  let personScrolled=0;const personScrolls=()=>{placing++;personScrolled++;};
+  // The person scrolling the rows themselves, by wheel, touch, the scrollbar or a paging key, supersedes a place still being restored:
+  // where they scroll to stands.
+  const personScrolls=()=>{placing++;};
   const scrollbarPress=(event:PointerEvent)=>{if(event.target===holder())personScrolls();};
   const pagingKey=(event:KeyboardEvent)=>{if(['PageUp','PageDown','Home','End'].includes(event.key))personScrolls();};
   container.addEventListener('wheel',personScrolls,{passive:true,capture:true});container.addEventListener('touchmove',personScrolls,{passive:true,capture:true});
@@ -306,30 +264,53 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   table.on('dataSorting',()=>{if(ready&&alive&&!updating&&!sortPlace)sortPlace=capture();});
   table.on('dataSorted',()=>{const place=sortPlace;sortPlace=undefined;if(place)requestAnimationFrame(()=>void change(()=>{},()=>place));});
 
-  function openRow(row:GridRow){if(!current()||!options.onRowOpen)return;placing++;const index=sourceIndex(row);if(Number.isInteger(index)&&index>=0&&index<values.length){choose(keyOf(row));options.onRowOpen(index);}}
-  // The person selects a row by opening it; a selection the consumer makes is not reported back to it.
+  // The person selects a row by opening it, unless the consumer answers that it stays where it was; a row pressed supersedes a place still
+  // being restored, which would move it from under the pointer.
+  function openRow(row:GridRow){
+    if(!current()||!options.onRowOpen)return;
+    placing++;const index=sourceIndex(row),key=keyOf(row);
+    if(Number.isInteger(index)&&index>=0&&index<values.length)void Promise.resolve(options.onRowOpen(index)).then(chosen=>{if(chosen!==false&&alive)choose(key);});
+  }
+  // A selection the consumer makes is not reported back to it.
   function choose(key:string){if(key===selected)return;selected=key;selectionLost=false;markRows();report();selectionChanged?.(key);}
+  // The row the filters show after or before a row, in the order on screen: a collapsed group's rows are not on screen.
+  function neighbour(key:string,direction:-1|1):GridRow|undefined{
+    const rows=table.getRows('display'),at=rows.findIndex(row=>keyOf(row)===key);
+    return at<0?undefined:rows[at+direction];
+  }
+  // ↓ and ↑ select the next or previous row and give it focus, brought into view only when it is not already whole in view.
+  function step(key:string,direction:-1|1){
+    if(!current())return;
+    const next=neighbour(key,direction);if(!next)return;
+    const nextKey=keyOf(next);
+    void Promise.resolve(options.onRowSelect?.(sourceIndex(next))).then(async chosen=>{
+      if(chosen===false||!alive)return;
+      choose(nextKey);
+      const row=table.getRow(nextKey),view=holder();if(!row)return;
+      if(view&&!inView(row,view)){placing++;await row.scrollTo('nearest',false).catch(()=>undefined);}
+      if(alive)row.getElement().focus({preventScroll:true});
+    });
+  }
+  const focusLost=()=>{const active=document.activeElement;return active===null||active===document.body||active===document.documentElement;};
+  // The key of this grid's row that has keyboard focus, if one has.
+  const focusedRow=()=>{const active=document.activeElement;return active instanceof HTMLElement&&active.classList.contains('tabulator-row')&&container.contains(active)?active.dataset.rowKey:undefined;};
   function safeRowGesture(event:MouseEvent,targetRow:HTMLElement){
     const selection=window.getSelection(),target=event.target as Element;
     return current()&&event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&
-      !target.closest('a,button,input,select,textarea,[contenteditable=true],.position-expansion')&&
+      !target.closest('a,button,input,select,textarea,[contenteditable=true]')&&
       !(selection&&!selection.isCollapsed&&container.contains(selection.anchorNode))&&
       !(event.detail>0&&gesture&&(gesture.cancelled||gesture.row!==targetRow));
   }
   // Virtual redraws can replace a row element between the two clicks. The
   // row key identifies the same position within this grid.
-  let doubleCandidate:string|undefined,doubled:string|undefined;
+  let doubleCandidate:string|undefined;
   const keyAtElement=(element:HTMLElement)=>{const row=table.getRows().find(row=>row.getElement()===element);return row?keyOf(row):undefined;};
   // A second native mousedown selects a word before dblclick. Keep text
   // selection available for drags and existing selections; suppress only that
   // automatic selection for a second click on the same eligible row.
   const secondMouseDown=(event:MouseEvent)=>{
     const row=(event.target as Element).closest<HTMLElement>('.tabulator-row');
-    if(!options.onRowDoubleOpen||event.detail!==2||!row||doubleCandidate===undefined||keyAtElement(row)!==doubleCandidate||!safeRowGesture(event,row))return;
-    // The second press opens the separate view: the first opened the row, which the grid can draw again before the press is released,
-    // and a release on a row drawn again is no click, so no double click would follow.
-    event.preventDefault();
-    const index=keys.indexOf(doubleCandidate);doubled=doubleCandidate;doubleCandidate=undefined;if(index>=0)options.onRowDoubleOpen(index);
+    if(options.onRowDoubleOpen&&event.detail===2&&row&&doubleCandidate!==undefined&&keyAtElement(row)===doubleCandidate&&safeRowGesture(event,row))event.preventDefault();
   };
   container.addEventListener('mousedown',secondMouseDown,true);
   table.on('rowClick',(event:MouseEvent,row:GridRow)=>{
@@ -342,9 +323,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Handle the eligible double click before the grid's cell handler, which
   // otherwise selects the whole cell even when mousedown was prevented.
   const doubleClick=(event:MouseEvent)=>{
-    const target=(event.target as Element).closest<HTMLElement>('.tabulator-row'),candidate=doubleCandidate,opened=doubled;doubleCandidate=doubled=undefined;
-    // The double click whose second press opened the view selects nothing and reaches no other handler.
-    if(opened!==undefined&&target&&keyAtElement(target)===opened){event.preventDefault();event.stopPropagation();return;}
+    const target=(event.target as Element).closest<HTMLElement>('.tabulator-row'),candidate=doubleCandidate;doubleCandidate=undefined;
     if(!options.onRowDoubleOpen||!target||candidate===undefined||!safeRowGesture(event,target))return;
     if(keyAtElement(target)!==candidate)return;
     const index=keys.indexOf(candidate);if(index<0)return;
@@ -404,10 +383,12 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     if(!alive)return;
     void built.then(()=>queue).then(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))).then(()=>{
       if(!stillCurrent())return;
-      const row=alive&&ready?table.getRow(key)||undefined:undefined,held=focusedDetail();
-      if(row)placing++;
-      // scrollTo rebuilds virtual rows without the table's render events.
-      return row?.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive&&stillCurrent()){use(row);restoreDetailFocus(held);}});
+      const row=alive&&ready?table.getRow(key)||undefined:undefined,view=holder();
+      if(!row)return;
+      // A row already whole in view is used where it is: the place the person has in the rows stands.
+      if(view&&inView(row,view)){use(row);return;}
+      placing++;
+      return row.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive&&stillCurrent())use(row);});
     });
   }
   /** Marks the rows as no longer stating the current read, with the reason, or clears the mark (null). */
@@ -430,11 +411,6 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
      * which loses its scroll offset, or whose room changed while it was out of view.
      */
     relayout(){if(!ready||!alive)return;const at=lastPlace;void change(()=>{width=container.clientWidth;redraw();fit();},at&&(()=>at));},
-    /** Gives up these columns instead of those it was given before, in this order, while the table does not fit its width. */
-    fitColumns(next:readonly number[]){
-      if(next.length===order.length&&next.every((index,at)=>index===order[at]))return;
-      order=next;fit();
-    },
     /** Replaces every row with these, by key, keeping the person's place. */
     replaceRows(next:Cells,displayRows:string[][]|undefined,rowKeys:readonly string[]){
       const nextKeys=keysOf(next,rowKeys);requested=nextKeys;
@@ -490,53 +466,8 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     markStale,
     /** Marks the row of a source index as the open one (null: none), and keeps it marked as the grid draws its rows again; says so when the filters hide it. It is also the selected row. */
     selectRow(index:number|null){opened=keyAt(index);if(opened!==null){selected=opened;selectionLost=false;}report();markRows();},
-    /** Retains the detail beneath its source row through sorting, updates and virtual redraws. */
-    detailRow(index:number|null,body:HTMLElement){
-      const at=keyAt(index),changed=at===null?detail!==undefined:detail?.key!==at||detail?.body!==body,place=changed&&at===null?capture():undefined;
-      if(at===null){detail?.body.remove();detail=undefined;table.options.renderVerticalBuffer=0;}else if(changed){detail?.body.remove();detail={key:at,body};}
-      sizeDetail();
-      if(ready&&alive){
-        for(const row of table.getRows()){markRow(row);row.normalizeHeight();}
-        // Removing an offscreen detail also changes the virtual renderer's
-        // estimated row height and padding. A full public redraw rebuilds
-        // those estimates; retain the person's horizontal place, and the first row in view where it was, also when the detail was above it.
-        if(place)redraw(place);
-      }
-      // The row opened is brought into view with its detail once the changes it waits for, such as a redraw for the detail's height, are
-      // drawn: a short view could otherwise leave it out of the rows drawn. A row in view is left where it is.
-      const asked=personScrolled;
-      if(changed&&at!==null)void built.then(()=>queue).then(frame).then(frame).then(()=>{
-        // A scroll of the person's own since the row opened stands.
-        if(asked!==personScrolled)return;
-        const row=alive&&ready&&detail?.key===at?table.getRow(at)||undefined:undefined,view=holder();
-        if(!row||!view||inView(row,view))return;
-        // Scrolling draws the rows again, detaching the detail and focus in it: focus goes back where it was unless the person moved it.
-        const held=focusedDetail(),moved=focusVersion;
-        return row.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive&&focusVersion===moved)restoreDetailFocus(held);});
-      });
-    },
-    resizeDetail(keepVisible=false){
-      sizeDetail();if(!ready||!alive)return;
-      const shownDetail=detail,held=focusedDetail()??(keepVisible?shownDetail?.body:undefined),focusAt=focusVersion;
-      const row=shownDetail?table.getRow(shownDetail.key):false;if(row)row.normalizeHeight();
-      if(shownDetail?.body.isConnected){
-        const height=shownDetail.body.offsetHeight,holder=container.querySelector<HTMLElement>('.tabulator-tableholder');
-        // A native focus jump inside a tall detail must still land in that
-        // row. Tabulator 6.6.1 resets its learned buffer on resize. Retain the
-        // measured extent in its configured buffer, then reset it on collapse.
-        const buffer=holder&&height>holder.clientHeight?height:0;
-        // The full redraw keeps the scroll offset and the first row in view (redraw), so the row with the detail stays where it is.
-        if(table.options.renderVerticalBuffer!==buffer){table.options.renderVerticalBuffer=buffer;redraw();if(row)row.normalizeHeight();}
-      }
-      // Returning from a tall editor can leave its source row outside the
-      // virtual viewport. Restore only that still-current position, without
-      // taking focus from a control the person has moved to in the meantime.
-      if(keepVisible&&shownDetail){
-        const stillSelected=()=>{const active=document.activeElement;return detail===shownDetail&&!shownDetail.body.hidden&&focusVersion===focusAt&&
-          (shownDetail.body.contains(active)||active===null||active===document.body||active===document.documentElement);};
-        whenDrawn(shownDetail.key,()=>restoreDetailFocus(held),stillSelected);
-      }
-    },
+    /** The source index of the row the filters show after (1) or before (-1) the row of a source index, in the order on screen; null at an end. */
+    rowAfter(index:number,direction:-1|1):number|null{const key=keyAt(index),next=key===null||!ready?undefined:neighbour(key,direction);return next?sourceIndex(next):null;},
     /**
      * Moves focus to the row of a source index, scrolling it into view first, once the grid has drawn again: a change of the
      * grid's width, such as a closing panel's, redraws its rows in the frame after it, which would take focus from a row focused sooner.
@@ -544,7 +475,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     focusRow(index:number){const at=keyAt(index);if(at!==null)whenDrawn(at,row=>row.getElement().focus({preventScroll:true}));},
     /** Scrolls the row of a source index into view, in the grid and in the page, as far as it takes to show it, once the grid has drawn again. */
     revealRow(index:number){const at=keyAt(index);if(at!==null)whenDrawn(at,row=>row.getElement().scrollIntoView({block:'nearest'}));},
-    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',keepDetailFocusOnScroll,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);document.removeEventListener('focusin',focusChanged,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }
 export type GridHandle=ReturnType<typeof renderDataGrid>;

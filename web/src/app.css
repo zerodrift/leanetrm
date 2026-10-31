@@ -741,18 +741,12 @@ dialog label{margin-top:16px}
 .side-panel{background:var(--surface);color:var(--text)}
 .side-panel:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .side-panel-frame{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0}
-.table-workspace-stage:has(>.side-panel[data-placement=docked]:not([hidden])){display:grid;grid-template-columns:minmax(0,1fr) var(--panel-width)}
 .side-panel[data-placement=docked]{border-left:1px solid var(--border)}
 .side-panel[data-placement=docked] .side-panel-frame{position:sticky;top:8px;max-height:calc(100vh - 16px)}
 .side-panel[data-placement=overlay]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-overlay-width),100%);border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
 .side-panel[data-placement=overlay] .side-panel-frame{height:100%}
 body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-width);width:min(var(--panel-overlay-width),calc(100% - var(--assistant-width)))}
 @media(max-width:760px){.side-panel[data-placement=overlay],body.assistant-open .side-panel[data-placement=overlay]{right:0;left:0;width:100%;border-left:0}}
-/* What needs more room than a docked panel has, a swap's settlement figures, opens the panel wide: it lies over the page, which keeps
-   its layout beneath, docked or not, and never over the navigation, which stays in view and in reach (D221). */
-.side-panel[data-wide]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-wide-width),calc(100% - var(--sidebar-width)));border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
-.side-panel[data-wide] .side-panel-frame{position:relative;top:auto;height:100%;max-height:none}
-body.assistant-open .side-panel[data-wide]{right:var(--assistant-width);width:min(var(--panel-wide-width),calc(100% - var(--assistant-width) - var(--sidebar-width)))}
 .side-panel-close{position:absolute;top:8px;right:8px;z-index:1;width:32px;height:32px;display:grid;place-items:center;padding:0;border-radius:var(--radius-sm)}
 .side-panel-close:hover{background:var(--surface-3);color:var(--text)}
 /* The close button sits over the prompt's right edge too, so the question keeps clear of it. */
@@ -1237,7 +1231,7 @@ button.custom-curve-dot.connectable:hover,button.custom-curve-dot.connectable:fo
 .live-status[data-state="stale"] {color:#9c283a;background:#fff0f2;}
 /* The assistant panel (docs/ai-assistant.md §10.1): docked right with the page narrowing beside it, its left edge resizing
    it; below 760 px a full-width sheet. Answers are text nodes in paragraphs, lists and code. */
-:root{--assistant-width:400px;--panel-width:340px;--panel-overlay-width:440px;--panel-wide-width:720px}
+:root{--assistant-width:400px;--panel-width:340px;--panel-overlay-width:440px}
 .assistant-launcher{display:inline-flex;align-items:center;gap:6px}
 .assistant-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
 body.assistant-open main{margin-right:var(--assistant-width)}
@@ -1367,7 +1361,6 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 :root{--dock-band:84px;--launcher-right:24px;--launcher-room:132px}
 body{--dock-center:calc((var(--sidebar-width) + 100vw - var(--launcher-right) - var(--launcher-room)) / 2)}
 body.assistant-open{--launcher-right:calc(var(--assistant-width) + 16px)}
-body:has(#futures-page:not([hidden]) .side-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--panel-width) + 49px)}
 body:has(#market-page:not([hidden]) .contract-panel[data-placement=docked]:not([hidden])){--launcher-right:calc(var(--contract-panel-width) + 49px)}
 main{padding-bottom:calc(var(--dock-band) + 16px)}
 html{scroll-padding-bottom:var(--dock-band)}
@@ -1393,7 +1386,7 @@ html{scroll-padding-bottom:var(--dock-band)}
 main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 main:has(>section:not([hidden]) .floating-context) .context-dock{bottom:72px}
 header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{opacity:.55}
-.side-panel[data-placement=overlay],.side-panel[data-wide]{padding-bottom:var(--dock-band)}
+.side-panel[data-placement=overlay]{padding-bottom:var(--dock-band)}
 /* On a phone the overlay is a sheet that holds the page, its docks included, out of reach: it lies over them, so its foot is in view. */
 @media(max-width:760px){body:not(.assistant-open) .side-panel[data-placement=overlay]{z-index:42;padding-bottom:0}}
 .assistant-launcher{position:fixed;right:var(--launcher-right);bottom:16px;z-index:40;border-radius:28px;box-shadow:0 4px 20px #122b2030;padding:13px 17px}
@@ -1500,19 +1493,28 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .delivery-jobs{margin:0 0 12px;font-size:13px;color:var(--text-2)}
 @media(max-width:760px){.delivery-filter-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.delivery-filter-fields>button{grid-column:span 2}.delivery-head{flex-direction:row;flex-wrap:wrap;gap:8px 16px}.delivery-chart .time-chart-canvas{height:280px}}
 .table-menu-check{display:flex;align-items:center;gap:8px;font-size:13px}
-/* A position's detail, inline beneath its Blotter row and in its own window: a head card with the position's value,
+/* A position's detail, in the Blotter's Details pane and in its own window: a head card with the position's value,
    a tab strip over a tinted body, and each section of the body a card of its own. Terms read as a grid of label-over-value
-   cells; schedules are tables whose numeric columns align right. Nothing here changes what is shown, only where. */
-:root .position-expansion{position:relative;box-sizing:border-box;white-space:normal;width:min(100%,1100px);display:grid;grid-template-columns:minmax(0,1fr);
-  padding:14px 16px 16px;background:var(--surface-3);border-top:1px solid var(--border-strong);border-bottom:1px solid var(--border-strong);cursor:default;color:var(--text)}
-.position-expansion>*{min-width:0}
-/* Close sits in the head card's top right corner, which the head keeps clear. */
-.position-expansion .position-close{position:absolute;top:24px;right:28px;z-index:1;font-size:12px;padding:5px 12px;min-height:0}
-.position-expansion #position-details-head{border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
-.position-expansion #position-details-head:not(:empty){margin-bottom:12px}
-.position-expansion #position-details-head:empty{display:none}
-.position-expansion #position-details-head,.position-window #position-window-head{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:24px;align-items:start;padding:14px 16px;background:var(--surface)}
-.position-expansion #position-details-head{padding-right:176px}
+   cells; schedules are tables whose numeric columns align right. Nothing here changes what is shown, only where. The pane's
+   header steps along the positions, names what it shows and collapses it. */
+:root .details-pane{position:relative;box-sizing:border-box;white-space:normal;display:grid;grid-template-columns:minmax(0,1fr);color:var(--text)}
+.details-pane:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.details-pane>*{min-width:0}
+.details-bar{display:flex;align-items:center;gap:4px;margin:0 0 10px}
+.details-title{flex:1 1 auto;min-width:0;margin:0 6px;font-size:14px;font-weight:650;overflow-wrap:anywhere}
+.details-control{flex:none;min-height:0;padding:2px 8px;font-size:15px;color:var(--text-2)}
+.details-control:disabled{color:var(--text-3);opacity:.5}
+.details-pane .side-panel-prompt{margin:0 0 10px;padding-right:16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
+/* A form in a narrow details pane takes the one column, as it does in a side panel. */
+@container (max-width:600px){
+  .details-form .schedule-fields,.details-form .trade-annotation-fields,.details-form .schedule-date-fields,.details-form .instrument-choices,.details-form .swap-term-columns,.details-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
+  .details-form .instrument-choices button,.details-form #swap-scheduled-open{white-space:normal;min-width:0;max-width:100%}
+  .details-form select,.details-form input:not([type=checkbox]),.details-form textarea{width:100%}
+}
+.details-pane #position-details-head{border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.details-pane #position-details-head:not(:empty){margin-bottom:12px}
+.details-pane #position-details-head:empty{display:none}
+.details-pane #position-details-head,.position-window #position-window-head{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:24px;align-items:start;padding:14px 16px;background:var(--surface)}
 :is(#position-details-head,#position-window-head)>*{grid-column:1;min-width:0}
 :is(#position-details-head,#position-window-head) .side-panel-kicker,:is(#position-details-head,#position-window-head) .side-panel-title{padding-right:0}
 :is(#position-details-head,#position-window-head) .side-panel-value{grid-column:2;grid-row:1/span 3;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:stretch;gap:8px;margin:0}
@@ -1522,50 +1524,50 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 :is(#position-details-head,#position-window-head) .kpi-value small{font-size:13px;font-weight:500;letter-spacing:0;color:var(--text-2)}
 :is(#position-details-head,#position-window-head) .side-panel-delta b{font-size:18px;line-height:1.35;margin-top:2px}
 :is(#position-details-head,#position-window-head) .side-panel-actions{margin-top:12px}
-.position-expansion #position-details-tabs{display:flex;gap:20px;padding:0 16px;background:var(--surface);border:1px solid var(--border);border-bottom-color:var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
-.position-expansion #position-details-tabs:empty{display:none}
-.position-expansion .side-panel-tab{background:transparent;color:var(--text-2);border:0;border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px;padding:10px 0 8px;min-height:0;font-size:13px;font-weight:550;box-shadow:none}
-.position-expansion .side-panel-tab:hover{background:transparent;color:var(--text);border-bottom-color:var(--border-strong)}
-.position-expansion .side-panel-tab[aria-selected=true]{color:var(--accent-text);border-bottom-color:var(--accent)}
-.position-expansion #position-details-body{max-height:65vh;overflow:auto;padding:12px;background:var(--surface-2);border:1px solid var(--border);border-top:0;border-radius:0 0 var(--radius-lg) var(--radius-lg)}
-.position-expansion #position-details-tabs:empty+#position-details-body{border-top:1px solid var(--border);border-radius:var(--radius-lg)}
+.details-pane #position-details-tabs{display:flex;gap:20px;padding:0 16px;background:var(--surface);border:1px solid var(--border);border-bottom-color:var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
+.details-pane #position-details-tabs:empty{display:none}
+.details-pane .side-panel-tab{background:transparent;color:var(--text-2);border:0;border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px;padding:10px 0 8px;min-height:0;font-size:13px;font-weight:550;box-shadow:none}
+.details-pane .side-panel-tab:hover{background:transparent;color:var(--text);border-bottom-color:var(--border-strong)}
+.details-pane .side-panel-tab[aria-selected=true]{color:var(--accent-text);border-bottom-color:var(--accent)}
+.details-pane #position-details-body{padding:12px;background:var(--surface-2);border:1px solid var(--border);border-top:0;border-radius:0 0 var(--radius-lg) var(--radius-lg)}
+.details-pane #position-details-tabs:empty+#position-details-body{border-top:1px solid var(--border);border-radius:var(--radius-lg)}
 .position-window #position-window-body{background:var(--surface-2)}
 :is(#position-details-view,#position-window-view){display:grid;gap:12px;align-content:start}
 :is(#position-details-view,#position-window-view) .side-panel-status{margin:0}
 :is(#position-details-view,#position-window-view) .side-panel-actions{margin:0}
 /* Sections are cards: a tinted title bar over their content. */
-:is(.position-expansion,.position-window) .side-panel-section{margin:0;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}
-:is(.position-expansion,.position-window) .side-panel-section>h3{margin:-12px -12px 12px;padding:9px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;font-size:12.5px;font-weight:650}
-:is(.position-expansion,.position-window) .side-panel-section>h3:last-child{margin-bottom:-12px;border-bottom:0}
+:is(.details-pane,.position-window) .side-panel-section{margin:0;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}
+:is(.details-pane,.position-window) .side-panel-section>h3{margin:-12px -12px 12px;padding:9px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;font-size:12.5px;font-weight:650}
+:is(.details-pane,.position-window) .side-panel-section>h3:last-child{margin-bottom:-12px;border-bottom:0}
 /* Terms: a grid of cells whose rules line up, the outer ones clipped by the card. */
-:is(.position-expansion,.position-window) .side-panel-section>.side-terms-list{margin:-12px;overflow:hidden;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
-:is(.position-expansion,.position-window) .side-terms-list .side-term{display:flex;flex-direction:column;gap:2px;margin:0 -1px -1px 0;padding:8px 12px;border:0;border-right:1px solid var(--border);border-bottom:1px solid var(--border);font-size:12.5px;line-height:1.45}
-:is(.position-expansion,.position-window) .side-term dt{font-size:11px;font-weight:550;color:var(--text-3)}
-:is(.position-expansion,.position-window) .side-term dd{margin:0;color:var(--text);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
-:is(.position-expansion,.position-window) .side-panel-facts{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin:0}
-:is(.position-expansion,.position-window) .side-panel-facts b{font-weight:600}
+:is(.details-pane,.position-window) .side-panel-section>.side-terms-list{margin:-12px;overflow:hidden;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+:is(.details-pane,.position-window) .side-terms-list .side-term{display:flex;flex-direction:column;gap:2px;margin:0 -1px -1px 0;padding:8px 12px;border:0;border-right:1px solid var(--border);border-bottom:1px solid var(--border);font-size:12.5px;line-height:1.45}
+:is(.details-pane,.position-window) .side-term dt{font-size:11px;font-weight:550;color:var(--text-3)}
+:is(.details-pane,.position-window) .side-term dd{margin:0;color:var(--text);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+:is(.details-pane,.position-window) .side-panel-facts{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin:0}
+:is(.details-pane,.position-window) .side-panel-facts b{font-weight:600}
 /* Schedules: one card per side, figures above tables with right-aligned numbers. */
-:is(.position-expansion,.position-window) table{border-collapse:collapse;width:100%;font-size:12.5px}
-:is(.position-expansion,.position-window) :is(th,td){padding:7px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
-:is(.position-expansion,.position-window) :is(th,td).numeric{text-align:right;font-family:inherit;font-size:inherit;font-variant-numeric:tabular-nums}
-:is(.position-expansion,.position-window) th.numeric{font-size:10px}
-:is(.position-expansion,.position-window) .table-wrap{max-width:100%;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface)}
-:is(.position-expansion,.position-window) .table-wrap:has(>.regular-table-scroll){overflow:visible;border:0;background:none}
-:is(.position-expansion,.position-window) .table-wrap tbody tr:last-child td{border-bottom:0}
-:is(.position-expansion,.position-window) .swap-payment-table{display:block}
-:is(.position-expansion,.position-window) .swap-payment-summary{display:none}
-:is(.position-expansion,.position-window) .swap-side-schedules{display:grid;gap:12px;margin-top:12px}
-:is(.position-expansion,.position-window) .swap-schedule{margin:0;padding:12px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius)}
-:is(.position-expansion,.position-window) .swap-schedule>h3{margin:-12px -12px 12px;padding:8px 12px;background:var(--accent-soft);border-bottom:1px solid var(--accent-border);border-radius:var(--radius) var(--radius) 0 0;color:var(--accent-text);font-size:12.5px}
-:is(.position-expansion,.position-window) .swap-schedule>.field-help{margin:10px 0 0}
-:is(.position-expansion,.position-window) .side-panel-section details{margin-top:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2)}
-:is(.position-expansion,.position-window) .side-panel-section details>summary{padding:8px 12px;font-size:12.5px;font-weight:550;color:var(--text-2);cursor:pointer}
-:is(.position-expansion,.position-window) .side-panel-section details[open]>summary{border-bottom:1px solid var(--border)}
-:is(.position-expansion,.position-window) .side-panel-section details>:not(summary){margin:10px 12px}
-:is(.position-expansion,.position-window) .valuation-facts+.table-wrap,:is(.position-expansion,.position-window) .swap-normalized .valuation-facts{margin-top:10px}
-:is(.position-expansion,.position-window) .scheduled-review section{margin:12px 0 0;padding:12px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface)}
-:is(.position-expansion,.position-window) .scheduled-review h4{margin:-12px -12px 10px;padding:8px 12px;background:var(--accent-soft);border-bottom:1px solid var(--accent-border);border-radius:var(--radius) var(--radius) 0 0;color:var(--accent-text);font-size:12.5px}
-:is(.position-expansion,.position-window) .scheduled-review p{margin:6px 0;font-size:12.5px;color:var(--text-2)}
+:is(.details-pane,.position-window) table{border-collapse:collapse;width:100%;font-size:12.5px}
+:is(.details-pane,.position-window) :is(th,td){padding:7px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+:is(.details-pane,.position-window) :is(th,td).numeric{text-align:right;font-family:inherit;font-size:inherit;font-variant-numeric:tabular-nums}
+:is(.details-pane,.position-window) th.numeric{font-size:10px}
+:is(.details-pane,.position-window) .table-wrap{max-width:100%;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface)}
+:is(.details-pane,.position-window) .table-wrap:has(>.regular-table-scroll){overflow:visible;border:0;background:none}
+:is(.details-pane,.position-window) .table-wrap tbody tr:last-child td{border-bottom:0}
+:is(.details-pane,.position-window) .swap-payment-table{display:block}
+:is(.details-pane,.position-window) .swap-payment-summary{display:none}
+:is(.details-pane,.position-window) .swap-side-schedules{display:grid;gap:12px;margin-top:12px}
+:is(.details-pane,.position-window) .swap-schedule{margin:0;padding:12px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius)}
+:is(.details-pane,.position-window) .swap-schedule>h3{margin:-12px -12px 12px;padding:8px 12px;background:var(--accent-soft);border-bottom:1px solid var(--accent-border);border-radius:var(--radius) var(--radius) 0 0;color:var(--accent-text);font-size:12.5px}
+:is(.details-pane,.position-window) .swap-schedule>.field-help{margin:10px 0 0}
+:is(.details-pane,.position-window) .side-panel-section details{margin-top:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2)}
+:is(.details-pane,.position-window) .side-panel-section details>summary{padding:8px 12px;font-size:12.5px;font-weight:550;color:var(--text-2);cursor:pointer}
+:is(.details-pane,.position-window) .side-panel-section details[open]>summary{border-bottom:1px solid var(--border)}
+:is(.details-pane,.position-window) .side-panel-section details>:not(summary){margin:10px 12px}
+:is(.details-pane,.position-window) .valuation-facts+.table-wrap,:is(.details-pane,.position-window) .swap-normalized .valuation-facts{margin-top:10px}
+:is(.details-pane,.position-window) .scheduled-review section{margin:12px 0 0;padding:12px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface)}
+:is(.details-pane,.position-window) .scheduled-review h4{margin:-12px -12px 10px;padding:8px 12px;background:var(--accent-soft);border-bottom:1px solid var(--accent-border);border-radius:var(--radius) var(--radius) 0 0;color:var(--accent-text);font-size:12.5px}
+:is(.details-pane,.position-window) .scheduled-review p{margin:6px 0;font-size:12.5px;color:var(--text-2)}
 /* A PPA's side schedules: a status line, the side totals, the side and month to inspect, then the month's and its intervals' rows. */
 .position-schedules .schedule-note{margin:0 0 12px;padding:8px 12px;border-left:3px solid var(--accent-border);background:var(--surface-2);border-radius:0 var(--radius-sm) var(--radius-sm) 0;font-size:12.5px;color:var(--text-2)}
 .position-schedules .schedule-block:not(:empty){margin-top:12px}
@@ -1577,15 +1579,12 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .position-schedules .schedule-pager{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 .position-schedules .schedule-pager button{font-size:12px;padding:6px 12px}
 @media(max-width:760px){
-  :root .position-expansion{width:100%;padding:10px}
-  .position-expansion .position-close{position:static;justify-self:end;margin-bottom:8px}
-  .position-expansion #position-details-head{padding-right:16px}
   :is(#position-details-head,#position-window-head){grid-template-columns:minmax(0,1fr)}
   :is(#position-details-head,#position-window-head) .side-panel-value{grid-column:1;grid-row:auto;justify-content:stretch;margin-top:12px}
   :is(#position-details-head,#position-window-head) :is(.side-panel-figure,.side-panel-delta){flex:1 1 140px;text-align:left}
-  .position-expansion #position-details-tabs{gap:16px;padding:0 12px;overflow-x:auto}
-  .position-expansion #position-details-body{padding:10px}
-  :is(.position-expansion,.position-window) .side-panel-section>.side-terms-list{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .details-pane #position-details-tabs{gap:16px;padding:0 12px;overflow-x:auto}
+  .details-pane #position-details-body{padding:10px}
+  :is(.details-pane,.position-window) .side-panel-section>.side-terms-list{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
   .position-schedules .schedule-fields select{min-width:0;width:100%}
   .position-schedules .schedule-fields label{flex:1 1 140px}
 }
@@ -1618,9 +1617,6 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
   #blotter-workspace>.table-workspace{display:flex;flex-direction:column;height:100%}
   #blotter-workspace .table-workspace-toolbar,#blotter-workspace .table-workspace-note{flex:none}
   #blotter-workspace .table-workspace-stage{display:grid;flex:1 1 0;grid-template-columns:minmax(0,1fr);min-width:0;min-height:0}
-  #blotter-workspace .table-workspace-stage:has(>.side-panel[data-placement=docked]:not([hidden])){grid-template-columns:minmax(0,1fr) var(--panel-width)}
-  #futures-page .side-panel[data-placement=docked]{min-height:0;overflow:auto}
-  #futures-page .side-panel[data-placement=docked] .side-panel-frame{position:relative;top:auto;max-height:none}
   #blotter-dock.tab-dock{height:auto}
 }
 @media(min-width:481px) and (max-width:760px){

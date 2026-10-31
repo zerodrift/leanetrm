@@ -27,10 +27,10 @@ import {guardedCsv,downloadCsv} from './csv-export.js';
 import {friendly,publicText,displayInstant,deliveryLabel,curveName} from './market-view.js';
 import {valuationReason,valuationNote,excludedPositions,valuationMeasure} from './valuation-status.js';
 import {commodityColors,deskGroups,rowKey,deskSummaryViews,holdingFormats,positionChartPanels,positionRows,positionsTile,priceUnit,projectsFromSeveralCurves,pvChartPanels,severalCurvesShape,signOf,signedText,summaryStripItems,summaryTiles,valueFields,type CurveShape,type DeskRow,type Holding,type StripRisk,type Summary} from './desk-model.js';
-import {askLeave,liveRefreshPlan,panelPlacement,riskRefreshPlan,sameMode,setupSidePanel,type PanelMode,type RiskRefresh} from './side-panel.js';
+import {liveRefreshPlan,riskRefreshPlan,sameMode,type PanelMode,type RiskRefresh} from './side-panel.js';
 import {setupPositionPanel,type PositionInput,type PositionRisk} from './position-panel.js';
-import {setupPositionExpansion} from './position-expansion.js';
-import {bookedPosition,followedPosition,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
+import {setupDetailsPane} from './details-pane.js';
+import {bookedPosition,followedPosition,positionIndex,requireTradeRows,revisionNote,setupDeskPanel,tradeIndex} from './desk-panel.js';
 import {clearDeskCharts,deskCells,deskColumns,groupHeader,renderBookBars,renderDeskCharts,renderPositionMix,renderRunBar,renderSummaryStrip,riskColumns,riskGroupHeader,type LensRowView} from './desk-view.js';
 
 type Context={contextId:string;effectiveOn:string;knownAt:string};
@@ -42,14 +42,12 @@ type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 // A stored view an earlier release saved is listed with this label. It cannot be applied, and choosing it says why.
 const earlierFormatLabel='Earlier format · save again';
 const earlierFormatNote=(name:string)=>`Saved view "${name}" is in an earlier format and cannot be applied. Set up the Blotter as you want it and save it again under this name, or delete it.`;
-const curveColumn=deskColumns.findIndex(([key])=>key==='curve'),markColumn=deskColumns.findIndex(([key])=>key==='mark');
-// Under the Risk lens a docked panel takes the grid's width from the shock sizes first, which a row's panel also states, and then its deltas.
+const curveColumn=deskColumns.findIndex(([key])=>key==='curve');
 // The trade rows' own columns under both lenses: one grid holds them all, and the lens shows its own (D222). The Values lens shows the
 // price, mark, value and curve; the Risk lens the shock, its changes and the delta in their place.
 const tradeHead=[...deskColumns,...riskColumns.filter(([key])=>!deskColumns.some(([desk])=>desk===key))];
 const riskOnly=new Set<string>(riskColumns.flatMap(([key])=>deskColumns.some(([desk])=>desk===key)?[]:[key]));
 const valuesOnly=new Set<string>(deskColumns.flatMap(([key])=>riskColumns.some(([risk])=>risk===key)?[]:[key]));
-const riskGiveUp=['riskShock','riskDelta'].map(key=>tradeHead.findIndex(([column])=>column===key));
 // The Risk lens columns, which a saved view never keeps.
 const riskKeys=riskColumns.flatMap(([key])=>key.startsWith('risk')?[key]:[]);
 // What a new read of the Blotter says of the risk run it clears (D222): changing the close, the context or the book scope says so in the
@@ -99,7 +97,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     key:'blotter',rowMode:'trades',rowLabel:'Individual trades',dimensions:groupChoices,measures:measureChoices,
     pivotHelp:'Totals keep instrument types, quantity specifications and currencies separate. Blank measures are unavailable. Lot totals require dated-contract grouping. Price measures keep quote multipliers separate; averages use 18 decimal places, ties to even. Changing display mode clears row filters.',
     scopes:[['portfolios','Portfolios'],['books','Books']],actions:[['risk','Run risk'],['refresh','Refresh'],['export','Export'],['new','New trade']],onApply:()=>guarded(()=>load('directory',false,true)),
-    note:get('new-trade-availability'),body:get('blotter-dock'),rows:get('blotter-pane-grid'),aside:get('side-panel'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),lens:get('desk-lens'),
+    note:get('new-trade-availability'),body:get('blotter-dock'),rows:get('blotter-pane-grid'),rowGroups:rowGroups.map(group=>[group,rowGroupLabels[group]] as const),lens:get('desk-lens'),
   });
   // Existing booking controls share the table toolbar.
   get('blotter-refresh').id='futures-refresh';get('blotter-new').id='futures-new';get('blotter-rows').id='desk-positions';
@@ -130,7 +128,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // where the read was made, which a run's results must have been made at to be drawn against it (D222).
   let readInputs:string|undefined,readPlace:ReadPlace|undefined;
   let chartState:{panels:ChartSpec[];request:{context:unknown;view:unknown}}|undefined;
-  // What the trade rows' desk drew from the read on screen, which the side panel draws its position from.
+  // What the trade rows' desk drew from the read on screen, which the details draw their position from.
   let drawn:{rows:DeskRow[];colors:ReadonlyMap<string,string>}|undefined;
   let view=newBlotterView(),savedViews:BlotterView[]=[],table:ReturnType<typeof renderDataGrid>|undefined,tableColumns:string[]=[];
   // The trade rows kept on screen, stale, while the Blotter is read again, with the key of each: a position opened from them meanwhile is
@@ -151,14 +149,21 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // Each report of the run on screen by a number of its own, so that results that are new can be told from those already shown.
   const reportIds=new WeakMap<RiskReport,number>();let reports=0;
   // The Blotter's panes (blotter-workbench.md): the summary strip, the positions, details and charts, arranged by the trader and kept in
-  // the view. Moving or collapsing a pane draws the grid again where it now stands, never builds it again.
-  const dock=setupDock(get('blotter-dock'),{label:'Blotter panes',rules:blotterDockRules,narrow:options.narrow,initial:view.panes,
+  // the view. Moving or collapsing a pane draws the grid again where it now stands, never builds it again. The details collapse by their own
+  // control, which asks first about edits they hold.
+  const dock=setupDock(get('blotter-dock'),{label:'Blotter panes',rules:blotterDockRules,narrow:options.narrow,initial:view.panes,ownCollapse:['details'],
     tabs:[{id:'summary',label:'Summary',body:get('blotter-pane-summary')},{id:'grid',label:'Positions',body:get('blotter-pane-grid')},{id:'details',label:'Details',body:get('blotter-pane-details')},{id:'charts',label:'Charts',body:get('blotter-pane-charts')}],
     changed:arrangement=>{view.panes=arrangement;},shown:id=>{if(id==='grid')for(const grid of [table,ladderTable,factsGrid])grid?.relayout();}});
-  // A page that has just become narrow shows the positions among its tabs; one wide again shows the arrangement as it was.
+  // A page that has just become narrow shows the positions among its tabs, or the details while they show something; one wide again
+  // shows the arrangement as it was, with the details expanded while they show something. Focus in the details stays there.
   let narrowed=false;
-  function placeDock(){const now=options.narrow();dock.relayout();if(now&&!narrowed)dock.reveal('grid');narrowed=now;}
-  placeDock();
+  function placeDock(){
+    const now=options.narrow(),body=get('blotter-pane-details'),focused=body.contains(document.activeElement);
+    dock.relayout();
+    if(now!==narrowed&&(now||panel.current()!==null))dock.reveal(panel.current()===null?'grid':'details');
+    narrowed=now;
+    if(focused&&!body.contains(document.activeElement)&&!body.hidden)get('position-details').focus({preventScroll:true});
+  }
   // A view the Blotter turns to brings its arrangement with it.
   function showPanes(){if(JSON.stringify(dock.arrangement())!==JSON.stringify(view.panes))dock.set(view.panes);}
   get('blotter-reset-layout').onclick=()=>{if(busy())return;view.panes=defaultBlotterArrangement();dock.set(view.panes);};
@@ -191,34 +196,23 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
   const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
-    ask:question=>expansion.ask(question),
+    ask:question=>details.ask(question),
     queue:async command=>{if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   // The form of a new future, which the panel hosts as it hosts the forms of the amendments. What it books is kept as the request it was first sent as.
   const booking=setupFuturesBooking({api,act,busy,zone:options.zone,context:readContext,catalog:()=>catalog,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
     book:async body=>{const command=pending.begin('futures/book',body,undefined,'New futures trade');store();sync();await send(command);}});
-  // The side panel beside the positions: a position's curve, terms, risk and history, and the form of its amendment. Opening a row
-  // opens it; Amend puts the amendment's form in the Terms tab, and a new trade has the whole panel, its form beneath a Future | Swap switch.
-  const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
+  // The details below the positions: a position's curve, terms, risk and history, and the form of its amendment, a new trade or the risk
+  // report. Opening a row opens it; Amend puts the amendment's form in the Terms tab, and a new trade has the whole pane, its form beneath a
+  // Future | Swap switch. Collapsing the details returns focus to the row; on a narrow page the positions are shown again instead (modeChanged).
+  const main=document.querySelector('main')!;
   const editing=()=>editor.unsaved()||swapEditor.unsaved()||booking.unsaved()||risk.edited();
-  const docked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
-  // A docked panel takes the grid's width, so the grid gives up the columns the panel shows for its position, Curve first and then
-  // Mark, for as long as its columns do not fit the room it has left.
-  const dockedGiveUp=()=>sidePanel.current()!==null&&docked()?ladderOn()?[]:lensShown()?riskGiveUp:[curveColumn,markColumn]:[];
-  const wide=()=>!phone.matches&&swapEditor.settlementOpen();
-  const sidePanel=setupSidePanel(get('side-panel'),{
-    // What the panel holds that switching would lose: the form of an amendment or of a new trade, with edits in it.
-    unsaved:editing,confirmLeave:askLeave(get('side-panel')),docked,
-    // On a phone the panel is a sheet over the page, which stays out of reach while it is open, unless the Blotter has been left.
-    sheet:()=>phone.matches&&!get('futures-page').hidden,
-    // A swap's settlement figures need more room than a docked panel has: off a phone, the panel lies over the desk at a wider width.
-    wide,
-    changed:()=>{table?.fitColumns(dockedGiveUp());ladderTable?.fitColumns([]);modeChanged();placeRetained();},closed:()=>deskPanel.closed()});
-  const expansion=setupPositionExpansion(sidePanel,{unsaved:editing,busy,changed:()=>{modeChanged();placeRetained();},closed:()=>deskPanel.closed(),resized:keepVisible=>table?.resizeDetail(keepVisible)});
-  const panel=expansion.shell;
-  // A request whose outcome is not known is kept with its Check status and Retry in a card, which is in the panel while the panel is open,
-  // whatever it shows, and on the page when it is not, so that nothing leaves the person with no way to find out what became of it.
+  const details=setupDetailsPane(get('blotter-pane-details'),{unsaved:editing,busy,step:direction=>void stepPosition(direction),
+    collapsed:()=>{if(!options.narrow())dock.collapse('details');deskPanel.closed();},expand:()=>dock.reveal('details'),changed:modeChanged});
+  const panel=details.shell;
+  placeDock();
+  // A request whose outcome is not known is kept with its Check status and Retry in a card on the page, above the panes, whatever the details
+  // show, so that nothing leaves the person with no way to find out what became of it.
   const retained=get('futures-pending');
-  function placeRetained(){const slot=get(sidePanel.current()!==null?'side-panel-retained':'futures-retained');if(retained.parentElement!==slot)slot.append(retained);}
   // The head of the panel's New trade mode, which asks the page for the product the person chooses and for the PPA page.
   const entry=setupNewTrade(panel,{choose:product=>void chooseProduct(product),ppa:()=>guarded(options.newPpa),busy});
   // The forms belong to the panel's mode: when it moves to another, whatever they held is dropped (the person was asked first if they
@@ -234,14 +228,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(mode?.kind==='new')entry.show(mode,mode.product===null?'choose':'loading');
     if(mode?.kind==='risk')risk.mount(panel);
     if(mode?.kind==='contract')drawContract();
+    // Details that close on a narrow page, where the panes share one group, give their place back to the positions.
+    if(mode===null&&options.narrow())dock.reveal('grid');
     renderRisk();options.reported();
   }
-  // The panel docks or overlays by the width the main area has: it is placed again when that changes, not when only its height does.
+  // The panes stack in one group on a narrow main area: they are placed again when its width changes, not when only its height does.
   let mainWidth=main.clientWidth;
-  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;panel.place();placeDock();}}).observe(main);
-  new MutationObserver(()=>panel.place()).observe(document.body,{attributes:true,attributeFilter:['class']});
+  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();}}).observe(main);
   const positionContext=()=>!holdings&&individual?{...readContext(),knowledgeMode:'retained',contextId:individual.context.contextId}:readContext();
-  const position=setupPositionPanel(expansion.position,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(positionContext()),onDenied:clear,
+  const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(positionContext()),onDenied:clear,
     read:async(h,formats)=>{
       const retainedIndividual=!holdings,context=positionContext();
       const read=await(h.instrumentType==='ppa'?readPpaView(api,context,h,(retainedIndividual&&individual?individual.context:catalog!.context).knownAt):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
@@ -256,13 +251,25 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     },
     openCurve:(curve,contractId)=>guarded(()=>options.openCurve(curve,contractId))});
   const panelHoldings=()=>holdings?.holdings??(individual?[individual.holding]:undefined);
-  const deskPanel=setupDeskPanel({shell:panel,position,holdings:panelHoldings,input:positionInput,grid:()=>{
+  // The header names the position the details show by its trade and market.
+  const titled=(at:PositionInput)=>details.title(`${at.holding.tradeReference} · ${at.row.market}`);
+  const deskPanel=setupDeskPanel({shell:panel,position:{show:(at,tab)=>{position.show(at,tab);titled(at);},update:at=>{position.update(at);titled(at);},clear:position.clear},
+    holdings:panelHoldings,input:positionInput,grid:()=>{
     const grid=holdings?table:factsGrid??kept?.grid;if(!grid)return;
     const opened=individual&&rowKey(individual.holding);
     const sourceIndex=(index:number)=>holdings?index:opened===undefined?-1:factsGrid?facts?.positions.findIndex(fact=>rowKey(fact)===opened)??-1:kept!.keys.indexOf(opened);
-    return {...grid,selectRow:index=>{const at=index===null?null:sourceIndex(index);grid.selectRow(at);grid.detailRow(at,expansion.host);},
+    return {selectRow:index=>grid.selectRow(index===null?null:sourceIndex(index)),
       focusRow:index=>{const at=sourceIndex(index);if(at>=0)grid.focusRow(at);},revealRow:index=>{const at=sourceIndex(index);if(at>=0)grid.revealRow(at);}};
   },notice:options.notice});
+  // While the details show a position, the selection the person moves in the grid shows its position there too, asking first about edits.
+  const following=()=>panel.current()?.kind==='position'&&dock.showing('details');
+  // ◂ and ▸ show the previous or next position in the grid's order.
+  async function stepPosition(direction:-1|1){
+    const mode=panel.current();
+    if(busy()||!table||!holdings||mode?.kind!=='position')return;
+    const at=positionIndex(holdings.holdings,mode),next=at<0?null:table.rowAfter(at,direction);
+    if(next!==null)await deskPanel.open(next,undefined,false);
+  }
   // Gives the forms the panel hosts up, without asking, and places the panel again for what it then shows: a panel left by its settlement
   // view, however it is left, a switch of mode among the ways, has its own width again.
   function resetForms(){editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();}
@@ -408,7 +415,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(inline?.state==='elsewhere')return {state:'unavailable',value:'Results made elsewhere',reason:'The run on screen was made at another close, context or books than the Blotter read on screen. Export downloads its results.'};
     if(run&&!run.running&&!run.parts.some(p=>p.report))return {state:'unavailable',value:'No results',reason:gapsText(runGaps(run))};
     if(risk.running())return {state:'pending',value:'Running',reason:'A queued risk run is under way. Its results will show here and in the positions.'};
-    if(panel.current()?.kind==='risk')return {state:'pending',value:'Set up in the panel',reason:'The risk report is open in the side panel.'};
+    if(panel.current()?.kind==='risk')return {state:'pending',value:'Set up in the panel',reason:'The risk report is open in the details.'};
     return {state:'none',reason:options.canRunRisk()?'Revalue the books on screen under shared market shocks.':riskDenied};
   }
   // The summary strip of the read on screen; while its values are pending or failed, the positions read and why the totals are not shown.
@@ -543,7 +550,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // Release the rows before restoring their control's focus. On entry to
     // busy, position.sync captures that focus before the rows become inert.
     if(!busy())workspace.busy(false);
-    const awaitingValues=!!facts&&!holdings;get('blotter-workspace').querySelectorAll<HTMLElement>('.table-menu').forEach(menu=>{menu.inert=busy()||awaitingValues&&menu.id!=='blotter-scope';});field('blotter-saved').disabled=busy()||awaitingValues;factsMore.hidden=!facts||!factsGrid||facts.nextOffset===null||!!holdings;factsMore.disabled=busy()||factsPaging;syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));placeRetained();get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+    const awaitingValues=!!facts&&!holdings;get('blotter-workspace').querySelectorAll<HTMLElement>('.table-menu').forEach(menu=>{menu.inert=busy()||awaitingValues&&menu.id!=='blotter-scope';});field('blotter-saved').disabled=busy()||awaitingValues;factsMore.hidden=!facts||!factsGrid||facts.nextOffset===null||!!holdings;factsMore.disabled=busy()||factsPaging;syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));get<HTMLButtonElement>('blotter-export').disabled=busy()||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;get('blotter-strip').replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));for(const id of ['desk-chart-books','desk-chart-mix'])get(id).replaceChildren(get(id).querySelector('h3')!);}
   function cancelIndividual(){individualController?.abort();individualController=undefined;openingFact=undefined;}
   function cancelRead(){generation++;pricingController?.abort();pricingController=undefined;cancelIndividual();}
@@ -564,7 +571,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // changes the grid in place and the person keeps their place in it; the panel closes as it does for any new read.
   function clearRead(keepGrid:boolean){
     kept=keepGrid&&table&&holdings?{grid:table,keys:holdings.holdings.map(rowKey)}:undefined;
-    if(keepGrid){table?.selectRow(null);table?.detailRow(null,expansion.host);markStale(staleReason);}else markStale(null);
+    if(keepGrid){table?.selectRow(null);markStale(staleReason);}else markStale(null);
     cancelRead();individual=undefined;factsGrid=undefined;factsLayout=emptyGridLayout();facts=undefined;factsPaging=false;factsMore.hidden=true;get('futures-page').dataset.pricingState='empty';delete get('futures-page').dataset.pricingContext;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';ladderTable=undefined;ladderShown=undefined;inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;deskPanel.reset();lastReadRequest=undefined;text('header-calculation-time','');
     if(!keepGrid){get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');}
     sync();}
@@ -649,14 +656,15 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
       // How many of a book's, or an instrument type's, positions the run leaves out, by the book and instrument type the run names for each.
       const leftOut=(key:string)=>shown?shown.excluded.filter(e=>view.rowGroup==='book'?e.bookId===key:view.rowGroup==='instrumentType'?e.instrumentType===key:false).length:0;
       table=workspace.update('desk-positions',scope+':trades',columns.map(c=>c[1]),values,numeric,busy,{
-        keys:tableColumns,rowKeys:held.map(rowKey),cells,searchText:rows.map((row,i)=>shown?`${row.words} ${lensWords(i)}`:row.words),visual:[curveColumn],giveUp:dockedGiveUp(),rowHeight:46,stretch:true,
+        keys:tableColumns,rowKeys:held.map(rowKey),cells,searchText:rows.map((row,i)=>shown?`${row.words} ${lensWords(i)}`:row.words),visual:[curveColumn],rowHeight:46,stretch:true,
         visible:columns.map(([key],i)=>riskOnly.has(key)?!!shown:valuesOnly.has(key)?!shown:i<head.length||view.columns.includes(key)),
         // The Risk lens's columns follow the position's size; a saved view never keeps them (transientKeys).
         layout:{...view.grid,order:view.grid.order.flatMap(key=>key==='quantity'?[key,...riskOnly]:[key])},
         onLayout:layout=>{view.grid=withoutColumns(layout,transientKeys);},onReady:sync,
         group:groups?{keys:groups.keys,order:groups.headers.map(h=>h.key),header:(key,count)=>shown?riskGroupHeader(headers.get(key)!,count,leftOut(key)):groupHeader(headers.get(key)!,count,money)}:undefined,
         initial:{query:view.query,columns:tableColumns.map(key=>view.columnFilters[key]??null)},retainMissingFilters:true,
-        onRowOpen:index=>{if(holdings){void deskPanel.open(index,undefined,false);return;}const at=facts?.positions.findIndex(fact=>rowKey(fact)===rowKey(held[index]))??-1;if(at>=0)void openFact(at);},onRowDoubleOpen:index=>{const h=held[index];popout({...h,revision:Number(h.revision),instrumentType:h.instrumentType as PositionFact['instrumentType']});}});
+        onRowOpen:index=>{if(holdings)return deskPanel.open(index,undefined,false);const at=facts?.positions.findIndex(fact=>rowKey(fact)===rowKey(held[index]))??-1;if(at>=0)void openFact(at);},
+        onRowSelect:index=>holdings&&following()?deskPanel.open(index,undefined,false):true,onRowDoubleOpen:index=>{const h=held[index];popout({...h,revision:Number(h.revision),instrumentType:h.instrumentType as PositionFact['instrumentType']});}});
       workspace.columns(tradeColumns,[...new Set([...deskFields,...view.columns])],selected=>{
         if(busy())return;captureLayout();view.columns=selected;render();
       },[...deskFields]);
@@ -694,7 +702,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     const groupKeys=ladder.groups.flatMap(g=>g.rows.map(()=>g.key)),titles=new Map(ladder.groups.map(g=>[g.key,g.title]));
     table=undefined;ladderShown=exported;
     ladderTable=workspace.update('desk-positions',scope+':ladder',exported.headers,exported.rows,exported.numeric,busy,{
-      keys,rowKeys:rows.map(row=>row.factorId),displayRows:display,cells,searchText:display.map(row=>row.join(' ')),rowHeight:40,stretch:true,giveUp:[],
+      keys,rowKeys:rows.map(row=>row.factorId),displayRows:display,cells,searchText:display.map(row=>row.join(' ')),rowHeight:40,stretch:true,
       visible:keys.map(key=>!['curve','priceUnit','value'].includes(key)),layout:{order:keys,widths:{contract:150,coordinate:120,shock:190,...Object.fromEntries(ladder.columns.map((_,i)=>['book'+i,180]))},sort:[]},onLayout:()=>{},onReady:sync,
       group:{keys:groupKeys,order:ladder.groups.map(g=>g.key),header:(key,count)=>{const head=document.createElement('span');head.className='desk-group-head';
         head.textContent=publicText(`${titles.get(key)} · ${count} ${count===1?'shock':'shocks'}, each on its own`);return head;}},
@@ -739,7 +747,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     if(projectsFromSeveralCurves(h))return severalCurvesShape;
     return shapes.curves.get(h.curve)??'Curve shape unavailable';
   }
-  // The position at a row of the read on screen, as the side panel draws it; nothing while the desk draws no positions.
+  // The position at a row of the read on screen, as the details draw it; nothing while the desk draws no positions.
   function positionInput(index:number):PositionInput|undefined{
     const h=panelHoldings()?.[index];if(!h)return;
     const row=holdings?drawn?.rows[index]:positionRows([h])[0];if(!row)return;
@@ -1140,7 +1148,6 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
     // Whether the panel holds the form of an amendment or of a new trade, or a risk report's setup, with edits, and the question asked before it is given up: false means the person kept it. The forms
     // are dropped without a question when the page is left on the person's word, as the assistant's Go anyway is.
     editing,leave,dropForms,cancelRead,
-    // A page exit has already passed its unsaved-edit guard. Clear its
-    // retained expansion as well as forms, without returning focus to a row.
+    // A page exit has already passed its unsaved-edit guard. Clear the details as well as forms, without returning focus to a row.
     leavePage(){cancelRead();dropForms();deskPanel.reset();}};
 }

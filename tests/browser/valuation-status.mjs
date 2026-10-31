@@ -21,10 +21,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // The side panel says the same in place of a value, and has no mark minus price for a position with no mark.
   await click("#desk-positions .tabulator-row:not(.tabulator-group):has(.desk-unvalued)");
   await wait("document.querySelector('#position-details')?.hidden===false");
-  await check('an unvalued position opens in the side panel with the same reason in place of its value, and no mark minus price',
+  await check('an unvalued position opens in the details with the same reason in place of its value, and no mark minus price',
     "(()=>{const cell=document.querySelector('#desk-positions .open-row .desk-unvalued'),figure=document.querySelector('#position-details .side-panel-figure');return !!cell&&figure.querySelector('.desk-chip').textContent==='Not valued'&&figure.querySelector('#position-details .side-panel-reason').textContent===cell.querySelector('.desk-sub').textContent&&!figure.querySelector('.kpi-value')&&!document.querySelector('#position-details .side-panel-delta');})()",
     "document.querySelector('#position-details-head').innerText");
-  await click('#position-details .position-close');
+  await click('#details-collapse');
   // Each tile states the positions its own total leaves out, from its own backend group, never a sum of other counts.
   const own=type=>`${read}.summaries[0].groups.find(g=>g.instrumentType==='${type}').unvaluedPositions`;
   await check('each money tile notes the positions its own total leaves out, and the position count includes them, flagged',
@@ -64,7 +64,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "document.querySelector('#blotter-table-title').textContent==='Pivot table'&&[...document.querySelectorAll('#desk-positions .tabulator-col-title')].filter(t=>t.textContent.trim()==='Not valued').length===2");
   // The risk report says which positions this close cannot value, each with its reason, and a run's results say they leave them out.
   await persona('risk');await wait(loaded+"&&!document.querySelector('#blotter-risk').disabled");
-  await click('#blotter-risk');await wait("document.querySelector('#side-panel').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
+  await click('#blotter-risk');await wait("document.querySelector('#position-details').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
   const catalog="window.__replies.filter(r=>r.path==='/api/portfolio/risk/catalog').at(-1).data";
   await check('the risk report lists the positions this close cannot value, each with its reason, which a run leaves out',
     `(()=>{const left=${catalog}.excludedPositions,shown=document.querySelector('#risk-excluded');return left.length>1&&!shown.hidden&&shown.textContent.startsWith('This close cannot value '+left.length+' positions, so a run leaves them out: ')&&left.every(e=>shown.textContent.includes(e.tradeReference+' ('))&&shown.textContent.includes('Contract expired · awaiting settlement');})()`,

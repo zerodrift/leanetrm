@@ -75,15 +75,15 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('choosing the saved view brings back its arrangement, with the charts still collapsed beside the grid',`${drawn}===${JSON.stringify(arranged)}`,drawn);
   await click('#blotter-reset-layout');await evaluate(frames);
   await check('Reset layout restores the default arrangement',`${drawn}===${JSON.stringify(defaultShape)}&&${rowInView}`,drawn);
-  // Focus the person moves out of an open row's details stays out: sorting by a click on a column header draws the rows again, and
-  // does not put focus back into the details.
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!!document.querySelector('#desk-positions .open-row #position-details-tabs-terms')&&"+idle);
+  // Focus the person moves out of the details stays out: sorting by a click on a column header draws the rows again, and does not put
+  // focus back into the details.
+  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!!document.querySelector('#desk-positions .open-row')&&!!document.querySelector('#position-details-tabs-terms')&&"+idle);
   await evaluate("document.querySelector('#position-details-tabs-terms').focus()");
   const header=await evaluate("(()=>{const r=document.querySelector('#desk-positions .tabulator-col[tabulator-field=c1] .tabulator-col-title').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()");
   for(const type of ['mousePressed','mouseReleased'])await command('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,...header});
   await wait(`document.querySelector('#desk-positions .tabulator-col[tabulator-field=c1]').getAttribute('aria-sort')!=='none'&&${idle}`);await evaluate(frames);await evaluate('new Promise(r=>setTimeout(r,300))');
-  await check('sorting by a column header leaves focus out of the open row\'s details',
+  await check('sorting by a column header leaves focus out of the details',
     "!document.querySelector('#position-details')?.contains(document.activeElement)","[document.activeElement?.id,document.activeElement?.className]");
-  await click('#position-details .position-close');
+  await click('#details-collapse');
   await click('#blotter-delete');await wait(idle);
 }

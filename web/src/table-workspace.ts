@@ -3,12 +3,12 @@ import {gridIdentity,renderDataGrid,type GridHandle} from './data-grid.js';
 type Choice=readonly [string,string];
 // note: a line of the consumer's own under the toolbar, such as why one of its actions is not offered.
 // body: the consumer's own content under the toolbar, such as panes, and rows: where in it the rows' title and table are drawn; their
-// table takes the height `rows` gives it. aside: a panel the consumer docks beside the body.
+// table takes the height `rows` gives it.
 // rowGroups: how trade rows can be grouped; the Group by control, in the toolbar, also offers None, an empty value.
 // lens: a control of the consumer's own in the toolbar, such as a choice of what the rows show.
 type WorkspaceOptions={
   key:string;rowMode:string;rowLabel:string;dimensions:readonly Choice[];measures:readonly Choice[];
-  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;note?:HTMLElement;body:HTMLElement;rows:HTMLElement;aside?:HTMLElement;rowGroups?:readonly Choice[];lens?:HTMLElement;
+  scopes:readonly Choice[];actions:readonly Choice[];pivotHelp:string;onApply:()=>void;note?:HTMLElement;body:HTMLElement;rows:HTMLElement;rowGroups?:readonly Choice[];lens?:HTMLElement;
 };
 
 /** Shared presentation shell. Consumers supply authorized rows and server pivot operations. */
@@ -66,7 +66,7 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   const title=node('h3',options.rowLabel,'table-title');title.className='table-workspace-title';heading.append(title);
   const definition=node('div',undefined,'definition');definition.className='table-view-definition';definition.hidden=true;const content=node('div',undefined,'rows');content.className='table-wrap';
   options.rows.prepend(heading,definition,content);
-  const stage=node('div');stage.className='table-workspace-stage';stage.append(options.body,...(options.aside?[options.aside]:[]));
+  const stage=node('div');stage.className='table-workspace-stage';stage.append(options.body);
   shell.append(toolbar,...(options.note?[options.note]:[]),stage);host.replaceChildren(shell);
   shell.addEventListener('keydown',event=>{if(event.key==='Escape'){const open=menus.find(m=>m.open);if(open){open.open=false;open.querySelector('summary')?.focus();}}});
   function fillChoices(target:HTMLElement,choices:readonly Choice[],selected:string[],change:(values:string[])=>void,required:string[]=[]){

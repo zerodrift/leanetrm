@@ -51,13 +51,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(anchorAt<order.visible)throw Error(`The standard fixture shows ${order.keys.length} positions, too few to need scrolling to a row beneath ${order.visible} rows in view.`);
     const anchorKey=order.keys[anchorAt],selectedKey=order.keys[anchorAt+2];
     await evaluate(`(async()=>{const h=document.querySelector('#desk-positions .tabulator-tableholder');for(let i=0;i<4;i++){const r=window.__place.at(${JSON.stringify(anchorKey)});if(!r){h.scrollTop+=h.clientHeight/2;}else if(Math.abs(r.top)<1)break;else h.scrollTop+=r.top;await ${frames};}})()`);
+    // Opening the row shows its position in the Details pane below the grid, which shrinks the grid and keeps the row first in view.
+    const opened=`document.querySelector('#desk-positions .standard-data-grid').dataset.selectedRow===${JSON.stringify(selectedKey)}&&document.querySelector('#position-details')?.hidden===false&&!!document.querySelector('#desk-positions .open-row')`;
     await click(`#desk-positions .tabulator-row[data-row-key="${selectedKey}"]`);
-    await wait(`document.querySelector('#desk-positions .standard-data-grid').dataset.selectedRow===${JSON.stringify(selectedKey)}&&!!document.querySelector('#desk-positions .open-row #position-details')`);
-    // The row's inline position view closes; the row stays selected. (The inline view is replaced by a details pane.)
-    await click('#position-details .position-close');await wait("(document.querySelector('#position-details')?.hidden??true)&&!document.querySelector('#desk-positions .open-row')");
-    await evaluate(frames);
-    await check(`scrolling to row ${anchorAt+1} and selecting row ${anchorAt+3} leaves the grid scrolled past its first rows, with that row selected`,
-      `(()=>{const s=window.__place.state();return !!window.__place.anchor()&&s.scroll>0&&s.selected===${JSON.stringify(selectedKey)};})()`,'({anchor:window.__place.anchor(),state:window.__place.state()})');
+    await wait(opened+'&&'+idle);await evaluate(frames);
+    await check(`scrolling to row ${anchorAt+1} and opening row ${anchorAt+3} leaves the grid scrolled past its first rows, with that row selected and its position in the details`,
+      `(()=>{const s=window.__place.state();return !!window.__place.anchor()&&s.scroll>0&&s.selected===${JSON.stringify(selectedKey)}&&!document.querySelector('#desk-positions #position-details');})()`,'({anchor:window.__place.anchor(),state:window.__place.state()})');
     await evaluate("document.querySelector('#desk-positions .standard-data-grid').dataset.probe='kept'");
     // Each change keeps the grid itself, the selection, and the row first in view at its offset within the grid's viewport, which the page above the grid
     // cannot move.
@@ -68,6 +67,23 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
       await wait(held,3000).catch(()=>undefined);
       await check(label+' keeps the grid, its selected row, and the row first in view where it was',held,`({before:${JSON.stringify(before)},after:window.__place.at(${JSON.stringify(before.key)}),first:window.__place.anchor(),state:window.__place.state()})`);
     };
+    // With the details open, a new read and a change of columns keep the trader's place. A new read closes the position the details showed,
+    // as it closes everything over the read it replaces, and leaves the pane where it is; opening the row again shows it there.
+    await kept('reading the Blotter again with the details open',async()=>{await click('#futures-refresh');await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);});
+    await check('the details pane stays open across the new read, and the row opens in it again',
+      "!document.querySelector('#blotter-pane-details').hidden&&document.querySelector('#position-details').hidden");
+    await click(`#desk-positions .tabulator-row[data-row-key="${selectedKey}"]`);await wait(opened+'&&'+idle);
+    await kept('showing the Portfolio column with the details open',()=>click('#blotter-column-choices input[value=portfolio]'));
+    await kept('hiding it again with the details open',()=>click('#blotter-column-choices input[value=portfolio]'));
+    await check('the details still show the selected position',opened);
+    // Collapsing the details gives the grid its room back and focus goes back to the row. The first row in view stays where it was unless
+    // the taller grid reaches past the last row, which then shows at the grid's foot: no scroll offset could keep it.
+    const shortBefore=await evaluate('window.__place.anchor()');
+    await click('#details-collapse');await wait(`document.querySelector('#blotter-pane-details').hidden&&document.activeElement?.dataset?.rowKey===${JSON.stringify(selectedKey)}&&${idle}`);await evaluate(frames);
+    const grown=`(()=>{const p=window.__place,s=p.state(),a=p.at(${JSON.stringify(shortBefore.key)}),h=document.querySelector('#desk-positions .tabulator-tableholder'),end=h.scrollTop+h.clientHeight>=h.scrollHeight-1;return s.probe==='kept'&&s.selected===${JSON.stringify(selectedKey)}&&!!a&&(Math.abs(a.top-${shortBefore.top})<=2||end&&a.top<${shortBefore.top});})()`;
+    await wait(grown,3000).catch(()=>undefined);
+    await check('collapsing the details keeps the grid and its selected row, and the row first in view where it was or, at the end of the rows, above it',grown,
+      `({before:${JSON.stringify(shortBefore)},after:window.__place.at(${JSON.stringify(shortBefore.key)}),state:window.__place.state(),holder:[document.querySelector('#desk-positions .tabulator-tableholder').scrollTop,document.querySelector('#desk-positions .tabulator-tableholder').clientHeight,document.querySelector('#desk-positions .tabulator-tableholder').scrollHeight]})`);
     await kept('grouping the rows by market',()=>set('#blotter-row-group','market'));
     await kept('showing the Portfolio column',()=>click('#blotter-column-choices input[value=portfolio]'));
     await kept('hiding it again',()=>click('#blotter-column-choices input[value=portfolio]'));
@@ -97,14 +113,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     await kept(`narrowing the window to 1200 px`,()=>command('Emulation.setDeviceMetricsOverride',{width:1200,height,deviceScaleFactor:1,mobile:false}));
     await kept(`widening it to ${width} px again`,()=>command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false}));
     // A risk run's results turn the lens to Risk; Values and Risk then switch in place, the same grid showing the other lens's columns.
-    await click('#blotter-risk');await wait("document.querySelector('#side-panel').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
+    await click('#blotter-risk');await wait("document.querySelector('#position-details').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
     await click('input[name=risk-choice][value=held]');
     const sizes=await evaluate("document.querySelectorAll('#risk-sizes input').length");
     for(let index=0;index<sizes;index++)await set(`#risk-size-${index}`,'0.05');
     const lens=name=>`(()=>{const bar=document.querySelector('#desk-run');return !bar.hidden&&document.querySelector('#desk-lens [data-lens=${name}]')?.getAttribute('aria-pressed')==='true';})()`;
     await kept('a risk run turning the lens to Risk',async()=>{await submit('#risk-form',60000);await wait(lens('risk')+'&&'+idle,60000);});
     const columnShown=title=>`[...document.querySelectorAll('#desk-positions .tabulator-col')].some(c=>c.style.display!=='none'&&c.textContent.trim()===${JSON.stringify(title)})`;
-    // A docked risk report takes the shock's column first when the columns do not fit, so the changes are what the lens always shows.
     await check('the Risk lens shows the changes in place of the values',`${columnShown('Up')}&&${columnShown('Down')}&&!${columnShown('Mark')}&&!${columnShown('Value')}`);
     await kept('switching to the Values lens',async()=>{await click('#desk-lens [data-lens=values]');await wait(lens('values')+'&&'+idle);});
     await check('the Values lens shows the values in place of the changes',`${columnShown('Value')}&&!${columnShown('Up')}&&!${columnShown('Shock')}`);

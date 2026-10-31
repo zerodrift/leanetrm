@@ -111,11 +111,13 @@ test('resetting drops the position without asking and without moving focus',asyn
 
 test('a question the person answers no to changes nothing, and a row the read does not hold opens nothing',async()=>{
  const state=desk({answer:async()=>false});
- await state.controller.open(0);
+ assert.equal(await state.controller.open(0),false,'the grid is told the selection stays');
  assert.deepEqual(state.log.filter(([what])=>what!=='shell.show'),[]);
  const empty=desk();
- await empty.controller.open(9);await empty.controller.open(-1);
+ assert.equal(await empty.controller.open(9),false);assert.equal(await empty.controller.open(-1),false);
  assert.deepEqual(empty.log,[]);
+ const shown=desk();
+ assert.equal(await shown.controller.open(0),true);assert.equal(await shown.controller.open(0),true,'the position already shown is shown');
 });
 
 test('a trade is found in a read by its id and kind, and by its binding when it holds several',()=>{

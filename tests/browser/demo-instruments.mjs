@@ -19,7 +19,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('#desk-positions .tabulator-row:not(.tabulator-group)');
  await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&!document.querySelector('#position-details-body').textContent.includes('Loading…')&&"+idle,30000);
  const diagnostics=`({head:document.querySelector('#position-details-head').textContent,body:document.querySelector('#position-details-body').textContent,reads:window.demoPpaReads,error:document.querySelector('#error').textContent})`;
- await check('PPA position opens retained Terms beneath its own Blotter row',`document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelector('#position-details-head').textContent.includes('Value excluding overdue cash')&&document.querySelector('#position-details-body').textContent.includes('PPA trade')&&document.querySelector('#position-details-body').textContent.includes('Quantity rule')&&document.querySelector('#error').hidden`,diagnostics);
+ await check('PPA position opens retained Terms in the details',`document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelector('#position-details-head').textContent.includes('Value excluding overdue cash')&&document.querySelector('#position-details-body').textContent.includes('PPA trade')&&document.querySelector('#position-details-body').textContent.includes('Quantity rule')&&document.querySelector('#error').hidden`,diagnostics);
  await wait("document.querySelector('#position-details .position-schedules')?.textContent.includes('Loading side values…')===false&&"+idle,30000);
  await check('inline PPA side totals come from the same binding at the selected close',`(()=>{const h=window.demoReads.at(-1).blotter.holdings.find(h=>h.tradeReference===${JSON.stringify(ppa)}),read=window.demoPpaReads.find(r=>r.path==='/api/ppa/preview'),binding=read?.value.bindings?.find(b=>b.bindingId===h.bindingId),root=document.querySelector('#position-details .position-schedules');return read?.status===200&&binding?.instrumentId===h.contractId&&root.querySelectorAll('table')[0]?.querySelectorAll('tbody tr').length===binding.sides.length&&root.textContent.includes('under this Blotter')&&root.querySelector('.schedule-fields')?.hidden===false;})()`,diagnostics);
  const schedule='#position-details .position-schedules';
@@ -32,7 +32,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('PPA position keeps its separate complete-PV and overdue measures on Curve',`document.querySelector('#position-details-head').textContent.includes('Value excluding overdue cash')&&document.querySelector('#position-details-body').textContent.includes('Overdue known')&&document.querySelector('#position-details-body').textContent.includes('Overdue estimated')&&document.querySelector('#error').hidden`,diagnostics);
  await click('#position-details-tabs-terms');
  await wait("document.querySelector('#position-details .position-schedules')?.textContent.includes('under this Blotter')&&"+idle,30000);
- await screenshot('ppa-inline-position-detail');await click('#position-details .position-close');await wait(idle);
+ await screenshot('ppa-inline-position-detail');await click('#details-collapse');await wait(idle);
  // A whole-book timeout must not gate this position's own terms or native rows.
  await evaluate("window.demoFailWorkspace=true;document.querySelector('#futures-refresh').click()");
  await wait("document.querySelector('#futures-page').dataset.pricingState==='failed'&&"+idle);
@@ -45,12 +45,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click(schedule+' .schedule-fields button');
  await wait(`window.demoPpaReads.filter(r=>r.path==='/api/ppa/inspect').length>${beforeInspect}&&!document.querySelector('#position-details .position-schedules').textContent.includes('Loading selected month…')&&`+idle,30000);
  await check('individual PPA schedule pages remain usable without presenting a complete portfolio total',"(()=>{const response=window.demoPpaReads.filter(r=>r.path==='/api/ppa/inspect').at(-1);return response.status===200&&response.value.detail.rows.length>0&&response.value.detail.rows.length<=48&&response.value.detail.bindingId===window.demoPositionReads[0].value.holding.bindingId&&document.querySelector('#futures-page').dataset.pricingState==='failed'&&[...document.querySelectorAll('#blotter-strip .strip-item')].find(i=>i.querySelector('.strip-label').textContent==='PPA value excluding overdue cash')?.querySelector('.strip-value').textContent==='Unavailable';})()",diagnostics);
- await click('#position-details .position-close');
+ await click('#details-collapse');
  const swap=await evaluate("window.demoReads.at(-1).blotter.holdings.find(h=>h.instrumentType==='financial_swap').tradeReference");
  await set('#blotter-filters .table-search',swap);await click('#desk-positions .tabulator-row:not(.tabulator-group)');
  await wait(`document.querySelector('#position-details-head')?.textContent.includes(${JSON.stringify(swap)})&&!!document.querySelector('#position-details-view .side-panel-section')&&`+idle,30000);
  await check('a retained individual swap keeps its terms and schedules without working amendment or settlement actions',"document.querySelector('#side-panel-amend').hidden&&!document.querySelector('#side-panel-settlement')&&document.querySelector('#position-details-view').textContent.includes('side')&&document.querySelector('#futures-page').dataset.pricingState==='failed'",diagnostics);
- await click('#position-details .position-close');
+ await click('#details-collapse');
  await set('#blotter-filters .table-search','');await newTrade({click,wait},'swaps');await click('#swap-scheduled-open');await wait(idle);
  await set('#scheduled-kind','factor_floating');await set('#scheduled-commodity','test_power');await set('#scheduled-second-commodity','test_gas');
  const market=await evaluate(`[...document.querySelector('#scheduled-market').options].find(o=>o.value)?.value`);await set('#scheduled-market',market);

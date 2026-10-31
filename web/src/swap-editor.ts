@@ -618,8 +618,6 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   refresh(){settlement.refresh();scheduled.refresh();annotations.refresh();dates.invalidate();dates.sync();invalidate();},
   /** Reads the settlement view's state again when it is open, after the settlement command `operationId` went through, which it may have sent. */
   async reloadSettlement(operationId:string){if(settlement.isOpen())await settlement.liveRefresh(operationId);},
-  /** Whether the settlement view is in the host. */
-  settlementOpen:()=>settlement.isOpen(),
   // The position whose ticket or settlement view is in the host (none for a new swap), and the revision it shows.
   shown:()=>mounted()||scheduled.isOpen()||settlement.isOpen()?position:undefined,
   displayedRevision:()=>mounted()?detail?.state.revision:scheduled.revision()??settlement.revision(),

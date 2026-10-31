@@ -73,16 +73,6 @@ test('the panel is an overlay when the page says it cannot dock, and the placeme
  assert.equal(shell.element('body'),parts.body);assert.equal(shell.element('tabs'),parts.tabs);assert.equal(shell.element('head'),parts.head);
 });
 
-test('the panel is wide while what it shows needs more room than a docked panel has, whatever its placement, and only while it is open',async()=>{
- const state={docked:true,wide:false},{host}=markup();
- const shell=setupSidePanel(host,{unsaved:()=>false,confirmLeave:async()=>true,docked:()=>state.docked,wide:()=>state.wide});
- await shell.show(position('t1'));assert.equal('wide' in host.dataset,false);
- state.wide=true;shell.place();assert.equal(host.dataset.wide,'');assert.equal(host.dataset.placement,'docked','the page beneath keeps its docked layout');
- state.docked=false;shell.place();assert.equal(host.dataset.wide,'');assert.equal(host.dataset.placement,'overlay');
- state.wide=false;shell.place();assert.equal('wide' in host.dataset,false);
- state.wide=true;shell.place();await shell.show(null);assert.equal('wide' in host.dataset,false,'a closed panel is not wide');
-});
-
 test('showing the mode it already shows is not a switch: nothing is asked, and focus comes back into the panel',async()=>{
  const {shell,host,asked}=panel({unsaved:true});
  await shell.show(position('t1'));

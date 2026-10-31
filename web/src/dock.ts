@@ -13,12 +13,13 @@ const edges:readonly DropEdge[]=['top','left','centre','right','bottom'];
 const form=(l:DockLayout):unknown=>l.kind==='group'?l.tabs:[l.direction,l.children.map(form)];
 const shape=(a:Arrangement)=>JSON.stringify([form(a.layout),[...a.collapsed].sort()]);
 
-export type Dock={arrangement():Arrangement;set(a:Arrangement):void;reveal(tab:string):void;relayout():void;destroy():void};
+export type Dock={arrangement():Arrangement;set(a:Arrangement):void;reveal(tab:string):void;collapse(tab:string):void;showing(tab:string):boolean;relayout():void;destroy():void};
 
 /** `changed` hears each arrangement the viewer makes (never one set by the caller or a narrow page's); `shown` hears each tab whose
  *  body comes into view, also when the dock is drawn again and moves it, so that what it draws can measure itself there (a moved element
- *  loses its scroll offsets); `label` names the tab groups to assistive technology. */
-export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boolean;rules:DockRules;initial:Arrangement;changed:(a:Arrangement)=>void;shown?:(id:string)=>void;label?:string}):Dock{
+ *  loses its scroll offsets); `label` names the tab groups to assistive technology. A tab of `ownCollapse` draws its own collapse
+ *  control in its body, which asks first about what it holds, so its group's head draws none while it is shown. */
+export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boolean;rules:DockRules;initial:Arrangement;changed:(a:Arrangement)=>void;shown?:(id:string)=>void;label?:string;ownCollapse?:readonly string[]}):Dock{
   const {rules}=o,label=new Map(o.tabs.map(t=>[t.id,t.label]));
   const flat=(a:Arrangement):Arrangement=>({layout:collapse(a.layout),collapsed:a.collapsed});
   let saved=o.initial,narrow=o.narrow(),shown=narrow?flat(saved):saved,dragged:string|undefined;
@@ -79,7 +80,7 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
     for(const id of g.tabs)strip.append(buttons.get(id)!);
     grip.draggable=true;grip.title='Drag to move';grip.textContent='⠿';grip.setAttribute('aria-hidden','true');dragSource(grip,g.active);
     head.append(strip,grip);
-    if(!rules.fixed.includes(g.active))head.append(collapseButton(g.active,false));
+    if(!rules.fixed.includes(g.active)&&!o.ownCollapse?.includes(g.active))head.append(collapseButton(g.active,false));
     for(const edge of depth>=rules.maxDepth?['centre' as const]:edges){const zone=div('dock-zone');zone.dataset.edge=edge;dropTarget(zone,index,edge);zones.append(zone);}
     dropTarget(strip,index,'centre');
     group.append(head,panels,zones);mark(g);return group;
@@ -194,6 +195,8 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
     const next=showTab(shown,id);
     if(JSON.stringify(next)!==JSON.stringify(shown))apply(next);
   }
+  /** Puts away the pane showing `tab`, as its collapse control does, without moving focus. */
+  function collapseTab(id:string){if(!shown.collapsed.includes(id))apply(toggleCollapsed(narrow?shown:saved,id,rules));}
   /** Replaces the arrangement with one the caller chose (a reset, a restore); `changed` is not told. */
   function set(next:Arrangement){saved=next;shown=narrow?flat(saved):saved;render();}
   /** Follows a change of the page's width: narrow shows one group, wide again the saved arrangement. */
@@ -208,5 +211,5 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   const leave=(event:FocusEvent)=>{if(!host.contains(event.target as Node))focusedIn=undefined;};
   document.addEventListener('focusin',leave);
   host.classList.add('tab-dock');render(false);
-  return {arrangement:()=>saved,set,reveal,relayout,destroy(){host.removeEventListener('focusin',enter);document.removeEventListener('focusin',leave);stopWaiting();menu.close();host.classList.remove('tab-dock');host.replaceChildren();}};
+  return {arrangement:()=>saved,set,reveal,collapse:collapseTab,showing:id=>visible.has(id),relayout,destroy(){host.removeEventListener('focusin',enter);document.removeEventListener('focusin',leave);stopWaiting();menu.close();host.classList.remove('tab-dock');host.replaceChildren();}};
 }

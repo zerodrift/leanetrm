@@ -21,7 +21,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const open="(()=>{const view=document.querySelector('#swap-settlement'),form=document.querySelector('#position-details-form');return !!view&&!!form&&!view.hidden&&form.contains(view)&&!form.hidden;})()";
  let deskWidth=0;
  async function openView(reference,measure=false){
-  if(await evaluate("document.querySelector('#position-details')?.hidden===false")){await click('#position-details .position-close');await wait("(document.querySelector('#position-details')?.hidden!==false)&&"+idle);}
+  if(await evaluate("document.querySelector('#position-details')?.hidden===false")){await click('#details-collapse');await wait("(document.querySelector('#position-details')?.hidden!==false)&&"+idle);}
   await set('#blotter-filters .table-search',reference);await wait(idle);
   await wait(`(()=>{const rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length);return rows.length===1&&rows[0].textContent.includes(${JSON.stringify(reference)});})()`);
   await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait(`document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&document.querySelector('#position-details')?.hidden===false&&document.querySelector('#position-details-head .side-panel-reference')?.textContent===${JSON.stringify(reference)}&&${idle}`);
@@ -33,8 +33,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const card=label=>`(()=>{const card=document.querySelector('#futures-pending');return !card.hidden&&card.getClientRects().length>0&&card.textContent.includes(${JSON.stringify(label)});})()`;
  // Each figure and action of a settlement table is read without scrolling sideways: it ends inside its table's scroll area.
  const figuresOutside=containers=>`(()=>{const out=[];for(const id of ${JSON.stringify(containers)})for(const scroll of document.querySelectorAll(id+' .regular-table-scroll')){const box=scroll.getBoundingClientRect(),edge=box.left+scroll.clientLeft+scroll.clientWidth;for(const n of scroll.querySelectorAll('td.numeric,button'))if(n.getClientRects().length&&n.getBoundingClientRect().right>edge+0.5)out.push(id+': '+n.textContent.trim().slice(0,24));}return out;})()`;
- // Settlement content opens the position detail over the desk on a desktop; on a phone it is the mobile detail.
- const positionInline=()=>"(()=>{const p=document.querySelector('#position-details'),r=p?.closest('.tabulator-row');return !!r&&!p.hidden&&p.getBoundingClientRect().width<=r.getBoundingClientRect().width+1&&document.querySelector('#side-panel').hidden;})()";
+ // Settlement content shows in the position's details, in their own pane, never inside a row, and no wider than the pane.
+ const positionInline=()=>"(()=>{const p=document.querySelector('#position-details'),pane=document.querySelector('#blotter-pane-details');return !!p&&!p.hidden&&!pane.hidden&&pane.contains(p)&&!p.closest('.tabulator-row')&&p.getBoundingClientRect().width<=pane.getBoundingClientRect().width+1;})()";
  const tableWidths="[...document.querySelectorAll('#swap-settlement .regular-table-scroll')].map(s=>[s.parentElement.closest('[id]').id,s.scrollWidth,s.clientWidth])";
  const figuresShown=(containers,label)=>check(label,`${positionInline()}&&${JSON.stringify(containers)}.every(id=>document.querySelector(id+' td.numeric'))&&!!document.querySelector('#swap-settlement-payments button')&&${figuresOutside(containers)}.length===0`,figuresOutside(containers));
  const tablesFit=label=>check(label,`${positionInline()}&&[...document.querySelectorAll('#swap-settlement .regular-table-scroll')].every(s=>s.scrollWidth<=s.clientWidth+1)`,tableWidths);
@@ -45,7 +45,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const candidates="[...document.querySelectorAll('#swap-net-selection tbody tr')].map(r=>[r.querySelector('input[type=checkbox]')?.checked,r.querySelector('input[type=text]')?.value])";
  async function correction(){await click('#swap-settlement button[data-membership="0"][data-payment="0"]');await wait("!!document.querySelector('#swap-settlement-correction-due')&&"+idle);await typeInto('#swap-settlement-correction-due',typed);}
  await openView(selected.reference,true);
- await check('the settlement view expands beneath its row without changing grid width',`${positionInline()}&&Math.abs(document.querySelector('#desk-positions').getBoundingClientRect().width-${deskWidth})<=1`,"[document.querySelector('#position-details').getBoundingClientRect().width,document.querySelector('#position-details').hasAttribute('data-wide'),document.querySelector('#desk-positions').getBoundingClientRect().width]");
+ await check('the settlement view shows in the details without changing grid width',`${positionInline()}&&Math.abs(document.querySelector('#desk-positions').getBoundingClientRect().width-${deskWidth})<=1`,"[document.querySelector('#position-details').getBoundingClientRect().width,document.querySelector('#position-details').hasAttribute('data-wide'),document.querySelector('#desk-positions').getBoundingClientRect().width]");
  // A column that stacks several facts has no column filter; a column of one fact keeps its own.
  await check('the stacked columns have no column filter, and the figure columns keep theirs',"[['#swap-settlement-payments',0],['#swap-settlement-balances',0],['#swap-settlement-cash',0],['#swap-net-selection',1]].every(([id,i])=>{const cells=document.querySelectorAll(id+' .column-filter-row th');return !cells[i].querySelector('select')&&!!cells[i+1].querySelector('select');})");
  await check('net settlement offers explicit gross selection and signed allocation review',"!!document.querySelector('#swap-net-form')&&document.querySelectorAll('#swap-net-selection input[type=checkbox]').length===2");
@@ -68,7 +68,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#position-details-prompt button.secondary');
  await check('keeping it leaves the view open with the net entry as it was typed',`${open}&&${prompt}.hidden&&document.querySelector('#swap-net-amount').value==='5'`);
  await click('#side-panel-amend');await click('#position-details-prompt button:not(.secondary)');await wait(`${prompt}.hidden&&!${open}&&!!document.querySelector('#side-panel-settlement')&&`+idle);
- await check('closing settlement keeps the same position expanded',positionInline());
+ await check('closing settlement keeps the same position in the details',positionInline());
  await click('#side-panel-settlement');await wait(open);await wait(idle);
  await check('discarding it closes the view, which opens again with no net entry',`${open}&&document.querySelector('#swap-net-amount').value===''`);
  await evaluate("document.querySelectorAll('#swap-net-selection tr').forEach(row=>{const selected=row.querySelector('input[type=checkbox]'),amount=row.querySelector('input[type=text]');if(!selected)return;selected.checked=true;selected.dispatchEvent(new Event('change',{bubbles:true}));amount.value=row.textContent.includes('-200')?'-100':'120';amount.dispatchEvent(new Event('input',{bubbles:true}));})");
@@ -86,7 +86,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const artifacts=await mkdtemp(join(tmpdir(),'openetrm-netting-visual-'));console.log('NETTING_VISUAL_ARTIFACTS='+artifacts);
  await evaluate("document.querySelector('#swap-settlement-payments').scrollIntoView({block:'start'})");await shot('netting-payments-desktop');await copyFile(join(dirname(process.argv[2]),'netting-payments-desktop.png'),join(artifacts,'payments-desktop.png'));
  await evaluate("document.querySelector('#swap-net-review').scrollIntoView({block:'center'})");await shot('netting-desktop');await copyFile(join(dirname(process.argv[2]),'netting-desktop.png'),join(artifacts,'desktop.png'));
- await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("!!document.querySelector('#desk-positions .open-row #position-details')");
+ await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("(document.querySelector('#position-details')?.hidden===false&&!document.querySelector('#blotter-pane-details').hidden)");
  await evaluate("document.querySelector('#swap-net-review').scrollIntoView({block:'center'})");await shot('netting-narrow');await copyFile(join(dirname(process.argv[2]),'netting-narrow.png'),join(artifacts,'narrow.png'));
  await figuresReachable('in the mobile position each figure and action can be scrolled to in full');
  await check('net selection and review fit a narrow viewport in the mobile position',"document.querySelector('#swap-settlement').scrollWidth<=document.querySelector('#swap-settlement').clientWidth+1");
@@ -113,14 +113,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  // Check status settles the record from its card in the panel, which asks nothing, while the risk report there holds the person's sizes:
  // the report is read again at the inputs on screen, and keeps the person's choice and sizes.
  await evaluate(`(()=>{const send=window.fetch;window.__riskCatalogs=[];window.__workspaces=[];window.fetch=async(input,init)=>{const response=await send(input,init),path=String(input);if(response.ok&&(path==='/api/portfolio/risk/catalog'||path==='/api/trading/workspace'))(path==='/api/trading/workspace'?window.__workspaces:window.__riskCatalogs).push(await response.clone().json());return response;};})()`);
- await click('#blotter-risk');await wait("document.querySelector('#side-panel').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
+ await click('#blotter-risk');await wait("document.querySelector('#position-details').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
  await click('input[name=risk-choice][value=held]');
  await evaluate("(()=>{const n=document.querySelector('#risk-size-0');n.focus();n.select();})()");await command('Input.insertText',{text:'0.35'});
  const catalogsBefore=await evaluate('window.__riskCatalogs.length');
  await click('#futures-reconcile',60000);await wait("document.querySelector('#futures-pending').hidden&&"+idle);
  await check('a retained settlement settled from its card keeps the risk report\'s choice and sizes, read again at the inputs on screen, and asks nothing',
-  `document.querySelector('#side-panel').dataset.mode==='risk'&&document.querySelector('#side-panel-prompt').hidden&&document.querySelector('input[name=risk-choice][value=held]').checked&&document.querySelector('#risk-size-0').value==='0.35'&&document.querySelector('#risk-size-0-note').hidden&&!document.querySelector('#risk-carried').hidden&&window.__riskCatalogs.length===${catalogsBefore}+1&&window.__riskCatalogs.at(-1).context.contextId===window.__workspaces.at(-1).blotter.context.contextId`,
-  "[document.querySelector('#side-panel').dataset.mode,document.querySelector('input[name=risk-choice][value=held]')?.checked,document.querySelector('#risk-size-0')?.value,window.__riskCatalogs.length]");
+  `document.querySelector('#position-details').dataset.mode==='risk'&&document.querySelector('#position-details-prompt').hidden&&document.querySelector('input[name=risk-choice][value=held]').checked&&document.querySelector('#risk-size-0').value==='0.35'&&document.querySelector('#risk-size-0-note').hidden&&!document.querySelector('#risk-carried').hidden&&window.__riskCatalogs.length===${catalogsBefore}+1&&window.__riskCatalogs.at(-1).context.contextId===window.__workspaces.at(-1).blotter.context.contextId`,
+  "[document.querySelector('#position-details').dataset.mode,document.querySelector('input[name=risk-choice][value=held]')?.checked,document.querySelector('#risk-size-0')?.value,window.__riskCatalogs.length]");
  await check('operation-status recovery clears the retained settlement only after its committed outcome is known',"document.querySelector('#futures-pending').hidden&&document.querySelector('#error').hidden");
  // A risk report run at this close, whose results a net settlement made afterwards no longer holds for.
  await click('#blotter-risk');await wait("[...document.querySelector('#risk-factor').options].some(o=>o.value)&&"+idle);await click('input[name=risk-choice][value=custom]');
@@ -152,7 +152,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await tablesFit('and no settlement table there scrolls sideways');
  await check('the period transitions\' stacked column has no column filter either, and their figure columns keep theirs',"(()=>{const cells=document.querySelectorAll('#swap-settlement-bridge .column-filter-row')[1]?.querySelectorAll('th');return !!cells&&!cells[0].querySelector('select')&&!!cells[1].querySelector('select');})()");
  await evaluate("document.querySelector('#swap-settlement-bridge').scrollIntoView({block:'start'})");await shot('contract-pnl-desktop');await copyFile(join(dirname(process.argv[2]),'contract-pnl-desktop.png'),join(artifacts,'pnl-desktop.png'));
- await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("!!document.querySelector('#desk-positions .open-row #position-details')");
+ await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("(document.querySelector('#position-details')?.hidden===false&&!document.querySelector('#blotter-pane-details').hidden)");
  await evaluate("document.querySelector('#swap-settlement-bridge').scrollIntoView({block:'start'})");await shot('contract-pnl-narrow');await copyFile(join(dirname(process.argv[2]),'contract-pnl-narrow.png'),join(artifacts,'pnl-narrow.png'));
  await figuresReachable('in the mobile position each figure and action can be scrolled to in full');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
@@ -177,8 +177,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await figuresShown(['#swap-net-review','#swap-settlement-bridge','#swap-settlement-payments','#swap-settlement-balances','#swap-settlement-cash'],`and every figure and action there is read in place`);
  }
  // At about 800 pixels the drawer is as wide as the window beside the navigation allows, which stays in view and in reach.
- await command('Emulation.setDeviceMetricsOverride',{width:800,height:900,deviceScaleFactor:1,mobile:false});await wait("!!document.querySelector('#desk-positions .open-row #position-details')&&"+idle);
- await check('at 800 pixels inline settlement leaves navigation available',`${positionInline()}&&document.querySelector('.sidebar').getBoundingClientRect().width>0&&document.querySelectorAll('[inert]').length===0`);
+ await command('Emulation.setDeviceMetricsOverride',{width:800,height:900,deviceScaleFactor:1,mobile:false});await wait("(document.querySelector('#position-details')?.hidden===false&&!document.querySelector('#blotter-pane-details').hidden)&&"+idle);
+ await check('at 800 pixels settlement in the details leaves navigation available',`${positionInline()}&&document.querySelector('.sidebar').getBoundingClientRect().width>0&&document.querySelectorAll('[inert]').length===0`);
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait(positionInline());
  await figuresReachable('on a phone each real-sized figure and action can be scrolled to in full');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
@@ -190,20 +190,20 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('opening another trade clears net header terms, selections and review',"document.querySelector('#swap-net-amount').value===''&&document.querySelector('#swap-net-effective').value===''&&document.querySelector('#swap-net-reference').value===''&&!document.querySelector('#swap-net-record')&&[...document.querySelectorAll('#swap-net-selection input[type=checkbox]')].every(n=>!n.checked)");
  await check('and with no contractual-change policy or opening snapshot chosen',"document.querySelector('#swap-pnl-contract-policy').value===''&&document.querySelector('#swap-pnl-opening-snapshot').value===''","[document.querySelector('#swap-pnl-contract-policy').value,document.querySelector('#swap-pnl-opening-snapshot').value]");
  // The expanded position keeps the panel's keys: Escape closes it when it holds nothing unsaved.
- await check('the other trade\'s settlement view has the expanded position',positionInline());
+ await check('the other trade\'s settlement view is in the details',positionInline());
  await evaluate("document.querySelector('#position-details').focus()");
  for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key:'Escape',code:'Escape',windowsVirtualKeyCode:27,nativeVirtualKeyCode:27});
  await wait(idle);
- await check('Escape closes the expanded position when it holds nothing unsaved',"(document.querySelector('#position-details')?.hidden!==false)","[(document.querySelector('#position-details')?.hidden!==false),document.activeElement?.id]");
- // Leaving the settlement view another way, by another position's row or by New trade, gives the panel back its own width.
- const ownWidth="(()=>{const p=document.querySelector('#side-panel');return !p.hidden&&!p.hasAttribute('data-wide')&&p.dataset.placement==='docked'&&Math.abs(p.getBoundingClientRect().width-340)<=2;})()";
- const panelWidth="[document.querySelector('#side-panel').getBoundingClientRect().width,document.querySelector('#side-panel').hasAttribute('data-wide'),document.querySelector('#side-panel').dataset.mode]";
+ await check('Escape collapses the details when they hold nothing unsaved',"(document.querySelector('#position-details')?.hidden!==false)","[(document.querySelector('#position-details')?.hidden!==false),document.activeElement?.id]");
+ // Leaving the settlement view another way, by another position's row or by New trade, shows what replaces it in the same details.
+ const ownWidth="(()=>{const p=document.querySelector('#position-details'),pane=document.querySelector('#blotter-pane-details');return !p.hidden&&p.dataset.mode==='new'&&pane.contains(p)&&p.getBoundingClientRect().width<=pane.getBoundingClientRect().width+1;})()";
+ const panelWidth="[document.querySelector('#position-details').getBoundingClientRect().width,document.querySelector('#blotter-pane-details').getBoundingClientRect().width,document.querySelector('#position-details').dataset.mode]";
  await openView(selected.reference);
  await set('#blotter-filters .table-search',selected.otherReference);await wait(idle);
  await wait(`(()=>{const rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length);return rows.length===1&&rows[0].textContent.includes(${JSON.stringify(selected.otherReference)});})()`);
  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait(`document.querySelector('#position-details-head .side-panel-reference')?.textContent.includes(${JSON.stringify(selected.otherReference)})&&`+idle);
- await check('another position replaces settlement beneath its own row',`${positionInline()}&&!${open}`,panelWidth);
+ await check('another position replaces settlement in the details',`${positionInline()}&&!${open}`,panelWidth);
  await click('#position-details-tabs-terms');await wait("!!document.querySelector('#side-panel-settlement')&&"+idle);await click('#side-panel-settlement');await wait(open);await wait(idle);
- await click('#futures-new');await wait("document.querySelector('#side-panel').dataset.mode==='new'&&!!document.querySelector('#new-trade-product')&&"+idle);
- await check('New trade over the wide settlement view opens its chooser at the panel\'s own width',ownWidth,panelWidth);
+ await click('#futures-new');await wait("document.querySelector('#position-details').dataset.mode==='new'&&!!document.querySelector('#new-trade-product')&&"+idle);
+ await check('New trade over the settlement view opens its chooser in the same details',ownWidth,panelWidth);
 }

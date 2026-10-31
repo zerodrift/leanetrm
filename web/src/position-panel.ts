@@ -195,7 +195,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
   amendment:{open:(h:Holding)=>void;shown:(h:Holding)=>boolean;close:()=>Promise<void>};
   openCurve?:(curve:string,contractId:string|null)=>void;onDenied:()=>void;
 }){
-  let input:PositionInput|undefined,tab:PositionTab='curve',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
+  let input:PositionInput|undefined,tab:PositionTab='terms',detail:Detail|undefined,generation=0,chart:HTMLElement|undefined,tabs:ReturnType<typeof setupTabs>|undefined,actions:{amend:HTMLButtonElement;open:HTMLButtonElement;note:HTMLElement;openNote:HTMLElement}|undefined;
   // Whether the last drawing found the position's amendment open, and whether the person has just opened it, which takes focus into it.
   let amending=false,focusOnOpen=false,reading:{key:string;done:Promise<unknown>}|undefined;
   // What the Terms tab drew beyond its sections, which is taken down whenever the tab is drawn again or the panel is cleared.
@@ -369,11 +369,14 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     if(reason===null)control.removeAttribute('aria-describedby');else control.setAttribute('aria-describedby',note.id);
   }
   return {
-    /** Shows a position on its requested tab, or Terms when none is selected. */
-    show(next:PositionInput,start:PositionTab='terms'){
-      input=next;tab=start;detail=undefined;held=undefined;generation++;
-      const available=o.tabs?positionTabs.filter(([id])=>o.tabs!.includes(id)):positionTabs;
+    /**
+     * Shows a position on its requested tab, or on the tab last chosen, Terms at first: a trader moving between positions keeps reading
+     * the same tab of each.
+     */
+    show(next:PositionInput,requested?:PositionTab){
+      const available=o.tabs?positionTabs.filter(([id])=>o.tabs!.includes(id)):positionTabs,start=requested??tab;
       if(!available.some(([id])=>id===start))throw Error('Choose an available position tab.');
+      input=next;tab=start;detail=undefined;held=undefined;generation++;
       tabs=setupTabs(shell.element('tabs'),available,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>{tab=id as PositionTab;paint();shell.element('body').scrollTop=0;}});
       paint();
     },
