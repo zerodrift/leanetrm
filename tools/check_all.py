@@ -69,6 +69,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('isolated page-assistant administration and browser', [*preview, '--assistant-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('isolated units and deal precision browser', [*preview, '--unit-check', '--browser-check', '--browser', str(browser)])
     preview_check('independent swap sides, spreads and reviewed par pricing', [*preview, '--draft-check', '--browser-check', '--browser', str(browser)], suite='trading')
+    preview_check('physical gas booking, setup and daily quantity workflow', [*preview, '--gas-daily-quantity-check', '--gas-composition-check', '--gas-setup-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('retained graph admission and reverse-boundary independent Side reuse', [*preview, '--retained-schedule-check'], suite='trading')
     preview_check('mixed PPA and heat-rate trades, exact worker custody and browser', [*preview, '--demo-instruments-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('scheduled swap settlement, delegated operations and lifecycle browser', [*preview, '--scheduled-swap-check', '--browser-check', '--browser', str(browser)], suite='settlement')

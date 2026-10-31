@@ -106,6 +106,23 @@ public sealed record BookedSideEvaluation(ResolvedCalculationContext Context,str
     public ImmutableArray<string> RequestedOutputs { get; init; }=["pv"];
     public ImmutableArray<ScheduleQuantityDemand> QuantityOutputs { get; init; }=[];
     public const string NumericalPolicy="exact_schedule_program_v1";
+    public ImmutableArray<ExactQuantity> QuantityValues(string output,ExactDecimal scale)
+    {
+        var selected=Roots.Where(root=>root.Name==output&&root.Measure=="schedule_quantity").ToArray();
+        if(selected.Length!=1)throw new MarketDataException("side_schedule_program","Select one retained schedule quantity output.");
+        var column=Values[selected[0].Row].Scenario;
+        if(column.Kind!="quantity"||column.Unit is not {} unit||column.Presence.Any(p=>p!=ScheduleCellPresence.Resolved))
+            throw new MarketDataException("side_schedule_program","Every exported quantity must have an exact unit and a resolved value.");
+        return [..column.Values.Select(value=>new ExactQuantity(value.Numerator,value.Denominator,unit).Scale(scale))];
+    }
+    public ImmutableArray<ExactQuantity> QuantityColumn(int row,ExactDecimal scale)
+    {
+        if(row<0||row>=Values.Length)throw new MarketDataException("side_schedule_program","Select a retained quantity column.");
+        var value=Values[row];
+        if(value.Scenario.Kind!="quantity"||value.Scenario.Unit is not {} unit||value.Scenario.Presence.Any(p=>p!=ScheduleCellPresence.Resolved))
+            throw new MarketDataException("side_schedule_program","Select one resolved retained quantity column with its exact native unit.");
+        return [..value.Scenario.Values.Select(number=>new ExactQuantity(number.Numerator,number.Denominator,unit).Scale(scale))];
+    }
     public bool HasOverdue=>Contributions.Any(contribution=>contribution.States.Any(state=>state.Coverage is ValueCoverage.OverdueBalance or ValueCoverage.OverdueEstimate));
     public ExactMoney? CompletePresentValue=>HasOverdue?null:PresentValue;
     public ExactMoney PresentValue

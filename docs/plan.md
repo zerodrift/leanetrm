@@ -4,6 +4,34 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D269 adds the local [physical gas booking slice](physical-gas-side.md): fixed
+contractual delivery, independent consideration and optional usage fee, shared
+retained executable schedules, and an authorized preview/book/reopen ticket.
+Shared curve groups, point price adjustments, dated direct-meter schedule attribution
+and configured per-unit tariffs are wired into that bounded profile. The
+Gas delivery setup editor saves immutable drafts, previews resolution/coverage and
+publishes versioned economic settings; saved trades retain their setup pins. Usage fees
+have independent pay/receive directions. The fixed-quantity composition ticket now adds independently directed physical
+and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. Physical completion, operational PV and settlement remain work. Mixed-product blotter and risk
+scopes containing gas refuse until their complete integration is supported.
+The first gas composition gate now supports fixed contractual memberships and
+quantity links. Transport eligibility, allocation splits, operational inputs and
+ordered paths require their own behavior;
+see the [field contract](physical-gas-field-contract.md#reference-identifiers-valuation-and-composition).
+Park-and-loan and swing rights are required gas profiles beyond this fixed-volume
+slice. Their [acceptance gates](physical-commodity-test-plan.md#park-and-loan-and-swing-rights)
+cover linked advance/return obligations, trade-owned outstanding balances and
+fees, quantity elections and remaining-rights valuation. Neither capability is
+enabled by the current ticket or supplied by a pipeline reference-data flag.
+
+Deferred TODO: delivery-relative monthly price-contract offsets on the explicit
+price-reference binding. January delivery with offset +1 selects the February
+pricing contract while preserving January delivery geometry and quantities.
+Booking must retain the exact selected contract and qualified fixing treatment;
+missing or ambiguous matches refuse. No executable offset field is admitted yet.
+Valuation-relative rolling selection remains a separate convention. Operational
+quantity valuation takes priority over this deferred feature.
+
 D253 unifies dated and interval payments on whole-term FixedSide/FloatingSide,
 with parameter-only schedules and one structural/evaluated row contract. PPA
 references compile to bounded monthly graph columns for affected-only scenario

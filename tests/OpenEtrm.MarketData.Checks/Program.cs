@@ -3,6 +3,9 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--gas-daily-quantities"]){GasDailyQuantityChecks.Run();return;}
+if(args is ["--physical-gas-quantities"]){PhysicalGasQuantityChecks.Run();return;}
+if(args is ["--physical-gas-side"]){PhysicalGasSideChecks.Run();return;}
 if(args is ["--contract-observation-schedules"]){ContractObservationScheduleChecks.Run();return;}
 if(args is ["--schedule-market-sources"]){ScheduleMarketSourceChecks.Run();return;}
 if(args is ["--schedule-input-batch"]){await ScheduleInputBatchChecks.Run();return;}
@@ -492,6 +495,9 @@ passed += ExchangeFuturesChecks.Run();
 passed += SwapChecks.Run();
 passed += ObservationScheduleChecks.Run();
 passed += CommodityLookupChecks.Run();
+PhysicalGasQuantityChecks.Run();passed++;
+PhysicalGasSideChecks.Run();passed++;
+GasDailyQuantityChecks.Run();passed++;
 passed += SnapshotInputChecks.Run();
 passed += MonthlySwapChecks.Run();
 passed += IndexFixingChecks.Run();

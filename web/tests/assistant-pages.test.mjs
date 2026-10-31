@@ -35,8 +35,8 @@ test('every other page reports the view it shows in its read tool input form, an
   assert.deepEqual(pageReport({page:'futures',risk:false,trade:{tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'},entry:null,view:blotter}),
     {page:'blotter',selection:{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:trade,instrumentType:'future',revision:2}});
   assert.deepEqual(pageReport({page:'futures',risk:true,trade:null,entry:null,view:blotter}),{page:'blotter_risk',selection:{}});
-  for(const [page,id] of [['delivery','delivery_prices'],['interval-series','interval_series'],['interval-curves','interval_curves'],
-    ['admin','users_access'],['ai','settings_ai'],['dashboard','dashboard']])assert.deepEqual(pageReport({page}),{page:id,selection:{}});
+  for(const [page,id] of [['dashboard','dashboard'],['gas-setup','gas_setup'],['gas','physical_gas'],['delivery','delivery_prices'],['interval-series','interval_series'],['interval-curves','interval_curves'],
+    ['admin','users_access'],['ai','settings_ai']])assert.deepEqual(pageReport({page}),{page:id,selection:{}});
 });
 
 test('Jobs & Infrastructure reports the list of your jobs, or the history of the job whose details are open, as Read jobs takes them',()=>{

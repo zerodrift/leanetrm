@@ -28,6 +28,12 @@ def main():
     from check_standalone import main as check_standalone
     check_standalone()
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--with-gas-quantity-dates',action='store_true',help='Include synthetic January working frames for daily gas quantity exploration')
+    parser.add_argument('--gas-quantity-benchmark',action='store_true',help='Measure owned daily gas quantity grids with authorized revision history')
+    parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
+    parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
+    parser.add_argument('--gas-setup-check',action='store_true',help='Qualify versioned gas setup authoring and trade pins')
+    parser.add_argument('--physical-gas-check',action='store_true',help='Qualify physical gas preview, durable schedules and booking UI operations')
     parser.add_argument('--demo-instruments-check',action='store_true',help='Verify mixed synthetic PPA and heat-rate bookings, blotter and risk')
     parser.add_argument('--pg-bin', type=Path, required=True, help='Installed stock PG16+ binaries')
     parser.add_argument('--dotnet', type=Path, required=True, help='Installed .NET SDK matching global.json')
@@ -102,9 +108,11 @@ def main():
         args.ppa_bookings_check = True
     if args.ppa_http_benchmark:
         args.ppa_bookings_check = True
+    if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
+    if args.gas_setup_check or args.gas_composition_check or args.gas_daily_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
-    if args.retained_schedule_check: args.check=True
-    fixing_frames=args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check
+    if args.retained_schedule_check or args.physical_gas_check: args.check=True
+    fixing_frames=args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
     if args.interval_series_benchmark or args.usage_benchmark or args.blotter_stream_benchmark:
@@ -292,6 +300,9 @@ def main():
             if args.check and migration.name=='0116_remove_unused_cash_rounding.sql':
                 from check_cash_rounding_retirement import run_checks as check_cash_retirement
                 check_cash_retirement(query,migration.read_text())
+            if args.physical_gas_check and migration.name=='0142_physical_gas_bookings.sql':
+                from check_gas_upgrade import run_checks as check_gas_upgrade
+                check_gas_upgrade(query,ROOT,[reference,market,security,trading_fixture(manifest['catalogId'])])
             query(migration.read_text())
         if args.check:
             from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema
@@ -317,7 +328,7 @@ def main():
             if not args.check:
                 from seed_preview_positions import EXECUTIONS
                 demo_instants={day+'T16:00:00' for day,*_ in EXECUTIONS}
-                manifest['frames']=[frame for frame in manifest['frames'] if frame['at'][:19] in demo_instants]
+                manifest['frames']=[frame for frame in manifest['frames'] if frame['at'][:19] in demo_instants or args.with_gas_quantity_dates and frame['at'][:10] in ('2021-01-01','2021-01-15','2021-01-31')]
 
         if args.ppa_bookings_check or args.retained_schedule_check or args.blotter_stream_benchmark:
             from ppa_bookings_fixture import prepare as prepare_ppa_bookings
@@ -531,7 +542,27 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.retained_schedule_check:
+            if args.physical_gas_check:
+                from check_physical_gas_preview import run_checks,run_shape_checks
+                gas_receipt=run_checks(url)
+                run_shape_checks(query,manifest,gas_receipt)
+                if args.gas_daily_quantity_check:
+                    from check_gas_daily_quantities import run_checks as check_gas_daily_quantities
+                    check_gas_daily_quantities(url,query,manifest)
+                    if args.gas_quantity_benchmark:
+                        from benchmark_gas_quantities import run as benchmark_gas_quantities
+                        benchmark_gas_quantities(url,query,manifest,child.pid)
+                if args.gas_composition_check:
+                    from check_gas_composition import run_checks as check_gas_composition
+                    check_gas_composition(url,query,manifest)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
+                if args.gas_setup_check:
+                    from check_gas_setup_editor import run_checks as check_gas_setup
+                    check_gas_setup(url)
+            elif args.retained_schedule_check:
                 from check_retained_side_schedules import run_stage_checks,run_temporal_checks
                 run_stage_checks(query,manifest)
                 booked_program_instruments,before_programs=run_temporal_checks(url,query,manifest)

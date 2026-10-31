@@ -33,6 +33,7 @@ internal sealed class TradePositionFacts(PreviewManifest manifest)
         ImmutableArray<Guid> portfolioIds,int offset,int limit,CancellationToken ct)
     {
         RequirePage(offset,limit);
+        await PhysicalGasStore.RequirePortfolioScope(connection,manifest.CatalogId,bookIds,portfolioIds,ct);
         var books=await new FuturesStore(manifest).Books(connection,ct);FuturesStore.ValidateScope(books,bookIds,portfolioIds);
         var selected=books.Where(b=>(bookIds.IsEmpty||bookIds.Contains(b.Id("id")))&&
             (portfolioIds.IsEmpty||portfolioIds.Contains(b.Id("portfolio_id")))).ToImmutableDictionary(b=>b.Id("id"),b=>b.Text("name"));
