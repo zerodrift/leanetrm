@@ -316,9 +316,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `${looking}[0]==='Blotter'&&${looking}[1]==='A new PPA is being entered. The assistant does not read a trade being entered.'`,looking);
   await script({tools:[['toolu_ppa_panel_unsent','read_current_page',{}]]},{text:'I do not read unsaved trade entry.'});
   await ask('Which PPAs are in this book?');await wait(finished);
+  // The report names only the page and the Blotter's layout as drawn, never a term of the PPA being entered.
   await check('reading unsaved PPA entry is refused without including any draft terms',
     `[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
-    +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'blotter_new_ppa',selection:{}})`);
+    +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'blotter_new_ppa',selection:{},layout:JSON.parse(${drawnLayout})})`,
+    `JSON.stringify(${asks}.at(-1).body.pageReport)`);
   await closeNewTrade({click,evaluate,wait});
   await script({tools:[['toolu_ppa_panel_01','read_current_page',{}]]},{text:'These are the trades in the Blotter.'});
   await ask('Which trades are in this view?');await wait(finished);

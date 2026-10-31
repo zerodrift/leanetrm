@@ -1035,8 +1035,8 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),*(['--markets-desk'] if args.markets_desk_check else [])],cwd=ROOT,env=env,start_new_session=True)
-                    # The desk's scenarios run in this suite; a slower runner needs more than six minutes for all of them.
-                    if browser_process.wait(timeout=900):
+                    # The desk's and the Blotter workbench's scenarios run in this suite; a CI runner needs about a quarter of an hour for them.
+                    if browser_process.wait(timeout=1500):
                         raise RuntimeError('Owned browser checks failed')
                     if evidence:=os.environ.get('OPENETRM_MARKETS_BROWSER_EVIDENCE'):
                         destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
