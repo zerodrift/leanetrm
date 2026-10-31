@@ -363,6 +363,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   // A row's menu (blotter-workbench.md, Row context menu): each action the account may not take now is shown with why. Rows kept on
   // screen from an earlier read, or drawn while the page is busy, offer nothing, saying why. Escape gives focus back to the row.
   const rowMenu=setupMenu('blotter-row-menu');get('futures-page').append(rowMenu.element);
+  // The position and revision a row's menu was opened on, while the Close out chosen from it runs: an operation names only its position.
+  let menuRevision:{key:string;revision:string}|undefined;
   function focusRow(key:string){const index=holdings?.holdings.findIndex(h=>rowKey(h)===key)??-1;if(table&&index>=0)table.focusRow(index);}
   function openRowMenu(h:Holding,at:{x:number;y:number}){
     try{showRowMenu(h,at);}catch(error){options.failed(error);}
@@ -377,6 +379,8 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   async function rowAction(h:Holding,action:RowMenuAction){
     const key=rowKey(h);
     switch(action.kind){
+      // Close out drafts the revision the menu was opened on, which a read landing since then may have replaced.
+      case 'draftCloseOut':menuRevision={key,revision:h.revision};try{await perform(action);}finally{menuRevision=undefined;}return;
       case 'openWindow':popout(h);return;
       case 'copyId':
         try{await navigator.clipboard.writeText(h.tradeReference);options.notice(`Trade ID ${h.tradeReference} copied.`);}
@@ -390,11 +394,13 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
   }
   // Close out (owner, 2026-10-30) opens the backend's draft of the offsetting trade, at the curve price of the read on screen, in the new trade
   // form of its product: a future's after the priced contracts are read, as New trade reads them, a swap's in its ticket. Nothing books
-  // until the person presses Book. The draft is of the revision the row showed when it was chosen: a read made for the priced contracts
-  // that holds another revision refuses it, saying so.
+  // until the person presses Book. The draft is of the revision the row's menu was opened on, or the row showed when the operation was
+  // dispatched without one: a row that holds another revision by then, or after the read made for the priced contracts, refuses it.
   async function draftCloseOut(key:string){
     const row=()=>{const h=holdings?.holdings.find(h=>rowKey(h)===key);if(!h)throw refuse('that position is not among the rows on screen');return h;};
-    const chosen=row().revision,before=panel.current();
+    const chosen=menuRevision?.key===key?menuRevision.revision:row().revision,before=panel.current();
+    const unchanged=(h:Holding)=>{if(h.revision!==chosen)throw refuse(`${h.tradeReference} is now at revision ${h.revision}, not revision ${chosen} that was chosen; choose Close out again to draft the revision shown`);};
+    unchanged(row());
     // The page's action says its own failures in the banner; the backend's refusal, said in the details, is the operation's answer.
     let refused:Error|undefined;
     await guarded(async()=>{
@@ -405,7 +411,7 @@ export function setupFutures(options:{newPpa:()=>Promise<void>;api:Api;act:(work
         if(!priced())throw refuse('the Blotter could not be read with its priced contracts, so nothing was drafted');
       }
       const h=row(),control=bookingControl();if(!control.enabled)throw Error(control.reason);
-      if(h.revision!==chosen)throw refuse(`${h.tradeReference} is now at revision ${h.revision}, not revision ${chosen} that was chosen; choose Close out again to draft the revision shown`);
+      unchanged(h);
       const product=h.instrumentType==='future'?'futures' as const:'swaps' as const;
       let drafted;
       try{drafted=readCloseOutDraft(await api('trading/close-out-draft',closeOutRequest({snapshotId:snapshot,contextId:holdings!.context.contextId},h)),h.instrumentType==='future'?'future':'financial_swap');}

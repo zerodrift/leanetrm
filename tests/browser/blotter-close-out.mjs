@@ -11,14 +11,18 @@ const visibleRows="[...document.querySelectorAll('#desk-positions .tabulator-row
 
 // Records every trading request and draft the page sends, the holdings each read returns and any request to ask the assistant. On demand
 // (`window.__closeOut.next`) the next draft read fails, comes back as another instrument or for a book the catalog does not hold; the
-// next priced read fails, or states another revision of a trade (`bump`).
-const recorder=`(()=>{const send=window.fetch;window.__closeOut={sent:[],drafts:[],holdings:[],asked:[],next:null,bump:null,failPriced:false};window.fetch=async(input,init)=>{const path=String(typeof input==='string'?input:input.url),o=window.__closeOut;
+// next priced read fails, or states another revision of a trade (`bump`); every read from now on states another revision (`amended`).
+const recorder=`(()=>{const send=window.fetch;window.__closeOut={sent:[],drafts:[],holdings:[],asked:[],next:null,bump:null,amended:null,failPriced:false};window.fetch=async(input,init)=>{const path=String(typeof input==='string'?input:input.url),o=window.__closeOut;
   if(/\\/api\\/(futures|swaps)\\/(book|preview)$/.test(path))o.sent.push({path,body:JSON.parse(init.body)});
   if(path.startsWith('/api/assistant/turns'))o.asked.push(path);
   const priced=path==='/api/trading/workspace'&&JSON.parse(init.body).bookingCatalog==='priced_contracts';
   if(priced&&o.failPriced){o.failPriced=false;return new Response(JSON.stringify({code:'request_failed',message:'Synthetic priced read failure.'}),{status:500,headers:{'Content-Type':'application/json'}});}
   if(path==='/api/trading/close-out-draft'&&o.next==='fail'){o.next=null;o.drafts.push({status:500});return new Response(JSON.stringify({code:'request_failed',message:'Synthetic draft failure.'}),{status:500,headers:{'Content-Type':'application/json'}});}
   let response=await send(input,init);
+  // An amendment that landed: every read of the trade's positions, their values and their facts alike, states its next revision.
+  if(o.amended&&response.ok&&['/api/trading/workspace','/api/trading/positions'].includes(path)){const value=await response.clone().json();
+    const amend=x=>{if(Array.isArray(x))x.forEach(amend);else if(x&&typeof x==='object'){if(x.tradeId===o.amended&&'revision' in x)x.revision=typeof x.revision==='number'?x.revision+1:String(Number(x.revision)+1);Object.values(x).forEach(amend);}};
+    amend(value);response=new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}});}
   if(path==='/api/trading/close-out-draft'){const value=await response.clone().json();
     if(response.ok&&o.next==='malformed'){value.kind=value.kind==='future'?'financial_swap':'future';response=new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}});}
     if(response.ok&&o.next==='foreignBook'){value.terms.bookId=crypto.randomUUID();response=new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}});}
@@ -113,6 +117,18 @@ export async function run(page){
   before=await drafts();
   await evaluate(`window.__closeOut.bump=${JSON.stringify(future.tradeId)}`);await closeOut();
   await check('a priced read at another revision refuses the draft of the revision chosen, saying why',`${bannerOnly('is now at revision 2, not revision 1 that was chosen')}&&window.__closeOut.drafts.length===${before}`,banner);
+  await click('#futures-refresh',30000);await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`,30000);await onlyRow(page,reference);
+  // A refresh that lands while the menu is open, with another revision of the position, refuses the Close out chosen from that menu:
+  // the menu was opened on the revision it showed then.
+  before=await drafts();
+  await rightClick(page,futureKey);await wait(`!!${menu}`);
+  await evaluate(`window.__closeOut.amended=${JSON.stringify(future.tradeId)};document.querySelector('#futures-refresh').click()`);
+  await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}&&window.__closeOut.holdings.find(h=>h.tradeId===${JSON.stringify(future.tradeId)})?.revision==='2'`,30000)
+    .catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify(await evaluate(`({pricing:document.querySelector('#futures-page').dataset.pricingState,busy:document.body.getAttribute('aria-busy'),error:document.querySelector('#error').textContent,revision:window.__closeOut.holdings.find(h=>h.tradeId===${JSON.stringify(future.tradeId)})?.revision,menu:!!${menu},refresh:document.querySelector('#futures-refresh').disabled})`)));});
+  await check('the menu stays open on the row it was opened for',`!!${menu}`);
+  await chooseItem(page,'Close out…');
+  await check('Close out from a menu opened on an earlier revision is refused, saying why, and no draft opens',`${bannerOnly('is now at revision 2, not revision 1 that was chosen')}&&window.__closeOut.drafts.length===${before}`,banner);
+  await evaluate('window.__closeOut.amended=null');
   await click('#futures-refresh',30000);await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`,30000);await onlyRow(page,reference);
   // A draft read that fails, a draft of another instrument and one for a book the catalog does not hold are the page's failures: the
   // banner says them, and the details hold no draft and nothing that could be booked.
