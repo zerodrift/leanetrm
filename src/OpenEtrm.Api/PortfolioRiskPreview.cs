@@ -83,10 +83,8 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         if(frame.ContextId is not {} contextId||bookIds.IsDefault||portfolioIds.IsDefault)
             throw new MarketDataException("risk_context","Select the shared financial context and explicit book and portfolio scopes.");
         var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context;
-        var books=await new FuturesStore(database.Manifest).Books(connection,ct);
-        FuturesStore.ValidateScope(books,bookIds,portfolioIds);
-        var selected=books.Where(b=>(bookIds.IsEmpty||bookIds.Contains(b.Id("id")))&&
-            (portfolioIds.IsEmpty||portfolioIds.Contains(b.Id("portfolio_id")))).Select(b=>b.Id("id")).Order().ToImmutableArray();
+        var books=await BookScope.Read(connection,database.Manifest.CatalogId,ct);
+        var selected=BookScope.Select(books,bookIds,portfolioIds).Select(b=>b.Id("id")).Order().ToImmutableArray();
         if(selected.IsEmpty)throw new MarketDataException("risk_position","Select visible books before running risk.");
         var valuation=new PortfolioValuation(database);var snapshot=data.Snapshot(frame);
         var portfolio=retained is {} run?

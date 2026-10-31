@@ -86,7 +86,7 @@ internal static class IntervalResolverBenchmark
     private static void CheckAffectedMonth(ImmutableArray<IntervalPriceResolution> actual,ImmutableArray<IntervalPriceResolution> before,int direction,ResolverReuseFixture fixture)
     {
         IntervalResolverReuseChecks.Equal(actual.Length,before.Length);
-        var increment=OpenEtrm.MarketData.CustomCurves.ExactUnitPrice.FromPrice(new(ExactDecimal.Parse(direction.ToString()),fixture.Unit));
+        var increment=OpenEtrm.MarketData.ExactUnitPrice.FromPrice(new(ExactDecimal.Parse(direction.ToString()),fixture.Unit));
         for(var i=0;i<actual.Length;i++)
         {
             var interval=actual[i].Interval;

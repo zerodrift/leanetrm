@@ -21,17 +21,7 @@ var pollSeconds = Setting("OPENETRM_WORKER_POLL_SECONDS", 1, 60);
 var leaseSeconds = Setting("OPENETRM_WORKER_LEASE_SECONDS", 5, 120);
 connection.MaxPoolSize = 2; connection.CommandTimeout = 5; connection.Timeout = 5; connection.Timezone = "UTC";
 await using var source = NpgsqlDataSource.Create(connection.ConnectionString);
-await using (var boundary = source.CreateCommand("""
-SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)
- AND pg_has_role(current_user,'openetrm_scheduler','MEMBER')
- AND NOT pg_has_role(current_user,'openetrm_security_owner','MEMBER')
- AND NOT EXISTS(SELECT 1 FROM pg_roles r WHERE r.rolname='openetrm_reference_importer' AND pg_has_role(current_user,r.oid,'MEMBER'))
- AND NOT pg_has_role(current_user,'openetrm_runtime','MEMBER')
- AND NOT pg_has_role(current_user,'openetrm_authenticator','MEMBER')
- AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN('automation','security','market_data','ref_data') AND pg_has_role(current_user,c.relowner,'MEMBER'))
- FROM pg_roles WHERE rolname=current_user
-"""))
-    if (!Equals(await boundary.ExecuteScalarAsync(), true)) throw new InvalidOperationException("The scheduler requires an isolated unprivileged service login.");
+await DatabaseLoginBoundary.Require(source, DatabaseLoginProfile.Scheduler, CancellationToken.None);
 var pilotRuntimeFile=Environment.GetEnvironmentVariable("OPENETRM_PILOT_RUNTIME_CONNECTION_FILE");
 var pilotManifestFile=Environment.GetEnvironmentVariable("OPENETRM_PILOT_MANIFEST_FILE");
 if((pilotRuntimeFile is null)!=(pilotManifestFile is null))throw new InvalidOperationException("Pilot close execution requires both explicit runtime and manifest files.");
@@ -47,18 +37,7 @@ if(pilotRuntimeFile is not null)
         throw new InvalidOperationException("The pilot runtime requires a separate explicit login to the same qualified database host.");
     runtime.MaxPoolSize=2;runtime.CommandTimeout=5;runtime.Timeout=5;runtime.Timezone="UTC";
     pilotSource=NpgsqlDataSource.Create(runtime.ConnectionString);
-    await using(var boundary=pilotSource.CreateCommand("""
-SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)
- AND pg_has_role(current_user,'openetrm_runtime','MEMBER')
- AND NOT pg_has_role(current_user,'openetrm_scheduler','MEMBER')
- AND NOT pg_has_role(current_user,'openetrm_authenticator','MEMBER')
- AND NOT pg_has_role(current_user,'openetrm_security_owner','MEMBER')
- AND NOT EXISTS(SELECT 1 FROM pg_roles r WHERE r.rolname='openetrm_reference_importer' AND pg_has_role(current_user,r.oid,'MEMBER'))
- AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,c.relowner,'MEMBER'))
- AND NOT EXISTS(SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,n.nspowner,'MEMBER'))
- AND NOT EXISTS(SELECT 1 FROM pg_database d WHERE d.datname=current_database() AND pg_has_role(current_user,d.datdba,'MEMBER'))
- FROM pg_roles WHERE rolname=current_user
-"""))if(!Equals(await boundary.ExecuteScalarAsync(),true))throw new InvalidOperationException("The pilot runtime requires an isolated unprivileged runtime login.");
+    await DatabaseLoginBoundary.Require(pilotSource, DatabaseLoginProfile.Runtime, CancellationToken.None);
     var manifest=JsonSerializer.Deserialize<PreviewManifest>(File.ReadAllText(pilotManifestFile!),new JsonSerializerOptions{PropertyNameCaseInsensitive=true})
         ??throw new InvalidOperationException("The pilot worker requires its exact protected market manifest.");
     if(manifest.Mode is not("hosted-pilot" or "local-synthetic-preview")||manifest.CatalogId==Guid.Empty||manifest.TenantId==Guid.Empty||manifest.WorkspaceId==Guid.Empty)throw new InvalidOperationException("The pilot market and workspace bindings must be explicit.");

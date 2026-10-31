@@ -332,11 +332,9 @@ internal sealed partial class RetainedScheduleStore
         if(h.Text("family")!=expected.Family||h.Text("economic_identity")!=expected.EconomicIdentity||h.Text("pricing_binding_identity")!=expected.PricingBindingIdentity||
             h.Text("schema_version")!=expected.SchemaVersion||h.Text("generator_version")!=expected.GeneratorVersion||h.Text("manifest")!=expected.Manifest)
             throw Error("The staged schedule header differs from the generated contract.");
-        using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);using var stream=new DigestSink(hash);using var writer=new Utf8JsonWriter(stream);
-        writer.WriteStartArray();JsonSerializer.Serialize(writer,new{expected.Family,expected.EconomicIdentity,expected.PricingBindingIdentity,expected.SchemaVersion,expected.GeneratorVersion},Json);
+        using var writer = new ScheduleManifestWriter(expected);
         async Task Part<T>(string name,IReadOnlyList<T> values,Func<ScheduleFields,T> parse,Func<T,T,bool>? equal=null)
         {
-            writer.WriteStartArray();
             for(var offset=0;offset<values.Count;offset+=BatchRows)
             {
                 cancellation.ThrowIfCancellationRequested();var page=await WithRead(authorized,(connection,ct)=>ReadPage(connection,schedule,request,null,null,null,name,offset,parse,ct));
@@ -346,28 +344,17 @@ internal sealed partial class RetainedScheduleStore
                     cancellation.ThrowIfCancellationRequested();var value=page[n];
                     if(!(equal?.Invoke(value,values[offset+n])??EqualityComparer<T>.Default.Equals(value,values[offset+n])))
                         throw Error("A persisted logical row differs from the generated canonical content.");
-                    JsonSerializer.Serialize(writer,value,Json);
+                    writer.Append(value);
                 }
                 writer.Flush();
             }
-            writer.WriteEndArray();
         }
         var parameters=new Dictionary<string,ImmutableSortedDictionary<string,string>>(StringComparer.Ordinal);
         await Part("rows",expected.Rows,row=>ReadRow(row,parameters),(a,b)=>a.Parameters.SequenceEqual(b.Parameters)&&(a with{Parameters=b.Parameters})==b);
         await Part("edges",expected.Edges,ReadEdge);await Part("bindings",expected.Bindings,ReadBinding);
         await Part("roots",expected.Roots,ReadRoot);await Part("ports",expected.Ports,ReadPort);
         await Part("grids",expected.Grids,ReadGrid,SameGrid);
-        writer.WriteEndArray();writer.Flush();
-        if(Convert.ToHexStringLower(hash.GetHashAndReset())!=expected.Manifest)throw Error("The complete staged manifest differs from its retained content.");
-    }
-    private sealed class DigestSink(IncrementalHash hash):Stream
-    {
-        public override bool CanRead=>false;public override bool CanSeek=>false;public override bool CanWrite=>true;
-        public override long Length=>throw new NotSupportedException();public override long Position{get=>throw new NotSupportedException();set=>throw new NotSupportedException();}
-        public override void Flush(){}public override int Read(byte[] buffer,int offset,int count)=>throw new NotSupportedException();
-        public override long Seek(long offset,SeekOrigin origin)=>throw new NotSupportedException();public override void SetLength(long value)=>throw new NotSupportedException();
-        public override void Write(byte[] buffer,int offset,int count)=>hash.AppendData(buffer,offset,count);
-        public override void Write(ReadOnlySpan<byte> buffer)=>hash.AppendData(buffer);
+        if(writer.Complete()!=expected.Manifest)throw Error("The complete staged manifest differs from its retained content.");
     }
     private async Task<ScheduleDefinition> LoadContent(ReadAccess authorized,
         Guid schedule,Guid side,Guid? request,Guid? instrument,Guid? context,DateTimeOffset? asOf,CancellationToken cancellation)

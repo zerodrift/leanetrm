@@ -137,7 +137,7 @@ internal static class ScheduleGraphChecks
         var fixedTermForIdentity = new FlatPrice(new(ExactDecimal.Parse("3"), PriceUnit.FromQuote(f.Quotes[0])));
         var fixedKey = new ScheduleSourceKey.Contract(DefinitionIdentity.For(fixedTermForIdentity), 0);
         _ = checks.FixedPrice(fixedKey, fixedTermForIdentity.At(new(2041, 1, 1)));
-        Reject("schedule_graph_input", () => checks.FixedPrice(fixedKey, OpenEtrm.MarketData.CustomCurves.ExactUnitPrice.FromPrice(
+        Reject("schedule_graph_input", () => checks.FixedPrice(fixedKey, OpenEtrm.MarketData.ExactUnitPrice.FromPrice(
             new(ExactDecimal.Parse("3"), new PriceUnit(f.Quotes[0].Currency, f.Quotes[0].Quantity, ExactDecimal.Parse("2"))))));
         _ = checks.QuantityInput(Source(61), Q("1"), ScheduleInputUse.Frozen);
         Reject("schedule_graph_input", () => checks.QuantityInput(Source(61), Q("2"), ScheduleInputUse.Frozen));

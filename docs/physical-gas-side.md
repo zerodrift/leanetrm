@@ -26,7 +26,7 @@ Physical settlement, inventory and gas scenario risk remain unsupported. The com
 
 New trade offers Future, Swap, PPA and Physical gas in the same panel. Each form uses its existing preview, booking, status and idempotent recovery operations. A confirmed booking refreshes the common Blotter and opens its exact position when uniquely identified. Gas daily quantities open from that position. PPA lifecycle operations remain native and open in the same panel. Unknown booking outcomes block replacement requests and retain the actor-owned command across editor remounts, including when supplementary browser storage fails.
 
-Mixed interactive and queued risk reports retain the exact gas bindings as `physical_gas_risk_unavailable` exclusions while repricing supported financial/PPA holdings. A gas-only scope cannot return a successful zero risk result. Migration 0149 supplies the minimal temporal gas position inventory to leased risk workers without granting raw gas table access. Automated closes containing gas remain explicitly unsupported. Operational quantity revisions do not change contractual PV or create extra positions.
+Mixed interactive and queued risk reports retain the exact gas bindings as `physical_gas_risk_unavailable` exclusions while repricing supported financial/PPA holdings. A gas-only scope cannot return a successful zero risk result. Migration 0150 supplies the minimal temporal gas position inventory to leased risk workers without granting raw gas table access. Automated closes containing gas remain explicitly unsupported. Operational quantity revisions do not change contractual PV or create extra positions.
 
 ## Independent sides and fixed quantity links
 

@@ -47,22 +47,8 @@ public static class ReferenceImportCommand
         catch(Exception e) when(e is IOException or UnauthorizedAccessException or JsonException or ArgumentException or InvalidOperationException or NpgsqlException or OperationCanceledException)
         {Console.Error.WriteLine("{\"code\":\"reference_import_failed\",\"error\":\"Private import was not confirmed. Retain the same operation and inputs to reconcile safely; no source or credential details are logged.\"}");return 1;}
     }
-    internal static async Task Boundary(NpgsqlConnection connection,bool executor,CancellationToken ct)
-    {
-        await using var command=ScheduleStore.Command(connection,"""
-SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND rolinherit
- AND pg_has_role(current_user,'openetrm_runtime','MEMBER')=$1
- AND pg_has_role(current_user,'openetrm_reference_importer','MEMBER')=$1
- AND pg_has_role(current_user,'openetrm_authenticator','MEMBER')<>$1
- AND NOT pg_has_role(current_user,'openetrm_security_owner','MEMBER')
- AND NOT EXISTS(SELECT 1 FROM pg_roles r WHERE r.rolname IN('openetrm_collector','openetrm_scheduler') AND pg_has_role(current_user,r.oid,'MEMBER'))
- AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,c.relowner,'MEMBER'))
- AND NOT EXISTS(SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,n.nspowner,'MEMBER'))
- AND NOT EXISTS(SELECT 1 FROM pg_database d WHERE d.datname=current_database() AND pg_has_role(current_user,d.datdba,'MEMBER'))
- FROM pg_roles WHERE rolname=current_user
-""",executor);
-        if(!Equals(await command.ExecuteScalarAsync(ct),true))throw new InvalidOperationException("Private import role boundary failed.");
-    }
+    internal static Task Boundary(NpgsqlConnection connection,bool executor,CancellationToken ct) =>
+        DatabaseLoginBoundary.Require(connection, executor ? DatabaseLoginProfile.ReferenceImporter : DatabaseLoginProfile.ImportAuthenticator, ct);
     static T Read<T>(string path,int maximum)
     {
         Private(path);if(new FileInfo(path).Length>maximum)throw new IOException();

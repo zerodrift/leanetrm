@@ -277,18 +277,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
     public async Task ValidateHostedBoundary(CancellationToken ct)
     {
         if(authenticator is null)throw new InvalidOperationException("This direct reader has no authenticator capability.");
-        foreach(var entry in new[]{(Source:runtime,Role:"openetrm_runtime",Other:"openetrm_authenticator"),(Source:authenticator,Role:"openetrm_authenticator",Other:"openetrm_runtime")})
-        {
-            await using var command=entry.Source.CreateCommand("""
-SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole) AND pg_has_role(current_user,$1,'MEMBER') AND NOT pg_has_role(current_user,$2,'MEMBER') AND NOT pg_has_role(current_user,'openetrm_security_owner','MEMBER') AND current_setting('track_commit_timestamp')='on'
- AND NOT EXISTS(SELECT 1 FROM pg_roles r WHERE r.rolname='openetrm_reference_importer' AND pg_has_role(current_user,r.oid,'MEMBER'))
- AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,c.relowner,'MEMBER'))
- AND NOT EXISTS(SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND pg_has_role(current_user,n.nspowner,'MEMBER'))
- AND NOT EXISTS(SELECT 1 FROM pg_database d WHERE d.datname=current_database() AND pg_has_role(current_user,d.datdba,'MEMBER')) FROM pg_roles WHERE rolname=current_user
-""");
-            command.Parameters.AddWithValue(entry.Role);command.Parameters.AddWithValue(entry.Other);
-            if(!Equals(await command.ExecuteScalarAsync(ct),true))throw new InvalidOperationException("Hosted database roles or commit tracking do not meet the installation boundary.");
-        }
+        await DatabaseLoginBoundary.Require(runtime, DatabaseLoginProfile.Runtime, ct);
+        await DatabaseLoginBoundary.Require(authenticator, DatabaseLoginProfile.Authenticator, ct);
     }
 
     public async Task<PreviewData> Read(NpgsqlConnection connection, CancellationToken ct,Guid? selectedRevision=null,PreviewData? sharedReferences=null,ImmutableArray<Guid>? observationIds=null,

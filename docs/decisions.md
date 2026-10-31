@@ -1763,3 +1763,42 @@ financial and power definitions, source identities and feeds remain independent.
 Missing or ambiguous gas dates refuse rather than borrowing primary inputs.
 This adds no operational quantity valuation or settlement behavior. See
 [physical gas](physical-gas-side.md#independent-gas-market-selection).
+
+## D270 — Shared mechanisms and exact reference relationships
+
+Accepted for local implementation on 2026-10-31. Common numerical mechanisms
+belong in `OpenEtrm.Shared`; financial units, reference versions, lifecycle rules
+and database authority stay in their owning modules. This does not introduce a
+generic financial framework or merge distinct product policies.
+
+- Exact cash, quantities, prices and retained schedule numbers share signed
+  rational normalization and arithmetic. Typed wrappers preserve their existing
+  units, error contracts, precision rules and distinct bounds. `ExactUnitPrice`
+  is a market-domain value type in its own file; retained JSON and numerical
+  identity encodings do not depend on its former CLR namespace.
+- One domain-owned incremental writer encodes retained schedule manifests for
+  generation and persisted verification. Existing manifest bytes remain stable;
+  authorized page reads and row comparisons remain the persistence owner's work.
+- Trading book scope uses one authorized directory and selection rule. Holdings
+  consistently intersect that visible directory, including empty-filter reads;
+  product callers retain their empty-result and ordering contracts. Settlement
+  replay shares only the exact prior-outcome query; database authorization,
+  atomic idempotency and product-specific cash rules remain authoritative.
+- Database service logins use explicit profiles and common privilege/ownership
+  checks. Runtime/authenticator profiles require commit tracking, and profiles
+  reject unrelated installed service memberships. Scheduler ownership checks now
+  cover all non-system objects, schemas and the connected database. See
+  [database login boundaries](database-login-boundaries.md) for policy details.
+- Existing reference records must be linked through their exact scoped/versioned
+  keys. A textual code inside a composite foreign key is an identity component,
+  not a substitute for one. Model versions and closed protocol discriminators
+  remain versioned contracts; they are not new reference catalogs. Migration
+  0149 constrains contract-observation snapshots to their actual definition and
+  reference bundle and to their owning period/terms. See
+  [retained schedule integrity](retained-schedule-integrity.md).
+
+Migration 0149 validates existing rows; mismatches block migration instead of
+being silently repaired. Local managed checks and independent review qualify the
+refactoring mechanics. Database startup, migration and full persisted workflows
+still require the corresponding disposable PostgreSQL checks before release;
+managed arithmetic tests alone do not qualify those operations.

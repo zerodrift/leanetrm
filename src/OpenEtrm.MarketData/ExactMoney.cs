@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Numerics;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData;
 
@@ -7,8 +8,9 @@ namespace OpenEtrm.MarketData;
 // before netting/scaling. Conversion to Money enforces the final numeric policy.
 public sealed record ExactMoney
 {
-    private readonly BigInteger numerator;
-    private readonly BigInteger denominator;
+    private readonly SignedRatio value;
+    private BigInteger numerator => value.Numerator;
+    private BigInteger denominator => value.Denominator;
     public ReferenceKey Currency { get; }
     public string Numerator => numerator.ToString(CultureInfo.InvariantCulture);
     public string Denominator => denominator.ToString(CultureInfo.InvariantCulture);
@@ -16,9 +18,11 @@ public sealed record ExactMoney
     {
         Money.RequireKey(currency);
         if (denominator <= 0) throw new MarketDataException("numeric_division", "An exact cash amount requires a positive denominator.");
-        var gcd = BigInteger.GreatestCommonDivisor(BigInteger.Abs(numerator), denominator);
-        this.numerator = numerator / gcd; this.denominator = denominator / gcd; Currency = currency;
+        value = new(numerator, denominator); Currency = currency;
     }
+
+    private ExactMoney(SignedRatio value, ReferenceKey currency)
+    { this.value = value; Currency = currency; }
 
     public string ToString(AmountFormat format, AmountLabel currency) => format.FormatFraction(numerator, denominator) + " " + currency.Require(Currency);
     public static ExactMoney Parse(string value,ReferenceKey currency)
@@ -34,30 +38,27 @@ public sealed record ExactMoney
     {
         if (other is null || Currency != other.Currency)
             throw new MarketDataException("currency_mismatch", "Exact cash aggregation requires the same currency reference.");
-        var shared = BigInteger.GreatestCommonDivisor(denominator, other.denominator);
-        return new(numerator * (other.denominator / shared) + other.numerator * (denominator / shared),
-            denominator * (other.denominator / shared), Currency);
+        return new(value + other.value, Currency);
     }
-    public ExactMoney Scale(ExactDecimal factor) => new(numerator * factor.ScaledValue, denominator * ExactDecimal.WorkingScale, Currency);
-    public ExactMoney Scale(OpenEtrm.Shared.Numerics.ExactRatio ratio)=>new(numerator*ratio.Numerator,denominator*ratio.Denominator,Currency);
+    public ExactMoney Scale(ExactDecimal factor) => new(value * new SignedRatio(factor.ScaledValue, ExactDecimal.WorkingScale), Currency);
+    public ExactMoney Scale(OpenEtrm.Shared.Numerics.ExactRatio ratio)=>new(value * new SignedRatio(ratio.Numerator, ratio.Denominator), Currency);
     internal ExactMoney Scale(ExactQuantity quantity,ReferenceKey denominatorQuantity)
     {
         if(quantity.Specification!=denominatorQuantity)
             throw new MarketDataException("quantity_mismatch","A unit value requires its exact external quantity basis.");
-        return new(numerator*quantity.NumeratorValue,denominator*quantity.DenominatorValue,Currency);
+        return new(value * new SignedRatio(quantity.NumeratorValue, quantity.DenominatorValue), Currency);
     }
     internal ExactMoney DivideBy(ExactDecimal divisor)
     {
         if(divisor.CompareTo(default)<=0)throw new MarketDataException("numeric_division","An exact positive divisor is required.");
-        return new(numerator*ExactDecimal.WorkingScale,denominator*divisor.ScaledValue,Currency);
+        return new(value * new SignedRatio(ExactDecimal.WorkingScale, divisor.ScaledValue), Currency);
     }
     public ExactMoney Subtract(ExactMoney other)=>Add(other.Scale(ExactDecimal.Parse("-1")));
     public Money ToMoney()
     {
-        var value = BigInteger.DivRem(numerator * ExactDecimal.WorkingScale, denominator, out var remainder);
-        if (!remainder.IsZero)
+        if (!value.TryScaleToInteger(ExactDecimal.WorkingScale, out var scaled))
             throw new MarketDataException("precision_loss", "The exact cash amount exceeds 18 fractional digits; no rounding policy was selected.");
-        return new(ExactDecimal.FromScaled(value), Currency);
+        return new(ExactDecimal.FromScaled(scaled), Currency);
     }
     public Money ToMoney(AmountFormat rounding)=>new(rounding.RoundFraction(numerator,denominator),Currency);
 

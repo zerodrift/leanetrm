@@ -6,22 +6,15 @@ public static class PowerIntervalQuantities
 {
  public const string Implementation="explicit_interval_power_quantity_v1";
 
- internal static bool IsEnergy(QuantitySpecification? definition)=>Coherent(definition) &&
+ internal static bool IsEnergy(QuantitySpecification? definition)=>QuantityDefinitions.Coherent(definition) &&
   definition!.Unit.Code=="megawatt_hour" && definition.Dimension.Code=="energy";
 
- private static bool Coherent(QuantitySpecification? definition)
- {
-  if(definition is null)return false;
-  var keys=new[]{definition.Key,definition.Commodity,definition.MeasurementBasis,definition.Unit,definition.Dimension};
-  try{foreach(var key in keys)Money.RequireKey(key);}
-  catch(MarketDataException){return false;}
-  return keys.All(k=>k.Revision==definition.Key.Revision);
- }
+
 
  public static PowerEnergyInterval[] Compile(PowerInterval[] periods,PowerIntervalQuantity[] rows,
   QuantitySpecification inputDefinition,QuantitySpecification energyDefinition)
  {
-  if(!Coherent(inputDefinition) || !IsEnergy(energyDefinition) ||
+  if(!QuantityDefinitions.Coherent(inputDefinition) || !IsEnergy(energyDefinition) ||
     inputDefinition.Key.Revision!=energyDefinition.Key.Revision || inputDefinition.Commodity!=energyDefinition.Commodity ||
     inputDefinition!=energyDefinition && (inputDefinition.Unit.Code!="megawatt" || inputDefinition.Dimension.Code!="power"))
    throw new MarketDataException("power_quantity","Select exact compatible MW or MWh interval quantity specifications.");

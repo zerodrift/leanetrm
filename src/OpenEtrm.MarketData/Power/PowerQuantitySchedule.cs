@@ -31,7 +31,7 @@ public sealed class PowerQuantitySchedule
  private PowerQuantitySchedule(Quantity input,PowerQuantityBasis basis,QuantitySpecification inputDefinition,QuantitySpecification energyDefinition,
   DateOnly from,DateOnly to,PowerClock clock,TimeOfUse mask,ImmutableArray<DateOnly> holidays,int minutes,PowerAllocation? allocation)
  {
-  if(input is null || !Coherent(inputDefinition) || !Coherent(energyDefinition) || clock is null || mask is null ||
+  if(input is null || !QuantityDefinitions.Coherent(inputDefinition) || !QuantityDefinitions.Coherent(energyDefinition) || clock is null || mask is null ||
     input.Specification!=inputDefinition.Key || !Enum.IsDefined(basis) ||
     energyDefinition.Unit.Code!="megawatt_hour" || energyDefinition.Dimension.Code!="energy" ||
     inputDefinition.Key.Revision!=energyDefinition.Key.Revision || inputDefinition.Commodity!=energyDefinition.Commodity ||
@@ -48,14 +48,7 @@ public sealed class PowerQuantitySchedule
   Intervals=periods.Select(p=>new PowerEnergyInterval(p,new(input.Amount.ScaledValue*(p.End-p.Start).Ticks,Divisor(),energyDefinition.Key))).ToImmutableArray();
   Total=new(input.Amount.ScaledValue*(basis==PowerQuantityBasis.FlatPower?ticks:TimeSpan.TicksPerHour),scale*TimeSpan.TicksPerHour,energyDefinition.Key);
  }
- private static bool Coherent(QuantitySpecification? definition)
- {
-  if(definition is null)return false;
-  var keys=new[]{definition.Key,definition.Commodity,definition.MeasurementBasis,definition.Unit,definition.Dimension};
-  try{foreach(var key in keys)Money.RequireKey(key);}
-  catch(MarketDataException){return false;}
-  return keys.All(k=>k.Revision==definition.Key.Revision);
- }
+
  public static PowerQuantitySchedule Compile(Quantity input,PowerQuantityBasis basis,QuantitySpecification inputDefinition,QuantitySpecification energyDefinition,
   DateOnly from,DateOnly to,PowerClock clock,TimeOfUse mask,DateOnly[] holidays,int intervalMinutes,PowerAllocation? allocation)=>
   new(input,basis,inputDefinition,energyDefinition,from,to,clock,mask,

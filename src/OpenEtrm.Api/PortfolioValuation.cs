@@ -292,7 +292,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         ScheduleContext context,DateTimeOffset at,CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();var exact=PinnedContext.Exact(context);
-        var books=await new FuturesStore(database.Manifest).Books(connection,ct);FuturesStore.ValidateScope(books,bookIds,[]);
+        var books=await BookScope.Read(connection,database.Manifest.CatalogId,ct);BookScope.Validate(books,bookIds,[]);
         if(holdings.IsDefault||holdings.Any(holding=>!bookIds.Contains(holding.Row.Id("book_id"))||
             holding.Frame.ContextId!=exact.ContextId||holding.Frame.At!=at||holding.Snapshot.ValuationAt!=at))
             throw new MarketDataException("portfolio_context","Reused holdings require their exact certified frame and selected books.");
