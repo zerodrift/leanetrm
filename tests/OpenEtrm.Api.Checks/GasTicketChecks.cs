@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Trading;
 
 internal static class GasTicketChecks
 {
@@ -43,7 +44,7 @@ internal static class GasTicketChecks
             Equal(new GasPhysicalRequest("RCT", "PIPE", "Z1", "P1", "firm", "receive", "2027-01-01", "2027-02-01", "per_operating_day", "10000", null), p, "receipt side");
             var l = r.PhysicalSides[1];
             Equal(new GasQuantityLinkRequest("RCT", "gross_less_fraction", "0.02"), l.Link, "link"); Equal(null, l.Quantity, "linked quantity");
-            Equal(new GasCashRequest("PAY", "cash", "pay", "RCT", "receipt", "2.5", null, "2027-03-01T00:00:00Z"), r.CashSides[0], "cash side");
+            Equal(new GasCashRequest("PAY", "consideration", "pay", "RCT", "receipt", "2.5", null, "2027-03-01T00:00:00Z"), r.CashSides[0], "cash side");
             Equal(new GasCashRequest("FEE", "fee", "pay", "DLV", "delivery", null, "TARIFF", "2027-03-01T00:00:00Z"), r.CashSides[1], "fee side");
         });
         Check("every request property is reachable from one field", () =>
@@ -65,6 +66,19 @@ internal static class GasTicketChecks
             // Legal entity and counterparty each fill an id and a revision from one field.
             var mapped = reached.SelectMany(x => x.Split(':')[1].Split('|')).Distinct().Order().ToArray();
             if (!editable.SequenceEqual(mapped)) throw new Exception($"Editable fields and the field map differ: {string.Join(", ", editable.Except(mapped).Concat(mapped.Except(editable)))}.");
+        });
+        Check("each side kind declares every column its view side reports", () =>
+        {
+            string Ids(string role) => string.Join(",", GasTicket.SideKind(role).Columns.Select(c => c.Id));
+            Equal("quantity,market_price,amount", Ids("physical"), "physical columns");
+            Equal("quantity,price,amount", Ids("consideration"), "cash columns"); Equal("quantity,price,amount", Ids("fee"), "fee columns");
+            Equal("cash", GasTicket.SideKind("consideration").Kind, "consideration kind");
+            Equal($"{ScheduleViews.NetCash},{ScheduleViews.PaymentAt}", string.Join(",", GasTicket.Description.TradeColumns.Select(c => "trade." + c.Id)), "trade columns");
+        });
+        Check("a role without a side kind refuses", () =>
+        {
+            try { GasTicket.SideKind("cash"); } catch (MarketDataException error) when (error.Code == "ticket_description") { return; }
+            throw new Exception("Expected ticket_description for an unknown role.");
         });
         Check("profile and discounting are explicit", () => { var r = Map(full); Equal("fixed_gas_composition_v1", r.Profile, "profile"); Equal(false, r.Discounting, "discounting"); Equal(PhysicalGasStore.Convention, r.Convention, "convention"); Equal("current", r.KnowledgeMode, "knowledge"); });
         Check("cash and fee sides keep draft order", () => Equal("FEE", Map(Draft(Receipt, Linked, Fee, Cash)).CashSides[0].Code, "first cash side"));

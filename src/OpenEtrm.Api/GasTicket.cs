@@ -10,6 +10,8 @@ public sealed record TicketDraft(string Product,int Version,ImmutableDictionary<
 public static class GasTicket
 {
  const string Physical="physical";
+ // The composition role each side kind books as.
+ static readonly ImmutableDictionary<string,string> Roles=new Dictionary<string,string>{[Physical]="physical",["cash"]="consideration",["fee"]="fee"}.ToImmutableDictionary();
  public static TicketDescription Description{get;}=TicketDescriptions.Validate(new("physical_gas",1,"flow",
   [Trade("book","Book","Book that holds the trade.","choice",choices:"books"),
    Trade("legal_entity","Legal entity","Our legal entity on the trade.","choice",choices:"legal_entities",required:false),
@@ -32,13 +34,16 @@ public static class GasTicket
      Field("link_source","Link source","Physical side whose quantity this side follows.","choice",choices:"physical_sides",required:false),
      Field("link_formula","Link formula","How fuel loss relates this side to its source.","choice",choices:"link_formulas",required:false,dependsOn:"link_source"),
      Field("link_fraction","Link fraction","Fuel fraction used by the link formula.","decimal",required:false,dependsOn:"link_source")],
-    [new("quantity","Quantity","MMBtu","quantity",false),new("market_price","Market price",null,"price",false)]),
+    [new("quantity","Quantity","MMBtu","quantity",false),new("market_price","Market price",null,"price",false),new("amount","Amount",null,"money",false)]),
    CashKind("cash","Payment","cash",false),
    CashKind("fee","Fee","fee",true)],
   // The composition contract admits at most four cash sides, fees included.
   [new(["cash","fee"],4)],
   [new("net_cash","Net cash",null,"money",false),new("payment_at","Payment at",null,"time",false)],
   ["month","day"],[new("links","Quantity links")],["new","booked"]));
+
+ public static TicketSideKind SideKind(string role)=>Description.Sides.SingleOrDefault(kind=>Roles.GetValueOrDefault(kind.Kind)==role)??
+  throw new MarketDataException("ticket_description",$"No {Description.Product} side kind books as role '{role}'.");
 
  static TicketField Trade(string id,string label,string meaning,string type,string? choices=null,bool required=true)=>
   new(id,label,meaning,type,null,"editable",required,null,choices,[],null,null,null);
@@ -61,7 +66,7 @@ public static class GasTicket
     Own("price","Price","Price per unit of the source quantity.","decimal","price",required:!fee,lookup:fee?"tariff_price":null),
     Own("payment_at","Payment at","When the amount is paid.","datetime","payment"),
     ..fee?[Own("tariff","Tariff","Configured usage tariff that sets the price.","choice",choices:"usage_tariffs",required:false)]:Array.Empty<TicketField>()],
-   [new("price","Price",null,"price",false),new("amount","Amount",null,"money",false)]);
+   [new("quantity","Quantity","MMBtu","quantity",false),new("price","Price",null,"price",false),new("amount","Amount",null,"money",false)]);
  }
 
  public static GasCompositionRequest Request(TicketDraft draft,Guid snapshotId,string knowledgeMode,Guid operationId,Guid definitionRevisionId)
@@ -92,7 +97,7 @@ public static class GasTicket
   var (entity,entityRevision)=Versioned(t,"legal_entity");var (party,partyRevision)=Versioned(t,"counterparty");
   return new(snapshotId,PhysicalGasStore.Convention,knowledgeMode,GasCompositionStore.Profile,operationId,Id(t,"book")!.Value,definitionRevisionId,Id(t,"gas_setup"),false,entity,entityRevision,party,partyRevision,
    [..physical.Select(s=>PhysicalRequest(s,Source))],
-   [..draft.Sides.Where(s=>s.Kind!=Physical).Select(s=>new GasCashRequest(s.Code,s.Kind,s.Values[$"{s.Kind}_direction"],Source(s,$"{s.Kind}_source"),s.Values[$"{s.Kind}_stage"],s.Values.GetValueOrDefault($"{s.Kind}_price"),s.Values.GetValueOrDefault($"{s.Kind}_tariff"),s.Values[$"{s.Kind}_payment_at"]))]);
+   [..draft.Sides.Where(s=>s.Kind!=Physical).Select(s=>new GasCashRequest(s.Code,Roles[s.Kind],s.Values[$"{s.Kind}_direction"],Source(s,$"{s.Kind}_source"),s.Values[$"{s.Kind}_stage"],s.Values.GetValueOrDefault($"{s.Kind}_price"),s.Values.GetValueOrDefault($"{s.Kind}_tariff"),s.Values[$"{s.Kind}_payment_at"]))]);
  }
 
  static GasPhysicalRequest PhysicalRequest(TicketSideDraft side,Func<TicketSideDraft,string,string> source)

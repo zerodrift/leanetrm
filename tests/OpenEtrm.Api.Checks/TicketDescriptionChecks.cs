@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Trading;
 
 internal static class TicketDescriptionChecks
 {
@@ -24,6 +25,12 @@ internal static class TicketDescriptionChecks
         TicketDescription WithTrade(params TicketField[] fields) => valid with { TradeFields = [..fields] };
         TicketDescription WithBuy(params TicketField[] fields) => valid with { Sides = [Kind("buy", fields), valid.Sides[1]] };
         Check("a valid description passes unchanged", () => { if (!ReferenceEquals(TicketDescriptions.Validate(valid), valid)) throw new Exception("Instance changed"); });
+        Check("side columns map to schedule view measures", () =>
+        {
+            var kind = valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", false), new("p", "P", null, "price", false), new("a", "A", null, "money", false)] };
+            if (!TicketDescriptions.ViewColumns(kind).SequenceEqual([("q", ScheduleViewMeasure.Quantity), ("p", ScheduleViewMeasure.Price), ("a", ScheduleViewMeasure.Amount)])) throw new Exception("Measures differ");
+        });
+        Reject("a side column the schedule view cannot show", valid with { Sides = [valid.Sides[0] with { Columns = [new("at", "At", null, "time", false)] }, valid.Sides[1]] });
         Reject("a field id repeated across trade and sides", WithTrade(Field("book"), Field("buy_start")));
         Reject("a state outside the four", WithTrade(Field("book", "hidden")));
         Reject("a soon field without hover text", WithTrade(Field("book", "soon")));

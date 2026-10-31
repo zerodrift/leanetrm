@@ -28,8 +28,6 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  internal const string Profile="fixed_gas_composition_v1";
  readonly PhysicalGasStore gas=new(database);
  static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
- static readonly ImmutableArray<(string,ScheduleViewMeasure)> PhysicalColumns=[("quantity",ScheduleViewMeasure.Quantity),("market_price",ScheduleViewMeasure.Price),("amount",ScheduleViewMeasure.Amount)];
- static readonly ImmutableArray<(string,ScheduleViewMeasure)> CashColumns=[("quantity",ScheduleViewMeasure.Quantity),("price",ScheduleViewMeasure.Price),("amount",ScheduleViewMeasure.Amount)];
  static MarketDataException Invalid(string s)=>new("gas_composition_input",s);
  static ExactDecimal Number(string s)
  {
@@ -91,7 +89,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    var p=programs.Single(x=>x.Slot==member.Slot);var result=sources.Evaluate(p.Program,p.SideId,market,discount,ct);
    var amount=result.PresentValue.Scale(member.Ratio).Scale(quantity).Scale(Number(member.Direction.ToString(CultureInfo.InvariantCulture)));total=total is null?amount:total.Add(amount);
    // The view applies the same booked quantity and signed membership as the present value.
-   views?.Add(new(member.Code,result,p.Program,quantity,new(member.Ratio.Numerator*member.Direction,member.Ratio.Denominator),member.Role=="physical"?PhysicalColumns:CashColumns));
+   views?.Add(new(member.Code,result,p.Program,quantity,new(member.Ratio.Numerator*member.Direction,member.Ratio.Denominator),TicketDescriptions.ViewColumns(GasTicket.SideKind(member.Role))));
    var rows=new List<object>();ExactQuantity? qtotal=null;
    if(member.Role=="physical")
    {
@@ -120,7 +118,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    {
     var clock=members.Where(m=>m.Role=="physical").Select(m=>m.Clock).Distinct().ToArray();
     if(clock.Length!=1)throw new MarketDataException("schedule_view","A gas schedule view requires every physical side to share one gas-day clock.");
-    schedule=ScheduleViews.Build(views.ToImmutable(),["month","day"],clock[0].Boundary,market.Graph.Plan.Context.ValuationAt);
+    schedule=ScheduleViews.Build(views.ToImmutable(),GasTicket.Description.Levels,clock[0].Boundary,market.Graph.Plan.Context.ValuationAt);
    }
    catch(MarketDataException error)when(error.Code is "schedule_view" or "gas_day_boundary"){refusal=new{code=error.Code,message=error.Message};}
   // No contract-against-market measure is defined for these sides yet, so none is reported.

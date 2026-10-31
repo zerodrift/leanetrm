@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
@@ -17,6 +18,11 @@ public static class TicketDescriptions
  static readonly ImmutableArray<string> States=["editable","derived","info","soon"];
  static readonly ImmutableArray<string> LevelOrder=["month","day","hour"];
  static readonly ImmutableArray<string> ModeNames=["new","booked","amend","close_out"];
+ // The one map from a side column's measure to what the schedule view reports.
+ static readonly ImmutableDictionary<string,ScheduleViewMeasure> ViewMeasures=new Dictionary<string,ScheduleViewMeasure>{["quantity"]=ScheduleViewMeasure.Quantity,["price"]=ScheduleViewMeasure.Price,["money"]=ScheduleViewMeasure.Amount}.ToImmutableDictionary();
+
+ public static ImmutableArray<(string,ScheduleViewMeasure)> ViewColumns(TicketSideKind kind)=>[..kind.Columns.Select(column=>(column.Id,ViewMeasures.TryGetValue(column.Measure,out var measure)?measure:
+  throw new MarketDataException("ticket_description",$"Side kind '{kind.Kind}' column '{column.Id}' has measure '{column.Measure}', which the schedule view cannot show.")))];
 
  public static TicketDescription Validate(TicketDescription d)
  {
@@ -37,6 +43,7 @@ public static class TicketDescriptions
   foreach(var side in d.Sides)
   {
    if(side.Min<0||side.Min>side.Max||side.Max<1)Fail(d,$"side kind '{side.Kind}' needs 0 <= min <= max and 1 <= max");
+   if(side.Columns.FirstOrDefault(column=>!ViewMeasures.ContainsKey(column.Measure)) is {} unshown)Fail(d,$"side kind '{side.Kind}' column '{unshown.Id}' has measure '{unshown.Measure}', which the schedule view cannot show");
    var rows=side.Fields.Where(f=>f.Band is not null).GroupBy(f=>f.Band).FirstOrDefault(g=>g.Count()>1);
    if(rows is not null)Fail(d,$"side kind '{side.Kind}' has more than one field on band row '{rows.Key}'");
   }
