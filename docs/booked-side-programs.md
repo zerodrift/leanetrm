@@ -272,7 +272,9 @@ view, restricted to exact revision keys. The selected set is projected once in a
 avoiding repeated protected scans and rendering of unrelated visible revisions.
 The committed receipt join remains in the same statement. JIT is disabled only
 inside that bounded read, including its nested side-term projections; PostgreSQL
-restores the caller’s setting on return or failure.
+restores the caller’s setting on return or failure. Header readers declare their
+schema-bounded cardinality (one exact header, at most eight instrument slots),
+so their lateral join is not planned as a million-row result.
 Migration 0143 requires an explicit rebooking schema window.
 
 Qualification includes an injected booking identity mismatch: the API refuses it,

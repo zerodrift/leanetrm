@@ -54,6 +54,10 @@ CREATE VIEW trading.swap_revision_projection WITH(security_invoker=true) AS
 ALTER VIEW trading.swap_revision_projection OWNER TO openetrm_security_owner;
 REVOKE ALL ON trading.swap_revision_projection FROM PUBLIC;
 GRANT SELECT ON trading.swap_revision_projection TO openetrm_runtime,openetrm_risk_worker,openetrm_security_owner;
+-- Exact headers contain at most one row; instrument slots are constrained to 0..7.
+-- Accurate estimates prevent their lateral join being costed as a million rows.
+ALTER FUNCTION security.read_side_schedule_header(uuid,uuid,uuid,uuid,uuid,timestamptz) ROWS 1;
+ALTER FUNCTION security.read_instrument_side_schedule_headers(uuid,uuid,uuid,timestamptz) ROWS 8;
 -- This bounded relational read runs once per request. Avoid LLVM compilation
 -- overhead for the projection and its nested protected side-term readers.
 CREATE FUNCTION trading.read_swap_revisions(catalog uuid,trade uuid,latest_only boolean,books uuid[]) RETURNS SETOF jsonb

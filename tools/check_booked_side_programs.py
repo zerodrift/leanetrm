@@ -262,6 +262,8 @@ def run_authority_checks(query,manifest,entry,before_context):
     for function in ('trading.read_swap_revisions(uuid,uuid,boolean,uuid[])','trading.swap_revision_terms(uuid,uuid,integer)','trading.swap_revision_rows(uuid,uuid,integer)','trading.swap_observation_terms(uuid,uuid[])'):
         assert query(f"SELECT prosecdef FROM pg_proc WHERE oid='{function}'::regprocedure;")=='f'
     assert query("SELECT 'jit=off'=ANY(proconfig) FROM pg_proc WHERE oid='trading.read_swap_revisions(uuid,uuid,boolean,uuid[])'::regprocedure;")=='t'
+    header_plan=query(f"EXPLAIN(FORMAT JSON) SELECT (h.value||m.value)::text FROM security.read_instrument_side_schedule_headers('{catalog}','{instrument}',NULL,NULL) m(value) CROSS JOIN LATERAL security.read_side_schedule_header('{catalog}',(m.value->>'schedule_id')::uuid,NULL,'{instrument}',NULL,NULL) h(value) ORDER BY (m.value->>'slot')::integer;")
+    assert json.loads(header_plan)[0]['Plan']['Plan Rows']<=8, 'Header rechecks must retain the schema-bounded planner cardinality'
     restored=runtime_query(query,manifest,history_bind+"SET LOCAL jit=on;"+normal+"SELECT current_setting('jit');")
     assert restored.splitlines()[-1]=='on', 'The bounded read must restore its caller JIT setting'
     assert query("SELECT has_function_privilege('openetrm_runtime','security.swap_publication_authority(uuid,uuid,uuid)','EXECUTE');")=='f'
