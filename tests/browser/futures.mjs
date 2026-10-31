@@ -13,8 +13,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Page.navigate',{url});
   await wait(idle);
   await setupTradingReplies(evaluate);
-  await evaluate(`(()=>{const send=window.fetch;window.__futuresResponses=[];window.__futuresRequests=[];window.fetch=async(input,init)=>{
+  await evaluate(`(()=>{const send=window.fetch;window.__futuresResponses=[];window.__futuresRequests=[];window.__curveShapeRequests=0;window.fetch=async(input,init)=>{
     const path=typeof input==='string'?input:input.url;
+    if(path==='/api/market/curve-shapes')window.__curveShapeRequests++;
     if(path==='/api/trading/positions'){const body=JSON.parse(init.body);if(window.__oneFactPerPage)body.limit=1;init={...init,body:JSON.stringify(body)};(window.__factsRequests??=[]).push(body);}
     if(path==='/api/table-views/blotter'&&window.__denyLayout){window.__denyLayout=false;return new Response(JSON.stringify({code:'access_denied',message:'Synthetic access denial'}),{status:403,headers:{'Content-Type':'application/json'}});}
     if(path==='/api/futures/book')window.__futuresRequests.push(JSON.parse(init.body));
@@ -257,13 +258,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // Price before booking draws the curve of the contract's market with its delivery period marked. The desk already read the curves of the positions
   // it holds, and a curve it holds is not read again for the draft: only a market it does not hold is read, once.
   const chosenContract=await evaluate("(c=>({curve:c.curve,deliveryFrom:c.deliveryFrom,deliveryTo:c.deliveryTo}))(window.__tradingCatalogs(window.__futuresResponses).at(-1).data.contracts[0])");
-  const shapeReads="window.__futuresResponses.filter(r=>r.path==='/api/market/curve-shapes').length",shapesBefore=await evaluate(shapeReads);
+  const shapeReads="window.__futuresResponses.filter(r=>r.path==='/api/market/curve-shapes').length",shapeRequests="window.__curveShapeRequests",shapesBefore=await evaluate(shapeRequests);
   const heldByDesk=await evaluate(`window.__tradingReports(window.__futuresResponses).at(-1).data.holdings.some(h=>h.curve===${JSON.stringify(chosenContract.curve)})`);
   await click('#futures-draft-price');await check('unbooked futures price shows execution P&L qualification',"document.querySelector('#futures-draft-value').textContent.startsWith('Execution P&L:')&&!document.querySelector('#futures-draft-risk').disabled&&window.__futuresRequests.length===0");
   await check('Price before booking shows the market\'s curve with the chosen delivery period marked',`(()=>{const plot=document.querySelector('#futures-draft-curves .chart');return !!plot&&!!plot.querySelector('canvas')&&plot.dataset.chartAxis==='delivery'&&plot.querySelector('.chart-toolbar strong').textContent.endsWith(' · forward curve')&&plot.querySelector('.chart-toolbar small').textContent==='Marked: delivery '+${JSON.stringify(deliveryLabel(chosenContract.deliveryFrom,chosenContract.deliveryTo))};})()`,"document.querySelector('#futures-draft-curves').innerText");
-  await check('a curve the desk holds is drawn from the desk\'s own read, and one it does not hold is read once for the draft',`${shapeReads}===${shapesBefore+(heldByDesk?0:1)}`,`[${shapeReads},${shapesBefore},${JSON.stringify(heldByDesk)}]`);
+  await check('a curve the desk holds is drawn from the desk\'s own read, and one it does not hold is read once for the draft',`${shapeRequests}===${shapesBefore+(heldByDesk?0:1)}`,`[${shapeRequests},${shapesBefore},${JSON.stringify(heldByDesk)}]`);
   await click('#futures-draft-price');
-  await check('pricing the same draft again reads its curve no more',`${shapeReads}===${shapesBefore+(heldByDesk?0:1)}&&document.querySelectorAll('#futures-draft-curves .chart').length===1`);
+  await check('pricing the same draft again reads its curve no more',`${shapeRequests}===${shapesBefore+(heldByDesk?0:1)}&&document.querySelectorAll('#futures-draft-curves .chart').length===1`);
   await click('#futures-draft-risk');await check('unbooked futures risk displays its contract exposure without booking',"document.querySelector('#futures-draft-exposure').textContent.includes('Exposure')&&window.__futuresResponses.filter(r=>r.path==='/api/futures/draft-risk').at(-1).data.factors.length===1&&window.__futuresRequests.length===0");
   await evaluate("for(const id of ['futures-legal-entity','futures-counterparty']){const s=document.getElementById(id);s.selectedIndex=1;s.dispatchEvent(new Event('input',{bubbles:true}));}");await submit('#futures-form');
   await check('booking adds a holding with its independent execution price',`window.__tradingReports(window.__futuresResponses).at(-1).data.holdings.length===${before+1}&&document.querySelector('#desk-positions').textContent.includes('2.9')&&document.querySelector('#error').hidden`);

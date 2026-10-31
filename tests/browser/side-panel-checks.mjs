@@ -36,10 +36,16 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
 
   const held=reference=>`${rowsRead}.find(h=>h.tradeReference===${JSON.stringify(reference)})`;
   const shapeReads="window.__futuresResponses.filter(r=>r.path==='/api/market/curve-shapes').length";
+  const shapeRequests="window.__curveShapeRequests";
   const editorReads="window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').length";
   const open=async(kind,tab='curve')=>{await click(rowSelector(kind));await wait(`!${panel}.hidden&&${panelReference}===${referenceOf(kind)}&&document.activeElement===${panel}`);if(tab==='curve'){await click('#position-details-tabs-curve');await evaluate(`${panel}.focus()`);}};
   await settle(1440,900);
-  const futureReference=await evaluate(referenceOf('fut')),tilesBefore=await evaluate(tiles),shapesBefore=await evaluate(shapeReads),initialEditorReads=await evaluate(editorReads);
+  // Capture the baseline while the desk's shape read is still in flight.
+  // Its completion must not be mistaken for a new panel request.
+  await evaluate("window.__holdShapes=true;document.querySelector('#futures-refresh').click()");
+  await wait("typeof window.__releaseShapes==='function'&&"+redrawn(idle));
+  const futureReference=await evaluate(referenceOf('fut')),tilesBefore=await evaluate(tiles),shapeRequestsBefore=await evaluate(shapeRequests),initialEditorReads=await evaluate(editorReads);
+  await evaluate("window.__releaseShapes()");
   await open('fut','terms');
   await wait("!!document.querySelector('#position-details-body .side-panel-section')");
   await check('opening a position starts on its retained Terms and reads them once',`document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'&&${editorReads}===${initialEditorReads}+1`);
@@ -67,8 +73,8 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     `(()=>{const h=${held(futureReference)},delta=document.querySelector('#position-details .side-panel-delta'),value=document.querySelector('#position-details .side-panel-value .kpi-value');return document.querySelector('#position-details .side-panel-figure .side-panel-label').textContent==='Execution P&L'&&value.title===h.executionPnl+' '+h.currency&&(h.markMinusPrice===null?!delta:delta.querySelector('#position-details .side-panel-label').textContent==='Mark − executed'&&delta.title===h.markMinusPrice+' '+h.currency+'/'+h.unit&&delta.querySelector('b').textContent.replace(/^[+−]/,'').length>0);})()`,
     `document.querySelector('#position-details-head').innerText`);
   await check('the curve is the desk\'s own read of its market, with the delivery period marked, and it is not read again for the panel',
-    `${shapeReads}===${shapesBefore}&&document.querySelector('#position-details-body .chart-toolbar small').textContent==='Marked: delivery '+document.querySelector(${JSON.stringify(rowSelector('fut'))}+' [tabulator-field=c1] .desk-sub').textContent&&document.querySelector('#position-details-body .side-panel-facts').children.length>=3`,
-    `[${shapeReads},${shapesBefore},document.querySelector('#position-details-body .chart-toolbar').textContent]`);
+    `${shapeRequests}===${shapeRequestsBefore}&&document.querySelector('#position-details-body .chart-toolbar small').textContent==='Marked: delivery '+document.querySelector(${JSON.stringify(rowSelector('fut'))}+' [tabulator-field=c1] .desk-sub').textContent&&document.querySelector('#position-details-body .side-panel-facts').children.length>=3`,
+    `[${shapeRequests},${shapeRequestsBefore},document.querySelector('#position-details-body .chart-toolbar').textContent]`);
 
   // Keyboard: Escape closes the panel and gives focus back to the row; Enter on a focused row opens it again.
   await press('Escape','Escape',27);
