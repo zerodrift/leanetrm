@@ -1124,6 +1124,9 @@ api.MapPost("/trading/directory",(HttpContext c,FuturesReadRequest body)=>Tradin
 api.MapPost("/trading/position",(HttpContext c,TradePositionReadRequest body)=>TradingRead(c,
  body.Context??throw new MarketDataException("position_context","Supply the selected context."),
  (connection,view,ct)=>tradeReads.Position(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
+api.MapPost("/trading/close-out-draft",(HttpContext c,CloseOutDraftRequest body)=>TradingRead(c,
+ body.Context??throw new MarketDataException("close_out","Supply the selected context."),
+ (connection,view,ct)=>tradeReads.CloseOutDraft(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/trading/workspace",(HttpContext c,TradingWorkspaceRequest body)=>
 {
  if(body.BookingCatalog is not(null or "directory" or "priced_contracts"))throw new MarketDataException("blotter_view","Choose an available booking catalog projection.");
