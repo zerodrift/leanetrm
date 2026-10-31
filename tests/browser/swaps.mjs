@@ -145,6 +145,8 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  await check('booked swap retains PV while portfolio shocks remain visible and require scenario authority',"(()=>{const rows=window.__tradingReports(window.__swaps).at(-1).data.holdings;return rows.some(h=>h.instrumentType==='financial_swap'&&h.presentValue==='16'&&h.executionPnl===null)&&document.querySelector('#error').hidden&&!document.querySelector('#blotter-risk').hidden&&document.querySelector('#blotter-risk').disabled&&document.querySelector('#profile-label').textContent==='Trader';})()");
  // The desk holds a swap now, so its Swap PV card must draw panels and a book's PV and P&L subtotals must read apart; neither can pass empty.
  const marketGroups="window.__swaps.filter(r=>r.path==='/api/trading/workspace').at(-1).data.summaries[3].groups";
+ // The open details took the Charts pane's room; collapsing them brings the charts back to be measured.
+ await click('#details-collapse');await wait("!document.querySelector('#blotter-pane-charts').hidden&&"+idle);
  await check('Swap PV by market draws a panel per currency of the swaps held, each bar listed as text',swapPvCard(marketGroups,{requireSwaps:true}));
  // Whatever else the fixture holds, a book that holds swaps in two currencies states two subtotals, and each reads apart.
  const headerTexts="[...document.querySelectorAll('#desk-positions .tabulator-group')].map(h=>h.textContent)";

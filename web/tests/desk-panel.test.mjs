@@ -109,6 +109,13 @@ test('resetting drops the position without asking and without moving focus',asyn
  assert.deepEqual(state.log,[['shell.reset'],['position.clear'],['grid.select',null]]);
 });
 
+test('collapsing the details says whether a position row took focus back',async()=>{
+ const state=desk();
+ assert.equal(state.controller.closed(),false,'no position was open');
+ await state.controller.open(0);
+ assert.equal(state.controller.closed(),true);
+});
+
 test('a question the person answers no to changes nothing, and a row the read does not hold opens nothing',async()=>{
  const state=desk({answer:async()=>false});
  assert.equal(await state.controller.open(0),false,'the grid is told the selection stays');

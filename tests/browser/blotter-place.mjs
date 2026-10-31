@@ -67,22 +67,19 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
       await wait(held,3000).catch(()=>undefined);
       await check(label+' keeps the grid, its selected row, and the row first in view where it was',held,`({before:${JSON.stringify(before)},after:window.__place.at(${JSON.stringify(before.key)}),first:window.__place.anchor(),state:window.__place.state()})`);
     };
-    // With the details open, a new read and a change of columns keep the trader's place. A new read closes the position the details showed,
-    // as it closes everything over the read it replaces, and leaves the pane where it is; opening the row again shows it there.
-    await kept('reading the Blotter again with the details open',async()=>{await click('#futures-refresh');await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);});
-    await check('the details pane stays open across the new read, and the row opens in it again',
-      "!document.querySelector('#blotter-pane-details').hidden&&document.querySelector('#position-details').hidden");
-    await click(`#desk-positions .tabulator-row[data-row-key="${selectedKey}"]`);await wait(opened+'&&'+idle);
+    // With the details open, a new read and a change of columns keep the trader's place, and the details show the selected position again.
+    await kept('reading the Blotter again with the details open',async()=>{await click('#futures-refresh');await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);await wait(opened);});
+    await check('the details show the selected position again after the new read',opened);
     await kept('showing the Portfolio column with the details open',()=>click('#blotter-column-choices input[value=portfolio]'));
     await kept('hiding it again with the details open',()=>click('#blotter-column-choices input[value=portfolio]'));
     await check('the details still show the selected position',opened);
     // Collapsing the details gives the grid its room back and focus goes back to the row. The first row in view stays where it was unless
-    // the taller grid reaches past the last row, which then shows at the grid's foot: no scroll offset could keep it.
+    // the taller grid reaches past the last row: the grid then ends at its last row, and no scroll offset could keep the first one in place.
     const shortBefore=await evaluate('window.__place.anchor()');
     await click('#details-collapse');await wait(`document.querySelector('#blotter-pane-details').hidden&&document.activeElement?.dataset?.rowKey===${JSON.stringify(selectedKey)}&&${idle}`);await evaluate(frames);
-    const grown=`(()=>{const p=window.__place,s=p.state(),a=p.at(${JSON.stringify(shortBefore.key)}),h=document.querySelector('#desk-positions .tabulator-tableholder'),end=h.scrollTop+h.clientHeight>=h.scrollHeight-1;return s.probe==='kept'&&s.selected===${JSON.stringify(selectedKey)}&&!!a&&(Math.abs(a.top-${shortBefore.top})<=2||end&&a.top<${shortBefore.top});})()`;
+    const grown=`(()=>{const p=window.__place,s=p.state(),a=p.at(${JSON.stringify(shortBefore.key)}),h=document.querySelector('#desk-positions .tabulator-tableholder'),end=h.scrollTop+h.clientHeight>=h.scrollHeight-1;return s.probe==='kept'&&s.selected===${JSON.stringify(selectedKey)}&&!!a&&(Math.abs(a.top-${shortBefore.top})<=2||end);})()`;
     await wait(grown,3000).catch(()=>undefined);
-    await check('collapsing the details keeps the grid and its selected row, and the row first in view where it was or, at the end of the rows, above it',grown,
+    await check('collapsing the details keeps the grid and its selected row, and the row first in view where it was unless the grid now reaches its last row',grown,
       `({before:${JSON.stringify(shortBefore)},after:window.__place.at(${JSON.stringify(shortBefore.key)}),state:window.__place.state(),holder:[document.querySelector('#desk-positions .tabulator-tableholder').scrollTop,document.querySelector('#desk-positions .tabulator-tableholder').clientHeight,document.querySelector('#desk-positions .tabulator-tableholder').scrollHeight]})`);
     await kept('grouping the rows by market',()=>set('#blotter-row-group','market'));
     await kept('showing the Portfolio column',()=>click('#blotter-column-choices input[value=portfolio]'));

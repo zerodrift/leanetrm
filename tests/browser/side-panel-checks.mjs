@@ -161,11 +161,14 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
   await check('coming back to the Blotter reads it afresh, with no panel left open',`${panel}.hidden&&!document.querySelector('#futures-page').hidden`);
 
-  // A new read closes the panel, as it closes every other surface over the read it replaces.
+  // A new read shows the position the details showed again, from the new read, on the tab they were on.
   await open('fut');
+  const refreshed=await evaluate(panelReference);
   await click('#futures-refresh');
   await wait(redrawn(idle));
-  await check('a new read closes the panel',`${panel}.hidden&&document.querySelector('#error').hidden`);
+  await wait(`!${panel}.hidden&&${panelReference}===${JSON.stringify(refreshed)}`);
+  await check('a new read shows the position in the details again, on its tab',`!${panel}.hidden&&${panelReference}===${JSON.stringify(refreshed)}&&document.querySelector('#position-details-tabs-curve').getAttribute('aria-selected')==='true'&&document.querySelector('#error').hidden`);
+  await evaluate(`${panel}.focus()`);await press('Escape','Escape',27);await wait(`${panel}.hidden`);
 
   // A curve the desk is still reading shows as loading in the panel, and is drawn there when it arrives, from the same read.
   await evaluate('window.__holdShapes=true');await click('#futures-refresh');
@@ -274,8 +277,8 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await answer(0);await wait(idle);
   await check('keeping them means no read was made, and the panel and the form are as they were',`!${panel}.hidden&&document.querySelector('#trade-lots').value==='6'&&window.__futuresResponses.filter(r=>r.path==='/api/trading/workspace').length===${readsBefore}`);
   await click('#futures-refresh');await wait(`!${prompt}.hidden`);await answer(1);
-  await wait(`${panel}.hidden&&${redrawn(idle)}`);
-  await check('and discarding them lets the read happen: the panel closes with its form, and the desk is drawn again',`${panel}.hidden&&document.querySelector('#trade-editing').hidden&&document.querySelector('#error').hidden&&window.__futuresResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsBefore}`);
+  await wait(`${redrawn(idle)}&&!${panel}.hidden&&${panelReference}===${JSON.stringify(refB)}`);
+  await check('and discarding them lets the read happen: the form is gone, the desk is drawn again and the details show the position again from it',`!${panel}.hidden&&${panelReference}===${JSON.stringify(refB)}&&document.querySelector('#trade-editing').hidden&&document.querySelector('#error').hidden&&window.__futuresResponses.filter(r=>r.path==='/api/trading/workspace').length>${readsBefore}`);
 
   // Every route that would give the form up asks first, as a switch of position does: the sidebar, a new As of date, Open curve, the
   // sidebar's own Blotter and the header's time controls. A form with no edits is left by each of them without a question.
@@ -298,7 +301,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await check('discarding them goes to the page chosen',`${title}==='Curves & prices'`);
   await back();
   await check('and the Blotter comes back without the form: it starts fresh',`${panel}.hidden&&document.querySelector('#trade-editing').hidden`);
-  // The sidebar's own Blotter, pressed on the Blotter, reads it again and closes the panel.
+  // The sidebar's own Blotter, pressed on the Blotter, opens it afresh and closes the panel.
   await amend(refB);
   await click('#nav-futures');await wait(`${panel}.hidden&&${redrawn(idle)}`);
   await check('the sidebar\'s Blotter, pressed on the Blotter, reads it again without a question when the form holds no edits',`${panel}.hidden&&${prompt}.hidden&&${title}==='Blotter'`);

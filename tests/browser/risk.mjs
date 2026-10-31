@@ -33,6 +33,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const pressRow=async(kind='')=>{const key=await evaluate(`(async()=>{const holder=document.querySelector('#desk-positions .tabulator-tableholder'),frames=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),rows=()=>[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)${kind}')];
     const inView=()=>{const h=holder.getBoundingClientRect();return rows().find(r=>{const b=r.querySelector('.tabulator-cell')?.getBoundingClientRect();return !!b&&b.height>0&&b.top>=h.top-0.5&&b.bottom<=h.bottom+0.5;});};
     holder.scrollTop=0;await frames();if(!inView()){rows()[0]?.querySelector('.tabulator-cell')?.scrollIntoView({block:'nearest'});await frames();}return inView()?.dataset.rowKey;})()`);if(!key)throw Error('No position row is in the grid\'s view to press.');await click(`#desk-positions .tabulator-row[data-row-key="${key}"]`);};
+  // Reads the Blotter again and waits for the read to land; a position the details showed is shown again from it, anything else closes.
+  const workspaceReads="window.__riskReads.filter(r=>r.path==='/api/trading/workspace').length";
+  const refresh=async()=>{const reads=await evaluate(workspaceReads);await click('#futures-refresh');await wait(`${workspaceReads}>${reads}&&${idle}`);};
   const openReport=async()=>{await click('#blotter-risk');await wait(panelRisk+"&&!document.querySelector('#risk-fields').disabled");};
   await persona('risk');
   // The date's own close, never a close another check registered from it at the same instant.
@@ -123,7 +126,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
 
   // A new read of the Blotter clears the run and says so, each read at current knowledge being made at a context of its own; the sizes last
   // used are prefilled, visibly, the next time.
-  await click('#futures-refresh');await wait("document.querySelector('#position-details').hidden&&"+idle);
+  await refresh();
   await check('Refresh reads the Blotter again, which clears the run: the page says it was read again, not that the close or books changed, and the tile says it has not run',
     `${noRun}&&(${notice}).includes(${JSON.stringify(readAgain)})&&!(${notice}).includes(${JSON.stringify(cleared)})&&${tileSays('Not run')}&&document.querySelector('#desk-chart-position-title').textContent==='Long and short by market'`,
     `[${notice},[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]`);
@@ -163,9 +166,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // Queued: one job for each part, each stating the run it is a part of, and the run shown as one.
   await choose('held');
   const jobsBefore=await evaluate('window.__riskJobs.length');
-  // Each part's job is read as under way for a few polls before its results come back.
+  // Each part's job is read as under way for a few polls, so that polling can be seen to leave the panes and the grid as they are.
   await evaluate('window.__holdRiskJobs=true;window.__heldPolls=0');await click('#risk-queue');
+  await evaluate(`(()=>{const h=document.querySelector('#desk-positions .tabulator-tableholder');window.__polling={redraws:0,widths:new Set([h.clientWidth])};
+    window.__pollingObserver=new MutationObserver(records=>{window.__polling.redraws+=records.length;});window.__pollingObserver.observe(document.querySelector('#blotter-dock'),{childList:true});
+    window.__pollingWidths=setInterval(()=>window.__polling.widths.add(document.querySelector('#desk-positions .tabulator-tableholder').clientWidth),50);})()`);
   await wait(`window.__heldPolls>=3*Math.ceil(${heldTargets}.length/16)`,30000);
+  await check('polling the jobs of a queued run under way draws the panes again never, and the grid keeps its width, so it is neither laid out nor fitted again',
+    'window.__polling.redraws===0&&window.__polling.widths.size===1','({redraws:window.__polling.redraws,widths:[...window.__polling.widths]})');
+  await evaluate('window.__pollingObserver.disconnect();clearInterval(window.__pollingWidths)');
   await evaluate('window.__holdRiskJobs=false');await wait(inline+'&&'+idle,60000);
   await check('a queued run submits one job for each part, each with its own request identity and the catalog\'s one retained context',
     `(()=>{const c=${catalog},jobs=window.__riskJobs.slice(${jobsBefore});return jobs.length===Math.ceil(${heldTargets}.length/16)&&new Set(jobs.map(j=>j.requestId)).size===jobs.length&&jobs.every(j=>j.request.context.contextId===c.context.contextId&&j.request.bumps.length<=16)&&JSON.stringify(jobs.flatMap(j=>j.request.bumps.map(b=>b.factor)))===JSON.stringify(${heldTargets}.map(t=>t.factor));})()`);
@@ -251,7 +260,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `document.querySelector('#position-details-view .side-panel-status').textContent==='The risk run on the desk has no results. '+${noResults}+'.'`,"document.querySelector('#position-details-view').textContent");
   // What a preset leaves out is said where it is chosen, in its results and in its download, so that a run that left prices out can be told
   // from a complete one. The catalog read here names held prices and curves without a whole target: synthetic labels in its own lists.
-  await click('#futures-refresh');await wait("document.querySelector('#position-details').hidden&&"+idle);
+  await refresh();
   await check('a new read clears a run that has no results, and says so too',`${noRun}&&(${notice}).includes(${JSON.stringify(readAgain)})`,notice);
   await evaluate("window.__catalogEdit=c=>({...c,heldContractsWithoutTarget:['Synthetic output · 2021-01-01 to 2021-02-01'],heldCurvesWithoutTarget:['Synthetic output curve']})");
   await openReport();await choose('parallel');
@@ -280,7 +289,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `${noRun}&&(${notice}).includes(${JSON.stringify(cleared)})&&!(${notice}).includes(${JSON.stringify(readAgain)})&&${tileSays('Not run')}`,notice);
   await scope();await evaluate(`(()=>{const chosen=${JSON.stringify(booksChosen)};[...document.querySelector('#blotter-books').options].forEach((o,i)=>{o.selected=chosen[i];});})()`);await click('#blotter-scope-apply');await wait(idle);
   // A catalog that does not say what a preset leaves out, or which positions a run leaves out, is refused: never read as saying none.
-  await click('#futures-refresh');await wait("document.querySelector('#position-details').hidden&&"+idle);
+  await refresh();
   await evaluate("window.__catalogEdit=({heldContractsWithoutTarget,...rest})=>rest");
   await openReport();await choose('held');
   const requestsBeforeRefusal=await evaluate('window.__riskRequests.length');
@@ -302,7 +311,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a result that does not say which positions it leaves out is not shown, and the risk tile says so with the reason',
     "[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-value').textContent==='Results not shown'&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-reason').textContent==='A result of this run does not say which positions it leaves out, so its results are not shown. Run it again.'&&[...document.querySelectorAll('#desk-run-notes [role=alert]')].some(p=>p.textContent==='A result of this run does not say which positions it leaves out, so its results are not shown. Run it again.')&&document.querySelector('#desk-lens').hidden&&document.querySelector('#risk-export').hidden&&![...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).find(i=>i.dataset.currency)",
     "[...document.querySelectorAll('#desk-run-notes li')].map(p=>p.textContent)");
-  await click('#futures-refresh');await wait("document.querySelector('#position-details').hidden&&"+idle);await openReport();
+  await refresh();await openReport();
 
   // The custom scenario lab: an explicit target and bump, nested stresses and the targets the catalog offers.
   await choose('custom');
@@ -499,7 +508,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     await openReport();await choose('custom');await set('#risk-factor',await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`));await set('#risk-bump','0.1');
     await submit('#risk-form',60000);await wait(inline+'&&'+idle,60000);
   };
-  await click('#futures-refresh');await wait("document.querySelector('#position-details').hidden&&"+idle);
+  await refresh();
   await runOnDesk();
   await set('#date-context-on','2099-01-01');await wait(idle);
   await check('another effective date clears the run, and the note that says so stays while the date\'s knowledge is read',

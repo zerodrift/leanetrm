@@ -78,6 +78,8 @@ export function setupDetailsPane(host:HTMLElement,o:{unsaved:()=>boolean;busy:()
   pane.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();void close();}});
   const shell:SidePanel={show,leave,ask,form,reset,place,current:()=>mode,element:name=>parts[name],reveal:o.expand,focusForm};
   return {shell,show,
+    /** Collapses the details as ⌄ and Escape do, asking first about edits they hold. */
+    collapse:close,
     /** Names what the header shows, such as a position's trade and market. */
     title(text:string){heading.textContent=text;},
     /** Asks a question of the pane's own, as the side panel asks one, after any unsaved-edit question. */

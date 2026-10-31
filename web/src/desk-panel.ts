@@ -127,8 +127,8 @@ export function setupDeskPanel(o:{
     },
     /** The desk has drawn its read again, or its curves have arrived. */
     sync:()=>draw(false),
-    /** The person collapsed the details: focus goes back to the row they showed. */
-    closed(){const row=openedAt;drop();if(row!==undefined)o.grid()?.focusRow(row);},
+    /** The person collapsed the details: focus goes back to the row they showed. Answers whether there was one. */
+    closed(){const row=openedAt;drop();if(row!==undefined)o.grid()?.focusRow(row);return row!==undefined;},
     /** The panel moved to another mode: the position and its row are forgotten, and focus stays where the person put it. */
     left:drop,
     /** The reads the panel was opened from no longer stand. */

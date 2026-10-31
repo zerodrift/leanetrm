@@ -93,3 +93,11 @@ test('the steps are offered only while a position is shown',async()=>{
  await f.show(position('t1'));
  assert.equal(f.labelled('Previous position').disabled,false);assert.equal(f.labelled('Next position').disabled,false);
 });
+
+test('the page collapses the details as ⌄ does, as for Escape on a grid row: asking first about edits',async()=>{
+ const f=fixture();await f.show(position('t1'));f.edit(true);
+ const collapsing=f.collapse();await settle();f.answer('Keep editing');await collapsing;
+ assert.deepEqual(f.shell.current(),position('t1'));assert.equal(f.collapsed.length,0);
+ f.edit(false);await f.collapse();
+ assert.equal(f.shell.current(),null);assert.equal(f.collapsed.length,1);
+});

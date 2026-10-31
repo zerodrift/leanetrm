@@ -756,7 +756,6 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 /* A request whose outcome is not known is kept in a card nobody can miss: above the Blotter, or above whatever the open panel shows. */
 .retained-request{margin:0 0 12px;padding:10px 16px;background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius-sm);font-size:12.5px;color:var(--text)}
 .retained-request p{margin:0 0 8px}
-.side-panel-retained .retained-request{margin:0;padding-right:44px;border-width:0 0 1px;border-radius:0}
 .side-panel-head{padding:14px 16px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);min-width:0}
 .side-panel-head:empty{display:none}
 /* The close button sits over the head's top right corner, so only the lines beside it keep clear of it. */
@@ -851,7 +850,7 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 .table-workspace .standard-data-grid .tabulator-row.selected-row{box-shadow:inset 3px 0 0 var(--accent)}
 /* Rows kept on screen while the Blotter is read again: dimmed, with the reason below them. */
 .standard-data-grid.stale .tabulator-tableholder{opacity:.6}
-#desk.stale>:not(#desk-stale-note),#desk-charts.stale,#blotter-chart-card.stale,#futures-summary.stale{opacity:.6}
+#desk.stale>:not(#desk-stale-note),#desk-charts.stale,#blotter-chart-card.stale,#futures-summary.stale,#position-details.stale{opacity:.6}
 #desk-stale-note{margin:0 0 6px}
 .table-stale-note{margin:6px 0 0;font-size:12.5px;color:var(--text-2)}
 /* A row brought into view, as a position opened by a booking is, comes to rest with room around it, not flush with an edge. */
@@ -1637,6 +1636,11 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 /* The summary strip keeps the room its figures need; the positions keep room for a row under their header, however the panes are sized. */
 #blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-summary:not([hidden])){min-height:max-content}
 #blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-grid:not([hidden])){min-height:250px}
+/* Open details keep room of their own; the Charts pane makes way for them where the arrangement leaves less (futures-view.ts). */
+#blotter-dock .dock-group:has(>.dock-panels>#blotter-pane-details:not([hidden]) #position-details:not([hidden])){min-height:240px}
+/* The splits that hold them keep that room too, with a collapsed neighbour's bar and divider beside it, so the grid gives way first. */
+#blotter-dock .dock-split:has(#blotter-pane-details:not([hidden]) #position-details:not([hidden])){min-height:240px}
+#blotter-dock .dock-split:has(>.dock-group>.dock-panels>#blotter-pane-details:not([hidden]) #position-details:not([hidden])):has(>.dock-group[data-collapsed]){min-height:284px}
 /* The run bar's notes scroll within it, so a run with many keeps the summary pane to a few lines. */
 #blotter-pane-summary .desk-run-notes{max-height:4.4em;overflow-y:auto}
 #blotter-dock .dock-panels:has(>#blotter-pane-grid:not([hidden])){display:flex;flex-direction:column;padding:0;overflow:hidden}
