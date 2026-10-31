@@ -85,13 +85,13 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var assignments=members.Select(m=>m.Assignment).Distinct().ToImmutableArray();
   var dated=assignments.Select(a=>a.Lookup).Distinct().ToImmutableArray();var deps=dated.Select(x=>PeriodPriceSelector.ProjectionAt(x,snapshot)).OfType<CurveRequest>().Distinct().ToImmutableArray();
   var market=data.Model.Build(snapshot,deps,ct);var sources=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,dated,[],assignments);
-  var discount=new ExplicitDiscounting(Number("1"),DiscountFactorSource.Undiscounted);ExactMoney? total=null;var sides=new List<object>();var views=ImmutableArray.CreateBuilder<SideViewInput>();var quantities=new Dictionary<string,ExactQuantity>(StringComparer.Ordinal);
+  var discount=new ExplicitDiscounting(Number("1"),DiscountFactorSource.Undiscounted);ExactMoney? total=null;var sides=new List<object>();var views=view?ImmutableArray.CreateBuilder<SideViewInput>():null;var quantities=new Dictionary<string,ExactQuantity>(StringComparer.Ordinal);
   foreach(var member in members.OrderBy(x=>x.Slot))
   {
    var p=programs.Single(x=>x.Slot==member.Slot);var result=sources.Evaluate(p.Program,p.SideId,market,discount,ct);
    var amount=result.PresentValue.Scale(member.Ratio).Scale(quantity).Scale(Number(member.Direction.ToString(CultureInfo.InvariantCulture)));total=total is null?amount:total.Add(amount);
    // The view applies the same booked quantity and signed membership as the present value.
-   views.Add(new(member.Code,result,p.Program,quantity,new(member.Ratio.Numerator*member.Direction,member.Ratio.Denominator),member.Role=="physical"?PhysicalColumns:CashColumns));
+   views?.Add(new(member.Code,result,p.Program,quantity,new(member.Ratio.Numerator*member.Direction,member.Ratio.Denominator),member.Role=="physical"?PhysicalColumns:CashColumns));
    var rows=new List<object>();ExactQuantity? qtotal=null;
    if(member.Role=="physical")
    {
@@ -113,14 +113,19 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var links=members.Where(m=>m.Role=="physical"&&m.Source is not null).Select(m=>{var receipt=quantities[m.Source!];var delivery=quantities[m.Code];var fuel=receipt.Add(delivery.Scale(Number("-1")));return new{source=m.Source,target=m.Code,m.Formula,m.Fraction,receipt=Ratio(receipt),delivery=Ratio(delivery),fuel=Ratio(fuel)};}).ToArray();
   var specification=data.References["quantity_specifications"].Single(r=>r.Text("code")==members[0].Assignment.Quote.Quantity.Code);
   var unit=data.References["units"].Single(r=>r.Text("code")==specification.Text("unit_code")).Text("symbol");
-  var valuation=new{presentValue=total!.ToExactString(),currency=members[0].Assignment.Quote.Currency.Code,quantityUnit=unit,sides,links};
-  if(!view)return valuation;
-  var clock=members.Where(m=>m.Role=="physical").Select(m=>m.Clock).Distinct().ToArray();
-  if(clock.Length!=1)throw new MarketDataException("schedule_view","A gas schedule view requires every physical side to share one gas-day clock.");
-  var schedule=ScheduleViews.Build(views.ToImmutable(),["month","day"],clock[0].Boundary,market.Graph.Plan.Context.ValuationAt);
+  // The schedule is a display projection: a trade it cannot show keeps its valuation and reports why.
+  ScheduleView? schedule=null;object? refusal=null;
+  if(views is not null)
+   try
+   {
+    var clock=members.Where(m=>m.Role=="physical").Select(m=>m.Clock).Distinct().ToArray();
+    if(clock.Length!=1)throw new MarketDataException("schedule_view","A gas schedule view requires every physical side to share one gas-day clock.");
+    schedule=ScheduleViews.Build(views.ToImmutable(),["month","day"],clock[0].Boundary,market.Graph.Plan.Context.ValuationAt);
+   }
+   catch(MarketDataException error)when(error.Code is "schedule_view" or "gas_day_boundary"){refusal=new{code=error.Code,message=error.Message};}
   // No contract-against-market measure is defined for these sides yet, so none is reported.
-  var summaries=views.Select(v=>new{side=v.Code,billedQuantity=schedule.Totals[v.Code+".quantity"].Value,amount=schedule.Totals[v.Code+".amount"].Value,againstMarket=(string?)null}).ToArray();
-  return new{valuation.presentValue,valuation.currency,valuation.quantityUnit,sides,links,schedule,summaries};
+  var summaries=schedule is null?null:views!.Select(v=>new{side=v.Code,billedQuantity=schedule.Totals[v.Code+".quantity"].Value,amount=schedule.Totals[v.Code+".amount"].Value,againstMarket=(string?)null}).ToArray();
+  return new{presentValue=total!.ToExactString(),currency=members[0].Assignment.Quote.Currency.Code,quantityUnit=unit,sides,links,schedule,summaries,scheduleRefusal=refusal};
  }
  public async Task<object> Preview(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest body,CancellationToken ct)
  {var d=await Resolve(c,data,body,ct);return await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);}
