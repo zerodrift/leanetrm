@@ -239,20 +239,23 @@ public sealed class PreviewDatabase : IAsyncDisposable
             { limit.Parameters.AddWithValue(((long)bound.TotalMilliseconds).ToString(System.Globalization.CultureInfo.InvariantCulture)); await limit.ExecuteNonQueryAsync(ct); }
         await using (var command = new NpgsqlCommand(bind, connection, transaction))
         { command.Parameters.AddWithValue(token); await command.ExecuteNonQueryAsync(ct); }
-        async Task Session()
-        {
-            if(!signedIn)return;
-            await using var check=new NpgsqlCommand("SELECT security.require_hosted_session()",connection,transaction);
-            try{await check.ExecuteNonQueryAsync(ct);}
-            catch(PostgresException e) when(e.SqlState=="42501"){throw new PreviewSessionEnded();}
-        }
-        await Session();
+        if(signedIn)await SignedIn(connection,ct);
         var result = await operation(connection, ct);
-        await Session();
+        if(signedIn)await SignedIn(connection,ct);
         // A bounded transaction's commit is not cancelled: one cancelled in flight may still have been applied, and an agent's
         // save could not say whether its draft and step landed. Its statement bound still limits the commit.
         await transaction.CommitAsync(held is null?ct:CancellationToken.None);
         return result;
+    }
+
+    // A hosted request's bound context is still held by its verified sign-in session, which may have ended or been revoked
+    // since the bind without touching the epoch row (docs/ai-assistant.md §11). A local preview has no sign-in session.
+    public Task RequireSignedIn(NpgsqlConnection connection,CancellationToken ct)=>hostedSession is null?Task.CompletedTask:SignedIn(connection,ct);
+    private static async Task SignedIn(NpgsqlConnection connection,CancellationToken ct)
+    {
+        await using var check=new NpgsqlCommand("SELECT security.require_hosted_session()",connection);
+        try{await check.ExecuteNonQueryAsync(ct);}
+        catch(PostgresException e) when(e.SqlState=="42501"){throw new PreviewSessionEnded();}
     }
 
     // The bound request context holds a permission, or the operation is denied.

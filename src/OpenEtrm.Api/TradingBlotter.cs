@@ -21,8 +21,8 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
  internal static readonly IReadOnlyDictionary<string,(string Field,PriceStatistic Statistic)> PriceMeasures=
   new[]{"executionPrice","mark","fixedPrice"}.SelectMany(field=>new[]{("Min",PriceStatistic.Minimum),("Max",PriceStatistic.Maximum),("Mean",PriceStatistic.ArithmeticMean)}
    .Select(stat=>new KeyValuePair<string,(string,PriceStatistic)>(field+stat.Item1,(field,stat.Item2)))).ToDictionary();
- private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
- private static MarketDataException Invalid()=>new("blotter_view","Select supported dimensions/measures and exact authorized book/portfolio scopes.");
+ internal static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
+ internal static MarketDataException Invalid()=>new("blotter_view","Select supported dimensions/measures and exact authorized book/portfolio scopes.");
  internal static void ValidateView(FuturesBlotterView view)
  {
   if(view is null||view.Mode is not("trades" or "pivot")||view.GroupBy.IsDefault||view.Measures.IsDefault||
@@ -53,7 +53,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   return SameOnce(first.BookIds,second.BookIds)&&SameOnce(first.PortfolioIds,second.PortfolioIds);
  }
  // The caller has already bound the exact certified market and trading cut.
- internal async Task<BlotterRead?> ReadEmptyDirectory(NpgsqlConnection connection,InputFrame frame,FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,CancellationToken ct)
+ internal async Task<BlotterRun?> ReadEmptyDirectory(NpgsqlConnection connection,InputFrame frame,FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,CancellationToken ct)
  {
   await MarketBundle.Require(connection,manifest,ct);
   // Base revision tables are checked before joins or report filters. A visible
@@ -69,33 +69,29 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   var books=await futures.Books(connection,ct);
   FuturesStore.ValidateScope(books,view.BookIds,view.PortfolioIds);
   await MarketBundle.RequireObservationPins(connection,manifest,frame.ObservationIds,ct);
-  return new(Project(view,[],0,new JsonArray(),new(0,0,0)),Summarize(summaries,[]));
+  return BlotterRun.Empty(view,summaries);
  }
  public async Task<BlotterRead> Read(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,CancellationToken ct)
+  =>await (await Begin(connection,data,frame,view,summaries,ct)).Collect(ct);
+ // A view's valuation run: each product's positions in scope, read before any is valued.
+ internal async Task<BlotterRun> Begin(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,CancellationToken ct)
  {
   ValidateView(view);ValidateSummaries(view,summaries);
   var tradeView=view with {Mode="trades",GroupBy=[],Measures=[],PivotConvention=null,PriceNumericalPolicy=null};
-  var priced=JsonSerializer.SerializeToNode(await futures.Blotter(connection,data,frame,tradeView,ct),Json)!.AsObject();
-  var rows=priced["holdings"]!.AsArray().Select(n=>n!.DeepClone().AsObject()).ToList();
-  foreach(var row in rows)FutureTerms(row,data);
-  var swapRows=await swaps.Holdings(connection,data,frame,view.BookIds,view.PortfolioIds,ct);
-  rows.AddRange(swapRows.Rows.Select(r=>JsonNode.Parse(r.GetRawText())!.AsObject()));
-  rows.AddRange(await PpaBlotter.Read(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct));
-  if(rows.Select(r=>r["tradeId"]!.GetValue<string>()+r["bindingId"]!.GetValue<string>()).Distinct().Count()!=rows.Count)throw Invalid();
+  var futuresRun=await futures.BlotterRun(connection,data,frame,tradeView,ct);
+  var swapRun=await swaps.BlotterRun(connection,data,frame,view.BookIds,view.PortfolioIds,ct);
+  var ppaRun=await PpaBlotter.Run(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct);
   var formats=await DealAmountFormats.All(connection,manifest.CatalogId,ct);
-  foreach(var row in rows)
-  {
-   AmountFormats(row,formats.GetValueOrDefault(Guid.Parse(row["tradeId"]!.GetValue<string>())));
-  }
-  return new(Project(view,rows,priced["evaluatedContracts"]!.GetValue<int>(),priced["totals"],
-   new(swapRows.Rows.Length,swapRows.Valuations,swapRows.SupplementalMarketLoads)),Summarize(summaries,rows));
+  return new(view,summaries,futuresRun,swapRun,ppaRun,row=>FutureTerms(row,data),formats);
  }
  // The report of a view and, grouped from the same valuation, each requested summary in request order.
  public sealed record BlotterRead(object Blotter,ImmutableArray<Summary> Summaries);
+ // A read whose rows a stream has already sent, so its report carries none.
+ internal static BlotterRead WithoutRows(BlotterRead read)=>read with{Blotter=((Report)read.Blotter) with{Holdings=[]}};
  public sealed record Summary(FuturesBlotterView View,List<JsonObject> Groups);
- private static ImmutableArray<Summary> Summarize(ImmutableArray<FuturesBlotterView> summaries,List<JsonObject> rows)=>
+ internal static ImmutableArray<Summary> Summarize(ImmutableArray<FuturesBlotterView> summaries,List<JsonObject> rows)=>
   [..summaries.Select(summary=>new Summary(summary,Groups(summary,rows)))];
- private sealed record Work(int SwapTrades,int SwapValuations,int SupplementalMarketLoads);
+ internal sealed record Work(int SwapTrades,int SwapValuations,int SupplementalMarketLoads);
  private sealed record Report(FuturesBlotterView View,string PivotNumericalPolicy,List<JsonObject> Groups,
   List<JsonObject> Holdings,int EvaluatedContracts,JsonNode? Totals,Work Work,bool HasSwaps,string Convention,int UnvaluedPositions);
  // D220: valuation measures add only positions the selected close values; booked facts count every position.
@@ -104,8 +100,8 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
  private static ReferenceKey Key(JsonObject row,string key)=>row[key]!.Deserialize<ReferenceKey>(Json);
  private static bool Valued(JsonObject row)=>row["unavailableReason"] is null;
  private static int Unvalued(IEnumerable<JsonObject> selected)=>selected.Where(r=>!Valued(r)).Select(r=>Text(r,"tradeId")).Distinct().Count();
- private static Report Project(FuturesBlotterView view,List<JsonObject> rows,int evaluatedContracts,JsonNode? totals,Work work)=>
-  new(view,"typed_partitioned_trade_totals_v1",view.Mode=="pivot"?Groups(view,rows):[],rows,evaluatedContracts,totals,work,
+ internal static object Project(FuturesBlotterView view,List<JsonObject> rows,int evaluatedContracts,JsonNode? totals,Work work)=>
+  new Report(view,"typed_partitioned_trade_totals_v1",view.Mode=="pivot"?Groups(view,rows):[],rows,evaluatedContracts,totals,work,
    rows.Any(r=>Text(r,"instrumentType")=="financial_swap"),Convention,Unvalued(rows));
  internal static List<JsonObject> Groups(FuturesBlotterView view,List<JsonObject> rows)
  {
