@@ -21,6 +21,8 @@ public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,B
 // and price operands of its amount instruction, on the contribution's own grid
 // cell or scalar delivery window. Coarser rows hold exact sums; a coarser price
 // is shown only when every child agrees. Nothing is averaged or inferred.
+// The boundary maps an operating date to its starting instant (for gas, the
+// gas-day clock's Boundary); scalar windows and day cells are anchored on it.
 public static class ScheduleViews
 {
     public const string NetCash="trade.net_cash",PaymentAt="trade.payment_at";
@@ -30,16 +32,18 @@ public static class ScheduleViews
     private static readonly (SchedulePriceFacts Fact,int Tag)[] PriceTags=[(SchedulePriceFacts.Fixed,0),(SchedulePriceFacts.Projected,3),
         (SchedulePriceFacts.Actual,4),(SchedulePriceFacts.Modeled,5),(SchedulePriceFacts.PublishedFixing,6),(SchedulePriceFacts.Estimated,7)];
     private sealed record Piece(SideViewInput Side,string Level,string Month,string? Day,DateTimeOffset Start,DateTimeOffset End,
-        SignedRatio Quantity,SignedRatio Price,SignedRatio Amount,int QuantityTags,int PriceTags,DateTimeOffset? Payment);
+        SignedRatio Quantity,SignedRatio Price,SignedRatio Amount,int QuantityTags,int PriceTags,DateTimeOffset? Payment,ReferenceKey? Currency);
 
-    public static ScheduleView Build(ImmutableArray<SideViewInput> sides,ImmutableArray<string> levels,TimeZoneInfo clock,DateTimeOffset? valuationAt)
+    public static ScheduleView Build(ImmutableArray<SideViewInput> sides,ImmutableArray<string> levels,Func<DateOnly,DateTimeOffset> boundary,DateTimeOffset? valuationAt)
     {
-        if(sides.IsDefaultOrEmpty||sides.Any(side=>side is null)||levels.IsDefaultOrEmpty||clock is null)
-            throw Error("Select the evaluated sides, row levels and clock of the schedule view.");
+        if(sides.IsDefaultOrEmpty||sides.Any(side=>side is null)||levels.IsDefaultOrEmpty||boundary is null)
+            throw Error("Select the evaluated sides, row levels and operating-day boundary of the schedule view.");
         if(!levels.SequenceEqual(Supported.Where(levels.Contains)))throw Error("Row levels must be supported, distinct and ordered from coarse to fine.");
         if(sides.Select(side=>side.Code).Distinct(StringComparer.Ordinal).Count()!=sides.Length)throw Error("Each side requires a distinct code.");
-        var pieces=sides.SelectMany(side=>Pieces(side,clock,valuationAt)).ToArray();
+        var pieces=sides.SelectMany(side=>Pieces(side,boundary,valuationAt)).ToArray();
         if(pieces.Any(piece=>!levels.Contains(piece.Level)))throw Error("A side reports values at a granularity outside the selected row levels.");
+        if(pieces.Where(piece=>piece.Payment is not null).Select(piece=>piece.Currency).Distinct().Count()>1)
+            throw Error("Net cash requires every paying side to settle in one currency.");
         var rows=ImmutableArray.CreateBuilder<ScheduleViewRow>();var leaves=0;var deliveredLeaves=0;
         void Add(IEnumerable<Piece> scope,int depth,string? parent)
         {
@@ -63,7 +67,7 @@ public static class ScheduleViews
             split?Cells(sides,[..pieces.Where(piece=>piece.End>valuationAt)]):null,deliveredLeaves,leaves,valuationAt);
     }
 
-    private static IEnumerable<Piece> Pieces(SideViewInput side,TimeZoneInfo clock,DateTimeOffset? valuationAt)
+    private static IEnumerable<Piece> Pieces(SideViewInput side,Func<DateOnly,DateTimeOffset> boundary,DateTimeOffset? valuationAt)
     {
         if(string.IsNullOrWhiteSpace(side.Code)||side.Code.Contains('.')||side.Code=="trade"||side.Evaluation is null||side.Program is null||
             side.Columns.IsDefaultOrEmpty||side.Columns.Any(column=>string.IsNullOrWhiteSpace(column.Column)||!Enum.IsDefined(column.Measure))||
@@ -94,30 +98,26 @@ public static class ScheduleViews
                 if(cash.Presence[cell]!=ScheduleCellPresence.Resolved||quantity.Presence[q]!=ScheduleCellPresence.Resolved||price.Presence[p]!=ScheduleCellPresence.Resolved||
                     quantity.States[q].Quantity is not {} volume||price.States[p].Prices==SchedulePriceFacts.None)
                     throw Error("Every shown cell requires its resolved quantity, price and amount; evaluate the side's complete term.");
-                var interval=Interval(document,guard.Output,cell,clock);
+                var interval=Interval(document,guard.Output,cell,boundary);
                 var payment=contribution.States[cell].Kind==ComponentKind.Payment?guard.Output.ValueAt??throw Error("A payment requires its value date."):(DateTimeOffset?)null;
                 pieces.Add(new(side,interval.Level,interval.Month,interval.Day,interval.Start,interval.End,Ratio(quantity.Values[q])*scale,Ratio(price.Values[p]),
-                    Ratio(cash.Values[cell])*scale,VolumeTag(volume),PriceTag(price.States[p].Prices),payment));
+                    Ratio(cash.Values[cell])*scale,VolumeTag(volume),PriceTag(price.States[p].Prices),payment,cash.Currency));
             }
         }
         return pieces;
     }
-    private static (string Level,string Month,string? Day,DateTimeOffset Start,DateTimeOffset End) Interval(BookedSideProgramDocument document,ScheduleDefinitionRow row,int cell,TimeZoneInfo clock)
+    private static (string Level,string Month,string? Day,DateTimeOffset Start,DateTimeOffset End) Interval(BookedSideProgramDocument document,ScheduleDefinitionRow row,int cell,Func<DateOnly,DateTimeOffset> boundary)
     {
         if(row.Grid is {} grid)
         {
-            var interval=document.Grids[grid].Interval(cell);
-            return("day",Month(interval.OperatingDate),interval.OperatingDate.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),interval.Start,interval.End);
+            var interval=document.Grids[grid].Interval(cell);var day=interval.OperatingDate;
+            if(interval.Start!=boundary(day)||interval.End!=boundary(day.AddDays(1)))
+                throw Error("A shown grid cell must cover exactly one operating day on the selected boundary.");
+            return("day",Month(day),day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),interval.Start,interval.End);
         }
         if(row.DeliveryFrom is not {} from||row.DeliveryTo is not {} to)throw Error("A scalar contribution requires its delivery window.");
         var level=to==from.AddDays(1)?"day":Month(from)==Month(to.AddDays(-1))?"month":throw Error("A scalar contribution must lie within one day or one calendar month.");
-        return(level,Month(from),level=="day"?from.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture):null,Local(from,clock),Local(to,clock));
-    }
-    private static DateTimeOffset Local(DateOnly date,TimeZoneInfo clock)
-    {
-        var midnight=date.ToDateTime(TimeOnly.MinValue);
-        if(clock.IsInvalidTime(midnight)||clock.IsAmbiguousTime(midnight))throw Error("A delivery date requires one exact local midnight on the selected clock.");
-        return new(midnight,clock.GetUtcOffset(midnight));
+        return(level,Month(from),level=="day"?from.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture):null,boundary(from),boundary(to));
     }
     private static ImmutableDictionary<string,ScheduleViewCell> Cells(ImmutableArray<SideViewInput> sides,IReadOnlyCollection<Piece> scope)
     {
