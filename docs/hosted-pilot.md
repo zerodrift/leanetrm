@@ -230,6 +230,10 @@ attempt using a separately installed, digest-pinned GitHub CLI. Source head is
 checked again immediately before promotion. The installed operator and Compose
 are never replaced by a downloaded release.
 
+The release envelope permits at most 256 regular files, including its manifest,
+image, Compose file, license and migration inventory. Byte, path, type and hash
+checks apply independently; the inventory limit does not authorize schema changes.
+
 The current deployment contract permits application-image updates only. Exact
 migration inventory, actual database schema fingerprint, database identity, host
 configuration, interpolated private binding and live pre-DNAT fence must match the

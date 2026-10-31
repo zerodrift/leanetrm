@@ -330,9 +330,9 @@ through both migrations and activation of the matching API. Old application
 booking commands are incompatible with the new publication contract, so an
 image-only rollback is not a qualified recovery plan.
 
-The release reader admits the current 148 migrations plus four envelope files,
-and refuses the next file before writing its body. The installed operator is
-not updated by an application release: qualify and install the matching
+The release reader admits the current 148 migrations plus four envelope files
+within a 256-file cap, and refuses the 257th file before writing its body.
+The installed operator is not updated by an application release: qualify and install the matching
 `release_bundle.py` during the operator window. Stop the deployment timer before
 publishing the schema release to avoid quarantining its head; promote the exact
 migration inventory and database fingerprint only after the schema and application

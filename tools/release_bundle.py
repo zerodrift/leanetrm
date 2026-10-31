@@ -8,6 +8,7 @@ import re
 import tarfile
 
 MAXIMUM_BYTES = 2 * 1024 ** 3
+MAXIMUM_FILES = 256
 ENTRYPOINT = ['dotnet', '/opt/openetrm/api/OpenEtrm.Api.dll', '--hosted-pilot']
 FILE_NAME = re.compile(r'(?:release\.json|compose\.yaml|LICENSE|image\.tar|migrations/[0-9]{4}_[a-z0-9_]+\.sql)\Z')
 SHA256 = re.compile(r'[a-f0-9]{64}\Z')
@@ -65,7 +66,7 @@ def unpack(artifact, destination, repository, commit, run_id, run_attempt, maxim
             names.add(entry.name)
             total += entry.size + 512
             limit = maximum_bytes if entry.name == 'image.tar' else min(maximum_bytes, 1024 * 1024)
-            require(0 <= entry.size <= limit and total <= maximum_bytes and len(names) <= 152, 'release expansion limit exceeded')
+            require(0 <= entry.size <= limit and total <= maximum_bytes and len(names) <= MAXIMUM_FILES, 'release expansion limit exceeded')
             target = destination / entry.name
             target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             with target.open('xb') as output:

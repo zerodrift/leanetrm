@@ -72,13 +72,19 @@ class BundleChecks(unittest.TestCase):
         for name, value in entries:
             self.assertEqual((self.destination / name).read_bytes(), value)
 
-    def test_153rd_regular_file_is_refused_before_its_body_is_written(self):
-        entries = release_entries(migration_count=149)
-        self.assertEqual(len(entries), 153)
+    def test_256_regular_files_are_admitted(self):
+        entries = release_entries(migration_count=252)
+        self.assertEqual(len(entries), 256)
+        self.unpack(entries)
+        self.assertEqual(sum(path.is_file() for path in self.destination.rglob('*')), 256)
+
+    def test_257th_regular_file_is_refused_before_its_body_is_written(self):
+        entries = release_entries(migration_count=253)
+        self.assertEqual(len(entries), 257)
         with self.assertRaisesRegex(bundle.ReleaseError, 'expansion limit'):
             self.unpack(entries)
         self.assertFalse((self.destination / entries[-1][0]).exists())
-        self.assertEqual(sum(path.is_file() for path in self.destination.rglob('*')), 152)
+        self.assertEqual(sum(path.is_file() for path in self.destination.rglob('*')), 256)
 
     def test_rejects_traversal_links_duplicates_and_unlisted_files(self):
         for extra in [('../escape', b'x'), ('/escape', b'x'), ('image.tar', b'x'),
