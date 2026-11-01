@@ -8,7 +8,8 @@ public static class TicketBand { public static readonly ImmutableArray<string> R
 // Unit names the unit a field's or column's values are in, resolved per trade, never a unit symbol: "quantity" is the trade's quantity unit,
 // which the product's preview and booked read return.
 public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule);
-public sealed record TicketColumn(string Id,string Label,string? Unit,string Measure,bool Input);
+// Input names the modes in which a side column's day cells are entered in the side's tab, each recorded by the product's own operation.
+public sealed record TicketColumn(string Id,string Label,string? Unit,string Measure,ImmutableArray<string> Input);
 // A new ticket opens with Initial sides of the kind, between Min and Max.
 public sealed record TicketSideKind(string Kind,string Pill,string Colour,int Min,int Initial,int Max,ImmutableArray<TicketField> Fields,ImmutableArray<TicketColumn> Columns);
 // At most Max sides of the named kinds together; each kind keeps its own Min and Max.
@@ -48,6 +49,9 @@ public static class TicketDescriptions
    CheckField(d,field);
   }
   var units=all.Select(f=>(f.Id,f.Unit)).Concat(d.TradeColumns.Concat(d.Sides.SelectMany(s=>s.Columns)).Select(c=>(c.Id,c.Unit)));
+  if(d.TradeColumns.FirstOrDefault(c=>!c.Input.IsDefaultOrEmpty) is {} entered)Fail(d,$"trade column '{entered.Id}' cannot be an input; inputs are a side's");
+  if(d.Sides.SelectMany(s=>s.Columns).FirstOrDefault(c=>c.Input.IsDefault||c.Input.Distinct().Count()!=c.Input.Length||c.Input.Any(mode=>!d.Modes.Contains(mode))) is {} input)
+   Fail(d,$"column '{input.Id}' must be an input in distinct declared modes, or none");
   if(units.FirstOrDefault(u=>u.Unit is not null&&!ResolvedUnits.Contains(u.Unit)) is {Id:not null} literal)Fail(d,$"'{literal.Id}' names unit '{literal.Unit}'; a unit is resolved per trade, and only 'quantity' is");
   foreach(var field in all)
    foreach(var dependency in field.DependsOn)

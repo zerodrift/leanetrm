@@ -587,7 +587,7 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
                     if args.deal_ticket_check:
-                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=180)
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_setup_check:
                     from check_gas_setup_editor import run_checks as check_gas_setup
                     check_gas_setup(url)

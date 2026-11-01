@@ -7,7 +7,7 @@ test('a schedule draws as a tree with coloured header groups, decorations and th
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {scheduleGridData}=await import('/schedule-grid.js'),{renderDataGrid}=await import('/data-grid.js');
-   const col=(id,label,unit,measure)=>({id,label,unit,measure,input:false});
+   const col=(id,label,unit,measure)=>({id,label,unit,measure,input:[]});
    const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month','day'],modes:['new'],tabs:[],
     sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:1,fields:[],columns:[col('quantity','Quantity','quantity','quantity')]}],tradeColumns:[col('net_cash','Net cash',null,'money')]};
    const cells=(q,net)=>({'physical-1.quantity':{value:q,sources:['contract']},'trade.net_cash':{value:net,sources:[]}});

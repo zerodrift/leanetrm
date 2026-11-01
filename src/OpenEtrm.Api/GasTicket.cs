@@ -40,13 +40,14 @@ public static class GasTicket
      Field("link_source","Link source","Physical side whose quantity this side follows.","choice",choices:"physical_sides",required:false),
      Field("link_formula","Link formula","How fuel loss relates this side to its source.","choice",choices:"link_formulas",required:false,dependsOn:"link_source"),
      Field("link_fraction","Link fraction","Fuel fraction used by the link formula.","decimal",required:false,dependsOn:"link_source")],
-    [new("quantity","Quantity","quantity","quantity",false),new("market_price","Market price",null,"price",false),new("amount","Amount",null,"money",false)]),
+    // A booked side's day quantities are recorded as daily quantity revisions (GasDailyQuantities); a new trade's come from its terms.
+    [new("quantity","Quantity","quantity","quantity",["booked"]),new("market_price","Market price",null,"price",[]),new("amount","Amount",null,"money",[])]),
    // A new trade opens with the payment for its gas; a fee is added when one applies.
    CashKind("cash","Payment","cash",false,1),
    CashKind("fee","Fee","fee",true,0)],
   // Payment and fee sides are the composition's cash sides.
   [new(["cash","fee"],GasCompositionInstrument.MaxCashSides)],
-  [new("net_cash","Net cash",null,"money",false),new("payment_at","Payment at",null,"time",false)],
+  [new("net_cash","Net cash",null,"money",[]),new("payment_at","Payment at",null,"time",[])],
   ["month","day"],[new("links","Quantity links")],["new","booked"]));
 
  public static TicketSideKind SideKind(string role)=>Description.Sides.SingleOrDefault(kind=>Roles.GetValueOrDefault(kind.Kind)==role)??
@@ -73,7 +74,7 @@ public static class GasTicket
     Own("price","Price","Price per unit of the source quantity.","decimal","price",required:!fee),
     Own("payment_at","Payment at","When the amount is paid.","datetime","payment"),
     ..fee?[Own("tariff","Tariff","Configured usage tariff that sets the price.","choice",choices:"usage_tariffs",required:false,lookup:"eligible_tariff")]:Array.Empty<TicketField>()],
-   [new("quantity","Quantity","quantity","quantity",false),new("price","Price",null,"price",false),new("amount","Amount",null,"money",false)]);
+   [new("quantity","Quantity","quantity","quantity",[]),new("price","Price",null,"price",[]),new("amount","Amount",null,"money",[])]);
  }
 
  public static GasCompositionRequest Request(TicketDraft draft,Guid snapshotId,string knowledgeMode,Guid operationId,Guid definitionRevisionId)

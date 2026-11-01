@@ -1,4 +1,4 @@
-import type {ScheduleView,TicketChoice,TicketDescription,TicketField,TicketSummary,TradeActions} from './ticket-types.js';
+import type {ScheduleView,TicketChoice,TicketDescription,TicketField,TicketLink,TicketSummary,TradeActions} from './ticket-types.js';
 import {addSide,removeSide,type FieldValue,type TicketSide,type TicketState} from './ticket-model.js';
 import {numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
 import {emptyGridLayout,renderDataGrid,sideColour,type GridHandle} from './data-grid.js';
@@ -9,11 +9,16 @@ import {reasonOf} from './ticket-preview.js';
 // the view only lays them out and reports what the person does.
 export type TicketStatus={kind:'current'|'updating'|'stale'|'refused';text:string};
 export type TicketEvents={edit(side:string|null,field:string,value:string):void;accept(side:string|null,field:string):void;selectSide(code:string):void;tab(id:string):void;
- level(l:string):void;toggle(row:string,open:boolean):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void};
+ level(l:string):void;toggle(row:string,open:boolean):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void;
+ enter(side:string,day:string,value:string):void;entryValue(field:string,value:string):void;record():void;cancelEntry():void;checkEntry():void;retryEntry():void};
+// A day's entry in a side's tab, as the person fills in its record: the fields the record takes, their values and choices, whether a record
+// awaits its outcome (then only Check and Retry are offered) or is being sent, and what the last attempt said.
+export type TicketEntry={side:string;day:string;fields:TicketField[];values:Record<string,string>;choices:Record<string,TicketChoice[]>;pending:boolean;sending:boolean;text:string};
 // fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field. Under the chosen
 // level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved,
-// and instant the page's formatter for the instants the ticket shows.
+// and instant the page's formatter for the instants the ticket shows. links are the schedule's quantity links, and entry the day entry open, if any.
 export type TicketView={state:TicketState;mode:'new'|'booked';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;previous:ScheduleView|null;summaries:TicketSummary[];
+ links:TicketLink[];entry:TicketEntry|null;
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
 // The common band's rows, in order: TicketBand.Rows in TicketDescriptions.cs.
@@ -157,6 +162,36 @@ function foot(o:TicketView){
  return node;
 }
 
+// The record of a day's entry: its fields, then Record or Cancel, or, while a record awaits its outcome, Check and Retry of that record.
+function entryForm(o:TicketView,e:TicketEntry,name:string){
+ const node=el('section','ticket-record');node.setAttribute('aria-label',`Record ${name} · ${e.day}`);
+ node.append(el('strong','ticket-record-title',`Record ${name} · ${e.day}`));
+ const fields=el('div','ticket-record-fields');
+ for(const f of e.fields){
+  const row=el('label','ticket-field ticket-editable');row.dataset.field=f.id;row.append(el('span','ticket-label',f.label));
+  const control=editor(f,e.values[f.id]??'',e.choices[f.id],value=>o.on.entryValue(f.id,value));control.disabled=e.pending||e.sending;row.append(control);
+  const unit=resolvedUnit(f.unit,o.quantityUnit);if(unit)row.append(el('span','ticket-unit',unit));
+  if(f.meaning)row.title=f.meaning;
+  fields.append(row);
+ }
+ node.append(fields);
+ if(e.text){const line=el('p',e.pending?'ticket-record-status':'ticket-error',e.text);line.setAttribute('role',e.pending?'status':'alert');node.append(line);}
+ const actions:[string,string,()=>void][]=e.pending?[['ticket-record-check','Check record status',o.on.checkEntry],['ticket-record-retry','Retry the original record',o.on.retryEntry]]:
+  [['ticket-record-send','Record',o.on.record],['ticket-record-cancel','Cancel',o.on.cancelEntry]];
+ for(const [className,text,run] of actions){const b=button(className,text,run);b.disabled=e.sending;node.append(b);}
+ return node;
+}
+
+// Each linked side's receipt, delivery and fuel over the term, exactly as the backend reports them.
+function linksGrid(o:TicketView,content:HTMLElement):GridHandle|undefined{
+ if(!o.links.length){content.append(el('p','muted','No side takes its quantity from a link.'));return;}
+ const unit=o.quantityUnit,rule=(l:TicketLink)=>o.choices[`${l.target}.link_formula`]?.find(c=>c.value===l.formula)?.label??l.formula;
+ const headers=['Source','Linked side','Rule','Fraction',...['Receipt','Delivery','Fuel'].map(label=>unit?`${label} (${unit})`:label)];
+ const rows=o.links.map(l=>[l.source,l.target,l.formula,l.fraction,l.receipt,l.delivery,l.fuel]);
+ return renderDataGrid(content,'deal-ticket-links',`${o.state.description.product}:links`,headers,rows,[3,4,5,6],()=>false,{keys:['source','target','rule','fraction','receipt','delivery','fuel'],
+  displayRows:o.links.map((l,i)=>[l.source,l.target,rule(l),...rows[i].slice(3).map(numberText)]),rowKeys:o.links.map(l=>l.target),layout:emptyGridLayout(),onLayout:()=>{}});
+}
+
 export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
  const d=o.state.description,sides=o.state.sides,rows=bandRows(d,[...new Set(sides.map(s=>s.kind))]);
  const named:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:sideName(d,s)}));
@@ -179,17 +214,28 @@ export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
  // A side added since the last preview has no values in its schedule yet; the grid draws the sides it holds.
  const previewed=named.filter(s=>o.schedule&&Object.keys(o.schedule.totals).some(key=>key.startsWith(`${s.code}.`)));
  const unpreviewed=named.find(s=>s.code===o.tab&&!previewed.includes(s));
- if(!shows)content.append(el('p','muted',`${d.tabs.find(t=>t.id===o.tab)?.label??o.tab} is not drawn in this ticket yet.`));
+ if(o.tab==='links')grid=linksGrid(o,content);
+ else if(!shows)content.append(el('p','muted',`${d.tabs.find(t=>t.id===o.tab)?.label??o.tab} is not drawn in this ticket yet.`));
  else if(!o.schedule)content.append(el('p','muted','No schedule yet. Preview the trade to draw it.'));
  else if(unpreviewed)content.append(el('p','muted',`${unpreviewed.name} is not in the last preview yet.`));
  else{
   if(o.quantityUnit===null)throw Error('A drawn schedule needs the quantity unit its preview resolved.');
   const g=scheduleGridData(o.schedule,d,previewed,o.tab,o.level,{quantityUnit:o.quantityUnit,instant:o.instant},o.previous??undefined);
+  // In a side's tab, the day cells of a column the description makes an entry in this mode are inputs; a change opens that day's record.
+  const side=sides.find(s=>s.code===o.tab),entered=side?sideKind(d,side.kind).columns.map(c=>c.input.includes(o.mode)):[];
+  const cells=(r:number,c:number)=>{
+   if(!side||c===0||!entered[c-1]||g.levels[r]!=='day')return null;
+   const input=el('input','ticket-cell-input');input.value=g.displayRows[r][c];input.inputMode='decimal';input.setAttribute('aria-label',`${g.headers[c]} · ${g.keys[r]}`);
+   input.disabled=!!o.entry?.pending||!!o.entry?.sending;input.onchange=()=>o.on.enter(side.code,g.keys[r],input.value);
+   return input;
+  };
   grid=renderDataGrid(content,'deal-ticket-schedule',`${d.product}:${o.tab}`,g.headers,g.rows,g.numeric,()=>false,{keys:g.columns,displayRows:g.displayRows,rowKeys:g.keys,
-   layout:emptyGridLayout(),onLayout:()=>{},headerGroups:g.headerGroups,totals:g.totals,decorate:(r,c)=>g.decorations[r][c],
+   layout:emptyGridLayout(),onLayout:()=>{},headerGroups:g.headerGroups,totals:g.totals,decorate:(r,c)=>g.decorations[r][c],cells,
    // The chosen level shows its rows open under their parents, except the rows the person closed; the rows they open or close are reported.
    tree:{parents:g.parents,open:new Set(g.parents.filter((p):p is string=>p!==null&&!o.closed.has(p))),onToggle:(row,open)=>o.on.toggle(row,open)}});
   if(o.status.kind==='stale')grid.markStale(o.status.text);
+  const open=o.entry&&o.entry.side===o.tab?o.entry:null;
+  if(open)panel.append(entryForm(o,open,named.find(s=>s.code===open.side)!.name));
  }
  return {destroy(){grid?.destroy();host.replaceChildren();}};
 }

@@ -678,6 +678,12 @@ dialog label{margin-top:16px}
 .deal-ticket .ticket-tab[aria-selected=true]{border-bottom-color:var(--side-colour);color:var(--text);font-weight:600}
 .ticket-level{height:30px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface)}
 .ticket-grid{overflow-x:auto}
+.ticket-cell-input{width:100%;min-width:0;height:24px;padding:0 6px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);font:inherit;text-align:right}
+.ticket-record{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-top:10px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2)}
+.ticket-record-title{flex-basis:100%;font-size:13px}
+.ticket-record-fields{display:flex;flex-wrap:wrap;gap:4px 12px;flex:1 1 100%}
+.ticket-record .ticket-field{padding:0;min-width:150px}
+.ticket-record p{flex-basis:100%;margin:0}
 .ticket-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px}
 .ticket-note{margin-right:auto;color:var(--text-3);font-size:11px}
 @container (max-width:640px){

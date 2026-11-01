@@ -1,6 +1,7 @@
 // The deal ticket (docs/deal-ticket.md) enters a physical gas trade from New trade: live previews of the whole draft, lookups that say
 // where their values came from, refusals that keep the last schedule, a booking whose response is lost reconciled after a reload, and the
-// booked trade opened read-only in the Blotter's Details pane and in the trade's own window.
+// booked trade opened read-only in the Blotter's Details pane and in the trade's own window, a day's quantity recorded in its physical side's
+// tab, and the quantity links of a linked side.
 import {newTrade} from './new-trade.mjs';
 
 export async function run(actions){
@@ -32,15 +33,21 @@ export async function run(actions){
  await check('the common band rows line up across the cards',`(()=>{const cards=[...document.querySelectorAll(${q(ticket+' .ticket-card')})],rows=[...cards[0].querySelectorAll('[data-band]')].map(r=>r.dataset.band);
   return rows.length>0&&rows.every(band=>new Set(cards.map(c=>Math.round(c.querySelector('[data-band="'+band+'"]').getBoundingClientRect().top))).size===1);})()`);
 
- for(const id of ['book','legal_entity','counterparty'])await first(null,id);
- // A context that resolves a published gas setup lists it, and the person chooses it before the sides list their choices; none is chosen
- // for them. Without one the sides list their choices at once.
- const setups=`document.querySelectorAll(${q(control(null,'gas_setup')+' option')}).length>1`;
- await wait(`${setups}||[...document.querySelectorAll(${q(control('physical-1','product')+' option')})].some(o=>o.value==='test_gas')`);
- if(await evaluate(setups))await first(null,'gas_setup');
- for(const [id,value] of [['delivery_from','2021-01-01'],['delivery_to','2021-02-01'],['quantity','5000']])await set(control('physical-1',id),value);
- for(const [id,value] of [['direction','deliver'],['product','test_gas'],['quantity_basis','per_operating_day'],['pipeline','test_pipeline_a'],['zone','synthetic_gas_zone_a'],['delivery_point','synthetic_gas_point_a']])
-  await choose('physical-1',id,value);
+ const tradeTerms=async()=>{
+  for(const id of ['book','legal_entity','counterparty'])await first(null,id);
+  // A context that resolves a published gas setup lists it, and the person chooses it before the sides list their choices; none is chosen
+  // for them. Without one the sides list their choices at once.
+  const setups=`document.querySelectorAll(${q(control(null,'gas_setup')+' option')}).length>1`;
+  await wait(`${setups}||[...document.querySelectorAll(${q(control('physical-1','product')+' option')})].some(o=>o.value==='test_gas')`);
+  if(await evaluate(setups))await first(null,'gas_setup');
+ };
+ // One January delivery at synthetic point A; a quantity of null leaves it to the side's link.
+ const physicalTerms=async(code,direction,quantity)=>{
+  for(const [id,value] of [['delivery_from','2021-01-01'],['delivery_to','2021-02-01'],...quantity===null?[]:[['quantity',quantity]]])await set(control(code,id),value);
+  for(const [id,value] of [['direction',direction],['product','test_gas'],['quantity_basis','per_operating_day'],['pipeline','test_pipeline_a'],['zone','synthetic_gas_zone_a'],['delivery_point','synthetic_gas_point_a']])
+   await choose(code,id,value);
+ };
+ await tradeTerms();await physicalTerms('physical-1','deliver','5000');
  await wait(`!!document.querySelector(${q(field('physical-1','gas_day_start')+' .ticket-chip')})&&!!document.querySelector(${q(field('physical-1','price')+' .ticket-chip')})`);
  await check('choosing the delivery point fills the gas-day start and market price from labelled lookups',
   `document.querySelector(${q(field('physical-1','price')+' .ticket-chip')}).textContent.includes('close 2020-12-18')&&/^\\d\\d:\\d\\d$/.test(document.querySelector(${q(field('physical-1','gas_day_start')+' .ticket-value')}).textContent)`);
@@ -54,6 +61,7 @@ export async function run(actions){
   for(let top=0;top<=holder.scrollHeight;top+=200){holder.scrollTop=top;await new Promise(r=>setTimeout(r,60));for(const row of holder.querySelectorAll('.tabulator-row[data-row-key^="2021-01-"]'))seen.add(row.dataset.rowKey);}
   holder.scrollTop=0;return [...seen];})()`);
  await check('the day level shows the 31 January gas days under their month',`${days.length}===31&&${month()}.length>0`,q(days));
+ await check('a new trade\'s schedule takes no entries',`!document.querySelector(${q(ticket+' .ticket-cell-input')})`);
  await set(`${ticket} .ticket-level`,'month');await wait(`!document.querySelector(${q(ticket+' .tabulator-row[data-row-key^="2021-01-"]')})`);
 
  await set(control('physical-1','quantity'),'10000');
@@ -127,4 +135,45 @@ export async function run(actions){
  await command('Emulation.setDeviceMetricsOverride',{width:700,height:1000,deviceScaleFactor:1,mobile:false});
  await wait(stacked);await check('narrowing the Details pane stacks the cards',stacked);
  await command('Emulation.clearDeviceMetricsOverride');
+
+ // A booked physical side's day quantities are entered in its tab and recorded as daily quantity revisions; the ticket then reads the trade
+ // again, and only that day and its month change.
+ // A row's text, with the values of its entries.
+ const row=(key,root=booked)=>`(()=>{const r=document.querySelector(${q(root+' .tabulator-row[data-row-key="'+key+'"]')});return r?r.textContent+[...r.querySelectorAll('input')].map(i=>' '+i.value).join(''):'';})()`;
+ await set(`${booked} .ticket-level`,'day');
+ await wait(`!!document.querySelector(${q(booked+' .tabulator-row[data-row-key="2021-01-05"]')})`);
+ await check('the Instrument tab takes no entries',`!document.querySelector(${q(booked+' .ticket-cell-input')})`);
+ await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
+ const cell=`${booked} .tabulator-row[data-row-key="2021-01-05"] .ticket-cell-input`;
+ await wait(`!!document.querySelector(${q(cell)})`);
+ await check('only the physical side\'s day quantities are entries',`document.querySelectorAll(${q(booked+' .tabulator-row[data-row-key="2021-01"] .ticket-cell-input')}).length===0&&document.querySelectorAll(${q(booked+' .tabulator-row[data-row-key="2021-01-05"] .ticket-cell-input')}).length===1`);
+ const before={day:await evaluate(row('2021-01-04')),month:await evaluate(row('2021-01'))};
+ await set(cell,'9000');
+ const record=`${booked} .ticket-record`;
+ await wait(`!!document.querySelector(${q(record)})`);
+ for(const [id,value] of [['kind','nominated'],['status','provisional'],['evidence','Synthetic nomination']])await set(`${record} [data-field="${id}"] .ticket-control`,value);
+ await click(`${record} .ticket-record-send`);
+ await until(`${row('2021-01-05')}.includes('-9,000')&&!document.querySelector(${q(record)})`,`({record:document.querySelector(${q(record)})?.textContent,day:${row('2021-01-05')},status:${status(booked)}?.textContent})`);
+ await check('a recorded day quantity changes that day and its month only, after the trade is read again',
+  `${row('2021-01-05')}.includes('Nominated')&&${row('2021-01')}.includes('-309,000')&&${row('2021-01-04')}===${q(before.day)}&&
+   [...document.querySelectorAll(${q(booked+' .tabulator-row .grid-changed')})].map(m=>m.closest('.tabulator-row').dataset.rowKey).every(k=>k==='2021-01-05'||k==='2021-01')&&
+   !!document.querySelector(${q(booked+' .tabulator-row[data-row-key="2021-01-05"] .grid-changed')})`,`({day:${row('2021-01-05')},month:${row('2021-01')},before:${q(before)}})`);
+
+ // A linked side's receipt, delivery and fuel are drawn in the Quantity links tab exactly as the preview returned them.
+ await newTrade(actions,'gas');
+ await wait(`document.querySelectorAll(${q(ticket+' .ticket-card')}).length===2`);
+ await evaluate(`{const original=window.linksFetch=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/tickets/preview')&&response.ok)window.lastPreview=await response.clone().json();return response;};}`);
+ await click(`${card('cash-1')} .ticket-remove`);
+ await evaluate(`[...document.querySelectorAll(${q(ticket+' .ticket-add-kind')})].find(b=>b.textContent==='Physical').click()`);
+ await wait(`!!document.querySelector(${q(card('physical-2'))})`);
+ await tradeTerms();await physicalTerms('physical-1','receive','10000');await physicalTerms('physical-2','deliver',null);
+ await choose('physical-2','link_source','physical-1');await choose('physical-2','link_formula','gross_less_fraction');await set(control('physical-2','link_fraction'),'0.02');
+ await until(current()+`&&window.lastPreview?.links?.length===1`);
+ await click(`${ticket} .ticket-tab[data-tab="links"]`);
+ const links=`(document.querySelector(${q(ticket+' .ticket-grid .tabulator-row')})?.textContent??'')`;
+ await wait(`${links}.length>0`);
+ await check('the Quantity links tab shows the linked side\'s receipt, delivery and fuel as the preview returned them',
+  `(()=>{const l=window.lastPreview.links[0],text=${links};return l.source==='physical-1'&&l.target==='physical-2'&&l.receipt==='310000'&&l.delivery==='303800'&&l.fuel==='6200'&&
+   ['physical-1','physical-2','310,000','303,800','6,200'].every(v=>text.includes(v));})()`,`({links:window.lastPreview?.links,text:${links}})`);
+ await evaluate('window.fetch=window.linksFetch');
 }

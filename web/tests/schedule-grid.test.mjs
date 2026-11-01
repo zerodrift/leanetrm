@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {scheduleGridData,scheduleTabs,sourceLabels} from '../dist/schedule-grid.js';
 
 // A synthetic flow product: one physical side kind and one cash kind, with trade measures and a links tab.
-const col=(id,label,unit,measure)=>({id,label,unit,measure,input:false});
+const col=(id,label,unit,measure)=>({id,label,unit,measure,input:[]});
 const description={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month','day'],modes:['new'],
  sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:2,fields:[],columns:[col('quantity','Quantity','quantity','quantity'),col('market_price','Market price',null,'price'),col('amount','Amount',null,'money')]},
   {kind:'cash',pill:'Payment',colour:'cash',min:0,initial:0,max:2,fields:[],columns:[col('quantity','Quantity','quantity','quantity'),col('price','Price',null,'price'),col('amount','Amount',null,'money')]}],

@@ -21,18 +21,23 @@ internal static class TicketDescriptionChecks
             [Field("book"), Field("note", "info")],
             [Kind("buy", Field("buy_start", band: "start"), Field("buy_price", band: "price", dependsOn: "buy_start")), Kind("sell", Field("sell_start", band: "start"))],
             [new(["buy", "sell"], 3)],
-            [new("pv", "PV", null, "money", false)], ["month", "day"], [new("terms", "Terms")], ["new", "booked"]);
+            [new("pv", "PV", null, "money", [])], ["month", "day"], [new("terms", "Terms")], ["new", "booked"]);
         TicketDescription WithTrade(params TicketField[] fields) => valid with { TradeFields = [..fields] };
         TicketDescription WithBuy(params TicketField[] fields) => valid with { Sides = [Kind("buy", fields), valid.Sides[1]] };
         Check("a valid description passes unchanged", () => { if (!ReferenceEquals(TicketDescriptions.Validate(valid), valid)) throw new Exception("Instance changed"); });
         Check("side columns map to schedule view measures", () =>
         {
-            var kind = valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", false), new("p", "P", null, "price", false), new("a", "A", null, "money", false)] };
+            var kind = valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", []), new("p", "P", null, "price", []), new("a", "A", null, "money", [])] };
             if (!TicketDescriptions.ViewColumns(kind).SequenceEqual([("q", ScheduleViewMeasure.Quantity), ("p", ScheduleViewMeasure.Price), ("a", ScheduleViewMeasure.Amount)])) throw new Exception("Measures differ");
         });
         Reject("a field naming a unit symbol instead of a resolved unit", WithTrade(Field("book") with { Unit = "MMBtu" }));
-        Reject("a column naming a unit symbol instead of a resolved unit", valid with { TradeColumns = [new("pv", "PV", "USD", "money", false)] });
-        Reject("a side column the schedule view cannot show", valid with { Sides = [valid.Sides[0] with { Columns = [new("at", "At", null, "time", false)] }, valid.Sides[1]] });
+        Reject("a column naming a unit symbol instead of a resolved unit", valid with { TradeColumns = [new("pv", "PV", "USD", "money", [])] });
+        Reject("a side column the schedule view cannot show", valid with { Sides = [valid.Sides[0] with { Columns = [new("at", "At", null, "time", [])] }, valid.Sides[1]] });
+        Check("a side column may be an input in a declared mode", () => TicketDescriptions.Validate(valid with { Sides = [valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", ["booked"])] }, valid.Sides[1]] }));
+        Reject("a side column input in an undeclared mode", valid with { Sides = [valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", ["amend"])] }, valid.Sides[1]] });
+        Reject("a side column input in a mode twice", valid with { Sides = [valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", ["booked", "booked"])] }, valid.Sides[1]] });
+        Reject("a side column without its input modes", valid with { Sides = [valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", default)] }, valid.Sides[1]] });
+        Reject("a trade column input", valid with { TradeColumns = [new("pv", "PV", null, "money", ["booked"])] });
         Reject("a field id repeated across trade and sides", WithTrade(Field("book"), Field("buy_start")));
         Reject("a state outside the four", WithTrade(Field("book", "hidden")));
         Reject("a soon field without hover text", WithTrade(Field("book", "soon")));

@@ -79,6 +79,18 @@ internal static class ScheduleViewChecks
         Sources(Row(sourcedView,"2031-12").Cells["physical.amount"],"contract","meter","fwd","fixed");
         Pass("sources map and union upward");
 
+        SideViewInput Recorded(DateOnly day,string source)=>daily with{Recorded=ImmutableDictionary<DateOnly,ScheduleViewQuantity>.Empty.Add(day,new(S(9000),source))};
+        var recordedView=ScheduleViews.Build([Recorded(new(2031,12,5),"nominated")],Levels,Utc);
+        var recorded=Row(recordedView,"2031-12-05");var recordedMonth=Row(recordedView,"2031-12");
+        Equal(recorded.Cells["physical.quantity"].Value,"9000");Sources(recorded.Cells["physical.quantity"],"nominated");
+        Equal(recorded.Cells["physical.amount"].Value,"34120");Sources(recorded.Cells["physical.amount"],"contract");
+        Equal(Row(recordedView,"2031-12-04").Cells["physical.quantity"].Value,"10000");
+        Equal(recordedMonth.Cells["physical.quantity"].Value,"309000");Sources(recordedMonth.Cells["physical.quantity"],"contract","nominated");
+        Equal(recordedMonth.Cells["physical.amount"].Value,"1057720");
+        Reject("schedule_view",()=>ScheduleViews.Build([Recorded(new(2032,1,5),"nominated")],Levels,Utc));
+        Reject("schedule_view",()=>ScheduleViews.Build([Recorded(new(2031,12,5),"contract")],Levels,Utc));
+        Pass("a recorded day quantity replaces only that day's shown quantity and keeps the contract amount");
+
         if(view.Delivered is not null||view.Remaining is not null||view.DeliveredLeaves!=0||view.Leaves!=31||view.Rows.Any(row=>row.Delivered))
             throw new Exception("Before the first day nothing is delivered.");
         var at=From.AddDays(19);

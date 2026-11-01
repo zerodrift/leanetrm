@@ -90,7 +90,7 @@ def run_checks(url):
         assert totals['delivery.quantity']['value']=='-1550000/51',totals['delivery.quantity']
         fuel=value['links'][0]['fuel']
         # Quantities carry the side's direction: the receipt is positive and the delivery negative.
-        assert number(totals['receipt.quantity'])-(-number(totals['delivery.quantity']))==Fraction(int(fuel['numerator']),int(fuel['denominator'])),(totals,fuel)
+        assert number(totals['receipt.quantity'])-(-number(totals['delivery.quantity']))==Fraction(fuel),(totals,fuel)
         return view
     linked_view=assert_linked(c.call('gas/composition/preview',linked))
     # Booked at the earlier 2020-12-17 frame, the trade reads at the current frame and at that earlier As of frame;
@@ -195,6 +195,20 @@ def check_ticket_operations(c,context,cat,description,body,view):
     assert opened['draft']==draft,(opened['draft'],draft)
     assert opened['schedule']==view and opened['summaries']==preview['summaries'] and opened['scheduleRefusal'] is None and opened['quantityUnit']==preview['quantityUnit']
     assert opened['actions']['amend']['allowed'] is False and opened['actions']['closeOut']['allowed'] is False and opened['actions']['amend']['reason'],opened['actions']
+    assert opened['links']==preview['links']==[] and opened['quantityPolicy']=='operational_projection_v1',(opened['links'],opened['quantityPolicy'])
+    # A daily quantity recorded through its own operation shows on that day of the booked schedule, with its kind as the source, and in
+    # the month's quantity; the amounts stay the contract's. A retry with the same operation receives its first outcome.
+    quantities=c.call('gas/quantities/read',{'context':context,'tradeId':fact['tradeId'],'selectionPolicy':opened['quantityPolicy'],'includeHistory':False})
+    day=next(r for r in quantities['rows'] if r['sideCode']=='physical' and r['day']=='2021-01-05')
+    record={'context':context,'tradeId':fact['tradeId'],'expectedRevision':quantities['expectedRevision'],'operationId':str(uuid4()),'obligationId':day['obligationId'],
+            'kind':'nominated','status':'provisional','day':'2021-01-05','quantity':'9000','evidence':'Synthetic nomination','expectedPreviousId':None}
+    receipt=c.call('gas/quantities/record',record)
+    assert c.call('gas/quantities/record',record)==receipt and c.call('gas/quantities/status',{'operationId':record['operationId']})['revisionId']==receipt['revisionId'],receipt
+    recorded=c.call('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision']})['schedule']
+    cells={r['key']:r['cells'] for r in recorded['rows']};before={r['key']:r['cells'] for r in view['rows']}
+    assert cells['2021-01-05']['physical.quantity']=={'value':'-9000','sources':['nominated']},cells['2021-01-05']['physical.quantity']
+    assert cells['2021-01-05']['physical.amount']==before['2021-01-05']['physical.amount'] and cells['2021-01-04']==before['2021-01-04'],cells['2021-01-05']
+    assert cells['2021-01']['physical.quantity']['value']=='-309000' and cells['2021-01']['physical.amount']==before['2021-01']['physical.amount'],cells['2021-01']
     refused('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':str(uuid4()),'revision':fact['revision']},'position_unavailable')
     # A single-point gas booking does not open in the ticket yet.
     single={**context,**{k:body[k] for k in ['legalEntityId','legalEntityRevision','counterpartyId','counterpartyRevision','bookId','definitionRevisionId','gasSetupId']},'operationId':str(uuid4()),

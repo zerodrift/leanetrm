@@ -3,7 +3,8 @@
 // A field's or column's unit names the unit its values are in, resolved per trade: 'quantity' is the trade's quantity unit, which each preview and
 // booked read returns as quantityUnit. The description never holds a unit symbol.
 export type TicketField={id:string;label:string;meaning:string;type:string;unit:string|null;state:string;required:boolean;band:string|null;choices:string|null;dependsOn:string[];lookup:string|null;soon:string|null;rule:string|null};
-export type TicketColumn={id:string;label:string;unit:string|null;measure:string;input:boolean};
+// input lists the modes in which a side column's day cells are entries, recorded by the product's own operation.
+export type TicketColumn={id:string;label:string;unit:string|null;measure:string;input:string[]};
 // A new ticket opens with `initial` sides of the kind.
 export type TicketSideKind={kind:string;pill:string;colour:string;min:number;initial:number;max:number;fields:TicketField[];columns:TicketColumn[]};
 // At most `max` sides of the named kinds together.
@@ -24,6 +25,9 @@ export type TradeAction={allowed:boolean;reason:string};
 export type TradeActions={amend:TradeAction;closeOut:TradeAction};
 // A preview answers its schedule, or why the schedule could not be built beside a valuation that succeeded; a booked trade read adds its draft
 // and the actions it offers; a booking answers its receipt.
-export type TicketPreview={schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null;quantityUnit:string};
-export type TicketTrade=TicketPreview&{draft:TicketDraft;actions:TradeActions};
+// A link is a physical side whose quantity follows its source's: their receipt, delivery and fuel totals over the term, as exact text.
+export type TicketLink={source:string;target:string;formula:string;fraction:string;receipt:string;delivery:string;fuel:string};
+export type TicketPreview={schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null;quantityUnit:string;links:TicketLink[]};
+// quantityPolicy is the daily quantity selection the booked schedule shows.
+export type TicketTrade=TicketPreview&{draft:TicketDraft;actions:TradeActions;quantityPolicy:string};
 export type TicketReceipt={operationId:string;tradeId:string;instrumentId:string;revision:number};

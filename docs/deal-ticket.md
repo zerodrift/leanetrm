@@ -441,7 +441,28 @@ single-point trade keeps its listed terms in the Details pane.
   without refusal, and sends `tickets/book` as a retained request: an unknown
   outcome locks the ticket with Check and Retry, and survives a reload, where
   the Blotter offers to reconcile it.
-- Not yet: tree rows load with their view rather than on demand; the trade date
+- A booked trade's schedule shows each physical day's quantity under the
+  operations projection (`operational_projection_v1`, returned as
+  `quantityPolicy`): the day's latest allocated, scheduled, confirmed or
+  nominated record, tagged with its kind, else the contract's. Amounts stay the
+  contract's; a recorded quantity does not revalue the trade.
+- A side column's `input` lists the modes in which its day cells are entries.
+  Gas declares the physical `quantity` column an entry in booked mode: in a
+  booked physical side's tab each day quantity is an input. Changing one opens
+  a record form for that day, whose kind, status and evidence the person
+  chooses (none is chosen for them). Record reads `gas/quantities/read` for the
+  trade revision and the day's previous record of that kind, and sends
+  `gas/quantities/record` with its own operation id, kept until its outcome is
+  known: an unknown outcome offers Check (`gas/quantities/status`) and Retry of
+  the same command. The backend refuses what it does not admit, such as a
+  negative quantity or a historical context. Once recorded the ticket reads the
+  trade again and draws its schedule; the cells that moved are marked.
+- The preview and the booked read return `links`: for each linked physical
+  side its source, target, formula, fraction and the receipt, delivery and fuel
+  totals as exact text. The Quantity links tab draws them.
+- Not yet: tree rows load with their view rather than on demand; a quantity
+  command awaiting its outcome is kept while the page is open, not across a
+  reload; the trade date
   lookup is declared but not served; a usage tariff list read earlier is not
   read again when its source side's path changes (the booking still checks it).
 

@@ -1,7 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Npgsql;
+using System.Collections.Immutable;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Gas;
 
 namespace OpenEtrm.Api;
 
@@ -25,6 +27,10 @@ public sealed class GasTicketStore(PreviewDatabase database)
  static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
  readonly PhysicalGasStore gas=new(database);
  readonly GasCompositionStore composition=new(database);
+ readonly GasDailyQuantities daily=new(database);
+ // A booked trade's schedule shows each day's quantity under the operations projection: its latest allocated, scheduled, confirmed or
+ // nominated record, else the contract's. Amounts stay the contract's: recorded quantities do not revalue the trade.
+ const string QuantityPolicy=GasDailyQuantitySelection.ProjectionPolicy;
 
  public static TicketDescription Description(string product)=>product==GasTicket.Description.Product?GasTicket.Description:
   throw new MarketDataException("ticket_input",$"No deal ticket describes product '{product}'.");
@@ -44,14 +50,16 @@ public sealed class GasTicketStore(PreviewDatabase database)
   return GasTicket.MarketPrice(body.Draft,body.Side!,catalog,price,TradingView.WorkingDate(frame));
  }
 
- // The booked composition trade, selected by its exact binding and revision, as its ticket draft and schedule.
+ // The booked composition trade, selected by its exact binding and revision, as its ticket draft and schedule, with its quantity links.
  public async Task<object> Trade(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketTradeRequest body,CancellationToken ct)
  {
   var selected=TradePositionSelection.From(new(body.Context,body.TradeId,body.BindingId,body.Revision,GasPositions.Type));
   var position=(await GasPositions.Read(c,database.Manifest,[],[],ct,selected)).Single();
   if(!position.Head.GetProperty("composition").GetBoolean())throw new MarketDataException("ticket_input","This single-point gas trade does not open in the deal ticket yet.");
-  var read=await composition.Read(c,data,frame,body.TradeId,ct);
+  var days=(await daily.Select(c,frame,body.TradeId,QuantityPolicy,false,ct)).Days.Where(d=>d.Selected.RevisionId is not null);
+  var read=await composition.Read(c,data,frame,body.TradeId,ct,days.GroupBy(d=>d.SideCode).ToDictionary(g=>g.Key,g=>g.ToImmutableDictionary(d=>d.Contract.Day,d=>(d.Selected.Quantity,d.Selected.Kind))));
   return new{draft=GasTicket.Reopen(read.Terms),schedule=read.Valuation.Schedule,summaries=read.Valuation.Summaries,scheduleRefusal=read.Valuation.ScheduleRefusal,quantityUnit=read.Valuation.QuantityUnit,
+   links=read.Valuation.Links,quantityPolicy=QuantityPolicy,
    actions=new{amend=new{allowed=false,reason=AmendReason},closeOut=new{allowed=false,reason=CloseOutReason}}};
  }
 }

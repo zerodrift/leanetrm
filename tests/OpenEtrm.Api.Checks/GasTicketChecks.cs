@@ -92,6 +92,11 @@ internal static class GasTicketChecks
             var columns = GasTicket.Description.Sides.SelectMany(k => k.Columns).Concat(GasTicket.Description.TradeColumns);
             if (columns.Any(c => c.Unit != (c.Measure == "quantity" ? "quantity" : null))) throw new Exception("Only quantity columns are in the resolved quantity unit.");
         });
+        Check("only a booked physical side's quantities are entered in its tab", () =>
+        {
+            var inputs = GasTicket.Description.Sides.SelectMany(k => k.Columns.Where(c => !c.Input.IsEmpty).Select(c => $"{k.Kind}.{c.Id}:{string.Join("+", c.Input)}"));
+            Equal("physical.quantity:booked", string.Join(",", inputs), "input columns");
+        });
         Check("a role without a side kind refuses", () =>
         {
             try { GasTicket.SideKind("cash"); } catch (MarketDataException error) when (error.Code == "ticket_description") { return; }

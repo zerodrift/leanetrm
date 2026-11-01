@@ -8,7 +8,7 @@ test('a ticket in delivery shows the delivered count and the delivered, remainin
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {renderTicket}=await import('/deal-ticket.js'),{newTicket}=await import('/ticket-model.js');
-   const col=(id,label,unit,measure)=>({id,label,unit,measure,input:false});
+   const col=(id,label,unit,measure)=>({id,label,unit,measure,input:[]});
    const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month','day'],modes:['new','booked'],tabs:[],
     sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:1,fields:[],columns:[col('quantity','Quantity','quantity','quantity')]}],tradeColumns:[col('net_cash','Net cash',null,'money')]};
    const cells=(q,net)=>({'physical-1.quantity':{value:q,sources:['contract']},'trade.net_cash':{value:net,sources:[]}});
@@ -18,7 +18,7 @@ test('a ticket in delivery shows the delivered count and the delivered, remainin
     rows:[row('2026-11',null,'month',cells('-2000','6500'),false),row('2026-11-01','2026-11','day',cells('-1000','3250'),true),row('2026-11-02','2026-11','day',cells('-1000','3250'),false)]};
    const on=new Proxy({},{get:()=>()=>{}});
    window.ticket=renderTicket(document.querySelector('#host'),{state:newTicket(d),mode:'booked',actions:{amend:{allowed:false,reason:'No amendment.'},closeOut:{allowed:false,reason:'No close-out.'}},
-    schedule,quantityUnit:'MMBtu',instant:at=>'at '+at,previous:null,summaries:[],status:{kind:'current',text:'Up to date'},fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'day',closed:new Set(),on});
+    schedule,quantityUnit:'MMBtu',instant:at=>'at '+at,previous:null,summaries:[],links:[],entry:null,status:{kind:'current',text:'Up to date'},fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'day',closed:new Set(),on});
    for(let i=0;i<250&&!document.querySelector('.tabulator-calcs-holder .tabulator-cell');i++)await new Promise(r=>setTimeout(r,20));
    await new Promise(r=>setTimeout(r,100));
   })()`);
@@ -39,7 +39,7 @@ test('a redraw keeps the person\'s open and closed rows and leaves out a side th
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {renderTicket}=await import('/deal-ticket.js'),{newTicket,addSide}=await import('/ticket-model.js');
-   const col=(id,label,unit,measure)=>({id,label,unit,measure,input:false});
+   const col=(id,label,unit,measure)=>({id,label,unit,measure,input:[]});
    const kind=(k,colour,min)=>({kind:k,pill:k,colour,min,initial:min,max:2,fields:[],columns:[col('quantity','Quantity','quantity','quantity')]});
    const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month','day'],modes:['new','booked'],tabs:[],sides:[kind('physical','gas',1),kind('fee','fee',0)],tradeColumns:[]};
    const cells=q=>({'physical-1.quantity':{value:q,sources:[]}});
@@ -48,7 +48,7 @@ test('a redraw keeps the person\'s open and closed rows and leaves out a side th
     rows:[row('2026-11',null,'month','2'),row('2026-11-01','2026-11','day','1'),row('2026-11-02','2026-11','day','1'),row('2026-12',null,'month','1'),row('2026-12-01','2026-12','day','1')]};
    window.toggles=[];
    const on=new Proxy({},{get:(_,name)=>name==='toggle'?(key,open)=>toggles.push([key,open]):()=>{}});
-   const view=(tab)=>({state:addSide(newTicket(d),'fee'),mode:'new',actions:null,schedule,quantityUnit:'MMBtu',instant:at=>at,previous:null,summaries:[],status:{kind:'stale',text:'Preview refused'},fieldErrors:{},choices:{},
+   const view=(tab)=>({state:addSide(newTicket(d),'fee'),mode:'new',actions:null,schedule,quantityUnit:'MMBtu',instant:at=>at,previous:null,summaries:[],links:[],entry:null,status:{kind:'stale',text:'Preview refused'},fieldErrors:{},choices:{},
     selectedSide:null,tab,level:'day',closed:new Set(['2026-11']),on});
    window.draw=tab=>{window.ticket?.destroy();window.ticket=renderTicket(document.querySelector('#host'),view(tab));};
    window.draw('instrument');
@@ -61,5 +61,45 @@ test('a redraw keeps the person\'s open and closed rows and leaves out a side th
   assert.deepEqual(await evaluate('toggles'),[['2026-12',false]]);
   await evaluate("draw('fee-1')");
   assert.equal(await evaluate("document.querySelector('.ticket-grid').textContent"),'fee · fee-1 is not in the last preview yet.');
+ });
+});
+
+// In booked mode a side's tab makes the day cells of a column the description enters in that mode inputs; a change opens that day's
+// record. The Quantity links tab draws each link's receipt, delivery and fuel from the backend's exact text.
+test('a booked side tab enters day quantities and the links tab draws the backend links',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {renderTicket}=await import('/deal-ticket.js'),{newTicket}=await import('/ticket-model.js');
+   const col=(id,label,unit,measure,input)=>({id,label,unit,measure,input});
+   const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month','day'],modes:['new','booked'],tabs:[{id:'links',label:'Quantity links'}],
+    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:1,fields:[],columns:[col('quantity','Quantity','quantity','quantity',['booked']),col('amount','Amount',null,'money',[])]}],tradeColumns:[]};
+   const cells=q=>({'physical-1.quantity':{value:q,sources:['contract']},'physical-1.amount':{value:'5',sources:['contract']}});
+   const row=(key,parent,level,q)=>({key,parent,level,start:'',end:'',operatingDate:null,cells:cells(q),delivered:false});
+   const schedule={levels:['month','day'],valuationAt:'2026-10-30T00:00:00Z',deliveredLeaves:0,leaves:2,delivered:null,remaining:null,totals:cells('-2000'),
+    rows:[row('2026-11',null,'month','-2000'),row('2026-11-01','2026-11','day','-1000'),row('2026-11-02','2026-11','day','-1000')]};
+   window.entered=[];
+   const on=new Proxy({},{get:(_,name)=>name==='enter'?(...args)=>entered.push(args):()=>{}});
+   const field=(id,type,choices)=>({id,label:id,meaning:'',type,unit:id==='quantity'?'quantity':null,state:'editable',required:true,band:null,choices,dependsOn:[],lookup:null,soon:null,rule:null});
+   const links=[{source:'physical-1',target:'physical-2',formula:'gross_divided_by_one_plus_fraction',fraction:'0.02',receipt:'310000',delivery:'15500000/51',fuel:'310000/51'}];
+   window.draw=(tab,mode,entry)=>{window.ticket?.destroy();window.ticket=renderTicket(document.querySelector('#host'),{state:newTicket(d),mode,actions:{amend:{allowed:false,reason:'No.'},closeOut:{allowed:false,reason:'No.'}},
+    schedule,quantityUnit:'MMBtu',instant:at=>at,previous:null,summaries:[],links,entry,status:{kind:'current',text:'Up to date'},fieldErrors:{},choices:{},selectedSide:null,tab,level:'day',closed:new Set(),on});};
+   window.settled=async()=>{for(let i=0;i<250&&!document.querySelector('.tabulator-row[data-row-key]');i++)await new Promise(r=>setTimeout(r,20));await new Promise(r=>setTimeout(r,100));};
+   window.entry={side:'physical-1',day:'2026-11-02',fields:[field('quantity','decimal',null),field('kind','choice','kinds')],values:{quantity:'900'},choices:{kind:[{value:'nominated',label:'Nominated'}]},pending:false,sending:false,text:''};
+   draw('physical-1','booked',null);await settled();
+  })()`);
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-row[data-row-key]')].map(r=>[r.dataset.rowKey,r.querySelectorAll('.ticket-cell-input').length])"),[['2026-11',0],['2026-11-01',1],['2026-11-02',1]]);
+  await evaluate("(()=>{const input=document.querySelector('.tabulator-row[data-row-key=\"2026-11-02\"] .ticket-cell-input');input.value='900';input.dispatchEvent(new Event('change'));})()");
+  assert.deepEqual(await evaluate('entered'),[['physical-1','2026-11-02','900']]);
+  await evaluate("(async()=>{draw('physical-1','booked',entry);await settled();})()");
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.ticket-record [data-field] .ticket-control')].map(c=>c.value)"),['900','']);
+  assert.equal(await evaluate("document.querySelector('.ticket-record .ticket-unit').textContent"),'MMBtu');
+  await evaluate("(async()=>{draw('instrument','booked',null);await settled();})()");
+  assert.equal(await evaluate("document.querySelectorAll('.ticket-cell-input').length"),0);
+  await evaluate("(async()=>{draw('physical-1','new',null);await settled();})()");
+  assert.equal(await evaluate("document.querySelectorAll('.ticket-cell-input').length"),0);
+  await evaluate("(async()=>{draw('links','booked',null);await settled();})()");
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-row[data-row-key] .tabulator-cell')].map(c=>c.textContent)"),
+   ['physical-1','physical-2','gross_divided_by_one_plus_fraction','0.02','310,000','15,500,000/51','310,000/51']);
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-col-title')].map(c=>c.textContent).slice(4)"),['Receipt (MMBtu)','Delivery (MMBtu)','Fuel (MMBtu)']);
  });
 });

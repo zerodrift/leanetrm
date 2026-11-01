@@ -7,7 +7,8 @@ export type ScheduleTab={id:string;label:string;colour:string};
 export type ScheduleSide={kind:string;code:string;name:string};
 export type CellDecoration={sources:string[];changed:boolean;delivered:boolean};
 export type HeaderGroup={title:string;colour:string;columns:number[]};
-export const sourceLabels:Readonly<Record<string,string>>=Object.freeze({contract:'Contract',fwd:'Fwd',fixed:'Fixed',actual:'Actual',meter:'Meter',forecast:'Forecast',estimated:'Estimated',modeled:'Modeled'});
+export const sourceLabels:Readonly<Record<string,string>>=Object.freeze({contract:'Contract',fwd:'Fwd',fixed:'Fixed',actual:'Actual',meter:'Meter',forecast:'Forecast',estimated:'Estimated',modeled:'Modeled',
+ nominated:'Nominated',confirmed:'Confirmed',scheduled:'Scheduled',allocated:'Allocated'});
 const neutral='neutral',numericMeasures=['quantity','price','money'];
 
 /** The symbol of a field's or column's declared unit (TicketField.unit), from the units the latest preview resolved; null when it declares
@@ -66,5 +67,5 @@ export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:Sch
  if((view.delivered===null)!==(view.remaining===null))throw Error('The schedule view reports delivered and remaining together or not at all.');
  const totalRow=(label:string,cells:Record<string,ScheduleViewCell>)=>[label,...columns.map(({key,column})=>displayText(column,valueOf(cells,key).value??'',display))];
  const totals=[...view.delivered&&view.remaining?[totalRow('Delivered',view.delivered),totalRow('Remaining',view.remaining)]:[],totalRow('Total',view.totals)];
- return {headers,rows,displayRows,parents:shown.map(r=>r.parent),keys:shown.map(r=>r.key),columns:['period',...columns.map(c=>c.key)],numeric,headerGroups,totals,decorations};
+ return {headers,rows,displayRows,parents:shown.map(r=>r.parent),keys:shown.map(r=>r.key),levels:shown.map(r=>r.level),columns:['period',...columns.map(c=>c.key)],numeric,headerGroups,totals,decorations};
 }
