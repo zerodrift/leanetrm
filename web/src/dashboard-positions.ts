@@ -261,33 +261,37 @@ export function setupPositions(api:Api){
     books.multiple=true;read.type='button';
     for(const [value,{label}] of Object.entries(presets))preset.add(new Option(label,value));
     element.append(read,sizes,status);
-    let units:SizeUnit[]=[];
+    let units:SizeUnit[]=[],reading=0;
     const fresh=()=>existing.value==='';
     const inputs=()=>[...sizes.querySelectorAll<HTMLInputElement>('input')];
     function show(){for(const row of [name,books,preset].map(control=>control.parentElement!))row.hidden=!fresh();read.hidden=sizes.hidden=!fresh();}
-    function invalidate(){units=[];sizes.replaceChildren();}
-    existing.onchange=show;books.onchange=invalidate;preset.onchange=invalidate;
+    function invalidate(){reading++;units=[];sizes.replaceChildren();status.textContent='';}
+    existing.onchange=()=>{invalidate();show();};books.onchange=invalidate;preset.onchange=invalidate;
     read.onclick=async()=>{
-      invalidate();status.textContent='Reading the price units…';
+      invalidate();const started=reading,selectedPreset=preset.value as Definition['preset'];status.textContent='Reading the price units…';
       try{
         const bookIds=[...books.selectedOptions].map(option=>option.value);
         if(!bookIds.length)throw Error('Choose at least one book.');
-        const {context}=await retainedContext(market(),api),catalog=await api<PresetCatalog>('portfolio/risk/catalog',{context,bookIds,portfolioIds:[]});
-        units=sizeUnits(presetTargets(catalog,presets[preset.value as Definition['preset']].catalog));
+        const {context}=await retainedContext(market(),api);
+        if(started!==reading)return;
+        const catalog=await api<PresetCatalog>('portfolio/risk/catalog',{context,bookIds,portfolioIds:[]});
+        if(started!==reading)return;
+        units=sizeUnits(presetTargets(catalog,presets[selectedPreset].catalog));
         for(const unit of units){const input=make('input');input.setAttribute('aria-label',`Shock size for ${unit.label}`);input.inputMode='decimal';
           const row=node('label','',`Shock size for ${unit.label}`);row.append(input);sizes.append(row);}
         status.textContent=units.length?'Enter a shock size for each price unit.':'The preset shocks nothing these books hold.';
-      }catch(error){status.textContent=messageOf(error);}
+      }catch(error){if(started===reading)status.textContent=messageOf(error);}
     };
     /** Offers the saved definitions and the books readable now; called when the page loads or its context refreshes. */
     async function refresh(){
-      status.textContent='';
+      invalidate();const started=reading;
       try{
         const [definitions,{books:readable}]=await Promise.all([api<Definition[]>('risk/definitions'),retainedContext(market(),api)]);
+        if(started!==reading)return;
         const chosen=existing.value;
         existing.replaceChildren(new Option('New definition',''),...definitions.map(d=>new Option(d.name,d.definitionId,false,d.definitionId===chosen)));
         books.replaceChildren(...readable.map(b=>new Option(b.name,b.id)));invalidate();show();
-      }catch(error){status.textContent=messageOf(error);}
+      }catch(error){if(started===reading)status.textContent=messageOf(error);}
     }
     async function settle():Promise<WidgetContent>{
       if(!fresh())return {kind:'positions',config:{definitionId:existing.value}};

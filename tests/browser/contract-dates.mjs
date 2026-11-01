@@ -3,6 +3,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await persona('viewer');
  await check('market readers can open the shared contract-date library',"!document.querySelector('#nav-schedules').hidden&&!!document.querySelector('#schedule-tab-contracts')");
  await persona('editor');await click('#nav-schedules');await click('#schedule-tab-contracts');await set('#date-context-on','2021-01-15');await wait(idle);await click('#date-context-latest');
+ await set('#dates-import','2021-01-01\n2021-02-01');
+ await check('an imported date list disables unrelated monthly generator controls',"['dates-first','dates-last','dates-anchor','dates-day','dates-short','dates-adjustment'].every(id=>document.getElementById(id).disabled)");
+ await click('#date-context-latest');
+ await check('monthly generator controls stay disabled after reading the imported list context',"document.querySelector('#dates-import').value==='2021-01-01\\n2021-02-01'&&['dates-first','dates-last','dates-anchor','dates-day','dates-short','dates-adjustment'].every(id=>document.getElementById(id).disabled)");
+ await set('#dates-import','');
  await set('#curve-dates-example-kind','daily_power');await click('#curve-dates-example');
  await set('#curve-dates-code','browser_daily_dates');await set('#curve-dates-name','Synthetic shared daily dates');
  await submit('#curve-dates-form');await click('#curve-dates-keep');

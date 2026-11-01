@@ -205,9 +205,17 @@ The default arrangement, top to bottom:
   schedule, which D253 placed under the row, shows in the Details pane with
   the sides table.
 - Header: ◂ ▸ (previous and next position in grid order), the position's
-  title, and ⌄ to collapse. "Close position view" is removed.
+  title, maximize/restore, and ⌄ to collapse. Maximizing temporarily fills
+  the dock with Details without changing its saved arrangement or remounting
+  the editor. Collapse or reset restores the arrangement.
 - New trade, amendment and close-out forms open in the details pane; the
   unsaved-edit guard applies before it shows another position or collapses.
+- Futures and swap amendment editors keep **Preview changes** and **Save
+  amendment** together in a sticky action bar. Saving is enabled only after
+  the current terms have been previewed and explicitly confirmed. Editing
+  a term invalidates that review. The amendment reason appears before the
+  terms. Swap **Price** shows an estimate and local validation errors; its
+  result explains the separate preview, confirmation and save steps.
 - The inline row expansion (`position-expansion.ts`) and the grid's detail
   row support in `data-grid.ts` (`detailRow`, `resizeDetail`, the virtual
   buffer workarounds) are removed.

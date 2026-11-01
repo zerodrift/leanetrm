@@ -1647,9 +1647,23 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .details-pane:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .details-pane>*{min-width:0}
 .details-bar{display:flex;align-items:center;gap:4px;margin:0 0 10px}
-.details-title{flex:1 1 auto;min-width:0;margin:0 6px;font-size:14px;font-weight:650;overflow-wrap:anywhere}
+.details-title{flex:1 1 auto;min-width:0;margin:0 6px;font-size:14px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .details-control{flex:none;min-height:0;padding:2px 8px;font-size:15px;color:var(--text-2)}
 .details-control:disabled{color:var(--text-3);opacity:.5}
+.details-bar{position:sticky;top:-10px;z-index:6;padding:6px 0;background:var(--surface)}
+.trade-editor-actions{position:sticky;top:32px;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 16px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow);scroll-margin-top:42px}
+.trade-editor-actions .field-help{flex:1 1 240px;margin:0}
+.trade-editor-actions button{flex:none;min-height:34px;margin:0;padding:7px 12px;line-height:18px;white-space:normal}
+.trade-editor-confirmation{padding:12px;margin:12px 0;border:1px solid var(--accent-border);border-radius:var(--radius);background:var(--accent-soft)}
+.trade-editor-confirmation label{display:flex;align-items:center;gap:8px;margin:0}
+.trade-editor-confirmation:has(>input){display:flex;align-items:center;gap:8px}
+.trade-change-review,.trade-editor-confirmation,.draft-error,#trade-error,#swap-error,#scheduled-swap-editor>[role=alert]{scroll-margin-top:130px}
+.details-pane .side-panel-tab{scroll-margin-top:42px}
+.draft-error{color:var(--danger);margin:10px 0}
+/* Maximizing is temporary presentation state: the saved dock arrangement and the editor stay in place. */
+#blotter-dock:has(#position-details[data-maximized=true]) :is(.dock-split,.dock-group):not(:has(#position-details)),
+#blotter-dock:has(#position-details[data-maximized=true]) :is(.dock-divider,.dock-head,.dock-bar){display:none}
+#blotter-dock:has(#position-details[data-maximized=true]) :is(.dock-split,.dock-group):has(#position-details){flex:1 1 0!important;min-height:0!important;min-width:0}
 .details-pane .side-panel-prompt{margin:0 0 10px;padding-right:16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
 /* A form in a narrow details pane takes the one column, as it does in a side panel. */
 @container (max-width:600px){

@@ -101,3 +101,24 @@ test('the page collapses the details as ⌄ does, as for Escape on a grid row: a
  f.edit(false);await f.collapse();
  assert.equal(f.shell.current(),null);assert.equal(f.collapsed.length,1);
 });
+
+test('maximize and restore keep the open form, edits and mode, and collapse clears maximization',async()=>{
+ const f=fixture();await f.show(position('t1'));f.shell.form(true);f.edit(true);
+ const panel=f.host.querySelector('#position-details'),form=f.shell.element('form');
+ const maximize=f.labelled('Maximize details');assert.ok(maximize,'maximize is available in the header');
+ maximize.click();
+ assert.equal(panel.dataset.maximized,'true');assert.equal(maximize.getAttribute('aria-pressed'),'true');
+ assert.equal(maximize.getAttribute('aria-label'),'Restore details');
+ assert.equal(f.shell.element('form'),form);assert.equal(form.hidden,false);assert.equal(f.prompt().hidden,true);
+ maximize.click();assert.equal(panel.dataset.maximized,'false');assert.equal(form.hidden,false);
+ maximize.click();
+ const closing=f.collapse();await settle();f.answer('Keep editing');await closing;
+ assert.equal(panel.dataset.maximized,'true','keeping edits keeps the maximized view');
+ f.edit(false);await f.collapse();assert.equal(panel.dataset.maximized,'false');
+ await f.show(position('t2'));assert.equal(panel.dataset.maximized,'false');
+});
+
+test('resetting a maximized pane restores the layout',async()=>{
+ const f=fixture();await f.show({kind:'new',product:'swaps'});f.labelled('Maximize details').click();
+ f.shell.reset();assert.equal(f.host.querySelector('#position-details').dataset.maximized,'false');
+});

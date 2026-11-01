@@ -20,6 +20,18 @@ class CheckAllTests(unittest.TestCase):
     def setUp(self):
         self.enterContext(redirect_stdout(io.StringIO()))
 
+    def test_frontend_widget_checks_use_the_explicit_browser_on_every_platform(self):
+        frontend = []
+
+        def run(command, **options):
+            if command == ['npm', 'test', '--prefix', 'web']:
+                frontend.append(options['env'].get('CHROME_BIN'))
+
+        with patch.dict(os.environ, {'CHROME_BIN': '/an unrelated browser'}):
+            run_checks(Path('/stock postgres/bin'), Path('/managed sdk/dotnet'),
+                       Path('/selected browser executable'), group='standard', run=run)
+        self.assertEqual(frontend, ['/selected browser executable'])
+
     def test_physical_gas_workflow_is_qualified_in_trading_partition(self):
         commands=[]
         run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))

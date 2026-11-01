@@ -16,24 +16,25 @@ type Risk={projectionPolicies:ProjectionPolicyReceipt[];measure:string;currency:
 // Price before booking (blotter-desk.md, Side panel): what the unbooked deal is worth at the close, with the curve of each market it is
 // for and the delivery period it marks on it. `markets` names them from the draft, and `shape` gives each one's curve shape at the close,
 // or why there is none: the page reads it, from the desk's own read when it can, so that a curve is never read for the draft needlessly.
-export function draftValuation<D extends Draft>(host:HTMLElement,o:{product:'futures'|'swaps';api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;draft:()=>Promise<D>;key:()=>string;priced?:(result:DraftPrice)=>Promise<void>;denied:()=>void;
+export function draftValuation<D extends Draft>(host:HTMLElement,o:{product:'futures'|'swaps';api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;draft:()=>Promise<D>;key:()=>string;priced?:(result:DraftPrice)=>Promise<void>;denied:()=>void;amending?:()=>boolean;
  markets:(draft:D)=>DraftMarket[];shape:(market:DraftMarket)=>Promise<CurveShape|string>}){
  let generation=0,retained:unknown,canRisk=false,requested=false;
  const title=document.createElement('h3'),actions=document.createElement('div'),price=document.createElement('button'),risk=document.createElement('button'),summary=document.createElement('p'),note=document.createElement('p'),curves=document.createElement('div'),rows=document.createElement('div'),policies=document.createElement('div');
  title.className='draft-title';title.textContent='Price before booking';curves.className='draft-curves';
- actions.className='schedule-actions';price.type=risk.type='button';price.textContent='Price';risk.textContent='Risk';risk.className='secondary';summary.setAttribute('role','status');note.className='field-help';rows.className='table-wrap';actions.append(price,risk);host.replaceChildren(title,actions,summary,note,curves,policies,rows);policies.id=o.product+'-draft-projection-policies';
+ const error=document.createElement('p');error.id=o.product+'-draft-error';error.className='draft-error';error.setAttribute('role','alert');error.hidden=true;
+ actions.className='schedule-actions';price.type=risk.type='button';price.textContent='Price';risk.textContent='Risk';price.className=risk.className='secondary';summary.setAttribute('role','status');note.className='field-help';note.id=o.product+'-draft-note';rows.className='table-wrap';actions.append(price,risk);host.replaceChildren(title,actions,error,summary,note,curves,policies,rows);policies.id=o.product+'-draft-projection-policies';
  price.id=o.product+'-draft-price';risk.id=o.product+'-draft-risk';summary.id=o.product+'-draft-value';rows.id=o.product+'-draft-exposure';curves.id=o.product+'-draft-curves';
- function sync(){price.disabled=o.busy();risk.disabled=o.busy()||!retained||!canRisk;}
+ function sync(){title.textContent=o.amending?.()?'Price proposed terms':'Price before booking';price.disabled=o.busy();risk.disabled=o.busy()||!retained||!canRisk;}
  function takeDownCurves(){for(const plot of curves.querySelectorAll<HTMLElement>('.chart'))clearChart(plot);curves.replaceChildren();}
- function reset(clearRequest=true){if(clearRequest)requested=false;generation++;retained=undefined;canRisk=false;summary.textContent='';note.textContent='';policies.replaceChildren();takeDownCurves();rows.replaceChildren();sync();}
- async function safe(work:()=>Promise<void>){try{await work();}catch(error){reset(false);if((error as {code?:string}).code==='access_denied')o.denied();throw error;}}
+ function reset(clearRequest=true){if(clearRequest)requested=false;generation++;retained=undefined;canRisk=false;summary.textContent='';note.textContent='';error.hidden=true;error.textContent='';policies.replaceChildren();takeDownCurves();rows.replaceChildren();sync();}
+ async function safe(work:()=>Promise<void>){const started=generation,key=o.key();try{await work();}catch(failure){if(started!==generation||key!==o.key())return;reset(false);error.textContent=publicText(failure instanceof Error?failure.message:'The calculation failed.');error.hidden=false;error.scrollIntoView({block:'nearest'});if((failure as {code?:string}).code==='access_denied')o.denied();throw failure;}}
  async function priceCurrent(){
-  requested=true;reset(false);const started=generation,key=o.key(),draft=await o.draft();if(started!==generation||key!==o.key())return;
+  requested=true;const started=generation,key=o.key(),draft=await o.draft();if(started!==generation||key!==o.key())return;
   const result=await o.api<DraftPrice>(o.product+'/price',draft);if(started!==generation||key!==o.key())return;
   await prepareAmountDisplay(result,body=>o.api<string[]>('amounts/display',body));if(started!==generation||key!==o.key())return;
   const pv=result.valuation?.presentValue??result.executionPnl;if(pv===undefined)throw Error('The draft valuation is incomplete.');
   summary.textContent=`${result.measure==='present_value'?'PV':'Execution P&L'}: ${amountText(pv,'money')} ${result.currency}`;
-  note.textContent=result.measure==='present_value'?'Unbooked estimate. Risk uses ±one tick per price factor; interest rates stay fixed.':'Unbooked execution P&L and open-price exposure. Margin and settlement PV are not processed.';
+  note.textContent=o.amending?.()?'Estimate of proposed terms. To save, enter an amendment reason, choose Preview changes, review and confirm, then Save amendment.':result.measure==='present_value'?'Unbooked estimate. Risk uses ±one tick per price factor; interest rates stay fixed.':'Unbooked execution P&L and open-price exposure. Margin and settlement PV are not processed.';
   const resolved=result.resolvedFixedPrice!==undefined&&draft.fixed?{...draft,fixed:{...(draft.fixed as Record<string,unknown>),price:result.resolvedFixedPrice},parRatePolicy:null}:draft;
   retained={draft:{...resolved,context:{...draft.context,knowledgeMode:'retained',contextId:result.context.contextId}},bumpPolicy:result.bumpPolicy,numericalPolicy:result.numericalPolicy};canRisk=result.canRunDealRisk;
   await o.priced?.(result);if(started!==generation||key!==o.key())return;
@@ -57,7 +58,7 @@ export function draftValuation<D extends Draft>(host:HTMLElement,o:{product:'fut
  }
  const whyNot=(error:unknown)=>`Curve could not be drawn · ${error instanceof Error?error.message:'it failed for a reason not given'}`;
  function line(text:string){const p=document.createElement('p');p.className='field-help';p.textContent=publicText(text);return p;}
- price.onclick=()=>void o.act(()=>safe(priceCurrent));
+ price.onclick=()=>void o.act(()=>{reset(false);return safe(priceCurrent);});
  risk.onclick=()=>void o.act(()=>safe(async()=>{
   if(!retained)throw Error('Price the current instrument first.');const started=generation,key=o.key();rows.replaceChildren();policies.replaceChildren();
   const result=await o.api<Risk>(o.product+'/draft-risk',retained);if(started!==generation||key!==o.key())return;
