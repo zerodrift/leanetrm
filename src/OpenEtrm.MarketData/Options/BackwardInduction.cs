@@ -30,18 +30,32 @@ public interface IInductionContract<TState> where TState : struct, Enum
 
 public sealed record InductionDecision<TState>(string Code, LatticeDecimal Immediate, TState Next);
 
-// Chosen[step][node][state] is the code of the decision that maximises value at
-// that node and state, for steps 0..Steps-1.
-public sealed record InductionResult<TState>(
-    LatticeDecimal Root,
-    ImmutableArray<ImmutableArray<ImmutableDictionary<TState, string>>> Chosen) where TState : struct, Enum;
+// Chosen is present only when decisions were recorded.
+public sealed record InductionResult<TState>(LatticeDecimal Root, InductionChoices<TState>? Chosen) where TState : struct, Enum;
+
+// The decision that maximises value at each node and state, for steps 0..Steps-1.
+// Each step holds one code id per (node, state) in a flat array, indexed by
+// node * state count + the state's position in the contract's States.
+public sealed class InductionChoices<TState> where TState : struct, Enum
+{
+    private readonly IReadOnlyDictionary<TState, int> stateIndex;
+    private readonly string[] codes;
+    private readonly int[][] chosen;
+
+    internal InductionChoices(IReadOnlyDictionary<TState, int> stateIndex, string[] codes, int[][] chosen) =>
+        (this.stateIndex, this.codes, this.chosen) = (stateIndex, codes, chosen);
+
+    public int Steps => chosen.Length;
+    public string Code(int step, int node, TState state) => codes[chosen[step][node * stateIndex.Count + stateIndex[state]]];
+}
 
 public static class BackwardInduction
 {
     // Value = max over decisions of Immediate + Discount(step) * sum(p * value of
     // the decision's next state at each successor). Ties between equal values pick
     // the first decision in declared order. Cancellation is checked once per step.
-    public static InductionResult<TState> Solve<TState>(ILattice lattice, IInductionContract<TState> contract, CancellationToken ct)
+    // Decision bookkeeping is allocated only when recordDecisions is true.
+    public static InductionResult<TState> Solve<TState>(ILattice lattice, IInductionContract<TState> contract, CancellationToken ct, bool recordDecisions)
         where TState : struct, Enum
     {
         var steps = lattice.Steps;
@@ -52,53 +66,62 @@ public static class BackwardInduction
         var states = contract.States;
         if (states.IsDefaultOrEmpty) throw Invalid("The contract declares no states.");
         if (states.Distinct().Count() != states.Length) throw Invalid("The contract declares a state more than once.");
+        var width = states.Length;
         var stateIndex = states.Select((state, index) => (state, index)).ToDictionary(pair => pair.state, pair => pair.index);
 
-        var values = new LatticeDecimal[lattice.Nodes(steps)][];
-        for (var node = 0; node < values.Length; node++)
+        // values[node * width + state index] at the step being rolled back into.
+        var values = new LatticeDecimal[lattice.Nodes(steps) * width];
+        for (var node = 0; node < values.Length / width; node++)
         {
             var underlying = lattice.Underlying(steps, node);
-            values[node] = states.Select(state => contract.Terminal(underlying, state)).ToArray();
+            for (var s = 0; s < width; s++) values[node * width + s] = contract.Terminal(underlying, states[s]);
         }
 
-        var chosen = new ImmutableArray<ImmutableDictionary<TState, string>>[steps];
+        var codeIds = recordDecisions ? new Dictionary<string, int>() : null;
+        var chosen = recordDecisions ? new int[steps][] : null;
         for (var step = steps - 1; step >= 0; step--)
         {
             ct.ThrowIfCancellationRequested();
             var discount = lattice.Discount(step);
-            var nextNodes = values.Length;
-            var current = new LatticeDecimal[lattice.Nodes(step)][];
-            var choices = ImmutableArray.CreateBuilder<ImmutableDictionary<TState, string>>(current.Length);
-            for (var node = 0; node < current.Length; node++)
+            var nextNodes = values.Length / width;
+            var nodes = lattice.Nodes(step);
+            var current = new LatticeDecimal[nodes * width];
+            var choices = chosen is null ? null : chosen[step] = new int[nodes * width];
+            for (var node = 0; node < nodes; node++)
             {
                 var successors = CheckedSuccessors(lattice, step, node, nextNodes);
                 var underlying = lattice.Underlying(step, node);
-                current[node] = new LatticeDecimal[states.Length];
-                var nodeChoices = ImmutableDictionary.CreateBuilder<TState, string>();
-                foreach (var state in states)
+                for (var s = 0; s < width; s++)
                 {
-                    var decisions = contract.Decisions(step, underlying, state);
-                    if (decisions.IsDefaultOrEmpty) throw Invalid($"No decisions for state {state} at step {step}, node {node}.");
+                    var decisions = contract.Decisions(step, underlying, states[s]);
+                    if (decisions.IsDefaultOrEmpty) throw Invalid($"No decisions for state {states[s]} at step {step}, node {node}.");
                     InductionDecision<TState>? best = null;
                     var bestValue = default(LatticeDecimal);
                     foreach (var decision in decisions)
                     {
                         if (!stateIndex.TryGetValue(decision.Next, out var next))
                             throw Invalid($"Decision {decision.Code} leads to undeclared state {decision.Next}.");
-                        var continuation = successors.Aggregate(
-                            default(LatticeDecimal), (sum, s) => sum + s.Probability * values[s.Node][next]);
+                        var continuation = default(LatticeDecimal);
+                        foreach (var (successor, probability) in successors)
+                            continuation += probability * values[successor * width + next];
                         var value = decision.Immediate + discount * continuation;
                         if (best is null || value.CompareTo(bestValue) > 0) { best = decision; bestValue = value; }
                     }
-                    current[node][stateIndex[state]] = bestValue;
-                    nodeChoices[state] = best!.Code;
+                    current[node * width + s] = bestValue;
+                    if (choices is not null) choices[node * width + s] = CodeId(codeIds!, best!.Code);
                 }
-                choices.Add(nodeChoices.ToImmutable());
             }
-            chosen[step] = choices.MoveToImmutable();
             values = current;
         }
-        return new InductionResult<TState>(values[0][0], [.. chosen]);
+        var recorded = chosen is null ? null
+            : new InductionChoices<TState>(stateIndex, [.. codeIds!.OrderBy(pair => pair.Value).Select(pair => pair.Key)], chosen);
+        return new InductionResult<TState>(values[0], recorded);
+    }
+
+    private static int CodeId(Dictionary<string, int> codeIds, string code)
+    {
+        if (!codeIds.TryGetValue(code, out var id)) codeIds[code] = id = codeIds.Count;
+        return id;
     }
 
     private static (int Node, LatticeDecimal Probability)[] CheckedSuccessors(ILattice lattice, int step, int node, int nextNodes)

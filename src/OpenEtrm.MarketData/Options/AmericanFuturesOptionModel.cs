@@ -84,7 +84,7 @@ public static class AmericanFuturesOptionModel
             throw new MarketDataException("option_numerical_policy", $"The policy needs at least one step; got {policy.Steps}.");
         var years = YearFraction(valuationAt, terms.ExpiryAt, policy);
         var lattice = new FuturesLattice(futures, volatility, years, discountToExpiry, policy.Steps);
-        return BackwardInduction.Solve(lattice, new AmericanOption(terms.Right, strike), ct).Root;
+        return BackwardInduction.Solve(lattice, new AmericanOption(terms.Right, strike), ct, recordDecisions: false).Root;
     }
 
     private static void RequirePositive(LatticeDecimal value, string name)

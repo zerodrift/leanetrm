@@ -252,40 +252,44 @@ internal static class FuturesOptionChecks
     private static void TwoStepHandTree()
     {
         var lattice = new TestLattice(2, "0.9");
-        var european = BackwardInduction.Solve(lattice, new TestPut("100", false), CancellationToken.None);
+        var european = BackwardInduction.Solve(lattice, new TestPut("100", false), CancellationToken.None, recordDecisions: true);
         Equal(european.Root.ToString(), "8.91");
-        Equal(european.Chosen[1][1][TestState.Alive], "hold");
+        Equal(european.Chosen!.Code(1, 1, TestState.Alive), "hold");
 
-        var american = BackwardInduction.Solve(lattice, new TestPut("100", true), CancellationToken.None);
+        var american = BackwardInduction.Solve(lattice, new TestPut("100", true), CancellationToken.None, recordDecisions: true);
         Equal(american.Root.ToString(), "9.81");
-        Equal(american.Chosen[1][1][TestState.Alive], "exercise");
-        Equal(american.Chosen[1][0][TestState.Alive], "hold");
-        Equal(american.Chosen[0][0][TestState.Alive], "hold");  // root: hold 9.81 beats exercising at 0
-        Equal(american.Chosen[1][1][TestState.Exercised], "hold");
-        Equal(american.Chosen.Length.ToString(), "2");
+        Equal(american.Chosen!.Code(1, 1, TestState.Alive), "exercise");
+        Equal(american.Chosen!.Code(1, 0, TestState.Alive), "hold");
+        Equal(american.Chosen!.Code(0, 0, TestState.Alive), "hold");  // root: hold 9.81 beats exercising at 0
+        Equal(american.Chosen!.Code(1, 1, TestState.Exercised), "hold");
+        Equal(american.Chosen!.Steps.ToString(), "2");
 
-        var tie = BackwardInduction.Solve(new TestLattice(2, "1"), new TestPut("100", true), CancellationToken.None);
-        Equal(tie.Chosen[1][1][TestState.Alive], "hold");
+        var tie = BackwardInduction.Solve(new TestLattice(2, "1"), new TestPut("100", true), CancellationToken.None, recordDecisions: true);
+        Equal(tie.Chosen!.Code(1, 1, TestState.Alive), "hold");
         Equal(tie.Root.ToString(), "11");  // up node 2, down node 20, root (2+20)/2
+
+        var unrecorded = BackwardInduction.Solve(lattice, new TestPut("100", true), CancellationToken.None, recordDecisions: false);
+        Equal(unrecorded.Root.ToString(), "9.81");
+        if (unrecorded.Chosen is not null) throw new Exception("Unrecorded decisions must not be kept.");
     }
 
     private static void InductionContractErrors()
     {
         var put = new TestPut("100", true);
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(0, "0.9"), put, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { UpProbability = LatticeDecimal.Parse("0.6") }, put, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { Overshoot = true }, put, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { OmitExercised = true }, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { NoDecisions = true }, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { UpProbability = LatticeDecimal.Parse("-0.5"), DownProbability = LatticeDecimal.Parse("1.5") }, put, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NodeCount = step => step == 0 ? 2 : step + 1 }, put, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NodeCount = step => step == 2 ? 0 : step + 1 }, put, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NodeCount = step => step == 1 ? 0 : step + 1 }, put, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NullNext = true }, put, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { DuplicateStates = true }, CancellationToken.None));
-        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { NoStates = true }, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(0, "0.9"), put, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { UpProbability = LatticeDecimal.Parse("0.6") }, put, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { Overshoot = true }, put, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { OmitExercised = true }, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { NoDecisions = true }, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { UpProbability = LatticeDecimal.Parse("-0.5"), DownProbability = LatticeDecimal.Parse("1.5") }, put, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NodeCount = step => step == 0 ? 2 : step + 1 }, put, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NodeCount = step => step == 2 ? 0 : step + 1 }, put, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NodeCount = step => step == 1 ? 0 : step + 1 }, put, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NullNext = true }, put, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { DuplicateStates = true }, CancellationToken.None, recordDecisions: true));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { NoStates = true }, CancellationToken.None, recordDecisions: true));
         var cancelled = new CancellationTokenSource(); cancelled.Cancel();
-        try { BackwardInduction.Solve(new TestLattice(2, "0.9"), put, cancelled.Token); throw new Exception("Expected cancellation."); }
+        try { BackwardInduction.Solve(new TestLattice(2, "0.9"), put, cancelled.Token, recordDecisions: true); throw new Exception("Expected cancellation."); }
         catch (OperationCanceledException) { }
     }
 
