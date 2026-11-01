@@ -1,12 +1,13 @@
 import {isPriceMeasure,priceMeasureChoices} from './blotter-layout.js';
 import {deliveryLabel,curveName,friendly} from './market-view.js';
 import type {ChartSpec} from './chart-view.js';
+import {exactNumber} from './exact-number.js';
 /** Ordering and reshaping displayed values only; no pricing or aggregation. */
 export function compareDecimalStrings(a:string,b:string):number{
   const parts=(value:string):[bigint,bigint]=>{
-    if(!/^-?\d+(?:\.\d+|\/[1-9]\d*)?$/.test(value))throw Error('A numeric column requires exact decimal or rational strings.');
-    if(value.includes('/')){const [n,d]=value.split('/');return [BigInt(n),BigInt(d)];}
-    const [integer,fraction='']=value.split('.');return [BigInt(integer+fraction),10n**BigInt(fraction.length)];
+    const n=exactNumber(value);
+    if(!n)throw Error('A numeric column requires exact decimal or rational strings.');
+    return n.denominator!==null?[BigInt(n.sign+n.integer),BigInt(n.denominator)]:[BigInt(n.sign+n.integer+(n.fraction??'')),10n**BigInt(n.fraction?.length??0)];
   };
   const [an,ad]=parts(a),[bn,bd]=parts(b),difference=an*bd-bn*ad;return difference===0n?0:difference<0n?-1:1;
 }

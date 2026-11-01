@@ -3,6 +3,7 @@
 // or infers them (AGENTS.md: TypeScript is presentation only).
 import {compareDecimalStrings,type PivotGroup} from './analytics-model.js';
 import {amountText,type DisplayPrecision} from './amount-display.js';
+import {exactNumber} from './exact-number.js';
 import type {RowGroup} from './blotter-layout.js';
 import {palette,type ChartPoint,type ChartSpec} from './chart-view.js';
 import {curveName,deliveryLabel} from './market-view.js';
@@ -53,7 +54,7 @@ function groupsOf(summaries:readonly Summary[],which:DeskSummary):PivotGroup[]{
 function text(group:PivotGroup,key:string):string{const value=group[key];if(typeof value!=='string'||!value)throw Error(inconsistent);return value;}
 function amount(group:PivotGroup,key:string):string|null{
   const value=group[key];if(value===null)return null;
-  if(typeof value!=='string'||!/^-?\d+(?:\.\d+|\/[1-9]\d*)?$/.test(value))throw Error(inconsistent);
+  if(typeof value!=='string'||!exactNumber(value))throw Error(inconsistent);
   return value;
 }
 function count(group:PivotGroup,key:string):number{const value=group[key];if(typeof value!=='number'||!Number.isInteger(value)||value<0)throw Error(inconsistent);return value;}

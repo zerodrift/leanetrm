@@ -1,3 +1,4 @@
+import {exactNumber} from './exact-number.js';
 import type {ScheduleView,ScheduleViewCell,TicketColumn,TicketDescription} from './ticket-types.js';
 
 // Draws a backend schedule view as grid data. Every value, aggregate and total is the backend's; the browser only picks the rows and columns
@@ -26,9 +27,9 @@ export function scheduleTabs(d:TicketDescription,sides:ScheduleSide[]):ScheduleT
 // Groups the digits of an exact decimal, or of each part of an exact a/b ratio, without rounding it.
 const grouped=(digits:string)=>digits.replace(/\B(?=(\d{3})+$)/g,',');
 export function numberText(value:string){
- const m=/^(-?)(\d+)(\.\d+)?(?:\/(\d+))?$/.exec(value);
- if(!m)throw Error(`A schedule value is not an exact number: ${value}`);
- return m[1]+grouped(m[2])+(m[3]??'')+(m[4]?'/'+grouped(m[4]):'');
+ const n=exactNumber(value);
+ if(!n)throw Error(`A schedule value is not an exact number: ${value}`);
+ return n.sign+grouped(n.integer)+(n.fraction===null?'':'.'+n.fraction)+(n.denominator===null?'':'/'+grouped(n.denominator));
 }
 export function instantText(value:string){
  const m=/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.exec(value);
