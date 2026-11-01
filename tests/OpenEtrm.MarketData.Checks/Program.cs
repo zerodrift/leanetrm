@@ -18,6 +18,7 @@ if(args is ["--schedule-program-demand"]){ScheduleProgramDemandChecks.Run();retu
 if(args is ["--schedule-view"]){ScheduleViewChecks.Run();return;}
 
 if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
+if(args is ["--futures-options"]){FuturesOptionChecks.Run();return;}
 if(args is ["--compact-retained"]){CompactRetainedChecks.Run();return;}
 if(args is ["--side-block-export",var blockOutput]){SideBlockExperiment.Export(blockOutput,12);return;}
 if(args is ["--side-block-export",var blockOutputMonths,var blockMonths]){SideBlockExperiment.Export(blockOutputMonths,int.Parse(blockMonths,System.Globalization.CultureInfo.InvariantCulture));return;}
