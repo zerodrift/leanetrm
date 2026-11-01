@@ -8,7 +8,7 @@ import type {ScheduleView,TicketChoice,TicketDescription,TicketDraft,TicketField
 // Runs one deal ticket against the ticket routes (docs/deal-ticket.md). A new ticket reads the choices each field lists, previews the whole
 // draft and reads its lookups once edits settle, and books through the retained request protocol; a booked one reads its trade and shows it.
 // Every value, choice, lookup and schedule is the backend's; the controller only keeps what the person sees in step with what they did.
-type Api=<T>(path:string,body?:unknown)=>Promise<T>;
+type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 type Opened={tradeId:string;bindingId:string;revision:number};
 type NewEntry={actor:()=>string;booked:(receipt:{tradeId:string})=>void};
 // instant is the page's formatter for the instants the ticket shows.
@@ -63,6 +63,15 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  let drawnKey='',drawnSchedules:[ScheduleView|null,ScheduleView|null]=[null,null];
  let panel:SchedulePanel={schedule:null,quantityUnit:null,previous:null,summaries:[],links:[],errors:{},status:{kind:'current',text:entry?'Not previewed yet. The ticket previews the trade after each change.':'Reading the booked trade…'}};
  const choices:Record<string,TicketChoice[]>={},choiceErrors:Record<string,string>={},lookupErrors:Record<string,string>={},asked=new Map<string,number>();
+ const lifetime=new AbortController(),choiceReads=new Map<string,AbortController>();
+ let fieldReads:Promise<void>=Promise.resolve(),lookupRead:AbortController|undefined,previewRead:AbortController|undefined;
+ // Field reads share a server session lock. Dispatch one at a time so queued
+ // fields do not spend their transport deadline waiting behind obsolete work.
+ function readField<T>(path:string,body:unknown,signal:AbortSignal):Promise<T>{
+  const result=fieldReads.then(()=>{signal.throwIfAborted();return o.api<T>(path,body,signal);});
+  fieldReads=result.then(()=>{},()=>{});return result;
+ }
+ function cancelPreview(){previewRead?.abort();lookupRead?.abort();lookupRead=undefined;looked=undefined;}
  let selectedSide:string|null=null,tab='instrument',level='',closed=new Set<string>();
  // The selection the booked schedule shows, as the trade read reports it, and the day entry open, if any.
  const entryKey=o.opened&&`${o.product}:${o.opened.tradeId}`;
@@ -128,21 +137,27 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  async function readChoices(targets:[string|null,TicketField][]){
   await Promise.all(targets.map(async([side,f])=>{
    const key=keyOf(side,f.id),values=valuesOf(side),n=(asked.get(key)??0)+1;asked.set(key,n);
+   choiceReads.get(key)?.abort();choiceReads.delete(key);
    // A list whose parent has no value yet lists nothing and is not asked for.
    if(f.dependsOn.some(parent=>!values[parent]?.value)){delete choices[key];delete choiceErrors[key];return;}
-   try{const r=await o.api<{choices:TicketChoice[]}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id});if(asked.get(key)!==n)return;choices[key]=r.choices;delete choiceErrors[key];}
-   catch(error){if(asked.get(key)!==n)return;choices[key]=[];choiceErrors[key]=reasonOf(error);}
+   const controller=new AbortController(),signal=AbortSignal.any([lifetime.signal,controller.signal]);choiceReads.set(key,controller);
+   try{const r=await readField<{choices:TicketChoice[]}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id},signal);if(signal.aborted||asked.get(key)!==n)return;choices[key]=r.choices;delete choiceErrors[key];}
+   catch(error){if(signal.aborted||asked.get(key)!==n)return;choices[key]=[];choiceErrors[key]=reasonOf(error);}
+   finally{if(choiceReads.get(key)===controller)choiceReads.delete(key);}
    later();
   }));
  }
  // Every lookup reads the whole draft, so all of them are read again once it changed.
  async function readLookups(){
   const asking=sent();if(asking===looked)return;looked=asking;
+  lookupRead?.abort();const controller=lookupRead=new AbortController(),signal=AbortSignal.any([lifetime.signal,controller.signal]),context=o.context();
   const answers=await Promise.all(everyField(f=>f.lookup!==null).map(async([side,f])=>{
-   try{return {side,f,found:await o.api<TicketLookup>('tickets/lookup',{context:o.context(),draft:JSON.parse(asking),side,field:f.id})};}
+   try{return {side,f,found:await readField<TicketLookup>('tickets/lookup',{context,draft:JSON.parse(asking),side,field:f.id},signal)};}
    catch(error){return {side,f,found:undefined,refused:reasonOf(error)};}
   }));
   // Answers for a draft since edited are dropped, and that draft counts as unread, so returning to it reads its lookups again.
+  if(signal.aborted||lookupRead!==controller)return;
+  lookupRead=undefined;
   if(!alive||!state||sent()!==asking){if(looked===asking)looked=undefined;return;}
   for(const a of answers){
    const key=keyOf(a.side,a.f.id);
@@ -157,13 +172,14 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  async function preview(){
   clearTimeout(settling);settling=undefined;
   if(!state||blocked())return;
+  previewRead?.abort();const controller=previewRead=new AbortController(),signal=AbortSignal.any([lifetime.signal,controller.signal]);
   const next=nextPreview(state),body={context:o.context(),draft:draftOf(next.state)},asking=JSON.stringify(body.draft);
   state=next.state;panel={...panel,status:{kind:'updating',text:'Updating…'}};draw();
   void readLookups();
   let outcome:{preview:TicketPreview}|{refused:unknown};
-  try{outcome={preview:await o.api<TicketPreview>('tickets/preview',body)};}catch(error){outcome={refused:error};}
+  try{outcome={preview:await o.api<TicketPreview>('tickets/preview',body,signal)};}catch(error){outcome={refused:error};}
   // Only the latest preview is drawn: an answer that arrives after a newer edit or preview is discarded.
-  if(!alive||!state||!acceptPreview(state,next.serial))return;
+  if(signal.aborted||!alive||!state||!acceptPreview(state,next.serial))return;
   try{panel=previewed(panel,outcome);bookable='preview' in outcome?asking:undefined;}
   catch(error){panel=previewed(panel,{refused:error});bookable=undefined;}
   draw();
@@ -173,6 +189,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!state||blocked())return;
   try{state=nextPreview(apply({...state,notices:[]})).state;}
   catch(error){state={...state,notices:[reasonOf(error)]};draw();return;}
+  cancelPreview();
   said='';panel={...panel,status:{kind:'updating',text:'Updating…'}};draw();settle();
   void readChoices(lists==='all'?listed():lists);
  }
@@ -188,6 +205,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   removeSide:code=>{
    if(selectedSide===code)selectedSide=null;if(tab===code)tab='instrument';
    for(const read of [choices,choiceErrors,lookupErrors])for(const key of Object.keys(read))if(key.startsWith(`${code}.`))delete read[key];
+   for(const [key,controller] of choiceReads)if(key.startsWith(`${code}.`)){controller.abort();choiceReads.delete(key);}
    change(s=>removeSide(s,code),'all');
   },
   preview:()=>void preview(),
@@ -243,7 +261,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   try{await readTrade();}catch(error){fail(error);}
  }
  async function readTrade(){
-  const r=await o.api<TicketTrade>('tickets/trade',{context:o.context(),...o.opened!});
+  const r=await o.api<TicketTrade>('tickets/trade',{context:o.context(),...o.opened!},lifetime.signal);
   if(!alive)return;
   // A trade that records day quantities names the selection its schedule shows, whether or not this reader may record one here.
   if(r.actions.record.allowed&&!(typeof r.quantityPolicy==='string'&&r.quantityPolicy))throw Error('A booked read that offers day entries must name the quantity selection its schedule shows.');
@@ -284,7 +302,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
 
  async function load(){
   try{
-   d=await o.api<TicketDescription>('tickets/description',{context:o.context(),product:o.product});
+   d=await o.api<TicketDescription>('tickets/description',{context:o.context(),product:o.product},lifetime.signal);
    if(!alive)return;
    level=d.levels[0];
    if(o.opened)await readTrade();
@@ -305,6 +323,6 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  return {
   unsaved:()=>!!entry&&!!state&&booked===undefined&&(!!pending.command||sent()!==opened),
   pending:()=>!!pending.command||!!day?.pending.command,
-  destroy(){alive=false;clearTimeout(settling);drawn?.destroy();host.replaceChildren();},
+  destroy(){alive=false;lifetime.abort();clearTimeout(settling);drawn?.destroy();host.replaceChildren();},
  };
 }

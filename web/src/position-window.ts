@@ -12,7 +12,7 @@ import {readTradeView} from './trade-editor.js';
 
 const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const error=get('position-window-error'),detail=get('position-window-detail'),retry=get<HTMLButtonElement>('position-window-retry');
-type Api=<T>(path:string,body?:unknown)=>Promise<T>;
+type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 const reads=new Set(['tickets/description','tickets/trade','tickets/choices','trading/crude','trading/gas','trading/position','futures/editor','swaps/editor','swaps/quantity-schedule','trade-formats/read','ppa/editor','ppa/preview','ppa/inspect','amounts/display']);
 let controller:AbortController|undefined,generation=0,loading=false,selection:PositionWindowSelection|undefined,reader:Api;
 const panel=setupPositionPanel({element:name=>get('position-window-'+name),form:on=>{if(on)throw Error('This trade window is read only.');},reveal(){},focusForm(){}},
@@ -35,18 +35,18 @@ async function load(){
  loading=true;retry.disabled=true;document.body.setAttribute('aria-busy','true');
  try{
   selection=readPositionWindowUrl(location.href);const picked=selection,root=picked.example==='exchange'?'/examples/exchange/api/':'/api/';let csrf='';
-  async function request<T>(path:string,body?:unknown):Promise<T>{
+  async function request<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
    const response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},
-    body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.any([current.signal,AbortSignal.timeout(20000)])});
+    body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.any([current.signal,AbortSignal.timeout(20000),...signal?[signal]:[]])});
    if(!response.ok){const refusal=await response.json().catch(()=>({}));const message=response.status===401?'Sign in to the workspace, then read this trade again.':refusal.message??'The retained trade could not be read.';
     if(started===generation&&(response.status===401||response.status===403))fail(message);
     throw Object.assign(Error(message),{code:refusal.code??'request_failed'});}
    return await response.json() as T;
   }
-  const api:Api=async<T>(path:string,body?:unknown)=>{
+  const api:Api=async<T>(path:string,body?:unknown,signal?:AbortSignal)=>{
    if(!reads.has(path))throw Error('This trade window supports authorized reads only.');
-   const value=await request<T>(path,body);
-   if(path!=='amounts/display')await prepareAmountDisplay(value,body=>request<string[]>('amounts/display',body));
+   const value=await request<T>(path,body,signal);
+   if(path!=='amounts/display')await prepareAmountDisplay(value,body=>request<string[]>('amounts/display',body,signal));
    return value;
   };
   const boot=await request<{csrfToken:string;profile:string|null}>('bootstrap?includeFrames=false&includeAccess=true');

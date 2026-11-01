@@ -52,14 +52,17 @@ export async function run(actions){
  await check('cells the change moved are marked',`!!document.querySelector(${q(ticket+' .tabulator-row[data-row-key="2021-01"] .grid-changed')})`);
 
  // A burst of edits: the first preview's response is held until the last one has been drawn, then arrives late and is discarded.
- await evaluate(`{const original=window.fetch;window.ticketFetch=original;window.previewHold={count:0,released:false};
+ await evaluate(`{const original=window.fetch;window.ticketFetch=original;window.previewHold={count:0};
   window.fetch=async(...args)=>{const response=await original(...args);if(!String(args[0]).endsWith('/tickets/preview'))return response;
    const n=++previewHold.count;
-   if(n===1)await new Promise(release=>{previewHold.release=()=>{previewHold.released=true;release();};});
-   else if(n===5)setTimeout(()=>previewHold.release(),300);
+   if(n===1)await new Promise(release=>{previewHold.release=release;});
    return response;};}`);
- for(const quantity of ['11000','12000','13000','14000','15000']){await set(control('physical-1','quantity'),quantity);await new Promise(r=>setTimeout(r,450));}
- await until("previewHold.count===5&&previewHold.released");await new Promise(r=>setTimeout(r,400));
+ await set(control('physical-1','quantity'),'11000');await until("!!previewHold.release");
+ for(const quantity of ['12000','13000','14000','15000']){await set(control('physical-1','quantity'),quantity);await new Promise(r=>setTimeout(r,450));}
+ // Superseded previews may be cancelled before responding. Release the held
+ // answer after the actual latest schedule is drawn, not after a response count.
+ await until(current()+`&&${month()}.includes('-465,000')`);
+ await evaluate('previewHold.release()');await new Promise(r=>setTimeout(r,400));
  await evaluate('window.fetch=window.ticketFetch');
  await check('after a burst of edits the schedule is the last edit\'s, never a late earlier response',current()+`&&${month()}.includes('-465,000')`,observed);
 
