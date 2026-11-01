@@ -26,6 +26,12 @@ def run_checks(client, query, manifest):
         return json.loads(runtime_query(query, manifest, bind + statement).splitlines()[-1])
 
     _upgrade(query, read)
+    scoped = runtime_query(query, manifest, bind +
+                           "SELECT current_setting('join_collapse_limit');" + statement +
+                           "SELECT current_setting('join_collapse_limit');",
+                           prefix="SET LOCAL join_collapse_limit=7;").splitlines()
+    assert scoped[-3] == scoped[-1] == '7' and json.loads(scoped[-2]) == read()
+    print('PASS swap projection planning leaves the caller configuration unchanged', flush=True)
     query('ANALYZE;')
     counted = runtime_query(query, manifest, bind + statement +
                             "SELECT coalesce((SELECT calls FROM pg_stat_xact_user_functions WHERE funcid="
@@ -108,6 +114,14 @@ def _upgrade(query, read):
     previous = original[start:original.index('ALTER VIEW trading.swap_revision_projection', start)]
     previous = previous.replace('CREATE VIEW', 'CREATE OR REPLACE VIEW', 1)
     migration = (root / 'db/migrations/0158_swap_exact_quote_projection.sql').read_text()
+    function = 'trading.read_swap_revisions(uuid,uuid,boolean,uuid[])'
+
+    def function_state():
+        state = json.loads(query(f"SELECT to_jsonb(p) FROM pg_proc p WHERE oid='{function}'::regprocedure;"))
+        settings = dict(setting.split('=', 1) for setting in state.pop('proconfig') or [])
+        return state, settings
+
+    _, installed_settings = function_state()
     tables = ['swap_trade_revisions', 'swap_instruments', 'swap_fixed_sides', 'swap_floating_sides',
               'swap_reset_projections', 'swap_payment_rules', 'knowledge_receipts']
     fingerprint = "SELECT jsonb_build_object('rows',jsonb_build_array(" + ','.join(
@@ -116,15 +130,23 @@ def _upgrade(query, read):
         "FROM pg_policies p WHERE schemaname IN('trading','ref_data')),'relations',(SELECT jsonb_agg(jsonb_build_array("\
         "oid,relowner,relacl,reloptions,relrowsecurity,relforcerowsecurity) ORDER BY oid) FROM pg_class "\
         "WHERE relnamespace IN('trading'::regnamespace,'ref_data'::regnamespace)));"
-    query(previous)
-    expected, unchanged = read(), query(fingerprint)
-    query(migration)
-    assert read() == expected and query(fingerprint) == unchanged
-    print('PASS exact-quote upgrade preserves every projected value, financial row, policy and relation grant', flush=True)
-    altered = previous.rstrip().removesuffix(';') + ' WHERE true;'
     try:
+        # The owned fixture already applied 0158. Restore both parts of its
+        # predecessor so this check actually qualifies the configuration upgrade.
+        query(previous)
+        query(f'ALTER FUNCTION {function} RESET join_collapse_limit;')
+        before_function, before_settings = function_state()
+        expected, unchanged = read(), query(fingerprint)
+        query(migration)
+        after_function, after_settings = function_state()
+        assert after_function == before_function, 'The planner change altered function authority or its definition.'
+        assert after_settings == {**before_settings, 'join_collapse_limit': '1'}, after_settings
+        assert read() == expected and query(fingerprint) == unchanged
+        print('PASS exact-quote upgrade preserves projected values, financial rows and authority with only its scoped planner setting', flush=True)
+        altered = previous.rstrip().removesuffix(';') + ' WHERE true;'
         query(altered)
         altered_definition = query("SELECT pg_get_viewdef('trading.swap_revision_projection',true);")
+        altered_function = function_state()
         try:
             query(migration)
         except RuntimeError as refusal:
@@ -132,8 +154,14 @@ def _upgrade(query, read):
         else:
             raise AssertionError('The quote upgrade accepted an unexpected predecessor view.')
         assert query("SELECT pg_get_viewdef('trading.swap_revision_projection',true);") == altered_definition
+        assert function_state() == altered_function, 'A refused upgrade changed function configuration or authority.'
         assert query(fingerprint) == unchanged
         print('PASS exact-quote upgrade refuses an unexpected view without changing its data or authority', flush=True)
     finally:
-        query(previous)
-        query(migration)
+        try:
+            query(previous)
+            query(migration)
+        finally:
+            selected = installed_settings.get('join_collapse_limit')
+            query(f'ALTER FUNCTION {function} ' +
+                  ('RESET join_collapse_limit;' if selected is None else f'SET join_collapse_limit={int(selected)};'))

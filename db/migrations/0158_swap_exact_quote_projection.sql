@@ -94,6 +94,9 @@ $new$);
  EXECUTE 'CREATE OR REPLACE VIEW trading.swap_revision_projection WITH(security_invoker=true) AS '||projection;
  DROP VIEW pg_temp.openetrm_expected_swap_projection;
  -- CREATE OR REPLACE preserves the original owner, column identities and ACL.
+ -- Exact dependent joins already encode the selected revision/side order.
+ -- Retain that order within the bounded worker read.
+ ALTER FUNCTION trading.read_swap_revisions(uuid,uuid,boolean,uuid[]) SET join_collapse_limit=1;
 END
 $upgrade$;
 
