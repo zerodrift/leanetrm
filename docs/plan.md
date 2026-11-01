@@ -1211,13 +1211,35 @@ First pricing may explicitly request complete catalog metadata from the same
 authorized evaluation read, with unchanged default evaluation behavior and
 separate selected-source versus catalog-observation projections. Verify one
 context bind, exact metadata/source validation and first-use chart readiness.
-Priced trading workspace reads explicitly limit milestone metadata to the required
-first/last-trading facts and primary observations to the selected snapshot pins.
+Both trading workspace catalog modes explicitly limit valuation milestone metadata
+to the required first/last-trading facts and primary observations to the selected
+snapshot pins; the booking directory does not broaden its report's input reads.
 Checks compare complete retained catalog/report responses, reject missing required
 facts and prove unused metadata/corrections are not read. Generic/full metadata
 reads retain their existing scope. Supplemental swap markets resolve corrections
 only in a certified context's own frames (D172). End-to-end cold-entry
 performance requires separate qualification.
+Retained swap projections constrain quote reads to each side's exact reference key
+and read ordered reset contracts and weights together. Migration 0158 preserves
+invoker RLS and the missing-child refusal. The owned sixteen-swap check bounds
+quote visibility work by the two independent sides per revision and projection
+row reads by the selected facts, preserving exact output and upgrade authority.
+Blotter reads choose visible latest heads before book scope and term hydration;
+checks refuse hidden required instruments, preserve historical book membership
+and avoid obsolete or unselected terms. Editor history remains complete.
+Full application latency remains a separate measurement.
+Base connected valuation compiles the declared dependency closure; available quotes
+are additional roots only for explicit scenario discovery and retained risk replay.
+Qualification compares independently calculated prices, missing-input refusals,
+empty projected demand and exact retained manifests, and counts prepared source
+nodes separately from loaded market catalog size.
+Ordinary base markets may share preparation within one authorized read only for
+identical pinned inputs, context, definition object and dependency sets; every
+consumer still admits its own due fixings. Custom recipes, historical contract
+observations and scenario receipts retain their independent preparation paths.
+Persisted PPA side adapters may be shared by exact economic/pricing identities
+and content manifests within one operation. This does not yet replace native
+whole-term schedule expansion with direct execution of retained vector programs.
 Reference reads avoid a duplicate permissive scope check only where the mandatory
 restrictive visibility policy already checks the same current authority per row.
 Exact policy/helper guards and expiry, scope, historical and policy-composition
@@ -1575,4 +1597,12 @@ checks remain necessary to reproduce supported database upgrades. Neither
 migration history nor distinct current operations are duplicate pricing engines.
 
 
-D268 adds a streamed Blotter valuation (`POST /api/trading/workspace/stream`: start count, complete rows per trade as they finish, totals once at the end) with a client reader in `web/src/blotter-stream.ts`. Blotter UI adoption (progress bar, grid built once, removal of `progressive`) is separate work.
+D268 adds a streamed Blotter valuation (`POST /api/trading/workspace/stream`: start count, complete rows per trade as they finish, totals once at the end). Under D276 the initial trade view uses those frames to show completion progress, keeping rows private until the complete result is validated. Refreshes and pivot views retain the `progressive` whole-workspace read.
+
+Blotter preparation now reuses each projected scheduled swap's exact retained
+unit valuation within its authorized read, applying each position's quantity
+separately under D146. Settlement lifecycle remains specific to each binding.
+PPA cadence checks index exact interval bounds, and dependency discovery resolves
+each selected curve/month/settlement combination once per call. These changes
+preserve exact financial and historical contracts; local measurements and their
+limits are recorded in [verification](verification.md#blotter-read-preparation-2026-11-01-local).

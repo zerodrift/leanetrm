@@ -103,6 +103,25 @@ internal static class Slice2AcceptanceChecks
             Equal(contributions.Values.Select(c=>c.PerUnit).Aggregate((x,y)=>x.Add(y)),quantity.PerUnit);
             Equal(quantity.State,VolumeState.Metered);
         });
+        Check("one prepared asset set bounds repeated native normalization allocation",()=>{
+            ImmutableArray<GenerationAsset> assets=[a,b];ImmutableArray<AssetVolume> volumes=[Actual(a,sa,"50"),Actual(b,sb,"30")];
+            long Measure(bool prepare)
+            {
+                var before=GC.GetAllocatedBytesForCurrentThread();
+                var prepared=prepare?CapacityNormalization.Prepare(assets,delivered):null;
+                for(var n=0;n<1000;n++)
+                {
+                    var normalized=prepared is null?CapacityNormalization.PerUnit(assets,volumes,interval,QuantityStage.Generated,delivered):
+                        prepared.PerUnit(volumes,interval,QuantityStage.Generated);
+                    Fraction(normalized.PerUnit.Numerator,normalized.PerUnit.Denominator,"4","15");
+                }
+                return GC.GetAllocatedBytesForCurrentThread()-before;
+            }
+            Measure(false);Measure(true);
+            var independent=Measure(false);var batch=Measure(true);
+            Console.WriteLine($"Normalization allocation: 1,000 rows, two assets; independent {independent} bytes; prepared {batch} bytes.");
+            if(batch>independent*0.6)throw new Exception("Prepared normalization must avoid repeating immutable asset admission and basis construction for every native row.");
+        });
         Check("explicit zero retains its asset denominator while a missing or duplicate contribution refuses",()=>{
             var av=Actual(a,sa,"50");var zero=Actual(b,sb,"0");
             var quantity=CapacityNormalization.PerUnit([a,b],[av,zero],interval,QuantityStage.Generated,delivered);
@@ -125,6 +144,38 @@ internal static class Slice2AcceptanceChecks
             Fraction(changed.Energy.Numerator,changed.Energy.Denominator,"200","1");
             Equal(changed.AssetVersion.From,boundary);
             Reject("asset_version",()=>CapacityNormalization.AccreditedPerUnit([a with {Versions=[a.Versions[0] with {AccreditedCapacity=null}]}],day,live));
+        });
+        Check("prepared normalization retains version boundaries, gaps and contribution context checks",()=>{
+            var boundary=f.Clock.StartOfDay(day.AddDays(1)).ToUniversalTime();
+            var changing=a with {Versions=[a.Versions[0] with {To=boundary},a.Versions[0] with {From=boundary,CapacityBasis=D("400")}]};
+            var context=f.Context(boundary.AddDays(2));var next=f.Periods(day.AddDays(1),60).Take(1).ToArray();
+            AssetVolume Value(GenerationAsset asset,VolumeSourceDefinition source,string amount,PowerInterval[]? cells=null)
+            {
+                var selected=cells??periods;
+                return AssetVolumes.Compute(source,asset,QuantityStage.Generated,selected,f.Forecast(source,selected,"0.5"),
+                    f.Meter(source,selected,amount,selected[0].End),context,f.Energy).Single();
+            }
+            ImmutableArray<AssetVolume> before=[Value(changing,sa,"50"),Value(b,sb,"30")];
+            ImmutableArray<AssetVolume> after=[Value(changing,sa,"50",next),Value(b,sb,"30",next)];
+            var prepared=CapacityNormalization.Prepare([changing,b],context);
+            void CheckValue(ImmutableArray<AssetVolume> values,string numerator,string denominator)
+            {
+                var normalized=prepared.PerUnit(values,values[0].Interval,QuantityStage.Generated);
+                Fraction(normalized.PerUnit.Numerator,normalized.PerUnit.Denominator,numerator,denominator);
+            }
+            CheckValue(before,"4","15");CheckValue(after,"4","25");CheckValue(before,"4","15");
+            var across=before[0].Interval with {End=next[0].End};
+            Reject("asset_version",()=>prepared.PerUnit([..before.Select(v=>v with{Interval=across})],across,QuantityStage.Generated));
+            CheckValue(after,"4","25");
+            var gap=CapacityNormalization.Prepare([changing with {Versions=[changing.Versions[0],changing.Versions[1] with{From=f.Clock.StartOfDay(day.AddDays(2)).ToUniversalTime()}]},b],context);
+            Reject("asset_version",()=>gap.PerUnit(after,after[0].Interval,QuantityStage.Generated));
+            var restored=gap.PerUnit(before,before[0].Interval,QuantityStage.Generated);
+            Fraction(restored.PerUnit.Numerator,restored.PerUnit.Denominator,"4","15");
+            var zero=before[0].Interval with {Start=boundary,End=boundary};
+            Reject("asset_version",()=>prepared.PerUnit([..before.Select(v=>v with{Interval=zero})],zero,QuantityStage.Generated));
+            Reject("ppa_normalization",()=>CheckValue(after.SetItem(0,after[0] with{AssetVersion=before[0].AssetVersion}),"4","25"));
+            Reject("ppa_normalization",()=>CheckValue(after.SetItem(0,after[0] with{Context=context with{KnownAt=context.KnownAt.AddMinutes(1)}}),"4","25"));
+            Reject("ppa_normalization",()=>prepared.PerUnit([after[0],after[0]],after[0].Interval,QuantityStage.Generated));
         });
         Check("forecast reductions and generated-to-delivered loss each apply once; meters skip forecast reductions",()=>{
             var source=sa with {Loss=D("0.1"),Availability=new(D("0.8"),false),Curtailment=new(D("0.25"),false)};

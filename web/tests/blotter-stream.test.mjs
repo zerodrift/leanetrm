@@ -98,3 +98,28 @@ test('abort settles while a read is pending on a body that sends nothing more',a
   assert.equal(settled,'settled');
   assert.deepEqual(r.calls,[['start',3]]);
 });
+
+test('awaits each asynchronous row display before subsequent rows or completion',async()=>{
+ const seen=[];let release;const held=new Promise(resolve=>release=resolve);
+ const done=readBlotterStream(bodyOf(full),request(),{
+  start:()=>{},rows:async batch=>{seen.push('begin'+batch.length);if(batch.length===2)await held;seen.push('end'+batch.length);},complete:()=>seen.push('complete')
+ },new AbortController().signal);
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.deepEqual(seen,['begin2']);release();await done;
+ assert.deepEqual(seen,['begin2','end2','begin1','end1','complete']);
+});
+
+test('abort settles while an asynchronous handler is held and starts no later handlers',async()=>{
+ for(const phase of ['start','rows']){
+  let release,entered;const held=new Promise(r=>release=r),began=new Promise(r=>entered=r),seen=[];
+  const controller=new AbortController();
+  const done=readBlotterStream(bodyOf(full),request(),{
+   start:async()=>{seen.push('start');if(phase==='start'){entered();await held;}},
+   rows:async()=>{seen.push('rows');if(phase==='rows'){entered();await held;}},complete:()=>seen.push('complete')
+  },controller.signal);
+  await began;controller.abort();
+  assert.equal(await Promise.race([done.then(()=>true),new Promise(r=>setTimeout(()=>r(false),100))]),true);
+  release();await new Promise(r=>setTimeout(r,0));
+  assert.deepEqual(seen,phase==='start'?['start']:['start','rows']);
+ }
+});

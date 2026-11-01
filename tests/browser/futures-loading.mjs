@@ -1,3 +1,4 @@
+import {setupWorkspaceProbe} from './workspace-probe.mjs';
 import {chooseProduct,newTrade,startNewTrade} from './new-trade.mjs';
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){
   const menu=async id=>{if(!await evaluate(`document.querySelector(${JSON.stringify('#'+id)}).open`))await click('#'+id+'>summary');};
@@ -16,7 +17,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // Wide enough that the positions and the details show side by side, as the place checks need.
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});await command('Page.navigate',{url});
   await wait(idle+"&&document.querySelectorAll('.curve-button').length>0");
-  await evaluate(`(()=>{const send=window.fetch;window.__loadingOriginalFetch=send;window.__loadingReads=[];window.fetch=async(input,init)=>{
+  await setupWorkspaceProbe(evaluate);
+  await evaluate(`(()=>{const send=window.fetch;window.__loadingOriginalFetch=send;window.__loadingReads=[];window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{
     if(String(input)==='/api/trading/positions'){if(window.__holdFacts){window.__holdFacts=false;await new Promise(resolve=>{window.__releaseFacts=resolve;});}const response=await send(input,init);window.__loadingFacts=await response.clone().json();return response;}
     if(String(input)==='/api/trading/blotter'&&window.__holdChart){window.__holdChart=false;await new Promise(resolve=>{window.__releaseChart=resolve;});}
     if(String(input)!=='/api/trading/workspace')return send(input,init);
@@ -29,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     if(body.bookingCatalog==='priced_contracts'&&window.__holdFullBooking){window.__holdFullBooking=false;await new Promise(resolve=>{window.__releaseFullBooking=resolve;});}
     if(body.bookingCatalog==='priced_contracts'&&window.__mismatchFullBooking&&response.ok){window.__mismatchFullBooking=false;data.blotter.context.contextId='00000000-0000-0000-0000-000000000002';return new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}
     window.__loadingReads.at(-1).data=data;return response;
-  };})()`);
+  });})()`);
   try{
     await persona('trader');
     const selected=await evaluate("[...document.querySelector('#snapshot').options].at(-1).value");
@@ -72,7 +74,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     await check('and those rows are not offered: the grid says so, and they show no pointer',notOffered,"({disabled:document.querySelector('#desk-positions [role=grid]')?.getAttribute('aria-disabled'),cursor:getComputedStyle(document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')).cursor})");
     await check('and the toolbar stays usable',toolbarUsable,"[...document.querySelectorAll('#blotter-scope,#snapshot,#futures-new,#futures-refresh,#blotter-retry')].map(n=>[n.id,n.inert,n.disabled])");
     await check('and the summary strip keeps its last values and their own reasons, each flagged Stale',`(()=>{const items=${strip},last=${JSON.stringify(before)};return items.length===last.length&&items.every((i,n)=>i.label===last[n].label&&i.value===last[n].value&&i.state===last[n].state&&i.reason===last[n].reason&&i.flag==='Stale');})()`,strip);
-    await check('and the person keeps their place: the selected row, the scroll offset and the first row in view',`JSON.stringify(${place})===${JSON.stringify(JSON.stringify(at))}`,place);
+    await check('and the person keeps their place: the selected row, the scroll offset and the first row in view',`JSON.stringify(${place})===${JSON.stringify(JSON.stringify(at))}`,`({actual:${place},expected:${JSON.stringify(at)}})`);
     await evaluate("window.__failValuation=true;document.querySelector('#blotter-retry').click()");
     await wait("document.querySelector('#futures-page').dataset.pricingState==='failed'&&"+idle);
     await check('a Retry that fails again still keeps the rows stale, in place, with the earlier strip',`${valuedRows}>0&&document.querySelector('#desk-positions .standard-data-grid').classList.contains('stale')&&JSON.stringify(${place})===${JSON.stringify(JSON.stringify(at))}&&(()=>{const items=${strip};return items.length===${before.length}&&items.every(i=>i.flag==='Stale');})()`,`[${place},${strip}]`);

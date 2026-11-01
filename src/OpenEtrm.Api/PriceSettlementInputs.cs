@@ -41,13 +41,14 @@ internal static class PriceSettlementInputs
     internal static ImmutableArray<IndexFixing> Fixings(PreviewData data,PriceSettlementSelection selection,QuoteSpecification quote,ImmutableArray<MarketContract> contracts)
     {
         var result=ImmutableArray.CreateBuilder<IndexFixing>();
+        var seriesById=data.Definitions["series"].ToLookup(row=>row.Id("id"));
         foreach(var contract in contracts)
         {
             var matching=data.Definitions["index_fixing_observations"].Where(row=>row.Text("index_code")==selection.SelectedIndex.Code &&
                 DateWorkspace.Date(row.Text("observation_from"))==contract.DeliveryFrom && DateWorkspace.Date(row.Text("observation_to"))==contract.DeliveryTo).ToArray();
             if(matching.Length==0 && selection.Mode==PriceSettlementMode.CurveTarget)continue;
             if(matching.Length!=1)throw new MarketDataException("index_fixing_convention_missing","Every override observation requires one exact qualified fixing definition.");
-            var row=matching[0];var series=data.Definitions["series"].Where(s=>s.Id("id")==row.Id("series_id")).ToArray();
+            var row=matching[0];var series=seriesById[row.Id("series_id")].ToArray();
             var actualContract=series.Length==1 && series[0].OptionalId("contract_id") is {} id?data.Contracts.SingleOrDefault(c=>c.Key.Id==id):null;
             if(row.Id("reference_catalog_id")!=data.ReferenceRevision.CatalogId || row.Id("reference_revision_id")!=data.ReferenceRevision.RevisionId ||
                 row.Text("quote_code")!=quote.Key.Code || row.Text("implementation")!=IndexFixing.SupportedImplementation ||

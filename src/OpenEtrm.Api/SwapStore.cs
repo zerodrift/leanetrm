@@ -159,7 +159,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   return new(row.Id("id"),currency,data.RateDefinition(row.Text("curve_code")),row.Text("interpolation_policy"));
  }
  private async Task<FinancialSwapEvaluation> Evaluate(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,
-  Guid? instrumentId,Guid? fixedId,Guid? floatingId,CancellationToken ct,ImmutableArray<(PreviewData Data,InputFrame Frame)>? markets=null,FinancialSwapInstrument? retained=null)
+  Guid? instrumentId,Guid? fixedId,Guid? floatingId,CancellationToken ct,ImmutableArray<(PreviewData Data,InputFrame Frame)>? markets=null,FinancialSwapInstrument? retained=null,CustomCurves.PreparationScope? preparationScope=null)
  {
   if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
   {
@@ -179,7 +179,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var dependencies=terms.Instrument.DependenciesAt(snapshot);
   if(frame.ContextId is not {} contextId)throw Error("swap_context","Pricing requires the retained financial context.");
   var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
-  var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[terms.Instrument],dependencies,ct);
+  var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[terms.Instrument],dependencies,CustomCurves.MarketPreparation.ValuationDependencies,ct,preparationScope:preparationScope);
   return FinancialSwapValuation.Evaluate(terms.Instrument,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct);
  }
  private static FinancialSwapValue Scale(FinancialSwapEvaluation value,SwapWriteRequest terms)=>
@@ -284,8 +284,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
  {
   var input=row.GetProperty(key);return input.ValueKind==JsonValueKind.Null?null:JsonSerializer.Deserialize<SwapPaymentInput>(input.GetRawText(),new JsonSerializerOptions(JsonSerializerDefaults.Web));
  }
- // Reduce only the risk materialization path: RLS-visible latest revisions are
- // selected before book scope, so an older book cannot resurrect a moved trade.
+ // Position and risk reads select RLS-visible heads before book scope and term
+ // hydration, so an older book cannot resurrect a moved trade.
  // History callers retain every visible revision and the same exact projections.
  internal async Task<ImmutableArray<JsonElement>> Rows(NpgsqlConnection connection,Guid? trade,CancellationToken ct,ImmutableArray<Guid>? latestBooks=null)
  {
@@ -487,9 +487,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
  internal async Task<SwapBlotterRun> BlotterRun(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
  {
   var books=await BookScope.Read(connection,manifest.CatalogId,ct);
-  var scope=BookScope.Select(books,bookIds,portfolioIds).Select(book=>book.Id("id")).ToHashSet();
-  var rows=(await Rows(connection,selected?.TradeId,ct)).GroupBy(r=>r.Id("trade_id")).Select(g=>g.MaxBy(r=>r.Number("revision"))!)
-   .Where(row=>scope.Contains(row.Id("book_id"))).ToArray();
+  var scope=BookScope.Select(books,bookIds,portfolioIds).Select(book=>book.Id("id")).ToImmutableArray();
+  JsonElement[] rows=scope.IsEmpty?[]:(await Rows(connection,selected?.TradeId,ct,scope)).ToArray();
   selected?.Require(rows);
   if(selected is not null&&rows.Any(r=>(r.Text("implementation")==CrossCommodityScheduledSwap.Implementation?"heat_rate":"financial_swap")!=selected.InstrumentType))
    throw TradePositionSelection.Unavailable();
@@ -527,9 +526,12 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var values=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),FinancialSwapEvaluation>();
   var unvalued=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),string>();
   var identities=new Dictionary<Guid,((DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId) Key,FinancialSwapInstrument Instrument)>();
+  var scheduledValues=new Dictionary<(DefinitionRevision Definition,Guid Instrument),(SidedInstrument Instrument,FinancialSwapEvaluation? Value,string? Reason)>();
   var schedules=new RetainedScheduleStore(database);
   var sourceHistories=new ContractObservationSamples.History();
-  // A scheduled swap, or one whose settlement lifecycle is under way, is valued for its own binding.
+  var preparationScope=new CustomCurves.PreparationScope();
+  // Settlement lifecycle remains specific to each binding. Projected scheduled
+  // positions share only the unit value of their exact retained instrument.
   var bindingValuations=0;
   work.SupplementalMarketLoads=markets.IsEmpty?0:1;
   foreach(var row in rows)
@@ -544,18 +546,32 @@ public sealed partial class SwapStore(PreviewDatabase database)
    if(settlement.GetProperty("occurrences").GetArrayLength()!=0)
    {
     bindingValuations++;LifecycleEvaluation? lifecycle=null;string? reason=null;
-    try{lifecycle=await EvaluateLifecycle(connection,source,market.Frame,row,terms,settlement,ct,schedules,sourceHistories);}
+    try{lifecycle=await EvaluateLifecycle(connection,source,market.Frame,row,terms,settlement,ct,schedules,sourceHistories,preparationScope);}
     catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){reason=error.Code;}
     instrument=lifecycle?.Instrument??(await ResolveRetained(connection,source,market.Frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
     held=lifecycle is null?new(null,null,reason,"Active",null):new(Exact(lifecycle.Value.RemainingValue),null,null,"Active",LifecycleValue(lifecycle.Value));
    }
    else if(terms.Scheduled is not null)
    {
-    bindingValuations++;FinancialSwapValue? value=null;ScheduledResolution? resolved=null;string? reason=null;
-    try{var priced=await ScheduledPriceDetail(connection,source,market.Frame,terms,id,ct,schedules,sourceHistories);value=priced.Value;resolved=priced.Resolved;}
-    catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){reason=error.Code;}
-    instrument=resolved?.Instrument??(await ResolveRetained(connection,source,market.Frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument;
-    held=value is null?new(null,null,reason,"Projection",null):new(Exact(value.ExactPresentValue),null,null,"Projection",null);
+    var key=(source.DefinitionRevision,id);
+    if(!scheduledValues.TryGetValue(key,out var scheduled))
+    {
+     try
+     {
+      var priced=await ScheduledPriceDetail(connection,source,market.Frame,terms,id,ct,schedules,sourceHistories,preparationScope);
+      scheduled=(priced.Resolved.Instrument,priced.UnitValue,null);
+     }
+     catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error))
+     {
+      scheduled=((await ResolveRetained(connection,source,market.Frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules)).Instrument,null,error.Code);
+     }
+     scheduledValues.Add(key,scheduled);
+    }
+    instrument=scheduled.Instrument;
+    if(instrument.Id!=id||!instrument.SupportsQuantityScaling)
+     throw Error("instrument_identity","Scheduled valuation reuse requires the exact retained instrument and its declared quantity scaling capability.");
+    var value=scheduled.Value?.Scale(new Quantity(ExactDecimal.Parse(Required(terms.Quantity)),instrument.UnitQuantity.Specification));
+    held=value is null?new(null,null,scheduled.Reason,"Projection",null):new(Exact(value.ExactPresentValue),null,null,"Projection",null);
    }
    else
    {
@@ -568,7 +584,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
     var key=identity.Key;instrument=identity.Instrument;
     // A position-specific failure leaves the unit, and each position holding it, unvalued.
     if(!values.ContainsKey(key)&&!unvalued.ContainsKey(key))
-     try{values.Add(key,await Evaluate(connection,data,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,markets,identity.Instrument));}
+     try{values.Add(key,await Evaluate(connection,data,frame,terms,id,row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,markets,identity.Instrument,preparationScope));}
      catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error)){unvalued.Add(key,error.Code);}
     if(values.TryGetValue(key,out var unitValue))
     {
@@ -581,7 +597,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    }
    var holding=HoldingRow(source,row,book,terms,instrument,held);
    if(held.Reason is {} unvaluedReason)work.Unvalued.Add((row,unvaluedReason));
-   work.Valuations=values.Count+unvalued.Count+bindingValuations;
+   work.Valuations=values.Count+unvalued.Count+scheduledValues.Count+bindingValuations;
    yield return [JsonNode.Parse(holding.GetRawText())!.AsObject()];
   }
  }

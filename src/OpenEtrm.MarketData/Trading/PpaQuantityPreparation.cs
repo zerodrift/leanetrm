@@ -74,6 +74,7 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
             v.Normalization==DefinitionIdentity.For(normalization) && v.Energy==energy.Key && v.Sources.SequenceEqual(volume.Sources) && v.Coverage.SequenceEqual(coverage));
         if(retained is not null)return retained.Rows;
         var rows=ImmutableArray.CreateBuilder<PreparedQuantityRow>();
+        CapacityNormalization.Prepared? normalizationInputs=null;
         foreach(var month in Months(delivery))
         {
             var periods=Periods(side,delivery,month).Where(p=>inputs.Includes(instrument,p.Delivery)).ToArray();
@@ -83,7 +84,8 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
             foreach(var period in periods)
             {
                 VolumeNormalizations++;
-                var normalized=CapacityNormalization.PerUnit(assets,contributions[period.Start],period.Delivery,volume.Stage,inputs.Context);
+                normalizationInputs??=CapacityNormalization.Prepare(assets,inputs.Context);
+                var normalized=normalizationInputs.PerUnit(contributions[period.Start],period.Delivery,volume.Stage);
                 rows.Add(new(period.Delivery,normalized.PerUnit,normalized.State,volume.Stage,
                     [..normalized.Contributions.Select(c=>new QuantityComponent(assets.Single(a=>a.Key==c.Volume.Asset).Location,c.PerUnit,c.Volume.Asset))],
                     [..normalized.Contributions.Select(c=>c.Volume)],[]));

@@ -171,7 +171,7 @@ public sealed partial class SwapStore
     }
     private async Task<FinancialSwapValue> ScheduledPrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrument,CancellationToken ct)=>
         (await ScheduledPriceDetail(connection,data,frame,body,instrument,ct)).Value;
-    private async Task<(FinancialSwapValue Value,ScheduledResolution Resolved)> ScheduledPriceDetail(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrument,CancellationToken ct,RetainedScheduleStore? schedules=null,ContractObservationSamples.History? sourceHistories=null)
+    private async Task<(FinancialSwapValue Value,ScheduledResolution Resolved,FinancialSwapEvaluation UnitValue)> ScheduledPriceDetail(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrument,CancellationToken ct,RetainedScheduleStore? schedules=null,ContractObservationSamples.History? sourceHistories=null,CustomCurves.PreparationScope? preparationScope=null)
     {
         (data,frame)=await ScheduledMarket(connection,data,frame,body.DefinitionRevisionId,ct);
         var resolved=ResolveScheduled(data,body,instrument);var snapshot=data.Snapshot(frame);
@@ -180,12 +180,12 @@ public sealed partial class SwapStore
         var mapping=body.Discounting==true?await Discount(connection,data,frame,resolved.Instrument.Currency,ct):null;
         if(frame.ContextId is not {} contextId)throw Error("swap_context","Pricing requires the exact retained context.");
         var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
-        var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),ct,sourceHistories:sourceHistories);
+        var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),CustomCurves.MarketPreparation.ValuationDependencies,ct,sourceHistories:sourceHistories,preparationScope:preparationScope);
         var evaluated=resolved.Instrument switch {
             ScheduledFinancialSwap swap=>FinancialSwapValuation.Evaluate(swap,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct),
             CrossCommodityScheduledSwap cross=>FinancialSwapValuation.Evaluate(cross,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct),
             _=>throw Error("swap_definition","Unsupported swap version.")};
-        return(evaluated.Scale(resolved.Quantity),resolved);
+        return(evaluated.Scale(resolved.Quantity),resolved,evaluated);
     }
     internal static bool ScheduledAmendmentEligible(SidedInstrument instrument,DateTimeOffset at)=>
         instrument.Sides.SelectMany(s=>((SidePaymentSchedule)s.Side.GenerateSchedule()).Payments)
