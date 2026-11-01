@@ -172,6 +172,86 @@ test('a draft whose lookup answers were dropped reads them again when the person
  });
 });
 
+// A slow field read must not send every other field into the server's session
+// lock, and edits/closing must release obsolete reads.
+test('ticket field reads are bounded and superseded or closed reads are cancelled',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {setupTicket}=await import('/ticket-controller.js');
+   const field=(id,choices=null)=>({id,label:id,meaning:'',type:choices?'choice':'text',unit:null,state:'editable',required:false,band:null,choices,dependsOn:[],lookup:null,soon:null,rule:null});
+   const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[field('reference'),field('book','books'),field('party','parties'),field('venue','venues')],
+    sideLimits:[],levels:['month'],modes:['new'],tabs:[],tradeColumns:[],sides:[]};
+   window.calls=[];window.active=0;window.maximum=0;
+   const api=async(path,body,signal)=>{
+    if(path==='tickets/description')return d;
+    if(path==='tickets/choices')return new Promise((_,reject)=>{
+     calls.push({body,signal});active++;maximum=Math.max(maximum,active);
+     const abort=()=>{active--;reject(Error('response_unknown'));};
+     signal?.addEventListener('abort',abort,{once:true});
+    });
+    throw Error('Unexpected request '+path);
+   };
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({snapshotId:'synthetic'}),product:'synthetic_flow',instant:at=>at,actor:()=>'bounded-reader',booked:()=>{}});
+   window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,10));if(!test())throw Error('timed out');};
+   await until(()=>calls.length>0);
+  })()`);
+  assert.equal(await evaluate('maximum'),1);
+  await evaluate(`(async()=>{
+   const input=document.querySelector('[data-field=reference] input');input.value='latest';input.onchange();
+   await until(()=>calls.length===2);
+  })()`);
+  assert.equal(await evaluate('calls[0].signal.aborted'),true);
+  assert.equal(await evaluate('calls[1].body.draft.trade.reference'),'latest');
+  assert.equal(await evaluate('maximum'),1);
+  await evaluate("ticket.destroy()");
+  assert.equal(await evaluate('calls[1].signal.aborted'),true);
+  await evaluate('new Promise(r=>setTimeout(r,30))');
+  assert.equal(await evaluate('calls.length'),2);
+  assert.equal(await evaluate("document.querySelector('#host').children.length"),0);
+ });
+});
+
+// Cancellation is an optimization as well as a lifetime boundary: a transport
+// that still delivers an old answer must not win after A -> B -> A edits.
+test('cancelled lookup and preview answers cannot return through the same draft',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {setupTicket}=await import('/ticket-controller.js');
+   const f=(id,over={})=>({id,label:id,meaning:'',type:'text',unit:null,state:'editable',required:false,band:null,choices:null,dependsOn:[],lookup:null,soon:null,rule:null,...over});
+   const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[f('reference'),f('price',{state:'info',lookup:'price'})],
+    sideLimits:[],levels:['month'],modes:['new'],tabs:[],tradeColumns:[],sides:[]};
+   window.lookups=[];window.previews=[];
+   const api=async(path,body,signal)=>{
+    if(path==='tickets/description')return d;
+    if(path==='tickets/lookup')return new Promise(resolve=>lookups.push({resolve,signal}));
+    if(path==='tickets/preview')return new Promise(resolve=>previews.push({resolve,signal}));
+    throw Error('Unexpected '+path);
+   };
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:'synthetic_flow',instant:at=>at,actor:()=>'late-reader',booked:()=>{}});
+   window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,10));if(!test())throw Error('timed out');};
+   window.edit=value=>{const input=document.querySelector('[data-field=reference] input');input.value=value;input.onchange();};
+   await until(()=>!!document.querySelector('[data-field=reference] input'));
+   edit('A');await until(()=>lookups.length===1&&previews.length===1);
+   edit('B');edit('A');await until(()=>previews.length===2);
+  })()`);
+  assert.equal(await evaluate('lookups[0].signal.aborted&&previews[0].signal.aborted'),true);
+  await evaluate(`(async()=>{
+   lookups[0].resolve({value:'obsolete',source:{kind:'market',label:'Old answer'}});
+   previews[0].resolve({schedule:null,summaries:[],scheduleRefusal:{code:'old',message:'Old preview'},quantityUnit:'MMBtu',links:[]});
+   await until(()=>lookups.length===2);
+  })()`);
+  assert.equal(await evaluate("!!document.querySelector('[data-field=price] .ticket-chip')"),false);
+  assert.equal(await evaluate("document.querySelector('.ticket-status').textContent.includes('Old preview')"),false);
+  await evaluate(`(async()=>{
+   lookups[1].resolve({value:'current',source:{kind:'market',label:'Current answer'}});
+   await until(()=>!!document.querySelector('[data-field=price] .ticket-chip'));
+  })()`);
+  assert.equal(await evaluate("document.querySelector('[data-field=price] .ticket-value').textContent"),'current');
+  await evaluate('ticket.destroy()');
+  assert.equal(await evaluate('previews[1].signal.aborted'),true);
+ });
+});
+
 // Slow reference reads must not accumulate a request for every intermediate ticket shape.
 test('ticket reference reads are bounded and queued choices follow only the latest sides',{skip:!browserAvailable,timeout:30000},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
@@ -197,13 +277,13 @@ test('ticket reference reads are bounded and queued choices follow only the late
    for(const kind of ['physical','fee'])[...document.querySelectorAll('.ticket-add-kind')].find(b=>b.textContent===kind).click();
    await new Promise(r=>setTimeout(r,350));
   })()`);
-  assert.ok(await evaluate('peak<=4'),'at most four reference reads may be outstanding across edits');
+  assert.ok(await evaluate('peak<=1'),'at most one reference read may be outstanding across edits');
   await evaluate('(async()=>{window.initial=calls.length;held.splice(0).forEach(h=>h.finish());await tick();})()');
   assert.equal(await evaluate("calls.slice(initial).every(c=>c.draft.sides.map(s=>s.code).join(',')==='physical-1,physical-2,fee-1')"),true,'obsolete queued drafts are never sent');
   await evaluate("(async()=>{for(let i=0;i<15&&held.length;i++){held.splice(0).forEach(h=>h.finish(h.body.field==='party'));await tick();}})()");
   assert.equal(await evaluate("document.querySelector('[data-field=book] select').options[1].value"),'physical-1,physical-2,fee-1');
   assert.equal(await evaluate("document.querySelector('[data-field=party] .ticket-error').textContent"),'Reference unavailable');
-  assert.equal(await evaluate("calls.some(c=>c.path==='tickets/lookup')&&peak<=4"),true,'lookups share the bound and refusals release it');
+  assert.equal(await evaluate("calls.some(c=>c.path==='tickets/lookup')&&peak<=1"),true,'lookups share the bound and refusals release it');
   assert.equal(await evaluate("calls.slice(initial).some(c=>c.side==='cash-1')"),false,'removed sides are never read from the queue');
   // A new edit queues fresh lists. Destroying the ticket stops the queue even when outstanding reads complete.
   await evaluate(`(async()=>{document.querySelector('.ticket-add-kind').click();await tick();window.beforeDestroy=calls.length;ticket.destroy();held.splice(0).forEach(h=>h.finish());await tick();})()`);
@@ -263,7 +343,7 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
    };
    window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,20));if(!test())throw Error('Condition not ready');};
    window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,opened:{tradeId:'synthetic',bindingId:'synthetic',revision:1}});
-   await until(()=>held.length===1&&window.refuseChoice);
+   await until(()=>held.length===1);
    const level=document.querySelector('.ticket-level');level.value='day';level.onchange();
    document.querySelector('.ticket-tab[data-tab="physical-1"]').click();
    await until(()=>!!document.querySelector('.ticket-cell-input'));
@@ -271,7 +351,7 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
    held.shift()();await until(()=>document.querySelector('[data-field=book] .ticket-value')?.textContent==='Resolved book');
   })()`);
   assert.deepEqual(await evaluate("({same:cell.isConnected&&cell===document.querySelector('.ticket-cell-input'),value:cell.value,focused:document.activeElement===cell})"),{same:true,value:'990',focused:true});
-  await evaluate('(async()=>{refuseChoice();await new Promise(r=>setTimeout(r,50));})()');
+  await evaluate('(async()=>{await until(()=>!!window.refuseChoice);refuseChoice();await new Promise(r=>setTimeout(r,50));})()');
   assert.deepEqual(await evaluate("({same:cell.isConnected&&cell===document.querySelector('.ticket-cell-input'),value:cell.value,focused:document.activeElement===cell,party:document.querySelector('[data-field=party] .ticket-value').textContent})"),{same:true,value:'990',focused:true,party:'party-1'});
   await evaluate("cell.dispatchEvent(new Event('change'))");
   assert.equal(await evaluate("document.querySelector('.ticket-record [data-field=quantity] .ticket-control').value"),'990');

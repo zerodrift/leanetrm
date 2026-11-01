@@ -478,17 +478,20 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
   payment side for gas. After an edit it reads
   the choices of the fields that depend on it and of the lists that refused;
   adding or removing a side, or editing a trade field, reads every list.
-  Choice and lookup reads share a four-request concurrency limit per ticket.
-  New reads replace queued reads for the same field; removed sides and closed
-  tickets start no queued work. Responses must still belong to the current
-  field request or lookup generation, including when edits return to earlier
-  terms. Skipped reads are not backend refusals. A
+  Removed sides and closed tickets start no queued reads. Cancelled reads are
+  not backend refusals. A
   side is coded `<kind>-<n>` with the lowest number not yet used in the
   ticket, so a removed side's code is never given to a later side; removing a
   side clears every choice that named it, and that choice's dependents, each
   with a notice. Once
   edits settle (300 ms) it previews the whole draft and reads every lookup
-  again; a lookup that fills a term previews the draft in turn. Only the latest
+  again; a lookup that fills a term previews the draft in turn. Field reads
+  dispatch one at a time, with at most one separate current preview. Replaced
+  choice reads and superseded previews/lookups are cancelled, and closing the
+  ticket cancels its reads. Queued fields start their transport deadline only
+  when dispatched. Late answers remain subject to generation and draft checks,
+  including returning to the same draft after an intervening edit. Booking and
+  quantity-write reconciliation are not cancelled with reads. Only the latest
   preview is drawn. A refused preview keeps the last schedule, marked stale,
   with the reason on the field the refusal names; lookup and choice refusals
   show on their fields. A side added since the last preview is left out of the

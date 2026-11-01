@@ -2,7 +2,7 @@ import type {Holding} from './desk-model.js';
 import type {AmendState,DetailRead,TermSection} from './position-panel.js';
 import {displayInstant} from './market-view.js';
 import {setupTicket,ticketBookingRetained,type TicketHandle} from './ticket-controller.js';
-type Api=<T>(path:string,body?:unknown)=>Promise<T>;
+type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 const convention='physical_gas_fixed_quantity_v4';
 
 type Row=Record<string,string|number|boolean|null>;

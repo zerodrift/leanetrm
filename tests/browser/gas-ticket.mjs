@@ -9,8 +9,8 @@ export function gasTicket({evaluate,wait,set},ticket=newTicket){
  const card=(code,root=ticket)=>`${root} .ticket-card[data-side="${code}"]`;
  const field=(code,id)=>`${code===null?ticket+' .ticket-strip':card(code)} .ticket-field[data-field="${id}"]`;
  const control=(code,id)=>field(code,id)+' .ticket-control';
- // Queued reference reads use the same bounded wait and diagnostics as the ticket preview.
- // A value is chosen once the backend lists it.
+ // Choices use the ticket settling window: an API request may outlast the ordinary action wait.
+ // A value is chosen only once the backend lists it, with field diagnostics if it never arrives.
  const choose=async(code,id,value)=>{await until(`[...document.querySelectorAll(${q(control(code,id)+' option')})].some(o=>o.value===${q(value)})`);await set(control(code,id),value);};
  const first=async(code,id)=>{await until(`document.querySelectorAll(${q(control(code,id)+' option')}).length>1`);await set(control(code,id),await evaluate(`document.querySelector(${q(control(code,id))}).options[1].value`));};
  const status=(root=ticket)=>`document.querySelector(${q(root+' .ticket-status')})`;
