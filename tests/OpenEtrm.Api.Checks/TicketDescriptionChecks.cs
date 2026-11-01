@@ -87,6 +87,12 @@ internal static class TicketDescriptionChecks
         Reject("a soon column with a unit", valid with { Sides = [valid.Sides[0] with { Columns = [new("v", "V", "quantity", "quantity", [], "Will show volume.")] }, valid.Sides[1]] });
         Reject("a soon trade column", valid with { TradeColumns = [new("pv", "PV", null, "money", [], "Will show PV.")] });
         Reject("a soon tab without hover text", valid with { Tabs = [new("later", "Later", "")] });
+        Reject("a side kind declared twice", valid with { Sides = [..valid.Sides, Kind("sell")] });
+        Reject("a column id repeated within a side kind", valid with { Sides = [valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", []), new("q", "Q2", null, "price", [])] }, valid.Sides[1]] });
+        Reject("a trade column id repeated", valid with { TradeColumns = [new("pv", "PV", null, "money", []), new("pv", "PV2", null, "money", [])] });
+        Reject("a tab id repeated", valid with { Tabs = [new("terms", "Terms"), new("terms", "Terms again")] });
+        Reject("a tab named like the instrument tab", valid with { Tabs = [new("instrument", "Instrument")] });
+        Reject("hover text on a field that is not coming soon", WithTrade(Field("book", soon: "later")));
         Console.WriteLine($"{passed} ticket description checks passed.");
     }
 }

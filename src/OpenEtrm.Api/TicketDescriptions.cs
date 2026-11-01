@@ -42,6 +42,11 @@ public static class TicketDescriptions
   var levels=d.Levels.Select(LevelOrder.IndexOf).ToArray();
   if(levels.Length==0||levels.Contains(-1)||levels.Zip(levels.Skip(1),(a,b)=>a>=b).Any(x=>x))Fail(d,"levels must be a non-empty, ordered subset of month, day, hour");
   if(d.Modes.Any(mode=>!ModeNames.Contains(mode)))Fail(d,"modes must be among new, booked, amend and close_out");
+  if(d.Sides.GroupBy(s=>s.Kind).FirstOrDefault(g=>g.Count()>1) is {} twice)Fail(d,$"side kind '{twice.Key}' is declared more than once");
+  foreach(var (owner,columns) in d.Sides.Select(s=>($"side kind '{s.Kind}'",s.Columns)).Append(("the trade",d.TradeColumns)))
+   if(columns.GroupBy(c=>c.Id).FirstOrDefault(g=>g.Count()>1) is {} column)Fail(d,$"{owner} declares column '{column.Key}' more than once");
+  // Every ticket draws its instrument tab, so a declared tab is another one, once.
+  if(d.Tabs.GroupBy(t=>t.Id).FirstOrDefault(g=>g.Count()>1||g.Key=="instrument") is {} declared)Fail(d,$"tab '{declared.Key}' is declared more than once or is the instrument tab every ticket draws");
   var all=d.TradeFields.Concat(d.Sides.SelectMany(s=>s.Fields)).ToArray();
   var ids=new HashSet<string>();
   foreach(var field in all)
@@ -86,6 +91,7 @@ public static class TicketDescriptions
   if(!States.Contains(field.State))Fail(d,$"field '{field.Id}' has unknown state '{field.State}'");
   if(field.Required&&field.State!="editable")Fail(d,$"{field.State} field '{field.Id}' takes no value, so it cannot be required");
   if(field.State=="soon"&&string.IsNullOrWhiteSpace(field.Soon))Fail(d,$"soon field '{field.Id}' needs hover text");
+  if(field.State!="soon"&&field.Soon is not null)Fail(d,$"{field.State} field '{field.Id}' is not coming soon, so it takes no coming-soon hover text");
   if(field.State=="soon"&&(field.Choices is not null||field.Lookup is not null))Fail(d,$"soon field '{field.Id}' cannot name choices or a lookup");
   if(field.State=="derived"&&string.IsNullOrWhiteSpace(field.Rule))Fail(d,$"derived field '{field.Id}' needs its rule text");
   if(field.Band is not null&&!TicketBand.Rows.Contains(field.Band))Fail(d,$"field '{field.Id}' names unknown band row '{field.Band}'");
