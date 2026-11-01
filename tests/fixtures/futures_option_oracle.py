@@ -1,11 +1,12 @@
-"""Generates futures-option-oracle.json: reference exp/ln/sqrt values.
+"""Generates futures-option-oracle.json: reference exp/ln/sqrt values and
+Black-76 European option values on a future.
 
 Uses only the standard library `decimal` at 60 digits, rounded half-even to
 30 fractional digits. Run: python3 -I tests/fixtures/futures_option_oracle.py
 """
 import json
 import pathlib
-from decimal import Decimal, ROUND_HALF_EVEN, getcontext
+from decimal import Decimal, ROUND_HALF_EVEN, getcontext, localcontext
 
 getcontext().prec = 60
 QUANTUM = Decimal(1).scaleb(-30)
@@ -29,10 +30,92 @@ def rows(inputs, fn):
     return [{"x": x, "y": q(fn(Decimal(x)))} for x in inputs]
 
 
+# Black-76 cases: futures, strike, volatility, years, discount factor. Moneyness
+# F/K spans 0.5-2, volatility 0.1-1.5 and years 0.01-2; each years value is a
+# whole number of seconds under act/365 fixed. Synthetic natural-gas-like
+# (F near 2-6) and crude-like (F near 60-150) levels.
+BLACK76 = [
+    ("3", "3", "0.5", "0.25", "0.99"),
+    ("3.5", "3", "0.6", "0.1", "0.995"),
+    ("2", "4", "1", "0.5", "0.98"),
+    ("6", "3", "0.8", "1", "0.96"),
+    ("4.25", "4.5", "1.5", "0.01", "0.9995"),
+    ("2.75", "2.5", "0.35", "2", "0.92"),
+    ("80", "80", "0.3", "0.25", "0.99"),
+    ("72.5", "90", "0.4", "0.5", "0.975"),
+    ("95", "60", "0.25", "1", "0.95"),
+    ("60", "120", "0.6", "2", "0.9"),
+    ("150", "75", "0.1", "0.05", "0.998"),
+    ("85", "82.5", "1.2", "0.01", "0.9998"),
+]
+
+
+def pi():
+    """pi from Machin's formula, 16*atan(1/5) - 4*atan(1/239)."""
+    def atan_inverse(n):
+        total, power, k, sign = Decimal(0), Decimal(1) / n, 1, 1
+        while power:
+            total += sign * power / k
+            power /= n * n
+            k, sign = k + 2, -sign
+        return total
+    with localcontext() as ctx:
+        ctx.prec += 10
+        value = 16 * atan_inverse(5) - 4 * atan_inverse(239)
+    return +value
+
+
+def erf(x):
+    """erf by its Taylor series, 2/sqrt(pi) * sum (-1)^k x^(2k+1) / (k! (2k+1)).
+
+    The terms grow to about exp(x^2) before they shrink, so the series runs at
+    70 + x^2/ln(10) digits to keep more than 60 after cancellation, and stops
+    once a term falls below 10^-(precision + 5). Beyond |x| = 10,
+    1 - |erf(x)| < 3e-45, so erf saturates to +/-1 there.
+    """
+    if abs(x) > 10:
+        return Decimal(1).copy_sign(x)
+    with localcontext() as ctx:
+        ctx.prec = 71 + int(x * x / Decimal(10).ln())
+        square, term, total, k = x * x, x, x, 0
+        while True:
+            k += 1
+            term = -term * square / k
+            step = term / (2 * k + 1)
+            if abs(step) < Decimal(10) ** -(ctx.prec + 5):
+                break
+            total += step
+        value = 2 * total / pi().sqrt()
+    return +value
+
+
+def ncdf(x):
+    return (1 + erf(x / Decimal(2).sqrt())) / 2
+
+
+def black76(futures, strike, volatility, years, discount):
+    f, k, s, t, df = (Decimal(v) for v in (futures, strike, volatility, years, discount))
+    spread = s * t.sqrt()
+    d1 = ((f / k).ln() + spread * spread / 2) / spread
+    d2 = d1 - spread
+    call = df * (f * ncdf(d1) - k * ncdf(d2))
+    put = df * (k * ncdf(-d2) - f * ncdf(-d1))
+    return call, put
+
+
+def black76_row(futures, strike, volatility, years, discount):
+    call, put = black76(futures, strike, volatility, years, discount)
+    forward_call, forward_put = black76(futures, strike, volatility, years, "1")
+    return {"futures": futures, "strike": strike, "volatility": volatility,
+            "years": years, "discount": discount, "call": q(call), "put": q(put),
+            "undiscounted_call": q(forward_call), "undiscounted_put": q(forward_put)}
+
+
 oracle = {
     "exp": rows(EXPONENTS + NEGATIVE, lambda x: x.exp()),
     "ln": rows(POSITIVE + EDGES, lambda x: x.ln()),
     "sqrt": rows(POSITIVE + EDGES, lambda x: x.sqrt()),
+    "black76": [black76_row(*case) for case in BLACK76],
 }
 path = pathlib.Path(__file__).with_name("futures-option-oracle.json")
 path.write_text(json.dumps(oracle, indent=2) + "\n")

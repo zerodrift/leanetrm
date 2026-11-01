@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json.Nodes;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Options;
@@ -13,6 +15,165 @@ internal static class FuturesOptionChecks
         Check("lattice arithmetic rounds half-even once per operation", LatticeArithmetic);
         Check("backward induction solves the two-step hand tree", TwoStepHandTree);
         Check("backward induction rejects invalid contracts with structured errors", InductionContractErrors);
+        Check("american futures options at a unit discount equal Black-76", ZeroRateCallEqualsBlack76);
+        Check("american futures options respect no-arbitrage bounds", Bounds);
+        Check("american futures options rise with volatility and time and move with the futures price", Monotonic);
+        Check("american futures options converge at the pinned step count", Convergence);
+        Check("american futures option year fractions use act/365 fixed instants", YearFractions);
+        Check("american futures options reject valuation at or after expiry", ExpiredValuation);
+        Check("american futures options reject unsupported terms, policies and inputs", RejectsUnsupportedTerms);
+        Check("american futures option unit price runtime", PrintRuntime);
+    }
+
+    private static readonly DateTimeOffset ValuationAt = new(2026, 1, 5, 19, 30, 0, TimeSpan.Zero);
+    private static readonly OptionNumericalPolicy Policy = OptionNumericalPolicies.Require(AmericanFuturesOptionModel.Id);
+
+    private sealed record Black76Case(string Futures, string Strike, string Volatility, string Years, string Discount,
+        string Call, string Put, string UndiscountedCall, string UndiscountedPut);
+
+    private static Black76Case[] Black76Cases()
+    {
+        var oracle = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "futures-option-oracle.json")))!;
+        string Field(JsonNode row, string name) => row[name]!.GetValue<string>();
+        var cases = oracle["black76"]!.AsArray().Select(row => new Black76Case(
+            Field(row!, "futures"), Field(row!, "strike"), Field(row!, "volatility"), Field(row!, "years"), Field(row!, "discount"),
+            Field(row!, "call"), Field(row!, "put"), Field(row!, "undiscounted_call"), Field(row!, "undiscounted_put"))).ToArray();
+        if (cases.Length != 12) throw new Exception($"Expected 12 Black-76 cases; found {cases.Length}.");
+        return cases;
+    }
+
+    // Years are whole seconds under act/365 fixed in every oracle case.
+    private static DateTimeOffset ExpiryAfter(string years) =>
+        ValuationAt.AddSeconds((double)(decimal.Parse(years, CultureInfo.InvariantCulture) * 365 * 86400));
+
+    private static LatticeDecimal Price(OptionRight right, string futures, string strike, string volatility, string years,
+        string discount, OptionNumericalPolicy? policy = null) =>
+        AmericanFuturesOptionModel.UnitPrice(
+            new FuturesOptionTerms(right, ExactDecimal.Parse(strike), ExpiryAfter(years), "american", "exercise_into_future"),
+            L(futures), L(volatility), L(discount), ValuationAt, policy ?? Policy, CancellationToken.None);
+
+    private static LatticeDecimal Price(Black76Case c, OptionRight right, string discount, OptionNumericalPolicy? policy = null) =>
+        Price(right, c.Futures, c.Strike, c.Volatility, c.Years, discount, policy);
+
+    private static LatticeDecimal L(string value) => LatticeDecimal.Parse(value);
+    private static LatticeDecimal Abs(LatticeDecimal value) => LatticeDecimal.Max(value, L("0") - value);
+
+    private static void Within(LatticeDecimal actual, LatticeDecimal expected, LatticeDecimal tolerance, string label)
+    {
+        if (Abs(actual - expected).CompareTo(tolerance) > 0)
+            throw new Exception($"{label}: expected {expected} within {tolerance}; got {actual}.");
+    }
+
+    private static void AtLeast(LatticeDecimal actual, LatticeDecimal bound, string label)
+    { if (actual.CompareTo(bound) < 0) throw new Exception($"{label}: {actual} is below {bound}."); }
+
+    private static void AtMost(LatticeDecimal actual, LatticeDecimal bound, string label)
+    { if (actual.CompareTo(bound) > 0) throw new Exception($"{label}: {actual} is above {bound}."); }
+
+    // At a unit discount a future has no carry, so neither right gains from early
+    // exercise and the American value is the European Black-76 value.
+    private static void ZeroRateCallEqualsBlack76()
+    {
+        var tolerance = Policy.PriceTolerance * L("100");
+        foreach (var c in Black76Cases())
+        {
+            Within(Price(c, OptionRight.Call, "1"), L(c.UndiscountedCall), tolerance, $"call F={c.Futures} K={c.Strike}");
+            Within(Price(c, OptionRight.Put, "1"), L(c.UndiscountedPut), tolerance, $"put F={c.Futures} K={c.Strike}");
+        }
+    }
+
+    private static void Bounds()
+    {
+        foreach (var c in Black76Cases())
+        {
+            var (futures, strike) = (L(c.Futures), L(c.Strike));
+            var call = Price(c, OptionRight.Call, c.Discount);
+            var put = Price(c, OptionRight.Put, c.Discount);
+            var label = $"F={c.Futures} K={c.Strike} sigma={c.Volatility} T={c.Years}";
+            AtLeast(call, LatticeDecimal.Max(futures - strike, L("0")), $"call intrinsic {label}");
+            AtLeast(put, LatticeDecimal.Max(strike - futures, L("0")), $"put intrinsic {label}");
+            AtLeast(call, L(c.Call) - Policy.PriceTolerance, $"call European {label}");
+            AtLeast(put, L(c.Put) - Policy.PriceTolerance, $"put European {label}");
+            AtMost(call, futures, $"call futures bound {label}");
+            AtMost(put, strike, $"put strike bound {label}");
+        }
+    }
+
+    private static void Monotonic()
+    {
+        void Rising(string label, params LatticeDecimal[] values)
+        {
+            for (var i = 1; i < values.Length; i++)
+                if (values[i].CompareTo(values[i - 1]) <= 0) throw new Exception($"{label} must rise: {string.Join(", ", values)}.");
+        }
+        foreach (var right in new[] { OptionRight.Call, OptionRight.Put })
+        {
+            Rising($"{right} in volatility", [.. new[] { "0.2", "0.5", "0.9" }.Select(v => Price(right, "3", "3.25", v, "0.25", "0.98"))]);
+            Rising($"{right} in time", [.. new[] { "0.05", "0.25", "1" }.Select(t => Price(right, "3", "3.25", "0.5", t, "0.98"))]);
+        }
+        var futures = new[] { "2.5", "3", "3.5" };
+        Rising("call in futures", [.. futures.Select(f => Price(OptionRight.Call, f, "3.25", "0.5", "0.25", "0.98"))]);
+        Rising("put as futures fall", [.. futures.Reverse().Select(f => Price(OptionRight.Put, f, "3.25", "0.5", "0.25", "0.98"))]);
+    }
+
+    // Six cases across both price levels: at the money, deep out of the money,
+    // two years out and high volatility near expiry.
+    private static void Convergence()
+    {
+        var fine = Policy with { Steps = Policy.Steps * 4 };
+        int[] selected = [0, 2, 5, 6, 9, 11];
+        foreach (var c in selected.Select(index => Black76Cases()[index]))
+            foreach (var right in new[] { OptionRight.Call, OptionRight.Put })
+                Within(Price(c, right, c.Discount), Price(c, right, c.Discount, fine), Policy.PriceTolerance,
+                    $"{right} F={c.Futures} K={c.Strike} at {Policy.Steps} vs {fine.Steps} steps");
+    }
+
+    private static void YearFractions()
+    {
+        Equal(Policy.DayCount, "act_365_fixed_instant_v1");
+        Equal(AmericanFuturesOptionModel.YearFraction(ValuationAt, ValuationAt.AddDays(365), Policy).ToString(), "1");
+        Equal(AmericanFuturesOptionModel.YearFraction(ValuationAt, ValuationAt.AddDays(1), Policy).ToString(), "0.00273972602739726027397260274");
+        Equal(AmericanFuturesOptionModel.YearFraction(ValuationAt, ValuationAt.AddSeconds(1), Policy).ToString(), "0.000000031709791983764586504313");
+        // Offsets do not change the instant.
+        Equal(AmericanFuturesOptionModel.YearFraction(ValuationAt, new DateTimeOffset(2026, 1, 6, 14, 30, 0, TimeSpan.FromHours(-5)), Policy).ToString(),
+            "0.00273972602739726027397260274");
+    }
+
+    private static void ExpiredValuation()
+    {
+        Reject("option_expired", () => AmericanFuturesOptionModel.YearFraction(ValuationAt, ValuationAt, Policy));
+        Reject("option_expired", () => AmericanFuturesOptionModel.YearFraction(ValuationAt.AddTicks(1), ValuationAt, Policy));
+        var terms = new FuturesOptionTerms(OptionRight.Put, ExactDecimal.Parse("3"), ValuationAt, "american", "exercise_into_future");
+        Reject("option_expired", () => AmericanFuturesOptionModel.UnitPrice(terms, L("2"), L("0.5"), L("0.99"), ValuationAt, Policy, CancellationToken.None));
+    }
+
+    private static void RejectsUnsupportedTerms()
+    {
+        var expiry = ExpiryAfter("0.25");
+        var strike = ExactDecimal.Parse("3");
+        Reject("option_terms", () => _ = new FuturesOptionTerms(OptionRight.Call, strike, expiry, "european", "exercise_into_future"));
+        Reject("option_terms", () => _ = new FuturesOptionTerms(OptionRight.Call, strike, expiry, "american", "cash"));
+        Reject("option_terms", () => _ = new FuturesOptionTerms((OptionRight)0, strike, expiry, "american", "exercise_into_future"));
+        Reject("option_numerical_policy", () => OptionNumericalPolicies.Require("american_futures_option_crr_v2"));
+        Reject("option_numerical_policy", () => AmericanFuturesOptionModel.YearFraction(ValuationAt, expiry, Policy with { DayCount = "act_360" }));
+        Reject("option_numerical_policy", () => Price(OptionRight.Call, "3", "3", "0.5", "0.25", "0.99", Policy with { Steps = 0 }));
+        Reject("option_input", () => Price(OptionRight.Call, "0", "3", "0.5", "0.25", "0.99"));
+        Reject("option_input", () => Price(OptionRight.Call, "3", "0", "0.5", "0.25", "0.99"));
+        Reject("option_input", () => Price(OptionRight.Call, "3", "-1", "0.5", "0.25", "0.99"));
+        Reject("option_input", () => Price(OptionRight.Call, "3", "3", "0", "0.25", "0.99"));
+        Reject("option_input", () => Price(OptionRight.Call, "3", "3", "0.5", "0.25", "0"));
+        Reject("option_input", () => Price(OptionRight.Call, "3", "3", "0.5", "0.25", "1.01"));
+        // ln F + Steps*sigma*sqrt(T/Steps) beyond the Exp range is an error, not a clipped tree.
+        Reject("numeric_range", () => Price(OptionRight.Call, "80", "80", "3", "2", "0.9"));
+    }
+
+    private static void PrintRuntime()
+    {
+        _ = Price(OptionRight.Put, "80", "82.5", "0.4", "0.5", "0.975");
+        const int runs = 5;
+        var watch = Stopwatch.StartNew();
+        for (var i = 0; i < runs; i++) _ = Price(OptionRight.Put, "80", "82.5", "0.4", "0.5", "0.975");
+        Console.WriteLine($"INFO one UnitPrice at {Policy.Steps} steps: {watch.Elapsed.TotalMilliseconds / runs:F1} ms (mean of {runs})");
     }
 
     private static void LatticeFunctionsMatchOracle()
