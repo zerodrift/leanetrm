@@ -273,14 +273,20 @@ internal static class FuturesOptionChecks
         Within(extremeNode, L("100000000000000000000000"), L("10000000000000"), "extreme node at the bound");
         AtMost(solved.UpperBound, L("1.72"), "range-capped bound");
         Within(Price(OptionRight.Call, "80", "80", solved.Volatility.ToString(), "2", "0.9"), L(settlement), L("0.005"), "range-capped round trip");
+        // Below a futures price of 1 the Exp argument itself is the limit: exp(sigma*sqrt(Steps*T)) reaches 10^23.
+        var low = RoundToIncrement(Price(OptionRight.Call, "0.5", "0.5", "0.6", "1", "0.97"), "0.001");
+        var subunit = (SolvedVolatility)Calibrate(OptionRight.Call, "0.5", "0.5", "1", "0.97", low, "0.001", fallbackDeclared: false);
+        Within((subunit.UpperBound * L("400").Sqrt()).Exp(), L("100000000000000000000000"), L("10000000000000"), "sub-unit exp at the bound");
+        Within(Price(OptionRight.Call, "0.5", "0.5", subunit.Volatility.ToString(), "1", "0.97"), L(low), L("0.0005"), "sub-unit round trip");
         // Short-dated gas: the policy's VolatilityMax is the bound.
         var gas = (SolvedVolatility)Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.295", "0.001", fallbackDeclared: false);
         Equal(gas.UpperBound.ToString(), Policy.VolatilityMax.ToString());
     }
 
-    // A deep in-the-money put two days out: no volatility in the bracket lifts the
-    // tree above intrinsic, so a settlement at intrinsic, or up to one increment
-    // below it, is the declared fallback with residual settlement - intrinsic.
+    // A deep in-the-money put two days out: at VolatilityMin the tree is worth
+    // exactly intrinsic (immediate exercise), so a settlement at intrinsic, or up to
+    // one increment below it, is the declared fallback with residual
+    // settlement - intrinsic.
     private static void ImpliedVolatilityFallbackAtIntrinsic()
     {
         Equal(ImpliedVolatility.FallbackMode, "option_settlement_at_intrinsic_v1");
@@ -323,6 +329,14 @@ internal static class FuturesOptionChecks
         Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", "0.001", true, Policy with { Steps = 0 }));
         Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", "0.001", true, Policy with { MaxIterations = 0 }));
         Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", "0.001", true, Policy with { VolatilityMin = L("3") }));
+        Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", "0.001", true, Policy with { VolatilityMin = L("0") }));
+        Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", "0.001", true, Policy with { VolatilityMin = L("-0.01") }));
+        // Inputs are validated before any classification, so a settlement far below
+        // intrinsic does not mask an invalid strike or discount factor.
+        Reject("option_input", () => Calibrate(OptionRight.Call, "3", "0", "0.25", "0.99", "1", "0.001", true));
+        Reject("option_input", () => Calibrate(OptionRight.Call, "3", "-1", "0.25", "0.99", "1", "0.001", true));
+        Reject("option_input", () => Calibrate(OptionRight.Put, "2", "3", "0.25", "1.01", "0.5", "0.001", true));
+        Reject("option_input", () => Calibrate(OptionRight.Put, "2", "3", "0.25", "0", "0.5", "0.001", true));
         // A futures price at the tree's range leaves no volatility in the bracket.
         Reject("option_input", () => Calibrate(OptionRight.Call, "100000000000000000000000", "3", "0.25", "0.99", "0.3", "0.001", true));
         // One halving cannot pin a gas-level settlement to half a tenth of a cent.

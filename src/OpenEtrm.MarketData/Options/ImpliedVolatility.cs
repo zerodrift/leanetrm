@@ -15,14 +15,16 @@ public sealed record IntrinsicFallback(LatticeDecimal Intrinsic, LatticeDecimal 
 // Finds the volatility at which the pinned tree reproduces an option's settlement
 // price within half its clearing increment. Each input maps to one outcome, tested
 // in this order:
-//   1. invalid inputs or policy                           -> option_input / option_numerical_policy / option_expired;
+//   1. invalid inputs or policy, before any price         -> option_input / option_numerical_policy / option_expired
+//      (settlement and increment, the model's own input checks, then the bracket and iteration limit);
 //   2. settlement < intrinsic - increment                 -> option_settlement_below_intrinsic;
 //   3. settlement <= price at VolatilityMin               -> IntrinsicFallback when declared,
 //                                                            else option_calibration_fallback_undeclared;
 //   4. settlement > price at the effective upper bound    -> option_settlement_above_bound;
 //   5. bisection within MaxIterations                     -> SolvedVolatility, else option_calibration_nonconvergent.
 // Bisection on volatility is deterministic and needs no derivatives: each midpoint
-// is exactly (lo + hi) / 2 and the first one within half an increment is returned.
+// is (lo + hi) / 2 rounded half-even at 30 digits, and the first one within half an
+// increment is returned.
 public static class ImpliedVolatility
 {
     public const string FallbackMode = "option_settlement_at_intrinsic_v1";
@@ -40,13 +42,12 @@ public static class ImpliedVolatility
             throw new MarketDataException("option_input", $"The settlement price must not be negative; got {settlement}.");
         if (clearingIncrement.CompareTo(Zero) <= 0)
             throw new MarketDataException("option_input", $"The clearing increment must be positive; got {clearingIncrement}.");
-        if (futures.CompareTo(Zero) <= 0)
-            throw new MarketDataException("option_input", $"The futures price must be positive; got {futures}.");
-        if (policy.Steps < 1 || policy.MaxIterations < 1 || policy.VolatilityMin.CompareTo(policy.VolatilityMax) >= 0)
+        var years = AmericanFuturesOptionModel.ValidateInputs(terms, futures, discountToExpiry, valuationAt, policy);
+        if (policy.MaxIterations < 1 || policy.VolatilityMin.CompareTo(Zero) <= 0 || policy.VolatilityMin.CompareTo(policy.VolatilityMax) >= 0)
             throw new MarketDataException("option_numerical_policy",
-                $"Policy '{policy.Id}' needs at least one step and one iteration and VolatilityMin below VolatilityMax.");
+                $"Policy '{policy.Id}' needs at least one iteration and 0 < VolatilityMin < VolatilityMax.");
 
-        var upperBound = UpperBound(futures, AmericanFuturesOptionModel.YearFraction(valuationAt, terms.ExpiryAt, policy), policy);
+        var upperBound = UpperBound(futures, years, policy);
         if (upperBound.CompareTo(policy.VolatilityMin) <= 0)
             throw new MarketDataException("option_input",
                 $"At futures {futures} the tree's range admits no volatility above VolatilityMin {policy.VolatilityMin}.");

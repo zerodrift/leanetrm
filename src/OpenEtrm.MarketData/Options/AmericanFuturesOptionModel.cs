@@ -87,18 +87,26 @@ public static class AmericanFuturesOptionModel
     internal static InductionResult<FuturesOptionState> Solve(FuturesOptionTerms terms, LatticeDecimal futures, LatticeDecimal volatility,
         LatticeDecimal discountToExpiry, DateTimeOffset valuationAt, OptionNumericalPolicy policy, bool recordDecisions, CancellationToken ct)
     {
-        var strike = LatticeDecimal.From(terms.Strike);
-        RequirePositive(futures, "futures price");
-        RequirePositive(strike, "strike");
+        var years = ValidateInputs(terms, futures, discountToExpiry, valuationAt, policy);
         RequirePositive(volatility, "volatility");
+        var lattice = new FuturesLattice(futures, volatility, years, discountToExpiry, policy.Steps);
+        return BackwardInduction.Solve(lattice, new AmericanOption(terms.Right, LatticeDecimal.From(terms.Strike)), ct, recordDecisions);
+    }
+
+    // The checks on everything but volatility, shared with the implied-volatility
+    // solver so that both reject the same inputs with the same codes. Returns the
+    // year fraction to expiry.
+    internal static LatticeDecimal ValidateInputs(FuturesOptionTerms terms, LatticeDecimal futures, LatticeDecimal discountToExpiry,
+        DateTimeOffset valuationAt, OptionNumericalPolicy policy)
+    {
+        RequirePositive(futures, "futures price");
+        RequirePositive(LatticeDecimal.From(terms.Strike), "strike");
         RequirePositive(discountToExpiry, "discount factor");
         if (discountToExpiry.CompareTo(One) > 0)
             throw new MarketDataException("option_input", $"The discount factor {discountToExpiry} must not exceed 1.");
         if (policy.Steps < 1)
             throw new MarketDataException("option_numerical_policy", $"The policy needs at least one step; got {policy.Steps}.");
-        var years = YearFraction(valuationAt, terms.ExpiryAt, policy);
-        var lattice = new FuturesLattice(futures, volatility, years, discountToExpiry, policy.Steps);
-        return BackwardInduction.Solve(lattice, new AmericanOption(terms.Right, strike), ct, recordDecisions);
+        return YearFraction(valuationAt, terms.ExpiryAt, policy);
     }
 
     private static void RequirePositive(LatticeDecimal value, string name)
