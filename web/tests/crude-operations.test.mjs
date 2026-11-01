@@ -51,3 +51,28 @@ test('record corrections require explicit policy and native eligibility and neve
  const voided=crudeRecordCorrection(base(),'invoice','crude_record_correction_v1',{id:'invoice',canVoid:true});
  assert.equal(voided.invoiceId,'invoice');assert.ok(!('paymentId' in voided));
 });
+
+test('sale cash profile requires dispatch evidence and never invents a purchase receipt or cash amount',()=>{
+ const sale=crudeOperationBase({snapshotId:'snapshot',knowledgeMode:'current'},{tradeId:'sale',revision:2,version:4},{...fields,profile:'physical_crude_sale_cash_v1'});
+ const invoice=crudeInvoice(sale,{dispatchId:'dispatch-1',component:'consideration',decimalPlaces:'2',roundingPolicy:'crude_cumulative_receipt_cash_v1'});
+ assert.equal(invoice.dispatchId,'dispatch-1');assert.ok(!('receiptId' in invoice));assert.ok(!('amount' in invoice));assert.equal(invoice.profile,'physical_crude_sale_cash_v1');
+ assert.throws(()=>crudeReceipt(sale,{quantity:'1',titleTransferred:true,disposition:'owned_inventory'}),/purchase profile/);
+ assert.throws(()=>crudeDispatch(sale,{receiptId:'receipt',quantity:'1',titleTransferred:true}),/purchase profile/);
+ assert.throws(()=>crudeInvoice(sale,{receiptId:'receipt',component:'consideration',decimalPlaces:'2',roundingPolicy:'crude_cumulative_receipt_cash_v1'}),/dispatch/i);
+ assert.throws(()=>crudeInvoice(base(),{dispatchId:'dispatch',component:'consideration',decimalPlaces:'2',roundingPolicy:'crude_cumulative_receipt_cash_v1'}),/receipt/i);
+});
+test('inventory reservation retains operator-selected lot and exact sale without inferring title or allocating client quantities',async()=>{
+ const {crudeAllocation}=await import('../dist/crude-operations-model.js');
+ const allocation=crudeAllocation(base(),{receiptId:'owned-lot',quantity:'600.000000'},{trade_id:'sale',revision:3});
+ assert.equal(allocation.receiptId,'owned-lot');assert.equal(allocation.quantity,'600.000000');assert.equal(allocation.saleTradeId,'sale');assert.equal(allocation.saleRevision,3);assert.ok(!('titleTransferred'in allocation));
+ assert.throws(()=>crudeAllocation(base(),{receiptId:'',quantity:'600'},{trade_id:'sale',revision:3}),/receipt/i);
+ assert.throws(()=>crudeAllocation(base(),{receiptId:'owned-lot',quantity:'600'}),/sale/i);
+ const dispatched=crudeDispatch(base(),{receiptId:'owned-lot',allocationId:'reservation',quantity:'250',titleTransferred:true});
+ assert.equal(dispatched.allocationId,'reservation');assert.equal(dispatched.quantity,'250');assert.equal(dispatched.receiptId,'owned-lot');
+});
+test('operation choices expose only the implemented workflow for the explicitly selected native profile',async()=>{
+ const {crudeOperationKinds}=await import('../dist/crude-operations-model.js');
+ assert.deepEqual(crudeOperationKinds('physical_crude_sale_cash_v1').map(([kind])=>kind),['invoice','payment','payment_reverse','invoice_void']);
+ assert.ok(crudeOperationKinds('physical_crude_receipt_cash_v1').some(([kind])=>kind==='allocation'));
+ assert.throws(()=>crudeOperationKinds('unknown'),/profile/i);
+});

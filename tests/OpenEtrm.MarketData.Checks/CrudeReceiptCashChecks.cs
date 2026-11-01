@@ -14,21 +14,21 @@ internal static class CrudeReceiptCashChecks
         var location = new CrudeDeliveryLocation(R("synthetic_facility"), R("synthetic_custody"));
         var start = new DateTimeOffset(2040, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var due = start.AddMonths(1).AddDays(5);
-        var terms = new CrudeReceiptCashTerms(CrudeReceiptCash.Implementation, Guid.NewGuid(), Guid.NewGuid(), location, R("synthetic_grade"),
+        var terms = new CrudePhysicalCashTerms(CrudeReceiptCash.Implementation, Guid.NewGuid(), Guid.NewGuid(), location, R("synthetic_grade"),
             quantity, D("60"), "fahrenheit", Q("1000"), new(start, start.AddMonths(1)), due,
             new(new UnitPrice(D("78"), new PriceUnit(R("usd"), quantity.Key, D("1"))), D("-1")),
             new(new UnitPrice(D("0.5"), new PriceUnit(R("usd"), quantity.Key, D("1"))), D("1")),
             new("currency_minor_units_to_even_v1", 2, CashTieRule.ToEven));
         var receipt = new CrudeAcceptedReceipt(Guid.NewGuid(), start.AddDays(2), Q("400"), terms.Grade, location, CrudeReceiptTitle.Transferred);
         var inventory = new CrudeReceiptDisposition(Guid.NewGuid(), receipt.Id, Q("250"), CrudeDispositionKind.OwnedInventory,
-            start.AddDays(3), null, location.CustodyPoint, terms.BuyerLegalEntityId);
+            start.AddDays(3), null, location.CustodyPoint, terms.OwnerLegalEntityId);
         var onward = new CrudeReceiptDisposition(Guid.NewGuid(), receipt.Id, Q("150"), CrudeDispositionKind.OnwardDelivery,
-            start.AddDays(3), new(Guid.NewGuid(), 1, terms.BuyerLegalEntityId, terms.Grade, location, quantity.Key, Q("1000"), terms.Delivery), null, null);
-        var invoice = new CrudeReceiptInvoice(Guid.NewGuid(), CrudeCashComponent.Consideration, receipt.Id, 1, null, start.AddDays(4));
-        var feeInvoice = new CrudeReceiptInvoice(Guid.NewGuid(), CrudeCashComponent.HandlingFee, receipt.Id, 1, null, start.AddDays(4));
-        var payment = new CrudeReceiptPayment(Guid.NewGuid(), invoice.Id, new(D("-10000"), R("usd")), due.AddDays(-1));
+            start.AddDays(3), new(Guid.NewGuid(), 1, terms.OwnerLegalEntityId, terms.Grade, location, quantity.Key, Q("1000"), terms.Delivery), null, null);
+        var invoice = new CrudeCashInvoice(Guid.NewGuid(), CrudeCashComponent.Consideration, receipt.Id, 1, null, start.AddDays(4));
+        var feeInvoice = new CrudeCashInvoice(Guid.NewGuid(), CrudeCashComponent.HandlingFee, receipt.Id, 1, null, start.AddDays(4));
+        var payment = new CrudeCashPayment(Guid.NewGuid(), invoice.Id, new(D("-10000"), R("usd")), due.AddDays(-1));
         CrudeReceiptCashResult Value(ImmutableArray<CrudeAcceptedReceipt> receipts, ImmutableArray<CrudeReceiptDisposition> dispositions,
-            ImmutableArray<CrudeReceiptInvoice> invoices, ImmutableArray<CrudeReceiptPayment> payments) => CrudeReceiptCash.Reconcile(terms, receipts, dispositions, [], invoices, payments, due.AddDays(1));
+            ImmutableArray<CrudeCashInvoice> invoices, ImmutableArray<CrudeCashPayment> payments) => CrudeReceiptCash.Reconcile(terms, receipts, dispositions, [], invoices, payments, due.AddDays(1));
         var partial = Value([receipt], [inventory, onward], [invoice, feeInvoice], [payment]);
         Equal(partial.AcceptedQuantity.Amount, "400"); Equal(partial.RemainingQuantity.Amount, "600");
         Equal(partial.UndisposedQuantity.Amount, "0"); Equal(partial.OwnedInventoryQuantity.Amount, "250"); Equal(partial.OnwardQuantity.Amount, "150");
@@ -52,7 +52,7 @@ internal static class CrudeReceiptCashChecks
         Reject("crude_receipt_reference", () => Value([receipt with { Grade = R("other_grade") }], [], [], []));
         Reject("crude_receipt_time", () => Value([receipt with { AcceptedAt = terms.Delivery.To }], [], [], []));
         var earlierReceipt = receipt with { Id = Guid.NewGuid(), Quantity = Q("100") };
-        var backdatedInvoice = invoice with { Id = Guid.NewGuid(), ReceiptId = earlierReceipt.Id, ComponentOrdinal = 2,
+        var backdatedInvoice = invoice with { Id = Guid.NewGuid(), SourceId = earlierReceipt.Id, ComponentOrdinal = 2,
             PriorInvoiceId = invoice.Id, IssuedAt = invoice.IssuedAt.AddTicks(-10) };
         Reject("crude_invoice_time", () => Value([receipt, earlierReceipt], [], [invoice, backdatedInvoice], []));
         var paid = Value([receipt], [], [invoice], [payment with { Amount = new(D("-31200"), R("usd")) }]);
@@ -91,21 +91,21 @@ internal static class CrudeReceiptCashChecks
         Equal(pennyCash.Uninvoiced.Amount, "-0.01");
         if (pennyState.Invoices.Single().State != CrudeInvoiceState.NoPaymentDue)
             throw new Exception("A zero rounded allocation is not evidence of a payment.");
-        var remainderInvoice = invoice with { Id = Guid.NewGuid(), ReceiptId = completion.Id, ComponentOrdinal = 2, PriorInvoiceId = invoice.Id };
+        var remainderInvoice = invoice with { Id = Guid.NewGuid(), SourceId = completion.Id, ComponentOrdinal = 2, PriorInvoiceId = invoice.Id };
         var allInvoiced = Value([receipt, completion], [], [remainderInvoice, invoice], []);
         Equal(allInvoiced.Cash.Single(c => c.Component == CrudeCashComponent.Consideration).Uninvoiced.Amount, "0");
         Equal(allInvoiced.Cash.Single(c => c.Component == CrudeCashComponent.Consideration).Outstanding.Amount, "-78000");
         Reversals(terms, receipt, completion, invoice, payment, due);
         Console.WriteLine("PASS crude receipt cash: partial quantities, explicit title/disposition, independent signed invoices, partial payments and overdue reconciliation");
     }
-    private static void Reversals(CrudeReceiptCashTerms terms, CrudeAcceptedReceipt receipt, CrudeAcceptedReceipt completion,
-        CrudeReceiptInvoice invoice, CrudeReceiptPayment payment, DateTimeOffset due)
+    private static void Reversals(CrudePhysicalCashTerms terms, CrudeAcceptedReceipt receipt, CrudeAcceptedReceipt completion,
+        CrudeCashInvoice invoice, CrudeCashPayment payment, DateTimeOffset due)
     {
         invoice = invoice with { EventVersion = 1 };
         payment = payment with { EventVersion = 2 };
         var reversePayment = new CrudeCashRecordReversal(Guid.NewGuid(), CrudeCashReversalKind.PaymentRecord,
             payment.Id, due, 3, CrudeReceiptCash.ReversalImplementation);
-        CrudeReceiptCashResult Value(ImmutableArray<CrudeReceiptInvoice> invoices, ImmutableArray<CrudeReceiptPayment> payments,
+        CrudeReceiptCashResult Value(ImmutableArray<CrudeCashInvoice> invoices, ImmutableArray<CrudeCashPayment> payments,
             ImmutableArray<CrudeCashRecordReversal> reversals) =>
             CrudeReceiptCash.Reconcile(terms, [receipt, completion], [], [], invoices, payments, reversals, due.AddDays(2));
         var restored = Value([invoice], [payment], [reversePayment]);
@@ -118,7 +118,7 @@ internal static class CrudeReceiptCashChecks
         var voided = Value([invoice], [payment], [reversePayment, voidInvoice]);
         Equal(voided.Cash.Single(c => c.Component == CrudeCashComponent.Consideration).Uninvoiced.Amount, "-78000");
         if (!voided.Invoices.IsEmpty || !voided.ReversedInvoiceIds.SequenceEqual([invoice.Id])) throw new Exception("Voiding must preserve history without active payable cash.");
-        var second = invoice with { Id = Guid.NewGuid(), ReceiptId = completion.Id, ComponentOrdinal = 2,
+        var second = invoice with { Id = Guid.NewGuid(), SourceId = completion.Id, ComponentOrdinal = 2,
             PriorInvoiceId = invoice.Id, EventVersion = 2 };
         Reject("crude_invoice_reversal_order", () => Value([invoice, second], [], [voidInvoice]));
         var voidSecond = voidInvoice with { Id = Guid.NewGuid(), TargetId = second.Id, EventVersion = 3 };
@@ -135,7 +135,7 @@ internal static class CrudeReceiptCashChecks
         Equal(halfState.Invoices.Single(i => i.InvoiceId == reissue.Id).Amount.Amount, "-0.01");
         Equal(halfState.Cash.Single().Invoiced.Amount, "-0.01");
         var corrected = receipt with { Id = Guid.NewGuid(), Quantity = new(ExactDecimal.Parse("450"), terms.Quantity.Key) };
-        var correctedInvoice = invoice with { Id = Guid.NewGuid(), ReceiptId = corrected.Id, ComponentOrdinal = 2,
+        var correctedInvoice = invoice with { Id = Guid.NewGuid(), SourceId = corrected.Id, ComponentOrdinal = 2,
             PriorInvoiceId = null, EventVersion = 5, IssuedAt = due.AddDays(1) };
         var correctedState = CrudeReceiptCash.Reconcile(terms, [corrected], [], [], [invoice, correctedInvoice], [payment],
             [reversePayment, voidInvoice], due.AddDays(2));

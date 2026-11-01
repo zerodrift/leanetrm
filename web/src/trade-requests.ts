@@ -1,4 +1,4 @@
-export const crudeOperationPaths=['crude/operations/receipt','crude/operations/dispatch','crude/operations/invoice/issue','crude/operations/payment','crude/operations/payment/reverse','crude/operations/invoice/void'] as const;
+export const crudeOperationPaths=['crude/operations/allocation','crude/operations/receipt','crude/operations/dispatch','crude/operations/invoice/issue','crude/operations/payment','crude/operations/payment/reverse','crude/operations/invoice/void'] as const;
 export const isCrudeOperation=(path:string):boolean=>(crudeOperationPaths as readonly string[]).includes(path);
 export const isLifecycleCommand=(path:string):boolean=>path.startsWith('swaps/settlement/')||isCrudeOperation(path);
 export const tradeStatusPath=(path:string)=>isCrudeOperation(path)?'crude/operations/status':path.startsWith('swaps/settlement/')?'swaps/settlement/status':path.startsWith('swaps/')?'swaps/status':'futures/status';

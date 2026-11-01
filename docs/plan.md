@@ -1275,6 +1275,11 @@ neither is a default. Full payment-record reversal and ordered invoice void/reis
 now preserve immutable history and original cash obligations. Actual bank refunds,
 dispatch reversals, backdated physical corrections, raw custody measurement,
 inventory costing, cargo and broader physical completion remain further contracts.
+The qualified local increment allocates owned receipt lots to exact sales, records
+separate dispatches and reconciles dispatch-backed sales invoices and collections.
+Purchase obligations remain unchanged; no automatic lot selection, costing or
+P&L is introduced. Managed, API, native and browser checks demonstrate the complete workflow; a
+populated additive-upgrade check preserves prior operational and cash history.
 Automated crude closes, amendments and cancellation remain further work.
 Production activation remains a separate release gate.
 
