@@ -49,8 +49,8 @@ public sealed partial class TradeReads
             var catalog=directory?await futures.Directory(connection,ct):await futures.Catalog(connection,data,view.CalculationFrame,ct);
             return await Complete(catalog,await blotter.Begin(connection,data,view.CalculationFrame,report,summaries,ct));
         },ct,directory?EmptyDirectory:null,
-            referenceScope:directory?ReferenceReadScope.DefinitionClosure:ReferenceReadScope.TradeValuation,
-            observationScope:directory?ObservationReadScope.FactHistory:ObservationReadScope.ExactPins);
+            referenceScope:ReferenceReadScope.TradeValuation,
+            observationScope:ObservationReadScope.ExactPins);
     }
     public Task<object> Blotter(NpgsqlConnection connection,TradingView view,FuturesBlotterView report,CancellationToken ct)=>
         Read(connection,view,async data=>(await blotter.Read(connection,data,view.CalculationFrame,report,[],ct)).Blotter,ct);

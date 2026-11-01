@@ -1,9 +1,10 @@
+import {workspaceProbeScript} from './workspace-probe.mjs';
 /** Observation choices, intervals and weights come from the real authorized backend. */
 import {newTrade} from './new-trade.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
- await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.observationCalls=[];{const send=window.fetch;window.fetch=async(...args)=>{const response=await send(...args);try{window.observationCalls.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null,status:response.status,data:await response.clone().json()});}catch{}if(String(args[0])==='/api/swaps/observation-options'&&window.holdObservation){window.holdObservation=false;await new Promise(resolve=>window.releaseObservation=resolve);}return response;};}`});
+ await command('Page.addScriptToEvaluateOnNewDocument',{source:workspaceProbeScript+`window.observationCalls=[];{const send=window.fetch;window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{const args=[input,init];const response=await send(...args);try{window.observationCalls.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null,status:response.status,data:await response.clone().json()});}catch{}if(String(args[0])==='/api/swaps/observation-options'&&window.holdObservation){window.holdObservation=false;await new Promise(resolve=>window.releaseObservation=resolve);}return response;});}`});
  await command('Page.navigate',{url});await wait(idle);
  await persona('trader');await click('#example');await click('#nav-futures');
  const change=async(selector,value)=>{await set(selector,value);await wait(idle);};

@@ -11,7 +11,6 @@ budget on a synthetic fixture (24 trades, 16 swaps, 92 contracts, 12 curves,
 Remaining:
 
 - **Hedge…** is left out of the row menu at the owner's request.
-- Streamed "shown of total" copy during first load.
 - A page-performance qualification beyond the local figure above.
 
 ## Why
@@ -66,8 +65,8 @@ list without moving it, and actions on a position from the position itself.
 
 ## Non-goals
 
-- Streaming valuation (positions arriving in batches). Designed separately;
-  this design defines the client hook it fills (see [First load](#first-load)).
+- Incremental display of valued positions. Streamed completion counts inform
+  progress; the grid waits for the complete valuation (see [First load](#first-load)).
 - The assistant driving the Blotter, suggesting hedges, drawing charts in the
   chat and running reports. A later project, built on goal 9.
 - News and article retrieval for the assistant.
@@ -215,19 +214,20 @@ The default arrangement, top to bottom:
 
 ## First load
 
-- The grid shows no rows until positions are valued. A thin progress bar
+- The grid shows no rows until the entire valuation completes. A thin progress bar
   under the toolbar and a status line show what is happening: "Valuing
-  positions" while the read runs, and "Valuing positions · 74 of 120" once
-  counts are available.
+  positions" while the read runs, and "Valuing positions · 74 of 120 complete" as
+  the backend completes positions.
 - The provisional facts table (`renderFacts`, `trading/positions` paging for
   display) is removed from the first-load path. Opening a position before the
-  valuation finishes is not offered. (Builder's call: whether the facts read
-  is still needed for the count; it must not draw rows.)
-- Client hook for streaming: the grid accepts batches of complete, valued
-  rows and appends them in backend order without moving the rows on screen.
-  Until streaming exists, the whole valued set arrives as one batch. The
-  summary strip shows totals only when the complete scope is valued;
-  meanwhile it shows "Pending" with the reason, as today.
+  valuation finishes is not offered. The facts read supplies the count and
+  cross-checks the final valuation scope; it never draws rows.
+- The first load of a trade view consumes `trading/workspace/stream`. Its
+  completed-position count updates progress while valued rows remain private
+  until the terminal complete frame and its context are validated. The grid,
+  group subtotals and summary strip appear together from the complete result.
+  A refused, truncated or inconsistent stream displays no partial result.
+  Refreshes and pivot views retain the whole-workspace read.
 - A failed valuation keeps the toolbar usable and shows the reason and a
   Retry in the grid area. A failed count of the positions, read beside the
   valuation, is said as the count's own failure, with its reason and Retry. A refresh of an already loaded Blotter keeps the
@@ -344,7 +344,7 @@ D272 (grid and details pane), D273 (saved layout), D274 (pop-out), D275
   both ways; it reads under its own session.
 - Close-out drafts are produced by the backend; the browser never derives
   trade terms.
-- First load shows no unvalued rows.
+- First load shows completion progress and no rows until the full result is ready.
 
 ## Verification
 
@@ -352,7 +352,9 @@ D272 (grid and details pane), D273 (saved layout), D274 (pop-out), D275
   run): scroll position and selected row are unchanged after regrouping,
   sorting, filtering, column changes, a refreshed valuation, opening and
   collapsing details, and resizing the window.
-- First load renders no row before values arrive and shows the progress bar.
+- First load advances completion progress but renders no row before the full
+  valuation completes. Refused, truncated and inconsistent streams expose no
+  partial result; cancellation and late frames cannot restore a departed view.
 - Panes: drag to each edge and centre, resize, collapse, save view, reload,
   reset layout; narrow-width stacking.
 - Pop-out: context change in the main window reaches the pop-out; view change
@@ -366,7 +368,6 @@ D272 (grid and details pane), D273 (saved layout), D274 (pop-out), D275
 - Tabulator API choices and how scroll anchoring is implemented.
 - Pane header visuals, icons and animation, within the shared visual system.
 - The cross-window channel and its message format.
-- Whether the facts read survives for the progress count.
 - Default split ratios.
 
 ## Deferred

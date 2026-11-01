@@ -1,3 +1,4 @@
+import {setupWorkspaceProbe} from './workspace-probe.mjs';
 import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -112,7 +113,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('reload restores the original uncertain settlement without changing its operation or body, still named for it',`${card('Net settlement of '+selected.reference)}&&sessionStorage.getItem(${JSON.stringify(retained.key)})===${JSON.stringify(retained.value)}&&document.querySelector('#futures-new').disabled`);
  // Check status settles the record from its card in the panel, which asks nothing, while the risk report there holds the person's sizes:
  // the report is read again at the inputs on screen, and keeps the person's choice and sizes.
- await evaluate(`(()=>{const send=window.fetch;window.__riskCatalogs=[];window.__workspaces=[];window.fetch=async(input,init)=>{const response=await send(input,init),path=String(input);if(response.ok&&(path==='/api/portfolio/risk/catalog'||path==='/api/trading/workspace'))(path==='/api/trading/workspace'?window.__workspaces:window.__riskCatalogs).push(await response.clone().json());return response;};})()`);
+ await setupWorkspaceProbe(evaluate);
+ await evaluate(`(()=>{const send=window.fetch;window.__riskCatalogs=[];window.__workspaces=[];window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{const response=await send(input,init),path=String(input);if(response.ok&&(path==='/api/portfolio/risk/catalog'||path==='/api/trading/workspace'))(path==='/api/trading/workspace'?window.__workspaces:window.__riskCatalogs).push(await response.clone().json());return response;});})()`);
  await click('#blotter-risk');await wait("document.querySelector('#position-details').dataset.mode==='risk'&&!document.querySelector('#risk-fields').disabled&&"+idle);
  await click('input[name=risk-choice][value=held]');
  await evaluate("(()=>{const n=document.querySelector('#risk-size-0');n.focus();n.select();})()");await command('Input.insertText',{text:'0.35'});

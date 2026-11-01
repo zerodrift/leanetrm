@@ -22,6 +22,10 @@ def run_checks(c, check, query):
         context.update(knowledgeMode='retained', contextId=captured['catalog']['context']['contextId'])
         request = {'context': context, 'view': view, 'bookingCatalog': 'priced_contracts'}
         expected = c.call('trading/workspace', request)
+        directory_request = {**request, 'bookingCatalog': 'directory'}
+        directory = c.call('trading/workspace', directory_request)
+        check('the booking directory retains the same complete valued report',
+              directory['blotter'] == expected['blotter'] and directory['summaries'] == expected['summaries'])
         query("""CREATE FUNCTION security.synthetic_trade_milestone_guard(kind text) RETURNS boolean
           LANGUAGE plpgsql VOLATILE SET search_path=pg_catalog AS $$
           BEGIN
@@ -37,6 +41,8 @@ def run_checks(c, check, query):
             actual = c.call('trading/workspace', request)
             check('priced trading preserves its complete catalog and report without unrelated milestone reads',
                   actual == expected and c.call('trading/workspace', {'context': context, 'view': view}) == expected)
+            check('the valued booking directory does not inspect unrelated milestone metadata',
+                  c.call('trading/workspace', directory_request) == directory)
             c.call('workspace/catalog', expected=403)
             c.call('reference/catalog?table=futures_milestones', expected=403)
             c.call('futures/catalog', {**context, 'convention': metadata['futuresConvention']}, expected=403)
@@ -55,6 +61,13 @@ def run_checks(c, check, query):
                 error = c.call('trading/workspace', request, expected=422)
                 check('priced trading still requires its exact visible ' + required + ' fact',
                       error['code'] == 'ambiguous_reference')
+                if directory['blotter']['holdings']:
+                    error = c.call('trading/workspace', directory_request, expected=422)
+                    check('the valued booking directory still requires its exact visible ' + required + ' fact',
+                          error['code'] == 'ambiguous_reference')
+                else:
+                    check('the proven empty directory keeps omitting unused ' + required + ' metadata',
+                          c.call('trading/workspace', directory_request) == directory)
             finally:
                 query('DROP POLICY synthetic_required_milestone_guard ON ref_data.futures_milestones;')
         check('required milestone checks do not replace the retained context or financial result',

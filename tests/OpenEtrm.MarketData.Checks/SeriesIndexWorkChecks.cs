@@ -37,15 +37,38 @@ internal static class SeriesIndexWorkChecks
         }
         var instruments=ImmutableArray.Create(Instrument("40"),Instrument("41"));
         var context=Guid.NewGuid();var market=shaped.Model.Build(shaped.Snapshot.WithKnowledge(context,shaped.At),shaped.Requests);
-        IntervalValuationInputs Prepare()=>IntervalValuationInputs.Prepare(reference,reads,instruments,market,shaped.At,context,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,
+        IntervalValuationInputs Prepare(IntervalReadData? selected=null)=>IntervalValuationInputs.Prepare(reference,selected??reads,instruments,market,shaped.At,context,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,
             "ppa_coverage_v1",[],instruments.ToImmutableDictionary(i=>i.Id,i=>ImmutableArray.Create(new DeliveryCoverage(from,to))));
         var first=Prepare();
         if(first.VolumeComputations!=2)throw new Exception($"Expected two raw source/month computations, got {first.VolumeComputations}.");
         if(first.SeriesValidations!=2 || first.SeriesSelections!=2)
             throw new Exception($"Expected one validation and selection per exact forecast/meter series across two months and four sides; got {first.SeriesValidations} validations / {first.SeriesSelections} selections.");
+        if(first.PriceIntervalInspections>shaped.Shape.Length)
+            throw new Exception($"Price cadence admission must inspect each prepared interval at most once across both instruments; inspected {first.PriceIntervalInspections} for {shaped.Shape.Length} intervals.");
+        var dependencies=first.Dependencies(instruments[0],new(from,to));
+        var firstMonth=reads.Curves[shaped.Curve.Key].Dependencies(shaped.First);
+        var secondMonth=reads.Curves[shaped.Curve.Key].Dependencies(shaped.First.AddMonths(1));
+        if(!dependencies.ToHashSet().SetEquals(shaped.Requests)||!dependencies.SequenceEqual(firstMonth.AddRange(secondMonth).Distinct()))
+            throw new Exception("Both monthly peak/off-peak source contracts must remain exact dependencies in first-seen order.");
+        if(first.PriceDependencyResolutions>2)
+            throw new Exception($"Two monthly curve selections must resolve at most twice, not per interval; got {first.PriceDependencyResolutions}.");
+        var narrow=first.Dependencies(instruments[0],new(from,from.AddHours(1)));
+        if(!narrow.SequenceEqual(firstMonth)||first.PriceDependencyResolutions!=3)
+            throw new Exception("A narrower call must independently retain only its month and exact dependency order.");
         var second=Prepare();
+        if(second.PriceIntervalInspections!=first.PriceIntervalInspections)
+            throw new Exception("An independent request must perform its own exact price cadence admission.");
         if(second.SeriesValidations!=2 || second.SeriesSelections!=2)
             throw new Exception("An independent request must own two fresh validated/selected indexes.");
+        var halfHourlyCurve=shaped.Curve with {Definition=shaped.Curve.Definition with {Grid=shaped.Curve.Definition.Grid with {IntervalMinutes=30}}};
+        var halfHourlyShape=shaped.Shape.SelectMany(cell=>new[]{cell with {End=cell.Start.AddMinutes(30)},cell with {Start=cell.Start.AddMinutes(30)}}).ToArray();
+        var halfHourly=PreparedCurve.Prepare(halfHourlyCurve,shaped.Spans,halfHourlyShape,[],shaped.At,shaped.At);
+        try
+        {
+            Prepare(reads with {Curves=reads.Curves.SetItem(shaped.Curve.Key,halfHourly)});
+            throw new Exception("Matching starts with different interval ends must not admit hourly quantities against half-hourly prices.");
+        }
+        catch(MarketDataException error) when(error.Code=="ppa_cadence") { }
         Console.WriteLine("PASS series index work: two months, two instruments and four sides validate/select each exact series once per request");
     }
     private static ExactDecimal D(string value)=>ExactDecimal.Parse(value);

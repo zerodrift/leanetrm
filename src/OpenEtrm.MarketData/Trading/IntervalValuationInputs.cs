@@ -50,6 +50,9 @@ public sealed class IntervalValuationInputs
     public int VolumeNormalizations=>quantities.VolumeNormalizations;
     public int SeriesValidations=>quantities.SeriesValidations;
     public int SeriesSelections=>quantities.SeriesSelections;
+    public int PriceIntervalInspections { get; private set; }
+    private int priceDependencyResolutions;
+    public int PriceDependencyResolutions=>Volatile.Read(ref priceDependencyResolutions);
     internal CurveBuild BaseMarket { get; }
     internal IntervalPriceResolver BaseResolver { get; }
     private readonly ImmutableDictionary<Guid,PpaInstrument> instruments;
@@ -59,6 +62,7 @@ public sealed class IntervalValuationInputs
     private readonly ConcurrentDictionary<(Guid Instrument,DeliveryCoverage Coverage),PreparedScheduleScope> scopes=[];
     private readonly Dictionary<(Guid Instrument,Guid Side),ImmutableArray<PreparedQuantityRow>> quantityRows=[];
     private readonly PpaQuantityPreparation quantities;
+    private readonly Dictionary<(CurveKey Curve,DateOnly Month),HashSet<(DateTimeOffset Start,DateTimeOffset End)>> priceIntervals=[];
     private readonly ImmutableDictionary<Guid,ImmutableArray<DeliveryCoverage>> preparedCoverage;
     private IntervalValuationInputs(IntervalReferenceData reference,IntervalReadData read,ImmutableArray<PpaInstrument> instruments,
         CurveBuild baseMarket,DateTimeOffset knownAt,Guid knowledgeContext,IntervalKnowledgePolicy knowledgePolicy,PendingActualsPolicy pending,string coveragePolicy,ImmutableHashSet<DateOnly> detailMonths,
@@ -105,6 +109,7 @@ public sealed class IntervalValuationInputs
             foreach(var member in instrument.Memberships)Quantity(instrument,member.Side);
             foreach(var member in instrument.Memberships)rows.Add((instrument.Id,member.Side.Id),PrepareRows(instrument,member.Side));
         }
+        priceIntervals.Clear();priceIntervals.TrimExcess();
         var volumes=quantityRows.Values.SelectMany(v=>v).SelectMany(r=>r.Lineage).Distinct().ToArray();
         var actuals=read.Curves.Values.SelectMany(c=>c.Periods.Values).SelectMany(p=>p.Actuals.Values).Distinct().ToArray();
         Receipt=new(reference.Definitions,reference.Reference,Snapshot.Id,Snapshot.ValuationAt,knownAt,knowledgeContext,pending,coveragePolicy,
@@ -163,7 +168,7 @@ public sealed class IntervalValuationInputs
         var attribute=role is PpaRole.CertificateDelivery or PpaRole.CertificatePayment or PpaRole.CapacityDelivery or PpaRole.CapacityPayment;
         if(physical)
         {
-            var locations=side.RetainedPlan is {} retained?retained.NativeRows.SelectMany(row=>row.Prices).Select(RetainedLocation).Distinct():
+            var locations=side.RetainedPlan is {} retained?retained.PriceReferences.Select(RetainedLocation).Distinct():
                 quantities.SelectMany(q=>Components(side,q)).Select(c=>c.Location).Distinct();
             foreach(var location in locations)bindings[location]=LocationValuation.Partition(Reference.Assignments,location,
                 side is CertificateDeliverySide?ValuedAttribute.Certificate:side is CapacityDeliverySide?ValuedAttribute.Capacity:ValuedAttribute.Energy,
@@ -220,7 +225,7 @@ public sealed class IntervalValuationInputs
                         (contracts[0].DeliveryFrom!=month || contracts[0].DeliveryTo!=month.AddMonths(1)))
                         throw PpaErrors.Error("ppa_cadence","attribute","Select one exact generation vintage; capacity pricing requires a complete monthly contract.");
                 }
-                else if(period || !curve.Period(month).Intervals.Any(i=>i.Start==q.Interval.Start && i.End==q.Interval.End))
+                else if(period || !HasPriceInterval(curve,month,q.Interval))
                     throw PpaErrors.Error("ppa_cadence","price","Resolved prices and quantities must share exact native intervals.");
             }
             return new PreparedRowInputs(row,q,priceBindings);
@@ -233,6 +238,21 @@ public sealed class IntervalValuationInputs
             return Reference.Assets.TryGetValue(asset,out var definition)?definition.Location:
                 throw PpaErrors.Error("ppa_quantity_source","retained_price","The retained physical price requires its exact asset definition.");
         }
+    }
+    private bool HasPriceInterval(PreparedCurve curve,DateOnly month,DeliveryInterval interval)
+    {
+        var key=(curve.Key,month);
+        if(!priceIntervals.TryGetValue(key,out var cells))
+        {
+            cells=[];
+            foreach(var cell in curve.Period(month).Intervals)
+            {
+                PriceIntervalInspections++;
+                cells.Add((cell.Start,cell.End));
+            }
+            priceIntervals.Add(key,cells);
+        }
+        return cells.Contains((interval.Start,interval.End));
     }
     private static IEnumerable<QuantityComponent> Components(Side side,PreparedQuantityRow row)=>row.Components.IsEmpty && side is PowerPhysicalSide physical?
         [new(physical.Location,row.Quantity,null)]:row.Components;
@@ -285,7 +305,22 @@ public sealed class IntervalValuationInputs
     public ImmutableArray<CurveRequest> Dependencies(PpaInstrument instrument,DeliveryCoverage coverage)
     {
         ValidateCoverage(instrument,coverage);
-        return [..instrument.Memberships.SelectMany(m=>Rows(instrument,m.Side,coverage).Where(r=>InMeasure(m.Side,r,Snapshot.ValuationAt))
-            .SelectMany(r=>r.Prices.SelectMany(p=>Read.Curves[p.Curve].Dependencies(new(r.Quantity.Interval.OperatingDate.Year,r.Quantity.Interval.OperatingDate.Month,1),p.Settlement)))).Distinct()];
+        var selections=new HashSet<(CurveKey Curve,DateOnly Month,PriceSettlementSelection? Settlement)>();
+        var seen=new HashSet<CurveRequest>();
+        var dependencies=ImmutableArray.CreateBuilder<CurveRequest>();
+        foreach(var member in instrument.Memberships)
+            foreach(var row in Rows(instrument,member.Side,coverage))
+            {
+                if(!InMeasure(member.Side,row,Snapshot.ValuationAt))continue;
+                var date=row.Quantity.Interval.OperatingDate;var month=new DateOnly(date.Year,date.Month,1);
+                foreach(var price in row.Prices)
+                {
+                    if(!selections.Add((price.Curve,month,price.Settlement)))continue;
+                    Interlocked.Increment(ref priceDependencyResolutions);
+                    foreach(var dependency in Read.Curves[price.Curve].Dependencies(month,price.Settlement))
+                        if(seen.Add(dependency))dependencies.Add(dependency);
+                }
+            }
+        return dependencies.ToImmutable();
     }
 }

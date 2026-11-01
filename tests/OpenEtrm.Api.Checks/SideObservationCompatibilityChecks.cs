@@ -46,11 +46,33 @@ internal static class SideObservationCompatibilityChecks
             throw new Exception("An unqualified publication implementation became compatible.");
         CheckReferenceInputs(revision);
         CheckAdmissionMatrix();
+        CheckFixingSeriesWork();
         CheckContractObservationInput();
         CheckContractObservationResolution();
         CheckContractObservationCorrections();
         CheckSourceHistoryReuse().GetAwaiter().GetResult();
         Console.WriteLine("PASS Side observation compatibility: all six explicit authoring pairs; monthly/daily publication roles remain distinct; missing or unsupported metadata and finer cadence reject");
+    }
+
+    private static void CheckFixingSeriesWork()
+    {
+        var data=new AdmissionFixture().Data(extraSeries:2048);
+        var selection=PriceSettlementSelection.CurveTarget(new(data.ReferenceRevision,"target_index"));
+        var quote=data.Quotes.Single();var contracts=data.Contracts.Take(31).ToImmutableArray();
+        long Allocated(ImmutableArray<MarketContract> selected)
+        {
+            var before=GC.GetAllocatedBytesForCurrentThread();
+            var fixings=PriceSettlementInputs.Fixings(data,selection,quote,selected);
+            var allocated=GC.GetAllocatedBytesForCurrentThread()-before;
+            if(fixings.Length!=selected.Length||!fixings.Select(f=>(f.From,f.To)).SequenceEqual(selected.Select(c=>(c.DeliveryFrom,c.DeliveryTo))))
+                throw new Exception("Fixing admission must retain every selected exact observation period.");
+            return allocated;
+        }
+        Allocated(contracts);Allocated([contracts[0]]);
+        var single=Allocated([contracts[0]]);var all=Allocated(contracts);
+        Console.WriteLine($"Fixing-series allocation: one period {single} bytes; 31 periods {all} bytes; 2,048 unrelated series.");
+        if(all>4*single+200_000)
+            throw new Exception($"A fixing batch must not repeatedly parse the unrelated series catalog: one period {single} bytes, 31 periods {all} bytes.");
     }
 
     private static async Task CheckSourceHistoryReuse()
@@ -294,9 +316,10 @@ internal static class SideObservationCompatibilityChecks
         private readonly Guid[] series = Enumerable.Range(0, 62).Select(_ => Guid.NewGuid()).ToArray();
         internal Guid MonthlySeries => series[31];
         internal PreviewData Data(Func<JsonElement, JsonElement>? changeDailyFixing = null,
-            Func<JsonElement, JsonElement>? changeIndex = null, bool monthlyOnly = false, ImmutableArray<JsonElement> observations=default)
+            Func<JsonElement, JsonElement>? changeIndex = null, bool monthlyOnly = false, ImmutableArray<JsonElement> observations=default,int extraSeries=0)
         {
             static (DateOnly From, DateOnly To) Period(int n) => n % 31 == 0 ? (From, To) : (From.AddDays(n % 31 - 1), From.AddDays(n % 31));
+            var unrelated=Enumerable.Range(0,extraSeries).Select(_=>(Contract:Guid.NewGuid(),Series:Guid.NewGuid())).ToArray();
             var fixings = Enumerable.Range(0, 62).Select(n =>
             {
                 var period = Period(n);
@@ -309,10 +332,12 @@ internal static class SideObservationCompatibilityChecks
             Dictionary<string, ImmutableArray<JsonElement>> definitions = new()
             {
                 ["revisions"] = [Row(new { catalog_id = catalog, id = revision, reference_catalog_id = referenceCatalog, reference_revision_id = referenceRevision, state = "sealed" })],
-                ["contracts"] = [..contracts.Select((id, n) => Row(new { id, kind = "forward", delivery_from = Period(n).From, delivery_to = Period(n).To, expiry_at = "2048-05-03T00:00:00Z", futures_series_code = (string?)null }))],
+                ["contracts"] = [..contracts.Select((id, n) => Row(new { id, kind = "forward", delivery_from = Period(n).From, delivery_to = Period(n).To, expiry_at = "2048-05-03T00:00:00Z", futures_series_code = (string?)null })),
+                    ..unrelated.Select(pair=>Row(new{id=pair.Contract,kind="forward",delivery_from=From,delivery_to=To,expiry_at="2048-05-03T00:00:00Z",futures_series_code=(string?)null}))],
                 ["curves"] = [Row(new { code = "projection", commodity_code = "synthetic_energy", quote_code = "price", location_code = "hub", profile_code = "uniform", settlement_target_code = "target", rule = "direct", direct_role = "trader_mark", direct_source_code = "projection_source" })],
                 ["curve_members"] = [..contracts.Take(31).Select((id, ordinal) => Row(new { curve_code = "projection", contract_id = id, ordinal }))],
-                ["series"] = [..series.Select((id, n) => Row(new { id, contract_id = contracts[n], quote_code = "price", value_specification_code = (string?)null }))],
+                ["series"] = [..series.Select((id, n) => Row(new { id, contract_id = contracts[n], quote_code = "price", value_specification_code = (string?)null })),
+                    ..unrelated.Select(pair=>Row(new{id=pair.Series,contract_id=pair.Contract,quote_code="price",value_specification_code=(string?)null}))],
                 ["index_fixing_observations"] = monthlyOnly ? [..fixings.Where(row => row.Text("index_code") != "alternate_index" || row.Text("observation_from") == "2048-04-01" && row.Text("observation_to") == "2048-05-01")] : fixings,
                 ["curve_inputs"] = [], ["constituent_mappings"] = [], ["contract_intervals"] = [], ["curve_expiry_rules"] = []
             };

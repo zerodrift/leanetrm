@@ -8,7 +8,19 @@ namespace OpenEtrm.MarketData.Trading;
 
 public static class RetainedSideSchedules
 {
-    public static T Attach<T>(T instrument,IReadOnlyDictionary<Guid,ScheduleDefinition> schedules) where T:SidedInstrument
+    private readonly record struct PlanKey(Guid Side,string Economics,string Pricing,string Manifest);
+    // An authorized portfolio read admits shared immutable side definitions once.
+    // Instrument membership and sibling bindings are checked on every attachment.
+    public sealed class ReadScope
+    {
+        private readonly Dictionary<PlanKey,RetainedSideSchedule> prepared=[];
+        public T Attach<T>(T instrument,IReadOnlyDictionary<Guid,ScheduleDefinition> schedules) where T:SidedInstrument=>
+            RetainedSideSchedules.Attach(instrument,schedules,prepared);
+    }
+    public static T Attach<T>(T instrument,IReadOnlyDictionary<Guid,ScheduleDefinition> schedules) where T:SidedInstrument=>
+        Attach(instrument,schedules,null);
+    private static T Attach<T>(T instrument,IReadOnlyDictionary<Guid,ScheduleDefinition> schedules,
+        Dictionary<PlanKey,RetainedSideSchedule>? prepared) where T:SidedInstrument
     {
         if(instrument is null||schedules is null)throw Error("Supply an instrument and its complete retained schedules.");
         var sides=instrument.Sides.Select(m=>m.Side).DistinctBy(s=>s.Id).ToArray();
@@ -23,7 +35,14 @@ public static class RetainedSideSchedules
                 throw Error("A retained schedule must belong to the exact side economic definition and pricing bindings.");
             var family=side switch{FixedSide=>"fixed",FloatingSide=>"floating",PowerPhysicalSide=>"power",CertificateDeliverySide=>"certificate",CapacityDeliverySide=>"capacity",_=>throw Error("The side family has no retained schedule adapter.")};
             if(definition.Family!=family)throw Error("A retained schedule cannot reinterpret the side family.");
-            return side with{RetainedSchedule=definition,RetainedPlan=new(side,definition)};
+            var key=new PlanKey(side.Id,definition.EconomicIdentity,definition.PricingBindingIdentity,definition.Manifest);
+            RetainedSideSchedule plan;
+            if(prepared is null||!prepared.TryGetValue(key,out plan!))
+            {
+                plan=new(side,definition);
+                prepared?.Add(key,plan);
+            }
+            return side with{RetainedSchedule=definition,RetainedPlan=plan};
         });
         if(instrument is PpaInstrument agreement)RetainedSideSchedule.RequireSiblingRoots(agreement,retained);
         SidedInstrument result=instrument with{Sides=[..instrument.Sides.Select(m=>m with{Side=retained[m.Side.Id]})]};
@@ -65,6 +84,7 @@ internal sealed partial class RetainedSideSchedule
     private readonly Dictionary<CurveRequest,(FloatingSidePeriod period,SwapProjection projection,int n)[]> projectionCandidates=[];
     private readonly HashSet<int> activeQuantityRows=[];
     internal IReadOnlyList<RetainedNativeRow> NativeRows { get; }
+    internal IEnumerable<RetainedNativePrice> PriceReferences=>nativeTemplates.SelectMany(row=>row.Prices).Distinct();
     private ImmutableArray<RetainedNativeRow> nativeTemplates=[];
     private ImmutableArray<NativeBlock> nativeBlocks=[];
     internal PpaSideTerms? NativeTerms { get; }

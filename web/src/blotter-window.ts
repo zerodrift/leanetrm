@@ -1,3 +1,4 @@
+import {streamBlotter} from './blotter-stream.js';
 // The Blotter in a window of its own (docs/blotter-workbench.md, Pop-out Blotter), tied to the main window that opened it. It takes the view
 // the main window hands over and the market selection its header makes, and reads every value itself through the API under the session
 // both windows share: it verifies on each read that the account and workspace are still the ones the main window named, and stops showing
@@ -40,14 +41,17 @@ const knowledge=()=>navigation?.live?'live' as const:applied?.knowledgeMode==='r
 function notice(message:string){const shown=$('notice');text('notice',withNotice(shown.hidden?'':shown.textContent??'',publicText(message)));shown.hidden=false;}
 function failed(error:unknown){text('error',error instanceof Error?error.message:'Something went wrong in this window.');$('error').hidden=false;text('status','Please check the message above.');}
 
-async function transport<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
+async function responseFor(path:string,body?:unknown,signal?:AbortSignal):Promise<Response>{
   let response:Response;
   try{response=await fetch(apiRoot+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},
     body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000)});}
   catch{throw Object.assign(Error(body!==undefined?'We could not confirm the result. Check the Blotter before trying again.':'This window could not connect.'),{code:'response_unknown'});}
   if(response.status===401){end('Signed out · sign in again in the main window');throw Object.assign(Error('Sign in to continue.'),{code:'sign_in_required'});}
   if(!response.ok)throw await apiRefusal(path,response,hosted);
-  return response.json() as Promise<T>;
+  return response;
+}
+async function transport<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
+  return (await responseFor(path,body,signal)).json() as Promise<T>;
 }
 // Every read is followed by a check of the account: an action's at its end, and one made in the background, as a risk job's timer makes, at once.
 async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
@@ -110,7 +114,7 @@ function apply(context:BlotterContext,next:MarketNavigation){applied=context;nav
 // PPA and physical gas trades are entered and inspected in the main window, whose editors this window does not host.
 const mainWindowTickets:ProductTickets={async open(product){throw Error(`${product==='ppa'?'PPA':'Physical gas'} trades are entered and inspected in the main window.`);},
   detach:()=>undefined,active:()=>undefined,unsaved:()=>false,pending:()=>[],sync:()=>undefined};
-const futures=setupFutures({window:{kind:'popout',close:()=>bringBack(),example:tied?.example},api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>scope,knowledge,
+const futures=setupFutures({window:{kind:'popout',close:()=>bringBack(),example:tied?.example},api,stream:async(body,handlers,signal)=>{await streamBlotter(responseFor,body,handlers,signal);if(!busy)checkAccount();},act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>scope,knowledge,
   narrow:()=>main.clientWidth<dockedGroupsFrom,canRunRisk:()=>can('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty:false,view:knowledge(),canBook:can('BookTrade')}),
   onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),failed,failureCleared:()=>{$('error').hidden=true;},notice,
   definitionRevision:()=>{if(!navigation)throw Error('The market navigation is still loading.');return navigation.definitionRevision.revisionId;},

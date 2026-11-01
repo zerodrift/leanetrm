@@ -54,7 +54,7 @@ public sealed partial class SwapStore
         if(missingPrice)
         {
             var draft=new PreparedDraft(data,frame,instrument,entered,quantity,discount,null);
-            var connected=await ConnectedDraft(connection,draft,data.Snapshot(frame),ct);
+            var connected=await ConnectedDraft(connection,draft,data.Snapshot(frame),CustomCurves.MarketPreparation.ValuationDependencies,ct);
             par=FinancialSwapValuation.ParRate(instrument,connected.Valuation,connected.Bindings,connected.Authority,discount,new AmountFormat(body.ParRatePolicy!.DecimalPlaces,CashTieRule.ToEven,false,true),ct);
             instrument=Resolve(data,terms with{Fixed=terms.Fixed! with{Price=par.Price.Value.ToString()}}).Instrument;
         }
@@ -63,7 +63,7 @@ public sealed partial class SwapStore
     public async Task<object> PriceDraft(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapDraftRequest body,CancellationToken ct)
     {
         var draft=await PrepareDraft(connection,data,frame,body,ct,resolvePar:true);var snapshot=draft.Data.Snapshot(draft.Frame);
-        var connected=await ConnectedDraft(connection,draft,snapshot,ct);
+        var connected=await ConnectedDraft(connection,draft,snapshot,CustomCurves.MarketPreparation.ValuationDependencies,ct);
         var value=FinancialSwapValuation.Evaluate(draft.Instrument,connected.Valuation,connected.Bindings,connected.Authority,draft.Discount,ct);
         return new{unbooked=true,measure="present_value",enteredQuantity=draft.Entered,quantity=draft.Quantity,parRate=draft.ParRate,resolvedFixedPrice=draft.Instrument.First is FixedSide{Price:FlatPrice fixedPrice}?fixedPrice.Price.Value.ToString():null,
             currency=draft.Data.References["currencies"].Single(c=>c.Text("code")==draft.Instrument.Currency.Code).Text("display_code"),conversion=UnitConverter.Implementation,valuation=DraftValue(value,draft.Quantity),numericalPolicy=DealRisk.NumericalPolicy,bumpPolicy=DealRisk.BumpPolicy};
@@ -71,7 +71,7 @@ public sealed partial class SwapStore
     public async Task<object> RiskDraft(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapDraftRiskRequest body,CancellationToken ct)
     {
         var draft=await PrepareDraft(connection,data,frame,body.Draft,ct);var snapshot=draft.Data.Snapshot(draft.Frame);
-        var connected=await ConnectedDraft(connection,draft,snapshot,ct);
+        var connected=await ConnectedDraft(connection,draft,snapshot,CustomCurves.MarketPreparation.ScenarioUniverse,ct);
         if(body.BumpPolicy!=DealRisk.BumpPolicy||body.NumericalPolicy!=DealRisk.NumericalPolicy)
             throw Error("risk_policy","Select the explicit quote-tick symmetric exact deal repricing policy.");
         var instrument=draft.Instrument;
@@ -88,11 +88,11 @@ public sealed partial class SwapStore
             new(prepared.Factors[n].Input,prepared.Factors[n].Quote,f.Bump.Unit,f.Bump.Size,QuoteBump.Convention),f.Totals.Single().Values)).ToImmutableArray(),result.Work.ScenarioCount);
         return DraftRisk.Result(draft.Data,connectedRun,"present_value",ProjectionPolicyReceipts.For(draft.Instrument));
     }
-    private async Task<CustomCurves.PreparedMarket> ConnectedDraft(NpgsqlConnection connection,PreparedDraft draft,MarketSnapshot snapshot,CancellationToken ct)
+    private async Task<CustomCurves.PreparedMarket> ConnectedDraft(NpgsqlConnection connection,PreparedDraft draft,MarketSnapshot snapshot,CustomCurves.MarketPreparation purpose,CancellationToken ct)
     {
         var dependencies=draft.Instrument.DependenciesAt(snapshot);
         if(draft.Frame.ContextId is not {} contextId)throw Error("swap_context","Connected draft pricing requires a retained financial context.");
         var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
-        return await CustomCurves.PrepareMarket(connection,database,draft.Data,draft.Frame,snapshot,context,[draft.Instrument],dependencies,ct);
+        return await CustomCurves.PrepareMarket(connection,database,draft.Data,draft.Frame,snapshot,context,[draft.Instrument],dependencies,purpose,ct);
     }
 }

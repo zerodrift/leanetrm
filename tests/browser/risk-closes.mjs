@@ -1,3 +1,4 @@
+import {setupWorkspaceProbe} from './workspace-probe.mjs';
 // A run's results are drawn only against the read of the close, context and books they were run at (D222). In a historical view every
 // close of one date shares the view's market context, so a run made at one of the date's closes, chosen from the job history at another,
 // is made elsewhere. A part the job history no longer lists is said to be missing from it, and what it might move is not known.
@@ -11,9 +12,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     return response.ok?(await response.json()).at:null;})()`);
   await persona('risk');
   // Every risk read, and the job history read without a part when a check asks for it; installed again after each switch of user.
-  await evaluate(`(()=>{const send=window.fetch;window.__riskReads=[];window.__riskJobs=[];window.fetch=async(input,init)=>{const path=String(input);if(path==='/api/portfolio/risk/jobs'&&init?.method==='POST')window.__riskJobs.push(JSON.parse(init.body));
+  await setupWorkspaceProbe(evaluate);
+ await evaluate(`(()=>{const send=window.fetch;window.__riskReads=[];window.__riskJobs=[];window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{const path=String(input);if(path==='/api/portfolio/risk/jobs'&&init?.method==='POST')window.__riskJobs.push(JSON.parse(init.body));
     let response=await send(input,init);if(path==='/api/portfolio/risk/jobs'&&(init?.method??'GET')==='GET'&&window.__dropFromHistory&&response.ok){const jobs=await response.json();response=new Response(JSON.stringify(jobs.filter(j=>j.id!==window.__dropFromHistory)),{status:200,headers:{'Content-Type':'application/json'}});}
-    try{window.__riskReads.push({path,data:await response.clone().json()});}catch{}return response;};})()`);
+    try{window.__riskReads.push({path,data:await response.clone().json()});}catch{}return response;});})()`);
   await set('#date-context-on','2020-12-18');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
   await wait("document.querySelector('#workspace-mode-label').textContent.startsWith('Historical view')&&"+idle);
   const closes=await evaluate("[...document.querySelector('#snapshot').options].filter(o=>o.value&&o.textContent.startsWith('Dec 18, 2020')).map(o=>o.value)");

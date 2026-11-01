@@ -1,3 +1,4 @@
+import {workspaceProbeScript} from './workspace-probe.mjs';
 import {newTrade,closeNewTrade} from './new-trade.mjs';
 import {bookedTicket,gasTicket,q} from './gas-ticket.mjs';
 import {copyFile,mkdtemp} from 'node:fs/promises';
@@ -10,7 +11,7 @@ export async function run(a){
  const capture=async name=>{await shot(name);await copyFile(join(dirname(process.argv[2]),name+'.png'),join(artifacts,name+'.png'));};
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('trader');
- await evaluate(`{const original=window.fetch;window.tradeReads=[];window.fetch=async(...args)=>{const r=await original(...args);if(String(args[0]).endsWith('/trading/workspace')&&r.ok)window.tradeReads.push(await r.clone().json());return r;};}`);
+ await evaluate(workspaceProbeScript+`{const original=window.fetch;window.tradeReads=[];window.fetch=window.__workspaceProbe(original,async(input,init,original)=>{const args=[input,init];const r=await original(...args);if(String(args[0]).endsWith('/trading/workspace')&&r.ok)window.tradeReads.push(await r.clone().json());return r;});}`);
  const frame=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()`);
  await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
  await check('one blotter includes futures, financial swaps, heat rates, PPAs and physical gas',`['future','financial_swap','heat_rate','ppa','physical_gas'].every(t=>window.tradeReads.at(-1)?.blotter.holdings.some(h=>h.instrumentType===t))`,`({types:window.tradeReads.at(-1)?.blotter.holdings.map(h=>h.instrumentType),error:document.querySelector('#error').textContent})`);

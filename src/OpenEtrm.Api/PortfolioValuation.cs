@@ -169,7 +169,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 var source=block[0];var portfolio=SwapPortfolio(block);
                 var dependencies=portfolio.Declare(source.Snapshot).SelectMany(contract=>contract.Dependencies).Distinct().ToImmutableArray();
                 var connected=await CustomCurves.PrepareMarket(connection,database,source.Data,source.Frame,source.Snapshot,exact,
-                    portfolio.Instruments,dependencies,ct,activePrices:SwapPrices(block),sourceHistories:operation.Histories);
+                    portfolio.Instruments,dependencies,CustomCurves.MarketPreparation.ValuationDependencies,ct,activePrices:SwapPrices(block),sourceHistories:operation.Histories);
                 var prepared=RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,[portfolio],connected.Authority,ct);
                 _=RiskEngine.CalculateExact(prepared,[],RiskEngine.ExactNumericalPolicy,ct,RiskDetail.Books);
             }
@@ -290,7 +290,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             var activePrices=SwapPrices(swaps.Where(holding=>holding.Snapshot.Definitions==first.Snapshot.Definitions))
                 .AddRange(crude.Where(market=>market.Snapshot.Definitions==first.Snapshot.Definitions).SelectMany(market=>market.ActivePrices))
                 .Distinct().ToImmutableArray();
-            var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,ct,retained,activePrices,operation?.Histories);
+            var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,CustomCurves.MarketPreparation.ScenarioUniverse,ct,retained,activePrices,operation?.Histories);
             markets.Add(new(first.Data,first.Frame,first.Snapshot,
                 RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,portfolios,connected.Authority,ct),
                 group.Select(m=>m.Measure).ToImmutableArray(),connected.Evidence,connected.Preparation));

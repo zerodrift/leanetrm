@@ -15,6 +15,7 @@ def run_checks(client, context, view, expected, query, psql, environment, owned_
     first=client.call('trading/positions',request)
     assert first['total']==len(expected) and len(first['positions'])==1 and first['nextOffset']==1,first
     pinned={**context,'knowledgeMode':'retained','contextId':first['context']['contextId']}
+    check_exact_position_curves(client,pinned,query)
     directory=client.call('trading/directory',context,timeout=2)
     assert directory['kind']=='directory' and directory['canBook'] is True and directory['books'],directory
     assert directory['legalEntities'] and directory['counterparties'] and directory['bookingActor'],directory
@@ -197,3 +198,44 @@ def _publication_authority(client,context,view,query,psql,environment,root):
                     f"DELETE FROM security.roles WHERE id='{temporary_role}';"
                     f"INSERT INTO security.role_permissions VALUES('{role}','{permission}');COMMIT;")
     print('PASS progressive publication: completed valuations refuse after ReadTrades or source-market authority expires during the final session-gate wait',flush=True)
+
+
+def check_exact_position_curves(client, context, query):
+    request=dict(context=context,bookIds=[],portfolioIds=[],offset=0,limit=64)
+    expected=client.call('trading/positions',request)
+    unused=query("""SELECT c.code FROM market_data.curves c
+      WHERE NOT EXISTS(SELECT 1 FROM trading.swap_floating_sides s WHERE
+       (s.catalog_id,s.definition_revision_id,s.curve_code)=(c.catalog_id,c.revision_id,c.code))
+      AND NOT EXISTS(SELECT 1 FROM trading.swap_side_periods s WHERE
+       (s.catalog_id,s.definition_revision_id,s.curve_code)=(c.catalog_id,c.revision_id,c.code))
+      AND NOT EXISTS(SELECT 1 FROM trading.futures_revision_markets m WHERE
+       (m.catalog_id,m.definition_revision_id,m.curve_code)=(c.catalog_id,c.revision_id,c.code))
+      ORDER BY c.code LIMIT 1;""")
+    assert unused, 'The synthetic position fixture needs an unrelated curve.'
+    literal="'"+unused.replace("'","''")+"'"
+    query("""CREATE FUNCTION public.synthetic_position_curve_guard(code text) RETURNS boolean
+      LANGUAGE plpgsql VOLATILE AS $$BEGIN
+      IF code="""+literal+""" THEN RAISE EXCEPTION 'Unrelated position curve inspected' USING ERRCODE='42501';END IF;
+      RETURN true;END$$;
+      CREATE POLICY synthetic_position_curve_guard ON market_data.curves AS RESTRICTIVE
+      FOR SELECT TO openetrm_runtime USING(public.synthetic_position_curve_guard(code));""")
+    try:
+        assert client.call('trading/positions',request)==expected
+        print('PASS position metadata reads only the exact curves its retained sides name',flush=True)
+    finally:
+        query('DROP POLICY synthetic_position_curve_guard ON market_data.curves;DROP FUNCTION public.synthetic_position_curve_guard(text);')
+    selected=query("""SELECT json_build_array(s.catalog_id,s.definition_revision_id,s.curve_code)::text
+      FROM trading.swap_floating_sides s
+      JOIN trading.swap_instruments i ON(i.catalog_id,i.floating_side_id)=(s.catalog_id,s.id)
+      JOIN trading.swap_trade_revisions r ON(r.catalog_id,r.instrument_id)=(i.catalog_id,i.instrument_id)
+      ORDER BY r.trade_id LIMIT 1;""")
+    catalog,revision,code=json.loads(selected)
+    from uuid import UUID
+    predicate="(catalog_id,revision_id,code)=('"+str(UUID(catalog))+"'::uuid,'"+str(UUID(revision))+"'::uuid,'"+code.replace("'","''")+"')"
+    query('CREATE POLICY synthetic_position_curve_missing ON market_data.curves AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(NOT('+predicate+'));')
+    try:
+        assert client.call('trading/positions',request,expected=422)['code']=='position_facts'
+        print('PASS position metadata refuses a hidden exact curve without substituting another',flush=True)
+    finally:
+        query('DROP POLICY synthetic_position_curve_missing ON market_data.curves;')
+    assert client.call('trading/positions',request)==expected

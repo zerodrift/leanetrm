@@ -91,11 +91,15 @@ def main():
     parser.add_argument('--identity-check', action='store_true', help='Run economic-key integration checks in the owned standard fixture, then clean up')
     parser.add_argument('--provider-adapters-check',action='store_true',help='Qualify additional provider routing and billing through HTTP Test in an owned fixture')
     parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider, model and price administration in an owned fixture')
+    parser.add_argument('--blotter-loading-check',action='store_true',help='Run owned Blotter progress, cancellation and admission browser checks')
     parser.add_argument('--markets-desk-check',action='store_true',help='Run market and delivery desk browser checks in the owned standard fixture')
     parser.add_argument('--browser-check',action='store_true',help='Run checked-in browser scenarios in the newly owned standard fixture')
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.blotter_loading_check:
+        args.check=True
+        args.browser_check=True
     if args.markets_desk_check:
         if any(value for name,value in vars(args).items() if name.endswith(('_check','_benchmark')) and name not in ('markets_desk_check','browser_check')):
             parser.error('--markets-desk-check runs alone; omit other named checks and benchmarks')
@@ -1065,7 +1069,7 @@ def main():
                     risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
-                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),*(['--markets-desk'] if args.markets_desk_check else [])],cwd=ROOT,env=env,start_new_session=True)
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),*(['--blotter-loading'] if args.blotter_loading_check else ['--markets-desk'] if args.markets_desk_check else [])],cwd=ROOT,env=env,start_new_session=True)
                     # The desk's and the Blotter workbench's scenarios run in this suite; a CI runner needs about a quarter of an hour for them.
                     if browser_process.wait(timeout=1500):
                         raise RuntimeError('Owned browser checks failed')
@@ -1117,6 +1121,10 @@ def main():
                 print('PASS sixteen synthetic swap examples seed idempotently across all four weekdays',flush=True)
                 from check_seeded_preview import run_swap_book_checks
                 run_swap_book_checks(session,seeded)
+                from check_swap_projection_reads import run_checks as check_swap_projection_reads
+                check_swap_projection_reads(session,query,manifest)
+                from check_blotter_swap_scope import run_checks as check_blotter_swap_scope
+                check_blotter_swap_scope(session,query,manifest,seeded[0]['tradeId'])
             if args.scheduled_swap_check:
                 from check_whole_term_swap_schema import run_storage_checks as check_whole_term_swap_storage, check_rebooking_guard
                 from check_pre_retention_storage import swaps as check_whole_term_swap_admission

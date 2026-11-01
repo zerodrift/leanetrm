@@ -76,6 +76,36 @@ internal static class RetainedScheduleChecks
         var instrument=ppaFixture.Physical();
         var definitions=instrument.Sides.ToDictionary(m=>m.Side.Id,m=>ScheduleDefinitionCompiler.Generate(m.Side));
         var retained=RetainedSideSchedules.Attach(instrument,definitions);
+        var scope=new RetainedSideSchedules.ReadScope();var firstAttached=scope.Attach(instrument,definitions);
+        var originalPayment=(FixedSide)instrument.Memberships[1].Side;
+        var otherPayment=new FixedSide(Guid.NewGuid(),originalPayment.Terms,new FlatPrice(new(ExactDecimal.Parse("42"),ppaFixture.EnergyPrice)));
+        var otherInstrument=new PpaInstrument(Guid.NewGuid(),ppaFixture.Definitions,ppaFixture.Reference,
+            instrument.Memberships.SetItem(1,instrument.Memberships[1] with{Side=otherPayment}),false,PpaInstrument.Implementation);
+        var otherDefinitions=definitions.Where(pair=>pair.Key!=originalPayment.Id).ToDictionary(pair=>pair.Key,pair=>pair.Value);
+        otherDefinitions.Add(otherPayment.Id,ScheduleDefinitionCompiler.Generate(otherPayment));
+        var secondAttached=scope.Attach(otherInstrument,otherDefinitions);
+        if(!ReferenceEquals(firstAttached.Memberships[0].Side.RetainedPlan,secondAttached.Memberships[0].Side.RetainedPlan))
+            throw new Exception("Two instruments sharing one exact retained side must reuse its admitted static schedule within the read.");
+        if(ReferenceEquals(firstAttached.Memberships[1].Side.RetainedPlan,secondAttached.Memberships[1].Side.RetainedPlan))
+            throw new Exception("Distinct contractual payment schedules must retain independent admitted definitions.");
+
+        long AttachAllocations(bool reuse)
+        {
+            var before=GC.GetAllocatedBytesForCurrentThread();
+            for(var n=0;n<8;n++)_ = reuse?scope.Attach(instrument,definitions):RetainedSideSchedules.Attach(instrument,definitions);
+            return GC.GetAllocatedBytesForCurrentThread()-before;
+        }
+        AttachAllocations(false);AttachAllocations(true);
+        var independentBytes=AttachAllocations(false);var sharedBytes=AttachAllocations(true);
+        Console.WriteLine($"Retained side allocation: eight two-side attachments; independent {independentBytes} bytes; shared {sharedBytes} bytes.");
+        if(sharedBytes>independentBytes*0.75)throw new Exception("Repeated exact retained sides must avoid static schedule admission allocation within the read.");
+        var physicalPlan=firstAttached.Memberships[0].Side.RetainedPlan!;
+        var expectedPrices=physicalPlan.NativeRows.SelectMany(row=>row.Prices).Distinct().ToArray();
+        _=physicalPlan.PriceReferences.ToArray();
+        var allocatedBefore=GC.GetAllocatedBytesForCurrentThread();var references=physicalPlan.PriceReferences.ToArray();
+        var referenceBytes=GC.GetAllocatedBytesForCurrentThread()-allocatedBefore;
+        if(!references.SequenceEqual(expectedPrices))throw new Exception("Static retained price discovery must preserve every exact template reference.");
+        if(referenceBytes>4096)throw new Exception($"Reading one month of static price references must not materialize every hourly obligation; allocated {referenceBytes} bytes.");
         var payment=definitions[instrument.Memberships[1].Side.Id];var changed=payment.Rows.ToArray();
         var missingSlot=payment.Ports[0] with{Slot=null};
         Reject(()=>new ScheduleDefinition(payment.SideId,payment.Family,payment.EconomicIdentity,payment.PricingBindingIdentity,
@@ -85,7 +115,20 @@ internal static class RetainedScheduleChecks
         var revised=new ScheduleDefinition(payment.SideId,payment.Family,payment.EconomicIdentity,payment.PricingBindingIdentity,
             payment.SchemaVersion,payment.GeneratorVersion,changed,payment.Edges,payment.Bindings,payment.Roots,payment.Ports,payment.Grids);
         var alternative=RetainedSideSchedules.Attach(instrument,definitions.ToDictionary(p=>p.Key,p=>p.Key==payment.SideId?revised:p.Value));
+        var changedAttached=scope.Attach(instrument,definitions.ToDictionary(p=>p.Key,p=>p.Key==payment.SideId?revised:p.Value));
+        if(ReferenceEquals(firstAttached.Memberships[1].Side.RetainedPlan,changedAttached.Memberships[1].Side.RetainedPlan))
+            throw new Exception("An identical side UUID and economic identity cannot borrow a different retained content manifest.");
+
         var market=ppaFixture.Market(ppaFixture.From.AddDays(-1));var inputs=ppaFixture.Prepare(market,[retained]);
+        var sharedInputs=ppaFixture.Prepare(market,[firstAttached,secondAttached]);
+        var freshOther=RetainedSideSchedules.Attach(otherInstrument,otherDefinitions);
+        var freshInputs=ppaFixture.Prepare(market,[retained,freshOther]);
+        var discount=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
+        foreach(var pair in new[]{(Shared:firstAttached,Fresh:retained),(Shared:secondAttached,Fresh:freshOther)})
+            if(sharedInputs.Session(market.Build).Value(pair.Shared,new(ppaFixture.From,ppaFixture.To),discount).PresentValue!=
+                freshInputs.Session(market.Build).Value(pair.Fresh,new(ppaFixture.From,ppaFixture.To),discount).PresentValue)
+                throw new Exception("Shared static side admission must preserve each instrument's exact independent value.");
+
         try
         {
             inputs.Session(market.Build).Value(alternative,new(ppaFixture.From,ppaFixture.To),

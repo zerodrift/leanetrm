@@ -176,7 +176,8 @@ internal sealed class TradePositionFacts(PreviewManifest manifest)
            )p LEFT JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(p.reference_catalog_id,p.reference_revision_id,p.quote_code)
            LEFT JOIN ref_data.quantity_specifications n ON(n.catalog_id,n.revision_id,n.code)=(q.catalog_id,q.revision_id,q.quantity_code)
            LEFT JOIN ref_data.units u ON(u.catalog_id,u.revision_id,u.code)=(n.catalog_id,n.revision_id,n.unit_code)
-           LEFT JOIN market_data.curves c ON(c.catalog_id,c.revision_id,c.code)=(i.catalog_id,p.definition_revision_id,p.curve_code)
+           LEFT JOIN LATERAL(SELECT c.name FROM market_data.curves c
+            WHERE(c.catalog_id,c.revision_id,c.code)=(i.catalog_id,p.definition_revision_id,p.curve_code) OFFSET 0)c ON true
           )metadata
          )periods ON true WHERE r.book_id=ANY($2::uuid[]))f
         """,[manifest.CatalogId,books],ct);

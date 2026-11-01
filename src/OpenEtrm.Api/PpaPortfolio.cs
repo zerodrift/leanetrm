@@ -74,6 +74,7 @@ internal static class PpaPortfolio
         if(admission is null)RequirePreparationWork(rows,terms);
         var tou=await PpaReads.Tou(connection,data,frame,context.ContextId!.Value,terms.Values,ct);
         var instruments=new Dictionary<Guid,PpaInstrument>();
+        var retainedSides=new RetainedSideSchedules.ReadScope();
         retained??=new RetainedScheduleStore(data.DefinitionRevision.CatalogId);
         async Task ReadInstrument(Guid id)
         {
@@ -85,7 +86,7 @@ internal static class PpaPortfolio
                 if(admission is not null)RequirePreparationWork(rows.Where(r=>r.Id("instrument_id")==id),terms);
                 var instrument=PpaCompiler.Compile(data,terms[id],tou,await PpaCompiler.ReadQuantityTypes(connection,data,terms[id],ct),id,
                     envelope.GetProperty("sideIds").EnumerateArray().ToDictionary(s=>new SideSlot(PpaCompiler.Role(s.Text("role")),s.GetProperty("ordinal").GetInt32()),s=>s.Id("sideId")));
-                instrument=RetainedSideSchedules.Attach(instrument,schedules);
+                instrument=retainedSides.Attach(instrument,schedules);
                 await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);instruments.Add(id,instrument);
             }
             catch(MarketDataException error)when(admission is null||!PpaBlotterAdmission.NeedsRebooking(error.Code))
