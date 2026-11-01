@@ -36,7 +36,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     check('independent settlement specification', [sys.executable, '-m', 'unittest', 'discover', '-s', 'specs/settlement', '-v'])
     check('standalone dependencies', [sys.executable, 'tools/check_standalone.py'])
     check('owned process cleanup', [sys.executable, 'tools/check_owned_process.py'])
-    check('owned browser readiness', ['node', '--test', 'tests/browser/owned-browser.test.mjs'])
+    check('owned browser readiness', ['node', '--test', 'tests/browser/owned-browser.test.mjs', 'tests/browser/gas-ticket.test.mjs'])
     check('locked frontend install', ['npm', 'ci', '--prefix', 'web', '--ignore-scripts'])
     check('frontend build and checks', ['npm', 'test', '--prefix', 'web'])
     for project, _ in CHECK_PROJECTS:
