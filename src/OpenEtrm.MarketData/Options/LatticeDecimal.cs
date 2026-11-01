@@ -21,7 +21,8 @@ public readonly partial record struct LatticeDecimal : IComparable<LatticeDecima
     // ln 2 at 10^-70, from 2*atanh(1/3); private to the guard-digit computations.
     private static readonly BigInteger Ln2Fine = 2 * AtanhSeries(BigInteger.Pow(10, 70) / 3, BigInteger.Pow(10, 70));
     private static readonly BigInteger Ln2Wide = Ln2Fine / BigInteger.Pow(10, 10);
-    // exp(x) overflows 10^24 above this, and rounds to zero below -(this + 14).
+    // exp(x) reaches 10^24 above ExpMaximum; exp(x) rounds to zero below about -69.77,
+    // so -70 is a safe cutoff.
     private static readonly LatticeDecimal ExpMaximum = Parse("55.262");
     private static readonly LatticeDecimal ExpMinimum = Parse("-70");
     private readonly BigInteger scaled;
@@ -56,8 +57,9 @@ public readonly partial record struct LatticeDecimal : IComparable<LatticeDecima
     public static LatticeDecimal operator *(LatticeDecimal a, LatticeDecimal b) => new(Round(a.scaled * b.scaled, Scale));
     public static LatticeDecimal operator /(LatticeDecimal a, LatticeDecimal b)
     {
-        if (b.scaled.IsZero) throw new MarketDataException("lattice_domain", "A divisor cannot be zero.");
-        return new(Round(a.scaled * Scale, b.scaled));
+        if (b.scaled.IsZero) throw new MarketDataException("numeric_division", "A divisor cannot be zero.");
+        // RoundQuotient needs a positive divisor, so carry the divisor's sign on the numerator.
+        return new(Round(a.scaled * Scale * b.scaled.Sign, BigInteger.Abs(b.scaled)));
     }
 
     public int CompareTo(LatticeDecimal other) => scaled.CompareTo(other.scaled);
@@ -103,7 +105,9 @@ public readonly partial record struct LatticeDecimal : IComparable<LatticeDecima
 
     // ln x = j*ln2 + ln m with m = x/2^j in [0.75, 1.5), and ln m = 2*atanh((m-1)/(m+1))
     // with |z| <= 0.2. Each series term shrinks by z^2 <= 0.04, so 45 terms reach 10^-60;
-    // the series is bounded at 80 terms. Absolute error is below 10^-57.
+    // AtanhSeries is bounded at 119 terms. Each normalization loop below runs at most
+    // twice, because the starting j (from bit lengths) is within one of the final j.
+    // Absolute error is below 10^-57.
     public LatticeDecimal Ln()
     {
         if (scaled.Sign <= 0)

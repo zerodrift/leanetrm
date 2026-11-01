@@ -35,12 +35,16 @@ internal static class FuturesOptionChecks
     {
         Reject("lattice_domain", () => _ = LatticeDecimal.Parse("0").Ln());
         Reject("lattice_domain", () => _ = LatticeDecimal.Parse("-1").Sqrt());
-        Reject("lattice_domain", () => _ = LatticeDecimal.Parse("1") / LatticeDecimal.Parse("0"));
+        Reject("numeric_division", () => _ = LatticeDecimal.Parse("1") / LatticeDecimal.Parse("0"));
         Reject("lattice_domain", () => _ = LatticeDecimal.Parse("2").Pow(-1));
         Reject("numeric_range", () => _ = LatticeDecimal.Parse("100").Exp());
         Reject("numeric_range", () => _ = LatticeDecimal.Parse("1000000000000").Pow(2));
         Reject("numeric_format", () => _ = LatticeDecimal.Parse("1e5"));
         Equal(LatticeDecimal.Parse("-100").Exp().ToString(), "0");
+        Equal(LatticeDecimal.Parse("-69.8").Exp().ToString(), "0");
+        Equal(LatticeDecimal.Parse("-69.7").Exp().ToString(), "0.000000000000000000000000000001");
+        Equal(LatticeDecimal.Parse("55.262").Exp().ToString(), "999957769034655906977865.831864378161854660006721349750");
+        Equal(LatticeDecimal.Parse("0").Sqrt().ToString(), "0");
     }
 
     private static void LatticeExactConversion()
@@ -66,6 +70,13 @@ internal static class FuturesOptionChecks
         Equal(LatticeDecimal.Parse("7").Pow(0).ToString(), "1");
         Equal(LatticeDecimal.Max(LatticeDecimal.Parse("-1"), LatticeDecimal.Parse("0.5")).ToString(), "0.5");
         Equal((LatticeDecimal.Parse("1") - LatticeDecimal.Parse("1.5")).ToString(), "-0.5");
+        Equal((LatticeDecimal.Parse("1") / LatticeDecimal.Parse("-2")).ToString(), "-0.5");
+        Equal((LatticeDecimal.Parse("-1") / LatticeDecimal.Parse("-3")).ToString(), "0.333333333333333333333333333333");
+        Equal((LatticeDecimal.Parse("1") / LatticeDecimal.Parse("-3")).ToString(), "-0.333333333333333333333333333333");
+        // 0.000...001 / -2 = -0.5 ulp ties to even (0); 0.000...003 / -2 = -1.5 ulp ties to even (-2).
+        Equal((tiny / LatticeDecimal.Parse("-2")).ToString(), "0");
+        Equal((LatticeDecimal.Parse("0.000000000000000000000000000003") / LatticeDecimal.Parse("-2")).ToString(), "-0.000000000000000000000000000002");
+        Equal((LatticeDecimal.Parse("0") / LatticeDecimal.Parse("-2")).ToString(), "0");
     }
 
     private static void Check(string label, Action run) { run(); Console.WriteLine($"PASS {label}"); }
