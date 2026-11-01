@@ -6,7 +6,7 @@ import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join,resolve,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {waitForBrowserPage,stopOwnedBrowser} from '../../tests/browser/owned-browser.mjs';
+import {waitForBrowserPage,stopOwnedBrowserGroup} from '../../tests/browser/owned-browser.mjs';
 
 const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const available=await access(browser).then(()=>true,()=>false);
@@ -21,7 +21,7 @@ test('assistant authorization and page prompts require explicit human controls',
   });
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   const directory=await mkdtemp(join(tmpdir(),'openetrm-assistant-ui-'));
-  const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore'});
+  const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore',detached:true});
   let ws;
   try{
     ws=new WebSocket(await waitForBrowserPage(directory,chrome));await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
@@ -58,5 +58,5 @@ test('assistant authorization and page prompts require explicit human controls',
     assert.equal(saves.length,2);assert.deepEqual(saves[0],saves[1]);assert.equal(saves[0].expectedVersion,3);assert.equal(saves[0].instructions,'Synthetic revised guidance.');
     const shot=await command('Page.captureScreenshot',{format:'png'});
     await writeFile(join(tmpdir(),'openetrm-assistant-prompts-qa.png'),Buffer.from(shot.result.data,'base64'));
-  }finally{ws?.close();await stopOwnedBrowser(chrome,directory);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
+  }finally{ws?.close();await stopOwnedBrowserGroup(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
 });
