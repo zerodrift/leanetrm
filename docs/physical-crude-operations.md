@@ -240,8 +240,9 @@ lot to collection, including lost allocation-response recovery, explicit title
 reconfirmation and survival of the operations panel when contractual valuation
 is unavailable. All quantity and cash figures come from the managed backend.
 
-A populated migration 0155-to-0156 qualification uses the previous application
-and schema to record receipts, dispatches, invoices, payments and corrections
+A populated upgrade qualification from migration 0155 to the inventory-sales
+schema uses the previous application and schema to record receipts, dispatches,
+invoices, payments and corrections
 before applying the additive migration. Every original operational row and
 command remains unchanged; original certified historical balances are preserved,
 and exact relationships are added for already recorded onward dispatches.
