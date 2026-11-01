@@ -43,7 +43,7 @@ internal static class FuturesOptionChecks
         Equal(LatticeDecimal.Parse("-100").Exp().ToString(), "0");
         Equal(LatticeDecimal.Parse("-69.8").Exp().ToString(), "0");
         Equal(LatticeDecimal.Parse("-69.7").Exp().ToString(), "0.000000000000000000000000000001");
-        Equal(LatticeDecimal.Parse("55.262").Exp().ToString(), "999957769034655906977865.831864378161854660006721349750");
+        Equal(LatticeDecimal.Parse("55.262").Exp().ToString(), "999957769034655906977865.83186437816185466000672134975");
         Equal(LatticeDecimal.Parse("0").Sqrt().ToString(), "0");
     }
 
