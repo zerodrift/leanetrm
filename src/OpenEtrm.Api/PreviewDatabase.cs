@@ -94,7 +94,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
         ("sources","code"), ("product_evidence","product_code,source_code,fact_group"), ("delivery_profiles","code"), ("settlement_targets","code"),
         ("futures_products","code"), ("futures_series","code"),
         ("futures_execution_policies","series_code,implementation"), ("futures_milestones","series_code,milestone"),
-        ("futures_lot_resolutions","series_code"), ("futures_product_terms","product_code"), ("futures_basis_settlements","series_code")];
+        ("futures_lot_resolutions","series_code"), ("futures_product_terms","product_code"), ("futures_basis_settlements","series_code"),
+        ("futures_option_rules","code"), ("futures_option_products","code"), ("trading_close_times","code"), ("futures_option_series","code")];
     public static readonly string[] ReferenceTables = [..ReferenceKeys.Select(r=>r.Table)];
     private static readonly (string Table,string Key)[] DefinitionTables = [("revisions","id"), ("contracts","id"), ("curves","code"), ("series","id"),
         ("curve_members","curve_code,contract_id"), ("curve_inputs","curve_code,slot"), ("constituent_mappings","curve_code,slot,target_contract_id"),
@@ -724,6 +725,7 @@ public sealed class PreviewData
     public ImmutableArray<MarketContract> Contracts { get; }
     public ImmutableArray<QuoteSpecification> Quotes { get; }
     public ImmutableArray<FuturesSeriesSpecification> FuturesSeries { get; }
+    public ImmutableArray<FuturesOptionSeriesSpecification> FuturesOptionSeries { get; }
     private readonly DefinitionRevision revision;
     public DefinitionRevision DefinitionRevision => revision;
     private readonly ReferenceRevision reference;
@@ -743,6 +745,7 @@ public sealed class PreviewData
             ("settlement_targets","code"),("price_index_definitions","code"),("futures_series","code"),("futures_products","code"),
             ("futures_milestones","series_code"),("futures_product_terms","product_code"),
             ("futures_lot_resolutions","series_code"),("futures_basis_settlements","series_code"),
+            ("futures_option_series","code"),("futures_option_products","code"),
             ("units","code"),("currencies","code"),("commodities","code"),("exchanges","code"),("sources","code"),("interest_rate_definitions","code"),
             ("delivery_profiles","code"),("clock_rules","code")]);
         definitionRows=IndexRows(Definitions,[("curves","code"),("curve_members","curve_code"),
@@ -789,6 +792,7 @@ public sealed class PreviewData
             {ConstituentExpiry=Definitions["curve_expiry_rules"].Where(r=>r.Text("curve_code")==code).Select(r=>r.Text("rule_version")).SingleOrDefault() switch
                 {null=>ConstituentExpiryRule.RequireLive,"freeze_final_settlement_v1"=>ConstituentExpiryRule.FreezeFinalSettlement,_=>throw Unsupported()}};
         }).ToImmutableArray();
+        var closes=new ConfiguredCloses(references);
         var futures=FuturesSeries=contracts.Where(c=>c.Kind==ContractKind.Future).Select(c=>
         {
             var series=Single(ReferenceRows("futures_series","code",c.FuturesSeries!.Value.Code));
@@ -805,10 +809,13 @@ public sealed class PreviewData
             var basis=ReferenceRows("futures_basis_settlements","series_code",series.Text("code")).SingleOrDefault();
             if(basis.ValueKind!=JsonValueKind.Undefined&&terms.OptionalText("index_code") is not null)throw new MarketDataException("futures_definition","A basis settlement index is retained once on the exact dated series.");
             FuturesBasisSettlement? basisSettlement=basis.ValueKind==JsonValueKind.Undefined?null:new(R(basis.Text("index_code")),R(basis.Text("benchmark_series_code")),basis.Text("implementation"));
+            var lastTrading=SchedulePreview.RequiredMilestoneInstant(expiry);
+            if(closes.Configured("last_trading",product.Text("code")))closes.Require("last_trading",product.Text("code"),Date(expiry.Text("business_date")),lastTrading);
             return new FuturesSeriesSpecification(c.FuturesSeries!.Value,Quantity(product.Text("quote_unit_code")),R(product.Text("quote_currency_code")),product.Number("quote_multiplier"),product.Number("outright_tick_size"),R(product.Text("location_code")),R(terms.Text("profile_code")),
-                DateOnly.ParseExact(series.Text("delivery_from"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),DateOnly.ParseExact(series.Text("delivery_to"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),SchedulePreview.RequiredMilestoneInstant(expiry),Quantity(product.Text("lot_unit_code")),product.Number("contract_size"),
+                DateOnly.ParseExact(series.Text("delivery_from"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),DateOnly.ParseExact(series.Text("delivery_to"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),lastTrading,Quantity(product.Text("lot_unit_code")),product.Number("contract_size"),
                 product.Text("lot_basis") switch {"fixed_total"=>LotBasis.FixedTotal,"per_delivery_day"=>LotBasis.PerDeliveryDay,"per_delivery_hour"=>LotBasis.PerDeliveryHour,_=>throw Unsupported()},first.OptionalText("event_at") is null?null:SchedulePreview.RequiredMilestoneInstant(first),product.Text("settlement_method"),resolved,basisSettlement);
         }).ToImmutableArray();
+        FuturesOptionSeries=[..contracts.Where(c=>c.Kind==ContractKind.FutureOption).Select(c=>OptionSeries(c,closes))];
         var valueSpecs=references["value_specifications"].Select(v=>new ValueSpecification(R(v.Text("code")),v.Text("kind") switch {"quantity_ratio"=>NumericKind.QuantityRatio,"dimensionless"=>NumericKind.Dimensionless,_=>throw Unsupported()},v.OptionalText("numerator_quantity_code") is {} a?R(a):null,v.OptionalText("denominator_quantity_code") is {} b?R(b):null,v.Number("minimum"),v.Number("maximum"))).ToImmutableArray();
         var seriesDefinitions=definitions["series"].Select(s=>new MarketSeries(S(s.Id("id")),s.OptionalId("contract_id") is {} id?K(id):null,s.OptionalText("quote_code") is {} q?R(q):null,s.OptionalText("value_specification_code") is {} v?R(v):null)).ToImmutableArray();
         Model=new(revision,reference,quantities,quotes,contracts,curves,futures,valueSpecs,seriesDefinitions,calculations);
@@ -859,6 +866,23 @@ public sealed class PreviewData
     // The kind of a stored market curve from its rule and direct role.
     public static string CurveKind(string rule,string? directRole)=>CurveKinds.Of(ParseRule(rule),directRole is null?null:ParseRole(directRole));
     public static ObservationRole ParseRole(string role) => role switch {"trader_mark"=>ObservationRole.TraderMark,"daily_settlement"=>ObservationRole.DailySettlement,"final_contract_settlement"=>ObservationRole.FinalContractSettlement,"parameter"=>ObservationRole.Parameter,"index_fixing"=>ObservationRole.IndexFixing,_=>throw Unsupported()};
+    // An option series' terms from its exact series and product rows; its expiry is the product's configured close on the
+    // series' expiry date, which the stored series and contract must both carry.
+    private FuturesOptionSeriesSpecification OptionSeries(MarketContract contract,ConfiguredCloses closes)
+    {
+        var series=Single(ReferenceRows("futures_option_series","code",contract.FuturesSeries!.Value.Code));
+        var product=Single(ReferenceRows("futures_option_products","code",series.Text("product_code")));
+        var quote=Single(QuoteRows(product.Text("quote_code")));
+        var expiry=closes.Require("option_expiry",product.Text("code"),Date(series.Text("last_trading_date")),series.Instant("expiry_at"));
+        if(contract.Expiry!=expiry)throw new MarketDataException("close_time_mismatch",$"Option contract {contract.Key.Id} does not expire at its series' configured close.");
+        var right=series.Text("option_right") switch{"call"=>OpenEtrm.MarketData.Options.OptionRight.Call,"put"=>OpenEtrm.MarketData.Options.OptionRight.Put,_=>throw Unsupported()};
+        return new(contract.FuturesSeries!.Value,R(product.Text("code")),R(series.Text("underlying_series_code")),
+            new(right,series.Number("strike"),expiry,product.Text("exercise_style"),product.Text("settlement_method")),
+            product.Number("multiplier"),quote.Currency,R(product.Text("lot_quantity_code")),quote.ClearingIncrement,
+            product.Text("automatic_exercise_rule_code"),product.GetProperty("contrary_instructions_allowed").GetBoolean(),
+            series.OptionalText("instruction_cutoff_at") is null?null:series.Instant("instruction_cutoff_at"),product.Text("premium_style"));
+    }
+    private static DateOnly Date(string value)=>DateOnly.ParseExact(value,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
     // A future names exactly its futures series and a futures option exactly its option series; a forward names neither.
     private MarketContract ListedContract(JsonElement c,DeliveryInterval? interval)
     {

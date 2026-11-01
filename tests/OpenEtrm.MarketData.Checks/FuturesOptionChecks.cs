@@ -518,7 +518,7 @@ internal static class FuturesOptionChecks
             var option = Options.Single(o => o.Contract == contract);
             return new(R(SeriesCode(contract)), R("on"), R("ng_jan41"),
                 new(option.Right, ExactDecimal.Parse(option.Strike), Expiry, "american", "exercise_into_future"),
-                Multiplier, R("usd"), R("on_contract"), ExactDecimal.Parse(Tick), "synthetic_auto_exercise_v1",
+                Multiplier, R("usd"), R("on_contract"), ExactDecimal.Parse(Tick), "synthetic_auto_exercise_v1", true,
                 Expiry.AddHours(-2), premiumStyle);
         }
         public FuturesOptionInstrument Option(int contract) => new(Series(contract));
@@ -786,6 +786,9 @@ internal static class FuturesOptionChecks
         }
         Reject("unsupported", () => new FuturesOptionInstrument(market.Series(13, "futures_style_margin")));
         Reject("option_definition", () => new FuturesOptionInstrument(market.Series(13) with { Multiplier = D("0") }));
+        // A product that accepts no contrary instructions has no instruction cutoff; a stated cutoff still precedes expiry.
+        _ = new FuturesOptionInstrument(market.Series(13) with { ContraryInstructionsAllowed = false, InstructionCutoffAt = null });
+        Reject("option_definition", () => new FuturesOptionInstrument(market.Series(13) with { InstructionCutoffAt = OptionMarket.Expiry.AddTicks(10) }));
         Reject("option_lots", () => OptionMarket.Holding(1, 1, market.Option(13), "1.5"));
         Reject("option_lots", () => OptionMarket.Holding(1, 1, market.Option(13), "0"));
         Reject("option_expired", () => market.Calculate(fallback, bumps, snapshot: market.Snapshot() with

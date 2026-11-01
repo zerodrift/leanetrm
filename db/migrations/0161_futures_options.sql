@@ -1,6 +1,6 @@
--- Listed options on exact futures series: sourced rule versions, option products and explicit option series.
--- A futures-option market contract names its exact option series and is executable only once that series' expiry
--- instant is known. Facts a public source does not state stay explicitly unknown.
+-- Listed options on exact futures series: sourced rule versions, option products, explicit option series and the
+-- configured local close-of-trading times from which last-trading and option-expiry instants are derived. A
+-- futures-option market contract names its exact option series. Facts a source does not state stay unknown.
 BEGIN;
 SELECT pg_advisory_xact_lock(730849102);
 SET LOCAL search_path=pg_catalog;
@@ -60,8 +60,57 @@ CREATE TABLE ref_data.futures_option_products (
   REFERENCES ref_data.futures_option_rules(catalog_id,revision_id,code,kind)
 );
 
--- One explicit option series; its exact key is the instrument identity. The expiry date is a sourced fact; the
--- expiry and exercise-instruction instants stay unknown (NULL) until a source states them.
+-- A product's configured local time of day for one milestone, on an explicit clock. Instants are derived from a
+-- sourced date and this setting; a product without one has no derived instant (close_time_setting_missing).
+CREATE TABLE ref_data.trading_close_times (
+ catalog_id uuid NOT NULL,revision_id uuid NOT NULL,code ref_data.code NOT NULL,
+ version integer NOT NULL CHECK(version>0),
+ milestone text NOT NULL CHECK(milestone IN('last_trading','option_expiry')),
+ futures_product_code ref_data.code,option_product_code ref_data.code,
+ local_time time NOT NULL,clock_code ref_data.code NOT NULL,source_code ref_data.code NOT NULL,
+ PRIMARY KEY(catalog_id,revision_id,code),
+ UNIQUE(catalog_id,revision_id,milestone,futures_product_code),UNIQUE(catalog_id,revision_id,milestone,option_product_code),
+ CHECK((milestone='last_trading')=(futures_product_code IS NOT NULL) AND (milestone='option_expiry')=(option_product_code IS NOT NULL)),
+ FOREIGN KEY(catalog_id,revision_id) REFERENCES ref_data.revisions(catalog_id,id),
+ FOREIGN KEY(catalog_id,revision_id,futures_product_code) REFERENCES ref_data.futures_products(catalog_id,revision_id,code),
+ FOREIGN KEY(catalog_id,revision_id,option_product_code) REFERENCES ref_data.futures_option_products(catalog_id,revision_id,code),
+ FOREIGN KEY(catalog_id,revision_id,clock_code) REFERENCES ref_data.clock_rules(catalog_id,revision_id,code),
+ FOREIGN KEY(catalog_id,revision_id,source_code) REFERENCES ref_data.sources(catalog_id,revision_id,code)
+);
+
+-- The instant of a product's milestone on a local date: the configured time on the configured clock. The local time
+-- must exist and be unambiguous on that date.
+CREATE FUNCTION ref_data.close_instant(catalog uuid,revision uuid,selected_milestone text,product text,day date) RETURNS timestamptz
+LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
+DECLARE t ref_data.trading_close_times;c ref_data.clock_rules;local_at timestamp;at timestamptz;
+BEGIN
+ SELECT * INTO t FROM ref_data.trading_close_times WHERE(catalog_id,revision_id,milestone)=(catalog,revision,selected_milestone)
+  AND product=CASE selected_milestone WHEN 'last_trading' THEN futures_product_code ELSE option_product_code END;
+ IF t.code IS NULL THEN RAISE EXCEPTION 'close_time_setting_missing';END IF;
+ SELECT * INTO c FROM ref_data.clock_rules WHERE(catalog_id,revision_id,code)=(catalog,revision,t.clock_code);
+ local_at=day+t.local_time;
+ IF c.kind='fixed_offset' THEN RETURN (local_at AT TIME ZONE 'UTC')-make_interval(secs=>c.fixed_offset_seconds);END IF;
+ at=local_at AT TIME ZONE c.iana_zone;
+ IF (at AT TIME ZONE c.iana_zone)<>local_at OR ((at-interval '1 hour') AT TIME ZONE c.iana_zone)=local_at
+  OR ((at+interval '1 hour') AT TIME ZONE c.iana_zone)=local_at THEN RAISE EXCEPTION 'close_time_local';END IF;
+ RETURN at;
+END$$;
+REVOKE ALL ON FUNCTION ref_data.close_instant(uuid,uuid,text,text,date) FROM PUBLIC;
+
+-- A known last-trading instant of a product with a configured close equals that close on its business date.
+CREATE FUNCTION ref_data.require_configured_close() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE product text;
+BEGIN
+ IF NEW.milestone<>'last_trading' OR NEW.event_at IS NULL THEN RETURN NEW;END IF;
+ SELECT s.product_code INTO product FROM ref_data.futures_series s WHERE(s.catalog_id,s.revision_id,s.code)=(NEW.catalog_id,NEW.revision_id,NEW.series_code);
+ IF EXISTS(SELECT 1 FROM ref_data.trading_close_times t WHERE(t.catalog_id,t.revision_id,t.milestone,t.futures_product_code)=(NEW.catalog_id,NEW.revision_id,'last_trading',product))
+  AND NEW.event_at<>ref_data.close_instant(NEW.catalog_id,NEW.revision_id,'last_trading',product,NEW.business_date) THEN RAISE EXCEPTION 'close_time_mismatch';END IF;
+ RETURN NEW;
+END$$;
+CREATE TRIGGER require_configured_close BEFORE INSERT ON ref_data.futures_milestones FOR EACH ROW EXECUTE FUNCTION ref_data.require_configured_close();
+
+-- One explicit option series; its exact key is the instrument identity. Its expiry instant is the product's configured
+-- option-expiry time on the sourced expiry date. No exercise-instruction instant is derived from a rule without a clock.
 CREATE TABLE ref_data.futures_option_series (
  catalog_id uuid NOT NULL,revision_id uuid NOT NULL,code ref_data.code NOT NULL,
  product_code ref_data.code NOT NULL,underlying_series_code ref_data.code NOT NULL,
@@ -69,7 +118,7 @@ CREATE TABLE ref_data.futures_option_series (
  strike ref_data.exact_number NOT NULL CHECK(strike>0),
  definition_state text NOT NULL CHECK(definition_state IN('candidate','synthetic')),
  last_trading_date date NOT NULL CHECK(isfinite(last_trading_date) AND last_trading_date>=DATE '0001-01-01' AND last_trading_date<DATE '9999-12-31'),
- expiry_at ref_data.instant,
+ expiry_at ref_data.instant NOT NULL,
  instruction_cutoff_at ref_data.instant,
  source_code ref_data.code NOT NULL,
  PRIMARY KEY(catalog_id,revision_id,code),
@@ -83,7 +132,8 @@ CREATE TABLE ref_data.futures_option_series (
 );
 
 -- The underlying is a series of the product's own futures product; the strike lies on both the futures tick and
--- the strike interval; the option expires before its future. A missing underlying is left to the foreign key.
+-- the strike interval; the option expires at its configured time, before its future. A missing underlying is left to
+-- the foreign key.
 CREATE FUNCTION ref_data.require_futures_option_series() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 DECLARE p ref_data.futures_option_products;f ref_data.futures_products;s ref_data.futures_series;m ref_data.futures_milestones;
 BEGIN
@@ -93,16 +143,17 @@ BEGIN
  SELECT * INTO f FROM ref_data.futures_products WHERE(catalog_id,revision_id,code)=(s.catalog_id,s.revision_id,s.product_code);
  IF f.code<>p.underlying_product_code THEN RAISE EXCEPTION 'option_underlying';END IF;
  IF f.outright_tick_size IS NULL OR NEW.strike%f.outright_tick_size<>0 OR NEW.strike%p.strike_interval<>0 THEN RAISE EXCEPTION 'option_strike';END IF;
+ IF NEW.expiry_at<>ref_data.close_instant(NEW.catalog_id,NEW.revision_id,'option_expiry',p.code,NEW.last_trading_date) THEN RAISE EXCEPTION 'close_time_mismatch';END IF;
  SELECT * INTO m FROM ref_data.futures_milestones WHERE(catalog_id,revision_id,series_code,milestone)=(s.catalog_id,s.revision_id,s.code,'last_trading');
- IF m.value_state IS DISTINCT FROM 'known' OR NEW.last_trading_date>=m.business_date OR
-  NEW.expiry_at IS NOT NULL AND (m.event_at IS NULL OR NEW.expiry_at>=m.event_at) THEN RAISE EXCEPTION 'option_expiry';END IF;
+ IF m.value_state IS DISTINCT FROM 'known' OR m.event_at IS NULL OR NEW.last_trading_date>=m.business_date OR NEW.expiry_at>=m.event_at
+  THEN RAISE EXCEPTION 'option_expiry';END IF;
  RETURN NEW;
 END$$;
 CREATE TRIGGER require_series BEFORE INSERT ON ref_data.futures_option_series FOR EACH ROW EXECUTE FUNCTION ref_data.require_futures_option_series();
 
 -- The same immutability, row security and grants as ref_data.futures_products.
 DO $$DECLARE t text;p record;g record;BEGIN
- FOREACH t IN ARRAY ARRAY['futures_option_rules','futures_option_products','futures_option_series'] LOOP
+ FOREACH t IN ARRAY ARRAY['futures_option_rules','futures_option_products','trading_close_times','futures_option_series'] LOOP
   EXECUTE format('CREATE TRIGGER guard_definition BEFORE INSERT OR UPDATE OR DELETE ON ref_data.%I FOR EACH ROW EXECUTE FUNCTION ref_data.guard_definition()',t);
   EXECUTE format('ALTER TABLE ref_data.%I ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY',t);
   FOR p IN SELECT polname,polpermissive,polcmd,(SELECT string_agg(quote_ident(r::regrole::text),',') FROM unnest(polroles) r) roles,
@@ -127,7 +178,7 @@ ALTER TABLE market_data.contracts DROP CONSTRAINT contracts_kind_check,DROP CONS
  ADD FOREIGN KEY(reference_catalog_id,reference_revision_id,futures_option_series_code)
   REFERENCES ref_data.futures_option_series(catalog_id,revision_id,code);
 
--- 0040's validation, plus: an option contract matches its option series' known expiry instant and its underlying's
+-- 0040's validation, plus: an option contract matches its option series' expiry instant and its underlying's
 -- delivery period, and lies only on direct daily-settlement outright curves quoted in its product's premium quote.
 CREATE OR REPLACE FUNCTION market_data.validate_revision(cat uuid, rev uuid) RETURNS void
 LANGUAGE plpgsql SET search_path = pg_catalog AS $$
@@ -233,9 +284,9 @@ BEGIN
   IF EXISTS (SELECT 1 FROM market_data.contracts k
       JOIN ref_data.futures_option_series o ON (o.catalog_id,o.revision_id,o.code)=(k.reference_catalog_id,k.reference_revision_id,k.futures_option_series_code)
       JOIN ref_data.futures_series u ON (u.catalog_id,u.revision_id,u.code)=(o.catalog_id,o.revision_id,o.underlying_series_code)
-      WHERE k.catalog_id=cat AND k.revision_id=rev AND (o.expiry_at IS DISTINCT FROM k.expiry_at OR
+      WHERE k.catalog_id=cat AND k.revision_id=rev AND (o.expiry_at<>k.expiry_at OR
         (u.delivery_from,u.delivery_to) IS DISTINCT FROM (k.delivery_from,k.delivery_to))) THEN
-    RAISE EXCEPTION 'Futures option constituent must match a listed series with a known expiry instant' USING ERRCODE = '23514';
+    RAISE EXCEPTION 'Futures option constituent must match its listed series' USING ERRCODE = '23514';
   END IF;
   IF EXISTS (SELECT 1 FROM market_data.curve_members m
       JOIN market_data.contracts k ON (k.catalog_id,k.revision_id,k.id)=(m.catalog_id,m.revision_id,m.contract_id)

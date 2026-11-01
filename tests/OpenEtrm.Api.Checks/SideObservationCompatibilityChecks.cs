@@ -348,7 +348,7 @@ internal static class SideObservationCompatibilityChecks
                 ["price_index_definitions"] = [..new[] { "target_index", "alternate_index" }.Select(code => Row(new { code, commodity_code = "synthetic_energy", currency_code = "usd", quote_unit_code = "mwh", quote_multiplier = "1" })).Select(row => row.Text("code") == "alternate_index" && changeIndex is not null ? changeIndex(row) : row)],
                 ["settlement_targets"] = [Row(new { code = "target", kind = "index", index_a_code = "target_index", index_b_code = (string?)null })],
                 ["sources"] = [Row(new { code = "actual_source" }), Row(new { code = "projection_source" })],
-                ["futures_milestones"] = [], ["value_specifications"] = []
+                ["futures_milestones"] = [], ["value_specifications"] = [], ["trading_close_times"] = [], ["clock_rules"] = []
             };
             return new(new("local-synthetic-preview", catalog, revision, referenceCatalog, referenceRevision, Guid.NewGuid(), Guid.NewGuid(), [], null), definitions, references, observations.IsDefault?[]:observations);
         }

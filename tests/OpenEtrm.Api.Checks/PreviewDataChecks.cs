@@ -410,7 +410,7 @@ internal static class PreviewDataChecks
             Reject("duplicate_definition",()=>Data(definitions:new(fixture.Definitions){["contracts"]=[..fixture.Definitions["contracts"],fixture.Definitions["contracts"][0]]}));
             Reject("duplicate_definition",()=>Data(references:new(fixture.References){["quote_specifications"]=[..fixture.References["quote_specifications"],fixture.References["quote_specifications"][0]]}));
         });
-        Check("a futures-option contract loads with exactly its option series",()=>
+        Check("a futures-option contract loads with exactly its option series and its configured expiry",()=>
         {
             var option=Guid.NewGuid();
             Dictionary<string,ImmutableArray<JsonElement>> Listed(object row)=>new(fixture.Definitions)
@@ -420,16 +420,50 @@ internal static class PreviewDataChecks
                 ["curve_members"]=[..fixture.Definitions["curve_members"],Row(new{curve_code="options",contract_id=option,ordinal=0})],
                 ["series"]=[..fixture.Definitions["series"],Row(new{id=Guid.NewGuid(),contract_id=option,quote_code="price",value_specification_code=(string?)null})]
             };
-            var loaded=Data(definitions:Listed(new{id=option,kind="future_option",delivery_from="2040-02-01",delivery_to="2040-03-01",expiry_at="2040-01-19T00:00:00Z",
-                futures_series_code=(string?)null,futures_option_series_code="synthetic_call"}));
+            var definitions=Listed(new{id=option,kind="future_option",delivery_from="2040-02-01",delivery_to="2040-03-01",expiry_at="2040-01-19T19:30:00Z",
+                futures_series_code=(string?)null,futures_option_series_code="synthetic_call"});
+            // The option's terms come from its exact series and product; its expiry instant from the product's
+            // configured local close on the series' expiry date, on the configured clock.
+            Dictionary<string,ImmutableArray<JsonElement>> Terms(string? close,string expiry="2040-01-19T19:30:00Z")=>new(fixture.References)
+            {
+                ["futures_option_series"]=[Row(new{code="synthetic_call",product_code="options",underlying_series_code="synthetic_0",option_right="call",strike="100",
+                    last_trading_date="2040-01-19",expiry_at=expiry,instruction_cutoff_at=(string?)null})],
+                ["futures_option_products"]=[Row(new{code="options",underlying_product_code="product",quote_code="price",lot_quantity_code="contracts",multiplier="40",
+                    exercise_style="american",settlement_method="exercise_into_future",premium_style="premium_paid_up_front",contrary_instructions_allowed=false,
+                    automatic_exercise_rule_code="settlement_rule"})],
+                ["trading_close_times"]=close is null?[]:[Row(new{milestone="option_expiry",futures_product_code=(string?)null,option_product_code="options",local_time=close,clock_code="exchange_clock"})],
+                ["clock_rules"]=[Row(new{code="exchange_clock",kind="fixed_offset",fixed_offset_seconds=-18000,iana_zone=(string?)null,tzdb_version=(string?)null})]
+            };
+            var loaded=new PreviewData(fixture.Manifest,definitions,Terms("14:30:00"),fixture.Observations);
             var listed=loaded.ContractRows(option).Single();
             if(listed.Kind!=ContractKind.FutureOption||listed.FuturesSeries!=new ReferenceKey(loaded.ReferenceRevision,"synthetic_call")||
                 loaded.FuturesSeries.Length!=data.FuturesSeries.Length)
                 throw new Exception("A futures-option contract must load as its exact option series, not as a future or forward.");
+            ReferenceKey R(string code)=>new(loaded.ReferenceRevision,code);
+            var series=loaded.FuturesOptionSeries.Single();
+            if(series!=new FuturesOptionSeriesSpecification(R("synthetic_call"),R("options"),R("synthetic_0"),
+                new(OpenEtrm.MarketData.Options.OptionRight.Call,ExactDecimal.Parse("100"),DateTimeOffset.Parse("2040-01-19T19:30:00Z",CultureInfo.InvariantCulture),"american","exercise_into_future"),
+                ExactDecimal.Parse("40"),R("usd"),R("contracts"),ExactDecimal.Parse("0.001"),"settlement_rule",false,null,"premium_paid_up_front"))
+                throw new Exception("Stored option rows must materialize into exactly their series specification.");
+            Reject("close_time_setting_missing",()=>new PreviewData(fixture.Manifest,definitions,Terms(null),fixture.Observations));
+            Reject("close_time_mismatch",()=>new PreviewData(fixture.Manifest,definitions,Terms("15:30:00"),fixture.Observations));
+            Reject("close_time_mismatch",()=>new PreviewData(fixture.Manifest,definitions,Terms("14:30:00","2040-01-19T20:30:00Z"),fixture.Observations));
             Reject("unsupported_definition",()=>Data(definitions:Listed(new{id=option,kind="future_option",delivery_from="2040-02-01",delivery_to="2040-03-01",
                 expiry_at="2040-01-19T00:00:00Z",futures_series_code="synthetic_0",futures_option_series_code=(string?)null})));
             // An option settlement curve is not read as a forward's custom-curve source.
             Reject("custom_curve_source",()=>CustomCurves.SourceEligibleFrom(loaded,"options",listed));
+        });
+        Check("a configured close of trading must reproduce a stored futures last-trading instant",()=>
+        {
+            Dictionary<string,ImmutableArray<JsonElement>> Closed(string close)=>new(fixture.References)
+            {
+                ["futures_milestones"]=[..fixture.References["futures_milestones"].Select(m=>m.Text("milestone")=="last_trading"?Change(m,"business_date","2040-01-19"):m)],
+                ["trading_close_times"]=[Row(new{milestone="last_trading",futures_product_code="product",option_product_code=(string?)null,local_time=close,clock_code="exchange_clock"})],
+                ["clock_rules"]=[Row(new{code="exchange_clock",kind="fixed_offset",fixed_offset_seconds=-18000,iana_zone=(string?)null,tzdb_version=(string?)null})]
+            };
+            if(Data(references:Closed("19:00:00")).FuturesSeries.Length!=data.FuturesSeries.Length)
+                throw new Exception("A configured close equal to the stored instant must load.");
+            Reject("close_time_mismatch",()=>Data(references:Closed("18:00:00")));
         });
         Check("different authorized reads never reuse each other's source values",()=>
         {
@@ -586,7 +620,8 @@ internal static class PreviewDataChecks
                 Row(new{series_code="synthetic_"+i,milestone="first_trading",value_state="known",event_at="2040-01-01T00:00:00Z"}),
                 Row(new{series_code="synthetic_"+i,milestone="last_trading",value_state="known",event_at="2040-01-20T00:00:00Z"})})],
             ["futures_product_terms"]=[Row(new{product_code="product",profile_code="uniform",index_code=(string?)null})],
-            ["futures_lot_resolutions"]=[],["futures_basis_settlements"]=[],["value_specifications"]=[]
+            ["futures_lot_resolutions"]=[],["futures_basis_settlements"]=[],["value_specifications"]=[],
+            ["trading_close_times"]=[],["futures_option_series"]=[],["futures_option_products"]=[],["clock_rules"]=[]
         };
         ImmutableArray<JsonElement> observations=[..series.Select((id,i)=>Row(new{id=Guid.NewGuid(),series_id=id,source_code="synthetic",role="daily_settlement",publication_state="final",observed_at="2040-01-09T00:00:00Z",value="100."+i.ToString("D3",CultureInfo.InvariantCulture),corrects_id=(Guid?)null}))];
         var frame=new InputFrame(Guid.NewGuid(),"Synthetic selected futures",at,[..observations.Select(row=>row.Id("id"))],

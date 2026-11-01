@@ -61,11 +61,13 @@ public sealed record FuturesSeriesSpecification(
 
 // A listed option on an exact futures series; the series key is its identity.
 // Multiplier converts one unit of the option price into currency per contract,
-// and LotQuantity is the quantity specification of one option contract.
+// and LotQuantity is the quantity specification of one option contract. Whether
+// contrary instructions are accepted is the product's; an instruction cutoff is
+// present only where a source states its instant.
 public sealed record FuturesOptionSeriesSpecification(
     ReferenceKey Key, ReferenceKey Product, ReferenceKey UnderlyingSeries, Options.FuturesOptionTerms Terms,
     ExactDecimal Multiplier, ReferenceKey Currency, ReferenceKey LotQuantity, ExactDecimal ClearingIncrement,
-    string AutomaticExerciseRule, DateTimeOffset InstructionCutoffAt, string PremiumStyle);
+    string AutomaticExerciseRule, bool ContraryInstructionsAllowed, DateTimeOffset? InstructionCutoffAt, string PremiumStyle);
 
 // Identity mapping is the first supported delivery mapping. Explicitly named
 // pairs are required even where source and target delivery periods are equal.

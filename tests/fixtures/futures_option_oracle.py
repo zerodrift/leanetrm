@@ -3,12 +3,13 @@ Black-76 European option values on a future.
 
 Uses only the standard library `decimal` at 60 digits, rounded half-even to
 30 fractional digits. Run: python3 -I tests/fixtures/futures_option_oracle.py
+Importers call black76 inside a 60-digit decimal context of their own.
 """
+import functools
 import json
 import pathlib
 from decimal import Decimal, ROUND_HALF_EVEN, getcontext, localcontext
 
-getcontext().prec = 60
 QUANTUM = Decimal(1).scaleb(-30)
 
 POSITIVE = ["0.000000000001", "0.00000001", "0.000001", "0.001", "0.01", "0.05",
@@ -57,7 +58,12 @@ BLACK76 = [
 
 
 def pi():
-    """pi from Machin's formula, 16*atan(1/5) - 4*atan(1/239)."""
+    """pi from Machin's formula, 16*atan(1/5) - 4*atan(1/239), at the current precision."""
+    return machin_pi(getcontext().prec)
+
+
+@functools.cache
+def machin_pi(precision):
     def atan_inverse(n):
         total, power, k, sign = Decimal(0), Decimal(1) / n, 1, 1
         while power:
@@ -66,9 +72,11 @@ def pi():
             k, sign = k + 2, -sign
         return total
     with localcontext() as ctx:
-        ctx.prec += 10
+        ctx.prec = precision + 10
         value = 16 * atan_inverse(5) - 4 * atan_inverse(239)
-    return +value
+    with localcontext() as ctx:
+        ctx.prec = precision
+        return +value
 
 
 def erf(x):
@@ -117,11 +125,17 @@ def black76_row(futures, strike, volatility, years, discount):
             "undiscounted_call": q(forward_call), "undiscounted_put": q(forward_put)}
 
 
-oracle = {
-    "exp": rows(EXPONENTS + NEGATIVE, lambda x: x.exp()),
-    "ln": rows(POSITIVE + EDGES, lambda x: x.ln()),
-    "sqrt": rows(POSITIVE + EDGES, lambda x: x.sqrt()),
-    "black76": [black76_row(*case) for case in BLACK76],
-}
-path = pathlib.Path(__file__).with_name("futures-option-oracle.json")
-path.write_text(json.dumps(oracle, indent=2) + "\n")
+def main():
+    getcontext().prec = 60
+    oracle = {
+        "exp": rows(EXPONENTS + NEGATIVE, lambda x: x.exp()),
+        "ln": rows(POSITIVE + EDGES, lambda x: x.ln()),
+        "sqrt": rows(POSITIVE + EDGES, lambda x: x.sqrt()),
+        "black76": [black76_row(*case) for case in BLACK76],
+    }
+    path = pathlib.Path(__file__).with_name("futures-option-oracle.json")
+    path.write_text(json.dumps(oracle, indent=2) + "\n")
+
+
+if __name__ == "__main__":
+    main()

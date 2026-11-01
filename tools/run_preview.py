@@ -902,8 +902,8 @@ def main():
                 check_exchange(url,query,exchange_manifest)
                 from seed_exchange_positions import seed_positions as seed_exchange
                 seeded=seed_exchange(url,run_id,temporary)
-                assert len(seeded)==12 and seeded==seed_exchange(url,run_id,temporary)
-                print('PASS exchange examples populate twelve source-listed monthly product families through idempotent authorized bookings.',flush=True)
+                assert len(seeded)==13 and seeded==seed_exchange(url,run_id,temporary)
+                print('PASS exchange examples populate thirteen source-listed monthly product families through idempotent authorized bookings.',flush=True)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

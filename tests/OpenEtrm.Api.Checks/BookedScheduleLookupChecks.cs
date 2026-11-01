@@ -141,7 +141,7 @@ internal static class BookedScheduleLookupChecks
                 ["quantity_specifications"]=[Row(new{code="quantity",commodity_code="gas",basis_code="energy",unit_code="mwh",dimension_code="energy"})],
                 ["quote_specifications"]=[..new[]{quote,OtherQuote}.Select(q=>Row(new{code=q.Key.Code,kind="outright",currency_code="usd",quantity_code="quantity",multiplier="1",trading_tick="0.01",clearing_increment="0.01",minimum="-1000",maximum="1000"}))],
                 ["settlement_targets"]=[Row(new{code="target",kind="index",index_a_code="projection_index",index_b_code=(string?)null})],
-                ["sources"]=[Row(new{code="publication"}),Row(new{code="marks"})],["value_specifications"]=[]
+                ["sources"]=[Row(new{code="publication"}),Row(new{code="marks"})],["value_specifications"]=[],["trading_close_times"]=[],["clock_rules"]=[]
             };
             Data=new(new("local-synthetic-preview",definitions.CatalogId,definitions.RevisionId,reference.CatalogId,reference.RevisionId,Guid.NewGuid(),Guid.NewGuid(),[],null),rows,references,[]);
         }
