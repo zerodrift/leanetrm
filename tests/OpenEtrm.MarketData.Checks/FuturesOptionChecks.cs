@@ -15,7 +15,8 @@ internal static class FuturesOptionChecks
         Check("lattice arithmetic rounds half-even once per operation", LatticeArithmetic);
         Check("backward induction solves the two-step hand tree", TwoStepHandTree);
         Check("backward induction rejects invalid contracts with structured errors", InductionContractErrors);
-        Check("american futures options at a unit discount equal Black-76", ZeroRateCallEqualsBlack76);
+        Check("american futures options at a unit discount equal Black-76 within the relative discretisation bound", ZeroRateCallEqualsBlack76);
+        Check("american futures option two-step hand tree exercises at an interior node", TwoStepAmericanPut);
         Check("american futures options respect no-arbitrage bounds", Bounds);
         Check("american futures options rise with volatility and time and move with the futures price", Monotonic);
         Check("american futures options converge at the pinned step count", Convergence);
@@ -38,7 +39,7 @@ internal static class FuturesOptionChecks
         var cases = oracle["black76"]!.AsArray().Select(row => new Black76Case(
             Field(row!, "futures"), Field(row!, "strike"), Field(row!, "volatility"), Field(row!, "years"), Field(row!, "discount"),
             Field(row!, "call"), Field(row!, "put"), Field(row!, "undiscounted_call"), Field(row!, "undiscounted_put"))).ToArray();
-        if (cases.Length != 12) throw new Exception($"Expected 12 Black-76 cases; found {cases.Length}.");
+        if (cases.Length != 17) throw new Exception($"Expected 17 Black-76 cases; found {cases.Length}.");
         return cases;
     }
 
@@ -70,16 +71,46 @@ internal static class FuturesOptionChecks
     private static void AtMost(LatticeDecimal actual, LatticeDecimal bound, string label)
     { if (actual.CompareTo(bound) > 0) throw new Exception($"{label}: {actual} is above {bound}."); }
 
+    // The model's stated accuracy: |tree - Black-76| <= C * F * sigma * sqrt(T) / Steps
+    // at a unit discount. The largest observed ratio over the oracle cases is 0.0996
+    // (at the money, matching CRR's leading error term 1/(4*sqrt(2*pi)) = 0.0997);
+    // C = 0.125 leaves 25% headroom.
+    private static readonly LatticeDecimal DiscretisationConstant = L("0.125");
+
+    private static LatticeDecimal DiscretisationBound(Black76Case c, int steps) =>
+        DiscretisationConstant * L(c.Futures) * L(c.Volatility) * L(c.Years).Sqrt() / L(steps.ToString(CultureInfo.InvariantCulture));
+
     // At a unit discount a future has no carry, so neither right gains from early
     // exercise and the American value is the European Black-76 value.
     private static void ZeroRateCallEqualsBlack76()
     {
-        var tolerance = Policy.PriceTolerance * L("100");
         foreach (var c in Black76Cases())
         {
-            Within(Price(c, OptionRight.Call, "1"), L(c.UndiscountedCall), tolerance, $"call F={c.Futures} K={c.Strike}");
-            Within(Price(c, OptionRight.Put, "1"), L(c.UndiscountedPut), tolerance, $"put F={c.Futures} K={c.Strike}");
+            var bound = DiscretisationBound(c, Policy.Steps);
+            Within(Price(c, OptionRight.Call, "1"), L(c.UndiscountedCall), bound, $"call F={c.Futures} K={c.Strike} sigma={c.Volatility} T={c.Years}");
+            Within(Price(c, OptionRight.Put, "1"), L(c.UndiscountedPut), bound, $"put F={c.Futures} K={c.Strike} sigma={c.Volatility} T={c.Years}");
         }
+    }
+
+    // F=100, K=100 put, T=0.5 in two 0.25-year steps. sigma = 2 ln 1.25 (to 30 digits),
+    // so u = exp(sigma*0.5) = 1.25 and d = 0.8 (each to 2e-31), p = (1-0.8)/(1.25-0.8) = 4/9;
+    // DF = 0.81, so each step discounts by 0.9.
+    //   Step 2 futures 156.25, 100, 64; put payoffs 0, 0, 36.
+    //   Step 1 up (125): hold 0.9*(4/9*0 + 5/9*0) = 0; intrinsic 0; hold.
+    //   Step 1 down (80): hold 0.9*(5/9*36) = 18 < exercise 20; exercise, value 20.
+    //   Root (100): hold 0.9*(5/9*20) = 10 > intrinsic 0; value 10.
+    // A European tree gives 0.9*(5/9*18) = 9, so max(European, intrinsic) at the root is 9, not 10.
+    private static void TwoStepAmericanPut()
+    {
+        var terms = new FuturesOptionTerms(OptionRight.Put, ExactDecimal.Parse("100"), ExpiryAfter("0.5"), "american", "exercise_into_future");
+        var result = AmericanFuturesOptionModel.Solve(terms, L("100"), L("0.446287102628419511532590180620"), L("0.81"),
+            ValuationAt, Policy with { Steps = 2 }, recordDecisions: true, CancellationToken.None);
+        Within(result.Root, L("10"), L("0.0000000000000000000000001"), "two-step American put");
+        Equal(result.Chosen!.Code(1, 1, FuturesOptionState.Alive), "exercise");
+        Equal(result.Chosen.Code(1, 0, FuturesOptionState.Alive), "hold");
+        Equal(result.Chosen.Code(0, 0, FuturesOptionState.Alive), "hold");
+        Equal(AmericanFuturesOptionModel.UnitPrice(terms, L("100"), L("0.446287102628419511532590180620"), L("0.81"),
+            ValuationAt, Policy with { Steps = 2 }, CancellationToken.None).ToString(), result.Root.ToString());
     }
 
     private static void Bounds()
@@ -92,8 +123,8 @@ internal static class FuturesOptionChecks
             var label = $"F={c.Futures} K={c.Strike} sigma={c.Volatility} T={c.Years}";
             AtLeast(call, LatticeDecimal.Max(futures - strike, L("0")), $"call intrinsic {label}");
             AtLeast(put, LatticeDecimal.Max(strike - futures, L("0")), $"put intrinsic {label}");
-            AtLeast(call, L(c.Call) - Policy.PriceTolerance, $"call European {label}");
-            AtLeast(put, L(c.Put) - Policy.PriceTolerance, $"put European {label}");
+            AtLeast(call, L(c.Call) - DiscretisationBound(c, Policy.Steps), $"call European {label}");
+            AtLeast(put, L(c.Put) - DiscretisationBound(c, Policy.Steps), $"put European {label}");
             AtMost(call, futures, $"call futures bound {label}");
             AtMost(put, strike, $"put strike bound {label}");
         }
@@ -116,8 +147,10 @@ internal static class FuturesOptionChecks
         Rising("put as futures fall", [.. futures.Reverse().Select(f => Price(OptionRight.Put, f, "3.25", "0.5", "0.25", "0.98"))]);
     }
 
-    // Six cases across both price levels: at the money, deep out of the money,
-    // two years out and high volatility near expiry.
+    // A stability (self-consistency) check, not accuracy evidence: the pinned step
+    // count agrees with four times as many steps within PriceTolerance on six cases
+    // at gas and crude price levels (at the money, deep out of the money, two years
+    // out, high volatility near expiry). Accuracy is checked against Black-76 above.
     private static void Convergence()
     {
         var fine = Policy with { Steps = Policy.Steps * 4 };

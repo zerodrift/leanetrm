@@ -31,7 +31,7 @@ def rows(inputs, fn):
 
 
 # Black-76 cases: futures, strike, volatility, years, discount factor. Moneyness
-# F/K spans 0.5-2, volatility 0.1-1.5 and years 0.01-2; each years value is a
+# F/K spans 0.5-2, volatility 0.1-3 and years 0.01-3; each years value is a
 # whole number of seconds under act/365 fixed. Synthetic natural-gas-like
 # (F near 2-6) and crude-like (F near 60-150) levels.
 BLACK76 = [
@@ -47,6 +47,12 @@ BLACK76 = [
     ("60", "120", "0.6", "2", "0.9"),
     ("150", "75", "0.1", "0.05", "0.998"),
     ("85", "82.5", "1.2", "0.01", "0.9998"),
+    # High corner: large F*sigma*sqrt(T), where absolute discretisation error peaks.
+    ("150", "150", "1", "2", "0.9"),
+    ("150", "150", "3", "0.25", "0.99"),
+    ("100", "130", "1.5", "0.5", "0.97"),
+    ("200", "180", "2", "1", "0.95"),
+    ("120", "100", "1.2", "3", "0.88"),
 ]
 
 

@@ -19,9 +19,12 @@ public sealed record FuturesOptionTerms(OptionRight Right, ExactDecimal Strike, 
         : throw new MarketDataException("option_terms", $"Unsupported settlement method '{SettlementMethod}'; only exercise_into_future is supported.");
 }
 
-// Steps and DayCount drive the lattice. The volatility bracket, PriceTolerance
-// (price units per unit of quote) and MaxIterations are the implied-volatility
-// solver's limits; PriceTolerance also bounds the lattice's discretisation error.
+// Steps and DayCount drive the lattice; the volatility bracket and MaxIterations
+// are the implied-volatility solver's limits. PriceTolerance (price units per unit
+// of quote) is the step-count stability tolerance: on the convergence cases the
+// pinned tree agrees with a tree of four times the steps within it. It is neither
+// an accuracy bound (see AmericanFuturesOptionModel) nor the calibration round-trip
+// bound, which is half the series' clearing increment.
 public sealed record OptionNumericalPolicy(
     string Id, int Steps, string DayCount, LatticeDecimal VolatilityMin, LatticeDecimal VolatilityMax,
     LatticeDecimal PriceTolerance, int MaxIterations);
@@ -31,10 +34,12 @@ public static class OptionNumericalPolicies
     public const string ActualOver365FixedInstant = "act_365_fixed_instant_v1";
 
     // Chosen from convergence evidence over the Black-76 oracle cases:
-    // - 400 steps keep |V(400) - V(1600)| at or below 0.0031 (crude-level prices) and
-    //   0.00021 (gas-level prices); 200 steps reach 0.0059.
-    // - PriceTolerance 0.005 is half the NYMEX CL clearing increment (0.01 USD/bbl)
-    //   and five NG increments (0.001 USD/MMBtu).
+    // - 400 steps bound |tree - Black-76| by F*sigma*sqrt(T)/3200. Observed errors
+    //   are at most 0.00019 at gas-level, 0.003 at crude-level and 0.05 at the
+    //   high-corner cases (F*sigma*sqrt(T) up to 400). Doubling the steps halves the
+    //   bound at four times the cost.
+    // - PriceTolerance 0.005 is half the NYMEX CL clearing increment (0.01 USD/bbl);
+    //   |V(400) - V(1600)| is at most 0.0031 on the convergence cases.
     // - The bracket [0.01, 3] reaches high short-dated energy volatilities; its top
     //   is limited by the tree's range, which at 400 steps needs
     //   ln F + 20*sigma*sqrt(T) <= 55.26.
@@ -49,8 +54,13 @@ public static class OptionNumericalPolicies
             : throw new MarketDataException("option_numerical_policy", $"Unknown option numerical policy '{id}'.");
 }
 
+internal enum FuturesOptionState { Alive, Exercised }
+
 // A Cox-Ross-Rubinstein binomial tree on the futures price with zero drift, valued
 // by backward induction with an early-exercise decision at every node.
+// Accuracy: at a unit discount, |value - Black-76| <= 0.125 * F * sigma * sqrt(T) / Steps
+// over the oracle cases (largest observed ratio 0.0996, at the money, which is CRR's
+// leading error term 1/(4*sqrt(2*pi))).
 public static class AmericanFuturesOptionModel
 {
     public const string Id = "american_futures_option_crr_v1";
@@ -71,7 +81,11 @@ public static class AmericanFuturesOptionModel
 
     // Value per unit of quote, before the contract multiplier.
     public static LatticeDecimal UnitPrice(FuturesOptionTerms terms, LatticeDecimal futures, LatticeDecimal volatility,
-        LatticeDecimal discountToExpiry, DateTimeOffset valuationAt, OptionNumericalPolicy policy, CancellationToken ct)
+        LatticeDecimal discountToExpiry, DateTimeOffset valuationAt, OptionNumericalPolicy policy, CancellationToken ct) =>
+        Solve(terms, futures, volatility, discountToExpiry, valuationAt, policy, recordDecisions: false, ct).Root;
+
+    internal static InductionResult<FuturesOptionState> Solve(FuturesOptionTerms terms, LatticeDecimal futures, LatticeDecimal volatility,
+        LatticeDecimal discountToExpiry, DateTimeOffset valuationAt, OptionNumericalPolicy policy, bool recordDecisions, CancellationToken ct)
     {
         var strike = LatticeDecimal.From(terms.Strike);
         RequirePositive(futures, "futures price");
@@ -84,7 +98,7 @@ public static class AmericanFuturesOptionModel
             throw new MarketDataException("option_numerical_policy", $"The policy needs at least one step; got {policy.Steps}.");
         var years = YearFraction(valuationAt, terms.ExpiryAt, policy);
         var lattice = new FuturesLattice(futures, volatility, years, discountToExpiry, policy.Steps);
-        return BackwardInduction.Solve(lattice, new AmericanOption(terms.Right, strike), ct, recordDecisions: false).Root;
+        return BackwardInduction.Solve(lattice, new AmericanOption(terms.Right, strike), ct, recordDecisions);
     }
 
     private static void RequirePositive(LatticeDecimal value, string name)
@@ -132,22 +146,20 @@ public static class AmericanFuturesOptionModel
         public LatticeDecimal Discount(int step) => discount;
     }
 
-    private enum OptionState { Alive, Exercised }
-
     // Holding is declared before exercising, so a tie keeps the option alive.
     // Exercising pays intrinsic value and leaves nothing behind.
-    private sealed class AmericanOption(OptionRight right, LatticeDecimal strike) : IInductionContract<OptionState>
+    private sealed class AmericanOption(OptionRight right, LatticeDecimal strike) : IInductionContract<FuturesOptionState>
     {
-        private static readonly ImmutableArray<InductionDecision<OptionState>> Spent = [new("hold", Zero, OptionState.Exercised)];
-        private static readonly InductionDecision<OptionState> Hold = new("hold", Zero, OptionState.Alive);
+        private static readonly ImmutableArray<InductionDecision<FuturesOptionState>> Spent = [new("hold", Zero, FuturesOptionState.Exercised)];
+        private static readonly InductionDecision<FuturesOptionState> Hold = new("hold", Zero, FuturesOptionState.Alive);
 
-        public ImmutableArray<OptionState> States { get; } = [OptionState.Alive, OptionState.Exercised];
+        public ImmutableArray<FuturesOptionState> States { get; } = [FuturesOptionState.Alive, FuturesOptionState.Exercised];
 
-        public LatticeDecimal Terminal(LatticeDecimal underlying, OptionState state) =>
-            state == OptionState.Alive ? Intrinsic(underlying) : Zero;
+        public LatticeDecimal Terminal(LatticeDecimal underlying, FuturesOptionState state) =>
+            state == FuturesOptionState.Alive ? Intrinsic(underlying) : Zero;
 
-        public ImmutableArray<InductionDecision<OptionState>> Decisions(int step, LatticeDecimal underlying, OptionState state) =>
-            state == OptionState.Exercised ? Spent : [Hold, new("exercise", Intrinsic(underlying), OptionState.Exercised)];
+        public ImmutableArray<InductionDecision<FuturesOptionState>> Decisions(int step, LatticeDecimal underlying, FuturesOptionState state) =>
+            state == FuturesOptionState.Exercised ? Spent : [Hold, new("exercise", Intrinsic(underlying), FuturesOptionState.Exercised)];
 
         private LatticeDecimal Intrinsic(LatticeDecimal underlying) =>
             LatticeDecimal.Max(right == OptionRight.Call ? underlying - strike : strike - underlying, Zero);
