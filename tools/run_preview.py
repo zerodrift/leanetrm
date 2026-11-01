@@ -813,6 +813,8 @@ def main():
             elif args.contract_dates_check:
                 from check_contract_dates import run_checks as check_contract_dates
                 check_contract_dates(url,query,manifest,psql,env)
+                from check_contract_materialization import run_checks as check_materialization
+                check_materialization(url,query,manifest,psql,env)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

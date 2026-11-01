@@ -4,6 +4,13 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+The bounded D283 verified-admission operation now connects published date-list
+mappings to draft contract construction or identical retained-contract reuse.
+Admissions have exact source/context relationships and independent certified
+knowledge times. Migration 0161 requires a qualified schema release; native-curve
+editing, automatic consumer migration and primary-revision cutover remain work.
+Private installation seeds are maintained outside the public repository.
+
 Gas may use an explicitly configured independent market/reference selection;
 this keeps physical location setup separate from the primary power and financial
 inputs without rebasing their source identities or feeds.
