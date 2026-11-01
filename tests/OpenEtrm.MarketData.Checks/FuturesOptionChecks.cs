@@ -99,6 +99,7 @@ internal static class FuturesOptionChecks
         Equal(american.Root.ToString(), "9.81");
         Equal(american.Chosen[1][1][TestState.Alive], "exercise");
         Equal(american.Chosen[1][0][TestState.Alive], "hold");
+        Equal(american.Chosen[0][0][TestState.Alive], "hold");  // root: hold 9.81 beats exercising at 0
         Equal(american.Chosen[1][1][TestState.Exercised], "hold");
         Equal(american.Chosen.Length.ToString(), "2");
 
@@ -115,6 +116,13 @@ internal static class FuturesOptionChecks
         Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { Overshoot = true }, put, CancellationToken.None));
         Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { OmitExercised = true }, CancellationToken.None));
         Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { NoDecisions = true }, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { UpProbability = LatticeDecimal.Parse("-0.5"), DownProbability = LatticeDecimal.Parse("1.5") }, put, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NodeCount = step => step == 0 ? 2 : step + 1 }, put, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NodeCount = step => step == 2 ? 0 : step + 1 }, put, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NodeCount = step => step == 1 ? 0 : step + 1 }, put, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { NullNext = true }, put, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { DuplicateStates = true }, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { NoStates = true }, CancellationToken.None));
         var cancelled = new CancellationTokenSource(); cancelled.Cancel();
         try { BackwardInduction.Solve(new TestLattice(2, "0.9"), put, cancelled.Token); throw new Exception("Expected cancellation."); }
         catch (OperationCanceledException) { }
@@ -125,13 +133,16 @@ internal static class FuturesOptionChecks
     private sealed class TestLattice(int steps, string discount) : ILattice
     {
         public LatticeDecimal UpProbability { get; init; } = LatticeDecimal.Parse("0.5");
+        public LatticeDecimal DownProbability { get; init; } = LatticeDecimal.Parse("0.5");
+        public Func<int, int>? NodeCount { get; init; }
+        public bool NullNext { get; init; }
         public bool Overshoot { get; init; }
         public int Steps => steps;
-        public int Nodes(int step) => step + 1;
+        public int Nodes(int step) => NodeCount?.Invoke(step) ?? step + 1;
         public LatticeDecimal Underlying(int step, int node) =>
             LatticeDecimal.Parse("100") * LatticeDecimal.Parse("1.2").Pow(step - node) * LatticeDecimal.Parse("0.8").Pow(node);
         public (int Node, LatticeDecimal Probability)[] Next(int step, int node) =>
-            [(node, UpProbability), (Overshoot ? step + 2 : node + 1, LatticeDecimal.Parse("0.5"))];
+            NullNext ? null! : [(node, UpProbability), (Overshoot ? step + 2 : node + 1, DownProbability)];
         public LatticeDecimal Discount(int step) => LatticeDecimal.Parse(discount);
     }
 
@@ -139,7 +150,9 @@ internal static class FuturesOptionChecks
     {
         public bool OmitExercised { get; init; }
         public bool NoDecisions { get; init; }
-        public ImmutableArray<TestState> States => american ? [TestState.Alive, TestState.Exercised] : [TestState.Alive];
+        public bool DuplicateStates { get; init; }
+        public bool NoStates { get; init; }
+        public ImmutableArray<TestState> States => NoStates ? [] : DuplicateStates ? [TestState.Alive, TestState.Alive] : american ? [TestState.Alive, TestState.Exercised] : [TestState.Alive];
         private LatticeDecimal Intrinsic(LatticeDecimal underlying) =>
             LatticeDecimal.Max(LatticeDecimal.Parse(strike) - underlying, LatticeDecimal.Parse("0"));
         public LatticeDecimal Terminal(LatticeDecimal underlying, TestState state) =>

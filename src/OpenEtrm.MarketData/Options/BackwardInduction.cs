@@ -47,8 +47,11 @@ public static class BackwardInduction
         var steps = lattice.Steps;
         if (steps < 1) throw Invalid($"A lattice needs at least one step; got {steps}.");
         if (lattice.Nodes(0) != 1) throw Invalid("Step 0 must have exactly one node.");
+        for (var step = 1; step <= steps; step++)
+            if (lattice.Nodes(step) < 1) throw Invalid($"Step {step} has no nodes.");
         var states = contract.States;
         if (states.IsDefaultOrEmpty) throw Invalid("The contract declares no states.");
+        if (states.Distinct().Count() != states.Length) throw Invalid("The contract declares a state more than once.");
         var stateIndex = states.Select((state, index) => (state, index)).ToDictionary(pair => pair.state, pair => pair.index);
 
         var values = new LatticeDecimal[lattice.Nodes(steps)][];
@@ -100,7 +103,7 @@ public static class BackwardInduction
 
     private static (int Node, LatticeDecimal Probability)[] CheckedSuccessors(ILattice lattice, int step, int node, int nextNodes)
     {
-        var successors = lattice.Next(step, node);
+        var successors = lattice.Next(step, node) ?? throw Invalid($"Step {step}, node {node} has no successor list.");
         var total = default(LatticeDecimal);
         foreach (var (next, probability) in successors)
         {
