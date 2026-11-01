@@ -3085,7 +3085,8 @@ not type-check the rights booleans in `start`.
 The Blotter reports valuation progress but displays positions and totals only
 after the complete report passes context and count validation. Backend changes
 restrict directory valuation reads to exact primary pins and required trading
-milestones, limit swap reads to selected heads and exact reference keys, compile
+milestones, limit swap revisions to selected heads and position metadata to exact
+curve keys, compile
 only required base-price graph nodes, share ordinary market and retained-side
 preparation within an authorized operation, reuse scheduled-swap unit valuations,
 and reduce repeated PPA normalization, cadence/dependency and fixing-series work. Financial arithmetic, historical selection and per-position
@@ -3136,14 +3137,15 @@ Behavior and work checks:
   reuse checks pass, together with side observation compatibility and retained
   booked-schedule lookup checks. Focused migration checks preserve projection,
   financial rows, policies and permissions, reject an unexpected prior view,
-  and reduce quote checks from 64 to 16 for 16 revisions while refusing hidden
-  required quotes and omitting unrelated quote reads.
+  and combine ordered projection arrays while retaining hidden-required-quote
+  refusal. Function settings remain scoped to the read; owner, ACL, other
+  configuration and refused-upgrade rollback are independently checked.
 - Progress-only verification passed 325 focused browser checks and 1,109 frontend
   tests. Denied, truncated and inconsistent-context streams display no partial
   rows; leaving the page cancels the read and late frames cannot restore rows.
 
-An isolated before/after comparison used clean commit `8a15d6e0` and all changes
-above. Each run used a disposable unmodified PostgreSQL database, one warm-up
+An earlier isolated before/after comparison used clean commit `8a15d6e0` and
+the initial optimization set, before the quote join replacement was withdrawn. Each run used a disposable unmodified PostgreSQL database, one warm-up
 and three alternating whole-workspace/stream samples, a retained 2020-12-18
 context and one base scenario. Every stream sample's complete rows equalled its
 whole-workspace result.
@@ -3198,3 +3200,10 @@ adversarial review found no blockers in the SQL scope changes, normalization,
 retained-side reuse, connected purpose selection or request-local market reuse.
 Native PPA execution still admits and expands retained whole-term programs;
 direct execution of their compact vector programs remains work.
+
+Worker-role qualification rejected the proposed quote join replacement: under
+one exact lease/context it increased authorization work while returning the
+same 29 rows. The prior quote join is retained. Ordered projection sharing
+alone reduces the measured worker read from approximately 2.6 to 1.5 seconds
+relative to that rejected replacement, with identical results. All live service,
+lease, permission and temporal checks and the five-second command bound remain.

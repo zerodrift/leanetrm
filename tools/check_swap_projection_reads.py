@@ -1,4 +1,4 @@
-"""Exact quote reads in the authorized retained swap projection."""
+"""Bounded projection work and authority in retained swap reads."""
 import json
 from pathlib import Path
 from uuid import UUID
@@ -33,38 +33,10 @@ def run_checks(client, query, manifest):
     assert scoped[-3] == scoped[-1] == '7' and json.loads(scoped[-2]) == read()
     print('PASS swap projection planning leaves the caller configuration unchanged', flush=True)
     query('ANALYZE;')
-    counted = runtime_query(query, manifest, bind + statement +
-                            "SELECT coalesce((SELECT calls FROM pg_stat_xact_user_functions WHERE funcid="
-                            "'security.reference_version_visible(uuid,uuid)'::regprocedure),0);",
-                            prefix="SET LOCAL track_functions='all';").splitlines()
-    expected, checked = json.loads(counted[-2]), int(counted[-1])
+    expected = read()
     assert expected and all('__missing_swap_revision' not in r for r in expected)
-    # Two independent floating sides may each consume a quote. An ordinary
-    # projection must not authorize every unrelated quote for every revision.
-    assert checked <= 2 * len(expected), (checked, len(expected))
-    print(f'PASS swap projection checks {checked} quotes for {len(expected)} selected revisions', flush=True)
     _projection_rows(query, manifest, bind, statement, expected)
-    reference = str(UUID(manifest['referenceCatalogId']))
-    revision = str(UUID(manifest['referenceRevisionId']))
-    quotes = {r['quote_code'] for r in expected}
     literal = lambda value: "'" + value.replace("'", "''") + "'"
-    unused = query(f"SELECT code FROM ref_data.quote_specifications WHERE catalog_id='{reference}' "
-                   f"AND revision_id='{revision}' AND code NOT IN({','.join(map(literal, sorted(quotes)))}) "
-                   "ORDER BY code LIMIT 1;")
-    assert unused, 'The synthetic projection check needs an unrelated quote.'
-    query(f"""CREATE FUNCTION public.synthetic_swap_quote_guard(code text) RETURNS boolean
-      LANGUAGE plpgsql VOLATILE AS $$BEGIN
-      IF code={literal(unused)} THEN RAISE EXCEPTION 'Unrelated synthetic swap quote inspected' USING ERRCODE='42501';END IF;
-      RETURN true;END$$;
-      CREATE POLICY synthetic_swap_quote_guard ON ref_data.quote_specifications AS RESTRICTIVE
-      FOR SELECT TO openetrm_runtime USING(public.synthetic_swap_quote_guard(code));""")
-    try:
-        assert read() == expected, 'An unrelated quote changed the complete retained swap projection.'
-        print('PASS swap projection reads only the exact quotes its selected sides name', flush=True)
-    finally:
-        query('DROP POLICY synthetic_swap_quote_guard ON ref_data.quote_specifications;'
-              'DROP FUNCTION public.synthetic_swap_quote_guard(text);')
-
     selected = expected[0]
     quote_catalog = str(UUID(selected['reference_catalog_id']))
     quote_revision = str(UUID(selected['reference_revision_id']))
@@ -113,7 +85,7 @@ def _upgrade(query, read):
     start = original.index('CREATE VIEW trading.swap_revision_projection')
     previous = original[start:original.index('ALTER VIEW trading.swap_revision_projection', start)]
     previous = previous.replace('CREATE VIEW', 'CREATE OR REPLACE VIEW', 1)
-    migration = (root / 'db/migrations/0158_swap_exact_quote_projection.sql').read_text()
+    migration = (root / 'db/migrations/0158_swap_projection_read_work.sql').read_text()
     function = 'trading.read_swap_revisions(uuid,uuid,boolean,uuid[])'
 
     def function_state():
@@ -142,7 +114,7 @@ def _upgrade(query, read):
         assert after_function == before_function, 'The planner change altered function authority or its definition.'
         assert after_settings == {**before_settings, 'join_collapse_limit': '1'}, after_settings
         assert read() == expected and query(fingerprint) == unchanged
-        print('PASS exact-quote upgrade preserves projected values, financial rows and authority with only its scoped planner setting', flush=True)
+        print('PASS swap projection upgrade preserves projected values, financial rows and authority with only its scoped planner setting', flush=True)
         altered = previous.rstrip().removesuffix(';') + ' WHERE true;'
         query(altered)
         altered_definition = query("SELECT pg_get_viewdef('trading.swap_revision_projection',true);")
@@ -152,11 +124,11 @@ def _upgrade(query, read):
         except RuntimeError as refusal:
             assert 'swap_projection_upgrade_mismatch' in str(refusal), refusal
         else:
-            raise AssertionError('The quote upgrade accepted an unexpected predecessor view.')
+            raise AssertionError('The projection upgrade accepted an unexpected predecessor view.')
         assert query("SELECT pg_get_viewdef('trading.swap_revision_projection',true);") == altered_definition
         assert function_state() == altered_function, 'A refused upgrade changed function configuration or authority.'
         assert query(fingerprint) == unchanged
-        print('PASS exact-quote upgrade refuses an unexpected view without changing its data or authority', flush=True)
+        print('PASS swap projection upgrade refuses an unexpected view without changing its data or authority', flush=True)
     finally:
         try:
             query(previous)

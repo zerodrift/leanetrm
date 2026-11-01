@@ -1,4 +1,4 @@
--- Bound retained swap quotes and ordered projections to their selected sides.
+-- Read ordered retained swap projections once for each selected side.
 BEGIN;
 SELECT 1 FROM security.epoch FOR UPDATE;
 SELECT pg_advisory_xact_lock(730849102);
@@ -66,9 +66,7 @@ BEGIN
        AND reloptions=ARRAY['security_invoker=true'])
  THEN RAISE EXCEPTION 'swap_projection_upgrade_mismatch';END IF;
  projection:=previous;
- projection:=replace(projection,$old$JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(s.reference_catalog_id,s.reference_revision_id,s.quote_code)$old$,$new$-- Resolve the side before its exact quote, preserving invoker RLS.
-   JOIN LATERAL(SELECT q.currency_code,q.commodity_code FROM ref_data.quote_specifications q
-    WHERE(q.catalog_id,q.revision_id,q.code)=(s.reference_catalog_id,s.reference_revision_id,s.quote_code) OFFSET 0)q ON true$new$);
+
  projection:=replace(projection,$old$    CASE WHEN i.scheduled_first_id IS NULL THEN(SELECT array_agg(p.contract_id ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE p.catalog_id=s.catalog_id AND p.side_id=s.id) ELSE(SELECT array_agg(p.contract_id ORDER BY p.ordinal) FROM trading.swap_period_projections p WHERE(p.catalog_id,p.side_id,p.period_ordinal)=(i.catalog_id,i.scheduled_second_id,0)) END AS projection_contracts,
     CASE WHEN i.scheduled_first_id IS NULL THEN(SELECT array_agg(p.weight ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE p.catalog_id=s.catalog_id AND p.side_id=s.id) ELSE(SELECT array_agg(p.weight ORDER BY p.ordinal) FROM trading.swap_period_projections p WHERE(p.catalog_id,p.side_id,p.period_ordinal)=(i.catalog_id,i.scheduled_second_id,0)) END AS projection_weights,$old$,$new$    projections.contracts AS projection_contracts,projections.weights AS projection_weights,$new$);
  projection:=replace(projection,$old$    (SELECT array_agg(p.contract_id ORDER BY p.ordinal) FROM trading.swap_reset_projections p WHERE(p.catalog_id,p.side_id)=(i.catalog_id,i.first_floating_side_id)) AS first_projection_contracts,
