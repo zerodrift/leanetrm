@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Options;
@@ -10,6 +11,8 @@ internal static class FuturesOptionChecks
         Check("lattice domain and range errors are structured", LatticeErrors);
         Check("lattice converts to exact decimals with half-even rounding", LatticeExactConversion);
         Check("lattice arithmetic rounds half-even once per operation", LatticeArithmetic);
+        Check("backward induction solves the two-step hand tree", TwoStepHandTree);
+        Check("backward induction rejects invalid contracts with structured errors", InductionContractErrors);
     }
 
     private static void LatticeFunctionsMatchOracle()
@@ -77,6 +80,79 @@ internal static class FuturesOptionChecks
         Equal((tiny / LatticeDecimal.Parse("-2")).ToString(), "0");
         Equal((LatticeDecimal.Parse("0.000000000000000000000000000003") / LatticeDecimal.Parse("-2")).ToString(), "-0.000000000000000000000000000002");
         Equal((LatticeDecimal.Parse("0") / LatticeDecimal.Parse("-2")).ToString(), "0");
+    }
+
+    // Hand tree: S0=100, up 1.2, down 0.8, p=0.5; terminal S = 144, 96, 64, so put (K=100)
+    // payoffs are 0, 4, 36. Discount(step) is the factor applied rolling back from step+1 to step.
+    //   European, discount 0.9: step-1 up node 0.9*(0.5*0+0.5*4)=1.8, down node 0.9*(0.5*4+0.5*36)=18,
+    //   root 0.9*(0.5*1.8+0.5*18)=8.91.
+    //   American, discount 0.9: down node max(exercise 100-80=20, hold 18)=20, so root 0.9*(1.8+20)/2=9.81.
+    //   American, discount 1: down node hold 0.5*(4+36)=20 ties exercise 20; the first declared decision (hold) wins.
+    private static void TwoStepHandTree()
+    {
+        var lattice = new TestLattice(2, "0.9");
+        var european = BackwardInduction.Solve(lattice, new TestPut("100", false), CancellationToken.None);
+        Equal(european.Root.ToString(), "8.91");
+        Equal(european.Chosen[1][1][TestState.Alive], "hold");
+
+        var american = BackwardInduction.Solve(lattice, new TestPut("100", true), CancellationToken.None);
+        Equal(american.Root.ToString(), "9.81");
+        Equal(american.Chosen[1][1][TestState.Alive], "exercise");
+        Equal(american.Chosen[1][0][TestState.Alive], "hold");
+        Equal(american.Chosen[1][1][TestState.Exercised], "hold");
+        Equal(american.Chosen.Length.ToString(), "2");
+
+        var tie = BackwardInduction.Solve(new TestLattice(2, "1"), new TestPut("100", true), CancellationToken.None);
+        Equal(tie.Chosen[1][1][TestState.Alive], "hold");
+        Equal(tie.Root.ToString(), "11");  // up node 2, down node 20, root (2+20)/2
+    }
+
+    private static void InductionContractErrors()
+    {
+        var put = new TestPut("100", true);
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(0, "0.9"), put, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { UpProbability = LatticeDecimal.Parse("0.6") }, put, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9") { Overshoot = true }, put, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { OmitExercised = true }, CancellationToken.None));
+        Reject("induction_contract", () => BackwardInduction.Solve(new TestLattice(2, "0.9"), new TestPut("100", true) { NoDecisions = true }, CancellationToken.None));
+        var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        try { BackwardInduction.Solve(new TestLattice(2, "0.9"), put, cancelled.Token); throw new Exception("Expected cancellation."); }
+        catch (OperationCanceledException) { }
+    }
+
+    private enum TestState { Alive, Exercised }
+
+    private sealed class TestLattice(int steps, string discount) : ILattice
+    {
+        public LatticeDecimal UpProbability { get; init; } = LatticeDecimal.Parse("0.5");
+        public bool Overshoot { get; init; }
+        public int Steps => steps;
+        public int Nodes(int step) => step + 1;
+        public LatticeDecimal Underlying(int step, int node) =>
+            LatticeDecimal.Parse("100") * LatticeDecimal.Parse("1.2").Pow(step - node) * LatticeDecimal.Parse("0.8").Pow(node);
+        public (int Node, LatticeDecimal Probability)[] Next(int step, int node) =>
+            [(node, UpProbability), (Overshoot ? step + 2 : node + 1, LatticeDecimal.Parse("0.5"))];
+        public LatticeDecimal Discount(int step) => LatticeDecimal.Parse(discount);
+    }
+
+    private sealed class TestPut(string strike, bool american) : IInductionContract<TestState>
+    {
+        public bool OmitExercised { get; init; }
+        public bool NoDecisions { get; init; }
+        public ImmutableArray<TestState> States => american ? [TestState.Alive, TestState.Exercised] : [TestState.Alive];
+        private LatticeDecimal Intrinsic(LatticeDecimal underlying) =>
+            LatticeDecimal.Max(LatticeDecimal.Parse(strike) - underlying, LatticeDecimal.Parse("0"));
+        public LatticeDecimal Terminal(LatticeDecimal underlying, TestState state) =>
+            state == TestState.Alive ? Intrinsic(underlying) : LatticeDecimal.Parse("0");
+        public ImmutableArray<InductionDecision<TestState>> Decisions(int step, LatticeDecimal underlying, TestState state)
+        {
+            var zero = LatticeDecimal.Parse("0");
+            if (NoDecisions) return [];
+            if (state == TestState.Exercised) return [new("hold", zero, TestState.Exercised)];
+            var hold = new InductionDecision<TestState>("hold", zero, TestState.Alive);
+            if (!american) return [hold];
+            return [hold, new("exercise", Intrinsic(underlying), OmitExercised ? (TestState)7 : TestState.Exercised)];
+        }
     }
 
     private static void Check(string label, Action run) { run(); Console.WriteLine($"PASS {label}"); }
