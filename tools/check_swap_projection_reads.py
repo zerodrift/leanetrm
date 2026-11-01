@@ -85,7 +85,7 @@ def _upgrade(query, read):
     start = original.index('CREATE VIEW trading.swap_revision_projection')
     previous = original[start:original.index('ALTER VIEW trading.swap_revision_projection', start)]
     previous = previous.replace('CREATE VIEW', 'CREATE OR REPLACE VIEW', 1)
-    migration = (root / 'db/migrations/0158_swap_projection_read_work.sql').read_text()
+    migration = (root / 'db/migrations/0159_swap_projection_read_work.sql').read_text()
     function = 'trading.read_swap_revisions(uuid,uuid,boolean,uuid[])'
 
     def function_state():
@@ -103,7 +103,7 @@ def _upgrade(query, read):
         "oid,relowner,relacl,reloptions,relrowsecurity,relforcerowsecurity) ORDER BY oid) FROM pg_class "\
         "WHERE relnamespace IN('trading'::regnamespace,'ref_data'::regnamespace)));"
     try:
-        # The owned fixture already applied 0158. Restore both parts of its
+        # The owned fixture already applied 0159. Restore both parts of its
         # predecessor so this check actually qualifies the configuration upgrade.
         query(previous)
         query(f'ALTER FUNCTION {function} RESET join_collapse_limit;')

@@ -1220,7 +1220,7 @@ reads retain their existing scope. Supplemental swap markets resolve corrections
 only in a certified context's own frames (D172). End-to-end cold-entry
 performance requires separate qualification.
 Retained swap projections read ordered reset contracts and weights together.
-Migration 0158 preserves invoker RLS and missing-child refusal, and retains the
+Migration 0159 preserves invoker RLS and missing-child refusal, and retains the
 read function's dependent join order within its own scope. The owned check bounds
 projection row reads by selected facts, preserving exact output, column types,
 function authority and caller configuration. Quote lookup plan changes require
