@@ -842,9 +842,10 @@ public sealed class PreviewData
     public string PriceUnit(string curve)
     {
         var quote=Single(QuoteRows(Single(DefinitionRows("curves","code",curve)).Text("quote_code")));
-        var unit=Single(ReferenceRows("units","code",Single(ReferenceRows("quantity_specifications","code",quote.Quantity.Code)).Text("unit_code")));
-        return PriceUnitLabel(Single(ReferenceRows("currencies","code",quote.Currency.Code)).Text("display_code"),unit.Text("symbol"),quote.Multiplier.ToString());
+        return PriceUnitLabel(Single(ReferenceRows("currencies","code",quote.Currency.Code)).Text("display_code"),QuantityUnit(quote.Quantity.Code),quote.Multiplier.ToString());
     }
+    // The symbol of the unit a quantity specification measures in.
+    public string QuantityUnit(string specification)=>Single(ReferenceRows("units","code",Single(ReferenceRows("quantity_specifications","code",specification)).Text("unit_code"))).Text("symbol");
     // Currency, then unit, then a price multiplier other than one.
     public static string PriceUnitLabel(string currency,string unit,string? multiplier)=>currency+"/"+unit+(multiplier is not (null or "1")?" × "+multiplier:"");
     public static void RequireBundlePin(PreviewManifest manifest, JsonElement row)

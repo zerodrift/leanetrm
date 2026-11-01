@@ -3,7 +3,7 @@ from copy import deepcopy
 from decimal import Decimal
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
-from preview_fixture import trade_booking
+from preview_fixture import gas_purchase
 
 
 def run_checks(url):
@@ -22,12 +22,13 @@ def run_checks(url):
     c.call('profile',{'profile':'trader'})
     w=c.call('workspace');frame=initial_frame(w,'2020-12-18')
     context={'snapshotId':frame['id'],'convention':'physical_gas_fixed_quantity_v4','knowledgeMode':'current'}
-    catalog=c.call('gas/catalog',context);a=next(p for p in catalog['locations'] if p['deliveryPoint']=='synthetic_gas_point_a')
-    body={**context,**trade_booking(),'operationId':str(uuid4()),'gasSetupId':catalog['gasSetupId'],'bookId':catalog['books'][0]['id'],
-          'definitionRevisionId':a['definitionRevisionId'],'pipeline':a['pipeline'],'zone':a['zone'],'deliveryPoint':a['deliveryPoint'],'product':a['product'],
-          'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','quantity':'1000','quantityBasis':'period_total_equal_days','direction':'receive','fixedPrice':'3',
-          'usageFee':'0.1','usageTariffCode':None,'usageFeeDirection':'pay','paymentAt':'2021-02-02T00:00:00Z','discounting':False}
-    before=c.call('gas/preview',body);booked=c.call('gas/book',body)
+    catalog=c.call('gas/catalog',context)
+    body=gas_purchase(context,catalog)
+    # A booking pins the setup it was priced under, and a reopened booking keeps it after a later publication.
+    preview=lambda b:c.call('gas/composition/preview',b)
+    reopened=lambda trade:c.call('gas/composition/editor',{'context':context,'tradeId':trade})['valuation']
+    with_setup=lambda b,setup,**physical:{**b,'operationId':str(uuid4()),'gasSetupId':setup,'physicalSides':[{**b['physicalSides'][0],**physical}]}
+    before=preview(body);booked=c.call('gas/composition/book',body)
     c.call('profile',{'profile':'editor'})
     changed=deepcopy(payload);next(g for g in changed['groups'] if g['code']=='synthetic_gas_group_a')['adjustment']='-0.2'
     next(p for p in changed['paths'] if p['point']=='synthetic_gas_point_d')['zone']='synthetic_gas_zone_b'
@@ -44,19 +45,20 @@ def run_checks(url):
     earlier=c.call('gas/catalog',{**context,'knowledgeMode':'retained','contextId':catalog['context']['contextId']})
     assert earlier['gasSetupId']==catalog['gasSetupId'], 'Later setup publications cannot enter an earlier certified context'
     assert next(p for p in after['locations'] if p['deliveryPoint']=='synthetic_gas_point_d')['zone']=='synthetic_gas_zone_b'
-    moved=c.call('gas/preview',{**body,'operationId':str(uuid4()),'gasSetupId':new['setupId'],'zone':'synthetic_gas_zone_b','deliveryPoint':'synthetic_gas_point_d'})
-    assert moved['valuation']['deliveryRows'][0]['start'].startswith('2021-01-01T02:00:00')
-    assert Decimal(moved['valuation']['presentValue'])==-50
-    new_body={**body,'operationId':str(uuid4()),'gasSetupId':new['setupId']}
-    changed_value=c.call('gas/preview',new_body)
-    assert Decimal(changed_value['valuation']['presentValue'])==0
-    assert changed_value['valuation']['deliveryRows'][0]['meter']['setupId']==new['setupId']
-    assert changed_value['valuation']['deliveryRows'][0]['meter']['identifier']=='SYN-METER-A-UPDATED'
+    moved=preview(with_setup(body,new['setupId'],zone='synthetic_gas_zone_b',deliveryPoint='synthetic_gas_point_d'))
+    assert moved['sides'][0]['deliveryRows'][0]['start'].startswith('2021-01-01T02:00:00')
+    assert Decimal(moved['presentValue'])==-50
+    new_body=with_setup(body,new['setupId'])
+    changed_value=preview(new_body)
+    assert Decimal(changed_value['presentValue'])==0
+    assert changed_value['sides'][0]['deliveryRows'][0]['meter']['setupId']==new['setupId']
+    assert changed_value['sides'][0]['deliveryRows'][0]['meter']['identifier']=='SYN-METER-A-UPDATED'
     tariff=next(t for t in after['tariffs'] if t['name']=='synthetic_gas_usage_a')
-    assert Decimal(c.call('gas/preview',{**new_body,'usageFee':None,'usageTariffCode':tariff['code']})['valuation']['presentValue'])==-20
-    second=c.call('gas/book',new_body)
-    assert Decimal(c.call('gas/editor',{'context':context,'tradeId':second['tradeId']})['valuation']['presentValue'])==0
-    assert c.call('gas/editor',{'context':context,'tradeId':booked['tradeId']})['valuation']==before['valuation']
+    tariffed={**new_body,'cashSides':[new_body['cashSides'][0],{**new_body['cashSides'][1],'price':None,'tariffCode':tariff['code']}]}
+    assert Decimal(preview(tariffed)['presentValue'])==-20
+    second=c.call('gas/composition/book',new_body)
+    assert Decimal(reopened(second['tradeId'])['presentValue'])==0
+    first=reopened(booked['tradeId']);assert first=={k:before[k] for k in first},(first,before)
     c.call('profile',{'profile':'editor'})
     bad=deepcopy(changed);bad['meters'].append(deepcopy(bad['meters'][0]));bad['meters'][-1]['code']='synthetic_duplicate'
     invalid=c.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':new['setupId'],'configuration':bad})

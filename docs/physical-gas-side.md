@@ -1,20 +1,23 @@
 # Physical gas booking and pre-delivery valuation
 
-The single-point physical-gas template composes one delivery side, one
-consideration side and optional linear usage-charge sides. It generates a
-complete executable schedule and values it through the existing exact schedule
-interpreter and market-source resolver. No second gas arithmetic engine is used.
+Physical gas is entered in the [deal ticket](deal-ticket.md) (D281). Its booking is
+the independent-side composition below: one to four physical sides with payment and
+fee sides. A purchase or sale at one point is the composition of one physical side.
 
-The local application now admits a bounded fixed-price gas booking profile through
-`gas/catalog`, `gas/preview`, `gas/book`, `gas/status`, `gas/directory` and
-`gas/editor`. These operations remain available in the page’s single-point template. Its v4 booking
-command supplies pipeline, zone, delivery location and product; the backend
-resolves the valuation mapping. Delivery dates are independent inputs. Booking stages
-and atomically publishes the common retained schedules; reopening loads their
-stored executable programs and resolves source metadata from authorized typed
-references. It never rebuilds an instrument or schedule for booked execution.
+The single-point template and its operations (`gas/preview`, `gas/instructions`,
+`gas/book`, `gas/status`, `gas/directory` and `gas/editor`) are removed; no new
+single-point trade can be booked, and migration 0156 revokes the runtime's call of
+the retired booking entry, `security.book_physical_gas`. `gas/catalog` remains. Stored
+single-point trades stay readable: the Blotter values them and the trade read and the
+deal ticket open them read-only, all as the one-physical-side composition they are,
+from their retained programs. Their v4 command supplied pipeline, zone, delivery location and product;
+the backend resolved the valuation mapping. Delivery dates were independent inputs.
+Reopening loads their stored executable programs and resolves source metadata from
+authorized typed references. It never rebuilds an instrument or schedule for booked
+execution. Both profiles value through the existing exact schedule interpreter and
+market-source resolver; no second gas arithmetic engine is used.
 
-The persisted profile admits one forward month or a 1–31-day subset, a selected
+The stored single-point profile admitted one forward month or a 1–31-day subset, a selected
 fixed-offset gas clock and start minute, daily or equal-day period-total fixed
 quantities, receive/deliver direction, fixed consideration, an optional fixed
 per-unit fee with its own pay/receive direction, an explicit UTC payment instant and explicit no discounting. It
@@ -24,16 +27,19 @@ captured clocks remain separately bounded capabilities.
 
 Physical settlement, inventory and gas scenario risk remain unsupported. The common Blotter includes both gas profiles through the native retained-schedule pricer, with a distinct contractual PV measure. One immutable gas instrument is one position binding; physical-side quantities are never summed into a receipt-plus-delivery total. Missing gas market context or started delivery produces an explicit unavailable valuation, while retained terms and daily operational quantities remain readable.
 
-New trade offers Future, Swap, PPA and Physical gas in the same panel. Each form uses its existing preview, booking, status and idempotent recovery operations. A confirmed booking refreshes the common Blotter and opens its exact position when uniquely identified. Gas daily quantities open from that position. PPA lifecycle operations remain native and open in the same panel. Unknown booking outcomes block replacement requests and retain the actor-owned command across editor remounts, including when supplementary browser storage fails.
+New trade offers Future, Swap, PPA and Physical gas in the same panel. Physical gas opens the deal ticket, whose operations delegate to the composition's preview, booking, status and idempotent recovery operations; the other forms use their own. A confirmed booking refreshes the common Blotter and opens its exact position when uniquely identified. A booked composition's day quantities are recorded in its physical side's tab of the ticket. PPA lifecycle operations remain native and open in the same panel. Unknown booking outcomes block replacement requests and retain the actor-owned command across ticket remounts, including when supplementary browser storage fails.
 
 Mixed interactive and queued risk reports retain the exact gas bindings as `physical_gas_risk_unavailable` exclusions while repricing supported financial/PPA holdings. A gas-only scope cannot return a successful zero risk result. Migration 0150 supplies the minimal temporal gas position inventory to leased risk workers without granting raw gas table access. Automated closes containing gas remain explicitly unsupported. Operational quantity revisions do not change contractual PV or create extra positions.
 
 ## Independent sides and fixed quantity links
 
-The default Physical gas ticket now provides **Add physical side** and **Add cash /
-fee side**. Its explicit profile is `fixed_gas_composition_v1`, using the existing
-v4 context convention and `gas/composition/preview`, `/book`, `/status`, `/editor`
-and `/directory`. The single-point template remains available separately.
+The deal ticket's Add side offers physical, payment and fee sides. The explicit
+profile is `fixed_gas_composition_v1`, using the existing v4 context convention and
+`gas/composition/preview`, `/book`, `/status` and `/editor`, which the ticket
+operations delegate to. A preview and a booking are held to the gas setup their
+context resolves: a request naming another setup, or none where the context resolves
+one, refuses with `ticket_input` on the `gas_setup` field; a retried booking still
+receives its first outcome.
 
 Admit one to four physical memberships and up to four fixed-price cash/fee
 memberships. Receive/deliver belongs on each physical membership; pay/receive
@@ -297,14 +303,12 @@ are explicitly labeled `contractual`. Booked views load their quantities from
 retained executable roots; meter attribution neither regenerates the schedule
 nor replaces its contractual quantities.
 
-`gas/instructions` prepares an unsubmitted contractual meter schedule from the
-same authorized draft calculation. Every day needs one eligible meter and the
-same native quantity specification; missing coverage or a required measurement
-conversion refuses preparation. Physical MTM remains available at an unmetered
-commercial point. The preparation has no external submission, acceptance or
-measurement side effect. Actual readings and corrected allocations will be
-separate observations with purpose-specific eligibility; they cannot overwrite
-the immutable Side, meter reference history or stored contractual schedule.
+Preparing an unsubmitted contractual meter schedule (`gas/instructions`) belonged
+to the single-point template and was removed with it. Physical MTM remains
+available at an unmetered commercial point. Actual readings and corrected
+allocations will be separate observations with purpose-specific eligibility; they
+cannot overwrite the immutable Side, meter reference history or stored contractual
+schedule.
 
 ## Configured usage tariffs
 
@@ -380,32 +384,36 @@ Operational measurements and allocations remain separate capabilities.
 
 ## Local verification
 
-The complete managed runner passes 649 reported core checks, including gas
+The complete managed runner passes 653 reported core checks, including gas
 quantity, price-shock, fixing and retained-program cases. The focused stock
 PostgreSQL check is `tools/run_preview.py --physical-gas-check` with the installed
-`--pg-bin` and `--dotnet` paths. It verifies the synthetic purchase oracle:
-physical value +3200, fixed consideration −3000, usage fee −100, total PV +100.
-It also verifies exact cash, independent physical and fee directions, daily/period-total quantities,
-optional-fee composition, booking/reopen parity, idempotent retry, historical
-exclusion and read-only authority. The PZL checks also prove that the same location prices January and February,
-changing the configured physical zone changes PV, mismatched paths and unpriced
-points refuse, and the delivered point may differ from the market location.
-A non-midnight gas day is exercised through preview, booking and stored loading;
-a display-only reference revision preserves and proves its memberships and
-conventions. Thirty-six browser checks cover the physical fields, independent dates,
-side-level buy/sell direction, readable retained quantities, draft/review/publication,
-unsaved-edit protection and uncertain-response recovery.
-The reference checks verify shared group pricing, independent point/pipeline adders,
-dated meter changes, missing-meter preparation refusal, configured tariff PV80,
-period/pipeline mismatch refusal, meter overlap and identifier collisions, wrong
-commodity units, inconsistent group linkage, isolation refusal and display-clone
-identity preservation. Seven independently mutated graphs reject;
-additional permissive policies cannot bypass current authority; direct runtime
-booking rejects unsupported economic fields. Add `--browser-check --browser`
-to exercise the ticket and uncertain-response recovery. Add `--gas-setup-check`
-to qualify economic authoring, configured point/clock changes, historical setup
-visibility, tariff pricing and pre-publication booked price/meter preservation. These are bounded local
-checks, not production or complete gas lifecycle qualification.
+`--pg-bin` and `--dotnet` paths. It books the one-physical-side purchase through the
+composition operations and verifies the synthetic purchase oracle: physical value
++3200, fixed consideration −3000, usage fee −100, total PV +100. It also verifies
+independent physical and fee directions, daily/period-total quantities, the
+optional fee, booking/reopen parity, idempotent retry, historical exclusion and
+read-only authority. The PZL checks also prove that the same location prices
+January and February, changing the configured physical zone changes PV,
+mismatched paths and unpriced points refuse, a configured tariff prices PV80 and
+refuses outside its period or pipeline, and the delivered point may differ from the
+market location. A non-midnight gas day is exercised through preview. The reference
+checks verify shared group pricing, independent point/pipeline adders, meter
+overlap and identifier collisions, wrong commodity units, inconsistent group
+linkage, isolation refusal and display-clone identity preservation; additional
+permissive policies cannot bypass current authority. Add `--browser-check --browser`
+to exercise the deal ticket's gas entry: one gas entry in New trade, side-level
+direction, points filtered by zone and only valued points offered, and a fee's
+proposed tariff. Add `--gas-setup-check` to qualify economic authoring, configured
+point/clock changes, historical setup visibility, tariff pricing and pre-publication
+booked price/meter preservation. These are bounded local checks, not production or
+complete gas lifecycle qualification.
+
+Stored single-point trades are read, not booked. The mapping of their retained terms
+to a one-physical-side draft is checked without a database (`--gas-ticket`), and
+`--deal-ticket-check` writes one stored single-point booking through the owner
+connection, check-only, from a booked composition's retained programs, then opens
+it read-only through `tickets/trade` and compares its draft and schedule with a
+ticket preview of those terms.
 
 The multi-side integration runner is `tools/run_preview.py --gas-composition-check`
 with the same explicit SDK/PostgreSQL paths. Add `--browser-check --browser` for

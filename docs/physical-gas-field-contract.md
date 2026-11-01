@@ -215,8 +215,8 @@ linked opposing payment; that template is not the general composition contract.
 The independent-side API now admits one to four fixed contractual physical
 memberships and up to four fixed-price cash/fee memberships. Each has an explicit
 direction and exact quantity normalization. Cash selects a named physical
-receipt/delivery/fuel stage. The single-point template still derives opposing
-consideration. Operational quantity inputs and transport rights remain separate
+receipt/delivery/fuel stage. The single-point template, which derived opposing
+consideration, is removed; its stored trades read as one-physical-side compositions. Operational quantity inputs and transport rights remain separate
 gates.
 
 Two physical points can describe a location exchange. Transport additionally

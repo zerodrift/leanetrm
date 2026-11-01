@@ -24,9 +24,7 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
     assert value['sides'][0]['deliveryRows'][0]['meter']['identifier']=='SYN-METER-A-JAN'
     assert value['sides'][1]['deliveryRows'][0]['meter']['identifier']=='SYN-METER-B'
     assert [Decimal(s['presentValue']) for s in value['sides']]==[3200,-3038,-98]
-    assert value['links'][0]['receipt']=={'numerator':'1000','denominator':'1'}
-    assert value['links'][0]['delivery']=={'numerator':'980','denominator':'1'}
-    assert value['links'][0]['fuel']=={'numerator':'20','denominator':'1'}
+    assert {k:value['links'][0][k] for k in ['receipt','delivery','fuel']}=={'receipt':'1000','delivery':'980','fuel':'20'},value['links']
     booked=c.call('gas/composition/book',body)
     assert c.call('gas/composition/book',body)==booked
     reopened=c.call('gas/composition/editor',{'context':context,'tradeId':booked['tradeId']})
@@ -50,6 +48,8 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
     assert c.call('trading/position',selected)['holding']==holding
     terms=c.call('trading/gas',selected)
     assert len(terms['physical'])==2 and len(terms['components'])==3
+    # The gas terms say why the trade is not amended, as the deal ticket's booked read does.
+    assert terms['amend']['allowed'] is False and terms['amend']['reason'].startswith('Gas amendments'),terms['amend']
     c.call('trading/position',{**selected,'revision':2},expected=422)
     c.call('trading/position',{**selected,'bindingId':str(uuid4())},expected=422)
     print('PASS gas shares blotter, exact individual selection and retained side terms; no receipt/delivery quantity double counting',flush=True)

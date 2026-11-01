@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+from uuid import uuid4
 
 CAT = '40000000-0000-0000-0000-000000000001'
 REV = '60000000-0000-0000-0000-000000000001'
@@ -296,3 +297,18 @@ def trade_booking():
     """Exact party choices for the standard synthetic trading fixture."""
     return {'legalEntityId': 'd4000000-0000-0000-0000-000000000001', 'legalEntityRevision': 1,
             'counterpartyId': 'd5000000-0000-0000-0000-000000000001', 'counterpartyRevision': 1}
+
+
+def gas_purchase(context, catalog, point='synthetic_gas_point_a', fee='0.1'):
+    """One gas side received at a synthetic point through January 2021, paid at 3 with a manual usage fee on its delivered quantity.
+
+    It is the composition of one physical side that a single-point gas trade maps to; `fee=None` leaves the fee out.
+    """
+    p = next(p for p in catalog['locations'] if p['deliveryPoint'] == point)
+    charge = lambda code, role, price: {'code': code, 'role': role, 'direction': 'pay', 'source': 'gas', 'stage': 'delivery', 'price': price,
+                                        'tariffCode': None, 'paymentAt': '2021-02-02T00:00:00Z'}
+    return {**context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': catalog['books'][0]['id'], 'definitionRevisionId': p['definitionRevisionId'],
+            'gasSetupId': catalog['gasSetupId'], 'discounting': False, 'profile': 'fixed_gas_composition_v1',
+            'physicalSides': [{'code': 'gas', 'pipeline': p['pipeline'], 'zone': p['zone'], 'deliveryPoint': p['deliveryPoint'], 'product': p['product'], 'direction': 'receive',
+                               'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'quantityBasis': 'period_total_equal_days', 'quantity': '1000', 'link': None}],
+            'cashSides': [charge('payment', 'consideration', '3'), *([] if fee is None else [charge('usage', 'fee', fee)])]}

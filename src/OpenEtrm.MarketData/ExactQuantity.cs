@@ -42,6 +42,7 @@ public sealed record ExactQuantity
   if(other is null || Specification!=other.Specification)throw new MarketDataException("quantity_mismatch","Exact quantities require the same quantity specification.");
   return new(value+other.value,Specification);
  }
+ public string ToExactString()=>ExactNumberText.Format(value);
  public Quantity ToQuantity(AmountFormat? rounding=null)
  {
   if(rounding is not null)return new(rounding.RoundFraction(numerator,denominator),Specification);

@@ -1,7 +1,7 @@
 import {setupPhysicalCrude} from './physical-crude-editor.js';
 import {productTickets} from './product-tickets.js';
 import {setupGasConfiguration} from './gas-setup-editor.js';
-import {setupPhysicalGas} from './physical-gas-editor.js';
+import {setupGasTicket} from './gas-trade-view.js';
 import {refreshContextPanels} from './context-view.js';
 import {setupPpa} from './ppa-editor.js';
 import {setupCustomCurves} from './custom-curves-view.js';
@@ -116,7 +116,8 @@ function persist(){try{savePreferences(localStorage,(exampleId==='baseline'?curr
 function loadProfile(){clearTableFilters();try{prefs=loadPreferences(localStorage,(exampleId==='baseline'?currentProfile:exampleId+':'+currentProfile),Intl.DateTimeFormat().resolvedOptions().timeZone);}catch{prefs=newPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone);notice('Your saved profile could not be loaded. This visit uses your browser’s time zone. You can save your preferences in Profile.');}}
 function syncControls(){
   renderWorkspaceMode();
-  document.querySelectorAll<HTMLButtonElement|HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>('button,input,select,textarea').forEach(n=>n.disabled=busy);
+  // A view that keeps its controls' states itself (data-own-controls: the deal ticket, coming-soon entries) is left as it drew them.
+  document.querySelectorAll<HTMLButtonElement|HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>('button,input,select,textarea').forEach(n=>{if(!n.closest('[data-own-controls]'))n.disabled=busy;});
   if(!busy){$('save').toggleAttribute('disabled',!canCorrect());select('snapshot').disabled=['admin','ai'].includes(page);$('follow-live').toggleAttribute('disabled',!select('snapshot').value);}
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
@@ -179,7 +180,6 @@ async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
     if(!await futures.leaveWindow()){keptWindowEdits=true;return false;}
   }
   if(page==='crude'&&move!=='keeps'&&move!=='follows'){if(modal?.open)modal.close();return crude.leave();}
-  if(page==='gas'&&move!=='keeps'&&move!=='follows'){if(modal?.open)modal.close();return gas.leave();}
   if(page==='gas-setup'&&move!=='keeps'&&move!=='follows'){if(modal?.open)modal.close();return gasSetup.leave();}
   if(page==='reference'){
     if(move==='keeps'||move==='follows'||!referenceEditor.editing())return true;
@@ -892,7 +892,7 @@ function closeChanged(){
 }
 async function loadSelectedClose(){
   if(!select('snapshot').value)return;
-  if(page==='crude')await crude.load();else if(page==='gas')await gas.load();else if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'){if(curve)await build();await loadBoard();}else if(page==='dashboard')await dashboard.load();
+  if(page==='crude')await crude.load();else if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'){if(curve)await build();await loadBoard();}else if(page==='dashboard')await dashboard.load();
 }
 // A close the person chooses waits for them to agree to what choosing it gives up. The hidden select that every read and command takes its close from
 // stays on the close the page shows until they do, so that nothing made while the question is open uses a close they have not confirmed, and keeping
@@ -977,7 +977,7 @@ const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
 const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant});
 const gasSetup=setupGasConfiguration({api,act,busy:()=>busy,actor:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext()});
 const crude=setupPhysicalCrude({api,act,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
-const gas=setupPhysicalGas({api,act,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
+const gas=setupGasTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,onBooked:ticketBooked});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext(),onBooked:ticketBooked});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
@@ -1001,7 +1001,7 @@ const knowledgeView=()=>navigation?.live?'live' as const:historicalContext()?'hi
 const tickets=productTickets({
  crude:{root:$('crude-page'),begin:crude.load,inspect:crude.inspect,reset:crude.reset,unsaved:crude.unsaved,pending:crude.pending,sync:crude.sync},
  ppa:{root:$('ppa-page'),begin:()=>ppa.begin(frame().at),inspect:id=>ppa.inspect(frame().at,id),reset:ppa.reset,unsaved:ppa.unsaved,pending:ppa.pending,sync:ppa.sync},
- gas:{root:$('gas-page'),begin:async()=>{await gas.load();},inspect:gas.inspect,reset:gas.reset,unsaved:gas.unsaved,pending:gas.pending,sync:gas.sync},
+ gas,
 });
 async function ticketBooked(tradeId:string):Promise<void>{if(tickets.active())await futures.bookedExternal(tradeId);}
 const futures=setupFutures({narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:error=>{text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');},failureCleared:()=>{$('error').hidden=true;if(!busy)text('status',pageStatus());},onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});

@@ -141,8 +141,8 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             @base=format(value.Base),up=format(value.Up),down=format(value.Down),upPnl=format(value.UpPnl),downPnl=format(value.DownPnl),
             delta=format(value.Delta.Value),gamma=format(value.Gamma.Value)};
         object Values(ExactDealRiskValues v)=>new{
-            @base=Exact(v.Base),up=Exact(v.Up),down=Exact(v.Down),upPnl=Exact(v.UpPnl),downPnl=Exact(v.DownPnl),
-            delta=Exact(v.Delta.Value),gamma=Exact(v.Gamma.Value),display=Amounts(v,Displayed),
+            @base=v.Base.ToExactString(),up=v.Up.ToExactString(),down=v.Down.ToExactString(),upPnl=v.UpPnl.ToExactString(),downPnl=v.DownPnl.ToExactString(),
+            delta=v.Delta.Value.ToExactString(),gamma=v.Gamma.Value.ToExactString(),display=Amounts(v,Displayed),
             currency=Currency(markets,v.Base.Currency),currencyReference=v.Base.Currency,
             deltaUnit=$"{Currency(markets,v.Base.Currency)} / ({Unit(markets,v.Delta.Unit.Factor)})",
             gammaUnit=$"{Currency(markets,v.Base.Currency)} / ({Unit(markets,v.Gamma.Unit.Factor)})²"};
@@ -171,11 +171,6 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
                 })})};
     }
 
-    private static string Exact(ExactMoney value)
-    {
-        try{return value.ToMoney().Amount.ToString();}
-        catch(MarketDataException e) when(e.Code is "precision_loss" or "numeric_range"){return value.Numerator+"/"+value.Denominator;}
-    }
     private static string Displayed(ExactMoney value)=>Display.FormatFraction(BigInteger.Parse(value.Numerator,CultureInfo.InvariantCulture),BigInteger.Parse(value.Denominator,CultureInfo.InvariantCulture));
     private static string MeasureLabel(string measure)=>measure switch{
         PortfolioValuation.FuturesMeasure=>"Futures execution P&L",PortfolioValuation.SwapMeasure=>"Present value",PortfolioValuation.PpaMeasure=>"Value excluding overdue cash",

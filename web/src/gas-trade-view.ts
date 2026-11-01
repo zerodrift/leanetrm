@@ -1,20 +1,42 @@
 import type {Holding} from './desk-model.js';
-import type {DetailRead,TermSection} from './position-panel.js';
+import type {AmendState,DetailRead,TermSection} from './position-panel.js';
 import {displayInstant} from './market-view.js';
+import {setupTicket,ticketBookingRetained,type TicketHandle} from './ticket-controller.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
+const convention='physical_gas_fixed_quantity_v4';
+
 type Row=Record<string,string|number|boolean|null>;
 // Read retained terms independently of pre-delivery PV. Operational quantities
 // remain available after delivery starts, without changing the booked contract.
-export async function readGasView(api:Api,context:Record<string,unknown>,h:Holding,operations:()=>void):Promise<DetailRead>{
- const detail=await api<{head:Row;physical:Row[];components:Row[]}>('trading/gas',{context:{...context,convention:'trading_workspace_v1'},tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision),instrumentType:'physical_gas'});
+// Every gas trade opens read-only in the deal ticket; a single-point trade opens as the composition of one physical side it is.
+export async function readGasView(api:Api,context:Record<string,unknown>,h:Holding):Promise<DetailRead>{
+ const detail=await api<{head:Row;amend:AmendState}>('trading/gas',{context:{...context,convention:'trading_workspace_v1'},tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision),instrumentType:'physical_gas'});
  if(String(detail.head.revision)!==h.revision||detail.head.instrument_id!==h.bindingId)throw Error('The gas position changed. Refresh the Blotter.');
- return{amend:{allowed:false,reason:'Gas amendments and physical settlement are not supported yet. Daily quantities are separate operational revisions.'},view:zone=>{
+ return{amend:detail.amend,view:zone=>{
   const terms:TermSection[]=[{title:'Physical gas trade',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Value measure','Contractual PV'],['Quantity policy','Retained physical-side schedules; delivery revisions do not change the contract']]}];
-  for(const p of detail.physical)terms.push({title:`Physical side ${Number(p.slot)+1}`,rows:[['Pipeline',String(p.pipeline_code)],['Zone',String(p.zone_code)],['Delivery location',String(p.point_code)],['Delivery',`${p.delivery_from} to ${p.delivery_to} exclusive`],['Pricing curve',String(p.curve_name)],['Native unit',String(p.unit)]]});
-  for(const m of detail.components)terms.push({title:`${m.code} · ${m.role}`,rows:[['Direction',String(m.direction)==='1'?'Receive':m.role==='physical'?'Deliver':'Pay'],
-   ...(m.role==='physical'?[["Quantity basis",String(m.quantity_basis)],["Independent quantity",String(m.independent_quantity??'Linked')],["Fuel rule",String(m.formula??'None')],["Fuel fraction",String(m.fraction??'0')]] as const: [["Quantity source slot",String(m.source_slot)],["Quantity stage",String(m.stage)],["Fixed price",String(m.price??'Tariff')],["Tariff",String(m.tariff_code??'None')],["Payment",displayInstant(String(m.payment_at),zone)]] as const)]});
-  if(!detail.components.length)terms.push({title:'Cash and quantity terms',rows:[['Quantity basis',String(detail.head.quantity_basis)],['Contract quantity',String(detail.head.quantity)],['Fixed price',String(detail.head.fixed_price)],['Usage fee',String(detail.head.usage_fee??'None')]]});
   return{terms,history:[{title:`Revision ${h.revision}`,rows:[['Booked',displayInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]}],
-   actions:detail.head.composition?[{id:'gas-operations',label:'Daily delivery quantities',run:operations}]:[]};
+   schedules:(host:HTMLElement)=>{
+    const box=document.createElement('div');host.append(box);
+    const ticket=setupTicket(box,{api,context:()=>({...context,convention}),product:'physical_gas',instant:at=>displayInstant(at,zone),opened:{tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision)}});
+    return ()=>{ticket.destroy();box.remove();};
+   }};
  }};
+}
+
+/** New trade's physical gas form: the deal ticket of physical gas, in the panel the trade is entered in. */
+export function setupGasTicket(o:{api:Api;source:()=>{snapshotId:string};historical:()=>boolean;actor:()=>string;instant:(at:string)=>string;onBooked:(tradeId:string)=>Promise<void>}){
+ const root=document.getElementById('gas-page')!,host=document.createElement('div');host.id='gas-ticket';root.replaceChildren(host);
+ let ticket:TicketHandle|undefined;
+ const reset=()=>{ticket?.destroy();ticket=undefined;};
+ return {root,reset,
+  async begin(){
+   reset();
+   if(o.historical())throw Error('Return to working data to enter a gas trade.');
+   ticket=setupTicket(host,{api:o.api,context:()=>({...o.source(),convention,knowledgeMode:'current'}),product:'physical_gas',instant:o.instant,actor:o.actor,booked:r=>void o.onBooked(r.tradeId)});
+  },
+  inspect:()=>Promise.reject(Error('A booked gas trade opens in the Details pane.')),
+  unsaved:()=>!!ticket?.unsaved(),
+  pending:()=>!!ticket?.pending()||ticketBookingRetained('physical_gas',o.actor),
+  // The ticket keeps itself in step with its own requests; the page's busy state does not change it.
+  sync:()=>{}};
 }

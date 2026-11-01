@@ -27,11 +27,7 @@ public sealed record ExactMoney
     public string ToString(AmountFormat format, AmountLabel currency) => format.FormatFraction(numerator, denominator) + " " + currency.Require(Currency);
     public static ExactMoney Parse(string value,ReferenceKey currency)
     {var(n,d)=ExactNumberText.Parse(value);return new(n,d,currency);}
-    public string ToExactString()
-    {
-        try{return ToMoney().Amount.ToString();}
-        catch(MarketDataException e)when(e.Code is "precision_loss" or "numeric_range"){return Numerator+"/"+Denominator;}
-    }
+    public string ToExactString()=>ExactNumberText.Format(value);
     public static ExactMoney FromMoney(Money money) => new(money.Amount.ScaledValue, ExactDecimal.WorkingScale, money.Currency);
     internal static ExactMoney FromFraction(BigInteger numerator,BigInteger denominator,ReferenceKey currency)=>new(numerator,denominator,currency);
     public ExactMoney Add(ExactMoney other)

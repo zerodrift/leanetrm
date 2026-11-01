@@ -24,12 +24,15 @@ def run_checks(url, receipt, *, run_worker):
     gas_context = {**context, 'convention': 'physical_gas_fixed_quantity_v4'}
     gas_catalog = c.call('gas/catalog', gas_context)
     location = next(p for p in gas_catalog['locations'] if p['deliveryPoint'] == 'synthetic_gas_point_a')
-    gas = c.call('gas/book', {**gas_context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': book,
+    cash = lambda code, role, price: {'code': code, 'role': role, 'direction': 'pay', 'source': 'physical', 'stage': 'delivery',
+        'price': price, 'tariffCode': None, 'paymentAt': '2021-02-01T00:00:00Z'}
+    gas = c.call('gas/composition/book', {**gas_context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': book,
         'gasSetupId': gas_catalog['gasSetupId'], 'definitionRevisionId': location['definitionRevisionId'],
-        'pipeline': location['pipeline'], 'zone': location['zone'], 'deliveryPoint': location['deliveryPoint'], 'product': location['product'],
-        'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01', 'quantity': '1000', 'quantityBasis': 'period_total_equal_days',
-        'direction': 'receive', 'fixedPrice': '3', 'usageFee': '0.1', 'usageTariffCode': None, 'usageFeeDirection': 'pay',
-        'paymentAt': '2021-02-01T00:00:00Z', 'discounting': False})
+        'discounting': False, 'profile': 'fixed_gas_composition_v1',
+        'physicalSides': [{'code': 'physical', 'pipeline': location['pipeline'], 'zone': location['zone'], 'deliveryPoint': location['deliveryPoint'],
+            'product': location['product'], 'direction': 'receive', 'deliveryFrom': '2021-01-01', 'deliveryTo': '2021-02-01',
+            'quantityBasis': 'period_total_equal_days', 'quantity': '1000', 'link': None}],
+        'cashSides': [cash('cash', 'consideration', '3'), cash('fee', 'fee', '0.1')]})
 
     view = dict(mode='trades', bookIds=[book], portfolioIds=[], groupBy=[], measures=[], pivotConvention=None)
     blotter = c.call('trading/blotter', dict(context=context, view=view))

@@ -181,6 +181,15 @@ internal static class TypedPriceChecks
             Reject("numeric_format",()=>ExactUnitPrice.Parse("1/0",unit));
             Equal(ExactMoney.Parse("1/3",unit.Currency).Add(ExactMoney.Parse("2/3",unit.Currency)).ToExactString(),"1");
         });
+        Check("exact text is a decimal at the working scale and range, otherwise a reduced ratio, and reads back exactly", () =>
+        {
+            var beyond = System.Numerics.BigInteger.Pow(10, 40);
+            foreach (var (value, text) in new[] { (new OpenEtrm.Shared.Numerics.SignedRatio(-10, 4), "-2.5"), (new(6, 3), "2"), (new(1, 3), "1/3"), (new(1, System.Numerics.BigInteger.Pow(10, 19)), "1/10000000000000000000"), (new(beyond, 1), beyond + "/1") })
+            {
+                Equal(ExactNumberText.Format(value), text);
+                var (n, d) = ExactNumberText.Parse(text); Equal(new OpenEtrm.Shared.Numerics.SignedRatio(n, d), value);
+            }
+        });
         Console.WriteLine($"{passed} typed price checks passed.");
         return passed;
     }

@@ -1,10 +1,11 @@
 import {newTrade,closeNewTrade} from './new-trade.mjs';
+import {bookedTicket,gasTicket,q} from './gas-ticket.mjs';
 import {copyFile,mkdtemp} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
 
 export async function run(a){
- const {command,evaluate,wait,click,set,submit,persona,check,idle,url,shot}=a;
+ const {command,evaluate,wait,click,set,persona,check,idle,url,shot}=a;
  const artifacts=await mkdtemp(join(tmpdir(),'openetrm-unified-trading-'));console.log('VISUAL_ARTIFACTS='+artifacts);
  const capture=async name=>{await shot(name);await copyFile(join(dirname(process.argv[2]),name+'.png'),join(artifacts,name+'.png'));};
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
@@ -21,37 +22,40 @@ export async function run(a){
   await closeNewTrade(a);
   await check(product+' closes without retaining a browser page-leave warning',`(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return !event.defaultPrevented;})()`);
  }
+ // Physical gas is entered in its deal ticket: a receipt at point A whose delivery at point B loses 2% fuel, and a fee on the delivery.
  await newTrade(a,'gas');
- const field=(n,key)=>`#gc-physical [data-physical="${n}"] [data-field="${key}"]`;
- const cash=(n,key)=>`#gc-cash [data-cash="${n}"] [data-field="${key}"]`;
- for(const id of ['gc-book','gc-entity','gc-party'])await set('#'+id,await evaluate(`document.querySelector('#${id}').options[1].value`));
- await set('#gc-policy','no_discounting');
- async function physical(n,zone,point,direction,mode){
-  for(const [key,value] of Object.entries({direction,product:'test_gas',pipeline:'test_pipeline_a',zone,deliveryPoint:point,deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01',quantityBasis:'period_total_equal_days',mode}))await set(field(n,key),value);
- }
- await physical(0,'synthetic_gas_zone_a','synthetic_gas_point_a','receive','independent');await set(field(0,'quantity'),'1000');await click('#gc-add-physical');
- await physical(1,'synthetic_gas_zone_b','synthetic_gas_point_b','deliver','linked');await set(field(1,'source'),'gas_1');await set(field(1,'formula'),'gross_less_fraction');await set(field(1,'fraction'),'0.02');
- await click('#gc-add-cash');
- for(const [key,value] of Object.entries({role:'fee',direction:'pay',source:'gas_2',stage:'delivery',tariffCode:'manual',price:'0.1',paymentAt:'2021-02-02T00:00'}))await set(cash(0,key),value);
- await submit('#gc-form');
- await check('the integrated ticket uses native linked-side pricing',`document.querySelector('#gc-total').textContent==='Present value: 64 USD'`, `document.querySelector('#error').textContent`);
+ const g=gasTicket(a);
+ await wait(`document.querySelectorAll(${q(g.ticket+' .ticket-card')}).length===2`);
+ await click(`${g.card('cash-1')} .ticket-remove`);await g.addSide('Physical','physical-2');await g.addSide('Fee','fee-1');
+ await g.tradeTerms();await g.physicalTerms('physical-1','receive','1000');await g.physicalTerms('physical-2','deliver',null,{zone:'synthetic_gas_zone_b',point:'synthetic_gas_point_b'});
+ await g.choose('physical-2','link_source','physical-1');await g.choose('physical-2','link_formula','gross_less_fraction');await set(g.control('physical-2','link_fraction'),'0.02');
+ await g.cashTerms('fee-1','fee','pay','physical-2','0.1');
+ const fee=`(document.querySelector(${q(g.card('fee-1')+' .ticket-summary')})?.textContent??'')`;
+ await g.until(g.current()+`&&${fee}.includes('-3,038')`);
+ await check('the integrated ticket prices the linked sides natively',`${fee}.includes('Billed quantity-30,380')`,fee);
  await capture('unified-gas-ticket');
- // Fail supplementary storage and lose an accepted response. Remounting the
- // editor must keep the exact operation in memory, without another booking.
- await evaluate(`{const original=window.fetch;window.bookRequests=[];Storage.prototype.setItem=function(){throw Error('Storage unavailable');};Storage.prototype.removeItem=function(){throw Error('Storage unavailable');};window.fetch=async(...args)=>{const r=await original(...args);if(String(args[0]).endsWith('/gas/composition/book')){window.bookRequests.push(JSON.parse(args[1].body));if(r.ok){window.bookReceipt=await r.clone().json();throw new TypeError('Lost accepted response');}}return r;};}`);
- await click('#gc-book-submit');
- await check('uncertain booking blocks replacement terms',`!document.querySelector('#gc-pending').hidden&&document.querySelector('#gc-policy').disabled`);
+ // Fail supplementary storage and lose an accepted response. Reopening the
+ // ticket must keep the exact request in memory, without another booking.
+ await evaluate(`{const original=window.fetch;window.bookRequests=[];Storage.prototype.setItem=function(){throw Error('Storage unavailable');};Storage.prototype.removeItem=function(){throw Error('Storage unavailable');};window.fetch=async(...args)=>{const r=await original(...args);if(String(args[0]).endsWith('/tickets/book')){window.bookRequests.push(JSON.parse(args[1].body));if(r.ok){window.bookReceipt=await r.clone().json();throw new TypeError('Lost accepted response');}}return r;};}`);
+ const reconcile="[...document.querySelectorAll('#gas-ticket .ticket-booking button')].find(b=>b.textContent==='Check booking status'&&!b.disabled)";
+ await click(`${g.ticket} .ticket-book`);await wait(`!!${reconcile}`);
+ await check('uncertain booking blocks replacement terms',`document.querySelector('#gas-ticket > div').inert`);
  await closeNewTrade(a);
- await check('common workflow offers recovery before another new trade',`document.querySelector('#futures-new').disabled&&[...document.querySelectorAll('#futures-retained button')].some(b=>b.textContent==='Reconcile physical gas request')`);
- await evaluate(`[...document.querySelectorAll('#futures-retained button')].find(b=>b.textContent==='Reconcile physical gas request').click()`);await wait(idle);
- await check('remount restores the same pending request with storage unavailable',`!document.querySelector('#gc-pending').hidden&&document.querySelector('#position-details-form').contains(document.querySelector('#gc-page')??document.querySelector('#gas-page'))`);
- await click('#gc-check');
- await wait(`!!document.querySelector('#gas-operations')&&${idle}`);
- await check('confirmed booking opens common retained trade terms exactly once',`window.bookRequests.length===1&&window.tradeReads.at(-1).blotter.holdings.filter(h=>h.tradeId===window.bookReceipt.tradeId).length===1&&document.querySelector('#position-details').textContent.includes('Physical gas trade')`, `({error:document.querySelector('#error').textContent,details:document.querySelector('#position-details').textContent})`);
- await click('#gas-operations');
- await check('daily operations open from that position without changing its contract',`document.querySelector('#position-details-form').contains(document.querySelector('#gq-grid'))&&document.querySelectorAll('#gq-grid tbody tr').length===62`, `({error:document.querySelector('#error').textContent,rows:document.querySelectorAll('#gq-grid tbody tr').length,mode:document.querySelector('#position-details').dataset.mode,form:document.querySelector('#position-details-form').hidden,parent:document.querySelector('#gas-page').parentElement.id})`);
- await set('#gq-row','0');await set('#gq-kind','nominated');await set('#gq-status','provisional');await set('#gq-quantity','31');await set('#gq-evidence','Daily nomination');await submit('#gq-form');
- await check('operational revision preserves contractual delivery quantities',`document.querySelector('#gq-grid tbody tr').textContent.includes('1000/31')&&document.querySelector('#gq-grid tbody tr').textContent.includes('31 · provisional')`);
+ await check('common workflow offers recovery before another new trade',`document.querySelector('#futures-new').disabled&&[...document.querySelectorAll('#futures-retained button')].some(b=>b.textContent==='Reconcile physical gas request')`,`({disabled:document.querySelector('#futures-new').disabled,retained:[...document.querySelectorAll('#futures-retained button')].map(b=>b.textContent),details:document.querySelector('#position-details').hidden})`);
+ await evaluate(`[...document.querySelectorAll('#futures-retained button')].find(b=>b.textContent==='Reconcile physical gas request').click()`);await wait(`!!${reconcile}&&${idle}`);
+ await check('reopening restores the same pending request with storage unavailable',`document.querySelector('#position-details-form').contains(document.querySelector('#gas-page'))&&document.querySelector('#gas-ticket > div').inert`);
+ await evaluate(`${reconcile}.click()`);
+ const booked=bookedTicket,opened=gasTicket(a,booked);
+ await opened.until(`!!document.querySelector(${q(booked)})&&`+opened.current(booked));
+ await check('confirmed booking opens common retained trade terms exactly once',`window.bookRequests.length===1&&window.tradeReads.at(-1).blotter.holdings.filter(h=>h.tradeId===window.bookReceipt.tradeId).length===1&&document.querySelector('#position-details').textContent.includes('Physical gas trade')`, `({error:document.querySelector('#error').textContent,details:document.querySelector('#position-details').textContent.slice(0,300)})`);
+ // A day's quantity is recorded from the booked physical side's tab, without changing its contract.
+ await set(`${booked} .ticket-level`,'day');await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
+ const cell=`${booked} .tabulator-row[data-row-key="2021-01-05"] .ticket-cell-input`,record=`${booked} .ticket-record`;
+ await wait(`!!document.querySelector(${q(cell)})`);await set(cell,'990');await wait(`!!document.querySelector(${q(record)})`);
+ for(const [id,value] of [['kind','nominated'],['status','provisional'],['evidence','Daily nomination']])await set(`${record} [data-field="${id}"] .ticket-control`,value);
+ await click(`${record} .ticket-record-send`);
+ await opened.until(`${opened.row('2021-01-05',booked)}.includes('Nominated')&&!document.querySelector(${q(record)})`);
+ await check('an operational day record keeps the contractual amount',`[...document.querySelectorAll(${q(booked+' .tabulator-row[data-row-key="2021-01-05"] .grid-source')})].map(t=>t.textContent).includes('Contract')`);
  await check('all integrated forms fit the desktop viewport',`document.documentElement.scrollWidth<=innerWidth`);
  await capture('unified-trading');
 }
