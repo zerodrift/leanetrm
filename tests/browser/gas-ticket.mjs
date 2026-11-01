@@ -9,9 +9,10 @@ export function gasTicket({evaluate,wait,set},ticket=newTicket){
  const card=(code,root=ticket)=>`${root} .ticket-card[data-side="${code}"]`;
  const field=(code,id)=>`${code===null?ticket+' .ticket-strip':card(code)} .ticket-field[data-field="${id}"]`;
  const control=(code,id)=>field(code,id)+' .ticket-control';
- // Choices arrive from the backend after the fields they depend on: a value is chosen once the backend lists it.
- const choose=async(code,id,value)=>{await wait(`[...document.querySelectorAll(${q(control(code,id)+' option')})].some(o=>o.value===${q(value)})`);await set(control(code,id),value);};
- const first=async(code,id)=>{await wait(`document.querySelectorAll(${q(control(code,id)+' option')}).length>1`);await set(control(code,id),await evaluate(`document.querySelector(${q(control(code,id))}).options[1].value`));};
+ // Choices use the ticket settling window: an API request may outlast the ordinary action wait.
+ // A value is chosen only once the backend lists it, with field diagnostics if it never arrives.
+ const choose=async(code,id,value)=>{await until(`[...document.querySelectorAll(${q(control(code,id)+' option')})].some(o=>o.value===${q(value)})`);await set(control(code,id),value);};
+ const first=async(code,id)=>{await until(`document.querySelectorAll(${q(control(code,id)+' option')}).length>1`);await set(control(code,id),await evaluate(`document.querySelector(${q(control(code,id))}).options[1].value`));};
  const status=(root=ticket)=>`document.querySelector(${q(root+' .ticket-status')})`;
  const current=(root=ticket)=>`${status(root)}?.dataset.kind==='current'&&!!document.querySelector(${q(root+' .tabulator-row')})`;
  const row=(key,root=ticket)=>`(document.querySelector(${q(root+' .tabulator-row[data-row-key="'+key+'"]')})?.textContent??'')`;
@@ -24,7 +25,7 @@ export function gasTicket({evaluate,wait,set},ticket=newTicket){
   // A context that resolves a published gas setup lists it, and the person chooses it before the sides list their choices; none is chosen
   // for them. Without one the sides list their choices at once.
   const setups=`document.querySelectorAll(${q(control(null,'gas_setup')+' option')}).length>1`;
-  await wait(`${setups}||[...document.querySelectorAll(${q(control('physical-1','product')+' option')})].some(o=>o.value==='test_gas')`);
+  await until(`${setups}||[...document.querySelectorAll(${q(control('physical-1','product')+' option')})].some(o=>o.value==='test_gas')`);
   if(await evaluate(setups))await first(null,'gas_setup');
  };
  // One January delivery per operating day at a synthetic point (A unless named); a quantity of null leaves it to the side's link.
