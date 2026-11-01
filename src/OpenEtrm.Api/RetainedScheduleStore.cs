@@ -29,8 +29,6 @@ internal sealed record RetainedScheduleTerms(DefinitionRevision Definitions,Refe
             definitions.Add(definition.SideId==side.Id?definition:definition.WithSideId(side.Id));
         }
         RetainedScheduleLimits.Require(definitions);
-        if(Instrument is OpenEtrm.MarketData.Gas.PhysicalGasInstrument gas)
-            outputs.Add(new(0,"quantity",gas.UnitQuantity.Specification,DefinitionIdentity.For(gas.Delivery.Quantities).Canonical));
         if(Instrument is OpenEtrm.MarketData.Gas.GasCompositionInstrument composition)
             for(var n=0;n<composition.Physical.Length;n++)outputs.Add(new(n,"quantity",composition.UnitQuantity.Specification,DefinitionIdentity.For(composition.Physical[n].Side.Quantities).Canonical));
         if(Instrument is PpaInstrument ppa)

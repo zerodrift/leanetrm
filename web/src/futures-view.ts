@@ -323,7 +323,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
-      const read=await(h.instrumentType==='physical_gas'?readGasView(api,context,h,()=>void manage('gas',h.tradeId)):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
+      const read=await(h.instrumentType==='physical_gas'?readGasView(api,context,h):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
       return stale?{...read,view:zone=>({...read.view(zone),actions:undefined})}:read;
     },
@@ -359,7 +359,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
   }
   // Gives the forms the panel hosts up, without asking, and updates the panel's controls for what it then shows.
   // The leave guard must read the final state after every editor has reset.
-  function resetForms(){options.tickets.detach();editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();queueMicrotask(options.unsavedChanged);}
+  // A product ticket closed with a request whose outcome is not known leaves it to be reconciled from the page at once.
+  function resetForms(){options.tickets.detach();editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();syncProductPending();syncNewTrade();queueMicrotask(options.unsavedChanged);}
   // Gives the panel's forms up without asking, for a page that is left on the person's word, so that no form stays held that they cannot return to.
   // A new trade has nothing but its form, so the panel it was in is closed with it.
   function dropForms(){resetForms();closeNew();options.reported();}

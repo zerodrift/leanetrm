@@ -1197,32 +1197,6 @@ var swapStore=new SwapStore(database);
 var gasStore=new PhysicalGasStore(database);
 api.MapPost("/gas/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,
  (connection,data,frame,ct)=>gasStore.CatalogRead(connection,data,frame,ct),expectedConvention:PhysicalGasStore.Convention));
-api.MapPost("/gas/preview",(HttpContext c,PhysicalGasWriteRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
- (connection,data,frame,ct)=>gasStore.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention));
-api.MapPost("/gas/instructions",(HttpContext c,PhysicalGasWriteRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
- (connection,data,frame,ct)=>gasStore.Instructions(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention));
-api.MapPost("/gas/directory",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,
- async(connection,data,frame,ct)=>await gasStore.Directory(connection,ct),expectedConvention:PhysicalGasStore.Convention));
-api.MapPost("/gas/editor",(HttpContext c,PhysicalGasEditorRequest body)=>FuturesRead(c,body.Context,
- (connection,data,frame,ct)=>gasStore.Editor(connection,data,frame,body.TradeId,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId));
-api.MapPost("/gas/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
-api.MapPost("/gas/book",(HttpContext c,PhysicalGasWriteRequest body)=>Locked(c,async session=>
-{
- if(session.MarketContext is not null||body.KnowledgeMode!="current")throw new MarketDataException("historical_read_only","Return to working data to book.");
- var profile=Profile(session);var frame=Frame(session,body.SnapshotId);var retained=new RetainedScheduleStore(database);
- var terms=await database.WithIdentity(profile,"BookTrade",async(connection,ct)=>{
-  var status=await gasStore.Status(connection,body.OperationId,ct);
-  return status.TryGetProperty("tradeId",out _)?null:await gasStore.Prepare(connection,frame,body,ct);
- },c.RequestAborted);
- if(terms is not null)await retained.Stage(profile,body.OperationId,body,"BookTrade",null,null,terms.Generate(c.RequestAborted),c.RequestAborted);
- return await database.WithIdentity(profile,"BookTrade",async(connection,ct)=>{
-  if(terms is not null)await retained.Lock(connection,body.OperationId,ct);
-  var result=await gasStore.Save(connection,frame,body,ct);
-  if(terms is not null)await retained.Publish(connection,body.OperationId,ct);
-  return Results.Ok(result);
- },c.RequestAborted);
-}));
-
 var gasDaily=new GasDailyQuantities(database);
 api.MapPost("/gas/quantities/read",(HttpContext c,GasDailyReadRequest body)=>TradingRead(c,body.Context,
  (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>gasDaily.Read(connection,view.CalculationFrame,body,ct),ct),expectedConvention:PhysicalGasStore.Convention));

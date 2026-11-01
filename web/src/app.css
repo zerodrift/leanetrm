@@ -1911,6 +1911,6 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 /* The same product form lives in the shared trade panel. */
 .embedded-trade{min-width:0}
 .embedded-trade > .card{margin:0 0 1rem}
-.embedded-trade #ppa-book-directory,.embedded-trade #gc-book-directory,.inspect-trade #gas-composer > section:first-child,.inspect-trade #gas-template{display:none}
+.embedded-trade #ppa-book-directory{display:none}
 #side-panel .product-switch{flex-wrap:wrap}
 #side-panel .embedded-trade .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}

@@ -559,8 +559,8 @@ def main():
                 from check_demo_instruments import run_checks as check_demo
                 run_demo_worker=risk_worker_runner()
                 check_demo(url,manifest,query,run_worker=run_demo_worker,owned_root=temporary,run_id=run_id,psql=psql,environment=env)
-                from check_physical_gas_preview import run_checks as check_single
-                check_single(url)
+                from check_physical_gas_preview import run_checks as check_gas_purchase
+                check_gas_purchase(url)
                 from check_gas_composition import run_checks as check_composed
                 check_composed(url,query,manifest,run_worker=run_demo_worker)
                 if args.browser_check:
@@ -568,8 +568,8 @@ def main():
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--unified-trading'],cwd=ROOT,env=env,check=True,timeout=240)
             elif args.physical_gas_check:
                 from check_physical_gas_preview import run_checks,run_shape_checks
-                gas_receipt=run_checks(url)
-                run_shape_checks(query,manifest,gas_receipt)
+                run_checks(url)
+                run_shape_checks(query,manifest)
                 if args.gas_daily_quantity_check:
                     from check_gas_daily_quantities import run_checks as check_gas_daily_quantities
                     check_gas_daily_quantities(url,query,manifest)

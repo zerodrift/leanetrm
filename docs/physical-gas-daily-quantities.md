@@ -2,7 +2,7 @@
 
 The daily quantity workflow records trade-owned operational evidence separately
 from immutable contractual Side programs. It accepts composed gas bookings only;
-the older single-point template is not enrolled. No trade amendment, physical
+stored single-point trades are not enrolled. No trade amendment, physical
 completion, cash determination, payment, inventory or weighted inventory-cost
 calculation follows from recording or selecting a quantity.
 
@@ -86,18 +86,16 @@ that wider lifecycle. A billing quantity preview is not a settlement determinati
 - `POST /api/gas/quantities/status`: original operation identity, actor-bound and
   checked against current trade/source authority.
 
-The Physical gas page has a Daily delivery quantities action beside each composed
-booking. It opens independently of pre-delivery valuation, so started deliveries
-can be inspected without bypassing the pricing lifecycle guard. The grid shows
-retained contract, nominated, confirmed, scheduled, allocated and selected
-quantities and source kind. Users explicitly select quantity kind/status and
-supply source evidence before recording. The revision history includes predecessor
-and source evidence. Financial calculations stay in the backend.
-
-An uncertain command retains its exact original contents in actor-scoped session
-storage. Reload restores status/retry actions and prevents replacement commands.
-A failed strict billing preview clears prior quantity results. Context/identity
-changes clear displayed evidence; historical views cannot write.
+A booked composition's day quantities are recorded in the [deal ticket](deal-ticket.md):
+in its physical side's tab each day quantity is an entry, and changing one opens a
+record whose kind, status and source evidence the person chooses. The ticket opens
+independently of pre-delivery valuation, so started deliveries can be inspected
+without bypassing the pricing lifecycle guard, and its schedule shows each day under
+the operations projection, tagged with the record's kind. Financial calculations
+stay in the backend. A record awaiting its outcome keeps its exact command and offers
+Check and Retry while the page is open; it is not kept across a reload. The strict
+billing selection and the revision history are served by their operations and are
+not drawn in the ticket yet. Historical views cannot write.
 
 ## Executable acceptance
 

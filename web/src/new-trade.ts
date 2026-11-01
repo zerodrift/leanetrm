@@ -56,7 +56,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?
 
 /** The coming-soon instruments, greyed and disabled, with a Coming soon tag and their hover text. */
 export function soonInstruments(){
-  const group=el('div','product-switch product-soon');group.setAttribute('role','group');group.setAttribute('aria-label','Coming soon');
+  const group=el('div','product-switch product-soon');group.setAttribute('role','group');group.setAttribute('aria-label','Coming soon');group.dataset.ownControls='';
   for(const [label,soon] of comingSoon){
     const button=el('button','ticket-soon',label);button.type='button';button.disabled=true;button.setAttribute('aria-disabled','true');button.title=soon;
     button.append(el('span','ticket-soon-tag','Coming soon'));group.append(button);

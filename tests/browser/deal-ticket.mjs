@@ -1,31 +1,18 @@
 // The deal ticket (docs/deal-ticket.md) enters a physical gas trade from New trade: live previews of the whole draft, lookups that say
 // where their values came from, refusals that keep the last schedule, a booking whose response is lost reconciled after a reload, and the
 // booked trade opened read-only in the Blotter's Details pane and in the trade's own window, a day's quantity recorded in its physical side's
-// tab, a single-point trade opened from its Blotter row, and the quantity links of a linked side.
+// tab, whose lost response is checked once, the coming-soon items drawn and never sent, and the quantity links of a linked side.
 import {newTrade} from './new-trade.mjs';
+import {blotterAt,bookedTicket as booked,decemberClose,gasTicket,q} from './gas-ticket.mjs';
 
 export async function run(actions){
  const {command,evaluate,wait,set,click,check,persona,shot,idle,url,tab}=actions;
- const ticket='#gas-ticket .deal-ticket',booked='#position-details .deal-ticket[data-mode=booked]';
- const card=(code,root=ticket)=>`${root} .ticket-card[data-side="${code}"]`;
- const field=(code,id)=>`${code===null?ticket+' .ticket-strip':card(code)} .ticket-field[data-field="${id}"]`;
- const control=(code,id)=>field(code,id)+' .ticket-control';
- const q=JSON.stringify;
- // Choices arrive from the backend after the fields they depend on: a value is chosen once the backend lists it.
- const choose=async(code,id,value)=>{await wait(`[...document.querySelectorAll(${q(control(code,id)+' option')})].some(o=>o.value===${q(value)})`);await set(control(code,id),value);};
- const first=async(code,id)=>{await wait(`document.querySelectorAll(${q(control(code,id)+' option')}).length>1`);await set(control(code,id),await evaluate(`document.querySelector(${q(control(code,id))}).options[1].value`));};
- const status=(root=ticket)=>`document.querySelector(${q(root+' .ticket-status')})`;
- const current=(root=ticket)=>`${status(root)}?.dataset.kind==='current'&&!!document.querySelector(${q(root+' .tabulator-row')})`;
- const month=(root=ticket)=>`(document.querySelector(${q(root+' .tabulator-row[data-row-key="2021-01"]')})?.textContent??'')`;
- const observed=`({status:${status()}?.textContent,kind:${status()}?.dataset.kind,errors:[...document.querySelectorAll(${q(ticket+' .ticket-error')})].map(e=>e.closest('[data-field]').dataset.field+': '+e.textContent),month:${month()}})`;
- // A wait that says, when it times out, what the ticket showed.
- const until=(expression,detail=observed)=>wait(expression,30000).catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify(await evaluate(detail)));});
+ const {ticket,card,field,control,choose,status,current,month,observed,until,tradeTerms,physicalTerms,cashTerms,addSide}=gasTicket(actions);
 
  // A desk-sized window shows the Blotter's grid beside the Details pane; the last step narrows it.
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
- const frame=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()`);
- await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#page-title').textContent==='Blotter'&&"+idle);
+ const frame=await decemberClose(evaluate);await blotterAt(actions,frame);
  await newTrade(actions,'gas');
  await wait(`document.querySelectorAll(${q(ticket+' .ticket-card')}).length===2`);
  await check('New trade opens physical gas in the deal ticket with one physical and one payment card',
@@ -43,26 +30,11 @@ export async function run(actions){
   `(()=>{const add=[...document.querySelectorAll(${q(ticket+' .ticket-add-kind')})].find(b=>b.textContent.startsWith('Floating')),tab=document.querySelector(${q(ticket+' .ticket-tab[data-tab="imbalance"]')});
    return add.disabled&&/does not accept it yet/.test(add.title)&&tab.disabled&&tab.getAttribute('aria-disabled')==='true'&&/cash-out/.test(tab.title);})()`);
 
- const tradeTerms=async()=>{
-  for(const id of ['book','legal_entity','counterparty'])await first(null,id);
-  // A context that resolves a published gas setup lists it, and the person chooses it before the sides list their choices; none is chosen
-  // for them. Without one the sides list their choices at once.
-  const setups=`document.querySelectorAll(${q(control(null,'gas_setup')+' option')}).length>1`;
-  await wait(`${setups}||[...document.querySelectorAll(${q(control('physical-1','product')+' option')})].some(o=>o.value==='test_gas')`);
-  if(await evaluate(setups))await first(null,'gas_setup');
- };
- // One January delivery at synthetic point A; a quantity of null leaves it to the side's link.
- const physicalTerms=async(code,direction,quantity)=>{
-  for(const [id,value] of [['delivery_from','2021-01-01'],['delivery_to','2021-02-01'],...quantity===null?[]:[['quantity',quantity]]])await set(control(code,id),value);
-  for(const [id,value] of [['direction',direction],['product','test_gas'],['quantity_basis','per_operating_day'],['pipeline','test_pipeline_a'],['zone','synthetic_gas_zone_a'],['delivery_point','synthetic_gas_point_a']])
-   await choose(code,id,value);
- };
  await tradeTerms();await physicalTerms('physical-1','deliver','5000');
  await wait(`!!document.querySelector(${q(field('physical-1','gas_day_start')+' .ticket-chip')})&&!!document.querySelector(${q(field('physical-1','price')+' .ticket-chip')})`);
  await check('choosing the delivery point fills the gas-day start and market price from labelled lookups',
   `document.querySelector(${q(field('physical-1','price')+' .ticket-chip')}).textContent.includes('close 2020-12-18')&&/^\\d\\d:\\d\\d$/.test(document.querySelector(${q(field('physical-1','gas_day_start')+' .ticket-value')}).textContent)`);
- for(const [id,value] of [['cash_direction','receive'],['cash_source','physical-1'],['cash_stage','delivery']])await choose('cash-1',id,value);
- for(const [id,value] of [['cash_price','3.412'],['cash_payment_at','2021-02-05T00:00:00Z']])await set(control('cash-1',id),value);
+ await cashTerms('cash-1','cash','receive','physical-1','3.412');
  await until(current()+`&&${month()}.includes('-155,000')`);
  await set(`${ticket} .ticket-level`,'day');
  await wait(`document.querySelectorAll(${q(ticket+' .tabulator-row[data-row-key^="2021-01-"]')}).length>0`);
@@ -97,13 +69,12 @@ export async function run(actions){
   `${month()}.includes('-465,000')&&!!document.querySelector(${q(ticket+' .standard-data-grid.stale')})&&document.querySelector(${q(field('physical-1','quantity')+' .ticket-error')})?.textContent.length>0`,observed);
  await set(control('physical-1','quantity'),'10000');await until(current()+`&&${month()}.includes('-310,000')`);
 
- await evaluate(`[...document.querySelectorAll(${q(ticket+' .ticket-add-kind')})].find(b=>b.textContent==='Fee').click()`);
- await wait(`!!document.querySelector(${q(card('fee-1'))})&&!!document.querySelector(${q(ticket+' .ticket-tab[data-tab="fee-1"]')})`);
+ await addSide('Fee','fee-1');
+ await wait(`!!document.querySelector(${q(ticket+' .ticket-tab[data-tab="fee-1"]')})`);
  await check('Add side · Fee adds a fee card and its schedule tab',`document.querySelectorAll(${q(ticket+' .ticket-card')}).length===3`);
  await click(card('fee-1'));
  await check('clicking the fee card selects its schedule tab',`document.querySelector(${q(ticket+' .ticket-tab[data-tab="fee-1"]')}).getAttribute('aria-selected')==='true'&&document.querySelector(${q(card('fee-1'))}).classList.contains('selected')`);
- for(const [id,value] of [['fee_direction','pay'],['fee_source','physical-1'],['fee_stage','delivery']])await choose('fee-1',id,value);
- for(const [id,value] of [['fee_price','0.045'],['fee_payment_at','2021-02-05T00:00:00Z']])await set(control('fee-1',id),value);
+ await cashTerms('fee-1','fee','pay','physical-1','0.045');
  await click(`${ticket} .ticket-tab[data-tab="instrument"]`);
  await until(current()+`&&${month()}.includes('1,043,770')`);
  const previewed=await evaluate(month());
@@ -176,46 +147,28 @@ export async function run(actions){
  await check('the recorded day\'s amount is tagged as the contract\'s while its quantity is tagged as recorded',
   `${sources('2021-01-05','c3')}.includes('Contract')&&${sources('2021-01-05','c1')}.join()==='Nominated'`,`({amount:${sources('2021-01-05','c3')},quantity:${sources('2021-01-05','c1')}})`);
 
- // A single-point gas trade, booked through its own route, opens from its Blotter row read-only in the same ticket: one physical side, its
- // payment and its fee, and no listed terms. It records no daily quantities, so its day cells are not entries.
- const single=await evaluate(`(async()=>{
-  const token=(await(await fetch('/api/bootstrap?includeFrames=false')).json()).csrfToken;
-  const post=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};
-  const context={snapshotId:${q(frame)},convention:'physical_gas_fixed_quantity_v4',knowledgeMode:'current'},cat=await post('gas/catalog',context);
-  const p=cat.locations.find(l=>l.deliveryPoint==='synthetic_gas_point_a'),[entity]=cat.legalEntities,[party]=cat.counterparties;
-  const booked=await post('gas/book',{...context,operationId:crypto.randomUUID(),bookId:cat.books[0].id,definitionRevisionId:p.definitionRevisionId,gasSetupId:cat.gasSetupId,
-   legalEntityId:entity.id,legalEntityRevision:entity.revision,counterpartyId:party.id,counterpartyRevision:party.revision,pipeline:p.pipeline,zone:p.zone,deliveryPoint:p.deliveryPoint,product:p.product,
-   deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01',quantity:'1000',quantityBasis:'period_total_equal_days',direction:'receive',fixedPrice:'3',usageFee:'0.045',usageTariffCode:null,usageFeeDirection:'pay',
-   paymentAt:'2021-02-02T00:00:00Z',discounting:false});
-  for(let offset=0;;offset+=64){
-   const page=(await post('trading/positions',{context:{...context,convention:'trading_workspace_v1'},bookIds:[],portfolioIds:[],offset,limit:64})).positions;
-   if(!page.length)throw Error('The booked single-point trade is not in the positions.');
-   const found=page.find(f=>f.tradeId===booked.tradeId);if(found)return found.tradeReference;
-  }})()`);
- // The Blotter's grid shows beside the Details pane only in a desk-sized window.
- await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
- await click('#futures-refresh',30000);await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`,30000);
- await set('#blotter-filters .table-search',single);
- await until(`${rows}.length===1&&${rows}[0].textContent.includes(${q(single)})`,`({rows:${rows}.map(r=>r.textContent.slice(0,80)),search:document.querySelector('#blotter-filters .table-search').value,pricing:document.querySelector('#futures-page').dataset.pricingState})`);
- await evaluate(`${rows}[0].querySelector('.desk-reference').click()`);
- await until(`document.querySelector('#details-title')?.textContent.startsWith(${q(single)})&&!!document.querySelector(${q(booked)})&&`+current(booked),
-  `({title:document.querySelector('#details-title')?.textContent,error:document.querySelector('#error').textContent,details:document.querySelector('#position-details').textContent.slice(0,300)})`);
- await check('the Blotter row of a single-point gas trade opens it read-only in the deal ticket, with no listed terms',
-  `[...document.querySelectorAll(${q(booked+' .ticket-card')})].map(c=>c.dataset.kind).join()==='physical,cash,fee'&&!document.querySelector(${q(booked+' .ticket-control:not([disabled])')})&&
-   !document.querySelector(${q(booked+' .ticket-book')})&&!document.querySelector('#position-details').textContent.includes('Cash and quantity terms')&&${month(booked)}.includes('-1,000')`,
-  `({cards:[...document.querySelectorAll(${q(booked+' .ticket-card')})].map(c=>c.dataset.kind),month:${month(booked)}})`);
- await click(`${booked} .ticket-tab[data-tab="physical-1"]`);await set(`${booked} .ticket-level`,'day');
- await wait(`!!document.querySelector(${q(booked+' .tabulator-row[data-row-key="2021-01-05"]')})`);
- await check('a single-point trade\'s day quantities are not entries',`!document.querySelector(${q(booked+' .ticket-cell-input')})`);
- await command('Emulation.clearDeviceMetricsOverride');
+ // A day record whose response is lost keeps its command, offers only Check and Retry, and Check finds the one record it made.
+ await evaluate(`{const original=window.recordFetch=window.fetch;window.recordRequests=0;window.fetch=async(...args)=>{const response=await original(...args);
+  if(String(args[0]).endsWith('/gas/quantities/record')){recordRequests++;if(response.ok)throw new TypeError('Synthetic lost record response');}return response;};}`);
+ const later=`${booked} .tabulator-row[data-row-key="2021-01-06"] .ticket-cell-input`;
+ await set(later,'8000');await wait(`!!document.querySelector(${q(record)})`);
+ for(const [id,value] of [['kind','nominated'],['status','provisional'],['evidence','Synthetic nomination']])await set(`${record} [data-field="${id}"] .ticket-control`,value);
+ await click(`${record} .ticket-record-send`);
+ // While the record is being sent its Check and Retry are drawn disabled; they are offered once the response is lost.
+ await until(`!!document.querySelector(${q(record+' .ticket-record-check:not([disabled])')})`,`document.querySelector(${q(record)})?.textContent`);
+ await check('a day record whose response is lost keeps its command and offers only Check and Retry',
+  `!document.querySelector(${q(record+' .ticket-record-send')})&&!!document.querySelector(${q(record+' .ticket-record-retry')})&&document.querySelector(${q(record+' [data-field="quantity"] .ticket-control')}).disabled`);
+ await click(`${record} .ticket-record-check`);
+ await until(`${row('2021-01-06')}.includes('-8,000')&&!document.querySelector(${q(record)})`,`({record:document.querySelector(${q(record)})?.textContent,day:${row('2021-01-06')}})`);
+ await check('checking the lost record finds the one record it made',`recordRequests===1&&${row('2021-01-06')}.includes('Nominated')`);
+ await evaluate('window.fetch=window.recordFetch');
 
  // A linked side's receipt, delivery and fuel are drawn in the Quantity links tab exactly as the preview returned them.
  await newTrade(actions,'gas');
  await wait(`document.querySelectorAll(${q(ticket+' .ticket-card')}).length===2`);
  await evaluate(`{const original=window.linksFetch=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/tickets/preview')&&response.ok)window.lastPreview=await response.clone().json();return response;};}`);
  await click(`${card('cash-1')} .ticket-remove`);
- await evaluate(`[...document.querySelectorAll(${q(ticket+' .ticket-add-kind')})].find(b=>b.textContent==='Physical').click()`);
- await wait(`!!document.querySelector(${q(card('physical-2'))})`);
+ await addSide('Physical','physical-2');
  await tradeTerms();await physicalTerms('physical-1','receive','10000');await physicalTerms('physical-2','deliver',null);
  await choose('physical-2','link_source','physical-1');await choose('physical-2','link_formula','gross_less_fraction');await set(control('physical-2','link_fraction'),'0.02');
  await until(current()+`&&window.lastPreview?.links?.length===1`);
@@ -225,5 +178,13 @@ export async function run(actions){
  await check('the Quantity links tab shows the linked side\'s receipt, delivery and fuel as the preview returned them',
   `(()=>{const l=window.lastPreview.links[0],text=${links};return l.source==='physical-1'&&l.target==='physical-2'&&l.receipt==='310000'&&l.delivery==='303800'&&l.fuel==='6200'&&
    ['physical-1','physical-2','310,000','303,800','6,200'].every(v=>text.includes(v));})()`,`({links:window.lastPreview?.links,text:${links}})`);
+ // A fee charged on the linked side's receipt rather than its delivery is charged on the gas before its fuel.
+ await addSide('Fee','fee-1');
+ await cashTerms('fee-1','fee','pay','physical-2','0.1');
+ const fee=`(document.querySelector(${q(card('fee-1')+' .ticket-summary')})?.textContent??'')`;
+ await until(current()+`&&${fee}.includes('-30,380')`,`({fee:${fee},status:document.querySelector(${q(ticket+' .ticket-status')})?.textContent})`);
+ await choose('fee-1','fee_stage','receipt');
+ await until(current()+`&&${fee}.includes('-31,000')`,`({fee:${fee}})`);
+ await check('a fee on the linked side\'s receipt rather than its delivery is charged before the fuel',`${fee}.includes('-31,000')`);
  await evaluate('window.fetch=window.linksFetch');
 }

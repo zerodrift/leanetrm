@@ -63,7 +63,8 @@ function checkAccount(){
 }
 
 function syncControls(){
-  document.querySelectorAll<HTMLButtonElement|HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>('button,input,select,textarea').forEach(n=>n.disabled=busy||ended&&!(retaining&&n.closest('#futures-retained')));
+  // A view that keeps its controls' states itself (data-own-controls) is left as it drew them until the window ends.
+  document.querySelectorAll<HTMLButtonElement|HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>('button,input,select,textarea').forEach(n=>{if(!ended&&n.closest('[data-own-controls]'))return;n.disabled=busy||ended&&!(retaining&&n.closest('#futures-retained'));});
   $<HTMLButtonElement>('blotter-window-close').disabled=false;
   futures.sync();document.body.setAttribute('aria-busy',String(busy));
 }

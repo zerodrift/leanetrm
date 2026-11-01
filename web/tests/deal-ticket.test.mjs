@@ -86,6 +86,7 @@ test('a coming-soon field is a disabled control with a Coming soon tag, its hove
 
 test('a coming-soon side kind and tab are greyed, disabled and tagged, with their hover text, and do nothing when pressed',()=>{
  const host=draw();
+ assert.equal(one(host,'deal-ticket').dataset.ownControls,'','the page\'s busy sweep leaves the ticket\'s controls as drawn');
  const soon=(node,text)=>{
   assert.ok(node.classList.contains('ticket-soon'));assert.equal(node.disabled,true);assert.equal(node.getAttribute('aria-disabled'),'true');
   assert.equal(node.title,text);assert.equal(one(node,'ticket-soon-tag').textContent,'Coming soon');node.onclick?.();

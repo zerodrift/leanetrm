@@ -202,7 +202,8 @@ function linksGrid(o:TicketView,content:HTMLElement):GridHandle|undefined{
 export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
  const d=o.state.description,sides=o.state.sides,rows=bandRows(d,[...new Set(sides.map(s=>s.kind))]);
  const named:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:sideName(d,s)}));
- const root=el('div','deal-ticket');root.dataset.mode=o.mode;
+ // The ticket keeps its controls' states itself: a page's busy sweep leaves them as drawn.
+ const root=el('div','deal-ticket');root.dataset.mode=o.mode;root.dataset.ownControls='';
  const notices=el('ul','ticket-notices');for(const text of o.state.notices){const n=el('li','ticket-notice',text);n.setAttribute('role','status');notices.append(n);}
  // Narrow containers stack the cards; these chips then jump between the sides.
  const chips=el('nav','ticket-chips');chips.setAttribute('aria-label','Sides');

@@ -1,8 +1,10 @@
 # Deal ticket
 
-Status: proposed design, not implementation evidence. Decisions it introduces
-are listed under [Decisions to record](#decisions-to-record) and are added to
-[decisions.md](decisions.md) when implementation starts.
+Status: implemented locally for physical gas (see [Current implementation](#current-implementation));
+the other sided products are still to move: financial gas and power swaps
+(including scheduled swaps), heat-rate swaps, PPAs, physical crude, and gas
+transport, park and loan and storage. Its decisions are recorded as D278–D281 in
+[decisions.md](decisions.md).
 
 ## Why
 
@@ -343,11 +345,33 @@ Each move keeps the product's booking contract and removes its old editor
 ## Current implementation
 
 Physical gas has a description (`physical_gas` v1) and returns a schedule view
-from its preview and booked read. New trade → Physical gas opens the ticket,
-and every gas trade, composed or single-point, opens in it read-only from the
-Blotter's Details pane, its pop-out and the trade window. Until the ticket
-replaces them, the composition and single-point editors stay below it in New
-trade.
+from its preview and booked read. It is the one gas entry screen: New trade lists
+one Physical gas entry, which opens the ticket, and every gas trade, composed or
+single-point, opens in it read-only from the Blotter's Details pane, its pop-out
+and the trade window. The composition editor, the single-point template and the
+page's separate daily quantity panel are removed (D281); so are the single-point
+operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
+`gas/directory` and `gas/editor`). Stored single-point trades stay readable.
+
+- Coming soon (D279) is declared by the description: a field, a side kind, a side
+  column or a tab may carry `soon` hover text. Validation refuses one without it,
+  a required soon field, a soon field naming choices or a lookup, a soon side kind
+  that opens or admits a side or has fields, columns or a side limit, a soon column
+  that takes entries or names a unit, and a soon trade column. A soon column is not
+  a schedule view column. The ticket draws each greyed and hatched, disabled and
+  `aria-disabled`, with a *Coming soon* tag and the text as its hover; none holds a
+  value or is sent, and the booking refuses a soon side or a value for a soon field.
+  Physical gas declares the owner's set: on the physical side, swing (daily minimum
+  and maximum, swing range as a percentage of the base quantity, swing notice
+  deadline), nomination (cycle, nominating party), heat content in Btu per cubic
+  foot and quality specification; in the strip, the master agreement's force
+  majeure and credit terms, read-only, which no agreement table stores yet; the
+  existing floating side (D84, D93) as a soon Add side kind that gas booking does
+  not accept yet; a soon Volume column beside the physical quantity; and a soon
+  Imbalance tab (nominated against actual, the imbalance, its cash-out price and
+  amount). New trade lists Transport, Park and loan and Storage as coming-soon
+  instruments, which cannot be opened. They are presentation copy in New trade,
+  since no instrument description exists for them.
 
 - The schedule grid (`web/src/schedule-grid.ts`) turns a schedule view into the
   Instrument and side tabs: side-coloured header groups and a Trade group, the
@@ -479,9 +503,15 @@ trade.
 - The preview and the booked read return `links`: for each linked physical
   side its source, target, formula, fraction and the receipt, delivery and fuel
   totals as exact text. The Quantity links tab draws them.
+- The controller draws the ticket again only when what it shows has changed, so
+  an answer that changes nothing keeps the person's place in the schedule.
+  The page's busy sweep, which disables and re-enables every control, leaves the
+  ticket's controls as the ticket drew them (`data-own-controls`), so a read-only,
+  refused or coming-soon control never becomes enabled.
 - Not yet: tree rows load with their view rather than on demand; a quantity
   command awaiting its outcome is kept while the page is open, not across a
-  reload; the trade date
+  reload; the billing selection and the revision history of day quantities are
+  not drawn; the trade date
   lookup is declared but not served; a usage tariff list read earlier is not
   read again when its source side's path changes (the booking still checks it).
 
@@ -527,6 +557,9 @@ trade.
 - How many rows of a level load at a time.
 
 ## Decisions to record
+
+Recorded as D278 (deal ticket), D279 (field states), D280 (schedule panel) and
+D281 (one gas ticket).
 
 - **Deal ticket.** One description-driven ticket draws every sided product for
   new, booked, amend and close-out; product editors are removed as products

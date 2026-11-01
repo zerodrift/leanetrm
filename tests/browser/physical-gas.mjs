@@ -1,55 +1,52 @@
-import {run as gasComposition} from './gas-composition.mjs';
+// Physical gas is entered in the deal ticket (docs/deal-ticket.md). These are its entry checks beside the deal ticket scenario's: one gas
+// entry in New trade, the side the direction belongs to, the market date, points filtered by their zone, no point without a valuation mapping
+// and a usage tariff proposed for a fee. The gas setup editor follows.
+import {closeNewTrade,newTrade} from './new-trade.mjs';
+import {blotterAt,decemberClose,gasTicket,q} from './gas-ticket.mjs';
 import {run as gasSetup} from './gas-setup.mjs';
+
 export async function run(actions){
- const {command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}=actions;
+ const {command,evaluate,wait,set,check,persona,shot,idle,url}=actions;
+ const {ticket,card,field,control,choose,current,until,tradeTerms,physicalTerms,cashTerms,addSide}=gasTicket(actions);
+ const listed=(code,id)=>`[...document.querySelectorAll(${q(control(code,id)+' option')})].map(o=>o.value).filter(Boolean)`;
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
- const chooseFrame=async()=>{const id=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()`);await set('#snapshot',id);await wait(idle);};
- await chooseFrame();await click('#nav-gas');await evaluate("document.querySelector('#gas-template').open=true");await wait("document.querySelector('#gas-product').options.length>1&&"+idle);
- await check('gas ticket names the supported physical and cash scope',"!document.querySelector('#gas-page').hidden&&document.querySelector('#gas-scope').textContent.includes('fixed contractual')");
- await check('buy or sell belongs to the physical side rather than the trade header',"document.querySelector('#gas-direction').closest('fieldset').querySelector('legend').textContent==='Physical delivery side'&&document.querySelector('#gas-direction option[value=receive]').textContent.includes('Buy')&&document.querySelector('#gas-direction option[value=deliver]').textContent.includes('Sell')");
- await set('#gas-from','2021-01-01');await set('#gas-to','2021-02-01');
- await set('#gas-product','test_gas');await set('#gas-pipeline','test_pipeline_a');await set('#gas-zone','synthetic_gas_zone_a');await set('#gas-location','synthetic_gas_point_a');
+ await blotterAt(actions,await decemberClose(evaluate));
+ await newTrade(actions,'gas');
+ await wait(`document.querySelectorAll(${q(ticket+' .ticket-card')}).length===2`);
+ await check('New trade lists physical gas once, as the deal ticket, and Transport, Park and loan and Storage as coming soon',
+  `[...document.querySelectorAll('#new-trade-product button')].filter(b=>b.textContent==='Physical gas').length===1&&
+   [...document.querySelectorAll('.product-soon button')].map(b=>b.disabled+':'+b.textContent).join()==='true:TransportComing soon,true:Park and loanComing soon,true:StorageComing soon'&&
+   /shipper contract/.test(document.querySelector('.product-soon button').title)&&!document.querySelector('#gas-page form')`);
  await check('gas entry exposes its market date without asking for a curve selection',"!document.querySelector('#snapshot').closest('.date-control').hidden&&!document.querySelector('#status').textContent.includes('Choose a curve')");
- await check('physical reference fields resolve the index without changing delivery dates',"document.querySelector('#gas-from').value==='2021-01-01'&&document.querySelector('#gas-to').value==='2021-02-01'&&document.querySelector('#gas-valuation-details').textContent.includes('test_price')&&!document.querySelector('#gas-assignment')");
- await set('#gas-location','synthetic_gas_point_unpriced');
- await check('physical gas-day details remain available without a valuation mapping',"document.querySelector('#gas-day').textContent.includes('test_utc')&&document.querySelector('#gas-reference').textContent.includes('No valuation mapping')");
- await set('#gas-location','synthetic_gas_point_a');
- await set('#gas-zone','synthetic_gas_zone_b');await set('#gas-location','synthetic_gas_point_b');
- await check('zone filters locations and preserves the independent dates',"document.querySelectorAll('#gas-location option').length===2&&document.querySelector('#gas-from').value==='2021-01-01'&&document.querySelector('#gas-to').value==='2021-02-01'");
- await set('#gas-zone','synthetic_gas_zone_a');await set('#gas-location','synthetic_gas_point_a');
- for(const id of ['gas-book','gas-entity','gas-party'])await set('#'+id,await evaluate(`document.querySelector('#${id}').options[1].value`));
- await set('#gas-direction','receive');await set('#gas-quantity','1000');await set('#gas-basis','period_total_equal_days');await set('#gas-price','3');await set('#gas-tariff','manual');await set('#gas-fee-direction','pay');await set('#gas-fee','0.1');await set('#gas-payment','2021-02-02T00:00');await set('#gas-discount','false');
- await submit('#gas-form');await wait(idle);
- await check('server preview shows the independent PV100 purchase oracle',"document.querySelector('#gas-total').textContent==='Present value: 100 USD'&&document.querySelectorAll('#gas-sides tbody tr').length===3&&!document.querySelector('#gas-book-submit').disabled","({error:document.querySelector('#error').textContent,value:document.querySelector('#gas-total').textContent})");
- await check('physical pricing discloses the shared group and separate adjustments',"document.querySelector('#gas-valuation-details').textContent.includes('synthetic_gas_group_a')&&document.querySelector('#gas-valuation-details').textContent.includes('Point price adjustment')&&document.querySelector('#gas-delivery-rows').textContent.includes('SYN-METER-A-JAN')");
- // A published gas setup renames its tariff codes, so the tariff is chosen by its configured name.
- await set('#gas-tariff',await evaluate("[...document.querySelector('#gas-tariff').options].find(o=>o.textContent.startsWith('synthetic_gas_usage_a ·')).value"));await submit('#gas-form');await wait(idle);
- await check('a configured usage tariff prices an independently directed fee',"document.querySelector('#gas-fee').disabled&&document.querySelector('#gas-total').textContent==='Present value: 80 USD'&&document.querySelector('#gas-tariff-details').textContent.includes('2021-02-01')");
- await click('#gas-instructions');await wait(idle);
- await check('meter schedules are prepared before delivery and remain explicitly unsubmitted',"!document.querySelector('#gas-instruction-result').hidden&&document.querySelectorAll('#gas-instruction-rows tbody tr').length===31&&document.querySelector('#gas-instruction-rows').textContent.includes('SYN-METER-A-JAN')&&document.querySelector('#gas-instruction-status').textContent.includes('Not submitted')");
- await set('#gas-tariff','manual');await submit('#gas-form');await wait(idle);
- await set('#gas-direction','deliver');await submit('#gas-form');await wait(idle);
- await check('selling gas leaves a separately selected payable fee as an expense',"document.querySelector('#gas-total').textContent==='Present value: -300 USD'");
- await set('#gas-direction','receive');await submit('#gas-form');await wait(idle);
- await set('#gas-price','3.01');await check('editing terms invalidates the reviewed booking',"document.querySelector('#gas-book-submit').disabled&&document.querySelector('#gas-result').hidden");
- await set('#gas-price','3');await submit('#gas-form');
- await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/gas/book'))window.gasBookResponse={status:response.status,body:await response.clone().json()};if(String(args[0]).endsWith('/gas/book')&&response.ok){sessionStorage.setItem('gas-browser-original',args[1].body);throw new TypeError('Synthetic lost accepted response');}return response;};}`);
- await click('#gas-book-submit');await wait(idle);
- await check('a lost accepted response retains the original request',"!document.querySelector('#gas-pending').hidden&&document.querySelector('#gas-quantity').disabled","({error:document.querySelector('#error').textContent,response:window.gasBookResponse,pending:document.querySelector('#gas-pending').hidden,disabled:document.querySelector('#gas-quantity').disabled})");
- const savedBooking=await evaluate('window.gasBookResponse.body');
- await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-gas')&&!document.querySelector('#nav-gas').hidden&&"+idle);await chooseFrame();await click('#nav-gas');
- await wait("!document.querySelector('#gas-pending').hidden&&"+idle);await click('#gas-check');
- await wait("document.querySelector('#position-details').textContent.includes('Physical gas trade')&&"+idle);
- await check('recovery opens the gas trade in the shared position panel',"document.querySelector('#position-details').textContent.includes('Physical gas trade')");
- await click('#nav-gas');await evaluate("document.querySelector('#gas-template').open=true");await set('#gas-trade-id',savedBooking.tradeId);await click('#gas-open');
- await check('reopened physical fields and daily quantities come from booked schedules',"document.querySelector('#gas-physical-details').textContent.includes('Synthetic zone A')&&document.querySelectorAll('#gas-delivery-rows tbody tr').length===31");
- const previous=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-17')).id;})()`);
- await set('#snapshot',previous);await wait(idle);
- await check('changing the market date clears the previous valuation and reviewed command',"document.querySelector('#gas-result').hidden&&document.querySelector('#gas-total').textContent===''&&document.querySelector('#gas-book-submit').disabled");
- await chooseFrame();
- await click('#gas-list');await check('the gas booking directory offers durable reopen actions',"document.querySelectorAll('#gas-directory tbody tr').length>=2");
- await check('the booking ticket fits the viewport',"document.documentElement.scrollWidth<=innerWidth");
+ await tradeTerms();
+ await wait(`${listed('physical-1','direction')}.length===2`);
+ await check('buy or sell belongs to the physical side rather than the trade strip',
+  `${listed('physical-1','direction')}.join()==='receive,deliver'&&!document.querySelector(${q(ticket+' .ticket-strip [data-field="direction"]')})`);
+
+ for(const [id,value] of [['delivery_from','2021-01-01'],['delivery_to','2021-02-01']])await set(control('physical-1',id),value);
+ for(const [id,value] of [['product','test_gas'],['pipeline','test_pipeline_a'],['zone','synthetic_gas_zone_b']])await choose('physical-1',id,value);
+ await wait(`${listed('physical-1','delivery_point')}.length>0`);
+ await check('a zone lists only its own delivery points and keeps the delivery dates',
+  `${listed('physical-1','delivery_point')}.join()==='synthetic_gas_point_b'&&document.querySelector(${q(control('physical-1','delivery_from'))}).value==='2021-01-01'&&document.querySelector(${q(control('physical-1','delivery_to'))}).value==='2021-02-01'`,
+  listed('physical-1','delivery_point'));
+
+ await choose('physical-1','zone','synthetic_gas_zone_a');
+ await wait(`${listed('physical-1','delivery_point')}.includes('synthetic_gas_point_a')`);
+ await check('a point without a valuation mapping is not offered, so no gas side is entered that cannot be priced',
+  `!${listed('physical-1','delivery_point')}.includes('synthetic_gas_point_unpriced')`,listed('physical-1','delivery_point'));
+
+ // A delivery-stage fee without a manual price is offered the one usage tariff that covers its side, by the tariff's configured name.
+ await physicalTerms('physical-1','receive','1000');
+ await cashTerms('cash-1','cash','pay','physical-1','3');
+ await addSide('Fee','fee-1');
+ for(const [id,value] of [['fee_direction','pay'],['fee_source','physical-1'],['fee_stage','delivery']])await choose('fee-1',id,value);
+ await set(control('fee-1','fee_payment_at'),'2021-02-05T00:00:00Z');
+ await until(`!!document.querySelector(${q(field('fee-1','fee_tariff')+' .ticket-chip')})&&`+current());
+ await check('a delivery-stage fee is offered its usage tariff by name, and the schedule prices it',
+  `document.querySelector(${q(field('fee-1','fee_tariff')+' .ticket-chip')}).textContent.includes('synthetic_gas_usage_a')&&!!document.querySelector(${q(card('fee-1')+' .ticket-summary')})`,
+  `({chip:document.querySelector(${q(field('fee-1','fee_tariff')+' .ticket-chip')})?.textContent})`);
+ await check('the gas ticket fits the viewport',"document.documentElement.scrollWidth<=innerWidth");
  await shot('physical-gas-booking');
- await gasComposition(actions);
+ await closeNewTrade(actions);
  await gasSetup(actions);
 }

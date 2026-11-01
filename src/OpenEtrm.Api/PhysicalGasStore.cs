@@ -9,11 +9,11 @@ using OpenEtrm.MarketData.Power;
 
 namespace OpenEtrm.Api;
 
-[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+// The terms of a single-point gas trade, as it was booked: the retained terms of stored trades and the gas path a composition side selects.
 public sealed record PhysicalGasWriteRequest(Guid SnapshotId,string? Convention,string? KnowledgeMode,Guid OperationId,Guid BookId,
  Guid DefinitionRevisionId,string? Pipeline,string? Zone,string? DeliveryPoint,string? Product,string? DeliveryFrom,string? DeliveryTo,string? Quantity,string? QuantityBasis,
- string? Direction,string? FixedPrice,[property:System.Text.Json.Serialization.JsonRequired]string? UsageFee,[property:System.Text.Json.Serialization.JsonRequired]string? UsageTariffCode,[property:System.Text.Json.Serialization.JsonRequired]string? UsageFeeDirection,string? PaymentAt,bool? Discounting,
- Guid? LegalEntityId,int? LegalEntityRevision,Guid? CounterpartyId,int? CounterpartyRevision,[property:System.Text.Json.Serialization.JsonRequired]Guid? GasSetupId);
+ string? Direction,string? FixedPrice,string? UsageFee,string? UsageTariffCode,string? UsageFeeDirection,string? PaymentAt,bool? Discounting,
+ Guid? LegalEntityId,int? LegalEntityRevision,Guid? CounterpartyId,int? CounterpartyRevision,Guid? GasSetupId);
 public sealed record PhysicalGasEditorRequest(FuturesReadRequest Context,Guid TradeId);
 
 internal sealed record GasMeterBinding(ReferenceKey? Reference,Guid? SetupId,Guid CatalogId,string Code,string Pipeline,string Identifier,string QuantitySpecification,string ValidFrom,string ValidTo);
@@ -28,7 +28,6 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
  public const string Convention="physical_gas_fixed_quantity_v4";
  private Guid Catalog=>database.Manifest.CatalogId;
  private static MarketDataException Invalid(string text)=>new("gas_input",text);
- private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
  private static string Required(string? s)=>!string.IsNullOrWhiteSpace(s)?s:throw Invalid("Choose every required gas term explicitly.");
  private static DateOnly Day(string? s)=>DateWorkspace.Date(Required(s));
  private static string Date(DateOnly d)=>d.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
@@ -72,11 +71,6 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
      Day(row.Text("valid_from"))>Day(body.DeliveryFrom)||Day(row.Text("valid_to"))<Day(body.DeliveryTo))
    throw Invalid("The usage tariff must cover this exact pipeline, product, quote and complete delivery period.");
   return row.Text("rate");
- }
- private static ExactDecimal? FeeDirection(PhysicalGasWriteRequest body,string? fee)
- {
-  if(fee is null){if(body.UsageFeeDirection is not null)throw Invalid("A fee direction requires an active fee.");return null;}
-  return body.UsageFeeDirection switch{"pay"=>ExactDecimal.Parse("-1"),"receive"=>ExactDecimal.Parse("1"),_=>throw Invalid("Select pay or receive on the usage fee side.")};
  }
  internal async Task<ImmutableArray<JsonElement>> Meters(NpgsqlConnection c,PreviewData data,GasValuationAssignment assignment,Guid? setup,CancellationToken ct)=>
   setup is null?await PreviewDatabase.Rows(c,"SELECT row_to_json(m)::text FROM ref_data.gas_meter_assignments m WHERE(catalog_id,revision_id,pipeline_code,zone_code,point_code,product_code)=($1,$2,$3,$4,$5,$6) ORDER BY valid_from,code",
@@ -161,30 +155,10 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   var clock=new GasDayClock(R(clockCode),PpaQuantitiesStore.Clock(data,clockCode).Rules,int.Parse(row.Text("day_start_minute"),CultureInfo.InvariantCulture));
   return(assignment,clock,row);
  }
- private async Task<(PhysicalGasInstrument Instrument,GasValuationAssignment Assignment,ExactDecimal Quantity,JsonElement Mapping)> Resolve(NpgsqlConnection c,PreviewData data,PhysicalGasWriteRequest body,CancellationToken ct)
- {
-  var (assignment,clock,mapping)=await Metadata(c,data,body,ct);var from=Day(body.DeliveryFrom);var to=Day(body.DeliveryTo);var quote=assignment.Quote;
-  var basis=body.QuantityBasis switch{"per_operating_day"=>GasQuantityBasis.PerOperatingDay,"period_total_equal_days"=>GasQuantityBasis.PeriodTotalEqualOperatingDays,_=>throw Invalid("Choose the contractual quantity basis.")};
-  var quantity=ExactDecimal.Parse(Required(body.Quantity));if(quantity.CompareTo(default)<=0)throw Invalid("Contract quantity must be positive.");
-  var physical=new PhysicalGasSide(Guid.NewGuid(),assignment.Location,assignment.Product,new(clock,from,to,basis,new(ExactDecimal.Parse("1"),quote.Quantity),GasFuelConvention.None,default),[assignment]);
-  var payment=SchedulePreview.ParseAt(Required(body.PaymentAt));if(payment<clock.Boundary(to))throw Invalid("Payment must be at or after the end of delivery.");
-  FixedSide Cash(string price)
-  {
-   var amount=ExactDecimal.Parse(price);var limit=ExactDecimal.Parse("1000000000000");
-   if(amount.CompareTo(limit)>=0||amount.CompareTo(ExactDecimal.Parse("-1000000000000"))<=0)throw Invalid("A gas cash price must have absolute value below 10^12.");
-   var total=physical.GenerateSchedule().Quantities.TotalDelivery;
-   return new(Guid.NewGuid(),new FlatPrice(new UnitPrice(amount,quote)),quote,physical.UnitQuantity,
-    [new(from,to,payment,new(System.Numerics.BigInteger.Parse(total.Numerator),System.Numerics.BigInteger.Parse(total.Denominator)),null)]);
-  }
-  var direction=body.Direction switch{"receive"=>ExactDecimal.Parse("1"),"deliver"=>ExactDecimal.Parse("-1"),_=>throw Invalid("Choose receive or deliver explicitly.")};
-  var usageFee=await UsageFee(c,data,body,mapping,ct);
-  var feeDirection=FeeDirection(body,usageFee);
-  return(new(Guid.NewGuid(),physical,Cash(Required(body.FixedPrice)),usageFee is {} fee?[Cash(fee)]:[],direction,feeDirection),assignment,quantity,mapping);
- }
- private async Task<GasTicketValue> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,PhysicalGasInstrument? draft,GasValuationAssignment assignment,ExactDecimal quantity,int direction,int? feeDirection,Guid? setup,ImmutableArray<RetainedSideProgram>? retained,CancellationToken ct)
+ // Values a booked single-point trade from its retained programs.
+ private async Task<GasTicketValue> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,GasValuationAssignment assignment,ExactDecimal quantity,int direction,int? feeDirection,Guid? setup,ImmutableArray<RetainedSideProgram> programs,CancellationToken ct)
  {
   if(frame.ContextId is not {} contextId)throw Invalid("Gas valuation requires a certified calculation context.");
-  var programs=retained??[..draft!.Sides.Select((m,n)=>{var d=ScheduleDefinitionCompiler.Generate(m.Side,ct);var p=BookedSideProgram.Compile(d);return new RetainedSideProgram(n,m.Side.Id,Guid.Empty,new(BookedSideProgram.Digest(p.Write()),d.Manifest,d.Family,d.EconomicIdentity,d.PricingBindingIdentity),p);})];
   var snapshot=data.Snapshot(frame);var context=(await new KnowledgeStore(Catalog).Read(c,contextId,ct)).Context;
   snapshot=MarketSnapshotBinding.Bind(snapshot,contextId,SchedulePreview.ParseAt(context.KnownAt));
   var deps=programs.SelectMany(x=>BookedScheduleLookups.Dated(data,x.Program)).Select(x=>PeriodPriceSelector.ProjectionAt(x,snapshot)).OfType<CurveRequest>().Distinct().ToImmutableArray();
@@ -212,24 +186,6 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   }
   return new(total!.ToExactString(),assignment.Quote.Currency.Code,sides,deliveryRows);
  }
- public async Task<object> Preview(NpgsqlConnection c,PreviewData data,InputFrame frame,PhysicalGasWriteRequest body,CancellationToken ct)
- {
-  var r=await Resolve(c,data,body,ct);var value=await Value(c,data,frame,r.Instrument,r.Assignment,r.Quantity,body.Direction=="receive"?1:-1,body.UsageFeeDirection switch{"pay"=>-1,"receive"=>1,_=>(int?)null},body.GasSetupId,null,ct);
-  return new{physical=PhysicalDetails(data,body,r.Mapping),valuation=value,schedules=r.Instrument.Sides.Select((m,n)=>new{slot=n,definition=ScheduleDefinitionCompiler.Generate(m.Side,ct)})};
- }
- public async Task<object> Instructions(NpgsqlConnection c,PreviewData data,InputFrame frame,PhysicalGasWriteRequest body,CancellationToken ct)
- {
-  var r=await Resolve(c,data,body,ct);
-  var value=await Value(c,data,frame,r.Instrument,r.Assignment,r.Quantity,body.Direction=="receive"?1:-1,body.UsageFeeDirection switch{"pay"=>-1,"receive"=>1,_=>(int?)null},body.GasSetupId,null,ct);
-  if(value.DeliveryRows.Any(row=>row.Meter is null))throw Invalid("Every instruction day requires an eligible direct-meter assignment. Contractual valuation remains available without one.");
-  if(value.DeliveryRows.Any(row=>row.Meter!.QuantitySpecification!=r.Assignment.Quote.Quantity.Code))throw Invalid("Meter instructions require the same native quantity specification; measurement conversion is not supported.");
-  return new{status="unsubmitted_contractual_schedule",referenceRevision=data.ReferenceRevision,pipeline=body.Pipeline,zone=body.Zone,deliveryPoint=body.DeliveryPoint,direction=body.Direction,rows=value.DeliveryRows};
- }
- internal async Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,PhysicalGasWriteRequest body,CancellationToken ct)=>
-  await TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{
-   var r=await Resolve(c,data,body,ct);_=await Value(c,data,pinned,r.Instrument,r.Assignment,r.Quantity,body.Direction=="receive"?1:-1,body.UsageFeeDirection switch{"pay"=>-1,"receive"=>1,_=>(int?)null},body.GasSetupId,null,ct);
-   return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,r.Instrument);
-  },ct,gasMarket:true);
  internal static async Task RequirePortfolioScope(NpgsqlConnection c,Guid catalog,ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,CancellationToken ct)
  {
   await using var q=ScheduleStore.Command(c,"SELECT security.require_supported_gas_portfolio_scope($1,$2::uuid[],$3::uuid[])",catalog,books.ToArray(),portfolios.ToArray());
@@ -237,16 +193,9 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
    throw new MarketDataException("gas_portfolio_scope","This close contains physical gas obligations outside its supported valuation and settlement conventions. Use the trading workspace for contractual gas PV and explicit portfolio-risk exclusions.");
   }
  }
- public async Task<object> Directory(NpgsqlConnection c,CancellationToken ct)=>new{trades=await PreviewDatabase.Rows(c,
-  "SELECT row_to_json(x)::text FROM(SELECT r.trade_id,r.book_id,b.name book,r.quantity,r.direction,i.delivery_from,i.delivery_to,i.assignment_code FROM trading.gas_trade_revisions r JOIN trading.gas_instruments i USING(catalog_id,instrument_id) JOIN trading.books b ON(b.catalog_id,b.id)=(r.catalog_id,r.book_id) WHERE r.catalog_id=$1 AND NOT i.composition ORDER BY r.publication_order DESC LIMIT 256)x",[Catalog],ct)};
  public async Task<JsonElement> Status(NpgsqlConnection c,Guid operation,CancellationToken ct)
  {
   await using var q=ScheduleStore.Command(c,"SELECT security.gas_operation_status($1,$2)::text",Catalog,operation);
-  return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);
- }
- public async Task<JsonElement> Save(NpgsqlConnection c,InputFrame frame,PhysicalGasWriteRequest body,CancellationToken ct)
- {
-  await using var q=ScheduleStore.Command(c,"SELECT security.book_physical_gas($1,$2::jsonb,$3)::text",Catalog,JsonSerializer.Serialize(body,Json),frame.At);
   return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);
  }
  // A booked single-point trade's retained terms, read as the request that booked it under this read's snapshot, and its instrument.
@@ -262,7 +211,7 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   // Resolve source metadata from exact authorized definitions; booked instructions are loaded, never regenerated for execution.
   var metadata=await Metadata(c,data,body,ct);
   var programs=await new RetainedScheduleStore(database).LoadPrograms(c,instrument,frame.ContextId,frame.ContextId is null?null:frame.At,ct);
-  var value=await Value(c,data,frame,null,metadata.Assignment,ExactDecimal.Parse(body.Quantity!),body.Direction=="receive"?1:-1,body.UsageFeeDirection switch{"pay"=>-1,"receive"=>1,_=>(int?)null},body.GasSetupId,programs,ct);
+  var value=await Value(c,data,frame,metadata.Assignment,ExactDecimal.Parse(body.Quantity!),body.Direction=="receive"?1:-1,body.UsageFeeDirection switch{"pay"=>-1,"receive"=>1,_=>(int?)null},body.GasSetupId,programs,ct);
   return new{tradeId=trade,terms=body,physical=PhysicalDetails(data,body,metadata.Mapping),valuation=value,schedules=programs.Select(p=>new{p.Slot,p.ScheduleId,p.Identity,program=p.Program.Document})};
  }
 }

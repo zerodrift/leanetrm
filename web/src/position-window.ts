@@ -19,7 +19,7 @@ const panel=setupPositionPanel({element:name=>get('position-window-'+name),form:
   read:async(h,formats)=>{
    const api=reader,context={...positionWindowRequest(selection!).context,
     convention:h.instrumentType==='future'?'contract_lot_execution_pnl_v2':'independent_side_financial_swap_v2'};
-   const value:DetailRead=await(h.instrumentType==='physical_gas'?readGasView(api,context,h,()=>{}):h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
+   const value:DetailRead=await(h.instrumentType==='physical_gas'?readGasView(api,context,h):h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
     readTradeView(api,context,h,formats):readSwapView(api,context,h,formats,{busy:()=>loading,act:async work=>{await work();},settle(){throw Error('This trade window is read only.');}}));
    return {...value,view:zone=>({...value.view(zone),actions:undefined})};
   },amendment:{open(){throw Error('This trade window is read only.');},shown:()=>false,close:async()=>{}},onDenied:()=>fail('Current authority no longer permits this trade read.')});
