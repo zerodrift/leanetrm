@@ -909,6 +909,9 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--exchange'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=120):raise RuntimeError('Owned exchange browser checks failed')
+                # Option trades are not yet Blotter positions, so they are booked after every Blotter read above.
+                from check_futures_option_lifecycle import run_checks as check_option_lifecycle
+                check_option_lifecycle(url,query,exchange_manifest)
             elif args.party_check:
                 from check_party_editors import run_checks as check_parties
                 check_parties(url)

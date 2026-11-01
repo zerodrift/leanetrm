@@ -361,4 +361,165 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- Option bookings. A trade holds one signed lot quantity of the exact option series' instrument, shared by every trade
+-- in that series as a future's is, and its own premium cash instrument: premium × multiplier × |lots| in the premium
+-- quote's currency, paid for a long and received for a short, on the booked payment date. Booking facts, parties and
+-- the trader annotation follow futures bookings.
+CREATE FUNCTION security.futures_option_contract_id(ref_catalog uuid,ref_revision uuid,series text) RETURNS uuid
+ LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+ SELECT substr(encode(sha256(convert_to('futures_option_v1:'||ref_catalog::text||':'||ref_revision::text||':'||series,'UTF8')),'hex'),1,32)::uuid;
+$$;
+CREATE TABLE trading.futures_option_references (
+ catalog_id uuid NOT NULL,instrument_id uuid NOT NULL,
+ reference_catalog_id uuid NOT NULL,reference_revision_id uuid NOT NULL,series_code ref_data.code NOT NULL,
+ publication_order integer NOT NULL,effective_at ref_data.instant NOT NULL,
+ PRIMARY KEY(catalog_id,instrument_id),
+ CHECK(instrument_id=security.futures_option_contract_id(reference_catalog_id,reference_revision_id,series_code)),
+ FOREIGN KEY(catalog_id,instrument_id,publication_order,effective_at) REFERENCES trading.instruments(catalog_id,id,publication_order,effective_at),
+ FOREIGN KEY(reference_catalog_id,reference_revision_id,series_code) REFERENCES ref_data.futures_option_series(catalog_id,revision_id,code),
+ FOREIGN KEY(catalog_id,publication_order) REFERENCES trading.publications(catalog_id,publication_order)
+);
+CREATE TABLE trading.cash_payment_instruments (
+ catalog_id uuid NOT NULL,instrument_id uuid NOT NULL,
+ reference_catalog_id uuid NOT NULL,reference_revision_id uuid NOT NULL,currency_code ref_data.code NOT NULL,
+ direction text NOT NULL CHECK(direction IN('pay','receive')),amount ref_data.exact_number NOT NULL CHECK(amount>=0),
+ payment_date date NOT NULL CHECK(payment_date BETWEEN DATE '1901-01-01' AND DATE '2199-12-31'),
+ publication_order integer NOT NULL,effective_at ref_data.instant NOT NULL,
+ PRIMARY KEY(catalog_id,instrument_id),
+ FOREIGN KEY(catalog_id,instrument_id,publication_order,effective_at) REFERENCES trading.instruments(catalog_id,id,publication_order,effective_at),
+ FOREIGN KEY(reference_catalog_id,reference_revision_id,currency_code) REFERENCES ref_data.currencies(catalog_id,revision_id,code),
+ FOREIGN KEY(catalog_id,publication_order) REFERENCES trading.publications(catalog_id,publication_order)
+);
+CREATE TABLE trading.futures_option_trade_revisions (
+ catalog_id uuid NOT NULL,trade_id uuid NOT NULL,revision integer NOT NULL CHECK(revision=1),book_id uuid NOT NULL,
+ definition_revision_id uuid NOT NULL,contract_id uuid NOT NULL,
+ option_instrument_id uuid NOT NULL,premium_instrument_id uuid NOT NULL CHECK(premium_instrument_id<>option_instrument_id),
+ lots ref_data.exact_number NOT NULL CHECK(lots<>0 AND lots=trunc(lots) AND abs(lots)<=100000),
+ premium ref_data.exact_number NOT NULL CHECK(premium>=0),premium_style text NOT NULL CHECK(premium_style='premium_paid_up_front'),
+ implementation text NOT NULL CHECK(implementation='futures_option_premium_v1'),execution_at ref_data.instant NOT NULL,
+ operation_id uuid NOT NULL,actor_id uuid NOT NULL REFERENCES security.principals(id),
+ trader_id uuid,trader_revision integer,memo text CHECK(length(memo)<=4000),trade_date date NOT NULL,
+ legal_entity_id uuid NOT NULL,legal_entity_revision integer NOT NULL,counterparty_id uuid NOT NULL,counterparty_revision integer NOT NULL,
+ publication_order integer NOT NULL,effective_at ref_data.instant NOT NULL,
+ PRIMARY KEY(catalog_id,trade_id,revision),UNIQUE(catalog_id,operation_id),UNIQUE(catalog_id,premium_instrument_id),
+ CHECK((trader_id IS NULL)=(trader_revision IS NULL)),
+ FOREIGN KEY(catalog_id,trade_id) REFERENCES trading.trades(catalog_id,id),
+ FOREIGN KEY(catalog_id,book_id) REFERENCES trading.books(catalog_id,id),
+ FOREIGN KEY(catalog_id,definition_revision_id,contract_id) REFERENCES market_data.contracts(catalog_id,revision_id,id),
+ FOREIGN KEY(catalog_id,option_instrument_id) REFERENCES trading.futures_option_references(catalog_id,instrument_id),
+ FOREIGN KEY(catalog_id,premium_instrument_id) REFERENCES trading.cash_payment_instruments(catalog_id,instrument_id),
+ FOREIGN KEY(catalog_id,trader_id,trader_revision) REFERENCES trading.traders(catalog_id,id,revision),
+ FOREIGN KEY(catalog_id,legal_entity_id,legal_entity_revision) REFERENCES trading.legal_entities(catalog_id,id,revision),
+ FOREIGN KEY(catalog_id,counterparty_id,counterparty_revision) REFERENCES trading.counterparties(catalog_id,id,revision),
+ FOREIGN KEY(catalog_id,publication_order) REFERENCES trading.publications(catalog_id,publication_order)
+);
+-- The same immutability, row security and grants as the crude booking tables.
+DO $$DECLARE t text;BEGIN
+ FOREACH t IN ARRAY ARRAY['futures_option_references','cash_payment_instruments','futures_option_trade_revisions'] LOOP
+  EXECUTE format('ALTER TABLE trading.%I ENABLE ROW LEVEL SECURITY',t);
+  EXECUTE format('ALTER TABLE trading.%I FORCE ROW LEVEL SECURITY',t);
+  EXECUTE format('CREATE TRIGGER immutable_record BEFORE UPDATE OR DELETE ON trading.%I FOR EACH ROW EXECUTE FUNCTION market_data.guard_knowledge_receipt()',t);
+  EXECUTE format('CREATE POLICY owner_access ON trading.%I TO openetrm_security_owner USING(true) WITH CHECK(true)',t);
+  EXECUTE format('CREATE POLICY scoped_read ON trading.%I FOR SELECT TO openetrm_runtime USING(true)',t);
+  EXECUTE format('CREATE POLICY current_authority ON trading.%I AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(security.trading_access(catalog_id,''ReadTrades''))',t);
+  EXECUTE format('CREATE POLICY history_scope ON trading.%I AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(security.trading_visible(catalog_id,publication_order,effective_at))',t);
+  EXECUTE format('GRANT SELECT ON trading.%I TO openetrm_runtime',t);
+  EXECUTE format('GRANT SELECT,INSERT ON trading.%I TO openetrm_security_owner',t);
+ END LOOP;
+END$$;
+
+-- The first outcome of an option booking operation, for its own actor.
+CREATE FUNCTION security.futures_option_operation_status(catalog uuid,operation uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE r trading.futures_option_trade_revisions;actor uuid;
+BEGIN
+ IF NOT security.trading_access(catalog,'ReadTrades') THEN RAISE EXCEPTION 'No option read access' USING ERRCODE='42501';END IF;
+ SELECT actor_id INTO STRICT actor FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ SELECT * INTO r FROM trading.futures_option_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation) AND actor_id=actor;
+ IF NOT FOUND THEN RETURN jsonb_build_object('found',false);END IF;
+ IF NOT security.trading_access(catalog,'ReadTrades') THEN RAISE EXCEPTION 'Option read authority expired' USING ERRCODE='42501';END IF;
+ RETURN jsonb_build_object('operationId',operation,'tradeId',r.trade_id,'revision',r.revision,
+  'optionInstrumentId',r.option_instrument_id,'premiumInstrumentId',r.premium_instrument_id);
+END$$;
+
+-- Books one option trade under book_futures' authority, attribution and request-identity rules (D238): only premium
+-- paid up front, signed whole lots, a premium on the product's premium tick within its quote, an explicit payment date,
+-- and execution before the option's expiry instant.
+CREATE FUNCTION security.book_futures_option(catalog uuid,operation uuid,book uuid,revision uuid,series text,lots numeric,premium numeric,
+ premium_payment_date date,premium_style text,valuation timestamptz,executed timestamptz,implementation text,trader uuid,trader_revision integer,memo text,booking jsonb)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c security.request_contexts;prior trading.trades;request_value jsonb;ordinal integer;definition_from timestamptz;
+ contract_row market_data.contracts;series_row ref_data.futures_option_series;product ref_data.futures_option_products;q ref_data.quote_specifications;
+ option_instrument uuid;premium_instrument uuid;trade uuid;
+BEGIN
+ IF NOT security.trading_access(catalog,'ReadTrades') OR NOT security.trading_access(catalog,'BookTrade') THEN RAISE EXCEPTION 'No booking access' USING ERRCODE='42501';END IF;
+ SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ IF c.market_context_id IS NOT NULL THEN RAISE EXCEPTION 'historical_read_only' USING ERRCODE='P0001';END IF;
+ PERFORM pg_advisory_xact_lock(730849102);
+ IF executed IS NOT NULL OR trader IS NOT NULL OR trader_revision IS NOT NULL OR booking->>'tradeDate' IS NOT NULL THEN RAISE EXCEPTION 'trade_booking_read_only' USING ERRCODE='P0001';END IF;
+ IF operation IS NULL OR operation='00000000-0000-0000-0000-000000000000'::uuid OR valuation IS NULL OR NOT isfinite(valuation) OR implementation IS DISTINCT FROM 'futures_option_premium_v1'
+ THEN RAISE EXCEPTION 'option_booking_input' USING ERRCODE='P0001';END IF;
+ request_value=jsonb_build_object('book',book,'revision',revision,'series',series,'lots',lots,'premium',premium,'premiumPaymentDate',premium_payment_date,
+  'premiumStyle',premium_style,'valuation',valuation AT TIME ZONE 'UTC','implementation',implementation,'memo',memo,'booking',booking,'bookingFactsPolicy','server_booking_utc_v1');
+ SELECT * INTO prior FROM trading.trades WHERE(catalog_id,operation_id)=(catalog,operation);
+ IF FOUND THEN
+  IF prior.actor_id<>c.actor_id OR prior.request IS DISTINCT FROM request_value OR NOT EXISTS(SELECT 1 FROM trading.futures_option_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation))
+  THEN RAISE EXCEPTION 'option_conflict' USING ERRCODE='P0001';END IF;
+  RETURN security.futures_option_operation_status(catalog,operation);
+ END IF;
+ IF EXISTS(SELECT 1 FROM trading.trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR EXISTS(SELECT 1 FROM trading.swap_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR
+ EXISTS(SELECT 1 FROM trading.ppa_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR EXISTS(SELECT 1 FROM trading.gas_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR
+ EXISTS(SELECT 1 FROM trading.crude_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) THEN RAISE EXCEPTION 'option_conflict' USING ERRCODE='P0001';END IF;
+ IF premium_style='futures_style_margin' THEN RAISE EXCEPTION 'unsupported' USING ERRCODE='P0001';END IF;
+ IF premium_style IS DISTINCT FROM 'premium_paid_up_front' OR lots IS NULL OR lots=0 OR lots<>trunc(lots) OR abs(lots)>100000 OR
+  premium IS NULL OR premium<0 OR premium_payment_date IS NULL OR premium_payment_date NOT BETWEEN DATE '1901-01-01' AND DATE '2199-12-31'
+ THEN RAISE EXCEPTION 'option_booking_input' USING ERRCODE='P0001';END IF;
+ -- The exact listed option of this market revision, in the reference revision the market pins.
+ SELECT k.* INTO contract_row FROM market_data.contracts k JOIN market_data.revisions m ON(m.catalog_id,m.id)=(k.catalog_id,k.revision_id)
+  WHERE(k.catalog_id,k.revision_id,k.kind,k.futures_option_series_code)=(catalog,revision,'future_option',series)
+  AND(k.reference_catalog_id,k.reference_revision_id)=(m.reference_catalog_id,m.reference_revision_id) AND m.state='sealed';
+ SELECT * INTO series_row FROM ref_data.futures_option_series WHERE(catalog_id,revision_id,code)=(contract_row.reference_catalog_id,contract_row.reference_revision_id,series);
+ SELECT * INTO product FROM ref_data.futures_option_products WHERE(catalog_id,revision_id,code)=(series_row.catalog_id,series_row.revision_id,series_row.product_code);
+ SELECT * INTO q FROM ref_data.quote_specifications WHERE(catalog_id,revision_id,code)=(product.catalog_id,product.revision_id,product.quote_code);
+ IF contract_row.id IS NULL OR series_row.code IS NULL OR product.code IS NULL OR q.code IS NULL OR contract_row.expiry_at<>series_row.expiry_at
+ THEN RAISE EXCEPTION 'option_definition' USING ERRCODE='P0001';END IF;
+ IF product.premium_style<>premium_style OR valuation>=series_row.expiry_at OR premium<q.minimum OR premium>q.maximum OR mod(premium,q.trading_tick)<>0
+ THEN RAISE EXCEPTION 'option_booking_input' USING ERRCODE='P0001';END IF;
+ SELECT(effective_from::timestamp AT TIME ZONE 'UTC') INTO definition_from FROM market_data.revision_periods
+  WHERE(catalog_id,revision_id)=(catalog,revision) AND effective_from<=(valuation AT TIME ZONE 'UTC')::date AND(valuation AT TIME ZONE 'UTC')::date<effective_to;
+ IF definition_from IS NULL THEN RAISE EXCEPTION 'option_definition' USING ERRCODE='P0001';END IF;
+ executed=valuation;
+ PERFORM security.require_trade_annotation(catalog,trader,trader_revision,memo,executed);
+ PERFORM security.require_trade_parties(catalog,booking||jsonb_build_object('tradeDate',(clock_timestamp() AT TIME ZONE 'UTC')::date),executed);
+ IF NOT EXISTS(SELECT 1 FROM trading.books b JOIN trading.portfolios p ON(p.catalog_id,p.id)=(b.catalog_id,b.portfolio_id)
+  WHERE(b.catalog_id,b.id)=(catalog,book) AND b.effective_at<=executed AND p.effective_at<=executed) THEN RAISE EXCEPTION 'option_book' USING ERRCODE='P0001';END IF;
+ IF(SELECT count(*) FROM trading.trades WHERE catalog_id=catalog)>=256 THEN RAISE EXCEPTION 'option_limit' USING ERRCODE='P0001';END IF;
+ SELECT coalesce(max(publication_order),0)+1 INTO ordinal FROM trading.publications WHERE catalog_id=catalog;
+ INSERT INTO trading.publications VALUES(catalog,ordinal,pg_current_xact_id());
+ option_instrument=security.futures_option_contract_id(series_row.catalog_id,series_row.revision_id,series_row.code);
+ IF NOT EXISTS(SELECT 1 FROM trading.futures_option_references WHERE(catalog_id,instrument_id)=(catalog,option_instrument)) THEN
+  INSERT INTO trading.instruments VALUES(catalog,option_instrument,ordinal,definition_from);
+  INSERT INTO trading.futures_option_references VALUES(catalog,option_instrument,series_row.catalog_id,series_row.revision_id,series_row.code,ordinal,definition_from);
+ END IF;
+ premium_instrument=gen_random_uuid();trade=gen_random_uuid();
+ INSERT INTO trading.instruments VALUES(catalog,premium_instrument,ordinal,executed);
+ INSERT INTO trading.cash_payment_instruments VALUES(catalog,premium_instrument,q.catalog_id,q.revision_id,q.currency_code,
+  CASE WHEN lots>0 THEN 'pay' ELSE 'receive' END,premium*product.multiplier*abs(lots),premium_payment_date,ordinal,executed);
+ booking=booking||jsonb_build_object('tradeDate',(security.stamp_trade_booking(catalog) AT TIME ZONE 'UTC')::date);
+ INSERT INTO trading.trades VALUES(catalog,trade,book,operation,c.actor_id,request_value,ordinal,executed);
+ INSERT INTO trading.futures_option_trade_revisions VALUES(catalog,trade,1,book,revision,contract_row.id,option_instrument,premium_instrument,lots,premium,premium_style,
+  implementation,executed,operation,c.actor_id,trader,trader_revision,memo,(booking->>'tradeDate')::date,(booking->>'legalEntityId')::uuid,(booking->>'legalEntityRevision')::integer,
+  (booking->>'counterpartyId')::uuid,(booking->>'counterpartyRevision')::integer,ordinal,executed);
+ IF NOT security.trading_access(catalog,'ReadTrades') OR NOT security.trading_access(catalog,'BookTrade') THEN RAISE EXCEPTION 'Booking access expired' USING ERRCODE='42501';END IF;
+ RETURN security.futures_option_operation_status(catalog,operation);
+END$$;
+DO $$DECLARE f record;BEGIN
+ FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='security' AND p.proname IN('futures_option_contract_id','futures_option_operation_status','book_futures_option') LOOP
+  EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f.signature);
+  EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.signature);
+  IF f.proname<>'futures_option_contract_id' THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;
+ END LOOP;
+END$$;
 COMMIT;

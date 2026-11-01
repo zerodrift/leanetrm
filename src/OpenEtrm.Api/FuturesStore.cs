@@ -57,11 +57,13 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
     public Task<ImmutableArray<JsonElement>> Books(NpgsqlConnection connection,CancellationToken ct)=>
         BookScope.Read(connection,manifest.CatalogId,ct);
 
-    private sealed record BookingDirectory(ImmutableArray<JsonElement> Books,JsonElement BookingActor,
+    // The books, booking actor and party versions a booking chooses from.
+    internal sealed record BookingDirectory(ImmutableArray<JsonElement> Books,JsonElement BookingActor,
         ImmutableArray<TradeParties.Choice> LegalEntities,ImmutableArray<TradeParties.Choice> Counterparties);
-    private async Task<BookingDirectory> ReadBookingDirectory(NpgsqlConnection connection,CancellationToken ct)=>
-        new(await Books(connection,ct),await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),
-            await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),await TradeParties.Catalog(connection,manifest.CatalogId,false,ct));
+    internal static async Task<BookingDirectory> ReadBookingDirectory(NpgsqlConnection connection,Guid catalog,CancellationToken ct)=>
+        new(await BookScope.Read(connection,catalog,ct),await TradeAnnotations.Actor(connection,catalog,ct),
+            await TradeParties.Catalog(connection,catalog,true,ct),await TradeParties.Catalog(connection,catalog,false,ct));
+    private Task<BookingDirectory> ReadBookingDirectory(NpgsqlConnection connection,CancellationToken ct)=>ReadBookingDirectory(connection,manifest.CatalogId,ct);
 
     public async Task<object> Directory(NpgsqlConnection connection,CancellationToken ct)
     {

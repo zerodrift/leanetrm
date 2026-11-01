@@ -128,6 +128,9 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("payment_",StringComparison.Ordinal)||p.MessageText=="short_month") => (422,p.MessageText,"The generated payment date does not meet its explicit rule and calendar coverage."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("swap_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit side, reference, date or lifecycle terms."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_conflict" => (409,"futures_conflict","This trade request identity already has different economics or ownership."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="option_conflict" => (409,p.MessageText,"This trade request identity already has different economics or ownership."),
+    PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("option_",StringComparison.Ordinal) || p.MessageText=="unsupported")
+        => (422,p.MessageText,"The option booking needs a listed series, signed whole lots, a premium on its tick, an explicit payment date and premium paid up front before expiry."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_revision_conflict" => (409,"futures_revision_conflict","The trade changed. Reload its latest revision before amending."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("futures_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit book, contract or execution terms."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "trade_booking_read_only" or "booking_human_required" => (422,p.MessageText,"Booking facts are server-owned and require the authenticated human workspace user."),
@@ -1119,6 +1122,7 @@ void RequireConvention(FuturesReadRequest body,string? expected)
 {
     if(expected==PhysicalCrudeStore.Convention){if(body.Convention!=expected)throw new MarketDataException("crude_context","Select the explicit supported physical crude valuation convention.");}
     else if(expected is SwapStore.Convention or PhysicalGasStore.Convention or TradingBlotter.Convention){if(body.Convention!=expected)throw new MarketDataException("swap_context","Select the explicit supported swap valuation convention.");}
+    else if(expected==FuturesOptionStore.Convention)FuturesOptionStore.RequireConvention(body.Convention);
     else FuturesStore.Convention(body.Convention);
 }
 // The context and As of a trading page read, and the reader's rights under its selection; with the booking rights when it offers booking.
@@ -1540,6 +1544,21 @@ api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,as
 }));
 api.MapPost("/futures/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
     Results.Ok(await futuresStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
+// Listed futures options: the bookable series at a frame, and booking with premium paid up front under the futures booking authority.
+var optionStore=new FuturesOptionStore(database.Manifest);
+api.MapPost("/options/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,optionStore.Catalog,expectedConvention:FuturesOptionStore.Convention));
+api.MapPost("/options/book",(HttpContext c,FuturesOptionBookRequest body)=>Locked(c,async session=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking.");
+    c.Items["futures_attempted"]=true;
+    return await database.WithIdentity(Profile(session),"BookTrade",async(connection,ct)=>
+    {
+        if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct))throw new PreviewDeniedException();
+        return Results.Ok(await optionStore.Book(connection,Frame(session,body.SnapshotId),body,ct));
+    },c.RequestAborted);
+}));
+api.MapPost("/options/status",(HttpContext c,FuturesOptionStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+    Results.Ok(await optionStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
 api.MapGet("/jobs",(HttpContext c,int? page,int? collectionPage)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
     async(connection,ct)=>Results.Ok(await CollectionJobs.Directory(connection,ct,page??0,collectionPage??0)),c.RequestAborted)));
 api.MapPost("/jobs/collection/update",(HttpContext c,CollectionJobUpdate body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
