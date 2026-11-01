@@ -59,7 +59,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  host.replaceChildren(view,booking);
  const transport=entry&&requests(o.product,entry.actor);
  const pending=new PendingCommand(definite);
- let alive=true,d:TicketDescription|undefined,state:TicketState|undefined,actions:TradeActions|null=null,drawn:{destroy():void}|undefined;
+ let alive=true,d:TicketDescription|undefined,state:TicketState|undefined,actions:TradeActions|null=null,drawn:ReturnType<typeof renderTicket>|undefined;
  let drawnKey='',drawnSchedules:[ScheduleView|null,ScheduleView|null]=[null,null];
  let panel:SchedulePanel={schedule:null,quantityUnit:null,previous:null,summaries:[],links:[],errors:{},status:{kind:'current',text:entry?'Not previewed yet. The ticket previews the trade after each change.':'Reading the booked trade…'}};
  const choices:Record<string,TicketChoice[]>={},choiceErrors:Record<string,string>={},lookupErrors:Record<string,string>={},asked=new Map<string,number>();
@@ -102,7 +102,9 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
   // An answer that changes nothing on screen draws nothing again, so the person keeps their place in the ticket and its schedule.
   // The schedules are compared by the preview they came from; everything else by its content.
-  const key=JSON.stringify({...shown,schedule:null,previous:null,closed:[...closed]});
+  // Booked choices label retained fields; only the read-only links grid also consumes those labels.
+  const labelsOnly=mode==='booked'&&tab!=='links';
+  const key=JSON.stringify({...shown,choices:labelsOnly?null:shown.choices,schedule:null,previous:null,closed:[...closed]});
   if(!drawn||key!==drawnKey||shown.schedule!==drawnSchedules[0]||shown.previous!==drawnSchedules[1]){
    const at=focusIn(view);drawn?.destroy();drawn=undefined;
    // A view the ticket cannot draw says why in its place.
@@ -111,6 +113,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    drawnKey=key;drawnSchedules=[shown.schedule,shown.previous];
    refocus(view,at);
   }
+  if(labelsOnly)drawn?.updateBookedChoiceLabels(choices);
   view.inert=!!entry&&blocked();
   drawBooking();
  }

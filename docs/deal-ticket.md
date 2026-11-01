@@ -522,6 +522,9 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
   totals as exact text. The Quantity links tab draws them.
 - The controller draws the ticket again only when what it shows has changed, so
   an answer that changes nothing keeps the person's place in the schedule.
+  Late labels for booked fields update in place, preserving a daily quantity
+  input's value and focus. The read-only Quantity links grid still redraws when
+  its formula labels change.
   The page's busy sweep, which disables and re-enables every control, leaves the
   ticket's controls as the ticket drew them (`data-own-controls`), so a read-only,
   refused or coming-soon control never becomes enabled.

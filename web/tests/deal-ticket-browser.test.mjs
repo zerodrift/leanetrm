@@ -241,3 +241,40 @@ test('returning to an earlier draft cannot apply a partially superseded lookup b
   await evaluate('ticket.destroy();held.splice(0).forEach(h=>h.finish())');
  });
 });
+
+test('late booked choice labels preserve an editable day cell and its unsent quantity',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {setupTicket}=await import('/ticket-controller.js');
+   const field={id:'book',label:'Book',meaning:'',type:'choice',unit:null,state:'editable',required:true,band:null,choices:'books',dependsOn:[],lookup:null,soon:null,rule:null};
+   const d={product:'synthetic_booked',version:1,rowShape:'flow',tradeFields:[field,{...field,id:'party',label:'Party'}],sideLimits:[],levels:['month','day'],modes:['booked'],tabs:[],tradeColumns:[],
+    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:1,soon:null,fields:[],columns:[{id:'quantity',label:'Quantity',unit:'quantity',measure:'quantity',input:['booked']}]}]};
+   const cells={'physical-1.quantity':{value:'1000',sources:['contract']}};
+   const row=(key,parent,level)=>({key,parent,level,start:'',end:'',operatingDate:null,cells,delivered:false});
+   const trade={draft:{product:d.product,version:1,trade:{book:'book-1',party:'party-1'},sides:[{kind:'physical',code:'physical-1',values:{}}]},
+    schedule:{levels:['month','day'],valuationAt:'2041-01-01T00:00:00Z',deliveredLeaves:0,leaves:1,delivered:null,remaining:null,totals:cells,rows:[row('2041-02',null,'month'),row('2041-02-01','2041-02','day')]},
+    summaries:[],links:[],scheduleRefusal:null,quantityUnit:'MMBtu',quantityPolicy:'synthetic_quantity',actions:{amend:{allowed:false,reason:'No'},closeOut:{allowed:false,reason:'No'},record:{allowed:true,reason:'Record day'}}};
+   window.held=[];
+   const api=async(path,body)=>{
+    if(path==='tickets/description')return d;
+    if(path==='tickets/trade')return trade;
+    if(path==='tickets/choices')return new Promise((resolve,reject)=>{if(body.field==='book')held.push(()=>resolve({choices:[{value:'book-1',label:'Resolved book'}]}));else window.refuseChoice=()=>reject(Error('Reference unavailable'));});
+    throw Error(path);
+   };
+   window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,20));if(!test())throw Error('Condition not ready');};
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,opened:{tradeId:'synthetic',bindingId:'synthetic',revision:1}});
+   await until(()=>held.length===1&&window.refuseChoice);
+   const level=document.querySelector('.ticket-level');level.value='day';level.onchange();
+   document.querySelector('.ticket-tab[data-tab="physical-1"]').click();
+   await until(()=>!!document.querySelector('.ticket-cell-input'));
+   window.cell=document.querySelector('.ticket-cell-input');cell.value='990';cell.focus();
+   held.shift()();await until(()=>document.querySelector('[data-field=book] .ticket-value')?.textContent==='Resolved book');
+  })()`);
+  assert.deepEqual(await evaluate("({same:cell.isConnected&&cell===document.querySelector('.ticket-cell-input'),value:cell.value,focused:document.activeElement===cell})"),{same:true,value:'990',focused:true});
+  await evaluate('(async()=>{refuseChoice();await new Promise(r=>setTimeout(r,50));})()');
+  assert.deepEqual(await evaluate("({same:cell.isConnected&&cell===document.querySelector('.ticket-cell-input'),value:cell.value,focused:document.activeElement===cell,party:document.querySelector('[data-field=party] .ticket-value').textContent})"),{same:true,value:'990',focused:true,party:'party-1'});
+  await evaluate("cell.dispatchEvent(new Event('change'))");
+  assert.equal(await evaluate("document.querySelector('.ticket-record [data-field=quantity] .ticket-control').value"),'990');
+  await evaluate('ticket.destroy()');
+ });
+});
