@@ -3091,3 +3091,132 @@ gate. They were fixed in one wave with eight minor findings, and a scoped
 re-review found every finding addressed. Residual, non-blocking: the lock-waiter
 probe in the mixed gate matches any waiting backend, and the client module does
 not type-check the rights booleans in `start`.
+
+## Blotter read preparation (2026-11-01, local)
+
+The Blotter reports valuation progress but displays positions and totals only
+after the complete report passes context and count validation. Backend changes
+restrict directory valuation reads to exact primary pins and required trading
+milestones, limit swap revisions to selected heads and position metadata to exact
+curve keys, compile
+only required base-price graph nodes, share ordinary market and retained-side
+preparation within an authorized operation, reuse scheduled-swap unit valuations,
+and reduce repeated PPA normalization, cadence/dependency and fixing-series work. Financial arithmetic, historical selection and per-position
+settlement lifecycle remain unchanged.
+
+Behavior and work checks:
+
+- A base-price preparation with one required contract and 405 selected quote
+  points prepares one source node, compared with 405 before, with an identical
+  independently calculated price. Scenario discovery still prepares all 405;
+  exact retained replay, empty projected demand and required-input refusal pass.
+  Within one read, two distinct consumers of two identical dependencies compile
+  once instead of twice and allocate about 3.5 MB instead of 6.0 MB. Changed
+  data, connection, context, pins or dependency sets cannot reuse preparation;
+  each consumer still admits its due fixings and observes cancellation.
+- Capacity normalization over 1,000 native intervals and two assets allocates
+  about 0.587 MB with prepared immutable inputs, compared with 5.12 MB before.
+  Exact asset-version boundaries, gaps, out-of-order intervals, source states,
+  duplicate contributions and context mismatches remain independently checked.
+- Eight attachments of a retained two-side PPA allocate about 1.12 MB with
+  shared side adapters, compared with 2.75 MB independently. Two distinct
+  instruments sharing a physical side retain their independent exact PVs;
+  changed payment sides and content manifests do not share an adapter. Static
+  price-reference discovery reads block templates instead of expanding each
+  hourly obligation: the monthly check falls from 41,048 bytes to at most 4,096.
+- Blotter swap reads select visible heads before book scope and term hydration.
+  Guards prove obsolete and out-of-book terms are not read; retained history
+  and editor history remain complete, and hidden required children refuse.
+  Ordered projection contracts and weights now share one read: 256 selected
+  reset rows cause 256 visibility checks instead of 512. Position metadata
+  resolves only each exact curve, reducing its synthetic visibility checks
+  from 48 to four while preserving missing-required-curve refusal.
+- PPA price cadence admission inspects 1,465 distinct hourly intervals once,
+  compared with 1,074,842 inspections before the change, for two months and two
+  instruments/four sides. A new preparation owns fresh work; matching starts with
+  different ends still refuse. Dependency resolution falls from 1,465 calls to
+  two exact curve/month/settlement selections, preserving the expected contracts,
+  first-seen order and an independently narrowed one-hour scope.
+- A 31-period fixing lookup with 2,048 unrelated valid series allocates 680,384
+  bytes, compared with 12,752,608 before. Parsed GUID lookup preserves duplicate
+  cardinality. The allocation bound includes its fixed setup cost.
+- Scheduled swap integration first failed the duplicate valuation-work check,
+  then passed: twice the held quantity gives exactly twice the PV with no extra
+  unit valuation. Historical reads exclude later positions; changed leg
+  allocations/relative quantity create a distinct instrument and another unit
+  valuation without changing the original clone's PV.
+- The full PPA sides/numerical, preparation, connected-scenario and normalization
+  reuse checks pass, together with side observation compatibility and retained
+  booked-schedule lookup checks. Focused migration checks preserve projection,
+  financial rows, policies and permissions, reject an unexpected prior view,
+  and combine ordered projection arrays while retaining hidden-required-quote
+  refusal. Function settings remain scoped to the read; owner, ACL, other
+  configuration and refused-upgrade rollback are independently checked.
+- Progress-only verification passed 325 focused browser checks and 1,109 frontend
+  tests. Denied, truncated and inconsistent-context streams display no partial
+  rows; leaving the page cancels the read and late frames cannot restore rows.
+
+An earlier isolated before/after comparison used clean commit `8a15d6e0` and
+the initial optimization set, before the quote join replacement was withdrawn
+and before integrating D282 statement visibility. Each run used a disposable unmodified PostgreSQL database, one warm-up
+and three alternating whole-workspace/stream samples, a retained 2020-12-18
+context and one base scenario. Every stream sample's complete rows equalled its
+whole-workspace result.
+
+The standard workload has 33 positions in one book: 4 financial-swap, 1 futures,
+2 heat-rate and 4 PPA unique contracts. Work is 1 evaluated futures contract,
+24 swap trades, 5 PPA bindings and one supplemental market load; swap unit
+valuations fall from 12 to 6. The annual workload adds one hourly five-side PPA
+from 2031-11-01 through 2032-11-01 in a second book: 8,784 native intervals,
+43,920 side-row evaluations, 34 positions and 6 PPA bindings.
+
+| Measurement | Clean baseline | Combined changes |
+|---|---:|---:|
+| Standard workspace p50 | 1,411 ms | 889 ms |
+| Standard stream complete p50 | 1,662 ms | 1,052 ms |
+| One-year workspace p50 | 1,918 ms | 1,403 ms |
+| One-year stream complete p50 | 2,107 ms | 1,587 ms |
+| Standard sampled API peak RSS | 1.444 GB | 0.802 GB |
+| One-year sampled API peak RSS | 1.446 GB | 1.182 GB |
+
+Environment: macOS 26.6.2 arm64, 14 logical processors, 48 GiB, PostgreSQL 16.14,
+.NET 10.0.402 Debug build, all components on one machine with loopback HTTP
+and a Unix-socket database.
+RSS was sampled every 100 ms, not a guaranteed high-water mark. An unrelated
+idle local preview remained present. The combined changes reduce measured
+local latency by about 37% for the standard workload and 25–27% for the annual
+workload. Sampled peak RSS falls by about 44% and 18%, respectively; these are
+workload-specific local observations, not production latency or general memory
+qualification.
+Both runs failed the unchanged standard-stream `workspace p50 × 1.1 + 50 ms`
+gate: baseline by about 59 ms and changed run by about 24 ms. The existing
+relative stream-overhead target remains unmet despite lower absolute latency;
+this is not a passing performance qualification.
+
+A separate earlier diagnostic pass, before dependency pruning and shared
+preparation, traced ten standard workspace reads at each optimization stage.
+Sampled allocation fell from approximately 6.59 GB to 3.09 GB (about 53% less).
+The respective 25-second traces contained 14 and 7 generation-2 collections
+and 4.0 and 2.9 seconds of GC suspension. Large
+attributed stacks included connected market preparation for scheduled-swap
+settlement detail and repeated fixing-reference lookup; a three-year hourly PPA
+also exposed per-row dependency enumeration. Tracing and concurrent correctness
+checks perturb timing. These are diagnostic allocation observations, not
+production latency or resident-memory measurements.
+
+The final default HTTP suite passes, including complete historical reads,
+position metadata authority, scoped swap heads and the migration work guards.
+The final combined scheduled-swap HTTP suite passes exact cash/PV, all six
+observation conventions, custom and dated sources, retained amendments,
+settlement/netting, risk, delegated authority and upgrade refusals. Independent
+adversarial review found no blockers in the SQL scope changes, normalization,
+retained-side reuse, connected purpose selection or request-local market reuse.
+Native PPA execution still admits and expands retained whole-term programs;
+direct execution of their compact vector programs remains work.
+
+Worker-role qualification rejected the proposed quote join replacement: under
+one exact lease/context it increased authorization work while returning the
+same 29 rows. The prior quote join is retained. Ordered projection sharing
+alone reduces the measured worker read from approximately 2.6 to 1.5 seconds
+relative to that rejected replacement, with identical results. All live service,
+lease, permission and temporal checks and the five-second command bound remain.

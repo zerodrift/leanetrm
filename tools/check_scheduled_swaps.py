@@ -124,6 +124,26 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     assert expected==Decimal(value['presentValue'])
     assert [Decimal(p['tradeCashAmount']) for p in payments[:2]]==[-300,-600]
     saved=c.call('swaps/book',body);assert c.call('swaps/book',body)==saved
+    # Exact retained instruments support quantity scaling; a second position must
+    # not rebuild its graph or repeat its unit valuation within this read.
+    report_request=dict(context={**context,'convention':'trading_workspace_v1'},
+        view=dict(mode='trades',bookIds=[body['bookId']],portfolioIds=[],groupBy=[],measures=[],pivotConvention=None),bookingCatalog='directory')
+    before_shared=c.call('trading/workspace',report_request)
+    doubled=deepcopy(body);doubled['operationId']=str(uuid4())
+    for side in (doubled['scheduled']['first'],doubled['scheduled']['second']):
+        for period in side['periods']:period['amount']=str(Decimal(period['amount'])*2)
+    doubled_saved=c.call('swaps/book',doubled)
+    shared=c.call('trading/workspace',report_request)
+    original_row=next(r for r in shared['blotter']['holdings'] if r['tradeId']==saved['tradeId'])
+    doubled_row=next(r for r in shared['blotter']['holdings'] if r['tradeId']==doubled_saved['tradeId'])
+    assert original_row['instrumentId']==doubled_row['instrumentId']
+    assert Fraction(original_row['presentValue'])==Fraction(expected) and Fraction(doubled_row['presentValue'])==2*Fraction(expected)
+    assert shared['blotter']['work']['swapTrades']==before_shared['blotter']['work']['swapTrades']+1
+    assert shared['blotter']['work']['swapValuations']==before_shared['blotter']['work']['swapValuations'], 'Each exact scheduled instrument is valued once per read, regardless of held quantity'
+    retained_request={**report_request,'context':{**report_request['context'],'knowledgeMode':'retained','contextId':before_shared['catalog']['context']['contextId']}}
+    retained_shared=c.call('trading/workspace',retained_request)
+    assert all(retained_shared['blotter'][key]==before_shared['blotter'][key] for key in ('holdings','work','context','asOf')), 'Reuse must not carry positions or values across knowledge contexts'
+    print('PASS scheduled positions share one exact unit valuation while retaining independent quantities and historical scope')
     detail=c.call('swaps/editor',dict(context=context,tradeId=saved['tradeId'],revision=None))
     assert detail['valuation']['presentValue']==value['presentValue']
     assert detail['state']['terms']['scheduled']['first']['basis']=='period_total'
@@ -161,6 +181,12 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     assert original['valuation']['presentValue']==value['presentValue']
     changed=c.call('swaps/editor',dict(context=context,tradeId=saved['tradeId'],revision=2))
     assert Decimal(changed['valuation']['presentValue'])==expected-30
+    changed_shared=c.call('trading/workspace',report_request)['blotter']
+    assert changed_shared['work']['swapValuations']==shared['blotter']['work']['swapValuations']+1
+    changed_row=next(r for r in changed_shared['holdings'] if r['tradeId']==saved['tradeId'])
+    unchanged_row=next(r for r in changed_shared['holdings'] if r['tradeId']==doubled_saved['tradeId'])
+    assert changed_row['instrumentId']!=unchanged_row['instrumentId'] and Fraction(changed_row['presentValue'])==Fraction(expected-30) and Fraction(unchanged_row['presentValue'])==2*Fraction(expected)
+    print('PASS an amended scheduled instrument gets its own valuation without changing another position in the original instrument')
     assert c.call('swaps/amend',amend)==amended
     converted=deepcopy(body)
     other=next(q['specification'] for q in index['quantityChoices'] if q['specification']['code']=='synthetic_gas_energy_b')
@@ -181,7 +207,6 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     discounted=deepcopy(body);discounted['discounting']=True
     for p in discounted['scheduled']['second']['periods']:p['floating']['paymentSchedule']={**payment,'days':46}
     discounted_value=preview(discounted)
-    from fractions import Fraction
     assert sum((Fraction(p['tradeCashAmount'])*Fraction(p['discountFactor']) for side in discounted_value['sides'] for p in side['payments']),Fraction())==Fraction(discounted_value['presentValue'])
     assert discounted_value['sides'][0]['payments'][0]['paymentDate']!=discounted_value['sides'][1]['payments'][0]['paymentDate']
     reversed_body=deepcopy(body);reversed_body['firstCoefficient']='1'

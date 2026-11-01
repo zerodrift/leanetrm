@@ -263,7 +263,7 @@ public sealed partial class SwapStore
     private sealed record LifecycleEvaluation(SidedInstrument Instrument,Quantity Quantity,SwapSettlementInputs Inputs,
         SwapLifecycleValue Value,JsonElement State);
     private async Task<LifecycleEvaluation> EvaluateLifecycle(NpgsqlConnection connection,PreviewData data,InputFrame frame,JsonElement row,
-        SwapWriteRequest terms,JsonElement state,CancellationToken ct,RetainedScheduleStore? schedules=null,ContractObservationSamples.History? sourceHistories=null)
+        SwapWriteRequest terms,JsonElement state,CancellationToken ct,RetainedScheduleStore? schedules=null,ContractObservationSamples.History? sourceHistories=null,CustomCurves.PreparationScope? preparationScope=null)
     {
         (data,frame) = await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct);
         var resolved = await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct,schedules);
@@ -273,8 +273,8 @@ public sealed partial class SwapStore
         var mapping = enabled ? await Discount(connection,data,frame,resolved.Instrument.Currency,ct) : null;
         var discounting = new CurrencyDefaultDiscounting(inputs.DiscountKeys(resolved.Instrument,snapshot),snapshot,enabled,mapping);
         var context = (await new KnowledgeStore(manifest.CatalogId).Read(connection,frame.ContextId??throw Error("settlement_context","Supply the exact certified context."),ct)).Context;
-        var connected = await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),ct,
-            activePrices:inputs.RequiredPrices(resolved.Instrument),sourceHistories:sourceHistories);
+        var connected = await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),CustomCurves.MarketPreparation.ValuationDependencies,ct,
+            activePrices:inputs.RequiredPrices(resolved.Instrument),sourceHistories:sourceHistories,preparationScope:preparationScope);
         return new(resolved.Instrument,resolved.Quantity,inputs,inputs.Evaluate(resolved.Instrument,
             connected.Valuation.PaymentContext(connected.Bindings,connected.Authority,discounting,ct)),state);
     }

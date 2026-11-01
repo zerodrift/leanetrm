@@ -16,9 +16,9 @@ def trading_context(frame, retained=None):
             **({'contextId': retained['contextId']} if retained else {})}
 
 
-def trading_workspace(c, context):
+def trading_workspace(c, context, catalog='priced_contracts'):
     return c.call('trading/workspace', {'context': context, 'view': VIEW,
-                                       'bookingCatalog': 'priced_contracts'})
+                                       'bookingCatalog': catalog})
 
 
 def legacy_trading_reads(c, context, convention):
@@ -61,6 +61,10 @@ def run_checks(c, check, query, manifest):
         cut = old_now['catalog']['context']
         old_pin, new_pin = trading_context(frame, cut), trading_context(changed['frame'], cut)
         old_result, new_result = trading_workspace(c, old_pin), trading_workspace(c, new_pin)
+        old_directory = trading_workspace(c, old_pin, 'directory')
+        check('the valued directory preserves both explicitly selected primary observation revisions',
+              old_directory['blotter'] == old_result['blotter']
+              and trading_workspace(c, new_pin, 'directory')['blotter'] == new_result['blotter'])
         check('priced trading retains the explicitly selected original observation after a correction',
               old_result == legacy_trading_reads(c, old_pin, data['futuresConvention']))
         check('priced trading retains the explicitly selected corrected observation',
@@ -84,6 +88,8 @@ def run_checks(c, check, query, manifest):
             check('standalone full trading reads still inspect same-fact correction history')
             check('priced workspace does not inspect unselected primary correction rows',
                   trading_workspace(c, old_pin) == old_result)
+            check('the valued booking directory does not inspect unselected primary correction rows',
+                  trading_workspace(c, old_pin, 'directory') == old_directory)
         finally:
             query('DROP POLICY synthetic_unselected_trading_pin ON market_data.observations;DROP FUNCTION public.synthetic_unselected_trading_pin(uuid);')
         anchor = str(UUID(original['id']))
@@ -91,6 +97,8 @@ def run_checks(c, check, query, manifest):
         try:
             c.call('trading/workspace', {'context': old_pin, 'view': VIEW,
                    'bookingCatalog': 'priced_contracts'}, expected=422)
+            c.call('trading/workspace', {'context': old_pin, 'view': VIEW,
+                   'bookingCatalog': 'directory'}, expected=422)
             check('a hidden exact anchor is not replaced by its visible successor')
         finally:
             query('DROP POLICY synthetic_hidden_trading_pin ON market_data.observations;')
@@ -139,6 +147,8 @@ def run_supplemental_checks(c, check, query, manifest):
         current = trading_workspace(c, cut)
         check("supplemental swap markets keep their snapshot's exact pins after a later correction (D172)",
               current == legacy_trading_reads(c, cut, data['futuresConvention']) and held_value(current) == held['presentValue'])
+        check('the valued directory retains the same supplemental snapshot pins',
+              trading_workspace(c, cut, 'directory')['blotter'] == current['blotter'])
         check('supplemental swap correction does not change retained prior PV or provenance',
               trading_workspace(c, retained) == before)
         # A certified context resolves the latest correction known at its cutoff in every bundle.
@@ -151,6 +161,8 @@ def run_supplemental_checks(c, check, query, manifest):
         resolved = trading_workspace(c, certified)
         check('a certified context after a supplemental correction resolves it identically through scoped and legacy reads',
               resolved == legacy_trading_reads(c, certified, data['futuresConvention']) and held_value(resolved) != held['presentValue'])
+        check('the valued directory resolves the same certified supplemental corrections',
+              trading_workspace(c, certified, 'directory')['blotter'] == resolved['blotter'])
     finally:
         append([(str(uuid4()), successor, original['value']) for original, successor, _ in corrections])
         c.call('market/current', {})

@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--market-preparation-reuse"]){MarketPreparationReuseChecks.Run();return;}
 if(args is ["--crude-instants"]){CrudeInstantChecks.Run();return;}
 if(args is ["--crude-lifecycle"]){CrudeLifecycleChecks.Run();return;}
 if(args is ["--crude-positions"]){CrudePositionChecks.Run();return;}
@@ -39,7 +40,7 @@ if(args is ["--history-chart"]){HistoryChartChecks.Run();return;}
 
 if(args is ["--close-risk"]){CloseRiskChecks.Run();return;}
 if(args is ["--ppa-limits"]){PpaLimitChecks.Run();return;}
-if(args is ["--preview-data"]){PreviewDataChecks.Run();return;}
+if(args is ["--preview-data"]){PreviewDataChecks.Run();MarketPreparationReuseChecks.Run();return;}
 if(args is ["--portfolio-risk-scope",var portfolioScopeFixture]){await SwapRiskHoldingChecks.Scope(portfolioScopeFixture);return;}
 if(args is ["--swap-risk-reuse-revoked",var reuseFixture]){await SwapRiskHoldingChecks.ReuseRevoked(reuseFixture);return;}
 if(args is ["--swap-risk-holdings",var swapRiskFixture]){await SwapRiskHoldingChecks.Run(swapRiskFixture,false);return;}

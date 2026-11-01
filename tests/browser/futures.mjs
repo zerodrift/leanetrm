@@ -1,3 +1,4 @@
+import {setupWorkspaceProbe} from './workspace-probe.mjs';
 import {chooseFutures} from './futures-selection.mjs';
 import {chooseProduct,closeNewTrade,newTrade,startNewTrade} from './new-trade.mjs';
 import {deliveryLabel} from '../../web/dist/market-view.js';
@@ -13,7 +14,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Page.navigate',{url});
   await wait(idle);
   await setupTradingReplies(evaluate);
-  await evaluate(`(()=>{const send=window.fetch;window.__futuresResponses=[];window.__futuresRequests=[];window.__curveShapeRequests=0;window.fetch=async(input,init)=>{
+  await setupWorkspaceProbe(evaluate);
+  await evaluate(`(()=>{const send=window.fetch;window.__futuresResponses=[];window.__futuresRequests=[];window.__curveShapeRequests=0;window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{
     const path=typeof input==='string'?input:input.url;
     if(path==='/api/market/curve-shapes')window.__curveShapeRequests++;
     if(path==='/api/table-views/blotter'&&window.__denyLayout){window.__denyLayout=false;return new Response(JSON.stringify({code:'access_denied',message:'Synthetic access denial'}),{status:403,headers:{'Content-Type':'application/json'}});}
@@ -42,7 +44,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     }
     try{window.__futuresResponses.push({path,data:await response.clone().json()});}catch{}
     if(path==='/api/futures/book'&&window.__loseBooking){window.__loseBooking=false;return new Response('incomplete',{status:502});}return response;
-  };})()`);
+  });})()`);
   await evaluate("(async()=>{const b=await(await fetch('/api/bootstrap')).json();sessionStorage.setItem('openetrm.futures.request.'+[b.runId,b.tenantId,b.workspaceId,'trader'].join(':'),JSON.stringify({path:'futures/book',operationId:'00000000-0000-0000-0000-000000000001',body:{executedAt:'2020-12-18T16:00:00Z'}}));})()");
   await persona('trader');
   await check('Trader has Blotter under Trading',"document.querySelector('#nav-futures').textContent.includes('Blotter')");
@@ -57,7 +59,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate("document.querySelector('#futures-new').click()");
   await check('the authorized New trade chooser opens without waiting for portfolio values',"document.querySelector('#position-details').dataset.mode==='new'&&!document.querySelector('#position-details').hidden&&document.querySelector('#futures-page').dataset.pricingState==='pending'");
   await evaluate("document.querySelector('#details-collapse').click()");
-  await check('working pricing explicitly remains current while the booked facts have their own certified context',"(()=>{const facts=window.__futuresResponses.find(r=>r.path==='/api/trading/positions').data,request=window.__heldWorkspaceRequest.context;return !!facts.context.contextId&&request.knowledgeMode==='current'&&!request.contextId&&window.__heldWorkspaceRequest.progressive===true;})()");
+  await check('working pricing explicitly remains current while the booked facts have their own certified context',"(()=>{const facts=window.__futuresResponses.find(r=>r.path==='/api/trading/positions').data,request=window.__heldWorkspaceRequest.context;return !!facts.context.contextId&&request.knowledgeMode==='current'&&!request.contextId;})()");
   await evaluate("window.__releaseWorkspace();window.__releaseWorkspace=null");await wait(idle);
   await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'");
   await check('server-owned booking contract does not restore incompatible legacy commands',"document.querySelector('#futures-pending').hidden&&!document.querySelector('#futures-new').disabled");

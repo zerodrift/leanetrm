@@ -32,6 +32,43 @@ internal static class PreviewDataChecks
             Reject("history_conflict",()=>HistoryRevisionPolicy.OnePerInstant([Sample("1.5",early),Sample(null,early,"source_expired")]).ToArray());
         });
         var data=Data();
+        Check("base valuation prepares only declared curve dependencies",()=>
+        {
+            using var source=Npgsql.NpgsqlDataSource.Create("Host=127.0.0.1;Database=synthetic_unopened;Username=synthetic");
+            var database=new PreviewDatabase(fixture.Manifest,source);
+            using var connection=source.CreateConnection();
+            var selected=fixture.Frame with{ContextId=Guid.NewGuid()};
+            var context=new ScheduleContext("2040-01-10",1,selected.At.ToString("O"),selected.ContextId);
+            var request=new CurveRequest(new(data.DefinitionRevision,"future"),data.Contracts[0].Key);
+            var market=CustomCurves.PrepareMarket(connection,database,data,selected,data.Snapshot(selected),context,[],[request],CustomCurves.MarketPreparation.ValuationDependencies,default).GetAwaiter().GetResult();
+            var expected=ExactUnitPrice.FromPrice(data.Model.Build(data.Snapshot(selected),[request]).Values.Single().Price);
+            if(market.Valuation.Scenario.Price(market.Bindings[request])!=expected)
+                throw new Exception("Dependency-scoped preparation changed the independently valued requested price.");
+            Console.WriteLine($"Connected preparation: {market.Preparation.DeclaredSourceNodes} source nodes for one requested contract among 405 quotes.");
+            if(market.Preparation.DeclaredSourceNodes>4)
+                throw new Exception("Base valuation compiled unrelated quoted contracts.");
+            var universe=CustomCurves.PrepareMarket(connection,database,data,selected,data.Snapshot(selected),context,[],[request],
+                CustomCurves.MarketPreparation.ScenarioUniverse,default).GetAwaiter().GetResult();
+            if(universe.Preparation.DeclaredSourceNodes!=405||universe.Valuation.Scenario.Price(universe.Bindings[request])!=expected)
+                throw new Exception("Scenario preparation lost available quote coordinates or changed the base price.");
+            var replay=CustomCurves.PrepareMarket(connection,database,data,selected,data.Snapshot(selected),context,[],[request],
+                CustomCurves.MarketPreparation.ScenarioUniverse,default,universe.Evidence).GetAwaiter().GetResult();
+            if(replay.Evidence.ManifestId!=universe.Evidence.ManifestId)
+                throw new Exception("An exact retained scenario manifest changed on replay.");
+            Reject("risk_graph_manifest",()=>CustomCurves.PrepareMarket(connection,database,data,selected,data.Snapshot(selected),context,[],[request],
+                CustomCurves.MarketPreparation.ValuationDependencies,default,universe.Evidence).GetAwaiter().GetResult());
+            var noDemand=CustomCurves.PrepareMarket(connection,database,data,selected,data.Snapshot(selected),context,[],[],
+                CustomCurves.MarketPreparation.ValuationDependencies,default).GetAwaiter().GetResult();
+            if(noDemand.Preparation.DeclaredSourceNodes!=0||!noDemand.Bindings.IsEmpty)
+                throw new Exception("An empty projected dependency set acquired unrelated quote work.");
+            var missing=selected with{ObservationIds=selected.ObservationIds.RemoveAt(0)};
+            var missingSnapshot=data.Snapshot(missing);
+            string missingCode;
+            try{data.Model.Build(missingSnapshot,[request]);throw new Exception("The independent required-price check unexpectedly succeeded.");}
+            catch(MarketDataException error){missingCode=error.Code;}
+            Reject(missingCode,()=>CustomCurves.PrepareMarket(connection,database,data,missing,missingSnapshot,context,[],[request],
+                CustomCurves.MarketPreparation.ValuationDependencies,default).GetAwaiter().GetResult());
+        });
         Check("mixed portfolio snapshots bind one explicit knowledge context without replacing any input",()=>
         {
             var source=data.Snapshot(fixture.Frame);var context=Guid.NewGuid();var known=fixture.Frame.At.AddDays(1);
@@ -501,7 +538,7 @@ internal static class PreviewDataChecks
     private static JsonElement Wire(object value)=>JsonSerializer.SerializeToElement(value,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
     private static JsonElement Change(JsonElement row,string key,object? value)
     {var fields=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(row.GetRawText())!;fields[key]=Row(value!);return Row(fields);}
-    private static (PreviewManifest Manifest,Dictionary<string,ImmutableArray<JsonElement>> Definitions,
+    internal static (PreviewManifest Manifest,Dictionary<string,ImmutableArray<JsonElement>> Definitions,
         Dictionary<string,ImmutableArray<JsonElement>> References,ImmutableArray<JsonElement> Observations,InputFrame Frame) Fixture(int count)
     {
         var cat=Guid.NewGuid();var rev=Guid.NewGuid();var rcat=Guid.NewGuid();var rrev=Guid.NewGuid();

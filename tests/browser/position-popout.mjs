@@ -1,3 +1,4 @@
+import {setupWorkspaceProbe} from './workspace-probe.mjs';
 // Native double-clicks open independent windows. All values and schedules remain backend reads.
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -11,7 +12,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  }
  await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('trader');
- await evaluate(`(()=>{const send=window.fetch;window.popoutReads=[];window.fetch=async(...args)=>{const response=await send(...args);if(args[0]==='/api/trading/workspace'&&response.ok)window.popoutReads.push({path:args[0],body:JSON.parse(args[1].body),value:await response.clone().json()});return response;};})()`);
+ await setupWorkspaceProbe(evaluate);
+ await evaluate(`(()=>{const send=window.fetch;window.popoutReads=[];window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{const args=[input,init];const response=await send(...args);if(args[0]==='/api/trading/workspace'&&response.ok)window.popoutReads.push({path:args[0],body:JSON.parse(args[1].body),value:await response.clone().json()});return response;});})()`);
  const snapshot=await evaluate("(async()=>{const data=await(await fetch('/api/workspace')).json();return data.frames.find(f=>f.at.startsWith('2020-12-18T16:00:00')).id;})()");
  await set('#snapshot',snapshot);await wait(idle,30000);await click('#nav-futures',30000);await wait(idle,30000);
  const report=await evaluate("window.popoutReads.filter(r=>r.path==='/api/trading/workspace').at(-1).value.blotter"),parentWindow=await command('Browser.getWindowForTarget');let last;

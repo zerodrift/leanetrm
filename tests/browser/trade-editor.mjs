@@ -1,3 +1,4 @@
+import {setupWorkspaceProbe} from './workspace-probe.mjs';
 import {chooseFutures} from './futures-selection.mjs';
 import {newTrade} from './new-trade.mjs';
 import {setupTradingReplies} from './trading-responses.mjs';
@@ -9,7 +10,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{const path=typeof input==='string'?input:input.url;const response=await send(input,init);if(path==='/api/examples'&&response.ok){const data=await response.json();return new Response(JSON.stringify([...data,{id:'second',name:'Second example',url:'/#second-example'}]),{status:200,headers:{'Content-Type':'application/json'}});}return response;};})()`});
   await command('Page.navigate',{url});await wait(idle);
   await setupTradingReplies(evaluate);
-  await evaluate(`(()=>{const send=window.fetch;window.__editorReplies=[];window.__amendCommands=[];window.fetch=async(input,init)=>{
+  await setupWorkspaceProbe(evaluate);
+  await evaluate(`(()=>{const send=window.fetch;window.__editorReplies=[];window.__amendCommands=[];window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{
     const path=typeof input==='string'?input:input.url;
     if(path==='/api/futures/editor'&&window.__failEditor){window.__failEditor=false;return new Response('Synthetic outage',{status:503});}
     if(path==='/api/futures/editor'&&window.__denyEditor){window.__denyEditor=false;return new Response(JSON.stringify({code:'access_denied'}),{status:403});}
@@ -29,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     }
     try{window.__editorReplies.push({path,data:await response.clone().json()});}catch{}
     if(path==='/api/futures/amend'&&window.__loseAmend){window.__loseAmend=false;return new Response('incomplete',{status:502});}return response;
-  };})()`);
+  });})()`);
   await persona('trader');
   const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');

@@ -4,8 +4,8 @@
 export type BlotterStreamRequest={context:{snapshotId:string;convention:string;knowledgeMode:'current'|'retained';contextId?:string};
   view:{mode:'trades'|'pivot'}&Record<string,unknown>;bookingCatalog?:'directory'|'priced_contracts';summaries:unknown[]};
 export type BlotterStreamStart={context:{contextId:string;effectiveOn:string;knownAt:string};asOf:string;positions:number}&Record<string,unknown>;
-export type BlotterStreamHandlers={start(s:BlotterStreamStart):void;rows(rows:Record<string,unknown>[],valued:number,positions:number):void;
-  complete(c:{blotter:Record<string,unknown>;summaries:unknown[];catalog:unknown}):void};
+export type BlotterStreamHandlers={start(s:BlotterStreamStart):void|Promise<void>;rows(rows:Record<string,unknown>[],valued:number,positions:number):void|Promise<void>;
+  complete(c:{blotter:Record<string,unknown>;summaries:unknown[];catalog:unknown}):void|Promise<void>};
 
 export class BlotterStreamError extends Error{
   constructor(readonly code:string,message:string){super(message);this.name='BlotterStreamError';}
@@ -28,7 +28,7 @@ export async function readBlotterStream(body:ReadableStream<Uint8Array>,request:
   const trades=request.view.mode==='trades';
   let positions:number|null=null,valued=0,received=0,terminal=false,buffer='';
 
-  const accept=(frame:Frame)=>{
+  const accept=async(frame:Frame)=>{
     if(terminal)throw bad('stream_order','A frame follows the terminal frame.');
     // The server refuses before start with an HTTP error, so an error frame always follows start.
     if(frame.type==='error'){
@@ -43,7 +43,7 @@ export async function readBlotterStream(body:ReadableStream<Uint8Array>,request:
       if(typeof s.asOf!=='string')throw bad('stream_order','The start frame has no As of.');
       if(request.context.contextId!==undefined&&s.context?.contextId!==request.context.contextId)
         throw bad('stream_context','The stream context is not the requested context.');
-      positions=s.positions;handlers.start(s);return;
+      positions=s.positions;await handlers.start(s);return;
     }
     if(positions===null)throw bad('stream_order','The stream does not begin with a start frame.');
     if(frame.type==='rows'){
@@ -52,13 +52,13 @@ export async function readBlotterStream(body:ReadableStream<Uint8Array>,request:
       if(frame.valued>positions||frame.valued<valued)throw bad('stream_count','The valued count is out of range.');
       received+=batch.length;
       if(trades&&received>positions)throw bad('stream_count','The stream carries more rows than positions.');
-      valued=frame.valued;handlers.rows(batch as Record<string,unknown>[],valued,positions);return;
+      valued=frame.valued;await handlers.rows(batch as Record<string,unknown>[],valued,positions);return;
     }
     if(frame.type==='complete'){
       if(frame.positions!==positions||frame.valued!==positions||valued!==positions)throw bad('stream_count','The final counts do not equal the positions.');
       if(trades&&received!==positions)throw bad('stream_count','The stream rows do not equal the positions.');
       if(!isObject(frame.blotter)||!Array.isArray(frame.summaries)||!isObject(frame.catalog))throw bad('stream_order','The complete frame is malformed.');
-      terminal=true;handlers.complete(frame as unknown as Parameters<BlotterStreamHandlers['complete']>[0]);return;
+      terminal=true;await handlers.complete(frame as unknown as Parameters<BlotterStreamHandlers['complete']>[0]);return;
     }
     throw bad('stream_order','The stream has an unknown frame.');
   };
@@ -76,7 +76,7 @@ export async function readBlotterStream(body:ReadableStream<Uint8Array>,request:
       while((newline=buffer.indexOf('\n'))>=0){
         const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);
         if(line.trim()==='')continue;
-        accept(parseFrame(line));
+        await Promise.race([accept(parseFrame(line)),aborted]);
         if(signal.aborted)return;
       }
       if(done)break;

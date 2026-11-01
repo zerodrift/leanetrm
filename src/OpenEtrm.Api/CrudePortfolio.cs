@@ -91,7 +91,7 @@ internal static class CrudePortfolio
         {
             var dependencies = group.Portfolio.Declare(group.Snapshot).SelectMany(c => c.Dependencies).Distinct().ToImmutableArray();
             var market = await CustomCurves.PrepareMarket(connection, database, group.Data, group.Frame, group.Snapshot,
-                context, group.Portfolio.Instruments, dependencies, ct, activePrices: group.ActivePrices);
+                context, group.Portfolio.Instruments, dependencies, CustomCurves.MarketPreparation.ValuationDependencies, ct, activePrices: group.ActivePrices);
             var prepared = RiskEngine.PrepareConnected(market.Valuation, market.Bindings, [group.Portfolio], market.Authority, ct);
             var run = RiskEngine.CalculateExact(prepared, [], RiskEngine.ExactNumericalPolicy, ct, RiskDetail.Holdings);
             foreach (var value in run.Groups.Single().BasePositions) values.Add(value.BindingId, value.Value);

@@ -1,3 +1,4 @@
+import {workspaceProbeScript} from './workspace-probe.mjs';
 import {closeNewTrade} from './new-trade.mjs';
 // A Blotter row's menu (blotter-workbench.md, Row context menu) opens on a right-click and from the keyboard, and Close out… opens the
 // backend's draft of the offsetting trade in the details' booking form, at the curve price of the close on screen, labelled with its
@@ -12,7 +13,7 @@ const visibleRows="[...document.querySelectorAll('#desk-positions .tabulator-row
 // Records every trading request and draft the page sends, the holdings each read returns and any request to ask the assistant. On demand
 // (`window.__closeOut.next`) the next draft read fails, comes back as another instrument or for a book the catalog does not hold; the
 // next priced read fails, or states another revision of a trade (`bump`); every read from now on states another revision (`amended`).
-const recorder=`(()=>{const send=window.fetch;window.__closeOut={sent:[],drafts:[],holdings:[],asked:[],next:null,bump:null,amended:null,failPriced:false};window.fetch=async(input,init)=>{const path=String(typeof input==='string'?input:input.url),o=window.__closeOut;
+const recorder=workspaceProbeScript+`(()=>{const send=window.fetch;window.__closeOut={sent:[],drafts:[],holdings:[],asked:[],next:null,bump:null,amended:null,failPriced:false};window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{const path=String(typeof input==='string'?input:input.url),o=window.__closeOut;
   if(/\\/api\\/(futures|swaps)\\/(book|preview)$/.test(path))o.sent.push({path,body:JSON.parse(init.body)});
   if(path.startsWith('/api/assistant/turns'))o.asked.push(path);
   const priced=path==='/api/trading/workspace'&&JSON.parse(init.body).bookingCatalog==='priced_contracts';
@@ -30,7 +31,7 @@ const recorder=`(()=>{const send=window.fetch;window.__closeOut={sent:[],drafts:
   if(path==='/api/trading/workspace'&&response.ok){const value=await response.clone().json();
     if(priced&&o.bump&&value.blotter){for(const h of value.blotter.holdings)if(h.tradeId===o.bump)h.revision=String(Number(h.revision)+1);o.bump=null;response=new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}});}
     if(value.blotter)o.holdings=value.blotter.holdings;}
-  return response;};})()`;
+  return response;});})()`;
 
 /** Opens the Blotter at the close whose instant starts with `at`, as `persona`, with the page's trading requests recorded. */
 async function openBlotter({command,evaluate,wait,click,set,persona,idle,url,errors},at,who='trader'){
