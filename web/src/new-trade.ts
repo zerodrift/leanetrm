@@ -44,9 +44,24 @@ const about:Readonly<Record<NewProduct,string>>={futures:'an exchange contract w
 const aboutLine=(product:NewProduct|null)=>product===null?'Choose an instrument type. Each ticket keeps its own delivery, pricing and lifecycle terms.':`${about[product][0].toUpperCase()}${about[product].slice(1)}.`;
 const loading:Readonly<Record<NewProduct,string>>={futures:'Loading the futures contracts…',swaps:'Loading the swap choices…',ppa:'Loading PPA choices…',gas:'Loading physical gas choices…'};
 const chooseText='Choose an instrument type to enter a new trade.';
+// Instruments New trade will offer, each with what it will hold; none can be opened yet.
+const comingSoon:readonly (readonly [string,string])[]=[
+  ['Transport','Will book gas transport: receipt and delivery sides, with the instrument holding the shipper contract, its capacity and fuel.'],
+  ['Park and loan','Will book gas parked on a pipeline or loaned from it for a fee, and returned on agreed dates.'],
+  ['Storage','Will book a storage contract: injections and withdrawals against its capacity and inventory.']];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?:string){
   const element=document.createElement(tag);if(className)element.className=className;if(text!==undefined)element.textContent=publicText(text);return element;
+}
+
+/** The coming-soon instruments, greyed and disabled, with a Coming soon tag and their hover text. */
+export function soonInstruments(){
+  const group=el('div','product-switch product-soon');group.setAttribute('role','group');group.setAttribute('aria-label','Coming soon');
+  for(const [label,soon] of comingSoon){
+    const button=el('button','ticket-soon',label);button.type='button';button.disabled=true;button.setAttribute('aria-disabled','true');button.title=soon;
+    button.append(el('span','ticket-soon-tag','Coming soon'));group.append(button);
+  }
+  return group;
 }
 
 /**
@@ -62,7 +77,7 @@ export function setupNewTrade(shell:SidePanel,o:{choose:(product:NewProduct)=>vo
   }));
   title.id='side-panel-title';switcher.id='new-trade-product';switcher.setAttribute('role','group');switcher.setAttribute('aria-label','Product');switcher.append(...buttons.values());
   note.id='new-trade-note';
-  root.append(title,switcher,note);
+  root.append(title,switcher,soonInstruments(),note);
   function sync(){for(const button of buttons.values())button.disabled=o.busy();}
   return {
     /**

@@ -29,13 +29,15 @@ const one=(root,name)=>{const found=byClass(root,name);assert.equal(found.length
 const controls=root=>all(root).filter(n=>['INPUT','SELECT','TEXTAREA'].includes(n.tagName));
 
 const f=(id,label,over={})=>({id,label,meaning:`${label} meaning`,type:'text',unit:null,state:'editable',required:false,band:null,choices:null,dependsOn:[],lookup:null,soon:null,rule:null,...over});
-const description={product:'synthetic_flow',version:2,rowShape:'flow',levels:['month','day'],modes:['new','booked'],tradeColumns:[],tabs:[{id:'notes',label:'Notes'}],
+const description={product:'synthetic_flow',version:2,rowShape:'flow',levels:['month','day'],modes:['new','booked'],tradeColumns:[],
+ tabs:[{id:'notes',label:'Notes',soon:null},{id:'balance',label:'Balance',soon:'Will compare nominated and actual days.'}],
  tradeFields:[f('book','Book',{type:'choice',choices:'books'}),f('agreement','Agreement',{state:'soon',soon:'Will name the master agreement.'})],
  sides:[{kind:'leg',pill:'Physical',colour:'gas',min:1,initial:1,max:2,columns:[],fields:[f('direction','Direction',{band:'direction',type:'choice',choices:'directions'}),
    f('start','From',{band:'start',type:'date'}),f('quantity','Quantity',{band:'quantity',type:'decimal',unit:'quantity'}),
    f('price','Price',{band:'price',state:'info',lookup:'market_price'}),f('point','Point',{lookup:'point'}),f('meter','Meter',{state:'soon',soon:'Will name the meter.'})]},
   {kind:'cash',pill:'Payment',colour:'cash',min:1,initial:1,max:2,columns:[],fields:[f('pay_direction','Direction',{band:'direction',type:'choice',choices:'pay'}),
-   f('pay_start','From',{band:'start',state:'derived',rule:'Follows the source side.'}),f('pay_price','Price',{band:'price',type:'decimal'}),f('pay_at','Payment at',{band:'payment'})]}],
+   f('pay_start','From',{band:'start',state:'derived',rule:'Follows the source side.'}),f('pay_price','Price',{band:'price',type:'decimal'}),f('pay_at','Payment at',{band:'payment'})]},
+  {kind:'index',pill:'Floating',colour:'neutral',min:0,initial:0,max:0,columns:[],fields:[],soon:'Will price the gas at an index.'}],
  sideLimits:[]};
 const status={kind:'current',text:'Up to date'};
 const noEvents=()=>new Proxy({},{get:(_,name)=>()=>assert.fail(`unexpected ${String(name)} event`)});
@@ -82,6 +84,17 @@ test('a coming-soon field is a disabled control with a Coming soon tag, its hove
  assert.equal(controls(agreement)[0].title,'Will name the master agreement.');
 });
 
+test('a coming-soon side kind and tab are greyed, disabled and tagged, with their hover text, and do nothing when pressed',()=>{
+ const host=draw();
+ const soon=(node,text)=>{
+  assert.ok(node.classList.contains('ticket-soon'));assert.equal(node.disabled,true);assert.equal(node.getAttribute('aria-disabled'),'true');
+  assert.equal(node.title,text);assert.equal(one(node,'ticket-soon-tag').textContent,'Coming soon');node.onclick?.();
+ };
+ soon(all(one(host,'ticket-add')).filter(n=>n.tagName==='BUTTON')[2],'Will price the gas at an index.');
+ soon(all(host).find(n=>n.dataset.tab==='balance'),'Will compare nominated and actual days.');
+ assert.equal(all(host).find(n=>n.dataset.tab==='notes').disabled,false);
+});
+
 test('a looked-up value shows its chip, and an offered value is accepted only by its button',()=>{
  let state=applyLookup(newTicket(description),'leg-1','point',{value:'P-7',source:{kind:'reference',label:'Hub list'}});
  state=applyLookup(state,'leg-1','price',{value:'3.25',source:{kind:'market',label:'Hub A · close 2041-01-02'}});
@@ -120,7 +133,7 @@ test('clicking a card selects its side, and the selected side\'s tab is marked s
  assert.deepEqual(selected,['cash-1']);
  host=draw({selectedSide:'cash-1',tab:'cash-1'});
  const tabs=all(host).filter(n=>n.getAttribute('role')==='tab');
- assert.deepEqual(tabs.map(t=>[t.dataset.tab,t.getAttribute('aria-selected')]),[['instrument','false'],['leg-1','false'],['cash-1','true'],['notes','false']]);
+ assert.deepEqual(tabs.map(t=>[t.dataset.tab,t.getAttribute('aria-selected')]),[['instrument','false'],['leg-1','false'],['cash-1','true'],['notes','false'],['balance','false']]);
  assert.ok(byClass(host,'ticket-card')[1].classList.contains('selected'));
  assert.deepEqual(byClass(one(host,'ticket-chips'),'ticket-side-chip').map(c=>c.textContent),['Physical · leg-1','Payment · cash-1']);
 });
@@ -145,7 +158,7 @@ test('the strip shows the status and the model\'s notices, and the ghost card of
  const line=one(host,'ticket-status');assert.equal(line.dataset.kind,'refused');assert.equal(line.textContent,'Preview refused: no point.');
  assert.deepEqual(byClass(host,'ticket-notice').map(n=>n.textContent),['Point was cleared because Zone changed.']);
  const offers=all(one(host,'ticket-add')).filter(n=>n.tagName==='BUTTON');
- assert.deepEqual(offers.map(b=>[b.textContent,b.disabled]),[['Physical',false],['Payment',false]]);
+ assert.deepEqual(offers.map(b=>[b.textContent,b.disabled]),[['Physical',false],['Payment',false],['FloatingComing soon',true]]);
  offers[1].onclick();assert.deepEqual(added,['cash']);
  const full=draw({state:{...state,sides:[...state.sides,{kind:'cash',code:'cash-2',values:{}}]}});
  const payment=all(one(full,'ticket-add')).filter(n=>n.tagName==='BUTTON')[1];

@@ -33,6 +33,16 @@ export async function run(actions){
  await check('the common band rows line up across the cards',`(()=>{const cards=[...document.querySelectorAll(${q(ticket+' .ticket-card')})],rows=[...cards[0].querySelectorAll('[data-band]')].map(r=>r.dataset.band);
   return rows.length>0&&rows.every(band=>new Set(cards.map(c=>Math.round(c.querySelector('[data-band="'+band+'"]').getBoundingClientRect().top))).size===1);})()`);
 
+ // Coming-soon items are drawn with their hover text and never sent: every preview and booking request is kept to be read later.
+ await evaluate(`{const original=window.fetch;window.ticketBodies=[];window.fetch=async(...args)=>{const sent=/[/]tickets[/](preview|book)$/.exec(String(args[0]));if(sent)ticketBodies.push({path:sent[1],draft:JSON.parse(args[1].body).draft});return original(...args);};}`);
+ const soonIds=await evaluate(`[...document.querySelectorAll(${q(ticket+' .ticket-field[data-state=soon]')})].map(f=>f.dataset.field)`);
+ await check('a coming-soon field is disabled, tagged Coming soon and says what it will do on hover',
+  `(()=>{const f=document.querySelector(${q(field('physical-1','heat_content'))}),c=f?.querySelector('.ticket-control');
+   return !!c&&c.disabled&&c.getAttribute('aria-disabled')==='true'&&f.title===c.title&&/Btu per cubic foot/.test(c.title)&&f.querySelector('.ticket-soon-tag')?.textContent==='Coming soon';})()`,q(soonIds));
+ await check('the floating side and the Imbalance tab are offered as coming soon, and cannot be chosen',
+  `(()=>{const add=[...document.querySelectorAll(${q(ticket+' .ticket-add-kind')})].find(b=>b.textContent.startsWith('Floating')),tab=document.querySelector(${q(ticket+' .ticket-tab[data-tab="imbalance"]')});
+   return add.disabled&&/does not accept it yet/.test(add.title)&&tab.disabled&&tab.getAttribute('aria-disabled')==='true'&&/cash-out/.test(tab.title);})()`);
+
  const tradeTerms=async()=>{
   for(const id of ['book','legal_entity','counterparty'])await first(null,id);
   // A context that resolves a published gas setup lists it, and the person chooses it before the sides list their choices; none is chosen
@@ -103,6 +113,9 @@ export async function run(actions){
  await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/tickets/book')&&response.ok)throw new TypeError('Synthetic lost booking response');return response;};}`);
  const reconcile=`[...document.querySelectorAll('#gas-ticket .ticket-booking button')].find(b=>b.textContent==='Check booking status'&&!b.disabled)`;
  await click(`${ticket} .ticket-book`);await wait(`!!${reconcile}`);
+ await check('no preview or booking request carries a coming-soon field',
+  `['preview','book'].every(path=>ticketBodies.some(b=>b.path===path))&&ticketBodies.every(b=>{const sent=[b.draft.trade,...b.draft.sides.map(s=>s.values)].flatMap(Object.keys);
+   return ${q(soonIds)}.every(id=>!sent.includes(id))&&b.draft.sides.every(s=>s.kind!=='floating');})&&${q(soonIds)}.length===10`,`({soon:${q(soonIds)},bodies:ticketBodies.length})`);
  await check('a booking whose response is lost keeps its request and locks the ticket',`document.querySelector('#gas-ticket > div').inert&&document.querySelector('#gas-ticket .ticket-booking').textContent.includes('The booking is not confirmed')`,"document.querySelector('#gas-ticket .ticket-booking').textContent");
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#page-title').textContent==='Blotter'&&"+idle);

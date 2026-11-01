@@ -91,6 +91,7 @@ export function acceptOffer(s:TicketState,side:string|null,field:string):TicketS
 export function addSide(s:TicketState,kind:string):TicketState{
  const spec=s.description.sides.find(k=>k.kind===kind);
  if(!spec)throw new Error(`The ticket has no side kind '${kind}'.`);
+ if(spec.soon)throw new Error(spec.soon);
  if(s.sides.filter(x=>x.kind===kind).length>=spec.max)throw new Error(`A ticket takes at most ${spec.max} ${kind} sides.`);
  for(const limit of s.description.sideLimits)
   if(limit.kinds.includes(kind)&&s.sides.filter(x=>limit.kinds.includes(x.kind)).length>=limit.max)

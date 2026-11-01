@@ -661,6 +661,9 @@ dialog label{margin-top:16px}
 .ticket-rule{color:var(--text-3);font-size:11px}
 .ticket-soon .ticket-control{border-style:dashed;background:repeating-linear-gradient(135deg,var(--surface-2) 0 6px,var(--surface-3) 6px 12px);cursor:not-allowed}
 .ticket-soon-tag{flex:none;padding:1px 6px;border:1px dashed var(--border-strong);border-radius:999px;color:var(--text-3);font-size:10px;font-weight:600;white-space:nowrap}
+:is(.deal-ticket,.new-trade-head) button.ticket-soon:is(*,:hover){display:inline-flex;align-items:center;justify-content:center;gap:6px;border-style:dashed;background:repeating-linear-gradient(135deg,var(--surface-2) 0 6px,var(--surface-3) 6px 12px);color:var(--text-3);cursor:not-allowed}
+.tabulator .tabulator-cell.grid-soon,.tabulator .tabulator-col.grid-soon{background:repeating-linear-gradient(135deg,var(--surface-2) 0 6px,var(--surface-3) 6px 12px);color:var(--text-3)}
+.grid-soon-tag{margin-left:6px;padding:0 5px;border:1px dashed var(--border-strong);border-radius:999px;font-size:10px;font-weight:600}
 .deal-ticket .ticket-offer{padding:2px 8px;border-color:var(--accent-border);color:var(--accent-text);font-size:11px}
 .ticket-error{margin:0;color:var(--danger);font-size:12px}
 .ticket-own{display:flex;flex-direction:column}

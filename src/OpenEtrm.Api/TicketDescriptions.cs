@@ -9,12 +9,13 @@ public static class TicketBand { public static readonly ImmutableArray<string> R
 // which the product's preview and booked read return.
 public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule);
 // Input names the modes in which a side column's day cells are entered in the side's tab, each recorded by the product's own operation.
-public sealed record TicketColumn(string Id,string Label,string? Unit,string Measure,ImmutableArray<string> Input);
-// A new ticket opens with Initial sides of the kind, between Min and Max.
-public sealed record TicketSideKind(string Kind,string Pill,string Colour,int Min,int Initial,int Max,ImmutableArray<TicketField> Fields,ImmutableArray<TicketColumn> Columns);
+// Soon, on a field, side kind, column or tab, is the hover text of an item drawn as coming soon: it holds no value, is never sent and reads nothing.
+public sealed record TicketColumn(string Id,string Label,string? Unit,string Measure,ImmutableArray<string> Input,string? Soon=null);
+// A new ticket opens with Initial sides of the kind, between Min and Max; a coming-soon kind is offered greyed and none can be added.
+public sealed record TicketSideKind(string Kind,string Pill,string Colour,int Min,int Initial,int Max,ImmutableArray<TicketField> Fields,ImmutableArray<TicketColumn> Columns,string? Soon=null);
 // At most Max sides of the named kinds together; each kind keeps its own Min and Max.
 public sealed record TicketSideLimit(ImmutableArray<string> Kinds,int Max);
-public sealed record TicketTab(string Id,string Label);
+public sealed record TicketTab(string Id,string Label,string? Soon=null);
 public sealed record TicketDescription(string Product,int Version,string RowShape,ImmutableArray<TicketField> TradeFields,ImmutableArray<TicketSideKind> Sides,ImmutableArray<TicketSideLimit> SideLimits,ImmutableArray<TicketColumn> TradeColumns,ImmutableArray<string> Levels,ImmutableArray<TicketTab> Tabs,ImmutableArray<string> Modes);
 // A refusal of one draft value, naming its side (null for a trade field) and field, so the ticket shows the reason on that field.
 public sealed class TicketFieldException(string code,string message,string? side,string field):MarketDataException(code,message)
@@ -32,7 +33,7 @@ public static class TicketDescriptions
  // The one map from a side column's measure to what the schedule view reports.
  static readonly ImmutableDictionary<string,ScheduleViewMeasure> ViewMeasures=new Dictionary<string,ScheduleViewMeasure>{["quantity"]=ScheduleViewMeasure.Quantity,["price"]=ScheduleViewMeasure.Price,["money"]=ScheduleViewMeasure.Amount}.ToImmutableDictionary();
 
- public static ImmutableArray<(string,ScheduleViewMeasure)> ViewColumns(TicketSideKind kind)=>[..kind.Columns.Select(column=>(column.Id,ViewMeasures.TryGetValue(column.Measure,out var measure)?measure:
+ public static ImmutableArray<(string,ScheduleViewMeasure)> ViewColumns(TicketSideKind kind)=>[..kind.Columns.Where(column=>column.Soon is null).Select(column=>(column.Id,ViewMeasures.TryGetValue(column.Measure,out var measure)?measure:
   throw new MarketDataException("ticket_description",$"Side kind '{kind.Kind}' column '{column.Id}' has measure '{column.Measure}', which the schedule view cannot show.")))];
 
  public static TicketDescription Validate(TicketDescription d)
@@ -49,6 +50,10 @@ public static class TicketDescriptions
    CheckField(d,field);
   }
   var units=all.Select(f=>(f.Id,f.Unit)).Concat(d.TradeColumns.Concat(d.Sides.SelectMany(s=>s.Columns)).Select(c=>(c.Id,c.Unit)));
+  if(d.TradeColumns.FirstOrDefault(c=>c.Soon is not null) is {} later)Fail(d,$"trade column '{later.Id}' cannot be coming soon; only a side column can");
+  if(d.Sides.SelectMany(s=>s.Columns).FirstOrDefault(c=>c.Soon is not null&&(string.IsNullOrWhiteSpace(c.Soon)||!c.Input.IsDefaultOrEmpty||c.Unit is not null)) is {} soon)
+   Fail(d,$"soon column '{soon.Id}' needs hover text and takes no entries or unit");
+  if(d.Tabs.FirstOrDefault(t=>t.Soon is not null&&string.IsNullOrWhiteSpace(t.Soon)) is {} tab)Fail(d,$"soon tab '{tab.Id}' needs hover text");
   if(d.TradeColumns.FirstOrDefault(c=>!c.Input.IsDefaultOrEmpty) is {} entered)Fail(d,$"trade column '{entered.Id}' cannot be an input; inputs are a side's");
   if(d.Sides.SelectMany(s=>s.Columns).FirstOrDefault(c=>c.Input.IsDefault||c.Input.Distinct().Count()!=c.Input.Length||c.Input.Any(mode=>!d.Modes.Contains(mode))) is {} input)
    Fail(d,$"column '{input.Id}' must be an input in distinct declared modes, or none");
@@ -56,7 +61,10 @@ public static class TicketDescriptions
   foreach(var field in all)
    foreach(var dependency in field.DependsOn)
     if(!ids.Contains(dependency))Fail(d,$"field '{field.Id}' depends on unknown field '{dependency}'");
-  foreach(var side in d.Sides)
+  foreach(var side in d.Sides.Where(s=>s.Soon is not null))
+   if(string.IsNullOrWhiteSpace(side.Soon)||side.Min!=0||side.Initial!=0||side.Max!=0||!side.Fields.IsEmpty||!side.Columns.IsEmpty||d.SideLimits.Any(l=>l.Kinds.Contains(side.Kind)))
+    Fail(d,$"soon side kind '{side.Kind}' needs hover text, no sides, fields, columns or side limit");
+  foreach(var side in d.Sides.Where(s=>s.Soon is null))
   {
    if(side.Min<0||side.Min>side.Max||side.Max<1)Fail(d,$"side kind '{side.Kind}' needs 0 <= min <= max and 1 <= max");
    if(side.Initial<side.Min||side.Initial>side.Max)Fail(d,$"side kind '{side.Kind}' needs min <= initial <= max");

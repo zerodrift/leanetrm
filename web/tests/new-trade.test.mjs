@@ -58,3 +58,20 @@ test('one New trade product choice includes futures, swaps, PPAs and physical ga
  const {newTradeProducts}=await import('../dist/new-trade.js');
  assert.deepEqual(newTradeProducts.map(([key])=>key),['futures','swaps','ppa','gas']);
 });
+
+test('Transport, Park and loan and Storage are listed as coming soon: greyed, disabled, tagged and with their hover text',async()=>{
+ const old=globalThis.document;
+ class Node{constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.attributes={};this.className='';this.title='';this.disabled=false;this.text='';}
+  append(...c){this.children.push(...c);}setAttribute(n,v){this.attributes[n]=String(v);}getAttribute(n){return this.attributes[n]??null;}
+  set textContent(v){this.text=String(v);}get textContent(){return this.text+this.children.map(c=>c.textContent).join('');}}
+ globalThis.document={createElement:tag=>new Node(tag)};
+ try{
+  const {soonInstruments}=await import('../dist/new-trade.js');
+  const group=soonInstruments();
+  assert.equal(group.getAttribute('aria-label'),'Coming soon');
+  assert.deepEqual(group.children.map(b=>[b.tagName,b.textContent,b.disabled,b.getAttribute('aria-disabled'),b.className]),
+   [['BUTTON','TransportComing soon',true,'true','ticket-soon'],['BUTTON','Park and loanComing soon',true,'true','ticket-soon'],['BUTTON','StorageComing soon',true,'true','ticket-soon']]);
+  assert.match(group.children[0].title,/receipt and delivery sides.*shipper contract.*capacity.*fuel/i);
+  for(const b of group.children)assert.ok(b.title.length>0&&b.onclick===undefined);
+ }finally{globalThis.document=old;}
+});

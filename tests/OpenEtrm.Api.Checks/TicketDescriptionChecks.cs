@@ -63,6 +63,30 @@ internal static class TicketDescriptionChecks
         foreach (var state in new[] { "info", "derived", "soon" })
             Reject($"a required {state} field", WithTrade(Field("book", state, soon: "later", rule: "copied") with { Required = true }));
         Reject("a mode outside new, booked, amend and close-out", valid with { Modes = ["new", "draft"] });
+        // A coming-soon side kind, column or tab is drawn and never sent, so it carries its hover text and nothing the ticket would read or book.
+        var soonKind = new TicketSideKind("later", "Later", "neutral", 0, 0, 0, [], [], "Will price a later leg.");
+        Check("a coming-soon side kind, column and tab pass", () => TicketDescriptions.Validate(valid with
+        {
+            Sides = [valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", []), new("v", "V", null, "quantity", [], "Will show volume.")] }, valid.Sides[1], soonKind],
+            Tabs = [..valid.Tabs, new("later", "Later", "Will show the later view.")]
+        }));
+        Check("a coming-soon column is not a schedule view column", () =>
+        {
+            var kind = valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", []), new("v", "V", null, "quantity", [], "Will show volume.")] };
+            if (!TicketDescriptions.ViewColumns(kind).SequenceEqual([("q", ScheduleViewMeasure.Quantity)])) throw new Exception("A soon column reached the view.");
+        });
+        TicketDescription WithKind(TicketSideKind kind) => valid with { Sides = [..valid.Sides, kind] };
+        Reject("a soon side kind without hover text", WithKind(soonKind with { Soon = " " }));
+        Reject("a soon side kind a new ticket opens with", WithKind(soonKind with { Min = 1, Initial = 1, Max = 1 }));
+        Reject("a soon side kind that can be added", WithKind(soonKind with { Max = 1 }));
+        Reject("a soon side kind with fields", WithKind(soonKind with { Fields = [Field("later_price")] }));
+        Reject("a soon side kind with columns", WithKind(soonKind with { Columns = [new("q", "Q", null, "quantity", [])] }));
+        Reject("a side limit naming a soon side kind", WithKind(soonKind) with { SideLimits = [new(["buy", "later"], 3)] });
+        Reject("a soon column without hover text", valid with { Sides = [valid.Sides[0] with { Columns = [new("v", "V", null, "quantity", [], "")] }, valid.Sides[1]] });
+        Reject("a soon column that takes entries", valid with { Sides = [valid.Sides[0] with { Columns = [new("v", "V", null, "quantity", ["booked"], "Will show volume.")] }, valid.Sides[1]] });
+        Reject("a soon column with a unit", valid with { Sides = [valid.Sides[0] with { Columns = [new("v", "V", "quantity", "quantity", [], "Will show volume.")] }, valid.Sides[1]] });
+        Reject("a soon trade column", valid with { TradeColumns = [new("pv", "PV", null, "money", [], "Will show PV.")] });
+        Reject("a soon tab without hover text", valid with { Tabs = [new("later", "Later", "")] });
         Console.WriteLine($"{passed} ticket description checks passed.");
     }
 }

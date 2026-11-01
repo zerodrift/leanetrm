@@ -38,6 +38,12 @@ const button=(className:string,text:string,click:()=>void)=>{const b=el('button'
 // What the model refuses, as the reason an action is unavailable; null when it is allowed.
 const refusal=(attempt:()=>unknown)=>{try{attempt();return null;}catch(error){return reasonOf(error);}};
 const sideName=(d:TicketDescription,side:TicketSide)=>`${sideKind(d,side.kind).pill} · ${side.code}`;
+const soonTag=()=>el('span','ticket-soon-tag','Coming soon');
+// A coming-soon side kind or tab: greyed, never pressed, with its hover text saying what it will do.
+function soonButton(b:HTMLButtonElement,soon:string){
+ b.classList.add('ticket-soon');b.disabled=true;b.setAttribute('aria-disabled','true');b.title=soon;b.onclick=null;b.append(soonTag());
+ return b;
+}
 
 function editor(f:TicketField,value:string,choices:TicketChoice[]|undefined,edit:(value:string)=>void){
  let control:HTMLInputElement|HTMLSelectElement;
@@ -61,7 +67,7 @@ function fieldRow(o:TicketView,f:TicketField,side:string|null,v:FieldValue|undef
  if(f.state==='soon'){
   // Coming soon: it cannot be entered, holds no value and is never sent; its hover text says what it will do.
   const control=el('input','ticket-control');control.disabled=true;control.setAttribute('aria-disabled','true');control.setAttribute('aria-label',f.label);control.title=f.soon??'';
-  row.title=f.soon??'';body.append(control,el('span','ticket-soon-tag','Coming soon'));
+  row.title=f.soon??'';body.append(control,soonTag());
  }else if(f.state==='editable'&&entry){
   chip();body.append(editor(f,value,o.choices[key],next=>o.on.edit(side,f.id,next)));
   if(unit)body.append(el('span','ticket-unit',unit));
@@ -111,7 +117,8 @@ function addCard(o:TicketView){
  const node=el('div','ticket-add');node.append(el('span','ticket-add-title','Add side'));
  for(const kind of o.state.description.sides){
   const reason=refusal(()=>addSide(o.state,kind.kind)),offer=button('ticket-add-kind',kind.pill,()=>o.on.addSide(kind.kind));
-  offer.disabled=reason!==null;if(reason)offer.title=reason;offer.style.setProperty('--side-colour',sideColour(kind.colour));node.append(offer);
+  offer.disabled=reason!==null;if(reason)offer.title=reason;offer.style.setProperty('--side-colour',sideColour(kind.colour));
+  node.append(kind.soon?soonButton(offer,kind.soon):offer);
  }
  return node;
 }
@@ -135,7 +142,7 @@ function schedulePanel(o:TicketView,sides:ScheduleSide[]){
  const d=o.state.description,panel=el('section','ticket-schedule'),tabs=el('div','ticket-tabs');tabs.setAttribute('role','tablist');
  for(const t of scheduleTabs(d,sides)){
   const tab=button('ticket-tab',t.label,()=>o.on.tab(t.id));tab.dataset.tab=t.id;tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(o.tab===t.id));
-  tab.style.setProperty('--side-colour',sideColour(t.colour));tabs.append(tab);
+  tab.style.setProperty('--side-colour',sideColour(t.colour));tabs.append(t.soon?soonButton(tab,t.soon):tab);
  }
  const level=el('select','ticket-level');level.dataset.role='level';level.setAttribute('aria-label','Row level');
  for(const l of o.schedule?.levels??d.levels){
@@ -231,7 +238,7 @@ export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
    return input;
   };
   grid=renderDataGrid(content,'deal-ticket-schedule',`${d.product}:${o.tab}`,g.headers,g.rows,g.numeric,()=>false,{keys:g.columns,displayRows:g.displayRows,rowKeys:g.keys,
-   layout:emptyGridLayout(),onLayout:()=>{},headerGroups:g.headerGroups,totals:g.totals,decorate:(r,c)=>g.decorations[r][c],cells,
+   layout:emptyGridLayout(),onLayout:()=>{},headerGroups:g.headerGroups,totals:g.totals,decorate:(r,c)=>g.decorations[r][c],cells,soon:g.soon,
    // The chosen level shows its rows open under their parents, except the rows the person closed; the rows they open or close are reported.
    tree:{parents:g.parents,open:new Set(g.parents.filter((p):p is string=>p!==null&&!o.closed.has(p))),onToggle:(row,open)=>o.on.toggle(row,open)}});
   if(o.status.kind==='stale')grid.markStale(o.status.text);

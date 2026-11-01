@@ -71,7 +71,7 @@ internal static class GasTicketChecks
         });
         Check("each side kind declares every column its view side reports", () =>
         {
-            string Ids(string role) => string.Join(",", GasTicket.SideKind(role).Columns.Select(c => c.Id));
+            string Ids(string role) => string.Join(",", TicketDescriptions.ViewColumns(GasTicket.SideKind(role)).Select(c => c.Item1));
             Equal("quantity,market_price,amount", Ids("physical"), "physical columns");
             Equal("quantity,price,amount", Ids("consideration"), "cash columns"); Equal("quantity,price,amount", Ids("fee"), "fee columns");
             Equal("cash", GasTicket.SideKind("consideration").Kind, "consideration kind");
@@ -84,18 +84,28 @@ internal static class GasTicketChecks
             foreach (var role in new[] { "consideration", "fee" }) Equal(GasCompositionInstrument.MaxCashSides, GasTicket.SideKind(role).Max, role + " sides");
         });
         Check("a new gas ticket opens with one physical and one payment side", () =>
-            Equal("physical:1,cash:1,fee:0", string.Join(",", GasTicket.Description.Sides.Select(k => $"{k.Kind}:{k.Initial}")), "initial sides"));
+            Equal("physical:1,cash:1,fee:0,floating:0", string.Join(",", GasTicket.Description.Sides.Select(k => $"{k.Kind}:{k.Initial}")), "initial sides"));
         Check("quantities are in the trade's resolved quantity unit, never a unit symbol", () =>
         {
             var fields = GasTicket.Description.TradeFields.Concat(GasTicket.Description.Sides.SelectMany(k => k.Fields)).Where(f => f.Unit is not null).Select(f => $"{f.Id}:{f.Unit}");
             Equal("quantity:quantity", string.Join(",", fields), "fields with a unit");
-            var columns = GasTicket.Description.Sides.SelectMany(k => k.Columns).Concat(GasTicket.Description.TradeColumns);
+            var columns = GasTicket.Description.Sides.SelectMany(k => k.Columns).Concat(GasTicket.Description.TradeColumns).Where(c => c.Soon is null);
             if (columns.Any(c => c.Unit != (c.Measure == "quantity" ? "quantity" : null))) throw new Exception("Only quantity columns are in the resolved quantity unit.");
         });
         Check("only a booked physical side's quantities are entered in its tab", () =>
         {
             var inputs = GasTicket.Description.Sides.SelectMany(k => k.Columns.Where(c => !c.Input.IsEmpty).Select(c => $"{k.Kind}.{c.Id}:{string.Join("+", c.Input)}"));
             Equal("physical.quantity:booked", string.Join(",", inputs), "input columns");
+        });
+        Check("the gas description draws the owner's coming-soon set, and none of it is booked", () =>
+        {
+            string Soon(IEnumerable<TicketField> fields) => string.Join(",", fields.Where(f => f.State == "soon").Select(f => f.Id));
+            Equal("force_majeure,credit_terms", Soon(GasTicket.Description.TradeFields), "soon trade fields");
+            Equal("swing_daily_min,swing_daily_max,swing_range,swing_notice_deadline,nomination_cycle,nominating_party,heat_content,quality_spec", Soon(GasTicket.SideKind("physical").Fields), "soon physical fields");
+            Equal("floating", string.Join(",", GasTicket.Description.Sides.Where(k => k.Soon is not null).Select(k => k.Kind)), "soon side kinds");
+            Equal("volume", string.Join(",", GasTicket.Description.Sides.SelectMany(k => k.Columns).Where(c => c.Soon is not null).Select(c => c.Id)), "soon columns");
+            Equal("imbalance", string.Join(",", GasTicket.Description.Tabs.Where(t => t.Soon is not null).Select(t => t.Id)), "soon tabs");
+            if (TicketDescriptions.ViewColumns(GasTicket.SideKind("physical")).Any(c => c.Item1 == "volume")) throw new Exception("The soon volume column reached the schedule view.");
         });
         Check("a role without a side kind refuses", () =>
         {
@@ -127,6 +137,9 @@ internal static class GasTicketChecks
         Reject("five cash sides", Draft([Receipt, ..Enumerable.Range(0, 5).Select(n => Cash with { Code = $"C{n}" })]));
         Reject("five cash and fee sides together", Draft([Receipt, ..Enumerable.Range(0, 3).Select(n => Cash with { Code = $"C{n}" }), ..Enumerable.Range(0, 2).Select(n => Fee with { Code = $"F{n}", Values = Fee.Values.SetItem("fee_source", "RCT") })]));
         Reject("an unknown side kind", Draft(Receipt, Side("swap", "X")));
+        Reject("a value for a coming-soon field", Draft(With(Receipt, "heat_content", "1037")));
+        Reject("a value for a coming-soon trade field", full with { Trade = Trade.Add("credit_terms", "net 30") });
+        Reject("a coming-soon side kind", Draft(Receipt, Cash, Side("floating", "FLT")));
         Reject("a repeated side code", Draft(Receipt, Cash with { Code = "RCT" }));
         Reject("a blank side code", Draft(Receipt with { Code = "" }));
         // A refusal of one value names its side and field, so the ticket shows the reason there without reading the message.

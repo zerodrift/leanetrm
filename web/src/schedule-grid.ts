@@ -3,7 +3,7 @@ import type {ScheduleView,ScheduleViewCell,TicketColumn,TicketDescription} from 
 
 // Draws a backend schedule view as grid data. Every value, aggregate and total is the backend's; the browser only picks the rows and columns
 // of a tab and level and formats exact text for display.
-export type ScheduleTab={id:string;label:string;colour:string};
+export type ScheduleTab={id:string;label:string;colour:string;soon:string|null};
 export type ScheduleSide={kind:string;code:string;name:string};
 export type CellDecoration={sources:string[];changed:boolean;delivered:boolean};
 export type HeaderGroup={title:string;colour:string;columns:number[]};
@@ -22,7 +22,8 @@ export function resolvedUnit(unit:string|null,quantityUnit:string|null){
 export const sideKind=(d:TicketDescription,kind:string)=>d.sides.find(k=>k.kind===kind)??(()=>{throw Error(`The ${d.product} description has no '${kind}' side kind.`);})();
 
 export function scheduleTabs(d:TicketDescription,sides:ScheduleSide[]):ScheduleTab[]{
- return [{id:'instrument',label:'Instrument',colour:neutral},...sides.map(s=>({id:s.code,label:s.name,colour:sideKind(d,s.kind).colour})),...d.tabs.map(t=>({id:t.id,label:t.label,colour:neutral}))];
+ return [{id:'instrument',label:'Instrument',colour:neutral,soon:null},...sides.map(s=>({id:s.code,label:s.name,colour:sideKind(d,s.kind).colour,soon:null})),
+  ...d.tabs.map(t=>({id:t.id,label:t.label,colour:neutral,soon:t.soon||null}))];
 }
 
 // Groups the digits of an exact decimal, or of each part of an exact a/b ratio, without rounding it.
@@ -47,8 +48,12 @@ export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:Sch
  const headers=['Period',...columns.map(({column})=>{const unit=resolvedUnit(column.unit,display.quantityUnit);return unit?`${column.label} (${unit})`:column.label;})];
  let at=1;
  const headerGroups:HeaderGroup[]=tab==='instrument'?groups.map(g=>({title:g.title,colour:g.colour,columns:g.columns.map(()=>at++)})):[];
- const numeric=columns.flatMap(({column},i)=>numericMeasures.includes(column.measure)?[i+1]:[]);
+ // A coming-soon column is drawn blank, with its hover text, and reads nothing from the view.
+ const soon=Object.fromEntries(columns.flatMap(({column},i)=>column.soon?[[i+1,column.soon]]:[]));
+ const numeric=columns.flatMap(({column},i)=>numericMeasures.includes(column.measure)&&!column.soon?[i+1]:[]);
+ const blank:ScheduleViewCell={value:null,sources:[]},later=new Set(columns.filter(c=>c.column.soon).map(c=>c.key));
  const valueOf=(cells:Record<string,ScheduleViewCell>,key:string)=>{
+  if(later.has(key))return blank;
   const found=cells[key];if(!found)throw Error(`The schedule view has no '${key}' value.`);
   for(const source of found.sources)if(!Object.hasOwn(sourceLabels,source))throw Error(`Unknown value source: ${source}`);
   return found;
@@ -61,11 +66,11 @@ export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:Sch
   const values=found.map(c=>c.value??'');
   rows.push([r.key,...values]);
   displayRows.push([r.key,...values.map((v,i)=>displayText(columns[i].column,v,display))]);
-  decorations.push([null,...found.map((c,i)=>({sources:c.sources.map(s=>sourceLabels[s]),changed:previous!==undefined&&(prior?.[columns[i].key]?.value??null)!==c.value,delivered:r.delivered}))]);
+  decorations.push([null,...found.map((c,i)=>columns[i].column.soon?null:({sources:c.sources.map(s=>sourceLabels[s]),changed:previous!==undefined&&(prior?.[columns[i].key]?.value??null)!==c.value,delivered:r.delivered}))]);
  }
  // In delivery the backend splits its totals into delivered and remaining; the grid pins them above the total, in that order.
  if((view.delivered===null)!==(view.remaining===null))throw Error('The schedule view reports delivered and remaining together or not at all.');
  const totalRow=(label:string,cells:Record<string,ScheduleViewCell>)=>[label,...columns.map(({key,column})=>displayText(column,valueOf(cells,key).value??'',display))];
  const totals=[...view.delivered&&view.remaining?[totalRow('Delivered',view.delivered),totalRow('Remaining',view.remaining)]:[],totalRow('Total',view.totals)];
- return {headers,rows,displayRows,parents:shown.map(r=>r.parent),keys:shown.map(r=>r.key),levels:shown.map(r=>r.level),columns:['period',...columns.map(c=>c.key)],numeric,headerGroups,totals,decorations};
+ return {headers,rows,displayRows,parents:shown.map(r=>r.parent),keys:shown.map(r=>r.key),levels:shown.map(r=>r.level),columns:['period',...columns.map(c=>c.key)],numeric,headerGroups,totals,decorations,soon};
 }

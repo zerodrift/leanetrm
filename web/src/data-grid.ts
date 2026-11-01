@@ -30,11 +30,12 @@ type Cells=(string|HTMLElement)[][];
 // delivered and a remaining line); the grid never computes them.
 // headerGroups: column indices under a header in a colour token's colour (`--side-<colour>` in app.css).
 // decorate: a cell's value sources, whether it changed since the last read and whether its row is delivered; null for none.
+// soon: the hover text of each coming-soon column by index, drawn greyed with a Coming soon tag and holding no values.
 type Chosen=void|boolean|Promise<boolean>;
 export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>Chosen;onRowSelect?:(index:number)=>Chosen;onRowEscape?:()=>void;onRowMenu?:(index:number,at:{x:number;y:number})=>void;onRowDoubleOpen?:(index:number)=>void;
   cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[];
   tree?:{parents:(string|null)[];open:ReadonlySet<string>;onToggle:(key:string,open:boolean)=>void};totals?:string[][];headerGroups?:{title:string;colour:string;columns:number[]}[];
-  decorate?:(index:number,column:number)=>{sources:string[];changed:boolean;delivered:boolean}|null};
+  decorate?:(index:number,column:number)=>{sources:string[];changed:boolean;delivered:boolean}|null;soon?:Readonly<Record<number,string>>};
 /**
  * What a grid is built for and cannot change while it stands: its key, scope and columns. A later render with the same identity changes the
  * standing grid's rows, grouping, column visibility, filters and layout in place, so the person keeps their place in it.
@@ -144,6 +145,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       ...(options.totals?{bottomCalc:()=>options.totals!.map(row=>row[i]),bottomCalcFormatter:(cell:any)=>{const lines=el('span');lines.className='grid-total-lines';
         for(const value of cell.getValue() as string[]){const line=el('span',value);line.className=numeric.includes(i)&&value.startsWith('-')?'grid-total-line grid-negative':'grid-total-line';lines.append(line);}
         return lines;}}:{})};
+    const later=options.soon?.[i];
+    if(later)Object.assign(definition,{cssClass:'grid-soon',tooltip:later,titleFormatter:()=>{
+      const head=el('span',title),tag=el('span','Coming soon');tag.className='grid-soon-tag';head.title=later;head.append(tag);return head;}});
     if(!group){definitions.push(definition);continue;}
     let parent=groups.get(group.key);if(!parent){const title=publicText(group.title);parent={columns:[]};groups.set(group.key,parent);definitions.push({...parent,title,titleFormatter:()=>groupTitle(title,group.colour),headerHozAlign:'center',cssClass:group.colour===null?'pivot-column-group':'grid-header-group'});}
     parent.columns.push(definition);

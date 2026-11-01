@@ -33,3 +33,24 @@ test('a schedule draws as a tree with coloured header groups, decorations and th
   assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-tableholder .tabulator-row')].map(r=>r.dataset.rowKey)"),['2026-11']);
  });
 });
+
+test('a coming-soon column draws greyed with a Coming soon tag and its hover text, and holds no values',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:900px"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {scheduleGridData}=await import('/schedule-grid.js'),{renderDataGrid}=await import('/data-grid.js');
+   const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month'],modes:['new'],tabs:[],tradeColumns:[],
+    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:1,fields:[],soon:null,columns:[{id:'quantity',label:'Quantity',unit:'quantity',measure:'quantity',input:[],soon:null},
+     {id:'volume',label:'Volume',unit:null,measure:'quantity',input:[],soon:'Will show the volume.'}]}]};
+   const cells={'physical-1.quantity':{value:'-2000',sources:[]}};
+   const view={levels:['month'],valuationAt:'',delivered:null,remaining:null,deliveredLeaves:0,leaves:1,totals:cells,rows:[{key:'2026-11',parent:null,level:'month',start:'',end:'',operatingDate:null,cells,delivered:false}]};
+   const g=scheduleGridData(view,d,[{kind:'physical',code:'physical-1',name:'Leg A'}],'physical-1','month',{quantityUnit:'MMBtu',instant:at=>at});
+   await Promise.race([new Promise((_,fail)=>setTimeout(()=>fail(Error('The grid was not built.')),5000)),new Promise(ready=>renderDataGrid(document.querySelector('#host'),'schedule','synthetic-soon',g.headers,g.rows,g.numeric,()=>false,{keys:g.columns,displayRows:g.displayRows,rowKeys:g.keys,
+    layout:{order:[],widths:{},sort:[]},onLayout:()=>{},onReady:ready,totals:g.totals,decorate:(r,c)=>g.decorations[r][c],soon:g.soon}))]);
+   await new Promise(r=>setTimeout(r,100));
+  })()`);
+  assert.equal(await evaluate("document.querySelector('.tabulator-col.grid-soon .grid-soon-tag')?.textContent"),'Coming soon');
+  assert.match(await evaluate("document.querySelector('.tabulator-col.grid-soon').textContent"),/^Volume/);
+  assert.equal(await evaluate("document.querySelector('.tabulator-col.grid-soon [title]')?.getAttribute('title')"),'Will show the volume.');
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-tableholder .tabulator-cell.grid-soon')].map(c=>c.textContent)"),['']);
+ });
+});

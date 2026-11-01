@@ -23,7 +23,10 @@ public static class GasTicket
    Trade("legal_entity","Legal entity","Our legal entity on the trade.","choice",choices:"legal_entities",required:false),
    Trade("counterparty","Counterparty","The other party to the trade.","choice",choices:"counterparties",required:false),
    Trade("gas_setup","Gas setup","Published gas conventions and market assignments that price the trade; empty where the context resolves none and the reference conventions apply.","choice",choices:"gas_setups",required:false),
-   new("trade_date","Trade date","Date the trade is booked.","date",null,"info",false,null,null,[],"trade_date",null,null)],
+   new("trade_date","Trade date","Date the trade is booked.","date",null,"info",false,null,null,[],"trade_date",null,null),
+   // The master agreement's terms are not stored yet, so the strip shows where they will be read.
+   Soon("force_majeure","Force majeure","Force majeure terms of the master agreement the trade is under.","text","Will show the master agreement's force majeure terms, read-only. Agreement terms are not stored yet."),
+   Soon("credit_terms","Credit terms","Credit terms of the master agreement the trade is under.","text","Will show the master agreement's credit terms, read-only. Agreement terms are not stored yet.")],
   [new(Physical,"Physical","gas",GasCompositionInstrument.MinPhysicalSides,1,GasCompositionInstrument.MaxPhysicalSides,
     [Field("direction","Direction","Whether gas is delivered or received.","choice","direction",choices:"physical_direction"),
      Field("delivery_from","From","First gas day of delivery.","date","start"),
@@ -39,16 +42,29 @@ public static class GasTicket
      Info("gas_day_start","Gas day start","Hour the gas day starts at this point.",null,"gas_day_start"),
      Field("link_source","Link source","Physical side whose quantity this side follows.","choice",choices:"physical_sides",required:false),
      Field("link_formula","Link formula","How fuel loss relates this side to its source.","choice",choices:"link_formulas",required:false,dependsOn:"link_source"),
-     Field("link_fraction","Link fraction","Fuel fraction used by the link formula.","decimal",required:false,dependsOn:"link_source")],
+     Field("link_fraction","Link fraction","Fuel fraction used by the link formula.","decimal",required:false,dependsOn:"link_source"),
+     Soon("swing_daily_min","Daily minimum","Least quantity that can be called for on a gas day.","decimal","Will set the least quantity that can be called for on a gas day."),
+     Soon("swing_daily_max","Daily maximum","Most quantity that can be called for on a gas day.","decimal","Will set the most quantity that can be called for on a gas day."),
+     Soon("swing_range","Swing range","How far a day's quantity may move from the base quantity, as a percentage of it.","decimal","Will set how far a day's quantity may move from the base quantity, as a percentage of it."),
+     Soon("swing_notice_deadline","Swing notice deadline","Latest time a change to a day's quantity can be called.","text","Will set the latest time a change to a day's quantity can be called."),
+     Soon("nomination_cycle","Nomination cycle","Pipeline cycle in which the side's quantities are nominated.","choice","Will name the pipeline cycle in which this side's quantities are nominated."),
+     Soon("nominating_party","Nominating party","Party that nominates the gas to the pipeline.","choice","Will name the party that nominates this gas to the pipeline."),
+     Soon("heat_content","Heat content · Btu per cubic foot","Energy in each cubic foot of the gas.","decimal","Will hold the gas's heat content in Btu per cubic foot, which converts its volume to energy."),
+     Soon("quality_spec","Quality specification","Quality the gas must meet at the point.","text","Will name the quality the gas must meet at this point.")],
     // A booked side's day quantities are recorded as daily quantity revisions (GasDailyQuantities); a new trade's come from its terms.
-    [new("quantity","Quantity","quantity","quantity",["booked"]),new("market_price","Market price",null,"price",[]),new("amount","Amount",null,"money",[])]),
+    [new("quantity","Quantity","quantity","quantity",["booked"]),
+     new("volume","Volume",null,"quantity",[],"Will show the day's gas volume beside its energy quantity, converted with the side's heat content."),
+     new("market_price","Market price",null,"price",[]),new("amount","Amount",null,"money",[])]),
    // A new trade opens with the payment for its gas; a fee is added when one applies.
    CashKind("cash","Payment","cash",false,1),
-   CashKind("fee","Fee","fee",true,0)],
+   CashKind("fee","Fee","fee",true,0),
+   // An index price is the existing floating side (FloatingSide, D84 and D93), offered greyed until gas booking takes it.
+   new("floating","Floating","neutral",0,0,0,[],[],"Index price: pays for the gas at a published index, the same floating side swaps book. Gas booking does not accept it yet.")],
   // Payment and fee sides are the composition's cash sides.
   [new(["cash","fee"],GasCompositionInstrument.MaxCashSides)],
   [new("net_cash","Net cash",null,"money",[]),new("payment_at","Payment at",null,"time",[])],
-  ["month","day"],[new("links","Quantity links")],["new","booked"]));
+  ["month","day"],[new("links","Quantity links"),
+   new("imbalance","Imbalance","Will compare each gas day's nominated and actual quantities, with the imbalance, its cash-out price and its amount.")],["new","booked"]));
 
  public static TicketSideKind SideKind(string role)=>Description.Sides.SingleOrDefault(kind=>Roles.GetValueOrDefault(kind.Kind)==role)??
   throw new MarketDataException("ticket_description",$"No {Description.Product} side kind books as role '{role}'.");
@@ -59,6 +75,7 @@ public static class GasTicket
   new(id,label,meaning,type,unit,"editable",required,band,choices,dependsOn is null?[]:[dependsOn],null,null,rule);
  static TicketField Info(string id,string label,string meaning,string? band,string lookup)=>
   new(id,label,meaning,"text",null,"info",false,band,null,[],lookup,null,null);
+ static TicketField Soon(string id,string label,string meaning,string type,string soon)=>new(id,label,meaning,type,null,"soon",false,null,null,[],null,soon,null);
 
  static TicketSideKind CashKind(string kind,string pill,string colour,bool fee,int initial)
  {
@@ -84,6 +101,7 @@ public static class GasTicket
   foreach(var side in draft.Sides)
   {
    var kind=Description.Sides.SingleOrDefault(k=>k.Kind==side.Kind)??throw Bad($"Unknown side kind '{side.Kind}'.");
+   if(kind.Soon is not null)throw Bad($"A {kind.Pill.ToLowerInvariant()} side is coming soon; gas booking does not take one yet.");
    Check(kind.Fields,side.Values,$"{side.Kind} side '{side.Code}'",side.Code);
    if(string.IsNullOrWhiteSpace(side.Code))throw Bad($"Each {side.Kind} side needs a code.");
   }

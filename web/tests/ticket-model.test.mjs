@@ -8,7 +8,8 @@ const description={product:'synthetic',version:3,rowShape:'flow',levels:['month'
  sides:[{kind:'leg',pill:'Leg',colour:'blue',min:1,initial:1,max:3,columns:[],fields:[f('region','Region',{lookup:'region'}),f('zone','Zone',{lookup:'zone',dependsOn:['region']}),f('point','Point',{dependsOn:['zone']}),
    f('price','Price',{state:'info',lookup:'market_price'}),f('note','Note',{state:'soon',soon:'Not yet'}),f('total','Total',{state:'derived',rule:'sum'})]},
   {kind:'cash',pill:'Cash',colour:'green',min:0,initial:0,max:2,columns:[],fields:[f('amount','Amount')]},
-  {kind:'fee',pill:'Fee',colour:'red',min:0,initial:0,max:2,columns:[],fields:[f('rate','Rate')]}],
+  {kind:'fee',pill:'Fee',colour:'red',min:0,initial:0,max:2,columns:[],fields:[f('rate','Rate')]},
+  {kind:'later',pill:'Later',colour:'neutral',min:0,initial:0,max:0,columns:[],fields:[],soon:'Will price a later leg.'}],
  sideLimits:[{kinds:['cash','fee'],max:3}]};
 const leg='leg-1';
 const looked={value:'4.5',source:{kind:'market',label:'Market close'}};
@@ -73,6 +74,12 @@ test('sides are added and removed within each kind\'s limits and the shared limi
  assert.throws(()=>removeSide(s,'leg-1'),Error);
  assert.throws(()=>removeSide(s,'nope'),Error);
  assert.throws(()=>addSide(s,'other'),Error);
+});
+
+test('a coming-soon side kind is never added, and says why in its own hover text',()=>{
+ const s=newTicket(description);
+ assert.deepEqual(s.sides.map(x=>x.kind),['leg']);
+ assert.throws(()=>addSide(s,'later'),/^Error: Will price a later leg\.$/);
 });
 
 test('the draft carries editable, non-empty values only, whatever the state object holds',()=>{

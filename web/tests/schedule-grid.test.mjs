@@ -26,8 +26,20 @@ const view=(over={})=>({levels:['month','day'],valuationAt:'2026-11-01T00:00:00+
 
 test('the instrument tab comes first, one tab per side in order, then the description tabs',()=>{
  assert.deepEqual(scheduleTabs(description,sides),[
-  {id:'instrument',label:'Instrument',colour:'neutral'},{id:'physical-1',label:'Leg A',colour:'gas'},
-  {id:'cash-1',label:'Payment A',colour:'cash'},{id:'links',label:'Quantity links',colour:'neutral'}]);
+  {id:'instrument',label:'Instrument',colour:'neutral',soon:null},{id:'physical-1',label:'Leg A',colour:'gas',soon:null},
+  {id:'cash-1',label:'Payment A',colour:'cash',soon:null},{id:'links',label:'Quantity links',colour:'neutral',soon:null}]);
+ const later={...description,tabs:[...description.tabs,{id:'balance',label:'Balance',soon:'Will compare days.'}]};
+ assert.deepEqual(scheduleTabs(later,sides).at(-1),{id:'balance',label:'Balance',colour:'neutral',soon:'Will compare days.'});
+});
+
+test('a coming-soon column is drawn blank beside the others with its hover text, and reads no value from the view',()=>{
+ const later={...description,sides:description.sides.map(k=>k.kind==='physical'?{...k,columns:[k.columns[0],{...col('volume','Volume',null,'quantity'),soon:'Will show volume.'},...k.columns.slice(1)]}:k)};
+ const g=scheduleGridData(view(),later,sides,'physical-1','day',shown);
+ assert.deepEqual(g.headers,['Period','Quantity (MMBtu)','Volume','Market price','Amount']);
+ assert.deepEqual(g.soon,{2:'Will show volume.'});
+ assert.deepEqual(g.rows.map(r=>r[2]),['','','']);assert.deepEqual(g.totals.map(r=>r[2]),['']);
+ assert.deepEqual(g.decorations.map(r=>r[2]),[null,null,null]);assert.deepEqual(g.numeric,[1,3,4]);
+ assert.deepEqual(scheduleGridData(view(),description,sides,'physical-1','day',shown).soon,{});
 });
 
 test('the instrument tab groups each side’s columns under its name and colour, then the trade measures',()=>{
