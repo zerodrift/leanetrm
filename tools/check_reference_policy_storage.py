@@ -25,18 +25,18 @@ def run_checks(query, manifest):
     shape = query(f"""SELECT count(*)=34 AND bool_and(p.permissive='PERMISSIVE' AND p.roles=ARRAY['openetrm_runtime']::name[]
       AND p.cmd='SELECT' AND p.qual='true' AND p.with_check IS NULL
       AND t.permissive='RESTRICTIVE' AND t.roles=p.roles AND t.cmd='SELECT' AND t.with_check IS NULL
-      AND t.qual=CASE p.tablename WHEN 'revisions' THEN 'security.reference_version_visible(catalog_id, id)'
-         ELSE 'security.reference_version_visible(catalog_id, revision_id)' END
+      AND regexp_replace(t.qual,'\s+',' ','g')='COALESCE((((catalog_id, '||CASE p.tablename WHEN 'revisions' THEN 'id' ELSE 'revision_id' END
+         ||') IN ( SELECT v.catalog, v.revision FROM security.visible_reference_revisions() v(catalog, revision))) AND (clock_timestamp() < ( SELECT security.authority_until(''ReadMarketData''::text) AS authority_until))), false)'
       AND c.relrowsecurity AND c.relforcerowsecurity)
       FROM pg_policies p JOIN pg_policies t USING(schemaname,tablename)
       JOIN pg_class c ON c.oid=('ref_data.'||quote_ident(p.tablename))::regclass
       WHERE p.schemaname='ref_data' AND p.tablename IN({tables}) AND p.policyname='scoped_read' AND t.policyname='temporal_read';""")
     check('34 permissive read policies retain their mandatory temporal/current-authority barrier', shape=='t')
-    check('catalog and combined policies remain independently scoped', query("""SELECT count(*)=5 AND bool_and(qual LIKE '%reference_access%')
+    check('catalog and combined policies remain independently scoped', query("""SELECT count(*)=5 AND bool_and(qual LIKE '%security.reference_catalogs(%')
         FROM pg_policies WHERE schemaname='ref_data' AND policyname='scoped_read'
         AND tablename IN('catalogs','futures_product_terms','futures_basis_settlements','futures_lot_resolutions','futures_execution_policies');""")=='t')
     check('imported quantities retain their separate restrictive scope', query("""SELECT permissive='RESTRICTIVE' AND roles=ARRAY['openetrm_runtime']::name[]
-        AND cmd='SELECT' AND qual LIKE '%reference_access(quantity_catalog_id%' AND qual LIKE '%reference_version_visible(quantity_catalog_id%'
+        AND cmd='SELECT' AND regexp_replace(qual,'\s+',' ','g') LIKE '%quantity_catalog_id IN ( SELECT security.reference_catalogs(%' AND regexp_replace(qual,'\s+',' ','g') LIKE '%(quantity_catalog_id, quantity_revision_id) IN ( SELECT v.catalog, v.revision FROM security.visible_reference_revisions()%'
         FROM pg_policies WHERE schemaname='ref_data' AND tablename='imported_series_keys' AND policyname='quantity_scope';""")=='t')
 
     def issue(profile='viewer', seconds=60):

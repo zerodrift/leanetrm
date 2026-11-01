@@ -28,32 +28,33 @@ def run_checks(query, manifest):
     count = f"SELECT count(*) FROM market_data.contracts WHERE catalog_id='{catalog}' AND revision_id='{revision}' AND id=ANY({selected_ids});"
 
     # Measure the actual runtime RLS scan, not a replacement helper. Transaction
-    # counters exclude context admission and prove one fresh access call for
-    # each mandatory visibility call, without a wall-clock performance threshold.
-    stats = "SELECT 'CALLS|'||coalesce(sum(calls) FILTER(WHERE funcname='market_access'),0)||'|'||coalesce(sum(calls) FILTER(WHERE funcname='market_fact_visible'),0) FROM pg_stat_xact_user_functions WHERE schemaname='security';"
+    # counters exclude context admission and prove the statement makes one fresh
+    # visibility and authority decision for all of its rows, without a wall-clock
+    # performance threshold; each row then compares the clock with that authority.
+    stats = "SELECT 'CALLS|'||coalesce(sum(calls) FILTER(WHERE funcname='authority_until'),0)||'|'||coalesce(sum(calls) FILTER(WHERE funcname='visible_market_revisions'),0) FROM pg_stat_xact_user_functions WHERE schemaname='security';"
     measured = count.replace('SELECT count(*)',"SELECT 'ROWS|'||count(*)")
     output = query("SET track_functions='all';"+runtime(stats+measured+stats,context)).splitlines()
     calls = [list(map(int,line.split('|')[1:])) for line in output if line.startswith('CALLS|')]
     rows = int(next(line[5:] for line in output if line.startswith('ROWS|')))
     access, visibility = [end-start for start,end in zip(*calls)]
-    check(f'30 retained contract rows each execute exactly one current-access and visibility check (rows={rows}, access={access}, visibility={visibility})',
-          rows == access == visibility == 30)
+    check(f'30 retained contract rows share one fresh authority and visibility decision (rows={rows}, authority={access}, visibility={visibility})',
+          rows == 30 and access == visibility == 1)
 
     tables = ','.join("'"+name+"'" for name in TABLES)
     check('sixteen read policies retain the exact restrictive temporal barrier and FORCE RLS',query(f"""
       SELECT count(*)=16 AND bool_and(p.permissive='PERMISSIVE' AND p.roles=ARRAY['openetrm_runtime']::name[]
        AND p.cmd='SELECT' AND p.qual='true' AND p.with_check IS NULL
        AND t.permissive='RESTRICTIVE' AND t.roles=p.roles AND t.cmd='SELECT' AND t.with_check IS NULL
-       AND t.qual=CASE p.tablename
-        WHEN 'revisions' THEN 'security.market_fact_visible(catalog_id, id, NULL::uuid)'
-        WHEN 'observations' THEN 'security.market_fact_visible(catalog_id, definition_revision_id, id)'
-        ELSE 'security.market_fact_visible(catalog_id, revision_id, NULL::uuid)' END
+       AND regexp_replace(t.qual,'\s+',' ','g')=CASE p.tablename
+        WHEN 'revisions' THEN 'COALESCE((((catalog_id, id) IN ( SELECT v.catalog, v.revision FROM security.visible_market_revisions() v(catalog, revision))) AND (clock_timestamp() < ( SELECT security.authority_until(''ReadMarketData''::text) AS authority_until))), false)'
+        WHEN 'observations' THEN 'COALESCE((((catalog_id, definition_revision_id, id) IN ( SELECT v.catalog, v.revision, v.observation FROM security.visible_observations() v(catalog, revision, observation))) AND (clock_timestamp() < ( SELECT security.authority_until(''ReadMarketData''::text) AS authority_until))), false)'
+        ELSE 'COALESCE((((catalog_id, revision_id) IN ( SELECT v.catalog, v.revision FROM security.visible_market_revisions() v(catalog, revision))) AND (clock_timestamp() < ( SELECT security.authority_until(''ReadMarketData''::text) AS authority_until))), false)' END
        AND c.relrowsecurity AND c.relforcerowsecurity)
       FROM pg_policies p JOIN pg_policies t USING(schemaname,tablename)
       JOIN pg_class c ON c.oid=('market_data.'||quote_ident(p.tablename))::regclass
       WHERE p.schemaname='market_data' AND p.tablename IN({tables})
        AND p.policyname='scoped_read' AND t.policyname='temporal_read';""")=='t')
-    check('catalog-only access remains independently scoped',query("SELECT qual='security.market_access(id, ''ReadMarketData''::text)' FROM pg_policies WHERE schemaname='market_data' AND tablename='catalogs' AND policyname='scoped_read';")=='t')
+    check('catalog-only access remains independently scoped',query("SELECT regexp_replace(qual,'\s+',' ','g')='COALESCE(((id IN ( SELECT security.market_catalogs(''ReadMarketData''::text) AS market_catalogs)) AND (clock_timestamp() < ( SELECT security.authority_until(''ReadMarketData''::text) AS authority_until))), false)' FROM pg_policies WHERE schemaname='market_data' AND tablename='catalogs' AND policyname='scoped_read';")=='t')
     check('current working rows remain authorized',query(runtime(count))=='30')
     check('the exact retained bundle remains authorized',query(runtime(count,context))=='30')
     total = 'SELECT sum(n) FROM('+' UNION ALL '.join('SELECT count(*) n FROM market_data.'+name for name in TABLES)+')q;'
