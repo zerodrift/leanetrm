@@ -112,6 +112,22 @@ public sealed partial class CurveModel
     internal QuoteSpecification QuoteFor(CurveRequest request)=>Quote(curves[request.Curve]);
     internal MarketContract ContractDefinition(ContractKey key)=>contracts.TryGetValue(key,out var contract)?contract:
         throw new MarketDataException("missing_contract","The exact contract is absent from the resolved model.");
+    // The option and its underlying must agree with this model's exact definitions:
+    // listed contracts and curves, daily settlements, one price unit and currency,
+    // option expiry and clearing increment, and an expiry before the future's.
+    internal void RequireFuturesOptionDefinition(FuturesOptionSeriesSpecification option,CurveRequest underlying,CurveRequest settlement)
+    {
+        if(!contracts.TryGetValue(underlying.Contract,out var future)||future.Kind!=ContractKind.Future||future.FuturesSeries!=option.UnderlyingSeries||
+            !futures.TryGetValue(option.UnderlyingSeries,out var spec)||
+            !contracts.TryGetValue(settlement.Contract,out var listed)||listed.Kind!=ContractKind.FutureOption||listed.FuturesSeries!=option.Key||
+            listed.Expiry!=option.Terms.ExpiryAt||
+            !curves.TryGetValue(underlying.Curve,out var futuresCurve)||!curveMembers[futuresCurve.Key].Contains(underlying.Contract)||
+            !curves.TryGetValue(settlement.Curve,out var optionCurve)||!curveMembers[optionCurve.Key].Contains(settlement.Contract)||
+            futuresCurve.DirectRole!=ObservationRole.DailySettlement||optionCurve.DirectRole!=ObservationRole.DailySettlement||
+            PriceUnit.FromQuote(Quote(futuresCurve))!=PriceUnit.FromQuote(Quote(optionCurve))||spec.Currency!=option.Currency||
+            option.Terms.ExpiryAt>=spec.LastTradingAt||Quote(optionCurve).ClearingIncrement!=option.ClearingIncrement)
+            Fail("option_definition",$"Option series {option.Key.Code}: the option and its underlying must equal this market's exact definitions.");
+    }
     // Every curve member that is the contract of one exact listed series, in curve order.
     internal ImmutableArray<CurveRequest> ListedRequests(ContractKind kind,ReferenceKey series)=>
         [..curves.Values.OrderBy(c=>c.Key.Code,StringComparer.Ordinal).SelectMany(c=>c.Constituents
@@ -247,8 +263,9 @@ public sealed partial class CurveModel
             {
                 if (!contracts.ContainsKey(member)) Fail("missing_contract", "Curve constituent is absent.");
                 if (contracts[member].Kind == ContractKind.FutureOption &&
-                    (curve.Rule != CurveRule.Direct || curve.Settlement.Kind != SettlementKind.FutureSeries || output.Kind != QuoteKind.Outright))
-                    Fail("futures_option_specification", "A futures-option curve is a direct outright curve on listed series settlements.");
+                    (curve.Rule != CurveRule.Direct || curve.DirectRole != ObservationRole.DailySettlement ||
+                     curve.Settlement.Kind != SettlementKind.FutureSeries || output.Kind != QuoteKind.Outright))
+                    Fail("futures_option_specification", "A futures-option curve is a direct outright curve on listed daily settlements.");
                 if (contracts[member].Kind == ContractKind.Future && contracts[member].FuturesSeries is { } series)
                 {
                     var spec = futures[series];

@@ -40,6 +40,9 @@ internal static class FuturesOptionChecks
         Check("futures option risk replays identically", ReplayIdentical);
         Check("futures option risk digest is host independent", HostIndependentDigest);
         Check("futures option binding rejects unsupported roles, terms and missing inputs", OptionBindingErrors);
+        Check("futures option fallback scenario value is floored at zero", FallbackFloor);
+        Check("futures option binding is refused by another market definition with the same snapshot", ForeignMarketBinding);
+        Check("futures option receipts record every calibration input", ReceiptInputs);
     }
 
     private static readonly DateTimeOffset ValuationAt = new(2026, 1, 5, 19, 30, 0, TimeSpan.Zero);
@@ -496,11 +499,12 @@ internal static class FuturesOptionChecks
             (12, OptionRight.Put, "3", "0.08"),     // solved, at the money
             (13, OptionRight.Call, "2", "1"),       // fallback, in the money at intrinsic
             (14, OptionRight.Call, "5", "0"),       // fallback, out of the money at zero
+            (15, OptionRight.Call, "2", "0.999"),   // fallback, one increment below intrinsic
         ];
         public QuoteSpecification FuturesQuote => Quote("ng_quote");
         public QuoteSpecification OptionQuote => Quote("on_quote");
-        private QuoteSpecification Quote(string code) => new(R(code), QuoteKind.Outright, R("usd"), R("mmbtu"),
-            ExactDecimal.Parse("1"), ExactDecimal.Parse(Tick), ExactDecimal.Parse(Tick), ExactDecimal.Parse("0"), ExactDecimal.Parse("1000"));
+        private QuoteSpecification Quote(string code, string increment = Tick) => new(R(code), QuoteKind.Outright, R("usd"), R("mmbtu"),
+            ExactDecimal.Parse("1"), ExactDecimal.Parse(Tick), ExactDecimal.Parse(increment), ExactDecimal.Parse("0"), ExactDecimal.Parse("1000"));
         public FuturesSeriesSpecification Underlying => new(R("ng_jan41"), R("mmbtu"), R("usd"), ExactDecimal.Parse("1"),
             ExactDecimal.Parse(Tick), R("hub"), R("uniform"), new(2041, 1, 1), new(2041, 2, 1),
             new DateTimeOffset(2040, 12, 28, 19, 30, 0, TimeSpan.Zero), R("mmbtu"), Multiplier, LotBasis.FixedTotal,
@@ -517,7 +521,8 @@ internal static class FuturesOptionChecks
                 Expiry.AddHours(-2), premiumStyle);
         }
         public FuturesOptionInstrument Option(int contract) => new(Series(contract));
-        public CurveModel Model(ObservationRole optionRole = ObservationRole.DailySettlement)
+        public CurveModel Model(ObservationRole optionRole = ObservationRole.DailySettlement,
+            ObservationRole futuresRole = ObservationRole.DailySettlement, string optionIncrement = Tick)
         {
             var options = Options.Select(o => new MarketContract(K(o.Contract), ContractKind.FutureOption, new(2041, 1, 1), new(2041, 2, 1),
                 Expiry, R(SeriesCode(o.Contract)))).ToArray();
@@ -528,20 +533,21 @@ internal static class FuturesOptionChecks
             return new(Revision, Reference,
                 [new(R("mmbtu"), R("gas"), R("energy_basis"), R("mmbtu_unit"), R("energy")),
                  new(R("on_contract"), R("gas"), R("contract_basis"), R("contract_unit"), R("count"))],
-                [FuturesQuote, OptionQuote], [futures, .. options],
-                [Direct("ng", R("ng_quote"), [K(1)], ObservationRole.DailySettlement),
+                [FuturesQuote, Quote("on_quote", optionIncrement)], [futures, .. options],
+                [Direct("ng", R("ng_quote"), [K(1)], futuresRole),
                  Direct("on_settle", R("on_quote"), [.. options.Select(o => o.Key)], optionRole)],
                 [Underlying], [],
                 [new(S(1), K(1), R("ng_quote"), null), .. Options.Select(o => new MarketSeries(S(o.Contract), K(o.Contract), R("on_quote"), null))]);
         }
-        public MarketSnapshot Snapshot(ObservationRole optionRole = ObservationRole.DailySettlement)
+        public MarketSnapshot Snapshot(ObservationRole futuresRole = ObservationRole.DailySettlement)
         {
             SelectedObservation Observation(int series, ObservationRole role, string value) => new(new(S(series), InputUse.Variable),
                 new(new(Revision.CatalogId, G(700 + series)), S(series), R("exchange"), role, PublicationState.Final, At, ExactDecimal.Parse(value)));
             return new(G(800), Revision, At, At, InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
-                [Observation(1, ObservationRole.DailySettlement, Futures), .. Options.Select(o => Observation(o.Contract, optionRole, o.Settlement))]);
+                [Observation(1, futuresRole, Futures), .. Options.Select(o => Observation(o.Contract, ObservationRole.DailySettlement, o.Settlement))]);
         }
         public QuoteBump FuturesBump => Bump(1, FuturesQuote);
+        public QuoteBump FuturesBumpOf(string size) => FuturesBump with { Size = ExactDecimal.Parse(size) };
         public QuoteBump SettlementBump(int contract) => Bump(contract, OptionQuote);
         private QuoteBump Bump(int series, QuoteSpecification quote) =>
             new(new(S(series), InputUse.Variable), quote.Key, PriceUnit.FromQuote(quote), ExactDecimal.Parse(Tick), QuoteBump.Convention);
@@ -703,13 +709,55 @@ internal static class FuturesOptionChecks
     }
 
     // Pinned from the first macOS run; CI repeats the check on Linux.
-    private const string PinnedDigest = "8412fcd1230e8de6a36426683445c67cd82f1aa4a6e556b2c9fef846e42f1622";
+    private const string PinnedDigest = "e13e99c71fa2c947cdda13d8b6d15c7d791b29df53b2b8a025adfa6a59ec0931";
 
     private static void HostIndependentDigest()
     {
         var digest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes(Serialize(Portfolio.Value.Run))));
         Equal(digest, PinnedDigest);
+    }
+
+    private static void FallbackFloor()
+    {
+        var market = new OptionMarket();
+        // Settlement 0.999 against intrinsic 1 leaves residual -0.001. A down shock of
+        // 1.25 takes F to 1.75, below the strike: intrinsic + residual is negative
+        // and the value is floored at zero; the up shock keeps the residual.
+        var run = market.Calculate([OptionMarket.Holding(1, 1, market.Option(15), "1")], [market.FuturesBumpOf("1.25")]);
+        Equal(run.OptionCalibrations.Single().Residual, "-0.001");
+        var position = Position(run.Factors[0], 1);
+        Same(position.Base.Amount, D("9990"), "base");
+        Same(position.Down.Amount, D("0"), "floored down");
+        Same(position.Up.Amount, D("22490"), "up");
+    }
+
+    private static void ForeignMarketBinding()
+    {
+        var market = new OptionMarket();
+        var snapshot = market.Snapshot();
+        var option = market.Option(13);
+        var basis = market.Model().Build(snapshot, [market.UnderlyingRequest, market.SettlementRequest(13)]);
+        var binding = FuturesOptionPricing.Prepare(option, basis, snapshot, new ExplicitDiscounting(OptionMarket.Discount, DiscountFactorSource.Explicit),
+            FuturesOptionPricing.DailySettlement, Policy, true, CancellationToken.None);
+        var portfolio = ValuationPortfolio.FromTrades([OptionMarket.Holding(1, 1, option, "1")],
+            new(ValuationMeasure.PresentValue, ImmutableDictionary<Guid, FuturesMarketBinding>.Empty, null)
+            { OptionBindings = ImmutableDictionary<Guid, FuturesOptionMarketBinding>.Empty.Add(option.Id, binding) });
+        // Same snapshot, same instruments; only the option quote's clearing increment differs.
+        _ = RiskEngine.Calculate(market.Model(), snapshot, portfolio, [market.FuturesBump], RiskEngine.NumericalPolicy);
+        Reject("option_definition", () => RiskEngine.Calculate(market.Model(optionIncrement: "0.0005"), snapshot, portfolio,
+            [market.FuturesBump], RiskEngine.NumericalPolicy));
+    }
+
+    private static void ReceiptInputs()
+    {
+        var (_, run) = Portfolio.Value;
+        Equal(run.ScenarioPolicy!, FuturesOptionPricing.ScenarioPolicy);
+        var receipt = run.OptionCalibrations.Single(r => r.Series.Code == OptionMarket.SeriesCode(11));
+        Equal(receipt.ScenarioPolicy, FuturesOptionPricing.ScenarioPolicy);
+        Equal(receipt.DiscountToExpiry, "0.999");
+        Equal(receipt.BaseFutures, "3");
+        Equal(receipt.Settlement, "0.08");
     }
 
     private sealed class NoDiscounting : ISideDiscounting
@@ -724,11 +772,16 @@ internal static class FuturesOptionChecks
         ImmutableArray<QuoteBump> bumps = [market.FuturesBump];
         Reject("option_observation_role", () => market.Calculate(fallback, bumps, role: "trader_mark"));
         Reject("option_observation_role", () => market.Calculate(fallback, bumps,
-            model: market.Model(ObservationRole.TraderMark), snapshot: market.Snapshot(ObservationRole.TraderMark)));
+            model: market.Model(futuresRole: ObservationRole.TraderMark), snapshot: market.Snapshot(ObservationRole.TraderMark)));
+        Reject("futures_option_specification", () => market.Model(optionRole: ObservationRole.TraderMark));
         Reject("option_discount", () => market.Calculate(fallback, bumps, discounting: new NoDiscounting()));
         try { market.Calculate(fallback, bumps, fallbackDeclared: false); throw new Exception("Expected an undeclared fallback error."); }
         catch (MarketDataException error) when (error.Code == "option_calibration_fallback_undeclared")
-        { if (!error.Message.Contains(OptionMarket.SeriesCode(13), StringComparison.Ordinal)) throw new Exception("The error must name the option series."); }
+        {
+            if (!error.Message.Contains(OptionMarket.SeriesCode(13), StringComparison.Ordinal)) throw new Exception("The error must name the option series.");
+            if (error.InnerException is not MarketDataException { Code: "option_calibration_fallback_undeclared" })
+                throw new Exception("The labelled error must keep the solver's error.");
+        }
         Reject("unsupported", () => new FuturesOptionInstrument(market.Series(13, "futures_style_margin")));
         Reject("option_definition", () => new FuturesOptionInstrument(market.Series(13) with { Multiplier = D("0") }));
         Reject("option_lots", () => OptionMarket.Holding(1, 1, market.Option(13), "1.5"));

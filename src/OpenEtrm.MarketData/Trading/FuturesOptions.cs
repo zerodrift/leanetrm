@@ -66,6 +66,7 @@ public sealed record FuturesOptionInstrument : Instrument
         var inputs = context.Inputs;
         if (inputs.SnapshotId != binding.SnapshotId)
             throw Error("option_context", $"Option series {Series.Key.Code} was calibrated on another snapshot.");
+        context.Market!.Model.RequireFuturesOptionDefinition(Series, binding.Underlying, binding.Settlement);
         var futures = LatticeDecimal.From(inputs.ExactPrice(binding.Underlying).ToUnitPriceExact().Value);
         var unit = binding.UnitPrice(futures, inputs.ValuationAt, context.Cancellation).ToExact();
         return new(context, ExactMoney.FromMoney(new Money(unit, Currency)).Scale(Series.Multiplier), UnitQuantity.Specification);
@@ -84,9 +85,10 @@ public sealed record FuturesOptionInstrument : Instrument
 
 // Calibration results from one pinned base snapshot. Scenarios reprice at the held
 // calibration and the scenario futures price; they never re-solve.
+// SnapshotId is the pinned base snapshot the calibration came from.
 public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument Instrument, CurveRequest Underlying,
     CurveRequest Settlement, string ObservationRole, OptionCalibration Calibration, LatticeDecimal BaseFutures,
-    LatticeDecimal DiscountToExpiry, OptionNumericalPolicy Policy)
+    LatticeDecimal BaseSettlement, LatticeDecimal DiscountToExpiry, OptionNumericalPolicy Policy, Guid SnapshotId)
 {
     public Guid Id { get; } = Id != Guid.Empty ? Id : throw FuturesOptionInstrument.Error("valuation_binding", "A binding needs an exact identity.");
     public FuturesOptionInstrument Instrument { get; } = Instrument ?? throw FuturesOptionInstrument.Error("valuation_binding", "A binding needs its option.");
@@ -94,16 +96,16 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
         : throw FuturesOptionInstrument.Error("option_observation_role", $"Observation role '{ObservationRole}' is not supported.");
     public OptionCalibration Calibration { get; } = Calibration ?? throw FuturesOptionInstrument.Error("valuation_binding", "A binding needs its calibration.");
     public OptionNumericalPolicy Policy { get; } = Policy ?? throw FuturesOptionInstrument.Error("valuation_binding", "A binding needs its numerical policy.");
-    // The pinned base snapshot the calibration came from.
-    public Guid SnapshotId { get; init; }
+    public Guid SnapshotId { get; } = SnapshotId != Guid.Empty ? SnapshotId
+        : throw FuturesOptionInstrument.Error("valuation_binding", "A binding needs its calibration snapshot.");
 
     // Solved: the tree at the held volatility. Fallback: treated as exercised, so
-    // intrinsic at the scenario price plus the base residual.
+    // intrinsic at the scenario price plus the base residual, floored at zero.
     public LatticeDecimal UnitPrice(LatticeDecimal futures, DateTimeOffset valuationAt, CancellationToken ct) => Calibration switch
     {
         SolvedVolatility solved => AmericanFuturesOptionModel.UnitPrice(Instrument.Series.Terms, futures, solved.Volatility,
             DiscountToExpiry, valuationAt, Policy, ct),
-        IntrinsicFallback fallback => Intrinsic(futures) + fallback.Residual,
+        IntrinsicFallback fallback => LatticeDecimal.Max(Intrinsic(futures) + fallback.Residual, LatticeDecimal.Parse("0")),
         _ => throw FuturesOptionInstrument.Error("valuation_binding", "Unsupported calibration mode."),
     };
 
@@ -115,17 +117,22 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
 
     public FuturesOptionCalibrationReceipt Receipt => Calibration switch
     {
-        SolvedVolatility s => new(Instrument.Id, Instrument.SeriesKey, Policy.Id, FuturesOptionPricing.SolvedMode,
-            s.Volatility.ToString(), s.Residual.ToString(), s.Iterations, s.UpperBound.ToString(), null),
-        IntrinsicFallback f => new(Instrument.Id, Instrument.SeriesKey, Policy.Id, ImpliedVolatility.FallbackMode,
-            null, f.Residual.ToString(), null, null, f.Intrinsic.ToString()),
+        SolvedVolatility s => Record(FuturesOptionPricing.SolvedMode, s.Volatility.ToString(), s.Residual, s.Iterations, s.UpperBound.ToString(), null),
+        IntrinsicFallback f => Record(ImpliedVolatility.FallbackMode, null, f.Residual, null, null, f.Intrinsic.ToString()),
         _ => throw FuturesOptionInstrument.Error("valuation_binding", "Unsupported calibration mode."),
     };
+
+    private FuturesOptionCalibrationReceipt Record(string mode, string? volatility, LatticeDecimal residual, int? iterations,
+        string? upperBound, string? intrinsic) =>
+        new(Instrument.Id, Instrument.SeriesKey, Policy.Id, FuturesOptionPricing.ScenarioPolicy, BaseFutures.ToString(), BaseSettlement.ToString(),
+            DiscountToExpiry.ToString(), mode, volatility, residual.ToString(), iterations, upperBound, intrinsic);
 }
 
-// What a run records per option series: the mode, and the solved volatility or the
-// fallback intrinsic, with lattice values as exact decimal strings.
-public sealed record FuturesOptionCalibrationReceipt(Guid InstrumentId, ReferenceKey Series, string NumericalPolicy, string Mode,
+// What a run records per option series: its calibration inputs and policies, the
+// mode, and the solved volatility or the fallback intrinsic, with lattice values as
+// exact decimal strings.
+public sealed record FuturesOptionCalibrationReceipt(Guid InstrumentId, ReferenceKey Series, string NumericalPolicy, string ScenarioPolicy,
+    string BaseFutures, string Settlement, string DiscountToExpiry, string Mode,
     string? Volatility, string Residual, int? Iterations, string? UpperBound, string? Intrinsic);
 
 public static class FuturesOptionPricing
@@ -151,26 +158,20 @@ public static class FuturesOptionPricing
         var model = basis.Model;
         var built = basis.Values.ToDictionary(v => v.Request);
         var (underlying, settlement) = Requests(model, built.Keys, series, role, label);
-        var futuresPrice = built[underlying].Price;
-        var optionPrice = built[settlement].Price;
-        var futuresSeries = model.FuturesContract(series.UnderlyingSeries).Series;
-        if (futuresPrice.Unit != optionPrice.Unit || futuresSeries.Currency != series.Currency ||
-            series.Terms.ExpiryAt >= futuresSeries.LastTradingAt || model.ContractDefinition(settlement.Contract).Expiry != series.Terms.ExpiryAt ||
-            model.QuoteFor(settlement).ClearingIncrement != series.ClearingIncrement)
-            throw FuturesOptionInstrument.Error("option_definition",
-                $"{label}: the option and its underlying need one price unit and currency, an expiry before the future's and the series' clearing increment.");
+        model.RequireFuturesOptionDefinition(series, underlying, settlement);
         var discount = DiscountToExpiry(option, discounting, snapshot, label);
-        var futures = LatticeDecimal.From(futuresPrice.Value);
+        var futures = LatticeDecimal.From(built[underlying].Price.Value);
+        var optionPrice = LatticeDecimal.From(built[settlement].Price.Value);
         OptionCalibration calibration;
         try
         {
-            calibration = ImpliedVolatility.Solve(series.Terms, LatticeDecimal.From(optionPrice.Value), futures, discount,
+            calibration = ImpliedVolatility.Solve(series.Terms, optionPrice, futures, discount,
                 LatticeDecimal.From(series.ClearingIncrement), snapshot.ValuationAt, policy, fallbackDeclared, ct);
         }
-        catch (MarketDataException error) { throw new MarketDataException(error.Code, $"{label}: {error.Message}"); }
+        catch (MarketDataException error) { throw new MarketDataException(error.Code, $"{label}: {error.Message}", error); }
         var id = ContractIdentity.FromCanonical($"futures_option_binding_v1:{option.Id:D}:{snapshot.Id:D}:{underlying.Curve.Code}:{underlying.Contract.Id:D}:" +
-            $"{settlement.Curve.Code}:{settlement.Contract.Id:D}:{observationRole}:{policy.Id}:{fallbackDeclared}");
-        return new(id, option, underlying, settlement, observationRole, calibration, futures, discount, policy) { SnapshotId = snapshot.Id };
+            $"{settlement.Curve.Code}:{settlement.Contract.Id:D}:{observationRole}:{policy.Id}:{fallbackDeclared}:{discount}");
+        return new(id, option, underlying, settlement, observationRole, calibration, futures, optionPrice, discount, policy, snapshot.Id);
     }
 
     // FuturesRisk.Calculate's contract plus the option inputs. Each distinct option
@@ -210,7 +211,7 @@ public static class FuturesOptionPricing
         var portfolio = ValuationPortfolio.FromTrades(trades,
             new(ValuationMeasure.PresentValue, ImmutableDictionary<Guid, FuturesMarketBinding>.Empty, null) { OptionBindings = bindings });
         var result = FuturesRisk.Calculate(basis, portfolio, snapshot, model, bumps, numericalPolicy, cancellation, detail, stress);
-        return result with { OptionCalibrations = [.. options.Select(o => bindings[o.Id].Receipt)] };
+        return result with { OptionCalibrations = [.. options.Select(o => bindings[o.Id].Receipt)], ScenarioPolicy = ScenarioPolicy };
     }
 
     private static ObservationRole Role(string observationRole) => observationRole == DailySettlement ? ObservationRole.DailySettlement

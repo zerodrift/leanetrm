@@ -106,6 +106,8 @@ public sealed class UnitValuationContext
     {
         if(Setup.OptionBindings is null||!Setup.OptionBindings.TryGetValue(instrument,out var binding)||binding.Instrument.Id!=instrument)
             throw new MarketDataException("valuation_binding","An exact futures-option pricing binding is required for this instrument.");
+        if(pricing is not null&&pricing.Authority is null)
+            throw new MarketDataException("valuation_binding","Futures-option pricing requires its exact qualified market definition authority.");
         return binding;
     }
     internal SideValuationContext SideContext(ISideDiscounting? selected=null)

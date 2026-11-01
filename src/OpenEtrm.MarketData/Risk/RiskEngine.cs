@@ -77,6 +77,7 @@ public sealed record RiskRun(Guid SnapshotId,string NumericalPolicy,ImmutableArr
     public ImmutableArray<BookCurrencyValue> BaseValues{get;init;}=[];
     public ImmutableArray<BookValueMeasures> BaseMeasures{get;init;}=[];
     public ImmutableArray<FuturesOptionCalibrationReceipt> OptionCalibrations{get;init;}=[];
+    public string? ScenarioPolicy{get;init;}
 }
 
 // A single immutable base and declared factor set can serve several explicitly

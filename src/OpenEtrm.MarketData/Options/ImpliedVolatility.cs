@@ -10,6 +10,8 @@ public sealed record SolvedVolatility(LatticeDecimal Volatility, LatticeDecimal 
     : OptionCalibration;
 
 // Residual = settlement - intrinsic, at most one clearing increment below zero.
+// Scenarios value the option as exercised: max(0, intrinsic at the scenario
+// futures price + Residual), so a negative residual never makes a negative value.
 public sealed record IntrinsicFallback(LatticeDecimal Intrinsic, LatticeDecimal Residual) : OptionCalibration;
 
 // Finds the volatility at which the pinned tree reproduces an option's settlement
