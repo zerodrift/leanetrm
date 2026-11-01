@@ -581,7 +581,7 @@ def main():
                     check_gas_composition(url,query,manifest,run_worker=risk_worker_runner())
                 if args.deal_ticket_check:
                     from check_deal_ticket import run_checks as check_deal_ticket
-                    check_deal_ticket(url)
+                    check_deal_ticket(url,query,manifest)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

@@ -2,11 +2,12 @@
 
 January 2021 is the first synthetic gas forward month after the 2020-12-18 frame: 31 gas days.
 """
+import json
 from datetime import datetime
 from fractions import Fraction
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
-from preview_fixture import trade_booking
+from preview_fixture import gas_purchase, trade_booking
 
 
 # The side kind each booked composition role is drawn as (GasTicket's role map).
@@ -23,7 +24,46 @@ def assert_declared(view,body,description):
         assert set(cells)==expected,sorted(set(cells)^expected)
 
 
-def run_checks(url):
+def stored_single_point(query,catalog,composed,request):
+    """A stored single-point gas booking, as its retired booking entry wrote one: no route books these any more, so the check writes it.
+
+    `composed` is a booked composition of the single-point shape: one physical side, then its payment and its fee, each a whole membership
+    charged on the side's delivered quantity and paid at one instant. Its retained programs are published again, unchanged, as the
+    programs of a single-point instrument and trade of their own, through the owner connection; `request` is the retained booking body.
+    """
+    trade,operation=str(uuid4()),request['operationId']
+    query(f"""BEGIN;
+DO $fixture$
+DECLARE catalog uuid='{catalog}';single uuid=gen_random_uuid();publication integer;r trading.gas_trade_revisions;
+ gas trading.gas_component_terms;payment trading.gas_component_terms;fee trading.gas_component_terms;
+BEGIN
+ SELECT * INTO STRICT r FROM trading.gas_trade_revisions WHERE(catalog_id,trade_id)=(catalog,'{composed}');
+ SELECT * INTO STRICT gas FROM trading.gas_component_terms WHERE(catalog_id,instrument_id,slot,role)=(catalog,r.instrument_id,0,'physical');
+ SELECT * INTO STRICT payment FROM trading.gas_component_terms WHERE(catalog_id,instrument_id,slot,role)=(catalog,r.instrument_id,1,'consideration');
+ SELECT * INTO STRICT fee FROM trading.gas_component_terms WHERE(catalog_id,instrument_id,slot,role)=(catalog,r.instrument_id,2,'fee');
+ IF EXISTS(SELECT 1 FROM trading.gas_component_terms WHERE(catalog_id,instrument_id)=(catalog,r.instrument_id) AND(slot>2 OR(ratio_n,ratio_d)<>(1,1)
+  OR(role<>'physical' AND(source_slot<>0 OR stage<>'delivery' OR payment_at<>payment.payment_at))))
+  OR gas.independent_quantity<>r.quantity OR payment.direction<>-gas.direction OR payment.tariff_code IS NOT NULL OR fee.tariff_code IS NOT NULL
+ THEN RAISE EXCEPTION 'The composition is not of the single-point shape';END IF;
+ SELECT max(publication_order)+1 INTO STRICT publication FROM trading.publications WHERE catalog_id=catalog;
+ INSERT INTO trading.publications VALUES(catalog,publication,pg_current_xact_id());
+ INSERT INTO trading.instruments SELECT catalog,single,publication,effective_at FROM trading.instruments WHERE(catalog_id,id)=(catalog,r.instrument_id);
+ INSERT INTO trading.gas_instruments SELECT(jsonb_populate_record(i,jsonb_build_object('instrument_id',single,'composition',false,'publication_order',publication,
+  'assignment_code',gas.assignment_code,'delivery_from',gas.delivery_from,'delivery_to',gas.delivery_to,'quantity_basis',gas.quantity_basis,
+  'fixed_price',payment.price,'usage_fee',fee.price,'usage_fee_direction',fee.direction,'payment_at',payment.payment_at))).*
+  FROM trading.gas_instruments i WHERE(catalog_id,instrument_id)=(catalog,r.instrument_id);
+ INSERT INTO trading.gas_memberships SELECT(jsonb_populate_record(m,jsonb_build_object('instrument_id',single))).* FROM trading.gas_memberships m WHERE(catalog_id,instrument_id)=(catalog,r.instrument_id);
+ INSERT INTO trading.instrument_side_schedules SELECT(jsonb_populate_record(s,jsonb_build_object('instrument_id',single))).* FROM trading.instrument_side_schedules s WHERE(catalog_id,instrument_id)=(catalog,r.instrument_id);
+ INSERT INTO trading.instrument_schedule_compositions SELECT(jsonb_populate_record(s,jsonb_build_object('instrument_id',single))).* FROM trading.instrument_schedule_compositions s WHERE(catalog_id,instrument_id)=(catalog,r.instrument_id);
+ INSERT INTO trading.trades SELECT(jsonb_populate_record(t,jsonb_build_object('id','{trade}','operation_id','{operation}','publication_order',publication,'request',$request${json.dumps(request)}$request$::jsonb))).*
+  FROM trading.trades t WHERE(catalog_id,id)=(catalog,'{composed}');
+ INSERT INTO trading.gas_trade_revisions SELECT(jsonb_populate_record(r,jsonb_build_object('trade_id','{trade}','instrument_id',single,'operation_id','{operation}','publication_order',publication,'direction',gas.direction))).*;
+END $fixture$;
+COMMIT;""")
+    return trade
+
+
+def run_checks(url,query,manifest):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
     frame=initial_frame(c.call('workspace'),'2020-12-18')
     context={'snapshotId':frame['id'],'convention':'physical_gas_fixed_quantity_v4','knowledgeMode':'current'}
@@ -104,11 +144,11 @@ def run_checks(url):
     assert read(context)['schedule']==linked_view
     past=read(earlier);assert_linked(past)
     assert past['schedule']==early_view and datetime.fromisoformat(early_view['valuationAt'])==datetime.fromisoformat(earlier_frame['at'])<datetime.fromisoformat(linked_view['valuationAt']),(early_view['valuationAt'],linked_view['valuationAt'])
-    check_ticket_operations(c,context,cat,description,body,view)
+    check_ticket_operations(c,context,cat,description,body,view,query,manifest)
     print('PASS deal ticket: gas preview and booked terms return one exact month/day schedule whose totals and amounts agree with side values; mixed gas-day clocks keep their valuation with a schedule refusal; linked receipt and delivery conserve fuel exactly at the current and an earlier As of frame',flush=True)
 
 
-def check_ticket_operations(c,context,cat,description,body,view):
+def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     """The ticket routes run the gas operations from a ticket draft, under the read's context."""
     def refused(path,request,code):
         error=c.call(path,request,expected=422);assert error['code']==code,(path,error)
@@ -221,6 +261,27 @@ def check_ticket_operations(c,context,cat,description,body,view):
     refused('gas/quantities/record',{**record,'context':captured_after,'operationId':str(uuid4()),'quantity':'9100','expectedPreviousId':receipt['revisionId']},'historical_read_only')
     c.call('profile',{'profile':'risk'});unpermitted=recording(context);c.call('profile',{'profile':'trader'})
     assert unpermitted=={'allowed':False,'reason':'Your current role does not have Amend Trade permission.'},unpermitted
+    # A stored single-point gas booking opens read-only as the composition it is: one physical side, its payment and its fee, each charged on the
+    # side's delivered quantity and paid at the booking's one payment instant. Its schedule, from its own retained programs, is exactly the
+    # one a ticket preview of those terms returns; it records no daily quantities, so it names no quantity selection.
+    purchase=gas_purchase(context,cat,fee='0.045')
+    single={**{k:purchase[k] for k in ['snapshotId','convention','knowledgeMode','legalEntityId','legalEntityRevision','counterpartyId','counterpartyRevision','bookId','definitionRevisionId','gasSetupId']},
+            'operationId':str(uuid4()),'pipeline':p['pipeline'],'zone':p['zone'],'deliveryPoint':p['deliveryPoint'],'product':p['product'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01',
+            'quantity':'1000','quantityBasis':'period_total_equal_days','direction':'receive','fixedPrice':'3','usageFee':'0.045','usageTariffCode':None,'usageFeeDirection':'pay',
+            'paymentAt':'2021-02-02T00:00:00Z','discounting':False}
+    single_fact=fact_for(stored_single_point(query,manifest['catalogId'],c.call('gas/composition/book',purchase)['tradeId'],single))
+    point=c.call('tickets/trade',{'context':context,'tradeId':single_fact['tradeId'],'bindingId':single_fact['bindingId'],'revision':single_fact['revision']})
+    sides=point['draft']['sides'];paid=sides[1]['values']['cash_payment_at']
+    assert datetime.fromisoformat(paid)==datetime.fromisoformat('2021-02-02T00:00:00+00:00') and sides[2]['values']['fee_payment_at']==paid,sides
+    charged=lambda kind,direction,price:{f'{kind}_direction':direction,f'{kind}_source':'physical-1',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':paid}
+    assert point['draft']=={'product':'physical_gas','version':1,'trade':trade,'sides':[
+        {'kind':'physical','code':'physical-1','values':{**physical,'direction':'receive','quantity':'1000','quantity_basis':'period_total_equal_days'}},
+        {'kind':'cash','code':'cash-1','values':charged('cash','pay','3')},{'kind':'fee','code':'fee-1','values':charged('fee','pay','0.045')}]},point['draft']
+    as_composed=c.call('tickets/preview',{'context':context,'draft':point['draft']})
+    exact=lambda value:json.dumps(value,sort_keys=True)
+    assert point['schedule'] is not None and exact(point['schedule'])==exact(as_composed['schedule']),(point['schedule'],as_composed['schedule'])
+    assert point['summaries']==as_composed['summaries'] and point['scheduleRefusal'] is None and point['quantityUnit']==as_composed['quantityUnit'] and point['links']==[],point['summaries']
+    assert point['quantityPolicy'] is None and point['actions']['record']['allowed'] is False and point['actions']['record']['reason'],point['actions']
 
     # Historical choices: a point retired by a later gas setup stays listed, and priced, in the earlier context.
     # Publication is append-only, so the check leaves the setup as it found it by publishing the found configuration again.

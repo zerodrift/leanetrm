@@ -78,6 +78,8 @@ def run_shape_checks(query, manifest):
     catalog=manifest['catalogId']
     from check_booked_side_programs import runtime_query
     assert query("SELECT has_function_privilege('openetrm_risk_worker','security.capture_date_context(uuid,date,timestamptz)','EXECUTE'),has_function_privilege('openetrm_risk_worker','security.capture_pre_gas_setup_context(uuid,date,timestamptz)','EXECUTE');")=='t|f'
+    # Single-point gas trades are no longer booked: the runtime cannot call their retired booking entry, while their status stays readable.
+    assert query("SELECT has_function_privilege('openetrm_runtime','security.book_physical_gas(uuid,jsonb,timestamptz)','EXECUTE'),has_function_privilege('openetrm_runtime','security.gas_operation_status(uuid,uuid)','EXECUTE');")=='f|t'
     query(f"""BEGIN;SET LOCAL SESSION AUTHORIZATION openetrm_risk_worker;
       DO $test$ BEGIN BEGIN
         PERFORM security.capture_date_context('{catalog}','2020-12-18',NULL);
