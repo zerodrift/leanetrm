@@ -62,9 +62,10 @@ internal static class CrudePositions
   ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null,Guid? trade=null)
  {
   var books=await BookScope.Read(connection,manifest.CatalogId,ct);
+  // Recheck authority before interpreting a directory that row security may have filtered.
+  var inventory=await PreviewDatabase.Rows(connection,"SELECT value::text FROM jsonb_array_elements(security.crude_position_scope($1,$2::uuid[],$3::uuid[]))",[manifest.CatalogId,bookIds.ToArray(),portfolioIds.ToArray()],ct);
   var selected=BookScope.Select(books,bookIds,portfolioIds).ToImmutableDictionary(b=>b.Id("id"));
   if(selected.IsEmpty)return [];
-  var inventory=await PreviewDatabase.Rows(connection,"SELECT value::text FROM jsonb_array_elements(security.crude_position_scope($1,$2::uuid[],$3::uuid[]))",[manifest.CatalogId,bookIds.ToArray(),portfolioIds.ToArray()],ct);
   var selectedTrade=position?.TradeId??trade;
   if(selectedTrade is {} tradeId)inventory=[..inventory.Where(row=>row.Id("trade_id")==tradeId)];
   var heads=await PreviewDatabase.Rows(connection,"""
