@@ -16,7 +16,9 @@ That workflow records explicit accepted receipts, owned/reserved quantities,
 dispatches, component invoices and payments without changing retained contractual
 valuation or introducing inventory costing. Explicit cash-record corrections
 retain immutable originals, restore active balances and preserve cumulative
-rounding through ordered invoice void/reissue.
+rounding through ordered invoice void/reissue. The local inventory-to-sale
+increment retains exact lot allocations and dispatch evidence, reusing the same
+managed cash ledger for receipt-backed purchases and dispatch-backed sales.
 
 Gas may use an explicitly configured independent market/reference selection;
 this keeps physical location setup separate from the primary power and financial

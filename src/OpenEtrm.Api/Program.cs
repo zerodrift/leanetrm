@@ -1233,7 +1233,7 @@ api.MapPost("/crude/operations/read",(HttpContext c,PhysicalCrudeEditorRequest b
 api.MapPost("/crude/operations/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>Results.Ok(await crudeLifecycle.Status(connection,body.OperationId,ct)),c.RequestAborted)));
 api.MapPost("/crude/operations/invoice/preview",(HttpContext c,JsonElement body)=>TradingRead(c,CrudeLifecycleStore.Context(body,"invoice"),
  (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>crudeLifecycle.Preview(connection,view.CalculationFrame,body,ct),ct),expectedConvention:PhysicalCrudeStore.Convention));
-foreach(var operation in new[]{("receipt","receipt"),("dispatch","dispatch"),("invoice/issue","invoice"),("payment","payment"),("payment/reverse","payment_reversal"),("invoice/void","invoice_void")})
+foreach(var operation in new[]{("receipt","receipt"),("allocation","allocation"),("dispatch","dispatch"),("invoice/issue","invoice"),("payment","payment"),("payment/reverse","payment_reversal"),("invoice/void","invoice_void")})
 {
  var kind=operation.Item2;
  api.MapPost("/crude/operations/"+operation.Item1,(HttpContext c,JsonElement body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>{

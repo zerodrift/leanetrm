@@ -582,10 +582,12 @@ def main():
                     check_crude_lifecycle(url,query,manifest,crude_receipt)
                     from check_crude_reversals import run_checks as check_crude_reversals
                     check_crude_reversals(url,query,manifest,crude_receipt)
+                    from check_crude_inventory_sales import run_checks as check_crude_inventory_sales
+                    check_crude_inventory_sales(url,query,manifest,crude_receipt)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
-                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-crude'],cwd=ROOT,env=env,check=True,timeout=180)
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-crude'],cwd=ROOT,env=env,check=True,timeout=300)
             elif args.physical_gas_check:
                 from check_physical_gas_preview import run_checks,run_shape_checks
                 gas_receipt=run_checks(url)
