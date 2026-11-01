@@ -1083,7 +1083,7 @@ async function showPage(next:string){
   }
 }
 // Pages that read the selected historical view apply a changed one before they open.
-const readsContext=['gas-setup','gas','crude','dashboard','market','custom-curves','delivery','reference','configuration','schedules','parties','futures'];
+const readsContext=['gas-setup','gas','crude','dashboard','market','custom-curves','delivery','interval-curves','power','reference','configuration','schedules','parties','futures'];
 const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
 for(const name of ['gas-setup','gas','crude','dashboard','market','custom-curves','delivery','interval-series','interval-curves','risk','jobs','power','reference','schedules','configuration','parties','admin','ai','futures'])
   $('nav-'+name).onclick=navigate(name);
