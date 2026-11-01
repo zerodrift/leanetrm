@@ -22,12 +22,13 @@ export type ScheduleView={levels:string[];rows:ScheduleViewRow[];totals:Record<s
 export type ScheduleRefusal={code:string;message:string};
 export type TicketSummary={side:string;billedQuantity:string|null;amount:string|null;againstMarket:string|null};
 export type TradeAction={allowed:boolean;reason:string};
-export type TradeActions={amend:TradeAction;closeOut:TradeAction};
+// record says whether a booked side's day quantities are entries the trade records.
+export type TradeActions={amend:TradeAction;closeOut:TradeAction;record:TradeAction};
 // A preview answers its schedule, or why the schedule could not be built beside a valuation that succeeded; a booked trade read adds its draft
 // and the actions it offers; a booking answers its receipt.
 // A link is a physical side whose quantity follows its source's: their receipt, delivery and fuel totals over the term, as exact text.
 export type TicketLink={source:string;target:string;formula:string;fraction:string;receipt:string;delivery:string;fuel:string};
 export type TicketPreview={schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null;quantityUnit:string;links:TicketLink[]};
-// quantityPolicy is the daily quantity selection the booked schedule shows.
-export type TicketTrade=TicketPreview&{draft:TicketDraft;actions:TradeActions;quantityPolicy:string};
+// quantityPolicy is the daily quantity selection the booked schedule shows, or null for a trade that records no daily quantities.
+export type TicketTrade=TicketPreview&{draft:TicketDraft;actions:TradeActions;quantityPolicy:string|null};
 export type TicketReceipt={operationId:string;tradeId:string;instrumentId:string;revision:number};

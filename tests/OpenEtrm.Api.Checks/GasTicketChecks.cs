@@ -258,6 +258,23 @@ internal static class GasTicketChecks
         });
         Refuses("ticket_input", "booked terms on another convention do not reopen", () => GasTicket.Reopen(Map(full) with { Convention = "physical_gas_fixed_quantity_v3" }));
         Refuses("ticket_input", "booked terms without an explicit discounting policy do not reopen", () => GasTicket.Reopen(Map(full) with { Discounting = null }));
+        // A single-point trade's retained terms: a receipt priced at 2.5 with a 0.045 fee paid, both paid at one instant.
+        var point = new PhysicalGasWriteRequest(Snapshot, PhysicalGasStore.Convention, "current", Operation, Book, Definition, "PIPE", "Z1", "P1", "firm", "2027-01-01", "2027-02-01", "10000", "per_operating_day",
+            "receive", "2.5", "0.045", null, "pay", "2027-03-01T00:00:00+00:00", false, Entity, 4, Counterparty, 7, Setup);
+        Check("a single-point trade opens as one physical side with its payment and fee, each charged on its delivered quantity", () =>
+        {
+            TicketSideDraft Charge(string kind, string direction, (string, string) price) => Side(kind, $"{kind}-1", ($"{kind}_direction", direction), ($"{kind}_source", "physical-1"), ($"{kind}_stage", "delivery"), price, ($"{kind}_payment_at", "2027-03-01T00:00:00+00:00"));
+            var expected = Draft(With(Receipt with { Code = "physical-1" }, "quantity", "10000"), Charge("cash", "pay", ("cash_price", "2.5")), Charge("fee", "pay", ("fee_price", "0.045")));
+            Equal(Values(expected), Values(GasTicket.Reopen(GasTicket.SinglePoint(point))), "single-point draft");
+            Equal(Values(Draft(Receipt with { Code = "physical-1", Values = Receipt.Values.SetItem("direction", "deliver") }, Charge("cash", "receive", ("cash_price", "2.5")))),
+                Values(GasTicket.Reopen(GasTicket.SinglePoint(point with { Direction = "deliver", UsageFee = null, UsageFeeDirection = null }))), "delivered gas is paid for by the counterparty");
+            var tariffed = GasTicket.Reopen(GasTicket.SinglePoint(point with { UsageFee = null, UsageTariffCode = "TARIFF", UsageFeeDirection = "receive" })).Sides.Single(s => s.Kind == "fee").Values;
+            Equal(("TARIFF", (string?)null, "receive"), (tariffed["fee_tariff"], tariffed.GetValueOrDefault("fee_price"), tariffed["fee_direction"]), "tariffed fee");
+        });
+        Refuses("ticket_input", "a single-point trade with a fee direction and no fee does not open", () => GasTicket.Reopen(GasTicket.SinglePoint(point with { UsageFee = null })));
+        Refuses("ticket_input", "a single-point trade with both a fee price and a tariff does not open", () => GasTicket.Reopen(GasTicket.SinglePoint(point with { UsageTariffCode = "TARIFF" })));
+        Refuses("ticket_input", "a single-point trade with an unknown direction does not open", () => GasTicket.Reopen(GasTicket.SinglePoint(point with { Direction = "hold" })));
+        Refuses("ticket_input", "a single-point trade without its payment instant does not open", () => GasTicket.Reopen(GasTicket.SinglePoint(point with { PaymentAt = null })));
         Check("the gas day start comes from the side's point", () =>
         {
             var found = GasTicket.Lookup(Open(A(Receipt)), "RCT", "gas_day_start", catalog);

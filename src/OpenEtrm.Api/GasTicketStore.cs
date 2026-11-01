@@ -19,16 +19,18 @@ public sealed record TicketBookRequest([property:JsonRequired]FuturesReadRequest
 public sealed record TicketTradeRequest([property:JsonRequired]FuturesReadRequest Context,[property:JsonRequired]Guid TradeId,[property:JsonRequired]Guid BindingId,[property:JsonRequired]int Revision);
 
 // Deal ticket reads for physical gas: choices and lookups from the gas catalog under the read's
-// context, and a booked composition trade as the draft that booked it.
+// context, and a booked trade as the ticket draft of its terms.
 public sealed class GasTicketStore(PreviewDatabase database)
 {
  const string AmendReason="Gas amendments and physical settlement are not supported yet. Daily quantities are separate operational revisions.";
  const string CloseOutReason="Gas close-out is not supported yet.";
+ const string RecordReason="A day's quantity is recorded as an operational revision; amounts stay the contract's.";
+ const string SinglePointRecordReason="Daily quantities are recorded on composed gas trades; this single-point trade shows its contract quantities.";
  static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
  readonly PhysicalGasStore gas=new(database);
  readonly GasCompositionStore composition=new(database);
  readonly GasDailyQuantities daily=new(database);
- // A booked trade's schedule shows each day's quantity under the operations projection: its latest allocated, scheduled, confirmed or
+ // A composed trade's schedule shows each day's quantity under the operations projection: its latest allocated, scheduled, confirmed or
  // nominated record, else the contract's. Amounts stay the contract's: recorded quantities do not revalue the trade.
  const string QuantityPolicy=GasDailyQuantitySelection.ProjectionPolicy;
 
@@ -50,16 +52,22 @@ public sealed class GasTicketStore(PreviewDatabase database)
   return GasTicket.MarketPrice(body.Draft,body.Side!,catalog,price,TradingView.WorkingDate(frame));
  }
 
- // The booked composition trade, selected by its exact binding and revision, as its ticket draft and schedule, with its quantity links.
+ // The booked gas trade, selected by its exact binding and revision, as its ticket draft and schedule, with its quantity links. A composed
+ // trade's schedule shows its recorded day quantities; a single-point trade opens as the one-physical-side composition it is, and records none.
  public async Task<object> Trade(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketTradeRequest body,CancellationToken ct)
  {
   var selected=TradePositionSelection.From(new(body.Context,body.TradeId,body.BindingId,body.Revision,GasPositions.Type));
   var position=(await GasPositions.Read(c,database.Manifest,[],[],ct,selected)).Single();
-  if(!position.Head.GetProperty("composition").GetBoolean())throw new MarketDataException("ticket_input","This single-point gas trade does not open in the deal ticket yet.");
-  var days=(await daily.Select(c,frame,body.TradeId,QuantityPolicy,false,ct)).Days.Where(d=>d.Selected.RevisionId is not null);
-  var read=await composition.Read(c,data,frame,body.TradeId,ct,days.GroupBy(d=>d.SideCode).ToDictionary(g=>g.Key,g=>g.ToImmutableDictionary(d=>d.Contract.Day,d=>(d.Selected.Quantity,d.Selected.Kind))));
+  var composed=position.Head.GetProperty("composition").GetBoolean();
+  GasCompositionRead read;
+  if(composed)
+  {
+   var days=(await daily.Select(c,frame,body.TradeId,QuantityPolicy,false,ct)).Days.Where(d=>d.Selected.RevisionId is not null);
+   read=await composition.Read(c,data,frame,body.TradeId,ct,days.GroupBy(d=>d.SideCode).ToDictionary(g=>g.Key,g=>g.ToImmutableDictionary(d=>d.Contract.Day,d=>(d.Selected.Quantity,d.Selected.Kind))));
+  }
+  else read=await composition.ReadSinglePoint(c,data,frame,body.TradeId,ct);
   return new{draft=GasTicket.Reopen(read.Terms),schedule=read.Valuation.Schedule,summaries=read.Valuation.Summaries,scheduleRefusal=read.Valuation.ScheduleRefusal,quantityUnit=read.Valuation.QuantityUnit,
-   links=read.Valuation.Links,quantityPolicy=QuantityPolicy,
-   actions=new{amend=new{allowed=false,reason=AmendReason},closeOut=new{allowed=false,reason=CloseOutReason}}};
+   links=read.Valuation.Links,quantityPolicy=composed?QuantityPolicy:null,
+   actions=new{amend=new{allowed=false,reason=AmendReason},closeOut=new{allowed=false,reason=CloseOutReason},record=new{allowed=composed,reason=composed?RecordReason:SinglePointRecordReason}}};
  }
 }

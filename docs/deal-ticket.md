@@ -344,10 +344,10 @@ Each move keeps the product's booking contract and removes its old editor
 
 Physical gas has a description (`physical_gas` v1) and returns a schedule view
 from its preview and booked read. New trade → Physical gas opens the ticket,
-and a composed gas trade opens in it read-only from the Blotter's Details pane,
-its pop-out and the trade window. Until the ticket replaces them, the
-composition and single-point editors stay below it in New trade, and a
-single-point trade keeps its listed terms in the Details pane.
+and every gas trade, composed or single-point, opens in it read-only from the
+Blotter's Details pane, its pop-out and the trade window. Until the ticket
+replaces them, the composition and single-point editors stay below it in New
+trade.
 
 - The schedule grid (`web/src/schedule-grid.ts`) turns a schedule view into the
   Instrument and side tabs: side-coloured header groups and a Trade group, the
@@ -418,11 +418,26 @@ single-point trade keeps its listed terms in the Details pane.
 - Booking takes working data only: a selected historical context, retained
   knowledge or a captured `contextId` refuses with `historical_read_only`, and
   another convention refuses.
-- `trade` opens a booked composition trade by trade, binding and revision as
-  the draft that booked it (refusing `ticket_input` when that draft does not map
-  back to exactly the stored terms), with `schedule`, `summaries`,
-  `scheduleRefusal` and `quantityUnit` at the top level. Amend and close-out are unavailable with a reason. A
-  single-point gas trade refuses with `ticket_input`.
+- `trade` opens a booked gas trade by trade, binding and revision as a draft
+  (refusing `ticket_input` when that draft does not map back to exactly the
+  stored terms), with `schedule`, `summaries`, `scheduleRefusal`,
+  `quantityUnit`, `links` and `quantityPolicy` at the top level. Amend and
+  close-out are unavailable with a reason; `actions.record` says whether the
+  trade records day quantities. A composed trade opens as the draft that booked
+  it.
+- There is one gas ticket. A single-point trade opens as the composition of one
+  physical side it is: `physical-1` with its retained path, term, direction,
+  quantity and basis; `cash-1`, paid by the side that receives the gas; and,
+  with a fee, `fee-1` with its own direction and its price or tariff. The
+  single-point profile charges both on the side's contractual delivery
+  quantity, so each takes the `delivery` stage, and pays them at its one
+  payment instant. Every side is a whole membership of the booked quantity. The
+  schedule is built by the composition's own view assembly from the trade's
+  retained programs, so it equals the preview of that draft exactly. A fee
+  direction without a fee, a fee with both a price and a tariff, or a direction
+  other than receive or deliver refuses with `ticket_input`. Single-point trades
+  record no daily quantities: `quantityPolicy` is null, `actions.record` is not
+  allowed, and their day cells are not entries.
 - A refusal of one draft value names it: the error body adds `side` (null for a
   trade field) and `field`. Missing, blank, unknown and non-editable values, a
   decimal field that is not a plain decimal, a quantity against the link rule
@@ -445,10 +460,14 @@ single-point trade keeps its listed terms in the Details pane.
   operations projection (`operational_projection_v1`, returned as
   `quantityPolicy`): the day's latest allocated, scheduled, confirmed or
   nominated record, tagged with its kind, else the contract's. Amounts stay the
-  contract's; a recorded quantity does not revalue the trade.
+  contract's; a recorded quantity does not revalue the trade. The amount's
+  sources are the evaluated contract's (`contract` with its price's), so on a
+  recorded day the grid tags the quantity with the record's kind and the amount
+  as Contract, and quantity times price need not equal the amount.
 - A side column's `input` lists the modes in which its day cells are entries.
   Gas declares the physical `quantity` column an entry in booked mode: in a
-  booked physical side's tab each day quantity is an input. Changing one opens
+  booked physical side's tab of a trade whose `actions.record` is allowed, each
+  day quantity is an input. Changing one opens
   a record form for that day, whose kind, status and evidence the person
   chooses (none is chosen for them). Record reads `gas/quantities/read` for the
   trade revision and the day's previous record of that kind, and sends

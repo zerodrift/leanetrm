@@ -2,6 +2,7 @@
 
 January 2021 is the first synthetic gas forward month after the 2020-12-18 frame: 31 gas days.
 """
+import json
 from datetime import datetime
 from fractions import Fraction
 from uuid import uuid4
@@ -208,15 +209,31 @@ def check_ticket_operations(c,context,cat,description,body,view):
     cells={r['key']:r['cells'] for r in recorded['rows']};before={r['key']:r['cells'] for r in view['rows']}
     assert cells['2021-01-05']['physical.quantity']=={'value':'-9000','sources':['nominated']},cells['2021-01-05']['physical.quantity']
     assert cells['2021-01-05']['physical.amount']==before['2021-01-05']['physical.amount'] and cells['2021-01-04']==before['2021-01-04'],cells['2021-01-05']
+    # The recorded day's amount is still the contract's, and its sources say so: quantity times price need not equal it on that day.
+    assert 'contract' in cells['2021-01-05']['physical.amount']['sources'],cells['2021-01-05']['physical.amount']
     assert cells['2021-01']['physical.quantity']['value']=='-309000' and cells['2021-01']['physical.amount']==before['2021-01']['physical.amount'],cells['2021-01']
     refused('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':str(uuid4()),'revision':fact['revision']},'position_unavailable')
-    # A single-point gas booking does not open in the ticket yet.
+    # A single-point gas booking opens read-only as the composition it is: one physical side, its payment and its fee, each charged on the
+    # side's delivered quantity and paid at the booking's one payment instant. Its schedule, from its own retained programs, is exactly the
+    # one a ticket preview of those terms returns; it records no daily quantities, so it names no quantity selection.
     single={**context,**{k:body[k] for k in ['legalEntityId','legalEntityRevision','counterpartyId','counterpartyRevision','bookId','definitionRevisionId','gasSetupId']},'operationId':str(uuid4()),
             'pipeline':p['pipeline'],'zone':p['zone'],'deliveryPoint':p['deliveryPoint'],'product':p['product'],'deliveryFrom':'2021-01-01','deliveryTo':'2021-02-01','quantity':'1000',
-            'quantityBasis':'period_total_equal_days','direction':'receive','fixedPrice':'3','usageFee':None,'usageTariffCode':None,'usageFeeDirection':None,'paymentAt':'2021-02-02T00:00:00Z','discounting':False}
+            'quantityBasis':'period_total_equal_days','direction':'receive','fixedPrice':'3','usageFee':'0.045','usageTariffCode':None,'usageFeeDirection':'pay','paymentAt':'2021-02-02T00:00:00Z','discounting':False}
     single_booked=c.call('gas/book',single)
     single_fact=fact_for(single_booked['tradeId'])
-    refused('tickets/trade',{'context':context,'tradeId':single_fact['tradeId'],'bindingId':single_fact['bindingId'],'revision':single_fact['revision']},'ticket_input')
+    point=c.call('tickets/trade',{'context':context,'tradeId':single_fact['tradeId'],'bindingId':single_fact['bindingId'],'revision':single_fact['revision']})
+    sides=point['draft']['sides'];paid=sides[1]['values']['cash_payment_at']
+    assert datetime.fromisoformat(paid)==datetime.fromisoformat('2021-02-02T00:00:00+00:00') and sides[2]['values']['fee_payment_at']==paid,sides
+    charged=lambda kind,direction,price:{f'{kind}_direction':direction,f'{kind}_source':'physical-1',f'{kind}_stage':'delivery',f'{kind}_price':price,f'{kind}_payment_at':paid}
+    assert point['draft']=={'product':'physical_gas','version':1,'trade':trade,'sides':[
+        {'kind':'physical','code':'physical-1','values':{**physical,'direction':'receive','quantity':'1000','quantity_basis':'period_total_equal_days'}},
+        {'kind':'cash','code':'cash-1','values':charged('cash','pay','3')},{'kind':'fee','code':'fee-1','values':charged('fee','pay','0.045')}]},point['draft']
+    as_composed=c.call('tickets/preview',{'context':context,'draft':point['draft']})
+    exact=lambda value:json.dumps(value,sort_keys=True)
+    assert point['schedule'] is not None and exact(point['schedule'])==exact(as_composed['schedule']),(point['schedule'],as_composed['schedule'])
+    assert point['summaries']==as_composed['summaries'] and point['scheduleRefusal'] is None and point['quantityUnit']==as_composed['quantityUnit'] and point['links']==[],point['summaries']
+    assert point['quantityPolicy'] is None and point['actions']['record']['allowed'] is False and point['actions']['record']['reason'],point['actions']
+    assert point['actions']['amend']==opened['actions']['amend'] and point['actions']['closeOut']==opened['actions']['closeOut'] and opened['actions']['record']['allowed'] is True,opened['actions']
 
     # Historical choices: a point retired by a later gas setup stays listed, and priced, in the earlier context.
     # Publication is append-only, so the check leaves the setup as it found it by publishing the found configuration again.

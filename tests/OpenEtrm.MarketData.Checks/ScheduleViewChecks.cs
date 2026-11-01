@@ -87,6 +87,10 @@ internal static class ScheduleViewChecks
         Equal(Row(recordedView,"2031-12-04").Cells["physical.quantity"].Value,"10000");
         Equal(recordedMonth.Cells["physical.quantity"].Value,"309000");Sources(recordedMonth.Cells["physical.quantity"],"contract","nominated");
         Equal(recordedMonth.Cells["physical.amount"].Value,"1057720");
+        // On a forward price, Contract on the recorded day's amount comes from the contract quantity it is evaluated on, not the price.
+        var forward=Row(ScheduleViews.Build([Daily(31,before,_=>(N("10000"),VolumeState.Contractual),_=>(N("3.412"),SchedulePriceFacts.Projected)) with
+            {Recorded=ImmutableDictionary<DateOnly,ScheduleViewQuantity>.Empty.Add(new(2031,12,5),new(S(9000),"allocated"))}],Levels,Utc),"2031-12-05");
+        Sources(forward.Cells["physical.amount"],"contract","fwd");Sources(forward.Cells["physical.quantity"],"allocated");Equal(forward.Cells["physical.amount"].Value,"34120");
         Reject("schedule_view",()=>ScheduleViews.Build([Recorded(new(2032,1,5),"nominated")],Levels,Utc));
         Reject("schedule_view",()=>ScheduleViews.Build([Recorded(new(2031,12,5),"contract")],Levels,Utc));
         Pass("a recorded day quantity replaces only that day's shown quantity and keeps the contract amount");

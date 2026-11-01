@@ -249,13 +249,19 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   await using var q=ScheduleStore.Command(c,"SELECT security.book_physical_gas($1,$2::jsonb,$3)::text",Catalog,JsonSerializer.Serialize(body,Json),frame.At);
   return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);
  }
- public async Task<object> Editor(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
+ // A booked single-point trade's retained terms, read as the request that booked it under this read's snapshot, and its instrument.
+ internal async Task<(PhysicalGasWriteRequest Terms,Guid Instrument)> Retained(NpgsqlConnection c,InputFrame frame,Guid trade,CancellationToken ct)
  {
   var row=One(await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT r.*,i.definition_revision_id,i.assignment_code,i.delivery_from,i.delivery_to,i.quantity_basis,i.fixed_price,i.usage_fee,i.usage_tariff_code,i.usage_fee_direction,i.gas_setup_id,i.payment_at,a.pipeline_code,a.zone_code,a.point_code,a.product_code FROM trading.gas_trade_revisions r JOIN trading.gas_instruments i USING(catalog_id,instrument_id) JOIN market_data.gas_valuation_assignments a ON(a.catalog_id,a.revision_id,a.code)=(i.catalog_id,i.definition_revision_id,i.assignment_code) WHERE r.catalog_id=$1 AND r.trade_id=$2 AND NOT i.composition)x",[Catalog,trade],ct));
-  // Resolve source metadata from exact authorized definitions; booked instructions are loaded, never regenerated for execution.
   var body=new PhysicalGasWriteRequest(frame.Id,Convention,"current",Guid.Empty,row.Id("book_id"),row.Id("definition_revision_id"),row.Text("pipeline_code"),row.Text("zone_code"),row.Text("point_code"),row.Text("product_code"),row.Text("delivery_from"),row.Text("delivery_to"),row.Text("quantity"),row.Text("quantity_basis"),row.Text("direction")=="1"?"receive":"deliver",row.Text("fixed_price"),row.OptionalText("usage_tariff_code") is null?row.OptionalText("usage_fee"):null,row.OptionalText("usage_tariff_code"),row.OptionalText("usage_fee_direction") switch{"-1"=>"pay","1"=>"receive",_=>null},row.Text("payment_at"),false,row.Id("legal_entity_id"),int.Parse(row.Text("legal_entity_revision"),CultureInfo.InvariantCulture),row.Id("counterparty_id"),int.Parse(row.Text("counterparty_revision"),CultureInfo.InvariantCulture),row.OptionalText("gas_setup_id") is {} gasSetup?Guid.Parse(gasSetup):null);
+  return(body,row.Id("instrument_id"));
+ }
+ public async Task<object> Editor(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
+ {
+  var(body,instrument)=await Retained(c,frame,trade,ct);
+  // Resolve source metadata from exact authorized definitions; booked instructions are loaded, never regenerated for execution.
   var metadata=await Metadata(c,data,body,ct);
-  var programs=await new RetainedScheduleStore(database).LoadPrograms(c,row.Id("instrument_id"),frame.ContextId,frame.ContextId is null?null:frame.At,ct);
+  var programs=await new RetainedScheduleStore(database).LoadPrograms(c,instrument,frame.ContextId,frame.ContextId is null?null:frame.At,ct);
   var value=await Value(c,data,frame,null,metadata.Assignment,ExactDecimal.Parse(body.Quantity!),body.Direction=="receive"?1:-1,body.UsageFeeDirection switch{"pay"=>-1,"receive"=>1,_=>(int?)null},body.GasSetupId,programs,ct);
   return new{tradeId=trade,terms=body,physical=PhysicalDetails(data,body,metadata.Mapping),valuation=value,schedules=programs.Select(p=>new{p.Slot,p.ScheduleId,p.Identity,program=p.Program.Document})};
  }

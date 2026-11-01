@@ -221,8 +221,9 @@ export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
  else{
   if(o.quantityUnit===null)throw Error('A drawn schedule needs the quantity unit its preview resolved.');
   const g=scheduleGridData(o.schedule,d,previewed,o.tab,o.level,{quantityUnit:o.quantityUnit,instant:o.instant},o.previous??undefined);
-  // In a side's tab, the day cells of a column the description makes an entry in this mode are inputs; a change opens that day's record.
-  const side=sides.find(s=>s.code===o.tab),entered=side?sideKind(d,side.kind).columns.map(c=>c.input.includes(o.mode)):[];
+  // In a side's tab, the day cells of a column the description makes an entry in this mode are inputs, when a booked trade records them;
+  // a change opens that day's record.
+  const side=sides.find(s=>s.code===o.tab),entered=side?sideKind(d,side.kind).columns.map(c=>c.input.includes(o.mode)&&(o.mode==='new'||o.actions!.record.allowed)):[];
   const cells=(r:number,c:number)=>{
    if(!side||c===0||!entered[c-1]||g.levels[r]!=='day')return null;
    const input=el('input','ticket-cell-input');input.value=g.displayRows[r][c];input.inputMode='decimal';input.setAttribute('aria-label',`${g.headers[c]} · ${g.keys[r]}`);

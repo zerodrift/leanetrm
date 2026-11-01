@@ -1,7 +1,7 @@
 // The deal ticket (docs/deal-ticket.md) enters a physical gas trade from New trade: live previews of the whole draft, lookups that say
 // where their values came from, refusals that keep the last schedule, a booking whose response is lost reconciled after a reload, and the
 // booked trade opened read-only in the Blotter's Details pane and in the trade's own window, a day's quantity recorded in its physical side's
-// tab, and the quantity links of a linked side.
+// tab, a single-point trade opened from its Blotter row, and the quantity links of a linked side.
 import {newTrade} from './new-trade.mjs';
 
 export async function run(actions){
@@ -158,6 +158,43 @@ export async function run(actions){
   `${row('2021-01-05')}.includes('Nominated')&&${row('2021-01')}.includes('-309,000')&&${row('2021-01-04')}===${q(before.day)}&&
    [...document.querySelectorAll(${q(booked+' .tabulator-row .grid-changed')})].map(m=>m.closest('.tabulator-row').dataset.rowKey).every(k=>k==='2021-01-05'||k==='2021-01')&&
    !!document.querySelector(${q(booked+' .tabulator-row[data-row-key="2021-01-05"] .grid-changed')})`,`({day:${row('2021-01-05')},month:${row('2021-01')},before:${q(before)}})`);
+  // The tab's columns are Period, Quantity, Market price and Amount: the recorded day's amount is still the contract's, and its source says so.
+ const sources=(key,column)=>`[...document.querySelectorAll(${q(booked+' .tabulator-row[data-row-key="'+key+'"] .tabulator-cell[tabulator-field="'+column+'"] .grid-source')})].map(t=>t.textContent)`;
+ await check('the recorded day\'s amount is tagged as the contract\'s while its quantity is tagged as recorded',
+  `${sources('2021-01-05','c3')}.includes('Contract')&&${sources('2021-01-05','c1')}.join()==='Nominated'`,`({amount:${sources('2021-01-05','c3')},quantity:${sources('2021-01-05','c1')}})`);
+
+ // A single-point gas trade, booked through its own route, opens from its Blotter row read-only in the same ticket: one physical side, its
+ // payment and its fee, and no listed terms. It records no daily quantities, so its day cells are not entries.
+ const single=await evaluate(`(async()=>{
+  const token=(await(await fetch('/api/bootstrap?includeFrames=false')).json()).csrfToken;
+  const post=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};
+  const context={snapshotId:${q(frame)},convention:'physical_gas_fixed_quantity_v4',knowledgeMode:'current'},cat=await post('gas/catalog',context);
+  const p=cat.locations.find(l=>l.deliveryPoint==='synthetic_gas_point_a'),[entity]=cat.legalEntities,[party]=cat.counterparties;
+  const booked=await post('gas/book',{...context,operationId:crypto.randomUUID(),bookId:cat.books[0].id,definitionRevisionId:p.definitionRevisionId,gasSetupId:cat.gasSetupId,
+   legalEntityId:entity.id,legalEntityRevision:entity.revision,counterpartyId:party.id,counterpartyRevision:party.revision,pipeline:p.pipeline,zone:p.zone,deliveryPoint:p.deliveryPoint,product:p.product,
+   deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01',quantity:'1000',quantityBasis:'period_total_equal_days',direction:'receive',fixedPrice:'3',usageFee:'0.045',usageTariffCode:null,usageFeeDirection:'pay',
+   paymentAt:'2021-02-02T00:00:00Z',discounting:false});
+  for(let offset=0;;offset+=64){
+   const page=(await post('trading/positions',{context:{...context,convention:'trading_workspace_v1'},bookIds:[],portfolioIds:[],offset,limit:64})).positions;
+   if(!page.length)throw Error('The booked single-point trade is not in the positions.');
+   const found=page.find(f=>f.tradeId===booked.tradeId);if(found)return found.tradeReference;
+  }})()`);
+ // The Blotter's grid shows beside the Details pane only in a desk-sized window.
+ await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
+ await click('#futures-refresh',30000);await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`,30000);
+ await set('#blotter-filters .table-search',single);
+ await until(`${rows}.length===1&&${rows}[0].textContent.includes(${q(single)})`,`({rows:${rows}.map(r=>r.textContent.slice(0,80)),search:document.querySelector('#blotter-filters .table-search').value,pricing:document.querySelector('#futures-page').dataset.pricingState})`);
+ await evaluate(`${rows}[0].querySelector('.desk-reference').click()`);
+ await until(`document.querySelector('#details-title')?.textContent.startsWith(${q(single)})&&!!document.querySelector(${q(booked)})&&`+current(booked),
+  `({title:document.querySelector('#details-title')?.textContent,error:document.querySelector('#error').textContent,details:document.querySelector('#position-details').textContent.slice(0,300)})`);
+ await check('the Blotter row of a single-point gas trade opens it read-only in the deal ticket, with no listed terms',
+  `[...document.querySelectorAll(${q(booked+' .ticket-card')})].map(c=>c.dataset.kind).join()==='physical,cash,fee'&&!document.querySelector(${q(booked+' .ticket-control:not([disabled])')})&&
+   !document.querySelector(${q(booked+' .ticket-book')})&&!document.querySelector('#position-details').textContent.includes('Cash and quantity terms')&&${month(booked)}.includes('-1,000')`,
+  `({cards:[...document.querySelectorAll(${q(booked+' .ticket-card')})].map(c=>c.dataset.kind),month:${month(booked)}})`);
+ await click(`${booked} .ticket-tab[data-tab="physical-1"]`);await set(`${booked} .ticket-level`,'day');
+ await wait(`!!document.querySelector(${q(booked+' .tabulator-row[data-row-key="2021-01-05"]')})`);
+ await check('a single-point trade\'s day quantities are not entries',`!document.querySelector(${q(booked+' .ticket-cell-input')})`);
+ await command('Emulation.clearDeviceMetricsOverride');
 
  // A linked side's receipt, delivery and fuel are drawn in the Quantity links tab exactly as the preview returned them.
  await newTrade(actions,'gas');

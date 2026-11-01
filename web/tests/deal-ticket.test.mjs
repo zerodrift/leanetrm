@@ -128,7 +128,7 @@ test('clicking a card selects its side, and the selected side\'s tab is marked s
 test('in booked mode nothing is editable, no chip is drawn and Amend and Close out are disabled with their reasons',()=>{
  let state=applyLookup(setValue(newTicket(description),'leg-1','quantity','5000'),'leg-1','point',{value:'P-7',source:{kind:'reference',label:'Hub list'}});
  state=applyLookup(state,'leg-1','price',{value:'3.25',source:{kind:'market',label:'Hub A'}});
- const actions={amend:{allowed:false,reason:'Physical gas has no amendment yet.'},closeOut:{allowed:false,reason:'Close-out is not offered for this trade.'}};
+ const actions={amend:{allowed:false,reason:'Physical gas has no amendment yet.'},closeOut:{allowed:false,reason:'Close-out is not offered for this trade.'},record:{allowed:false,reason:'No day quantities are recorded.'}};
  const host=draw({state,mode:'booked',actions,quantityUnit:'MMBtu'});
  for(const control of controls(host).filter(c=>c.dataset.role!=='level'))assert.equal(control.disabled,true,`${control.tagName} is disabled`);
  assert.equal(byClass(host,'ticket-chip').length,0);assert.equal(byClass(host,'ticket-add').length,0);

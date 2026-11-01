@@ -184,6 +184,21 @@ public static class GasTicket
   return JsonSerializer.Serialize(mapped)==JsonSerializer.Serialize(terms)?draft:throw Bad("The booked terms hold values the deal ticket cannot express, so the trade does not open in it.");
  }
 
+ // A single-point trade's retained terms as the composition they are: one physical side, the payment for its gas and an optional fee,
+ // coded as a new ticket codes the first side of each kind. The single-point profile charges both on the side's contractual delivery
+ // quantity and pays them at its one payment instant. Terms it does not admit refuse here or in Reopen; none is filled in.
+ public static GasCompositionRequest SinglePoint(PhysicalGasWriteRequest t)
+ {
+  static string Code(string kind)=>$"{kind}-1";
+  var payment=t.Direction switch{"receive"=>"pay","deliver"=>"receive",_=>throw Bad($"The booked gas direction '{t.Direction}' is neither receive nor deliver.")};
+  var fee=t.UsageFee is not null||t.UsageTariffCode is not null;
+  if(fee!=(t.UsageFeeDirection is not null)||t.UsageFee is not null&&t.UsageTariffCode is not null)throw Bad("The booked fee needs its direction and exactly one of a price or a tariff.");
+  GasCashRequest Charge(string kind,string direction,string? price,string? tariff)=>new(Code(kind),Roles[kind],direction,Code(Physical),"delivery",price,tariff,t.PaymentAt!);
+  return new(t.SnapshotId,t.Convention!,t.KnowledgeMode!,GasCompositionStore.Profile,t.OperationId,t.BookId,t.DefinitionRevisionId,t.GasSetupId,t.Discounting,t.LegalEntityId,t.LegalEntityRevision,t.CounterpartyId,t.CounterpartyRevision,
+   [new(Code(Physical),t.Pipeline!,t.Zone!,t.DeliveryPoint!,t.Product!,t.Direction,t.DeliveryFrom!,t.DeliveryTo!,t.QuantityBasis!,t.Quantity,null)],
+   [Charge("cash",payment,t.FixedPrice,null),..fee?[Charge("fee",t.UsageFeeDirection!,t.UsageFee,t.UsageTariffCode)]:Array.Empty<GasCashRequest>()]);
+ }
+
  // Fixed lists the booking contract admits, and the lists read from the context's gas catalog.
  static readonly ImmutableDictionary<string,ImmutableArray<TicketChoice>> Fixed=new Dictionary<string,ImmutableArray<TicketChoice>>{
   ["physical_direction"]=[new("receive","Receive"),new("deliver","Deliver")],["cash_direction"]=[new("pay","Pay"),new("receive","Receive")],

@@ -235,8 +235,8 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  async function readTrade(){
   const r=await o.api<TicketTrade>('tickets/trade',{context:o.context(),...o.opened!});
   if(!alive)return;
-  if(typeof r.quantityPolicy!=='string'||!r.quantityPolicy)throw Error('The booked read did not name the quantity selection its schedule shows.');
-  state=ticketOf(d!,r.draft);actions=r.actions;quantityPolicy=r.quantityPolicy;
+  if(r.actions.record.allowed!==(typeof r.quantityPolicy==='string'&&!!r.quantityPolicy))throw Error('The booked read must name the quantity selection its schedule shows exactly when it records day quantities.');
+  state=ticketOf(d!,r.draft);actions=r.actions;quantityPolicy=r.quantityPolicy??undefined;
   panel=previewed(panel,{preview:r});
   if(panel.status.kind==='current')panel={...panel,status:{kind:'current',text:'Booked terms and their retained schedule.'}};
   draw();
