@@ -95,7 +95,10 @@ the operations projection, tagged with the record's kind. Financial calculations
 stay in the backend. A record awaiting its outcome keeps its exact command and offers
 Check and Retry while the page is open; it is not kept across a reload. The strict
 billing selection and the revision history are served by their operations and are
-not drawn in the ticket yet. Historical views cannot write.
+not drawn in the ticket yet. Entries are offered by the record operation's own rule:
+on working data, to a role the trading authority lets amend trades. A historical or
+retained view, including the trade's own window, and a role without that permission
+see the day quantities without entries, and the record refuses there.
 
 ## Executable acceptance
 
@@ -105,18 +108,20 @@ Owned database/API checks exercise retained day binding, unchanged original term
 and PV, immutable corrections, source pins, certified old-cutoff reads, series
 visibility, restrictive row-security fences, pre-booking context refusal, actor
 replay, fresh-fact no-op, backdated no-op refusal and concurrent predecessor races.
-Owned browser checks cover the grid, recording, unchanged contract/PV, unknown
-write outcome, reload/status recovery, missing billing evidence and viewport fit.
-All examples and evidence are synthetic.
+Owned HTTP checks read a recorded day in the ticket's booked schedule, its amount
+still the contract's, and show the booked read offering entries only on working
+data to a role that may amend trades. Owned browser checks enter a day in the
+ticket's physical side tab, check that only that day and its month change, and
+recover a record whose response is lost with Check, which finds the one record it
+made. All examples and evidence are synthetic.
 
 Interactive owned previews can include the synthetic January working frames with
 `tools/run_preview.py --with-gas-quantity-dates` plus the usual installed-tool
 arguments. This changes only the synthetic fixture, not supported market data.
 
-Local qualification on 30 October 2026 passes 649 managed core checks, 835 web
-tests, the owned daily quantity/database assertions and 44 physical-gas browser
-checks. Independent numerical, temporal, authorization and UI recovery review has
-no remaining material findings. This is a bounded local workflow, not a claim of
+Local qualification on 31 October 2026 passes 653 managed core checks, 1071 web
+tests, the owned daily quantity, deal ticket and composition database assertions,
+16 physical-gas and 28 deal ticket browser checks. This is a bounded local workflow, not a claim of
 external nomination submission, physical settlement or production qualification.
 
 The [quantity performance checkpoint](gas-quantity-performance.md) records the

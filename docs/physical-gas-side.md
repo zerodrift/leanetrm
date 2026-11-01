@@ -6,10 +6,11 @@ fee sides. A purchase or sale at one point is the composition of one physical si
 
 The single-point template and its operations (`gas/preview`, `gas/instructions`,
 `gas/book`, `gas/status`, `gas/directory` and `gas/editor`) are removed; no new
-single-point trade can be booked. `gas/catalog` remains. Stored single-point trades
-stay readable: the Blotter, the trade read and the deal ticket open them read-only,
-the ticket as the one-physical-side composition they are, from their retained
-programs. Their v4 command supplied pipeline, zone, delivery location and product;
+single-point trade can be booked, and migration 0151 revokes the runtime's call of
+the retired booking entry, `security.book_physical_gas`. `gas/catalog` remains. Stored
+single-point trades stay readable: the Blotter values them and the trade read and the
+deal ticket open them read-only, all as the one-physical-side composition they are,
+from their retained programs. Their v4 command supplied pipeline, zone, delivery location and product;
 the backend resolved the valuation mapping. Delivery dates were independent inputs.
 Reopening loads their stored executable programs and resolves source metadata from
 authorized typed references. It never rebuilds an instrument or schedule for booked
@@ -34,8 +35,11 @@ Mixed interactive and queued risk reports retain the exact gas bindings as `phys
 
 The deal ticket's Add side offers physical, payment and fee sides. The explicit
 profile is `fixed_gas_composition_v1`, using the existing v4 context convention and
-`gas/composition/preview`, `/book`, `/status`, `/editor` and `/directory`, which the
-ticket operations delegate to.
+`gas/composition/preview`, `/book`, `/status` and `/editor`, which the ticket
+operations delegate to. A preview and a booking are held to the gas setup their
+context resolves: a request naming another setup, or none where the context resolves
+one, refuses with `ticket_input` on the `gas_setup` field; a retried booking still
+receives its first outcome.
 
 Admit one to four physical memberships and up to four fixed-price cash/fee
 memberships. Receive/deliver belongs on each physical membership; pay/receive
@@ -404,9 +408,12 @@ point/clock changes, historical setup visibility, tariff pricing and pre-publica
 booked price/meter preservation. These are bounded local checks, not production or
 complete gas lifecycle qualification.
 
-Stored single-point trades are read, not booked, so no check books a new one: the
-mapping of their retained terms to a one-physical-side draft is checked without a
-database (`--gas-ticket`), and their reads are not exercised against a database.
+Stored single-point trades are read, not booked. The mapping of their retained terms
+to a one-physical-side draft is checked without a database (`--gas-ticket`), and
+`--deal-ticket-check` writes one stored single-point booking through the owner
+connection, check-only, from a booked composition's retained programs, then opens
+it read-only through `tickets/trade` and compares its draft and schedule with a
+ticket preview of those terms.
 
 The multi-side integration runner is `tools/run_preview.py --gas-composition-check`
 with the same explicit SDK/PostgreSQL paths. Add `--browser-check --browser` for

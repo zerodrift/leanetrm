@@ -415,8 +415,9 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
 - Current gas limits: no delivered/remaining split once delivery has started
   (a started delivery is refused), one forward month, and fixed-offset gas-day
   clocks.
-- The preview returns `schedule`, `summaries`, `scheduleRefusal` and
-  `quantityUnit` at the top level; the booked read nests the same fields under `valuation`, beside
+- The preview and the booked read (`trade`) return `schedule`, `summaries`,
+  `scheduleRefusal` and `quantityUnit` at the top level. The composition
+  editor read (`gas/composition/editor`) nests them under `valuation`, beside
   `terms`.
 - The ticket operations are `POST /api/tickets/description`, `choices`,
   `lookup`, `preview`, `book`, `status` and `trade`. Each runs the gas operation
@@ -428,7 +429,11 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
   needs its side's pipeline, a point its zone, a usage tariff a delivery-stage
   fee whose source side has a valued path and delivery term. A side answer
   refuses (`ticket_input`) when the draft's `gas_setup` is not the one the
-  context resolves; `gas_setup` is empty where the context resolves none. A
+  context resolves; `gas_setup` is empty where the context resolves none.
+  Preview and booking are held to the same setup, naming the `gas_setup`
+  field: a draft priced under a setup since superseded, or under none where
+  one resolves, neither previews nor books, while a retried booking still
+  receives its first outcome. A
   setup has no name, so its choice is labelled by its publication order
   (`Published setup <n>`).
 - Party choices are `<id>@<revision>`. `market_price` is the single price the
@@ -447,8 +452,10 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
   stored terms), with `schedule`, `summaries`, `scheduleRefusal`,
   `quantityUnit`, `links` and `quantityPolicy` at the top level. Amend and
   close-out are unavailable with a reason; `actions.record` says whether the
-  trade records day quantities. A composed trade opens as the draft that booked
-  it.
+  person may record day quantities here, by the record operation's own rule: a
+  composed trade, on working data, to a role the trading authority lets amend
+  trades, else not allowed with that rule's reason. A composed trade opens as
+  the draft that booked it.
 - There is one gas ticket. A single-point trade opens as the composition of one
   physical side it is: `physical-1` with its retained path, term, direction,
   quantity and basis; `cash-1`, paid by the side that receives the gas; and,
@@ -470,7 +477,11 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
   each side kind's initial count from the description: one physical and one
   payment side for gas. After an edit it reads
   the choices of the fields that depend on it and of the lists that refused;
-  adding or removing a side, or editing a trade field, reads every list. Once
+  adding or removing a side, or editing a trade field, reads every list. A
+  side is coded `<kind>-<n>` with the lowest number not yet used in the
+  ticket, so a removed side's code is never given to a later side; removing a
+  side clears every choice that named it, and that choice's dependents, each
+  with a notice. Once
   edits settle (300 ms) it previews the whole draft and reads every lookup
   again; a lookup that fills a term previews the draft in turn. Only the latest
   preview is drawn. A refused preview keeps the last schedule, marked stale,
@@ -491,8 +502,9 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
 - A side column's `input` lists the modes in which its day cells are entries.
   Gas declares the physical `quantity` column an entry in booked mode: in a
   booked physical side's tab of a trade whose `actions.record` is allowed, each
-  day quantity is an input. Changing one opens
-  a record form for that day, whose kind, status and evidence the person
+  day quantity is an input. An input opens empty, the drawn quantity its
+  placeholder, since the record takes a plain unsigned decimal. Changing one
+  opens a record form for that day, whose kind, status and evidence the person
   chooses (none is chosen for them). Record reads `gas/quantities/read` for the
   trade revision and the day's previous record of that kind, and sends
   `gas/quantities/record` with its own operation id, kept until its outcome is
