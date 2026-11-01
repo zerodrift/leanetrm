@@ -32,7 +32,7 @@ const f=(id,label,over={})=>({id,label,meaning:`${label} meaning`,type:'text',un
 const description={product:'synthetic_flow',version:2,rowShape:'flow',levels:['month','day'],modes:['new','booked'],tradeColumns:[],tabs:[{id:'notes',label:'Notes'}],
  tradeFields:[f('book','Book',{type:'choice',choices:'books'}),f('agreement','Agreement',{state:'soon',soon:'Will name the master agreement.'})],
  sides:[{kind:'leg',pill:'Physical',colour:'gas',min:1,initial:1,max:2,columns:[],fields:[f('direction','Direction',{band:'direction',type:'choice',choices:'directions'}),
-   f('start','From',{band:'start',type:'date'}),f('quantity','Quantity',{band:'quantity',type:'decimal',unit:'MMBtu'}),
+   f('start','From',{band:'start',type:'date'}),f('quantity','Quantity',{band:'quantity',type:'decimal',unit:'quantity'}),
    f('price','Price',{band:'price',state:'info',lookup:'market_price'}),f('point','Point',{lookup:'point'}),f('meter','Meter',{state:'soon',soon:'Will name the meter.'})]},
   {kind:'cash',pill:'Payment',colour:'cash',min:1,initial:1,max:2,columns:[],fields:[f('pay_direction','Direction',{band:'direction',type:'choice',choices:'pay'}),
    f('pay_start','From',{band:'start',state:'derived',rule:'Follows the source side.'}),f('pay_price','Price',{band:'price',type:'decimal'}),f('pay_at','Payment at',{band:'payment'})]}],
@@ -41,9 +41,15 @@ const status={kind:'current',text:'Up to date'};
 const noEvents=()=>new Proxy({},{get:(_,name)=>()=>assert.fail(`unexpected ${String(name)} event`)});
 const draw=(over={})=>{
  const host=new Element('section');
- renderTicket(host,{state:newTicket(description),mode:'new',actions:null,schedule:null,previous:null,summaries:[],status,fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'month',closed:new Set(),on:noEvents(),...over});
+ renderTicket(host,{state:newTicket(description),mode:'new',actions:null,schedule:null,quantityUnit:null,previous:null,summaries:[],status,fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'month',closed:new Set(),on:noEvents(),...over});
  return host;
 };
+
+test('a quantity field shows the unit the preview resolved, and none before',()=>{
+ const unit=host=>byClass(all(host).find(n=>n.dataset.field==='quantity'&&n.dataset.band),'ticket-unit').map(n=>n.textContent);
+ assert.deepEqual(unit(draw()),[]);
+ assert.deepEqual(unit(draw({quantityUnit:'GJ'})),['GJ']);
+});
 
 test('band rows are the rows any shown kind uses, in the common band order',()=>{
  assert.deepEqual(bandRows(description,['leg','cash']),['direction','start','quantity','price','payment']);
@@ -123,7 +129,7 @@ test('in booked mode nothing is editable, no chip is drawn and Amend and Close o
  let state=applyLookup(setValue(newTicket(description),'leg-1','quantity','5000'),'leg-1','point',{value:'P-7',source:{kind:'reference',label:'Hub list'}});
  state=applyLookup(state,'leg-1','price',{value:'3.25',source:{kind:'market',label:'Hub A'}});
  const actions={amend:{allowed:false,reason:'Physical gas has no amendment yet.'},closeOut:{allowed:false,reason:'Close-out is not offered for this trade.'}};
- const host=draw({state,mode:'booked',actions});
+ const host=draw({state,mode:'booked',actions,quantityUnit:'MMBtu'});
  for(const control of controls(host).filter(c=>c.dataset.role!=='level'))assert.equal(control.disabled,true,`${control.tagName} is disabled`);
  assert.equal(byClass(host,'ticket-chip').length,0);assert.equal(byClass(host,'ticket-add').length,0);
  assert.equal(one(all(host).find(n=>n.dataset.field==='quantity'&&n.dataset.band),'ticket-value').textContent,'5000 MMBtu');

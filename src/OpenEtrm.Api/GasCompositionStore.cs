@@ -41,6 +41,9 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  static int Sign(string s,bool physical)=>s switch{ "receive"=>1,"pay" when !physical=>-1,"deliver" when physical=>-1,_=>throw Invalid("Choose a direction on each side.")};
  static GasQuantityStage Stage(string s)=>s switch{"receipt"=>GasQuantityStage.Receipt,"delivery"=>GasQuantityStage.Delivery,"fuel"=>GasQuantityStage.Fuel,_=>throw Invalid("Select an explicit receipt, delivery or fuel quantity stage.")};
  static object Ratio(ExactQuantity q)=>new{numerator=q.Numerator,denominator=q.Denominator};
+ // The trade's quantity unit: its sides share one quantity specification, whose unit the reference data names.
+ internal static string QuantityUnit(PreviewData data,IEnumerable<ReferenceKey> quantities)=>quantities.Distinct().ToArray() is [var one]?data.QuantityUnit(one.Code):
+  throw Invalid("The sides' gas paths are quoted in different quantity specifications; one trade takes one quantity unit.");
  static PhysicalGasWriteRequest Selection(GasCompositionRequest body,GasPhysicalRequest p)=>new(body.SnapshotId,body.Convention,body.KnowledgeMode,body.OperationId,body.BookId,body.DefinitionRevisionId,p.Pipeline,p.Zone,p.DeliveryPoint,p.Product,p.DeliveryFrom,p.DeliveryTo,p.Quantity,p.QuantityBasis,p.Direction,null,null,null,null,null,body.Discounting,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision,body.GasSetupId);
  async Task<GasCompositionDraft> Resolve(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)
  {
@@ -81,6 +84,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  async Task<GasCompositionValue> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,ImmutableArray<GasCompositionRow> members,ExactDecimal quantity,GasCompositionInstrument? draft,Guid? setup,ImmutableArray<RetainedSideProgram>? retained,bool view,CancellationToken ct)
  {
   if(frame.ContextId is not {} contextId)throw Invalid("Use a certified calculation context.");
+  var unit=QuantityUnit(data,members.Select(m=>m.Assignment.Quote.Quantity));
   var programs=retained??[..draft!.Sides.Select((m,n)=>{var d=ScheduleDefinitionCompiler.Generate(m.Side,ct);var p=BookedSideProgram.Compile(d);return new RetainedSideProgram(n,m.Side.Id,Guid.Empty,new(BookedSideProgram.Digest(p.Write()),d.Manifest,d.Family,d.EconomicIdentity,d.PricingBindingIdentity),p);})];
   var knowledge=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,contextId,ct)).Context;
   var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(knowledge.KnownAt));
@@ -113,8 +117,6 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    sides.Add(new{member.Code,member.Role,source=member.Source,stage=member.Stage,pipeline=member.Role=="physical"?member.Assignment.Location.Pipeline.Code:null,zone=member.Role=="physical"?member.Assignment.Location.Zone.Code:null,deliveryPoint=member.Role=="physical"?member.Assignment.Point.Code:null,direction=member.Direction==1?"receive":member.Role=="physical"?"deliver":"pay",presentValue=amount.ToExactString(),quantity=Ratio(qtotal!),deliveryRows=rows});
   }
   var links=members.Where(m=>m.Role=="physical"&&m.Source is not null).Select(m=>{var receipt=quantities[m.Source!];var delivery=quantities[m.Code];var fuel=receipt.Add(delivery.Scale(Number("-1")));return(object)new{source=m.Source,target=m.Code,m.Formula,m.Fraction,receipt=Ratio(receipt),delivery=Ratio(delivery),fuel=Ratio(fuel)};}).ToArray();
-  var specification=data.References["quantity_specifications"].Single(r=>r.Text("code")==members[0].Assignment.Quote.Quantity.Code);
-  var unit=data.References["units"].Single(r=>r.Text("code")==specification.Text("unit_code")).Text("symbol");
   // The schedule is a display projection: a trade it cannot show keeps its valuation and reports why.
   ScheduleView? schedule=null;GasScheduleRefusal? refusal=null;
   if(views is not null)

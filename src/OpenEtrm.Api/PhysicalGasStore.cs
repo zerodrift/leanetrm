@@ -53,8 +53,7 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   var target=One(data.References["settlement_targets"].Where(x=>x.Text("code")==curve.Text("settlement_target_code")));
   if(target.Text("kind")!="index"||target.OptionalText("index_b_code") is not null||quote.Kind!=QuoteKind.Outright||curve.Text("commodity_code")!=row.Text("product_code"))
    throw Invalid("The physical valuation mapping requires one compatible outright index curve.");
-  var specification=One(data.References["quantity_specifications"].Where(x=>x.Text("code")==quote.Quantity.Code));
-  var unit=One(data.References["units"].Where(x=>x.Text("code")==specification.Text("unit_code"))).Text("symbol");
+  var unit=data.QuantityUnit(quote.Quantity.Code);
   var currency=One(data.References["currencies"].Where(x=>x.Text("code")==quote.Currency.Code)).Text("display_code");
   var location=One(data.References["locations"].Where(x=>x.Text("code")==curve.Text("location_code")));
   return new{quote=quote.Key.Code,group=row.Text("group_label"),groupAdjustment=row.Text("group_adjustment"),locationAdjustment=row.Text("location_adjustment"),index=target.Text("index_a_code"),curve=row.Text("curve_code"),marketLocation=curve.Text("location_code"),marketLocationName=location.Text("name"),quantityUnit=unit,

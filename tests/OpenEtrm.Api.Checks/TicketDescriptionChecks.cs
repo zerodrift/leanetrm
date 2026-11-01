@@ -30,6 +30,8 @@ internal static class TicketDescriptionChecks
             var kind = valid.Sides[0] with { Columns = [new("q", "Q", null, "quantity", false), new("p", "P", null, "price", false), new("a", "A", null, "money", false)] };
             if (!TicketDescriptions.ViewColumns(kind).SequenceEqual([("q", ScheduleViewMeasure.Quantity), ("p", ScheduleViewMeasure.Price), ("a", ScheduleViewMeasure.Amount)])) throw new Exception("Measures differ");
         });
+        Reject("a field naming a unit symbol instead of a resolved unit", WithTrade(Field("book") with { Unit = "MMBtu" }));
+        Reject("a column naming a unit symbol instead of a resolved unit", valid with { TradeColumns = [new("pv", "PV", "USD", "money", false)] });
         Reject("a side column the schedule view cannot show", valid with { Sides = [valid.Sides[0] with { Columns = [new("at", "At", null, "time", false)] }, valid.Sides[1]] });
         Reject("a field id repeated across trade and sides", WithTrade(Field("book"), Field("buy_start")));
         Reject("a state outside the four", WithTrade(Field("book", "hidden")));

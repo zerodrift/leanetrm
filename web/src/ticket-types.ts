@@ -1,5 +1,7 @@
 // Mirrors of the deal ticket routes' JSON (System.Text.Json web defaults, nulls written).
 // Numeric schedule values are exact decimal strings or exact "a/b" ratios, never numbers.
+// A field's or column's unit names the unit its values are in, resolved per trade: 'quantity' is the trade's quantity unit, which each preview and
+// booked read returns as quantityUnit. The description never holds a unit symbol.
 export type TicketField={id:string;label:string;meaning:string;type:string;unit:string|null;state:string;required:boolean;band:string|null;choices:string|null;dependsOn:string[];lookup:string|null;soon:string|null;rule:string|null};
 export type TicketColumn={id:string;label:string;unit:string|null;measure:string;input:boolean};
 // A new ticket opens with `initial` sides of the kind.
@@ -22,6 +24,6 @@ export type TradeAction={allowed:boolean;reason:string};
 export type TradeActions={amend:TradeAction;closeOut:TradeAction};
 // A preview answers its schedule, or why the schedule could not be built beside a valuation that succeeded; a booked trade read adds its draft
 // and the actions it offers; a booking answers its receipt.
-export type TicketPreview={schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null};
+export type TicketPreview={schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null;quantityUnit:string};
 export type TicketTrade=TicketPreview&{draft:TicketDraft;actions:TradeActions};
 export type TicketReceipt={operationId:string;tradeId:string;instrumentId:string;revision:number};

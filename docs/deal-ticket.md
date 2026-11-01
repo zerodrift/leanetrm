@@ -376,14 +376,22 @@ single-point trade keeps its listed terms in the Details pane.
   for example, physical sides on different gas-day clocks.
 - `summaries[].againstMarket` is not defined yet and is always null, so no
   "vs market" line is drawn.
+- Units are reference data. A description field or column names the unit it
+  is in by kind, never by symbol: `quantity` is the trade's quantity unit. The
+  preview and the booked read return `quantityUnit`, the symbol of the one
+  quantity specification every side's gas path is quoted in. Sides quoted in
+  different specifications refuse with `gas_composition_input`; a
+  specification without a unit refuses with `ambiguous_reference`. The ticket
+  shows the unit its latest preview resolved beside quantities and in the
+  schedule headers, and none before a preview.
 - The description reads its side caps from the composition contract
   (`GasCompositionInstrument`): one to four physical sides, and up to four
   cash and fee sides together.
 - Current gas limits: no delivered/remaining split once delivery has started
   (a started delivery is refused), one forward month, and fixed-offset gas-day
   clocks.
-- The preview returns `schedule`, `summaries` and `scheduleRefusal` at the top
-  level; the booked read nests the same fields under `valuation`, beside
+- The preview returns `schedule`, `summaries`, `scheduleRefusal` and
+  `quantityUnit` at the top level; the booked read nests the same fields under `valuation`, beside
   `terms`.
 - The ticket operations are `POST /api/tickets/description`, `choices`,
   `lookup`, `preview`, `book`, `status` and `trade`. Each runs the gas operation
@@ -411,8 +419,8 @@ single-point trade keeps its listed terms in the Details pane.
   another convention refuses.
 - `trade` opens a booked composition trade by trade, binding and revision as
   the draft that booked it (refusing `ticket_input` when that draft does not map
-  back to exactly the stored terms), with `schedule`, `summaries` and `scheduleRefusal`
-  at the top level. Amend and close-out are unavailable with a reason. A
+  back to exactly the stored terms), with `schedule`, `summaries`,
+  `scheduleRefusal` and `quantityUnit` at the top level. Amend and close-out are unavailable with a reason. A
   single-point gas trade refuses with `ticket_input`.
 - A refusal of one draft value names it: the error body adds `side` (null for a
   trade field) and `field`. Missing, blank, unknown and non-editable values, a

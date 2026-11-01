@@ -1,6 +1,6 @@
 import type {ScheduleView,TicketChoice,TicketDescription,TicketField,TicketSummary,TradeActions} from './ticket-types.js';
 import {addSide,removeSide,type FieldValue,type TicketSide,type TicketState} from './ticket-model.js';
-import {instantText,numberText,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
+import {instantText,numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
 import {emptyGridLayout,renderDataGrid,type GridHandle} from './data-grid.js';
 
 // Draws a deal ticket from its backend description, the model's state and the latest preview: the trade strip, one card per side whose
@@ -10,8 +10,8 @@ export type TicketStatus={kind:'current'|'updating'|'stale'|'refused';text:strin
 export type TicketEvents={edit(side:string|null,field:string,value:string):void;accept(side:string|null,field:string):void;selectSide(code:string):void;tab(id:string):void;
  level(l:string):void;toggle(row:string,open:boolean):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void};
 // fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field. Under the chosen
-// level every schedule row is open but those in `closed`, the rows the person closed.
-export type TicketView={state:TicketState;mode:'new'|'booked';actions:TradeActions|null;schedule:ScheduleView|null;previous:ScheduleView|null;summaries:TicketSummary[];
+// level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved.
+export type TicketView={state:TicketState;mode:'new'|'booked';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;previous:ScheduleView|null;summaries:TicketSummary[];
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
 // The common band's rows, in order: TicketBand.Rows in TicketDescriptions.cs.
@@ -47,7 +47,7 @@ function editor(f:TicketField,value:string,choices:TicketChoice[]|undefined,edit
 }
 
 function fieldRow(o:TicketView,f:TicketField,side:string|null,v:FieldValue|undefined){
- const key=side===null?f.id:`${side}.${f.id}`,value=v?.value??'',entry=o.mode==='new';
+ const key=side===null?f.id:`${side}.${f.id}`,value=v?.value??'',entry=o.mode==='new',unit=resolvedUnit(f.unit,o.quantityUnit);
  const row=el('div',`ticket-field ticket-${f.state}`);row.dataset.field=f.id;row.dataset.state=f.state;
  const label=el('span','ticket-label',f.label);label.title=f.meaning;
  const body=el('div','ticket-body');row.append(label,body);
@@ -58,12 +58,12 @@ function fieldRow(o:TicketView,f:TicketField,side:string|null,v:FieldValue|undef
   row.title=f.soon??'';body.append(control,el('span','ticket-soon-tag','Coming soon'));
  }else if(f.state==='editable'&&entry){
   chip();body.append(editor(f,value,o.choices[key],next=>o.on.edit(side,f.id,next)));
-  if(f.unit)body.append(el('span','ticket-unit',f.unit));
+  if(unit)body.append(el('span','ticket-unit',unit));
   if(v?.offered)body.append(button('ticket-offer',`Use ${v.offered.value} (${v.offered.label})`,()=>o.on.accept(side,f.id)));
  }else{
   chip();
   const shown=f.type==='choice'?o.choices[key]?.find(c=>c.value===value)?.label??value:value;
-  if(shown)body.append(el('span','ticket-value',f.unit?`${shown} ${f.unit}`:shown));
+  if(shown)body.append(el('span','ticket-value',unit?`${shown} ${unit}`:shown));
   if(f.state==='derived'&&f.rule)body.append(el('span','ticket-rule',f.rule));
  }
  if(o.fieldErrors[key]){const error=el('p','ticket-error',o.fieldErrors[key]);error.setAttribute('role','alert');row.append(error);}
@@ -182,7 +182,8 @@ export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
  else if(!o.schedule)content.append(el('p','muted','No schedule yet. Preview the trade to draw it.'));
  else if(unpreviewed)content.append(el('p','muted',`${unpreviewed.name} is not in the last preview yet.`));
  else{
-  const g=scheduleGridData(o.schedule,d,previewed,o.tab,o.level,o.previous??undefined);
+  if(o.quantityUnit===null)throw Error('A drawn schedule needs the quantity unit its preview resolved.');
+  const g=scheduleGridData(o.schedule,d,previewed,o.tab,o.level,o.quantityUnit,o.previous??undefined);
   grid=renderDataGrid(content,'deal-ticket-schedule',`${d.product}:${o.tab}`,g.headers,g.rows,g.numeric,()=>false,{keys:g.columns,displayRows:g.displayRows,rowKeys:g.keys,
    layout:emptyGridLayout(),onLayout:()=>{},headerGroups:g.headerGroups,totals:g.totals,decorate:(r,c)=>g.decorations[r][c],
    // The chosen level shows its rows open under their parents, except the rows the person closed; the rows they open or close are reported.

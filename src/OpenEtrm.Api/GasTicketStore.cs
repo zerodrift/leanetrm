@@ -51,7 +51,7 @@ public sealed class GasTicketStore(PreviewDatabase database)
   var position=(await GasPositions.Read(c,database.Manifest,[],[],ct,selected)).Single();
   if(!position.Head.GetProperty("composition").GetBoolean())throw new MarketDataException("ticket_input","This single-point gas trade does not open in the deal ticket yet.");
   var read=await composition.Read(c,data,frame,body.TradeId,ct);
-  return new{draft=GasTicket.Reopen(read.Terms),schedule=read.Valuation.Schedule,summaries=read.Valuation.Summaries,scheduleRefusal=read.Valuation.ScheduleRefusal,
+  return new{draft=GasTicket.Reopen(read.Terms),schedule=read.Valuation.Schedule,summaries=read.Valuation.Summaries,scheduleRefusal=read.Valuation.ScheduleRefusal,quantityUnit=read.Valuation.QuantityUnit,
    actions=new{amend=new{allowed=false,reason=AmendReason},closeOut=new{allowed=false,reason=CloseOutReason}}};
  }
 }

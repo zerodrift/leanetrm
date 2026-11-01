@@ -9,6 +9,14 @@ export type HeaderGroup={title:string;colour:string;columns:number[]};
 export const sourceLabels:Readonly<Record<string,string>>=Object.freeze({contract:'Contract',fwd:'Fwd',fixed:'Fixed',actual:'Actual',meter:'Meter',forecast:'Forecast',estimated:'Estimated',modeled:'Modeled'});
 const neutral='neutral',numericMeasures=['quantity','price','money'];
 
+/** The symbol of a field's or column's declared unit (TicketField.unit), from the units the latest preview resolved; null when it declares
+ *  none, or the preview has not resolved it yet. */
+export function resolvedUnit(unit:string|null,quantityUnit:string|null){
+ if(unit===null)return null;
+ if(unit!=='quantity')throw Error(`The ticket does not resolve the unit '${unit}'.`);
+ return quantityUnit;
+}
+
 export const sideKind=(d:TicketDescription,kind:string)=>d.sides.find(k=>k.kind===kind)??(()=>{throw Error(`The ${d.product} description has no '${kind}' side kind.`);})();
 
 export function scheduleTabs(d:TicketDescription,sides:ScheduleSide[]):ScheduleTab[]{
@@ -29,7 +37,7 @@ export function instantText(value:string){
 }
 const displayText=(column:TicketColumn,value:string)=>value===''?'':column.measure==='time'?instantText(value):numberText(value);
 
-export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:ScheduleSide[],tab:string,level:string,previous?:ScheduleView){
+export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:ScheduleSide[],tab:string,level:string,quantityUnit:string,previous?:ScheduleView){
  const depth=view.levels.indexOf(level);
  if(depth<0)throw Error(`The schedule has no ${level} rows.`);
  const groups:{title:string;colour:string;columns:{key:string;column:TicketColumn}[]}[]=[];
@@ -37,7 +45,7 @@ export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:Sch
  if(tab==='instrument')groups.push(...sides.map(sideGroup),{title:'Trade',colour:neutral,columns:d.tradeColumns.map(column=>({key:`trade.${column.id}`,column}))});
  else{const side=sides.find(s=>s.code===tab);if(!side)throw Error(`Tab '${tab}' does not show a schedule.`);groups.push(sideGroup(side));}
  const columns=groups.flatMap(g=>g.columns);
- const headers=['Period',...columns.map(({column})=>column.unit?`${column.label} (${column.unit})`:column.label)];
+ const headers=['Period',...columns.map(({column})=>{const unit=resolvedUnit(column.unit,quantityUnit);return unit?`${column.label} (${unit})`:column.label;})];
  let at=1;
  const headerGroups:HeaderGroup[]=tab==='instrument'?groups.map(g=>({title:g.title,colour:g.colour,columns:g.columns.map(()=>at++)})):[];
  const numeric=columns.flatMap(({column},i)=>numericMeasures.includes(column.measure)?[i+1]:[]);

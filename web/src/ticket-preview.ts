@@ -3,7 +3,8 @@ import type {ScheduleView,TicketPreview,TicketSummary} from './ticket-types.js';
 
 // What a preview answer makes of the ticket's schedule panel (docs/deal-ticket.md, Live preview): the schedule it draws, or the last good
 // one kept, marked stale, with the refusal's reason on the field it names.
-export type SchedulePanel={schedule:ScheduleView|null;previous:ScheduleView|null;summaries:TicketSummary[];status:TicketStatus;errors:Record<string,string>};
+// quantityUnit is the unit the shown schedule's preview resolved.
+export type SchedulePanel={schedule:ScheduleView|null;quantityUnit:string|null;previous:ScheduleView|null;summaries:TicketSummary[];status:TicketStatus;errors:Record<string,string>};
 
 /** The field a refusal names, keyed as the ticket keys fields ("<side code>.<field id>", or the field id on the trade), or null. */
 export function refusedField(error:unknown):string|null{
@@ -18,8 +19,9 @@ export function previewed(panel:SchedulePanel,outcome:{preview:TicketPreview}|{r
   const reason=outcome.refused instanceof Error?outcome.refused.message:String(outcome.refused),field=refusedField(outcome.refused);
   return kept(`Preview refused: ${reason}`,field?{[field]:reason}:{});
  }
- const {schedule,summaries,scheduleRefusal}=outcome.preview;
- if(schedule)return {schedule,previous:panel.schedule,summaries:summaries??[],status:{kind:'current',text:'Up to date · previewed after your last change'},errors:{}};
+ const {schedule,summaries,scheduleRefusal,quantityUnit}=outcome.preview;
+ if(typeof quantityUnit!=='string'||!quantityUnit)throw Error('The preview did not resolve the trade’s quantity unit.');
+ if(schedule)return {schedule,quantityUnit,previous:panel.schedule,summaries:summaries??[],status:{kind:'current',text:'Up to date · previewed after your last change'},errors:{}};
  if(!scheduleRefusal)throw Error('The preview returned neither a schedule nor why it has none.');
  return kept(`Schedule refused: ${scheduleRefusal.message}`,{});
 }

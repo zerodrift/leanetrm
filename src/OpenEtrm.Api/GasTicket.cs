@@ -29,7 +29,7 @@ public static class GasTicket
      Field("delivery_from","From","First gas day of delivery.","date","start"),
      Field("delivery_to","To","End of delivery, exclusive.","date","end"),
      Field("product","Product","Service level of the gas.","choice","product",choices:"gas_products"),
-     Field("quantity","Quantity","Quantity per the chosen basis, in MMBtu. Taken from the link when the side is linked.","decimal","quantity",unit:"MMBtu",required:false,rule:"Derived from the link source when a link is set."),
+     Field("quantity","Quantity","Quantity per the chosen basis, in the unit the side's gas path is quoted in. Taken from the link when the side is linked.","decimal","quantity",unit:"quantity",required:false,rule:"Derived from the link source when a link is set."),
      Info("price","Price","Market price at the delivery point.","price","market_price"),
      Info("payment","Payment","Sides that pay for this gas.","payment","paid_through"),
      Field("quantity_basis","Quantity basis","Whether the quantity applies to each operating day or to the whole period.","choice",choices:"quantity_basis"),
@@ -40,7 +40,7 @@ public static class GasTicket
      Field("link_source","Link source","Physical side whose quantity this side follows.","choice",choices:"physical_sides",required:false),
      Field("link_formula","Link formula","How fuel loss relates this side to its source.","choice",choices:"link_formulas",required:false,dependsOn:"link_source"),
      Field("link_fraction","Link fraction","Fuel fraction used by the link formula.","decimal",required:false,dependsOn:"link_source")],
-    [new("quantity","Quantity","MMBtu","quantity",false),new("market_price","Market price",null,"price",false),new("amount","Amount",null,"money",false)]),
+    [new("quantity","Quantity","quantity","quantity",false),new("market_price","Market price",null,"price",false),new("amount","Amount",null,"money",false)]),
    // A new trade opens with the payment for its gas; a fee is added when one applies.
    CashKind("cash","Payment","cash",false,1),
    CashKind("fee","Fee","fee",true,0)],
@@ -73,7 +73,7 @@ public static class GasTicket
     Own("price","Price","Price per unit of the source quantity.","decimal","price",required:!fee),
     Own("payment_at","Payment at","When the amount is paid.","datetime","payment"),
     ..fee?[Own("tariff","Tariff","Configured usage tariff that sets the price.","choice",choices:"usage_tariffs",required:false,lookup:"eligible_tariff")]:Array.Empty<TicketField>()],
-   [new("quantity","Quantity","MMBtu","quantity",false),new("price","Price",null,"price",false),new("amount","Amount",null,"money",false)]);
+   [new("quantity","Quantity","quantity","quantity",false),new("price","Price",null,"price",false),new("amount","Amount",null,"money",false)]);
  }
 
  public static GasCompositionRequest Request(TicketDraft draft,Guid snapshotId,string knowledgeMode,Guid operationId,Guid definitionRevisionId)

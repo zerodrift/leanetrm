@@ -85,6 +85,13 @@ internal static class GasTicketChecks
         });
         Check("a new gas ticket opens with one physical and one payment side", () =>
             Equal("physical:1,cash:1,fee:0", string.Join(",", GasTicket.Description.Sides.Select(k => $"{k.Kind}:{k.Initial}")), "initial sides"));
+        Check("quantities are in the trade's resolved quantity unit, never a unit symbol", () =>
+        {
+            var fields = GasTicket.Description.TradeFields.Concat(GasTicket.Description.Sides.SelectMany(k => k.Fields)).Where(f => f.Unit is not null).Select(f => $"{f.Id}:{f.Unit}");
+            Equal("quantity:quantity", string.Join(",", fields), "fields with a unit");
+            var columns = GasTicket.Description.Sides.SelectMany(k => k.Columns).Concat(GasTicket.Description.TradeColumns);
+            if (columns.Any(c => c.Unit != (c.Measure == "quantity" ? "quantity" : null))) throw new Exception("Only quantity columns are in the resolved quantity unit.");
+        });
         Check("a role without a side kind refuses", () =>
         {
             try { GasTicket.SideKind("cash"); } catch (MarketDataException error) when (error.Code == "ticket_description") { return; }

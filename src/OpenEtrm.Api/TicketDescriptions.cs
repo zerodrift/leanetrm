@@ -5,6 +5,8 @@ using OpenEtrm.MarketData.Trading;
 namespace OpenEtrm.Api;
 
 public static class TicketBand { public static readonly ImmutableArray<string> Rows=["direction","start","end","product","quantity","price","payment"]; }
+// Unit names the unit a field's or column's values are in, resolved per trade, never a unit symbol: "quantity" is the trade's quantity unit,
+// which the product's preview and booked read return.
 public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule);
 public sealed record TicketColumn(string Id,string Label,string? Unit,string Measure,bool Input);
 // A new ticket opens with Initial sides of the kind, between Min and Max.
@@ -25,6 +27,7 @@ public static class TicketDescriptions
  static readonly ImmutableArray<string> States=["editable","derived","info","soon"];
  static readonly ImmutableArray<string> LevelOrder=["month","day","hour"];
  static readonly ImmutableArray<string> ModeNames=["new","booked","amend","close_out"];
+ static readonly ImmutableArray<string> ResolvedUnits=["quantity"];
  // The one map from a side column's measure to what the schedule view reports.
  static readonly ImmutableDictionary<string,ScheduleViewMeasure> ViewMeasures=new Dictionary<string,ScheduleViewMeasure>{["quantity"]=ScheduleViewMeasure.Quantity,["price"]=ScheduleViewMeasure.Price,["money"]=ScheduleViewMeasure.Amount}.ToImmutableDictionary();
 
@@ -44,6 +47,8 @@ public static class TicketDescriptions
    if(!ids.Add(field.Id))Fail(d,$"field '{field.Id}' is declared more than once");
    CheckField(d,field);
   }
+  var units=all.Select(f=>(f.Id,f.Unit)).Concat(d.TradeColumns.Concat(d.Sides.SelectMany(s=>s.Columns)).Select(c=>(c.Id,c.Unit)));
+  if(units.FirstOrDefault(u=>u.Unit is not null&&!ResolvedUnits.Contains(u.Unit)) is {Id:not null} literal)Fail(d,$"'{literal.Id}' names unit '{literal.Unit}'; a unit is resolved per trade, and only 'quantity' is");
   foreach(var field in all)
    foreach(var dependency in field.DependsOn)
     if(!ids.Contains(dependency))Fail(d,$"field '{field.Id}' depends on unknown field '{dependency}'");

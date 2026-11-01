@@ -76,7 +76,7 @@ def run_checks(url):
     # The route adds its read context to the preview; the booked valuation carries every valuation field.
     assert mixed_loaded['valuation']=={k:mixed[k] for k in mixed_loaded['valuation']} and 'scheduleRefusal' in mixed_loaded['valuation']
     # A linked receipt and delivery on one gas-day clock: the delivery follows the receipt through a fuel rule, so its
-    # daily quantity is 1000/1.02 = 50000/51 MMBtu and its quantities and amounts are exact a/b ratios.
+    # daily quantity is 1000/1.02 = 50000/51 and its quantities and amounts are exact a/b ratios.
     b_point=next(p for p in cat['locations'] if p['deliveryPoint']=='synthetic_gas_point_b')
     linked={**body,'operationId':str(uuid4()),'cashSides':[{**cash('fee','fee','pay','0.1'),'source':'delivery'}],
             'physicalSides':[{**body['physicalSides'][0],'code':'receipt','direction':'receive','quantity':'1000'},
@@ -170,6 +170,8 @@ def check_ticket_operations(c,context,cat,description,body,view):
     direct=c.call('gas/composition/preview',body)
     assert preview['schedule']==view and preview['presentValue']==direct['presentValue'] and preview['sides']==direct['sides'],preview['presentValue']
     assert [s['role'] for s in preview['sides']]==['physical','consideration','fee'],preview['sides']
+    # The quantity unit is the reference data's for the side's gas path; the description holds no unit symbol.
+    assert preview['quantityUnit']==p['valuation']['quantityUnit'] and {f['unit'] for k in description['sides'] for f in k['fields']}=={None,'quantity'},preview['quantityUnit']
     # A refused value names its side and field, so the ticket shows the reason on that field.
     malformed={**draft,'sides':[{**draft['sides'][0],'values':{**physical,'quantity':'10,000'}},*draft['sides'][1:]]}
     error=c.call('tickets/preview',{'context':context,'draft':malformed},expected=422)
@@ -191,7 +193,7 @@ def check_ticket_operations(c,context,cat,description,body,view):
     fact=fact_for(booked['tradeId'])
     opened=c.call('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision']})
     assert opened['draft']==draft,(opened['draft'],draft)
-    assert opened['schedule']==view and opened['summaries']==preview['summaries'] and opened['scheduleRefusal'] is None
+    assert opened['schedule']==view and opened['summaries']==preview['summaries'] and opened['scheduleRefusal'] is None and opened['quantityUnit']==preview['quantityUnit']
     assert opened['actions']['amend']['allowed'] is False and opened['actions']['closeOut']['allowed'] is False and opened['actions']['amend']['reason'],opened['actions']
     refused('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':str(uuid4()),'revision':fact['revision']},'position_unavailable')
     # A single-point gas booking does not open in the ticket yet.

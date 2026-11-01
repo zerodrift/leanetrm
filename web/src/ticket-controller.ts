@@ -55,7 +55,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  const transport=entry&&requests(o.product,entry.actor);
  const pending=new PendingCommand(definite);
  let alive=true,d:TicketDescription|undefined,state:TicketState|undefined,actions:TradeActions|null=null,drawn:{destroy():void}|undefined;
- let panel:SchedulePanel={schedule:null,previous:null,summaries:[],errors:{},status:{kind:'current',text:entry?'Not previewed yet. The ticket previews the trade after each change.':'Reading the booked trade…'}};
+ let panel:SchedulePanel={schedule:null,quantityUnit:null,previous:null,summaries:[],errors:{},status:{kind:'current',text:entry?'Not previewed yet. The ticket previews the trade after each change.':'Reading the booked trade…'}};
  const choices:Record<string,TicketChoice[]>={},choiceErrors:Record<string,string>={},lookupErrors:Record<string,string>={},asked=new Map<string,number>();
  let selectedSide:string|null=null,tab='instrument',level='',closed=new Set<string>();
  // The draft the ticket opened with, the last one previewed without refusal, and the one whose lookups were read last.
@@ -69,7 +69,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!alive||!d||!state)return;
   const at=focusIn(view);drawn?.destroy();drawn=undefined;
   // A view the ticket cannot draw says why in its place.
-  try{drawn=renderTicket(view,{state,mode,actions,schedule:panel.schedule,previous:panel.previous,summaries:panel.summaries,status:panel.status,
+  try{drawn=renderTicket(view,{state,mode,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,previous:panel.previous,summaries:panel.summaries,status:panel.status,
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on});}
   catch(error){fail(error);return;}
   view.inert=!!entry&&blocked();
