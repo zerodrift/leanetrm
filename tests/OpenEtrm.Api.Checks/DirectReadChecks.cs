@@ -40,7 +40,10 @@ internal static class DirectReadChecks
         var (working,historical)=(views.Single(v=>v.Context is null),views.Single(v=>v.Context is not null));
         Task<T> Read<T>(Func<NpgsqlConnection,CancellationToken,Task<T>> read,string? who=null)=>database.WithIdentity(who??profile,"ReadMarketData",async(c,ct)=>
         {
-            await Execute(c,string.Concat(disabled.Select(setting=>$"SET LOCAL {setting}=off;")),ct);
+            // Disabled scan paths carry artificial planner costs that can trigger
+            // LLVM compilation for tiny fixtures. This check compares read results
+            // across scan plans, not JIT compilation; keep the setting transaction-local.
+            await Execute(c,"SET LOCAL jit=off;"+string.Concat(disabled.Select(setting=>$"SET LOCAL {setting}=off;")),ct);
             return await read(c,ct);
         },CancellationToken.None);
         // A request binds a market context at most once, so a second bind shows whether the read bound one.
