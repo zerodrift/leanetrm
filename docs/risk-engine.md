@@ -389,3 +389,29 @@ reuses complete dated-source history only within that authorized operation and
 exact definition, certified context and valuation instant. Individual observations
 are still selected separately. Retained jobs bypass this reuse and load their
 exact admitted pins; failed reads are not retained.
+
+## Risk navigation
+
+The Risk sidebar page reads the existing authorized portfolio-risk job directory,
+independently of the Blotter catalog and market date. It lists retained queued
+jobs with shared run identities and part numbers, states and completion times.
+An explicit detail read loads a part's retained report, showing backend book
+values with their measures and units; downloading retains the full job receipt.
+Missing exclusion evidence prevents report display. Refresh is manual; the
+bounded directory is not a complete archive, and an unlisted part is not evidence
+of completion. Interactive runs remain on the Blotter and are not durable jobs.
+Setup opens the Blotter risk panel in the main window. When the Blotter is
+popped out, it brings that window forward and directs the user to its Risk
+report. Node management opens the existing Jobs & Infrastructure page. The page does not change calculation or worker
+admission contracts.
+
+Queueing writes to PostgreSQL. A separately configured managed risk worker claims
+compatible work; submitting a request does not provision a worker. The Swarm
+stack in `deploy/risk-workers.swarm.yaml` places replicas on nodes explicitly
+labeled for risk and uses the exact API image. The shared infrastructure view is
+an approved node projection, not a risk-worker replica or queue-health monitor.
+Real Swarm deployment and recovery remain unqualified here.
+
+The page assistant has no general Python interpreter tool. A future code sandbox
+needs a separately agreed execution and isolation contract; the existing managed
+risk worker is not a general code execution service.

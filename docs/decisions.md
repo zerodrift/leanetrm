@@ -1905,3 +1905,13 @@ date. No independent roll rule or hourly support is introduced. Authorized
 request-scoped preparation reuses date sequences, parsed expressions and receipts.
 See [schedules and date mappings](schedules-and-contract-sequences.md#saved-schedules-and-date-mappings-d283)
 for local implementation status; the full authoring cutover remains in progress.
+
+## Dedicated Risk navigation
+
+The Risk directory is a separate Operations sidebar entry, using the existing
+portfolio-risk job list and exact retained job/report reads under their unchanged
+current authority checks. It is independent of the Blotter catalog read. Setup
+continues to use the Blotter risk panel; the existing shared infrastructure view
+remains the node-management entry point. This changes presentation only, not
+pricing, queue admission, deployment or worker placement. The assistant identifies
+the Risk page explicitly but has no read tool for its directory or reports.
