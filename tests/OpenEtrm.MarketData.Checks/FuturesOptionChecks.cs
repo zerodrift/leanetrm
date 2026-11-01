@@ -789,6 +789,7 @@ internal static class FuturesOptionChecks
         // A product that accepts no contrary instructions has no instruction cutoff; a stated cutoff still precedes expiry.
         _ = new FuturesOptionInstrument(market.Series(13) with { ContraryInstructionsAllowed = false, InstructionCutoffAt = null });
         Reject("option_definition", () => new FuturesOptionInstrument(market.Series(13) with { InstructionCutoffAt = OptionMarket.Expiry.AddTicks(10) }));
+        Reject("option_definition", () => new FuturesOptionInstrument(market.Series(13) with { ContraryInstructionsAllowed = true, InstructionCutoffAt = null }));
         Reject("option_lots", () => OptionMarket.Holding(1, 1, market.Option(13), "1.5"));
         Reject("option_lots", () => OptionMarket.Holding(1, 1, market.Option(13), "0"));
         Reject("option_expired", () => market.Calculate(fallback, bumps, snapshot: market.Snapshot() with

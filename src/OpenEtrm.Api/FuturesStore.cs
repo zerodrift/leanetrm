@@ -45,7 +45,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
             !data.HasCurveMember(curve,contractId))
             throw Error("futures_definition","Select an exact dated member of a directly observed futures curve.");
         var contract=data.ContractRows(contractId).SingleOrDefault()??throw Error("futures_definition","Select a retained futures contract.");
-        if(contract.FuturesSeries is not {} key)throw Error("futures_definition","The selected member is not a future.");
+        if(contract.Kind!=ContractKind.Future||contract.FuturesSeries is not {} key)throw Error("futures_definition","The selected member is not a future.");
         var series=One(data.ReferenceRows("futures_series","code",key.Code));
         var product=One(data.ReferenceRows("futures_products","code",series.Text("product_code")));
         var eligibleFrom=data.ExecutionPolicies.Resolve(product,series,c,implementation);

@@ -90,10 +90,35 @@ ROLLBACK;""") is not None
     check('a european exercise style is rejected by the check constraint',
           rejected(copy + f"INSERT INTO ref_data.futures_option_products SELECT (jsonb_populate_record(NULL::ref_data.futures_option_products,'{product}'::jsonb||jsonb_build_object('revision_id','{draft}','code','european_on','exercise_style','european'))).*;",
                    '23514', 'futures_option_products_exercise_style_check'))
-    check('a strike off the strike interval is rejected', rejected(
-        draft_copy(chain[:-2] + ['futures_series', 'futures_milestones', 'futures_option_rules', 'futures_option_products'])
-        + f"INSERT INTO ref_data.futures_option_series SELECT (jsonb_populate_record(NULL::ref_data.futures_option_series,'{option}'::jsonb||jsonb_build_object('revision_id','{draft}','code','off_tick','strike',(('{option}'::jsonb->>'strike')::numeric+0.001)))).*;",
-        'P0001', message='option_strike'))
+    milestone = query(f"SELECT row_to_json(m) FROM ref_data.futures_milestones m WHERE {in_revision} AND milestone='last_trading' AND series_code='nymex_cl_20261201';")
+    # An ON series: its strike moved by one NG futures tick stays on the tick but leaves the 0.05 strike grid.
+    on_option = query(f"SELECT row_to_json(o) FROM ref_data.futures_option_series o WHERE {in_revision} AND product_code='nymex_on' AND last_trading_date='2026-11-24' ORDER BY code LIMIT 1;")
+    tick = query(f"SELECT outright_tick_size FROM ref_data.futures_products WHERE {in_revision} AND code='nymex_ng';")
+    listed = chain + ['trading_close_times', 'futures_series', 'futures_milestones']
+    def option_insert(changes):
+        return f"INSERT INTO ref_data.futures_option_series SELECT (jsonb_populate_record(NULL::ref_data.futures_option_series,'{on_option}'::jsonb||jsonb_build_object('revision_id','{draft}','code','changed'{changes}))).*;"
+    check('a strike on the futures tick but off the strike grid is rejected', rejected(
+        draft_copy(listed) + option_insert(f",'strike',(('{on_option}'::jsonb->>'strike')::numeric+{tick})"), 'P0001', message='option_strike'))
+    check('a series whose underlying is another product\'s future is rejected', rejected(
+        draft_copy(listed) + option_insert(",'underlying_series_code','nymex_cl_20261201'"), 'P0001', message='option_underlying'))
+    check('a series that does not expire before its underlying future is rejected', rejected(
+        draft_copy(listed) + option_insert(f",'last_trading_date','2026-11-25','expiry_at',ref_data.close_instant('{manifest['referenceCatalogId']}','{draft}','option_expiry','nymex_on','2026-11-25')"),
+        'P0001', message='option_expiry'))
+    close = query(f"SELECT row_to_json(t) FROM ref_data.trading_close_times t WHERE {in_revision} AND futures_product_code='nymex_cl';")
+    check('a close configured after its product\'s milestones must reproduce their stored instants', rejected(
+        draft_copy(chain + ['futures_series', 'futures_milestones'])
+        + f"INSERT INTO ref_data.trading_close_times SELECT (jsonb_populate_record(NULL::ref_data.trading_close_times,'{close}'::jsonb||jsonb_build_object('revision_id','{draft}','local_time','15:30'))).*;",
+        'P0001', message='close_time_mismatch'))
+    check('a configured close is a whole second', rejected(
+        draft_copy(chain)
+        + f"INSERT INTO ref_data.trading_close_times SELECT (jsonb_populate_record(NULL::ref_data.trading_close_times,'{close}'::jsonb||jsonb_build_object('revision_id','{draft}','local_time','14:30:00.5'))).*;",
+        '23514', 'trading_close_times_local_time_check'))
+    check('a last-trading milestone on another clock than its configured close is rejected', rejected(
+        draft_copy(chain + ['trading_close_times', 'futures_series'])
+        + f"INSERT INTO ref_data.futures_milestones SELECT (jsonb_populate_record(NULL::ref_data.futures_milestones,'{milestone}'::jsonb||jsonb_build_object('revision_id','{draft}','clock_code','cpt'))).*;",
+        'P0001', message='close_time_mismatch'))
+    check('known last-trading instants use their configured close\'s clock and cite its qualification',
+          query(f"SELECT count(*) FILTER(WHERE m.clock_code=t.clock_code AND EXISTS(SELECT 1 FROM ref_data.product_evidence e WHERE (e.catalog_id,e.revision_id,e.product_code,e.source_code,e.fact_group)=(t.catalog_id,t.revision_id,t.futures_product_code,t.source_code,'dates'))),count(*) FROM ref_data.futures_milestones m JOIN ref_data.futures_series s ON(s.catalog_id,s.revision_id,s.code)=(m.catalog_id,m.revision_id,m.series_code) JOIN ref_data.trading_close_times t ON(t.catalog_id,t.revision_id,t.futures_product_code)=(s.catalog_id,s.revision_id,s.product_code) WHERE (m.catalog_id,m.revision_id)=({R}) AND m.milestone='last_trading' AND m.event_at IS NOT NULL;") == '67|67')
     check('an option series without a configured expiry time is a structured error, never a default', rejected(
         draft_copy(chain + ['futures_series', 'futures_milestones'])
         + f"INSERT INTO ref_data.futures_option_series SELECT (jsonb_populate_record(NULL::ref_data.futures_option_series,'{option}'::jsonb||jsonb_build_object('revision_id','{draft}'))).*;",
@@ -102,7 +127,6 @@ ROLLBACK;""") is not None
         draft_copy(chain + ['trading_close_times', 'futures_series', 'futures_milestones'])
         + f"INSERT INTO ref_data.futures_option_series SELECT (jsonb_populate_record(NULL::ref_data.futures_option_series,'{option}'::jsonb||jsonb_build_object('revision_id','{draft}','expiry_at',(('{option}'::jsonb->>'expiry_at')::timestamptz+interval '1 hour')))).*;",
         'P0001', message='close_time_mismatch'))
-    milestone = query(f"SELECT row_to_json(m) FROM ref_data.futures_milestones m WHERE {in_revision} AND milestone='last_trading' AND series_code='nymex_cl_20261201';")
     check('a last-trading instant that differs from its product\'s configured close is rejected', rejected(
         draft_copy(chain + ['trading_close_times', 'futures_series'])
         + f"INSERT INTO ref_data.futures_milestones SELECT (jsonb_populate_record(NULL::ref_data.futures_milestones,'{milestone}'::jsonb||jsonb_build_object('revision_id','{draft}','event_at',(('{milestone}'::jsonb->>'event_at')::timestamptz-interval '1 hour')))).*;",

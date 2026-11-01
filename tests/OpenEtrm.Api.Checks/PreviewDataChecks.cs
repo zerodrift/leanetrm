@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Power;
 
 internal static class PreviewDataChecks
 {
@@ -450,8 +451,35 @@ internal static class PreviewDataChecks
             Reject("close_time_mismatch",()=>new PreviewData(fixture.Manifest,definitions,Terms("14:30:00","2040-01-19T20:30:00Z"),fixture.Observations));
             Reject("unsupported_definition",()=>Data(definitions:Listed(new{id=option,kind="future_option",delivery_from="2040-02-01",delivery_to="2040-03-01",
                 expiry_at="2040-01-19T00:00:00Z",futures_series_code="synthetic_0",futures_option_series_code=(string?)null})));
-            // An option settlement curve is not read as a forward's custom-curve source.
+            // An option settlement curve is not read as a forward's custom-curve source, a future, a futures sequence or
+            // a settlement index.
             Reject("custom_curve_source",()=>CustomCurves.SourceEligibleFrom(loaded,"options",listed));
+            Reject("futures_definition",()=>FuturesStore.Binding(loaded,"options",option,option,"contract_lot_execution_pnl_v2"));
+            var at=DateTimeOffset.Parse("2040-01-10T00:00:00Z",CultureInfo.InvariantCulture);
+            Reject("sequence_source",()=>SchedulePreview.Compile(loaded,new PreviewSequenceCoverage("options",at,at.AddDays(1),at)));
+            if(PowerPreview.IndexCode(loaded,loaded.Definitions["curves"].Single(c=>c.Text("code")=="options"),listed) is not null)
+                throw new Exception("A futures-option settlement has no settlement index.");
+        });
+        Check("configured closes derive instants on an IANA clock across a DST change and refuse nonexistent, ambiguous or malformed times",()=>
+        {
+            var zone=TimeZoneDatabase.Installed();
+            ConfiguredCloses Closes(string time,params JsonElement[] clocks)=>new(new Dictionary<string,ImmutableArray<JsonElement>>
+            {
+                ["trading_close_times"]=[Row(new{milestone="option_expiry",futures_product_code=(string?)null,option_product_code="options",local_time=time,clock_code="new_york"})],
+                ["clock_rules"]=[..clocks]
+            });
+            var newYork=Row(new{code="new_york",kind="iana",fixed_offset_seconds=(int?)null,iana_zone="America/New_York",tzdb_version=zone.Version()});
+            var closes=Closes("14:30:00",newYork);
+            DateTimeOffset Utc(string value)=>DateTimeOffset.Parse(value,CultureInfo.InvariantCulture);
+            if(closes.Instant("option_expiry","options",new(2026,3,6))!=Utc("2026-03-06T19:30:00Z")||
+                closes.Instant("option_expiry","options",new(2026,3,9))!=Utc("2026-03-09T18:30:00Z")||
+                closes.Instant("option_expiry","options",new(2026,11,2))!=Utc("2026-11-02T19:30:00Z"))
+                throw new Exception("A configured New York close must follow standard and daylight time.");
+            Reject("close_time_local",()=>Closes("02:30:00",newYork).Instant("option_expiry","options",new(2026,3,8)));
+            Reject("close_time_local",()=>Closes("01:30:00",newYork).Instant("option_expiry","options",new(2026,11,1)));
+            Reject("close_time_local",()=>Closes("14:30:00.5",newYork).Instant("option_expiry","options",new(2026,3,9)));
+            Reject("ambiguous_reference",()=>Closes("14:30:00",newYork,newYork).Instant("option_expiry","options",new(2026,3,9)));
+            Reject("reference_read",()=>new ConfiguredCloses(new Dictionary<string,ImmutableArray<JsonElement>>{["clock_rules"]=[newYork]}));
         });
         Check("a configured close of trading must reproduce a stored futures last-trading instant",()=>
         {

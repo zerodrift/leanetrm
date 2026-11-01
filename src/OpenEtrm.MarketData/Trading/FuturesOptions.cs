@@ -26,11 +26,13 @@ public sealed record FuturesOptionInstrument : Instrument
             series.ClearingIncrement.CompareTo(default) <= 0 || series.Terms.Strike.CompareTo(default) <= 0 ||
             !TradingInstant.IsSupported(series.Terms.ExpiryAt) ||
             series.InstructionCutoffAt is { } cutoff && (!TradingInstant.IsSupported(cutoff) || cutoff > series.Terms.ExpiryAt) ||
+            series.ContraryInstructionsAllowed && series.InstructionCutoffAt is null ||
             string.IsNullOrWhiteSpace(series.AutomaticExerciseRule) ||
             new[] { series.Product, series.UnderlyingSeries, series.Currency, series.LotQuantity }.Any(k =>
                 k.Revision != series.Key.Revision || string.IsNullOrWhiteSpace(k.Code)))
             throw Error("option_definition", "An exact option series needs positive strike, multiplier and increment, " +
-                "a supported expiry, any stated cutoff before it, an exercise rule and references in its own revision.");
+                "a supported expiry, any stated cutoff before it (required where contrary instructions are accepted), an exercise rule " +
+                "and references in its own revision.");
         if (series.PremiumStyle != PremiumPaidUpFront)
             throw Error("unsupported", $"Premium style '{series.PremiumStyle}' is not supported; only {PremiumPaidUpFront} is bookable.");
         Series = series;

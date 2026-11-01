@@ -29,7 +29,7 @@ public static class SchedulePreview
         var entries = rows.Select((row, i) => {
             if (row.GetProperty("ordinal").GetInt32() != i) throw new MarketDataException("sequence_definition", "The retained curve order has a gap.");
             var contract = data.Contracts.Single(c => c.Key.Id == row.Id("contract_id"));
-            if (contract.FuturesSeries is not { } series) throw new MarketDataException("sequence_source", "This source needs explicit supported futures terms.");
+            if (contract.Kind != ContractKind.Future || contract.FuturesSeries is not { } series) throw new MarketDataException("sequence_source", "This source needs explicit supported futures terms.");
             System.Text.Json.JsonElement Milestone(string role)
             {
                 var matches = data.References["futures_milestones"].Where(m => m.Text("series_code") == series.Code && m.Text("milestone") == role).ToArray();

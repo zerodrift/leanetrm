@@ -47,12 +47,12 @@ public static class PowerPreview
     };
     private static TimeOfUse Mask(Product p,string block,int minutes) => IntervalBlocks.Mask(Membership(block),minutes,p.Peak);
     // The one explicitly bound settlement index for a contract: the curve's own index,
-    // or a futures series' product terms. Anything else has no index (null).
+    // or a futures series' product terms. Anything else, a futures option included, has no index (null).
     internal static string? IndexCode(PreviewData data,JsonElement curve,MarketContract contract)
     {
         var target=data.References["settlement_targets"].Single(t=>t.Text("code")==curve.Text("settlement_target_code"));
         if(target.Text("kind")=="index" && target.OptionalText("index_b_code") is null)return target.OptionalText("index_a_code");
-        if(target.Text("kind")!="future_series" || contract.FuturesSeries is not {} seriesKey)return null;
+        if(target.Text("kind")!="future_series" || contract.Kind!=ContractKind.Future || contract.FuturesSeries is not {} seriesKey)return null;
         var series=data.References["futures_series"].Single(s=>s.Text("code")==seriesKey.Code);
         var link=data.References.GetValueOrDefault("futures_product_terms",[]).SingleOrDefault(i=>i.Text("product_code")==series.Text("product_code"));
         return link.ValueKind==JsonValueKind.Undefined?null:link.OptionalText("index_code");

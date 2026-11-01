@@ -65,6 +65,10 @@ Where the instants are derived and checked:
   that a stored instant equals the configured close.
 - **Managed backend.** The backend derives the instants again when it materializes
   futures and option series. A stored instant that differs raises `close_time_mismatch`.
+- **Insertion order.** A close configured after its product's milestones must reproduce
+  every stored instant.
+- **Milestone clock.** A last-trading milestone carries the configured close's clock, and
+  its product cites the qualification source as date evidence.
 
 | Products | Close | Clock | Qualification |
 | --- | --- | --- | --- |
@@ -110,7 +114,8 @@ facts only and no document text or prices.
   November 2026 options have expired and are no longer published, so they are omitted.
 
 Every series is an executable `future_option` market contract on its product's direct
-`daily_settlement` curve. NG and CL futures are priced at `daily_settlement` as well,
+`daily_settlement` curve. The market curve directory lists price curves; option settlement
+curves are reached through their options. NG and CL futures are priced at `daily_settlement` as well,
 because an option and its underlying are calibrated under the same observation role.
 
 ### Synthetic option settlements

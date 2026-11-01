@@ -67,7 +67,7 @@ CREATE TABLE ref_data.trading_close_times (
  version integer NOT NULL CHECK(version>0),
  milestone text NOT NULL CHECK(milestone IN('last_trading','option_expiry')),
  futures_product_code ref_data.code,option_product_code ref_data.code,
- local_time time NOT NULL,clock_code ref_data.code NOT NULL,source_code ref_data.code NOT NULL,
+ local_time time NOT NULL CONSTRAINT trading_close_times_local_time_check CHECK(extract(microseconds FROM local_time)::bigint%1000000=0),clock_code ref_data.code NOT NULL,source_code ref_data.code NOT NULL,
  PRIMARY KEY(catalog_id,revision_id,code),
  UNIQUE(catalog_id,revision_id,milestone,futures_product_code),UNIQUE(catalog_id,revision_id,milestone,option_product_code),
  CHECK((milestone='last_trading')=(futures_product_code IS NOT NULL) AND (milestone='option_expiry')=(option_product_code IS NOT NULL)),
@@ -78,36 +78,61 @@ CREATE TABLE ref_data.trading_close_times (
  FOREIGN KEY(catalog_id,revision_id,source_code) REFERENCES ref_data.sources(catalog_id,revision_id,code)
 );
 
--- The instant of a product's milestone on a local date: the configured time on the configured clock. The local time
--- must exist and be unambiguous on that date.
-CREATE FUNCTION ref_data.close_instant(catalog uuid,revision uuid,selected_milestone text,product text,day date) RETURNS timestamptz
+-- A local date and time on a reference clock as an instant. The local time must exist and be unambiguous on that date.
+CREATE FUNCTION ref_data.local_instant(catalog uuid,revision uuid,clock text,local_time time,day date) RETURNS timestamptz
 LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
-DECLARE t ref_data.trading_close_times;c ref_data.clock_rules;local_at timestamp;at timestamptz;
+DECLARE c ref_data.clock_rules;local_at timestamp=day+local_time;at timestamptz;
 BEGIN
- SELECT * INTO t FROM ref_data.trading_close_times WHERE(catalog_id,revision_id,milestone)=(catalog,revision,selected_milestone)
-  AND product=CASE selected_milestone WHEN 'last_trading' THEN futures_product_code ELSE option_product_code END;
- IF t.code IS NULL THEN RAISE EXCEPTION 'close_time_setting_missing';END IF;
- SELECT * INTO c FROM ref_data.clock_rules WHERE(catalog_id,revision_id,code)=(catalog,revision,t.clock_code);
- local_at=day+t.local_time;
+ SELECT * INTO c FROM ref_data.clock_rules WHERE(catalog_id,revision_id,code)=(catalog,revision,clock);
  IF c.kind='fixed_offset' THEN RETURN (local_at AT TIME ZONE 'UTC')-make_interval(secs=>c.fixed_offset_seconds);END IF;
  at=local_at AT TIME ZONE c.iana_zone;
  IF (at AT TIME ZONE c.iana_zone)<>local_at OR ((at-interval '1 hour') AT TIME ZONE c.iana_zone)=local_at
   OR ((at+interval '1 hour') AT TIME ZONE c.iana_zone)=local_at THEN RAISE EXCEPTION 'close_time_local';END IF;
  RETURN at;
 END$$;
-REVOKE ALL ON FUNCTION ref_data.close_instant(uuid,uuid,text,text,date) FROM PUBLIC;
 
--- A known last-trading instant of a product with a configured close equals that close on its business date.
+-- The instant of a product's milestone on a local date: its configured time on its configured clock.
+CREATE FUNCTION ref_data.close_instant(catalog uuid,revision uuid,selected_milestone text,product text,day date) RETURNS timestamptz
+LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
+DECLARE t ref_data.trading_close_times;
+BEGIN
+ SELECT * INTO t FROM ref_data.trading_close_times WHERE(catalog_id,revision_id,milestone)=(catalog,revision,selected_milestone)
+  AND product=CASE selected_milestone WHEN 'last_trading' THEN futures_product_code ELSE option_product_code END;
+ IF t.code IS NULL THEN RAISE EXCEPTION 'close_time_setting_missing';END IF;
+ RETURN ref_data.local_instant(catalog,revision,t.clock_code,t.local_time,day);
+END$$;
+REVOKE ALL ON FUNCTION ref_data.local_instant(uuid,uuid,text,time,date),ref_data.close_instant(uuid,uuid,text,text,date) FROM PUBLIC;
+-- Every role that writes reference rows runs the triggers that derive and check these instants.
+GRANT EXECUTE ON FUNCTION ref_data.local_instant(uuid,uuid,text,time,date),ref_data.close_instant(uuid,uuid,text,text,date)
+ TO openetrm_runtime,openetrm_security_owner;
+
+-- A known last-trading instant of a product with a configured close is that close on its business date, on its clock.
 CREATE FUNCTION ref_data.require_configured_close() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
-DECLARE product text;
+DECLARE t ref_data.trading_close_times;
 BEGIN
  IF NEW.milestone<>'last_trading' OR NEW.event_at IS NULL THEN RETURN NEW;END IF;
- SELECT s.product_code INTO product FROM ref_data.futures_series s WHERE(s.catalog_id,s.revision_id,s.code)=(NEW.catalog_id,NEW.revision_id,NEW.series_code);
- IF EXISTS(SELECT 1 FROM ref_data.trading_close_times t WHERE(t.catalog_id,t.revision_id,t.milestone,t.futures_product_code)=(NEW.catalog_id,NEW.revision_id,'last_trading',product))
-  AND NEW.event_at<>ref_data.close_instant(NEW.catalog_id,NEW.revision_id,'last_trading',product,NEW.business_date) THEN RAISE EXCEPTION 'close_time_mismatch';END IF;
+ SELECT c.* INTO t FROM ref_data.futures_series s JOIN ref_data.trading_close_times c
+  ON(c.catalog_id,c.revision_id,c.milestone,c.futures_product_code)=(s.catalog_id,s.revision_id,'last_trading',s.product_code)
+  WHERE(s.catalog_id,s.revision_id,s.code)=(NEW.catalog_id,NEW.revision_id,NEW.series_code);
+ IF t.code IS NULL THEN RETURN NEW;END IF;
+ IF NEW.clock_code IS DISTINCT FROM t.clock_code OR
+  NEW.event_at<>ref_data.local_instant(NEW.catalog_id,NEW.revision_id,t.clock_code,t.local_time,NEW.business_date) THEN RAISE EXCEPTION 'close_time_mismatch';END IF;
  RETURN NEW;
 END$$;
 CREATE TRIGGER require_configured_close BEFORE INSERT ON ref_data.futures_milestones FOR EACH ROW EXECUTE FUNCTION ref_data.require_configured_close();
+
+-- A last-trading close configured after its product's milestones must reproduce every known instant, whatever the
+-- insertion order. An option series cannot precede its option-expiry close, which its own insert requires.
+CREATE FUNCTION ref_data.require_close_reproduces_milestones() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ IF NEW.milestone='last_trading' AND EXISTS(SELECT 1 FROM ref_data.futures_series s JOIN ref_data.futures_milestones m
+   ON(m.catalog_id,m.revision_id,m.series_code,m.milestone)=(s.catalog_id,s.revision_id,s.code,'last_trading')
+   WHERE(s.catalog_id,s.revision_id,s.product_code)=(NEW.catalog_id,NEW.revision_id,NEW.futures_product_code) AND m.event_at IS NOT NULL
+   AND (m.clock_code IS DISTINCT FROM NEW.clock_code OR m.event_at<>ref_data.local_instant(NEW.catalog_id,NEW.revision_id,NEW.clock_code,NEW.local_time,m.business_date)))
+ THEN RAISE EXCEPTION 'close_time_mismatch';END IF;
+ RETURN NEW;
+END$$;
+CREATE TRIGGER require_reproduced_milestones BEFORE INSERT ON ref_data.trading_close_times FOR EACH ROW EXECUTE FUNCTION ref_data.require_close_reproduces_milestones();
 
 -- One explicit option series; its exact key is the instrument identity. Its expiry instant is the product's configured
 -- option-expiry time on the sourced expiry date. No exercise-instruction instant is derived from a rule without a clock.
@@ -168,6 +193,17 @@ DO $$DECLARE t text;p record;g record;BEGIN
   END LOOP;
  END LOOP;
 END$$;
+
+-- Display-only reference revisions keep option definitions and close configuration, after the futures rows they name.
+CREATE OR REPLACE FUNCTION security.reference_display_tables() RETURNS text[]
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT ARRAY['dimensions','currencies','units','commodities','commodity_units','measurement_bases','quantity_specifications',
+ 'unit_conversions','clock_rules','calendars','calendar_days','location_types','locations','commodity_locations','pipeline_zones','pipeline_delivery_points','gas_delivery_conventions','gas_meter_assignments','crude_grades','crude_delivery_points','exchanges',
+ 'clearing_houses','exchange_clearing_houses','interest_rate_definitions','price_index_definitions','sources','delivery_profiles',
+ 'value_specifications','quote_specifications','settlement_targets','futures_products','futures_series',
+ 'futures_milestones','futures_product_terms','futures_lot_resolutions','futures_basis_settlements','futures_execution_policies','product_evidence',
+ 'futures_option_rules','futures_option_products','trading_close_times','futures_option_series'];
+$$;
 
 -- A futures-option contract names exactly its option series; a future names exactly its futures series.
 ALTER TABLE market_data.contracts DROP CONSTRAINT contracts_kind_check,DROP CONSTRAINT contracts_check1,

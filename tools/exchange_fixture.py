@@ -240,7 +240,8 @@ def fixture(root):
         refs.append(f"INSERT INTO ref_data.product_evidence VALUES({R},'{code}','{code}','units');")
         if frequency=='monthly':
             refs.append(f"INSERT INTO ref_data.product_evidence VALUES({R},'{code}','{code}_expiry','listing'),({R},'{code}','{code}_expiry','dates');")
-            if not nymex:refs.append(f"INSERT INTO ref_data.product_evidence VALUES({R},'{code}','ice_hours','dates'),({R},'{code}','ltd_qualification','dates');")
+            if not nymex:refs.append(f"INSERT INTO ref_data.product_evidence VALUES({R},'{code}','ice_hours','dates');")
+            refs.append(f"INSERT INTO ref_data.product_evidence VALUES({R},'{code}','{LAST_TRADING_CLOSE[code][2]}','dates');")
         if frequency!='monthly':continue
         refs.append(close_time(R,'last_trading',code,LAST_TRADING_CLOSE[code]))
         role=PRICE_ROLES.get(code,'trader_mark');profiles[code]=(location,f'test_{commodity}')
@@ -259,7 +260,7 @@ def fixture(root):
             # ICE year-end sessions keep unknown cutoffs until specific notices qualify them.
             qualified=nymex or not (ltd[5:7]=='12' and int(ltd[8:10])>=24)
             event=f"ref_data.close_instant({R},'last_trading','{code}','{ltd}')" if qualified else 'NULL'
-            last_clock='cpt' if nymex else 'ept'
+            last_clock=LAST_TRADING_CLOSE[code][1]
             last_source=code+'_expiry' if nymex else 'ltd_qualification'
             refs.append(f"INSERT INTO ref_data.futures_milestones VALUES({R},'{sc}','last_trading','known','{ltd}',{event},'{last_clock}','{last_source}');")
             if code in POWER_LOTS:
