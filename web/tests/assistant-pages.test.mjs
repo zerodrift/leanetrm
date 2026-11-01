@@ -353,3 +353,7 @@ test('an ask sends the Blotter report whole, its layout with it, and a kept ask 
   assert.deepEqual(keptAsk(JSON.stringify(stored)).body.pageReport,report);
   assert.equal(keptAsk(JSON.stringify({...stored,body:{...body,pageReport:{...report,extra:1}}})),undefined);
 });
+
+test('the dedicated risk directory is explicitly outside assistant reads',()=>{
+ assert.deepEqual(pageReport({page:'risk'}),{page:'risk_jobs',selection:{}});
+});

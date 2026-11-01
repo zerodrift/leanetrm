@@ -21,6 +21,7 @@
       <button id="nav-interval-series" class="nav-item" aria-label="Interval data" title="Interval data"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20v-6M9 20V8M14 20v-9M19 20V4"/></svg></span><span class="nav-text">Interval data</span></button>
     </nav></details>
     <details id="nav-group-operations" class="nav-group" open><summary>Operations</summary><nav aria-label="Operations">
+      <button id="nav-risk" class="nav-item" aria-label="Risk" title="Risk" hidden><span class="nav-icon" aria-hidden="true">±</span><span class="nav-text">Risk</span></button>
       <button id="nav-jobs" class="nav-item" aria-label="Jobs & Infrastructure" title="Jobs & Infrastructure"><span class="nav-icon" aria-hidden="true">↻</span><span class="nav-text">Jobs &amp; Infrastructure</span></button>
     </nav></details>
     <details id="nav-group-settings" class="nav-group" open><summary>Settings</summary><nav aria-label="Settings">
@@ -289,6 +290,13 @@
       <p id="dashboard-conflict" role="alert" hidden>This dashboard changed in another session. <button id="dashboard-reload" type="button" class="secondary">Reload</button></p>
       <div id="dashboard-add"></div></div>
     <div id="dashboard-widgets"></div>
+  </section>
+  <section id="risk-page" hidden>
+    <div class="card"><div class="card-heading"><div><h2>Risk jobs &amp; recent runs</h2><p>Retained queued runs visible under your current authority. Parts share a run identity; each part has its own report. Interactive reports remain on the Blotter.</p></div><button id="risk-jobs-refresh" class="secondary" type="button">Refresh risk jobs</button></div>
+      <div class="actions"><button id="risk-jobs-new" type="button">Set up a risk run</button><button id="risk-jobs-nodes" class="secondary" type="button">Manage worker nodes</button></div>
+      <p>Queued requests wait in the database for a separately configured risk worker with matching engine binaries. Queueing does not start a worker. Swarm placement and worker replicas are deployment settings.</p>
+      <div id="risk-jobs-list" class="table-wrap" aria-live="polite"></div></div>
+    <div id="risk-jobs-report" class="card" aria-live="polite"></div>
   </section>
   <section id="jobs-page" hidden>
     <div class="card"><div class="card-heading"><div><h2>Jobs &amp; Infrastructure</h2><p id="jobs-scope"></p></div><button id="jobs-refresh" class="secondary" type="button">Refresh jobs</button></div><div id="jobs-table" class="table-wrap"></div><p id="jobs-page-count"></p><div class="actions"><button id="jobs-previous" type="button" class="secondary" disabled>Previous page</button><button id="jobs-next" type="button" class="secondary" disabled>Next page</button></div></div>

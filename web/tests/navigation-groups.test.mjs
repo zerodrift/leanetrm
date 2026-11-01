@@ -16,7 +16,7 @@ test('the groups and their pages keep the sidebar order',()=>{
   ['overview','Overview',['dashboard']],
   ['trading','Trading',['futures','gas','crude']],
   ['markets','Markets',['market','custom-curves','delivery','interval-series','interval-curves']],
-  ['operations','Operations',['jobs']],
+  ['operations','Operations',['risk','jobs']],
   ['settings','Settings',['configuration','schedules','power','gas-setup','reference','parties']],
   ['admin','Admin',['admin','ai']]]);
 });
@@ -81,4 +81,9 @@ test('the pages a switch enters have their entries in that switch, named as the 
  const [,switchMarkup]=markup.match(/<nav id="curve-price-navigation"[^>]*>(.*?)<\/nav>/s);
  assert.deepEqual([...switchMarkup.matchAll(/<button id="(?:nav-|curve-price-)([a-z-]+)"/g)].map(m=>m[1]),['contracts',...switched]);
  for(const page of switched)assert.ok(allPages.includes(page));
+});
+
+test('risk history needs scenario, trade and market authority',()=>{
+ assert.equal(pageAvailable('risk',['ReadMarketData','ReadTrades','RunScenario']),true);
+ for(const permissions of [[],['RunScenario'],['ReadMarketData','ReadTrades']])assert.equal(pageAvailable('risk',permissions),false);
 });

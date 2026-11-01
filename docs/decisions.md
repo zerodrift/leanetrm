@@ -1884,3 +1884,13 @@ Core relationships retain exact foreign keys, and capacity includes legacy
 onward reservations across purchases. No lot-selection policy is implicit.
 Allocation release, physical reversals, costing and post-delivery valuation are
 not part of this increment. See [physical crude operations](physical-crude-operations.md).
+
+## Dedicated Risk navigation
+
+The Risk directory is a separate Operations sidebar entry, using the existing
+portfolio-risk job list and exact retained job/report reads under their unchanged
+current authority checks. It is independent of the Blotter catalog read. Setup
+continues to use the Blotter risk panel; the existing shared infrastructure view
+remains the node-management entry point. This changes presentation only, not
+pricing, queue admission, deployment or worker placement. The assistant identifies
+the Risk page explicitly but has no read tool for its directory or reports.
