@@ -477,7 +477,12 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
   each side kind's initial count from the description: one physical and one
   payment side for gas. After an edit it reads
   the choices of the fields that depend on it and of the lists that refused;
-  adding or removing a side, or editing a trade field, reads every list. A
+  adding or removing a side, or editing a trade field, reads every list.
+  Choice and lookup reads share a four-request concurrency limit per ticket.
+  New reads replace queued reads for the same field; removed sides and closed
+  tickets start no queued work. Responses must still belong to the current
+  field request or lookup generation, including when edits return to earlier
+  terms. Skipped reads are not backend refusals. A
   side is coded `<kind>-<n>` with the lowest number not yet used in the
   ticket, so a removed side's code is never given to a later side; removing a
   side clears every choice that named it, and that choice's dependents, each

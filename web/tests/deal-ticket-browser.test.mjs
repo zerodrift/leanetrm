@@ -171,3 +171,73 @@ test('a draft whose lookup answers were dropped reads them again when the person
   assert.equal(await evaluate("document.querySelector('[data-field=price] .ticket-value').textContent"),'3.5');
  });
 });
+
+// Slow reference reads must not accumulate a request for every intermediate ticket shape.
+test('ticket reference reads are bounded and queued choices follow only the latest sides',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {setupTicket}=await import('/ticket-controller.js');
+   const field=id=>({id,label:id,meaning:'',type:'choice',unit:null,state:'editable',required:false,band:null,choices:id,dependsOn:[],lookup:null,soon:null,rule:null});
+   const side=(kind,initial)=>({kind,pill:kind,colour:'gas',min:0,initial,max:3,soon:null,fields:[field('source')],columns:[]});
+   const d={product:'synthetic_queue',version:1,rowShape:'flow',tradeFields:[...['book','party','third','fourth','fifth','sixth'].map(field),...Array.from({length:6},(_,i)=>({...field('derived'+i),state:'info',choices:null,lookup:'derived'}))],sideLimits:[],levels:['month'],modes:['new'],tabs:[],tradeColumns:[],sides:[side('physical',1),side('cash',1),side('fee',0)]};
+   window.calls=[];window.active=0;window.peak=0;window.held=[];
+   window.tick=()=>new Promise(r=>setTimeout(r,30));
+   const api=async(path,body)=>{
+    if(path==='tickets/description')return d;
+    if(path==='tickets/preview')throw Error('Incomplete draft');
+    if(path==='tickets/choices'||path==='tickets/lookup'){
+     active++;peak=Math.max(peak,active);calls.push({...body,path});
+     return new Promise((resolve,reject)=>held.push({body,path,finish:(fail=false)=>{active--;fail||path==='tickets/lookup'?reject(Error('Reference unavailable')):resolve({choices:[{value:body.draft.sides.map(s=>s.code).join(','),label:'Current sides'}]});}}));
+    }
+    throw Error(path);
+   };
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,actor:()=>'synthetic',booked:()=>{}});
+   await tick();
+   document.querySelector('[data-side="cash-1"] .ticket-remove').click();
+   for(const kind of ['physical','fee'])[...document.querySelectorAll('.ticket-add-kind')].find(b=>b.textContent===kind).click();
+   await new Promise(r=>setTimeout(r,350));
+  })()`);
+  assert.ok(await evaluate('peak<=4'),'at most four reference reads may be outstanding across edits');
+  await evaluate('(async()=>{window.initial=calls.length;held.splice(0).forEach(h=>h.finish());await tick();})()');
+  assert.equal(await evaluate("calls.slice(initial).every(c=>c.draft.sides.map(s=>s.code).join(',')==='physical-1,physical-2,fee-1')"),true,'obsolete queued drafts are never sent');
+  await evaluate("(async()=>{for(let i=0;i<15&&held.length;i++){held.splice(0).forEach(h=>h.finish(h.body.field==='party'));await tick();}})()");
+  assert.equal(await evaluate("document.querySelector('[data-field=book] select').options[1].value"),'physical-1,physical-2,fee-1');
+  assert.equal(await evaluate("document.querySelector('[data-field=party] .ticket-error').textContent"),'Reference unavailable');
+  assert.equal(await evaluate("calls.some(c=>c.path==='tickets/lookup')&&peak<=4"),true,'lookups share the bound and refusals release it');
+  assert.equal(await evaluate("calls.slice(initial).some(c=>c.side==='cash-1')"),false,'removed sides are never read from the queue');
+  // A new edit queues fresh lists. Destroying the ticket stops the queue even when outstanding reads complete.
+  await evaluate(`(async()=>{document.querySelector('.ticket-add-kind').click();await tick();window.beforeDestroy=calls.length;ticket.destroy();held.splice(0).forEach(h=>h.finish());await tick();})()`);
+  assert.equal(await evaluate('calls.length'),await evaluate('beforeDestroy'));
+ });
+});
+
+test('returning to an earlier draft cannot apply a partially superseded lookup batch',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {setupTicket}=await import('/ticket-controller.js');
+   const field=(id,lookup=null)=>({id,label:id,meaning:'',type:'text',unit:null,state:lookup?'info':'editable',required:false,band:null,choices:null,dependsOn:[],lookup,soon:null,rule:null});
+   const d={product:'synthetic_aba',version:1,rowShape:'flow',tradeFields:[field('input'),...Array.from({length:6},(_,i)=>field('looked'+i,'derived'))],sideLimits:[],levels:['month'],modes:['new'],tabs:[],tradeColumns:[],sides:[]};
+   window.held=[];window.requests=[];window.delay=ms=>new Promise(r=>setTimeout(r,ms));
+   const api=async(path,body)=>{
+    if(path==='tickets/description')return d;
+    if(path==='tickets/preview')throw Error('Incomplete draft');
+    if(path==='tickets/lookup'){
+     requests.push(body);
+     if(body.draft.trade.input==='base')return {value:'stable',source:{kind:'reference',label:'Retained lookup'}};
+     return new Promise(resolve=>held.push({body,finish:()=>resolve({value:'obsolete',source:{kind:'reference',label:'Old lookup'}})}));
+    }
+    throw Error(path);
+   };
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,actor:()=>'synthetic',booked:()=>{}});
+   await delay(30);
+   window.edit=value=>{const input=document.querySelector('[data-field=input] input');input.value=value;input.onchange();};
+   edit('base');await delay(700);
+   if(document.querySelectorAll('[data-field^=looked] .ticket-chip').length!==6)throw Error('Initial lookup batch did not fill all fields');
+   edit('A');await delay(350);
+   edit('B');await delay(350);
+   edit('A');held.splice(0).forEach(h=>h.finish());await delay(30);
+  })()`);
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('[data-field^=looked] .ticket-chip')].map(e=>e.textContent)"),Array(6).fill('Retained lookup'));
+  await evaluate('ticket.destroy();held.splice(0).forEach(h=>h.finish())');
+ });
+});
