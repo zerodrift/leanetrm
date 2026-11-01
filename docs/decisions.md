@@ -4,6 +4,12 @@ Status: design record, not implementation evidence.
 The architecture is in [architecture.md](architecture.md); delivery scope is in
 [plan.md](plan.md).
 
+Numbering note: two retained records use D271: the Blotter page-report layout in
+the requirements table (see [Blotter workbench](blotter-workbench.md)) and the
+later [fixed-volume physical crude decision](#d271--fixed-volume-physical-crude).
+References must include the subject to distinguish them; the two contracts are
+independent.
+
 ## Agreed requirements
 
 D215 authorizes the financial swap settlement MVP through S1–S6, with futures

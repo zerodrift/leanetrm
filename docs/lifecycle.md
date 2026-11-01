@@ -2,9 +2,12 @@
 
 Status: baseline approved for implementation and publication on 2026-10-16.
 The bounded futures booking workflow retains explicit `Unprocessed` settlement
-state and latest-head booking amendments with immutable versioned events. A generic
-event executor and settlement transitions remain unimplemented. This complements [the architecture](architecture.md)
-and [delivery plan](plan.md).
+state and latest-head booking amendments with immutable versioned events. Futures
+settlement transitions and a generic event executor remain unimplemented. Enrolled
+financial swaps have a bounded [settlement and P&L lifecycle](swap-settlement.md);
+physical crude has bounded [delivery and cash operations](physical-crude-operations.md).
+The broader contracts below complement [the architecture](architecture.md) and
+[delivery plan](plan.md).
 
 ## 1. Ownership
 

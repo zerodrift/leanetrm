@@ -1,12 +1,16 @@
 # Blotter desk
 
-Status: proposed design, not implementation evidence. Decisions it introduces
-are listed under [Decisions to record](#decisions-to-record) and are added to
-[decisions.md](decisions.md) when implementation starts.
+Status: historical desk design. Bounded desk behavior was implemented and then
+its layout and inline position expansion were superseded by the
+[Blotter workbench](blotter-workbench.md). The motivation and proposed choices
+below describe the original design checkpoint; current capabilities, decisions
+and remaining work are recorded in the workbench and
+[implementation record](implementation.md).
 
 ## Why
 
-Trade entry, curves and risk are separate destinations today. The application
+At the original design checkpoint, trade entry, curves and risk were separate
+destinations. The application
 opens on Curves & prices with no market date. The Blotter lists individual
 trades with the deciding values in its rightmost columns, and its summary omits
 swap present value. Risk is a form below the table that takes one scenario

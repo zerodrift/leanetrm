@@ -299,6 +299,7 @@ measure peak memory or deployment capacity. The older D201 ten-year, five-side
 timing remains historical evidence and does not qualify booking that workload
 under the current retained-plan entity bound.
 
-PPA booking in New trade and retiring the PPA booking page remain separate work.
+PPA booking is available in the common New trade panel. The dedicated PPA page
+remains available for its existing pricing and lifecycle workflows.
 One-time seed and development-release tooling remains private; its execution is
 qualified separately from the public synthetic checks.
