@@ -393,7 +393,7 @@ public sealed partial class SwapStore
         evidenceIdentityVersion=SwapPaymentCalculation.EvidenceIdentityVersion,value.ContractHash,value.InputHash,
         value.Rounding, exactAmount = Exact(value.ExactAmount), amount = value.Amount.Amount.ToString(),
         roundingEffect = Exact(value.RoundingEffect), value.Amount.Currency,
-        bookedQuantity = value.BookedQuantity.Amount.ToString(), resolvedQuantity = QuantityText(value.ResolvedQuantity),
+        bookedQuantity = value.BookedQuantity.Amount.ToString(), resolvedQuantity = value.ResolvedQuantity.ToExactString(),
         coefficient = value.Coefficient.ToString(), quantityRatio = new
         {
             numerator = value.QuantityRatio.Numerator.ToString(CultureInfo.InvariantCulture),

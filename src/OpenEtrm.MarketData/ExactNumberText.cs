@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 using System.Text.RegularExpressions;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData;
 
@@ -16,5 +17,12 @@ internal static class ExactNumberText
   var n=BigInteger.Parse(parts[0],CultureInfo.InvariantCulture);var d=BigInteger.Parse(parts[1],CultureInfo.InvariantCulture);
   if(n.GetBitLength()>4096||d.GetBitLength()>4096)throw new MarketDataException("numeric_range","Exact fractions exceed the supported bound.");
   return(n,d);
+ }
+ // The text Parse reads: a plain decimal when the value is exact at the working scale and within its range, otherwise the reduced "n/d".
+ internal static string Format(SignedRatio value)
+ {
+  try{if(value.TryScaleToInteger(ExactDecimal.WorkingScale,out var scaled))return ExactDecimal.FromScaled(scaled).ToString();}
+  catch(MarketDataException e)when(e.Code=="numeric_range"){}
+  return value.Numerator.ToString(CultureInfo.InvariantCulture)+"/"+value.Denominator.ToString(CultureInfo.InvariantCulture);
  }
 }

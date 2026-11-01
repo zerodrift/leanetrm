@@ -177,7 +177,7 @@ public sealed partial class SwapStore
             var mark=held is {} blotterRow?blotterRow.OptionalText("mark")??throw CloseOutTerms.Refused("The Blotter states no curve price for this position at this close."):
                 prices[0].ExactPrice.ToExactString();
             var quantity=Payment(0,deliveries[n]).Cashflow.Plan.AllocatedQuantity.Scale(value.Sides[0].Contribution.QuantityRatio).Scale(value.Quantity.Amount);
-            return new{from=Date(deliveries[n].From),to=Date(deliveries[n].To),quantity=QuantityText(quantity),price=CloseOutTerms.Exact(mark)};
+            return new{from=Date(deliveries[n].From),to=Date(deliveries[n].To),quantity=quantity.ToExactString(),price=CloseOutTerms.Exact(mark)};
         }).ToArray();
         draft=scheduled is null?draft with{Fixed=draft.Fixed! with{Price=periods[0].price}}:
             draft with{Scheduled=draft.Scheduled! with{First=draft.Scheduled.First with{Periods=[..draft.Scheduled.First.Periods.Select((p,n)=>p with{Fixed=p.Fixed! with{Price=periods[n].price}})]}}};

@@ -157,15 +157,15 @@ public static class ScheduleViews
                 if(own.Length==0){cells.Add(key,new(null,[]));continue;}
                 cells.Add(key,measure switch
                 {
-                    ScheduleViewMeasure.Quantity=>new(Text(Sum(own,piece=>piece.Quantity)),Names(own,piece=>piece.QuantityTags)),
-                    ScheduleViewMeasure.Price=>new(own.Select(piece=>piece.Price).Distinct().Count()==1?Text(own[0].Price):null,Names(own,piece=>piece.PriceTags)),
-                    _=>new(Text(Sum(own,piece=>piece.Amount)),Names(own,piece=>piece.QuantityTags|piece.PriceTags))
+                    ScheduleViewMeasure.Quantity=>new(ExactNumberText.Format(Sum(own,piece=>piece.Quantity)),Names(own,piece=>piece.QuantityTags)),
+                    ScheduleViewMeasure.Price=>new(own.Select(piece=>piece.Price).Distinct().Count()==1?ExactNumberText.Format(own[0].Price):null,Names(own,piece=>piece.PriceTags)),
+                    _=>new(ExactNumberText.Format(Sum(own,piece=>piece.Amount)),Names(own,piece=>piece.QuantityTags|piece.PriceTags))
                 });
             }
         }
         var cash=scope.Where(piece=>piece.Payment is not null).ToArray();
         var payments=cash.Select(piece=>piece.Payment!.Value).Distinct().ToArray();
-        cells.Add(NetCash,cash.Length==0?new(null,[]):new(Text(Sum(cash,piece=>piece.Amount)),Names(cash,piece=>piece.QuantityTags|piece.PriceTags)));
+        cells.Add(NetCash,cash.Length==0?new(null,[]):new(ExactNumberText.Format(Sum(cash,piece=>piece.Amount)),Names(cash,piece=>piece.QuantityTags|piece.PriceTags)));
         cells.Add(PaymentAt,new(payments.Length==1?payments[0].ToString("O",CultureInfo.InvariantCulture):null,[]));
         return cells.ToImmutable();
     }
@@ -185,11 +185,5 @@ public static class ScheduleViews
     private static string Month(DateOnly date)=>date.ToString("yyyy-MM",CultureInfo.InvariantCulture);
     private static SignedRatio Ratio(ExactDecimal value)=>new(value.ScaledValue,ExactDecimal.WorkingScale);
     private static SignedRatio Ratio(ScheduleNumber value)=>new(value.Numerator,value.Denominator);
-    private static string Text(SignedRatio value)
-    {
-        try{if(value.TryScaleToInteger(ExactDecimal.WorkingScale,out var scaled))return ExactDecimal.FromScaled(scaled).ToString();}
-        catch(MarketDataException e)when(e.Code=="numeric_range"){}
-        return value.Numerator.ToString(CultureInfo.InvariantCulture)+"/"+value.Denominator.ToString(CultureInfo.InvariantCulture);
-    }
     private static MarketDataException Error(string message)=>new("schedule_view",message);
 }
