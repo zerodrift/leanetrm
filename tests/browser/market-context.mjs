@@ -18,13 +18,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a contract row opens its history in the panel: the time chart over the closes and a value row for each',"!document.querySelector('#contract-panel').hidden&&document.querySelector('#history-chart .time-chart-canvas canvas')&&document.querySelector('#history-values tbody').children.length===4");
   await click('#contract-panel-close');
   await click('#nav-schedules');
-  await check('viewer schedules remain read-only while the shared date library is discoverable',"(()=>{const library=window.__responses.filter(r=>r.path==='/api/date-schedules').at(-1).data;return !document.querySelector('#schedules-page').hidden&&document.querySelector('#dates-editor').hidden&&document.querySelector('#schedule-inspector').hidden&&!document.querySelector('#nav-configuration').hidden&&!document.querySelector('#date-expression-form').hidden&&library.canEdit===false&&library.canPublish===false;})()");
-  await click('#nav-configuration');
+  await check('viewer schedules remain read-only while the shared date library is discoverable',"(()=>{const library=window.__responses.filter(r=>r.path==='/api/date-schedules').at(-1).data;return !document.querySelector('#schedules-page').hidden&&document.querySelector('#dates-editor').hidden&&document.querySelector('#schedule-inspector').hidden&&!document.querySelector('#nav-schedules').hidden&&!!document.querySelector('#schedule-tab-contracts')&&!document.querySelector('#date-expression-form').hidden&&library.canEdit===false&&library.canPublish===false;})()");
+  await click('#nav-schedules');await click('#schedule-tab-contracts');
   await check('viewer contract-date library disables authoring and publication controls',"!document.querySelector('#curve-date-editor').hidden&&document.querySelector('#curve-dates-fields').disabled&&document.querySelector('#curve-dates-new').hidden&&document.querySelector('#curve-dates-keep').hidden&&document.querySelector('#curve-dates-publish').hidden&&document.querySelector('#error').hidden");
   await click('#nav-market');
   await persona('editor');await click('#nav-schedules');
-  await set('#schedule-source',await evaluate("document.querySelector('#schedule-source').options[1].value"));
-  await check('schedule eligibility is labeled separately from actual first trading',"(()=>{const header=document.querySelector('#schedule-contracts thead');return header&&header.textContent.includes('Trading eligibility')&&!header.textContent.includes('First trading');})()");
   await check('editor drafts schedules against reference calendars only',"!document.querySelector('#dates-editor').hidden&&[...document.querySelectorAll('#dates-calendar option')].some(o=>o.value.endsWith('|test_business'))&&!document.querySelector('#dates-closures')&&document.querySelector('#dates-publish').hidden");
   await click('#nav-market');await click('#example');
   await set('#date-context-on','2020-12-17');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');

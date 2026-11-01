@@ -112,7 +112,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +`&&${q('#assistant-question')}.value==='What does this page show?'`,`${q('#assistant-consent-text')}.textContent`);
   await script({text:'Reading the page. ',tools:[['toolu_panel_01','read_current_page',{}]]},{tools:[['toolu_panel_02','navigate',{page:'schedules',target:null}]]},
     {text:'The page lists **curves**:\n- Synthetic one\n- Synthetic two\n\nSee `curve` and [the blotter](https://example.invalid/x) <b>here</b>.'});
-  await click('#assistant-allow');await wait(`${finished}&&${q('#page-title')}.textContent==='Schedules'&&${idle}&&${buttons}==='Back'`);
+  await click('#assistant-allow');await wait(`${finished}&&${q('#page-title')}.textContent==='Schedules & date mappings'&&${idle}&&${buttons}==='Back'`);
   await check('Allow grants that version alone and sends the same question under a new request identity, reporting exactly what Looking at showed',
     `(()=>{const a=${asks},g=window.__requests.filter(r=>r.path==='/api/assistant/grants/grant');return a.length===2&&g.length===1&&Object.keys(g[0].body).sort().join()==='agentId,operationId,version'`
     +`&&g[0].body.agentId===${JSON.stringify(guided.id)}&&g[0].body.version===1&&a[0].body.operationId!==a[1].body.operationId&&a.every(r=>r.body.question==='What does this page show?'&&r.body.conversationId===null`
@@ -163,7 +163,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `[${notice}?.textContent,JSON.stringify(${asks}.at(-1).body.pageReport),${drawnLayout}]`);
   // The page report names the new trade in the panel, and its product: the assistant is told what the page shows, and reads no unsent entry.
   await check('Looking at names the new future being entered, and says the assistant does not read it',`JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter','A new future is being entered. The assistant does not read a trade being entered.']))}`,looking);
-  await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Schedules'&&${idle}`);
+  await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Schedules & date mappings'&&${idle}`);
   await check('Go anyway leaves the unsaved booking for the target, with Back',`${notice}.textContent.startsWith('Took you to Schedules')&&${buttons}==='Back'`);
   await press('Back');await wait(`${q('#page-title')}.textContent==='Blotter'&&${idle}`);
   // Back says so too before it would leave unsaved edits.
@@ -240,7 +240,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await ask('Take me to the schedules.');await wait(finished);
   await check('a live target that would leave an amendment with unsaved edits does not move the page: its notice says so and offers Go anyway',
     `${q('#page-title')}.textContent==='Blotter'&&${q('#position-details')}?.hidden===false&&!${q('#trade-editing')}.hidden&&${notice}.textContent.includes('Go would leave unsaved changes on this page.')&&${buttons}==='Go anyway'&&${asks}.at(-1).body.pageReport.selection.view==='trade'`,`${notice}?.textContent`);
-  await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Schedules'&&${idle}`);
+  await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Schedules & date mappings'&&${idle}`);
   // The edits were given up on the person's word, so the form holds nothing to return to, and the browser is asked nothing when the page is left.
   await check('once the page has gone on the person\'s word, the form holds nothing and the browser is asked nothing when the page is left',
     `${q('#trade-editing')}.hidden&&!(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;})()`,`[${q('#trade-editing')}.hidden]`);
@@ -441,7 +441,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a target pinned to a historical view waits in working data, saying Go changes the knowledge the page shows',
     `${q('#page-title')}.textContent==='Curves & prices'&&${buttons}==='Go'&&${notice}.textContent.includes('Go changes the knowledge or As of date the page shows.')`
     +`&&${JSON.stringify(pinned.mode)}==='retained'`,`${notice}?.textContent`);
-  await press('Go');await wait(`${q('#page-title')}.textContent==='Schedules'&&${idle}`);
+  await press('Go');await wait(`${q('#page-title')}.textContent==='Schedules & date mappings'&&${idle}`);
   await check('Go selects that historical view again by its id, at its As of date, and opens the page there',
     `${q('#workspace-mode-label')}.textContent==='Historical view · read only'&&${q('#snapshot')}.value===${JSON.stringify(dated)}`
     +`&&window.__requests.some(r=>r.path==='/api/market/context/retained'&&r.body.contextId===${JSON.stringify(pinned.contextId)}&&r.body.selection==='latest_correction')`

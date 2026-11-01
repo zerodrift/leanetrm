@@ -1890,3 +1890,18 @@ Core relationships retain exact foreign keys, and capacity includes legacy
 onward reservations across purchases. No lot-selection policy is implicit.
 Allocation release, physical reversals, costing and post-delivery valuation are
 not part of this increment. See [physical crude operations](physical-crude-operations.md).
+
+### D283 — Saved schedules and symbolic date mappings
+
+Schedules own uploaded or generated dates. Idempotent import merges dates;
+correction and publication retain exact immutable versions. Date mappings name
+references into schedules and replace the misleading Contract definitions label.
+Actual instrument specifications remain in Futures reference data. Curves must
+have saved editable definitions, and demo instruments must originate in the
+schedule/mapping chain rather than attaching schedules to hardcoded contracts.
+
+The date-only prompt selection is the first date on or after the explicit context
+date. No independent roll rule or hourly support is introduced. Authorized
+request-scoped preparation reuses date sequences, parsed expressions and receipts.
+See [schedules and date mappings](schedules-and-contract-sequences.md#saved-schedules-and-date-mappings-d283)
+for local implementation status; the full authoring cutover remains in progress.

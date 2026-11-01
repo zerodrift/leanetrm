@@ -37,9 +37,18 @@ public static class PublishedSchedules
             throw Error("schedule_context","Select an effective date and a captured publication view.");
         try{return DateWorkspace.Date(context.EffectiveOn);}catch(TemporalException){throw Error("schedule_context","Select an exact context date.");}
     }
+    public static MonthlySaved Compile(ScheduleVersion version)
+    {
+        if(version.Calendar is not null && version.ResolvedCalendar?.Reference!=version.Calendar)
+            throw Error("calendar_reference","The schedule's exact reference calendar is unavailable in this view.");
+        var compiled=Compile(version.Definition,version.EngineVersion,version.ResolvedCalendar);
+        DateOccurrences.ValidateSelection(compiled.Dates,version.Selection);
+        return compiled;
+    }
     // Each engine version has one calendar source; an unknown engine is never reinterpreted.
     public static MonthlySaved Compile(MonthlyDraft definition,string engineVersion,ReferenceCalendar? calendar) => engineVersion switch
     {
+        "date_schedule_v3" when definition.Dates is not null=>DateWorkspace.Compile(definition,calendar),
         "date_schedule_v1"=>DateWorkspace.Compile(definition),
         "date_schedule_v2"=>DateWorkspace.Compile(definition,calendar??throw Error("calendar_reference","The schedule's reference calendar is unavailable in this view.")),
         _=>throw Error("schedule_engine","This retained schedule engine version is unavailable.")
@@ -47,33 +56,13 @@ public static class PublishedSchedules
     public static void Validate(ScheduleSaveRequest request,string engineVersion,ReferenceCalendar? calendar)
     {
         if(request.Definition is null)throw Error("schedule_definition","Supply an explicit schedule definition.");
-        _=Compile(request.Definition,engineVersion,calendar);
+        var compiled=Compile(request.Definition,engineVersion,calendar);
+        DateOccurrences.ValidateSelection(compiled.Dates,request.Selection!);
         if(!DateWorkspace.SelectionRules.Any(r=>r.Code==request.Selection) || DateWorkspace.Date(request.EffectiveFrom)>=DateWorkspace.Date(request.EffectiveTo))
             throw Error("schedule_definition","Choose an occurrence selection rule and nonempty effective interval.");
     }
-    public static DateReceipt Resolve(IEnumerable<ScheduleVersion> versions,string? expression,ScheduleContext? context)
-    {
-        var day=ContextDate(context);
-        if(expression?.Length==10 && DateOnly.TryParseExact(expression,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,
-            System.Globalization.DateTimeStyles.None,out var literal))return new(expression,literal,"literal",null,null,null,new{kind="literal",context});
-        var reference=DateReference.Parse(expression);
-        var eligible=Eligible(versions,context).Where(v=>v.Definition.Symbol==reference.Symbol).ToArray();
-        if(eligible.Length==0)throw Error("schedule_unpublished","No published schedule covers this context and publication view.");
-        var selected=eligible[0];
-        var compiled=Compile(selected.Definition,selected.EngineVersion,selected.ResolvedCalendar);
-        var offset=reference.Index??(selected.Selection=="context_month"?0:throw Error("date_index","Fixed schedules need an explicit zero-based occurrence index."));
-        var origin=selected.Selection switch {
-            "absolute_index"=>0,
-            "context_month"=>compiled.Dates.FindIndex(d=>d.Month.Year==day.Year&&d.Month.Month==day.Month),
-            _=>throw Error("schedule_definition","Unsupported occurrence selection rule.")};
-        var index=origin+offset;
-        if(origin<0 || index<0 || index>=compiled.Dates.Count)throw Error("date_index","The context-relative occurrence is outside the published schedule.");
-        var date=compiled.Dates[index].Date;
-        if(reference.BusinessDays is int count)date=DateRolling.Advance(date,compiled.BusinessDays,count);
-        return new(expression!,date,reference.Symbol,index,reference.BusinessDays,compiled.Definition.Calendar,
-            new PublishedDateSource(selected.Id,selected.Version,selected.Generation,selected.PublicationOrder!.Value,
-                reference.Symbol,selected.Definition.Name!,selected.Selection,selected.EngineVersion,index,context!,selected.Definition,selected.Temporal));
-    }
+    public static DateReceipt Resolve(IEnumerable<ScheduleVersion> versions,string? expression,ScheduleContext? context)=>
+        new PublishedScheduleResolver(versions,context).Resolve(expression);
     private static TemporalException Error(string code,string message)=>new(code,message);
 }
 
