@@ -118,6 +118,7 @@ export function setupIntervalCurves(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
  get<HTMLFormElement>('interval-curves-form').onsubmit=event=>{event.preventDefault();if(o.busy())return;void o.act(async()=>{clearResults();await read();});};
 
  return{
+  assistant:()=>shown?{operation:'interval-curves.values_v1',inputJson:JSON.stringify({body:JSON.parse(shown.scope),parameters:{}})}:undefined,
   sync,
   // A failed read, such as one refused in a historical view, leaves an empty page, never the previous catalog.
   async load(){

@@ -57,7 +57,7 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
     }
     // A repeat answers with its turn as it stands: only the request that admitted a turn holds its token. However the
     // record write fails, the turn fails in a scope of its own (§7.2), and its ending is the answer once that lands.
-    public async Task<IResult> Ask(PreviewSession session,string profile,AskRequest body,string mode,Guid? retained,InputFrame? frame,CancellationToken aborted)
+    public async Task<IResult> Ask(PreviewSession session,string profile,AskRequest body,string mode,Guid? retained,InputFrame? frame,CancellationToken aborted,Action<Guid>? admitted=null)
     {
         PageReports.Require(body.PageReport);
         var token=RandomNumberGenerator.GetBytes(32);
@@ -74,7 +74,7 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
             return Results.Json(new{code,message=Refusal(code)},statusCode:code=="workspace_turn_limit"?429:409);
         }
         var turn=asked.GetProperty("turn");
-        if(!(asked.TryGetProperty("admitted",out var admitted)&&admitted.ValueKind==JsonValueKind.True))return Results.Ok(new{turn});
+        if(!(asked.TryGetProperty("admitted",out var accepted)&&accepted.ValueKind==JsonValueKind.True))return Results.Ok(new{turn});
         var id=turn.GetProperty("id").GetGuid();
         try
         {
@@ -89,7 +89,7 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
             throw;
         }
         // A turn whose cancel was requested before its record has ended cancelled.
-        if(turn.GetProperty("state").GetString()=="queued")turns.Run(id,token,session.Digest,session.Ends,tools);
+        if(turn.GetProperty("state").GetString()=="queued"){admitted?.Invoke(id);turns.Run(id,token,session.Digest,session.Ends,tools);}
         return Results.Ok(new{turn});
     }
 

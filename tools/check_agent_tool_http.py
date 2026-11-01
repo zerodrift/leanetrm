@@ -297,13 +297,13 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
                   'market_data.contract_definitions_v1', 'reference_data.table_v1', 'schedules.library_v1', 'schedules.tou_products_v1',
                   'schedules.power_hours_v1', 'trade_parties.versions_v1', 'trades.blotter_v1', 'trades.blotter_v1', 'trades.trade_v1', 'trades.trade_v1']
     check("a step records its tool, operation, the request's input, the instant it read, after its call's close and before the next "
-          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v10",
+          "call, and every access its read ran under; its event carries only its number and tool; the turn records turns_v11",
           [(s['tool'], s['operation'], s['input'], s['code']) for s in recorded] == [(r[1], o, r[2], None) for r, o in zip(first + second, operations)]
           and [s['access'] for s in recorded] == [market] * 9 + [parties] + [trades] * 4
           and all(at(loop[0]['closed']) <= at(s['read_at']) <= at(loop[1]['started']) for s in recorded[:3])
           and all(at(loop[1]['closed']) <= at(s['read_at']) <= at(loop[2]['started']) for s in recorded[3:])
           and [e['payload'] for e in events if e['kind'] == 'step'] == [{'ordinal': n, 'tool': s['tool']} for n, s in enumerate(recorded, start=1)]
-          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v10', recorded)
+          and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{turn['id']}';") == 'turns_v11', recorded)
     grant_id = delegation(turn)
     contexts_read = issued(grant_id)
     check("each read runs in one request context of its own, issued to the agent's principal under the turn's grant on the agent pools, "
@@ -435,7 +435,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
                                      ('toolu_synthetic_96', 'navigate', {'page': None, 'target': 'n999999'}),
                                      ('toolu_synthetic_97', 'navigate', {'page': None, 'target': LURE_HANDLE}),
                                      ('toolu_synthetic_98', 'navigate', {'page': None, 'target': chosen['curve']['target']}),
-                                     ('toolu_synthetic_99', 'navigate', {'page': 'settings_ai', 'target': None})]))(handler)
+                                     ('toolu_synthetic_99', 'navigate', {'page': 'unknown_page', 'target': None})]))(handler)
     fake.respond(stream(tool_use(model_name, reads)), navigating, stream(recording(model_name, text='Opened the trade.')))
     since, before = len(fake.received), len(issued(grant_id))
     moved, events = settled(ask()['turn'])
@@ -585,10 +585,10 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     looked = steps(historical)
     directory = answers(requests(since)[-1])['toolu_synthetic_46'][0]
     check("a historical view without a frame refuses frame-consuming reads snapshot_missing, current-only definitions power_historical "
-          "and an unsupported page page_not_supported, each before reading, reads the curve directory at its retained context, and issues "
+          "and a page needing the unconfigured workspace tools tool_not_enabled, each before reading, reads the curve directory at its retained context, and issues "
           "a page target keeping that context with no frame",
           historical['state'] == 'completed' and [s['code'] for s in looked]
-          == ['snapshot_missing', 'power_historical', 'power_historical', 'snapshot_missing', 'page_not_supported', None, None]
+          == ['snapshot_missing', 'power_historical', 'power_historical', 'snapshot_missing', 'tool_not_enabled', None, None]
           and [s['access'] for s in looked] == [[]] * 5 + [market] * 2
           and directory['context'] == {'knowledge': 'retained', 'contextId': selected['contextId'], 'cutoff': historical['context']['cutoff']}
           and [e['payload'] for e in events if e['kind'] == 'navigation']
@@ -875,32 +875,19 @@ def check_curve_drafts(check, query, fake, admin, trader, agent, grant, ask, set
         drafted = {**definition, 'code': 'synthetic_agent_draft_http', 'name': 'Synthetic agent draft'}
         curve = {'code': drafted['code'], 'name': drafted['name'], 'engine': 'custom_curve_recipe_v2', 'formula': formula}
         since = len(fake.received)
+        before = query("SELECT count(*) FROM market_data.custom_curve_generation_savers WHERE saved_by='assistant';")
         fake.respond(stream(tool_use(model_name, [('toolu_draft_1', 'prepare_custom_curve', curve), ('toolu_draft_2', 'save_custom_curve_draft', {**curve, 'curveId': None})])),
-                     stream(tool_use(model_name, [('toolu_draft_3', 'navigate', {'page': None, 'target': 'n2'})])),
-                     stream(recording(model_name, text='The draft is saved.')))
+                     stream(recording(model_name, text='The draft requires separate authorization.')))
         builder = {'page': 'custom_curves', 'selection': {'curve': None, 'unsaved': False}}
         working = {'mode': 'current', 'contextId': None, 'frameId': initial_frame(admin.call('workspace/navigation'), '2020-12-18')['id']}
         saved, events = settled(ask(admin, drafter, builder, working)['turn'], admin)
         recorded = steps(saved)
         result = answers(requests(since)[-1])['toolu_draft_2']
-        draft = result[0]['result']
-        target = next(e['payload']['target'] for e in events if e['kind'] == 'navigation')
-        check('Save curve draft saves the prepared curve as the assistant\'s draft, its successful step recorded with it, and its target, which '
-              'Navigate requests, opens that draft at its step without moving the page',
-              saved['state'] == 'completed' and [(r['operation'], r['code']) for r in recorded]
-              == [('custom_curves.prepare_v1', None), ('custom_curves.save_draft_v1', None), ('navigation.target_v1', None)]
-              and result[1] is False and draft['status'] == 'saved_draft' and draft['curve']['savedBy'] == 'assistant'
-              and draft['draft'] == {'turnId': saved['id'], 'step': 2}
-              and query(f"SELECT generation||':'||saved_by||':'||step FROM market_data.custom_curve_generation_savers WHERE turn_id='{saved['id']}';") == '1:assistant:2'
-              and target == {**target, 'page': 'custom_curves', 'kind': 'draft', 'selection': {'turnId': saved['id'], 'step': 2},
-                             'label': 'Saved curve draft: Synthetic agent draft'}, (saved, recorded, result, target))
-        opened = admin.call('assistant/curve-draft', target['selection'])
-        listed = next(r for r in admin.call('custom-curves')['recipes'] if r['id'] == opened['id'])
-        check('the editor opens the draft by its turn and step, and the library shows the assistant saved it, naming neither turn nor step',
-              opened == {'id': draft['curve']['id'], 'version': 1} and listed['saver'] == {'savedBy': 'assistant'} and listed['state'] == 'draft', (opened, listed))
-        trader.call('assistant/curve-draft', target['selection'], expected=422)
-        admin.call('assistant/curve-draft', {**target['selection'], 'step': 1}, expected=422)
-        check('a draft target opens nothing for a person who cannot read the draft, nor at a step that saved none')
+        check('a legacy curve-save tool refuses approval_required and creates no assistant-owned generation',
+              saved['state'] == 'completed' and recorded[1]['code'] == 'approval_required'
+              and result[0]['code'] == 'approval_required'
+              and query("SELECT count(*) FROM market_data.custom_curve_generation_savers WHERE saved_by='assistant';") == before,
+              (saved, recorded, result))
     finally:
         admin.call('profile', {'profile': 'admin'})
         # The browser checks expect an editor to have no agent to use.
@@ -949,7 +936,7 @@ def check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settle
           granted['permissions'] == ['ReadJobs'], granted)
     check('the agent reader role holds ReadJobs and none of the permissions that change jobs or infrastructure',
           query("SELECT string_agg(permission,',' ORDER BY permission) FROM security.role_permissions WHERE role_id="
-                "(SELECT id FROM security.roles WHERE code='agent_reader');") == 'DraftCustomCurves,ReadJobs,ReadMarketData,ReadTradeParties,ReadTrades')
+                "(SELECT id FROM security.roles WHERE code='agent_reader');") == 'ReadJobs,ReadMarketData,ReadTradeParties,ReadTrades,UseAssistantWorkspace')
 
     fake.respond(stream(tool_use(model_name, [('toolu_jobs_1', 'read_current_page', {}), ('toolu_jobs_2', 'read_jobs', history(mine['id'])),
                                               ('toolu_jobs_3', 'read_jobs', history(theirs['id'])),

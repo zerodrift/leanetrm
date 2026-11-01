@@ -4,6 +4,14 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D284 adds [workspace assistant operations and page guidance](assistant-workspace.md):
+discovery, reads/previews and separately human-approved commands, immutable page
+prompts under a delegated permission, and operational turns without financial-data
+authority. Migrations 0162–0164 require a separately qualified schema release.
+Existing versions need explicit tool configuration/publication and user consent;
+their authority is not silently expanded. This supersedes D260's direct draft-save
+exception and does not complete the wider scheduled/external-agent milestone.
+
 The bounded D283 verified-admission operation now connects published date-list
 mappings to draft contract construction or identical retained-contract reuse.
 Admissions have exact source/context relationships and independent certified

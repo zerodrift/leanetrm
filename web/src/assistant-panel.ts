@@ -9,6 +9,7 @@ import {streamFrame,streamOrder,readEvents,newTurnView,applyEvent,type TurnView,
 import {lookingAt,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,startsOver,usageLine,consentText,grantExpiry,
   lookingKey,agentChoice,preselect,conversationChoice,panelMessage,keptAsk,isUuid,type Place,type Names,type UsableAgent} from './assistant-pages.js';
 import {answerBlocks,renderBlocks} from './assistant-text.js';
+import {setupAssistantActions} from './assistant-actions.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Turn={id:string;conversationId:string;ordinal:number;agentId:string;version:number;question:string;state:string;askedAt:string};
@@ -17,10 +18,10 @@ type Listed={id:string;agentName:string;unread:boolean;latestTurn:Turn};
 // A target's notice: whether the page moved there, the place Back restores, why it waits, and the action the person was
 // told leaves the unsaved changes of a page, which that page's next click of it then takes.
 type Notice={moved:boolean;key?:string;reason?:string;confirm?:{action:'go'|'back';page:string}};
-export type PanelOptions={launcherHidden?:()=>boolean;api:Api;root:string;identity:()=>string;zone:()=>string;available:()=>boolean;pageBusy:()=>boolean;
+export type PanelOptions={launcherHidden?:()=>boolean;launcherMinimized?:()=>boolean;restoreLauncher?:()=>void;api:Api;root:string;identity:()=>string;zone:()=>string;available:()=>boolean;pageBusy:()=>boolean;
   act:(work:()=>Promise<void>)=>Promise<void>;place:()=>Place;names:()=>Names;trade:()=>string|undefined;unsaved:()=>boolean;
   // Moves the page to a target in the context it shows; selects a target's context, then moves; and restores a place.
-  open:(target:Target)=>Promise<void>;go:(target:Target)=>Promise<void>;restore:(place:Place)=>Promise<void>};
+  open:(target:Target)=>Promise<void>;go:(target:Target)=>Promise<void>;restore:(place:Place)=>Promise<void>;changed?:()=>Promise<void>};
 
 const streamed=['accepted','step','navigation','text','usage','completed','failed','cancelled','interrupted','replaced','refused'];
 const terminal=['completed','failed','cancelled','interrupted'];
@@ -34,6 +35,7 @@ const unconfirmedAsk='We could not confirm that your question was received. Retr
 // A target the person reviews under the page's own header, never moved to by itself: a proposed curve, or a draft the assistant saved (D260).
 const reviewed=(target:Target)=>target.kind==='proposal'||target.kind==='draft';
 export function setupAssistant(options:PanelOptions){
+  const actions=setupAssistantActions({api:options.api,identity:options.identity,changed:async()=>{await options.changed?.();}});
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const text=(id:string,value:string)=>{get(id).textContent=publicText(value);};
   function el<K extends keyof HTMLElementTagNameMap>(tag:K,className:string,content?:string){
@@ -120,6 +122,11 @@ export function setupAssistant(options:PanelOptions){
     else if(view.text){const answer=el('div','assistant-answer');answer.append(renderBlocks(answerBlocks(publicText(view.text)),document));parts.push(answer);}
     else if(!view.ending)parts.push(el('p','assistant-waiting','Answering…'));
     for(const target of view.targets)parts.push(targetNotice(target));
+    if(!view.hidden&&view.ending?.state==='completed')for(const step of view.steps)
+      if('tool' in step&&step.tool==='propose_page_action'&&step.code===null)
+        parts.push(button('Review proposed change','Review the exact proposed change before authorization',()=>{
+          void actions.review({turnId:view.id,step:step.ordinal}).catch(error=>announce(error instanceof Error?error.message:'The proposal could not be opened.'));
+        }));
     if(view.ending?.incomplete)parts.push(el('p','assistant-incomplete','Incomplete answer'));
     const ending=view.ending&&endingLine(view.ending);
     if(ending)parts.push(el('p','assistant-ending',ending));
@@ -287,7 +294,7 @@ export function setupAssistant(options:PanelOptions){
     if(command){const named=command.body as {agentId:string;version:number};agent=agents.find(a=>a.id===named.agentId&&a.version===named.version);}
     else{
       agent=chosen();if(!agent)return;
-      const place=options.place(),knowledge=askKnowledge(place.context);
+      const place=options.place(),knowledge=askKnowledge(place.context,place.report.page);
       if(lookingKey(place)!==lookedAt){error='The page changed. Check Looking at, then send again.';sync();return;}
       if(!knowledge||!askable||options.pageBusy()||!question.value.trim()||asking.command)return;
       command=asking.begin('assistant/turns/ask',{conversationId:conversation?.id??null,agentId:agent.id,version:agent.version,question:question.value,
@@ -405,7 +412,7 @@ export function setupAssistant(options:PanelOptions){
     }
   }
   function sync(){
-    launcher.hidden=!options.available()||!agents.length||!!options.launcherHidden?.();get('assistant-hide').hidden=launcher.hidden||opened;launcher.disabled=false;get('assistant-dot').hidden=!unread;
+    launcher.hidden=!options.available()||!agents.length||!!options.launcherHidden?.();get('assistant-hide').hidden=launcher.hidden||opened||!!options.launcherMinimized?.();launcher.classList.toggle('is-minimized',!!options.launcherMinimized?.());launcher.disabled=false;get('assistant-dot').hidden=!unread;
     launcher.setAttribute('aria-label',unread?'Assistant · a new answer':'Assistant');
     if(panel.hidden)return;
     renderLooking();
@@ -453,7 +460,7 @@ export function setupAssistant(options:PanelOptions){
   window.addEventListener('resize',()=>setWidth(chosenWidth,false));
   setWidth(chosenWidth,false);
 
-  launcher.onclick=()=>show(!opened);
+  launcher.onclick=()=>{if(options.launcherMinimized?.())options.restoreLauncher?.();show(!opened);};
   get('assistant-close').onclick=()=>show(false);
   panel.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.isComposing&&!get('assistant-history').hidden)closeHistory();else if(event.key==='Escape'&&!event.isComposing)show(false);});
   picker.onchange=()=>{
@@ -490,7 +497,7 @@ export function setupAssistant(options:PanelOptions){
     },
     // An identity starts with nothing of the last one: its own agents, and the conversation and open panel this tab kept.
     reset(){
-      identity++;conversationGeneration++;closeStream();
+      identity++;conversationGeneration++;closeStream();actions.reset();
       agents=[];vendors=[];agentsError='';conversation=undefined;views=[];notices=new Map();askedHere=new Set();history.clear();stepsOpen.clear();
       granting.clear();consent=undefined;note=undefined;error='';unread=false;working=false;moving=Promise.resolve();live=undefined;
       opened=false;panel.hidden=true;document.body.classList.remove('assistant-open');hideHistory();render();renderPicker(undefined);question.value='';

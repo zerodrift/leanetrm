@@ -33,6 +33,7 @@ var port=hosted?.ListenPort ?? int.Parse(Environment.GetEnvironmentVariable("OPE
 var webRoot=Path.GetFullPath(hosted?.WebDirectory ?? Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_WEB") ?? throw new InvalidOperationException("Explicit built web root is required."));
 await using var hostedAuthentication=hosted is null?null:new HostedAuthentication(hosted);
 var builder=WebApplication.CreateBuilder(args);
+builder.Services.AddHttpContextAccessor();
 builder.Logging.ClearProviders(); builder.Logging.AddSimpleConsole(o=>o.SingleLine=true); builder.Logging.SetMinimumLevel(LogLevel.Warning);
 const int bodyLimit=32*1024;
 builder.WebHost.ConfigureKestrel(o=> { o.Listen(hosted is null?IPAddress.Loopback:IPAddress.Any,port); o.Limits.MaxRequestBodySize=bodyLimit; });
@@ -74,6 +75,9 @@ const string malformed="The request is incomplete or malformed.";
 // The HTTP status, code and message an API failure is reported with: as an error body, or as the error frame of a started Blotter stream.
 (int Status,string Code,string Message) Failure(Exception e,PathString apiPath,HttpContext context)=>e switch
 {
+    ToolRefusal refusal=>(422,refusal.Code,AgentTools.Text(refusal.Code)),
+    PostgresException p when p.SqlState=="P0001"&&p.MessageText.StartsWith("page_prompt_",StringComparison.Ordinal)=>(409,p.MessageText,"The page prompt or request changed. Reload its current version or retry the same request."),
+    PostgresException p when p.SqlState=="P0001"&&p.MessageText=="proposal_not_ready"=>(409,p.MessageText,"Wait for the assistant answer to complete before reviewing this proposal."),
     // A missing or ended session is session_ended on the assistant's routes, which offer a reload; pages keep access_denied (§8).
     PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
     PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
@@ -326,6 +330,9 @@ var scheduleReads=new ScheduleReads(database);
 var partyReads=new PartyReads(database);
 var tradeReads=new TradeReads(database);
 var liveContexts=new LiveContexts(database,changes,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
+var assistantWorkspace=new AssistantWorkspace(database,turnScope,turnScope=="exchange"?"/examples/exchange/api":"/api",app.Services,
+    ()=>((IEndpointRouteBuilder)app).DataSources.SelectMany(source=>source.Endpoints),app.Services.GetRequiredService<IHttpContextAccessor>());
+database.AssistantRequest=()=>app.Services.GetRequiredService<IHttpContextAccessor>().HttpContext?.Features.Get<AssistantInvocation>();
 async Task<string[]> CurrentPermissions(NpgsqlConnection connection,CancellationToken ct)
 {
     await using var command=ScheduleStore.Command(connection,"SELECT security.current_permissions()");
@@ -366,6 +373,8 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
 });
 PreviewSession Session(HttpContext context)
 {
+    if(context.Features.Get<AssistantInvocation>() is {} invocation)
+        return invocation.Session.Ends>DateTimeOffset.UtcNow?invocation.Session:throw new PreviewSessionEnded();
     if (!context.Request.Cookies.TryGetValue(cookieName,out var id)||!sessions.TryGetValue(id,out var session)||DateTimeOffset.UtcNow>session.Ends) throw new PreviewSessionEnded();
     if(hosted is not null&&session.Profile!=HostedAuthentication.Current(context).Subject)throw new PreviewDeniedException();
     if(hosted is not null&&session.Digest!=HostedAuthentication.SessionDigest(context))throw new PreviewSessionEnded();
@@ -977,14 +986,15 @@ api.MapPost("/corrections",(HttpContext c,CorrectionRequest body)=>Locked(c,asyn
         .Select(m=>(m.RevisionId,Pins:database.SwapMarketPins(frame,m)??[])).Where(m=>m.Pins.Contains(body.ObservationId)).ToArray();
     if (held.Length>1) throw new MarketDataException("ambiguous_reference","A required exact reference is missing or ambiguous.");
     if (!frame.ObservationIds.Contains(body.ObservationId)&&held.Length==0) throw new MarketDataException("snapshot_input","Only an explicitly selected observation can be corrected here.");
-    if (session.Frames.Count>=128) throw new MarketDataException("preview_limit","Restart the disposable preview to create more saved selections.");
+    if (session.Frames.Count>=128&&!(c.Features.Get<AssistantInvocation>()?.ResultIdentity is {} replay&&session.Frames.ContainsKey(replay))) throw new MarketDataException("preview_limit","Restart the disposable preview to create more saved selections.");
     if (string.IsNullOrWhiteSpace(body.Value)) throw new MarketDataException("missing_value","Enter an exact decimal value.");
     c.Items["correction_attempted"]=true;
     var revision=held.Length==1?held[0].RevisionId:database.Manifest.RevisionId;
     var id=await database.WithIdentity(Profile(session),"ImportObservations",(connection,ct)=>database.Correct(connection,revision,body.ObservationId,body.Value,ct),c.RequestAborted);
     var updated=held.Length==0?frame.SelectRevision(body.ObservationId,id,"Edited inputs")
         :frame.SelectSwapMarketRevision(revision,held[0].Pins,body.ObservationId,id,"Edited inputs");
-    session.Frames.Add(updated.Id,updated);
+    if(c.Features.Get<AssistantInvocation>()?.ResultIdentity is {} identity)updated=updated with{Id=identity};
+    if(c.Features.Get<AssistantInvocation>() is not null)session.Frames.TryAdd(updated.Id,updated);else session.Frames.Add(updated.Id,updated);
     return Results.Ok(new {frame=updated,observationId=id});
 }));
 // The pin a chosen revision replaces: the one pin of the same exact source fact and time.
@@ -1624,6 +1634,10 @@ Task<IResult> AgentCommand(HttpContext c,Func<NpgsqlConnection,CancellationToken
 });
 api.MapGet("/settings/ai/agents",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ManageAgents",async(connection,ct)=>Results.Ok(await AgentAdministration.Directory(connection,ct)),c.RequestAborted))));
+api.MapGet("/settings/ai/page-prompts",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ManageAssistantPrompts",async(connection,ct)=>Results.Ok(await AssistantPagePrompts.Directory(connection,ct)),c.RequestAborted))));
+api.MapPost("/settings/ai/page-prompts/save",(HttpContext c,SavePagePromptRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ManageAssistantPrompts",async(connection,ct)=>Results.Ok(await AssistantPagePrompts.Save(connection,body,ct)),c.RequestAborted)));
 api.MapPost("/settings/ai/agents/create",(HttpContext c,CreateAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Create(connection,body,ct),control:true));
 api.MapPost("/settings/ai/agents/save",(HttpContext c,SaveAgentRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Save(connection,body,ct)));
 api.MapPost("/settings/ai/agents/publish",(HttpContext c,AgentCommandRequest body)=>AgentCommand(c,(connection,ct)=>AgentAdministration.Publish(connection,body,ct)));
@@ -1650,8 +1664,8 @@ api.MapPost("/assistant/grants/revoke",(HttpContext c,RevokeRequest body)=>Grant
 // Turns (§7.2, §7.4, §8). An ask pins the knowledge its page shows: current knowledge only while no historical context
 // is selected, a retained context only when it is the selected one, and a frame only of the session's current market
 // context. Working data is captured at its frame's date, so it needs one. Nothing else is pinned, and nothing falls back.
-var agentTurns=new AgentTurns(database,turnScope,agentWorker,turnWorker,new AgentTools(database,marketReads,scheduleReads,partyReads,tradeReads,app.Logger),app.Logger);
-(string Mode,Guid? Retained,InputFrame? Frame) Knowledge(PreviewSession session,AskKnowledge? knowledge)
+var agentTurns=new AgentTurns(database,turnScope,agentWorker,turnWorker,new AgentTools(database,marketReads,scheduleReads,partyReads,tradeReads,app.Logger){Workspace=assistantWorkspace},app.Logger);
+(string Mode,Guid? Retained,InputFrame? Frame) Knowledge(PreviewSession session,AskKnowledge? knowledge,string page)
 {
     var selected=session.MarketContext?.ContextId;
     var (mode,retained)=knowledge switch
@@ -1662,13 +1676,26 @@ var agentTurns=new AgentTurns(database,turnScope,agentWorker,turnWorker,new Agen
     };
     var frame=knowledge.FrameId is {} chosen?Frame(session,chosen):null;
     if(frame is not null&&frame.ContextId!=retained)throw PinnedContext.Missing();
-    return mode=="current"&&frame is null?throw PinnedContext.Missing():(mode,retained,frame);
+    return mode=="current"&&frame is null
+        ?PageReports.Operational(page)?("operational",null,null):throw PinnedContext.Missing():(mode,retained,frame);
 }
 api.MapPost("/assistant/turns/ask",(HttpContext c,AskRequest body)=>Locked(c,session=>
 {
-    var (mode,retained,frame)=Knowledge(session,body.Knowledge);
+    PageReports.Require(body.PageReport);
+    var (mode,retained,frame)=Knowledge(session,body.Knowledge,body.PageReport.GetProperty("page").GetString()!);
     c.Items["turn_attempted"]=true;
-    return agentTurns.Ask(session,Profile(session),body,mode,retained,frame,c.RequestAborted);
+    return agentTurns.Ask(session,Profile(session),body,mode,retained,frame,c.RequestAborted,id=>assistantWorkspace.Register(id,session,c.User));
+}));
+api.MapPost("/assistant/actions/review",(HttpContext c,CurveProposalRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),AssistantOperations.Permission,async(connection,ct)=>
+        Results.Ok(assistantWorkspace.Review(await assistantWorkspace.Recorded(connection,body.TurnId,body.Step,ct),body.TurnId,body.Step)),c.RequestAborted)));
+// Only a separate authenticated, CSRF-protected human request reaches this endpoint. The body identifies a retained
+// proposal, never accepts a replacement operation/payload, and the original business handler reauthorizes the save.
+api.MapPost("/assistant/actions/authorize",(HttpContext c,CurveProposalRequest body)=>Locked(c,async session=>
+{
+    var recorded=await database.WithIdentity(Profile(session),AssistantOperations.Permission,
+        (connection,ct)=>assistantWorkspace.Recorded(connection,body.TurnId,body.Step,ct),c.RequestAborted);
+    return Results.Ok(await assistantWorkspace.Approve(c,session,recorded,body.TurnId,body.Step,c.RequestAborted));
 }));
 api.MapPost("/assistant/turns/stop",(HttpContext c,StopRequest body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),null,async(connection,ct)=>Results.Ok(await agentTurns.Stop(connection,body,ct)),c.RequestAborted)));

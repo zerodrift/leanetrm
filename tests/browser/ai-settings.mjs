@@ -20,6 +20,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const sent=path=>`window.__requests.filter(r=>r.path==='/api/settings/ai/${path}')`;
   const shown="!document.querySelector('#error').hidden&&document.querySelector('#error').textContent";
 
+  // The capability-filtering check below owns its unqualified model instead of depending on an earlier suite.
+  await evaluate(`__api('settings/ai/models/add',${JSON.stringify({operationId:crypto.randomUUID(),vendor:'anthropic',identifier:'browser-unqualified-'+stamp,displayName:'Browser model without capabilities'})})`);
+
   await persona(manager);
   await check('an administrator without market data opens AI settings from Admin',"!document.querySelector('#nav-ai').hidden&&document.querySelector('#nav-ai').closest('#nav-group-admin')!==null");
   await click('#nav-ai');

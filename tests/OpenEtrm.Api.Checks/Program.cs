@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--assistant-workspace"]){AssistantWorkspaceChecks.Run();return;}
 if(args is ["--market-preparation-reuse"]){MarketPreparationReuseChecks.Run();return;}
 if(args is ["--crude-instants"]){CrudeInstantChecks.Run();return;}
 if(args is ["--crude-lifecycle"]){CrudeLifecycleChecks.Run();return;}
@@ -89,6 +90,7 @@ if (args is ["--schedules"])
     await ModelProviderChecks.Run();
     TurnWorkerChecks.Run();
     AgentToolChecks.Run();
+    AssistantWorkspaceChecks.Run();
     await TurnStreamChecks.Run();
     await BlotterStreamChecks.Run();
     PowerImportChecks.Run();

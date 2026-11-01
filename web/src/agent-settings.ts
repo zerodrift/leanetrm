@@ -23,7 +23,8 @@ const changes:Record<string,string>={create_agent:'Agent created',save_agent:'Ve
 const states:Record<string,string>={active:'Active',retired:'Retired'};
 const toolNames:Record<string,string>={navigate:'Navigate',read_current_page:'Read current page',read_market_data:'Read market data',read_reference_data:'Read reference data',
   read_schedules:'Read schedules',read_trade_parties:'Read trade parties',read_trades:'Read trades',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',
-  read_jobs:'Read jobs',save_custom_curve_draft:'Save curve draft'};
+  read_jobs:'Read jobs',save_custom_curve_draft:'Legacy curve save (requires approval)',read_workspace_page:'Read workspace page',
+  discover_page_operations:'Discover page operations',read_page_operation:'Read and preview page operations',propose_page_action:'Propose changes for authorization'};
 const limitNames:[keyof Limits,string][]=[['toolSteps','tool steps per turn'],['inputTokens','input tokens per turn'],['outputTokens','output tokens per call'],
   ['elapsedSeconds','time per turn in seconds'],['readSeconds','time per read in seconds'],['retries','retries per call'],
   ['historyTurns','earlier turns sent per turn']];
@@ -38,7 +39,7 @@ function toolName(code:string){if(!Object.hasOwn(toolNames,code))throw inconsist
 
 // The Settings › AI tabs in their order (D152), each offered by its own permission (§9): Usage needs ReadModelUsage,
 // Models & prices and Providers need ManageModelProviders, and Agents needs ManageAgents.
-const tabPermissions={usage:'ReadModelUsage',models:'ManageModelProviders',providers:'ManageModelProviders',agents:'ManageAgents'} as const;
+const tabPermissions={usage:'ReadModelUsage',models:'ManageModelProviders',providers:'ManageModelProviders',agents:'ManageAgents',prompts:'ManageAssistantPrompts'} as const;
 export type AiTab=keyof typeof tabPermissions;
 export const aiTabNames=Object.keys(tabPermissions) as AiTab[];
 export function aiTabs(permissions:string[]):AiTab[]{return aiTabNames.filter(tab=>permissions.includes(tabPermissions[tab]));}

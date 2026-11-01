@@ -146,13 +146,12 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
 
     check('only the access administrator role manages agents', roles_holding('ManageAgents') == 'access_administrator')
     check('the trader, risk analyst and market data editor roles use agents, and each may delegate',
-          roles_holding('UseAgents') == 'market_data_editor,risk_analyst,trader'
+          roles_holding('UseAgents') == 'access_administrator,market_data_editor,risk_analyst,trader'
           and query("SELECT bool_and(EXISTS(SELECT 1 FROM security.role_permissions d WHERE d.role_id=p.role_id AND d.permission='CreateDelegations')) "
                     "FROM security.role_permissions p WHERE p.permission='UseAgents';") == 't')
-    check('the agent reader role holds exactly DraftCustomCurves, ReadJobs, ReadMarketData, ReadTrades and ReadTradeParties, and no other role '
-          'holds DraftCustomCurves (D260)', roles_holding('DraftCustomCurves') == 'agent_reader' and
+    check('the agent reader keeps read/workspace capabilities and no role holds the former direct draft-save permission', roles_holding('DraftCustomCurves') == '' and
           query(f"SELECT r.code||' '||r.name||' '||string_agg(p.permission,',' ORDER BY p.permission) FROM security.roles r JOIN security.role_permissions p "
-                f"ON p.role_id=r.id WHERE r.id='{READER}' GROUP BY r.code,r.name;") == 'agent_reader Agent reader DraftCustomCurves,ReadJobs,ReadMarketData,ReadTradeParties,ReadTrades')
+                f"ON p.role_id=r.id WHERE r.id='{READER}' GROUP BY r.code,r.name;") == 'agent_reader Agent reader ReadJobs,ReadMarketData,ReadTradeParties,ReadTrades,UseAssistantWorkspace')
     # The guard holds even for the owner: a human never holds the agent reader role, and an agent holds no other.
     human, agent = contexts.administrator, uuid4()
     member = (f"INSERT INTO security.principals VALUES('{agent}','agent',true);"
@@ -581,12 +580,14 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
           "the roles that use agents, and the tools with the permissions they need",
           usable in offered and changed in offered and not offered & {disabled, unpriced}
           and next(m for m in listing['models'] if m['id'] == usable)['version'] == version_of(usable)
-          and [r['code'] for r in listing['roles']] == ['market_data_editor', 'risk_analyst', 'trader']
+          and [r['code'] for r in listing['roles']] == ['access_administrator', 'market_data_editor', 'risk_analyst', 'trader']
           and {t['code']: t['permissions'] for t in listing['tools']} == {
               'navigate': [], 'read_current_page': [], 'read_market_data': ['ReadMarketData'], 'read_reference_data': ['ReadMarketData'],
               'read_schedules': ['ReadMarketData'], 'read_trade_parties': ['ReadMarketData', 'ReadTradeParties'],
               'read_trades': ['ReadMarketData', 'ReadTrades'], 'read_custom_curves': ['ReadMarketData'], 'prepare_custom_curve': ['ReadMarketData'],
-              'read_jobs': ['ReadJobs'], 'save_custom_curve_draft': ['ReadMarketData', 'WriteMarketDefinitions']})
+              'read_jobs': ['ReadJobs'], 'save_custom_curve_draft': ['ReadMarketData', 'WriteMarketDefinitions'],
+              'read_workspace_page': ['UseAssistantWorkspace'], 'discover_page_operations': ['UseAssistantWorkspace'],
+              'read_page_operation': ['UseAssistantWorkspace'], 'propose_page_action': ['UseAssistantWorkspace']})
     check("the directory names every supported vendor and the runtime set's bounds on instructions and grants",
           listing['vendors'] == [{'code': 'anthropic', 'name': 'Anthropic'}, {'code': 'openai', 'name': 'OpenAI'}, {'code': 'google', 'name': 'Google'},
                                  {'code': 'xai', 'name': 'xAI'}, {'code': 'meta', 'name': 'Meta'}]
