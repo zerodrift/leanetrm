@@ -18,6 +18,26 @@ def run_checks(url, query, manifest, psql, environment):
     schedule = approver.call('date-schedules/publish', {k:schedule[k] for k in ('id','version','generation')})
     def context(day='2021-01-15'):
         return viewer.call('date-schedules/context', {'effectiveOn':day,'knownAt':None,'mode':'current'})['context']
+    uploaded={'name':'Imported explicit dates','symbol':'oe.imported_days','dates':['2021-02-03','2021-01-19','2021-01-19'],
+        'calendar':calendar,'selection':'on_or_after','effectiveFrom':'2021-01-01','effectiveTo':'2022-01-01'}
+    viewer.call('date-schedules/import',uploaded,expected=403)
+    imported=editor.call('date-schedules/import',uploaded)
+    assert imported==editor.call('date-schedules/import',uploaded), 'Repeat import changed the draft'
+    imported=approver.call('date-schedules/publish',{k:imported[k] for k in ('id','version','generation')})
+    assert imported==editor.call('date-schedules/import',uploaded), 'Repeat import forked a publication'
+    imported_context=context()
+    assert viewer.call('date-schedules/resolve',{'expression':'oe.imported_days[0]','context':imported_context})['date']=='2021-01-19'
+    extended=editor.call('date-schedules/import',{**uploaded,'dates':['2021-03-01','2021-01-19']})
+    assert extended['version']==2 and extended['definition']['dates']==['2021-01-19','2021-02-03','2021-03-01']
+    assert extended==editor.call('date-schedules/import',{**uploaded,'dates':['2021-03-01']})
+    editor.call('date-schedules/import',{**uploaded,'selection':'absolute_index'},expected=409)
+    plain={**uploaded,'name':'Plain date list','symbol':'oe.plain_dates','calendar':None}
+    plain_draft=editor.call('date-schedules/import',plain)
+    assert plain_draft['engineVersion']=='date_schedule_v3' and plain_draft['calendar'] is None
+    plain_saved=approver.call('date-schedules/publish',{k:plain_draft[k] for k in ('id','version','generation')})
+    assert editor.call('date-schedules/import',plain)==plain_saved
+    assert viewer.call('date-schedules/resolve',{'expression':'oe.plain_dates[0]','context':context()})['date']=='2021-01-19'
+    viewer.call('date-schedules/resolve',{'expression':'oe.plain_dates[0] + 1bd','context':context()},expected=422)
     before = context()
     body = {'requestId':str(uuid4()),'code':'shared_delivery','name':'Synthetic monthly delivery dates','context':before,
             'contracts':[{'label':'Month one','start':'oe.shared_dates[0]','end':'oe.shared_dates[1]',
@@ -139,6 +159,9 @@ def run_checks(url, query, manifest, psql, environment):
     reference=manifest['referenceCatalogId']
     rows=query(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{reference}' RETURNING tenant_id,workspace_id,access_mode;")
     try:
+        viewer.call('date-schedules/resolve',{'expression':'oe.imported_days[0]','context':resolution['context']},expected=422)
+        approver.call('date-schedules/publish',{k:extended[k] for k in ('id','version','generation')},expected=422)
+        assert viewer.call('date-schedules/resolve',{'expression':'oe.plain_dates[0]','context':resolution['context']})['date']=='2021-01-19'
         assert not any(v['id']==definition_id for v in viewer.call('date-schedules')['contractDefinitions'])
         assert query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT count(*) FROM market_data.contract_date_requests WHERE definition_id='{definition_id}';ROLLBACK;").splitlines()[-1]=='0'
         viewer.call('date-schedules/contracts/resolve', {**resolution,'context':resolution['context']}, expected=422)

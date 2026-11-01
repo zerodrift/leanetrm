@@ -14,6 +14,7 @@ if(args is ["--position-qualification"]){await PositionQualificationChecks.Run()
 
 if(args is ["--book-scope"]){BookScopeChecks.Run();return;}
 if(args is ["--database-login-boundaries",var boundaryConnectionFile,var boundaryTracking]){await DatabaseLoginBoundaryChecks.Run(boundaryConnectionFile,bool.Parse(boundaryTracking));return;}
+if(args is ["--date-lists"]){SchedulePublicationChecks.Run();return;}
 if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
 if(args is ["--ticket-description"]){TicketDescriptionChecks.Run();return;}
 if(args is ["--gas-ticket"]){GasTicketChecks.Run();return;}

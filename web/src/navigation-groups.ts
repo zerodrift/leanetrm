@@ -10,7 +10,7 @@ export const navigationGroups:readonly NavigationGroup[]=[
  {id:'trading',label:'Trading',pages:['futures','gas','crude'],opened:['ppa']},
  {id:'markets',label:'Markets',pages:['market','custom-curves','delivery','interval-series','interval-curves']},
  {id:'operations',label:'Operations',pages:['jobs']},
- {id:'settings',label:'Settings',pages:['configuration','schedules','power','gas-setup','reference','parties']},
+ {id:'settings',label:'Settings',pages:['schedules','power','gas-setup','reference','parties'],opened:['configuration']},
  {id:'admin',label:'Admin',pages:['admin','ai']},
 ];
 

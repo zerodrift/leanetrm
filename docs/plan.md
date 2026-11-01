@@ -1607,3 +1607,8 @@ PPA cadence checks index exact interval bounds, and dependency discovery resolve
 each selected curve/month/settlement combination once per call. These changes
 preserve exact financial and historical contracts; local measurements and their
 limits are recorded in [verification](verification.md#blotter-read-preparation-2026-11-01-local).
+
+D283 defines saved date lists and symbolic date mappings as inputs to instrument
+and curve authoring. Implementation is local and in progress. Date imports and
+shared context resolution are implemented; full demo provenance and editable
+native curve definitions remain to be completed and qualified.

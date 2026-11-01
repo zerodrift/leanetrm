@@ -1,6 +1,8 @@
 """Publish explicit synthetic date examples only in a verified owned preview."""
 import json
 from pathlib import Path
+from uuid import uuid5
+from demo_date_plan import NAMESPACE
 from preview_client import PreviewClient
 from preview_fixture import CAT, REV, RCAT, RREV, WORKSPACE
 
@@ -21,6 +23,8 @@ def seed_schedule_examples(url, run_id, owned_root, client=None):
     if (boot['workspaceId'],boot['runId']) != (WORKSPACE,run_id):
         raise ValueError('Schedule example workspace differs from the owned preview.')
     client.call('profile', {'profile':'editor'})
+    if (root/'date-seed-input.json').is_file():
+        return seed_date_plan(client, root)
     library = client.call('date-schedules')
     sample = library['examples']['monthly']
     if sample['definition']['symbol'] != 'oe.sample_gas_months':
@@ -42,3 +46,35 @@ def seed_schedule_examples(url, run_id, owned_root, client=None):
     if published['state'] != 'published' or any(published[key] != value for key,value in expected.items()):
         raise ValueError('The exact synthetic schedule publication was not confirmed.')
     return published
+
+
+def seed_date_plan(client, root):
+    """Publish the exact mappings used by the offline instrument compiler."""
+    source=json.loads((root/'date-seed-input.json').read_text())
+    compiled=json.loads((root/'date-seed.json').read_text())
+    context=client.call('date-schedules/context',{'effectiveOn':'2020-12-18','knownAt':None,'mode':'current'})['context']
+    results=[]
+    for definition,expected in zip(source['mappings'],compiled['mappings'],strict=True):
+        client.call('profile',{'profile':'editor'})
+        existing=[v for v in client.call('date-schedules')['contractDefinitions'] if v['definition']['code']==definition['code']]
+        if existing:
+            if len(existing)!=1 or existing[0]['state']!='published':
+                raise ValueError('An incomplete or revised demo mapping requires inspection.')
+            saved=existing[0]
+        else:
+            saved=client.call('date-schedules/contracts/save',{
+                **definition,'context':context,'requestId':str(uuid5(NAMESPACE,'save:'+definition['code']))})
+            client.call('profile',{'profile':'approver'})
+            saved=client.call('date-schedules/contracts/publish',{
+                **{k:saved[k] for k in ('id','version','generation')},
+                'requestId':str(uuid5(NAMESPACE,'publish:'+definition['code']))})
+        current=client.call('date-schedules/context',{'effectiveOn':'2020-12-18','knownAt':None,'mode':'current'})['context']
+        resolved=client.call('date-schedules/contracts/resolve',{'id':saved['id'],'version':saved['version'],'context':current})
+        for actual,wanted in zip(resolved['contracts'],expected['contracts'],strict=True):
+            if any(actual[k]!=wanted[k] for k in ('label','start','end','lastTradingAt')):
+                raise ValueError('The saved mapping differs from the dates used to compile demo instruments.')
+            for key in ('startReference','endReference','lastTradingReference'):
+                if actual[key]['source']['scheduleId']!=wanted[key]['source']['scheduleId']:
+                    raise ValueError('The saved mapping does not retain the original source schedule.')
+        results.append(saved)
+    return results
