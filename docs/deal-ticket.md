@@ -376,8 +376,9 @@ single-point trade keeps its listed terms in the Details pane.
   for example, physical sides on different gas-day clocks.
 - `summaries[].againstMarket` is not defined yet and is always null, so no
   "vs market" line is drawn.
-- The description caps cash and fee sides at four together, as the booking
-  contract does.
+- The description reads its side caps from the composition contract
+  (`GasCompositionInstrument`): one to four physical sides, and up to four
+  cash and fee sides together.
 - Current gas limits: no delivered/remaining split once delivery has started
   (a started delivery is refused), one forward month, and fixed-offset gas-day
   clocks.

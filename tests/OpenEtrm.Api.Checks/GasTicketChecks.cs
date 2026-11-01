@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Trading;
 
 internal static class GasTicketChecks
@@ -75,6 +76,12 @@ internal static class GasTicketChecks
             Equal("quantity,price,amount", Ids("consideration"), "cash columns"); Equal("quantity,price,amount", Ids("fee"), "fee columns");
             Equal("cash", GasTicket.SideKind("consideration").Kind, "consideration kind");
             Equal($"{ScheduleViews.NetCash},{ScheduleViews.PaymentAt}", string.Join(",", GasTicket.Description.TradeColumns.Select(c => "trade." + c.Id)), "trade columns");
+        });
+        Check("the side caps are the composition contract's", () =>
+        {
+            Equal((GasCompositionInstrument.MinPhysicalSides, GasCompositionInstrument.MaxPhysicalSides), (GasTicket.SideKind("physical").Min, GasTicket.SideKind("physical").Max), "physical sides");
+            Equal(GasCompositionInstrument.MaxCashSides, GasTicket.Description.SideLimits.Single(l => l.Kinds.SequenceEqual(["cash", "fee"])).Max, "cash and fee sides");
+            foreach (var role in new[] { "consideration", "fee" }) Equal(GasCompositionInstrument.MaxCashSides, GasTicket.SideKind(role).Max, role + " sides");
         });
         Check("a role without a side kind refuses", () =>
         {

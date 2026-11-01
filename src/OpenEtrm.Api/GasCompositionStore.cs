@@ -44,7 +44,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  static PhysicalGasWriteRequest Selection(GasCompositionRequest body,GasPhysicalRequest p)=>new(body.SnapshotId,body.Convention,body.KnowledgeMode,body.OperationId,body.BookId,body.DefinitionRevisionId,p.Pipeline,p.Zone,p.DeliveryPoint,p.Product,p.DeliveryFrom,p.DeliveryTo,p.Quantity,p.QuantityBasis,p.Direction,null,null,null,null,null,body.Discounting,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision,body.GasSetupId);
  async Task<GasCompositionDraft> Resolve(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)
  {
-  if(body.Profile!=Profile||body.Discounting!=false||body.KnowledgeMode!="current"||body.PhysicalSides.IsDefaultOrEmpty||body.PhysicalSides.Length>4||body.CashSides.IsDefault||body.CashSides.Length>4)throw Invalid("Select the bounded fixed-quantity gas composition profile, explicit no discounting, one to four physical sides and up to four cash sides.");
+  if(body.Profile!=Profile||body.Discounting!=false||body.KnowledgeMode!="current"||body.PhysicalSides.IsDefault||body.PhysicalSides.Length is <GasCompositionInstrument.MinPhysicalSides or >GasCompositionInstrument.MaxPhysicalSides||body.CashSides.IsDefault||body.CashSides.Length>GasCompositionInstrument.MaxCashSides)
+   throw Invalid($"Select the bounded fixed-quantity gas composition profile, explicit no discounting, {GasCompositionInstrument.MinPhysicalSides} to {GasCompositionInstrument.MaxPhysicalSides} physical sides and up to {GasCompositionInstrument.MaxCashSides} cash sides.");
   var physical=ImmutableArray.CreateBuilder<GasPhysicalComponent>();var assignments=new List<GasValuationAssignment>();var clocks=new List<GasDayClock>();var mappings=new List<JsonElement>();
   foreach(var p in body.PhysicalSides)
   {
