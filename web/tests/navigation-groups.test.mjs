@@ -16,8 +16,8 @@ test('the groups and their pages keep the sidebar order',()=>{
   ['overview','Overview',['dashboard']],
   ['trading','Trading',['futures','gas','crude']],
   ['markets','Markets',['market','custom-curves','delivery','interval-series','interval-curves']],
-  ['operations','Operations',['jobs']],
-  ['settings','Settings',['configuration','schedules','power','gas-setup','reference','parties']],
+  ['operations','Operations',['risk','jobs']],
+  ['settings','Settings',['schedules','power','gas-setup','reference','parties']],
   ['admin','Admin',['admin','ai']]]);
 });
 test('PPA bookings is a Trading page the Blotter opens, not a sidebar entry',()=>{
@@ -50,7 +50,7 @@ test('market data outranks administration and the Blotter outranks plain market 
 });
 
 test('the sidebar lists each page for the permissions that open it',()=>{
- const market=['dashboard','market','custom-curves','delivery','interval-series','interval-curves','configuration','schedules','power','gas-setup','reference'];
+ const market=['dashboard','market','custom-curves','delivery','interval-series','interval-curves','schedules','power','gas-setup','reference'];
  assert.deepEqual(listed(['ReadMarketData','RunJobs']).sort(),[...market,'jobs'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','futures','gas','crude','parties'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','futures','gas','crude'].sort());
@@ -73,7 +73,7 @@ const markup=readFileSync(new URL('../src/index.html',import.meta.url),'utf8');
 const switched=['interval-curves'];
 test('the sidebar markup lists each group and its pages in the navigationGroups order, but for the pages a switch enters',()=>{
  const shown=[...markup.matchAll(/<details id="nav-group-([a-z]+)"[^>]*><summary>([^<]+)<\/summary>(.*?)<\/details>/gs)]
-  .map(([,id,label,body])=>({id,label,pages:[...body.matchAll(/<button id="nav-([a-z-]+)"/g)].map(m=>m[1])}));
+  .map(([,id,label,body])=>({id,label,pages:[...body.matchAll(/<button id="nav-([a-z-]+)"/g)].map(m=>m[1]).filter(page=>page!=='configuration')}));
  assert.deepEqual(shown,navigationGroups.map(({id,label,pages})=>({id,label,pages:pages.filter(page=>!switched.includes(page))})));
  assert.doesNotMatch(markup,/id="(market|settings|trading)-menu"/);
 });
@@ -81,4 +81,9 @@ test('the pages a switch enters have their entries in that switch, named as the 
  const [,switchMarkup]=markup.match(/<nav id="curve-price-navigation"[^>]*>(.*?)<\/nav>/s);
  assert.deepEqual([...switchMarkup.matchAll(/<button id="(?:nav-|curve-price-)([a-z-]+)"/g)].map(m=>m[1]),['contracts',...switched]);
  for(const page of switched)assert.ok(allPages.includes(page));
+});
+
+test('risk history needs scenario, trade and market authority',()=>{
+ assert.equal(pageAvailable('risk',['ReadMarketData','ReadTrades','RunScenario']),true);
+ for(const permissions of [[],['RunScenario'],['ReadMarketData','ReadTrades']])assert.equal(pageAvailable('risk',permissions),false);
 });

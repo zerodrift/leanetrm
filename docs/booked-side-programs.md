@@ -2,8 +2,11 @@
 
 This checkpoint implements booking-time executable storage and an authorized
 direct loader for D258. It does not switch the application's valuation adapters
-to that loader. Dynamic input adapters and the common booked pricing cutover
-remain subsequent work in [Side schedule evaluation](side-plans.md).
+to that loader. The source-resolution, instrument-mapping and booking-admission
+checkpoints below are implemented; the general swap/PPA portfolio and worker
+pricing cutover remains work in [Side schedule evaluation](side-plans.md).
+Physical gas and crude already execute retained programs in their bounded
+product workflows; see [gas](physical-gas-side.md) and [crude](physical-crude.md).
 
 ## Stored content
 
@@ -332,7 +335,7 @@ through both migrations and activation of the matching API. Old application
 booking commands are incompatible with the new publication contract, so an
 image-only rollback is not a qualified recovery plan.
 
-The release reader admits the current 148 migrations plus four envelope files
+The release reader admits migration inventories plus four envelope files
 within a 256-file cap, and refuses the 257th file before writing its body.
 The installed operator is not updated by an application release: qualify and install the matching
 `release_bundle.py` during the operator window. Stop the deployment timer before

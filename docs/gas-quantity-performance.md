@@ -11,8 +11,10 @@ market data. One bounded authorized batch resolves the heads for all obligation
 and gas-day keys. The API groups those heads once, reads the retained programs and
 performs exact selection/normalization. It never generates replacement schedules.
 History is a separate demand-loaded read pinned to the grid's captured context.
-Opening history while another operation runs queues the read without losing its
-context. No selected-quantity result cache or permission cache was introduced.
+The measured checkpoint used a standalone quantity grid with a history disclosure;
+the current [deal ticket](deal-ticket.md) records daily quantities but does not
+yet draw revision history or the strict billing selection. Their API operations
+remain available. No selected-quantity result cache or permission cache was introduced.
 
 Migration 0146 adds indexes for per-trade command counts and per-series history.
 The batch adapter requires an exact bound request/catalog/context/as-of, checks

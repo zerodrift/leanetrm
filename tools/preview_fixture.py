@@ -82,7 +82,7 @@ def monthly_value(kind, month, distance=0):
             6:Decimal('7')-d*Decimal('.02'),7:Decimal('29.1')+m*Decimal('.605')-d*Decimal('.05')}[kind]
 
 
-def fixture(root, current_schema=True, fixing_frames=False):
+def fixture(root, current_schema=True, fixing_frames=False, date_plan=None):
     """current_schema=False omits rows that need migrations 0026+ (curve names, TOU products)."""
     def historical(text):
         for old, new in [('2039','2019'),('2040','2020'),('2041','2021'),('2042','2022')]:
@@ -90,6 +90,24 @@ def fixture(root, current_schema=True, fixing_frames=False):
         return text
     reference = historical((root / 'tests/fixtures/reference-synthetic.sql').read_text())
     market = historical((root / 'tests/fixtures/market-synthetic.sql').read_text())
+    if date_plan is not None:
+        from demo_date_plan import schedule_sql
+        gas_dates=next(m['contracts'] for m in date_plan['mappings'] if m['code']=='gas_delivery')
+        forward_dates=next(m['contracts'] for m in date_plan['mappings'] if m['code']=='forward_delivery')
+        listing=next(s['definition']['dates'][0] for s in date_plan['schedules'] if s['definition']['symbol']=='oe.listing_dates')
+        rate_dates=next(s['definition']['dates'] for s in date_plan['schedules'] if s['definition']['symbol']=='oe.rate_pillars')
+        reference=reference.replace('BEGIN;', 'BEGIN;\n'+schedule_sql(date_plan,CAT),1)
+        catalog=f"INSERT INTO market_data.catalogs VALUES ('{CAT}','synthetic');"
+        if catalog not in market:raise ValueError('The fixture catalog declaration changed.')
+        market=market.replace(catalog,'')
+        first=gas_dates[0]
+        reference=reference.replace("'2021-01-01','2021-02-01'",f"'{first['start']}','{first['end']}'")
+        reference=reference.replace("'2020-12-28','2020-12-28 15:30:00+00'",f"'{first['lastTradingReference']['date']}','{first['lastTradingAt']}'")
+        reference=reference.replace("'2020-01-01','2020-01-01 00:00:00+00'",f"'{listing}','{listing} 00:00:00+00'")
+        def initial_contract(match):
+            row=gas_dates[0] if "'future'" in match[0] else forward_dates[0]
+            return re.sub(r"'2021-01-01','2021-02-01','[^']+'",f"'{row['start']}','{row['end']}','{row['lastTradingAt']}'",match[0])
+        market=re.sub(r'INSERT INTO market_data.contracts VALUES [^;]+;',initial_contract,market)
     extra_ref=[]; extra_market=[]; extra_obs=[]
     # The power-hours consumer requires an actual MWh definition, never an
     # assumed conversion from the fixture's unrelated synthetic energy units.
@@ -143,24 +161,27 @@ def fixture(root, current_schema=True, fixing_frames=False):
               ('hub_power',4,'local_gas',3,'power_spread'),('local_power',5,'hub_power',4,'power_basis')]
     extra_ref.append(f"INSERT INTO ref_data.value_specifications VALUES ({R},'test_zero_rate','dimensionless',NULL,NULL,-0.1,1);")
     extra_market.append(f"INSERT INTO market_data.rate_curves VALUES ({M},'interest_rates',{R},'test_interest','fixture','valuation_utc_date');")
-    for ordinal,maturity in enumerate(['2021-01-18','2021-06-18','2021-12-18']):
+    for ordinal,maturity in enumerate(rate_dates if date_plan is not None else ['2021-01-18','2021-06-18','2021-12-18']):
         sid=identity('9',800+ordinal)
         extra_market.append(f"INSERT INTO market_data.series VALUES ({M},'{sid}','zero_rate_{ordinal}',{R},NULL,NULL,'test_zero_rate');")
         extra_market.append(f"INSERT INTO market_data.rate_curve_points VALUES ({M},'interest_rates','{maturity}','{sid}',{ordinal});")
     series=[]
     for month in range(6):
-        start=date(2021,month+1,1); end=date(2021,month+2,1)
+        start=date.fromisoformat(gas_dates[month]['start']) if date_plan is not None else date(2021,month+1,1)
+        end=date.fromisoformat(gas_dates[month]['end']) if date_plan is not None else date(2021,month+2,1)
         if month:
-            previous=date(2020,12,28) if month==0 else date(2021,month,28)
+            previous=date.fromisoformat(gas_dates[month]["lastTradingReference"]["date"]) if date_plan is not None else date(2020,12,28) if month==0 else date(2021,month,28)
             code=f'test_gas_2021{month+1:02d}'
+            first_trading=listing if date_plan is not None else '2020-01-01'
+            last_trading=gas_dates[month]['lastTradingAt'] if date_plan is not None else f'{previous} 15:30:00+00'
             extra_ref.extend([
                 f"INSERT INTO ref_data.futures_series VALUES ({R},'{code}','test_gas_future','2021-{month+1:02d}','synthetic','{start}','{end}');",
-                f"INSERT INTO ref_data.futures_milestones VALUES ({R},'{code}','first_trading','known','2020-01-01','2020-01-01 00:00:00+00','test_utc','fixture');",
-                f"INSERT INTO ref_data.futures_milestones VALUES ({R},'{code}','last_trading','known','{previous}','{previous} 15:30:00+00','test_utc','fixture');"])
+                f"INSERT INTO ref_data.futures_milestones VALUES ({R},'{code}','first_trading','known','{first_trading}','{first_trading} 00:00:00+00','test_utc','fixture');",
+                f"INSERT INTO ref_data.futures_milestones VALUES ({R},'{code}','last_trading','known','{previous}','{last_trading}','test_utc','fixture');"])
             for n in range(1,6):
                 cid=identity('5',month*5+n)
                 kind='future' if n==1 else 'forward'
-                expiry=f'{previous} 15:30:00+00' if n==1 else f'{end} 00:00:00+00'
+                expiry=(gas_dates[month]['lastTradingAt'] if n==1 else forward_dates[month]['lastTradingAt']) if date_plan is not None else f'{previous} 15:30:00+00' if n==1 else f'{end} 00:00:00+00'
                 series_code=f"'{code}'" if n==1 else 'NULL'
                 extra_market.append(f"INSERT INTO market_data.contracts VALUES ({M},'{cid}',{R},'{kind}','{start}','{end}','{expiry}',{series_code});")
             for curve,n in curves:

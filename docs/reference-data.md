@@ -6,8 +6,8 @@ implemented by the schema alone.
 The local [market-data slice](implementation.md) adds measurement-basis, quantity,
 quote, profile, settlement-target and cash-rounding references. Broader product
 and state-dependent conversion support remains gated below. The bounded
-[synthetic futures workflow](implementation.md#synthetic-futures-booking-and-holdings)
-now consumes fixed-total cash product terms, exact curve membership and retained
+[synthetic futures workflow](implementation.md#current-trading-implementation)
+now consumes explicit dated lot quantities, exact curve membership and retained
 trading milestones; daily/final settlement and margin processing remain work.
 
 ## Business references, setup and internal records

@@ -8,7 +8,7 @@ def run_checks(Client, check):
     definition = {'name': 'Monthly dates', 'symbol': 'oe.ng', 'firstMonth': '2021-01', 'lastMonth': '2021-04',
                   'anchor': 'day', 'day': 1, 'shortMonth': 'reject', 'adjustment': 'unadjusted', 'calendar': None}
     library = viewer.call('date-schedules')
-    check('schedule rule choices are served by the validating backend', [c['code'] for c in library['choices']['anchors']] == ['day', 'month_end'] and [c['code'] for c in library['choices']['selections']] == ['context_month', 'absolute_index'] and len(library['choices']['adjustments']) == 5)
+    check('schedule rule choices are served by the validating backend', [c['code'] for c in library['choices']['anchors']] == ['day', 'month_end'] and [c['code'] for c in library['choices']['selections']] == ['on_or_after', 'context_month', 'absolute_index'] and len(library['choices']['adjustments']) == 5)
     business = next(c for c in library['calendars'] if c['reference']['code'] == 'test_business')
     check('schedule calendars are listed from reference data with ISO weekend days',
           business['weekendDays'] == ['Saturday', 'Sunday'] and business['coverageFrom'] == '2019-01-01' and '2021-01-01' in business['closedDates'])

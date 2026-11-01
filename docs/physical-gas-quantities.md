@@ -2,8 +2,10 @@
 
 The quantity foundation defines contractual gas-day geometry and receipt/delivery
 quantities. Its first consumer is the managed [physical gas pre-delivery
-profile](physical-gas-side.md). Database booking, operational actuals and physical
-cash settlement remain in the [commodity delivery plan](physical-commodity-test-plan.md).
+profile](physical-gas-side.md). That profile now has database booking and a
+[deal ticket](deal-ticket.md); [daily operational quantity revisions](physical-gas-daily-quantities.md)
+are a separate implemented workflow. Physical completion and cash settlement
+remain in the [commodity delivery plan](physical-commodity-test-plan.md).
 
 `GasQuantitySchedule.Generate` consumes immutable `GasQuantityTerms`. The selected
 quantity specification and clock reference must belong to the same exact
@@ -38,7 +40,7 @@ The other conventions are `net = gross × (1 − fraction)` and
 `net = gross / (1 + fraction)`. For 1,000 gross and fraction 0.02 these give
 980 and exactly 50,000/51 net respectively. Fuel is gross minus net, preserving
 conservation without intermediate rounding. Negative receipts, fuel gains and
-fractions outside [0,1) are unsupported. Reverse direction belongs to the future
+fractions outside [0,1) are unsupported. Reverse direction belongs to the
 instrument membership, not a negative quantity in this profile.
 
 Terms and captured clocks have explicitly versioned economic identities.
@@ -61,4 +63,6 @@ default-suite registration requirements; both have regression coverage.
 Local verification on 30 October 2026 passed the full MarketData managed runner
 (647 reported core checks) and a final focused gas rerun including the 1,200-day
 and identity cases. Independent numerical/temporal review has no remaining
-material finding in this increment. No database or browser capability is claimed.
+material finding in this increment. These checks qualify the managed quantity
+foundation only; later database and browser consumers have their own records
+linked above.

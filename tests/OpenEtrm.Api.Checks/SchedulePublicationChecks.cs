@@ -27,6 +27,28 @@ internal static class SchedulePublicationChecks
         Reject("schedule_context",()=>PublishedSchedules.Resolve([version],"oe.ng[0]",new(null,1)));
         Eq(PublishedSchedules.Resolve([version],"oe.ng",context).Date,new DateOnly(2021,1,1));
         Reject("schedule_engine",()=>PublishedSchedules.Resolve([version with{EngineVersion="unsupported"}],"oe.ng",context));
-        Console.WriteLine("16 published schedule resolution checks passed.");
+        var uploaded=version with {Definition=new("Uploaded","oe.ng",null,null,null,null,null,null,definition.Calendar,["2021-01-04","2021-01-19","2021-02-03"]),Selection="on_or_after"};
+        Reject("schedule_definition",()=>DateWorkspace.Compile(definition with{Dates=["2021-01-04"]}));
+        var noCalendar=uploaded with{EngineVersion="date_schedule_v3",Definition=uploaded.Definition with{Calendar=null}};
+        Eq(PublishedSchedules.Resolve([noCalendar],"oe.ng[0]",context).Date,new DateOnly(2021,1,19));
+        Reject("calendar_reference",()=>PublishedSchedules.Resolve([noCalendar],"oe.ng[0] + 1bd",context));
+        var unavailable=noCalendar with{Calendar=new(Guid.NewGuid(),Guid.NewGuid(),"missing")};
+        Reject("calendar_reference",()=>PublishedSchedules.Resolve([unavailable],"oe.ng[0]",context));
+        var calendarKey=new CalendarReference(Guid.NewGuid(),Guid.NewGuid(),"long_closure");
+        var longClosure=new ReferenceCalendar(calendarKey,new(2021,1,1),new(2021,4,1),127,[(new DateOnly(2021,3,1),true)]);
+        var repeated=version with{EngineVersion="date_schedule_v2",Selection="on_or_after",Calendar=calendarKey,ResolvedCalendar=longClosure,
+            Definition=definition with{FirstMonth="2021-01",LastMonth="2021-02",Day=31,ShortMonth="clamp",Adjustment="following",Calendar=null}};
+        Reject("schedule_definition",()=>PublishedSchedules.Resolve([repeated],"oe.ng[0]",context));
+        var resolver=new PublishedScheduleResolver([uploaded],context);
+        Eq(resolver.Resolve("oe.ng[0]").Date,new DateOnly(2021,1,19));
+        Eq(resolver.Resolve("oe.ng[1]").Date,new DateOnly(2021,2,3));
+        for(var i=0;i<10000;i++)Eq(resolver.Resolve("oe.ng[0]").Date,new DateOnly(2021,1,19));
+        Eq(resolver.CompiledScheduleCount,1);
+        Eq(resolver.ParsedExpressionCount,2);
+        var selected=OpenEtrm.MarketData.CustomCurves.RecipeEngine.ScheduleDates([..DateWorkspace.Compile(uploaded.Definition).Dates],"on_or_after",new(2021,1,15),0,2,out var origin);
+        Eq(origin,1);Eq(selected[0],new DateOnly(2021,1,19));Eq(selected[1],new DateOnly(2021,2,3));
+        Eq(PublishedSchedules.Resolve([uploaded],"oe.ng[0]",context with{EffectiveOn="2021-01-19"}).Date,new DateOnly(2021,1,19));
+        Reject("date_index",()=>PublishedSchedules.Resolve([uploaded],"oe.ng[0]",context with{EffectiveOn="2021-03-01"}));
+        Console.WriteLine("Published schedule resolution and repeated lookup checks passed.");
     }
 }

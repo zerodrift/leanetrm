@@ -4,6 +4,12 @@ Status: design record, not implementation evidence.
 The architecture is in [architecture.md](architecture.md); delivery scope is in
 [plan.md](plan.md).
 
+Numbering note: two retained records use D271: the Blotter page-report layout in
+the requirements table (see [Blotter workbench](blotter-workbench.md)) and the
+later [fixed-volume physical crude decision](#d271--fixed-volume-physical-crude).
+References must include the subject to distinguish them; the two contracts are
+independent.
+
 ## Agreed requirements
 
 D215 authorizes the financial swap settlement MVP through S1–S6, with futures
@@ -1884,3 +1890,28 @@ Core relationships retain exact foreign keys, and capacity includes legacy
 onward reservations across purchases. No lot-selection policy is implicit.
 Allocation release, physical reversals, costing and post-delivery valuation are
 not part of this increment. See [physical crude operations](physical-crude-operations.md).
+
+### D283 — Saved schedules and symbolic date mappings
+
+Schedules own uploaded or generated dates. Idempotent import merges dates;
+correction and publication retain exact immutable versions. Date mappings name
+references into schedules and replace the misleading Contract definitions label.
+Actual instrument specifications remain in Futures reference data. Curves must
+have saved editable definitions, and demo instruments must originate in the
+schedule/mapping chain rather than attaching schedules to hardcoded contracts.
+
+The date-only prompt selection is the first date on or after the explicit context
+date. No independent roll rule or hourly support is introduced. Authorized
+request-scoped preparation reuses date sequences, parsed expressions and receipts.
+See [schedules and date mappings](schedules-and-contract-sequences.md#saved-schedules-and-date-mappings-d283)
+for local implementation status; the full authoring cutover remains in progress.
+
+## Dedicated Risk navigation
+
+The Risk directory is a separate Operations sidebar entry, using the existing
+portfolio-risk job list and exact retained job/report reads under their unchanged
+current authority checks. It is independent of the Blotter catalog read. Setup
+continues to use the Blotter risk panel; the existing shared infrastructure view
+remains the node-management entry point. This changes presentation only, not
+pricing, queue admission, deployment or worker placement. The assistant identifies
+the Risk page explicitly but has no read tool for its directory or reports.

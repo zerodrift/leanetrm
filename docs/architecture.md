@@ -735,13 +735,16 @@ Commodity is selected from the pinned reference catalogue and filters available
 floating indices/curves and compatible units. Exact quote/quantity references
 remain authoritative; selection does not silently convert units. Reset frequency,
 averaging method and payment frequency are separate financial terms. Current
-booking offers monthly/no-averaging and daily/arithmetic sampling and monthly
-payments only; broader calculation/payment grids require separate qualification.
+booking offers qualified monthly-index and daily observation conventions with
+monthly payments; broader calculation/payment grids require separate qualification.
 
-The local booking consumer persists one complete delivery month with one payment
-per side. It exposes monthly-index and equal daily-calendar projection rules;
-daily rows retain exact contracts and cash allocations before monthly aggregation.
-Other pure-core averaging strategies are not yet booking choices. Storage uses
+The single-period booking consumer persists one complete delivery month with one
+payment per side. The scheduled consumer retains one to 120 contiguous monthly
+periods per side with independent quantities, observations and payment rules.
+The managed six-mode observation catalog qualifies monthly and daily choices for
+the selected index/period; daily rows retain exact contracts and cash allocations
+before monthly aggregation. See [scheduled swaps](financial-swap-quantities.md).
+Storage uses
 immutable typed side definitions, exact reset references and explicit membership
 slots. The shared blotter separates projected swap PV from futures execution P&L.
 Draft swap quote risk and actual-versus-projected observation valuation are
@@ -749,8 +752,11 @@ supported. Managed monthly strips compose those existing side definitions and
 retain each payment's exact quantity allocation, curve lookup, discount factor
 and PV (D170). Their per-month, equal-total or calendar-day-weighted-total quantity
 basis is explicit; trade quantity scales the completed unit instrument once.
-The persisted booking/editor contract still supports one month. Actual fixing
-lifecycle events and settlement/payment processing are not implemented.
+D261 additionally admits a bounded exact dated-contract observation source.
+Enrolled financial swaps have trade-owned determinations, corrections, gross/net
+cash allocations, reversals and a P&L bridge under the explicit
+[settlement lifecycle](swap-settlement.md). Pure instrument pricing retains its
+due-payment guard. Futures margining and broader settlement remain separate work.
 
 The bounded [collected interval delivery-value operation](power-preview.md#collected-interval-delivery-value)
 connects an exact curve/source association to native power price history and the
@@ -2481,3 +2487,9 @@ the frontend presents its decision and values. Editor availability does not
 rewrite terms or authorize adoption of a newer index. Saved projection bindings
 currently belong to the trade contract and use its amendment operation. Market
 observation corrections continue through their existing context workflow.
+
+D283 makes saved date lists and symbolic date mappings the inputs to instrument
+and curve definitions. Dates resolve through a request-scoped shared resolver;
+product economics remain in reference data. See
+[schedules and date mappings](schedules-and-contract-sequences.md#saved-schedules-and-date-mappings-d283)
+for implemented behavior and remaining authoring work.

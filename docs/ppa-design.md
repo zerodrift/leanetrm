@@ -253,7 +253,7 @@ once per payment purpose; units, currencies and clocks are compatible; terms
 outside section 2 have no representation and are rejected.
 
 **Identity and fungibility** follow [architecture §3.1](architecture.md#31-definition-identity-and-versions)
-and [§3.4](architecture.md#34-explicit-sibling-side-references):
+and [§3.4](architecture.md#34-instrument-owned-connections-between-sides):
 
 - A side's identity is its canonical economic terms only. Labels, booked
   quantities, parties, booking facts and lifecycle state are excluded.

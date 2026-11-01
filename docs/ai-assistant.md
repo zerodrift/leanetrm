@@ -1,6 +1,11 @@
 # Page assistant, phase 1: local-preview core
 
-Status: design proposal; implementation follows §12. Step 2 is complete for the §7.3
+Status: bounded local implementation with hosted-pilot support. The rollout
+sequence is in §12; the checkpoint history below records how the current slice
+was assembled. Remaining phases are not implied by implemented read tools,
+provider adapters or the bounded custom-curve draft write.
+
+Step 2 is complete for the §7.3
 read tools: the market and reference page reads (`MarketReads`) and the schedule
 library, TOU product and power hour catalog reads (`ScheduleReads`), extracted under a
 page-view `PinnedContext` (a retained context, or working data that binds nothing), and

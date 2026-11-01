@@ -307,10 +307,13 @@ The bounded implementation now qualifies live quote-input overlays, affected-nod
 reuse, black-box unit execution, exact position differences, nested quote stresses
 and durable portfolio jobs in RSK01–07. The [risk engine](risk-engine.md) records
 their supported API, context and worker boundaries. Parameter/rate shocks,
-relative or derived-output curve shifts, distributed partitions of one run and
+relative shifts, distributed partitions of one run and
 full futures settlement PV remain work. Interactive portfolio risk and
 generated-close jobs share the mixed futures-and-swaps valuation adapter, while
-retaining their separate operation and publication contracts.
+retaining their separate operation and publication contracts. Computed-output
+absolute shifts are implemented alongside primitive quote shifts. Interactive and
+queued risk also admit supported PPA and crude positions; gas positions retain
+explicit exclusions, and automated gas/crude closes refuse.
 
 1. **Capture once.** Pin effective/knowledge context, definitions, actual/fixing
    state, numerical policy and model versions. Resolve every prompt alias to a

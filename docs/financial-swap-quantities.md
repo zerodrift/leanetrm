@@ -138,7 +138,8 @@ are bounded executable examples, not production or throughput qualification.
 Arbitrary interval-varying MW profiles, interval-price cash settlement, zero-weight
 observation conventions, stubs, other payment frequencies, bank dispatch and physical delivery booking remain
 unsupported. The enrolled swap lifecycle supports manual cash recording;
-standalone physical gas/power remains later scope.
+standalone physical power remains later scope. Bounded
+[physical gas booking](physical-gas-side.md) is implemented separately.
 
 Retained hourly quantity inspection reads the exact trade revision through a
 scoped bulk operation. All interval/amount/reference provenance must match the
@@ -148,8 +149,8 @@ is reported explicitly rather than leaving an unexplained empty selector. Fixing
 definitions must be supplied as versioned market data; existing projection-only
 contracts are never silently assigned a new fixing convention.
 
-Standalone physical gas/power booking is planned separately in the
-[physical booking plan](physical-energy-booking-plan.md).
+The [physical booking plan](physical-energy-booking-plan.md) separates implemented
+gas booking from broader physical gas/power delivery and settlement work.
 
 ## Qualified scheduled authoring (D216)
 
@@ -175,8 +176,9 @@ an explicit replacement. Required calendar controls remain available to repair a
 invalid calendar. All observation modes require a fresh, successful compatibility
 response before submission, including monthly and ordinary daily modes. Changing
 an index does not replace the selected forecast source with the ordinary curve.
-These controls do not add contract-relative futures sampling or nearby-offset
-booking; the separate contract-sequence preview remains outside this contract.
+D261 subsequently adds bounded exact-contract and prompt-offset sampling through
+the scheduled ticket; see [the source consumer](observation-price-scenarios.md#bounded-source-consumer).
+Broader source/calendar combinations remain unsupported.
 
 A common-term edit explicitly selects a source, target periods and quantity,
 price/spread, payment and/or observation/projection groups. Review names affected

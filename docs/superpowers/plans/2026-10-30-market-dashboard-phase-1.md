@@ -1,5 +1,12 @@
 # Market Dashboard Phase 1 Implementation Plan
 
+Status: historical implementation plan. Phase 1 has merged; the checklist below
+records the planned sequence, not current completion evidence. The actual schema
+uses 0139 for layouts, 0140 for risk definitions and 0141 for certified run knowledge.
+See [the current dashboard record](../../market-dashboard.md) for implemented
+behavior, verification and remaining work. Published migrations are immutable;
+subsequent schema changes require new migrations.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A Dashboard page with a per-user layout (Board or Morning), freshness footers, Latest levels and Price chart widgets from existing reads, and saved risk run definitions feeding a Positions widget.
@@ -18,7 +25,7 @@
 - Every business read carries the session's effective time and knowledge cutoff; access is checked under current permissions.
 - Synthetic data only. No Blotter file changes: `futures-view.ts`, `data-grid.ts`, `table-workspace.ts`, `desk-*.ts`.
 - Page budget: under one second from navigation to usable on the standard fixture (`tools/benchmark_pages.py`).
-- Migration numbers 0130/0131 are the next free numbers on this branch today. Use the next free numbers at implementation time if other work has taken them.
+- The original plan reserved 0130/0131; implementation used 0139/0140 and a separate 0141 for run knowledge.
 - Commits signed off (`git commit -s`), ending with the Co-Authored-By line. Nothing pushed without the user's approval.
 - Adversarial review before publication (temporal, async execution, authorization).
 
@@ -35,7 +42,7 @@
 ### Task 1: Dashboard layout storage
 
 **Files:**
-- Create: `db/migrations/0130_dashboard_layouts.sql`
+- Create: `db/migrations/0139_dashboard_layouts.sql`
 - Create: `src/OpenEtrm.Api/DashboardLayouts.cs`
 - Modify: `src/OpenEtrm.Api/Program.cs` (map endpoints next to `/table-views/blotter`, line ~973)
 - Create: `tools/check_dashboard_layout.py`
@@ -67,7 +74,7 @@
   Run: `python3 tools/run_preview.py --check`
   Expected: FAIL at `account starts without a dashboard` (404).
 
-- [ ] **Step 3: Write migration `0130_dashboard_layouts.sql`**
+- [ ] **Step 3: Write migration `0139_dashboard_layouts.sql`**
   `presentation.dashboard_layouts(tenant_id, workspace_id, principal_id, version uuid, layout jsonb)` with one row per account (primary key on the three ids), and `presentation.dashboard_layout_requests(tenant_id, workspace_id, principal_id, request_id, body_hash bytea, response jsonb)` for idempotent replay. Row security and a `security.dashboard_identity()` helper exactly as `0012_account_table_views.sql`, but requiring `ReadMarketData` instead of `ReadTrades`.
 
 - [ ] **Step 4: Implement `DashboardLayouts.Validate/Read/Save` in `DashboardLayouts.cs`**
@@ -86,7 +93,7 @@
 ### Task 2: Risk run definition storage
 
 **Files:**
-- Create: `db/migrations/0131_risk_run_definitions.sql`
+- Create: `db/migrations/0140_risk_run_definitions.sql`
 - Create: `src/OpenEtrm.Api/RiskRunDefinitions.cs`
 - Modify: `src/OpenEtrm.Api/Program.cs` (next to `/portfolio/risk/jobs`, line ~1237)
 - Create: `tools/check_risk_run_definitions.py`; Modify: `tools/run_preview.py`
@@ -118,7 +125,7 @@
 
 - [ ] **Step 2: Run to verify it fails** — `python3 tools/run_preview.py --check`; Expected: FAIL (404).
 
-- [ ] **Step 3: Write migration `0131_risk_run_definitions.sql`** as specified above, with foreign keys only (no JSON relationships) and a trigger refusing UPDATE/DELETE on version rows.
+- [ ] **Step 3: Write migration `0140_risk_run_definitions.sql`** as specified above, with foreign keys only (no JSON relationships) and a trigger refusing UPDATE/DELETE on version rows.
 
 - [ ] **Step 4: Implement `RiskRunDefinitions.Save/List`**; map the endpoints under `RunScenario`.
 
@@ -134,7 +141,7 @@
 
 **Files:**
 - Modify: `src/OpenEtrm.Api/RiskRunDefinitions.cs`, `src/OpenEtrm.Api/Program.cs`
-- Modify: `db/migrations/0131_risk_run_definitions.sql`: add `risk.definition_runs(run_id primary key, definition_id, version, catalog_id, context_id, created_at)` and `risk.definition_run_jobs(run_id, part, job_id → risk.jobs)`. The migration is unpublished, so it can still be edited.
+- Modify: `db/migrations/0140_risk_run_definitions.sql`: add `risk.definition_runs(run_id primary key, definition_id, version, catalog_id, context_id, created_at)` and `risk.definition_run_jobs(run_id, part, job_id → risk.jobs)`. This was planned before publication; subsequent changes to the published schema require a new migration.
 - Modify: `tools/check_risk_run_definitions.py`
 
 **Interfaces:**

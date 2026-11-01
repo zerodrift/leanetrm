@@ -264,7 +264,7 @@ public static partial class CustomCurves
                     var exactSchedule=await scheduleStore.ReadPublishedAt(connection,schedule.Id,schedule.Version,
                         context??throw Invalid("An exact schedule requires its resolved historical context."),ct);
                     var retained=exactSchedule.Version;
-                    var compiled=PublishedSchedules.Compile(retained.Definition,retained.EngineVersion,retained.ResolvedCalendar);
+                    var compiled=PublishedSchedules.Compile(retained);
                     var first=int.Parse(node.Parameters["first"],CultureInfo.InvariantCulture);var length=int.Parse(node.Parameters["count"],CultureInfo.InvariantCulture);
                     dates[node.Id]=RecipeEngine.ScheduleDates([..compiled.Dates],retained.Selection,day,first,length,out var origin);
                     schedulePins.Add(new(node.Id,schedule.CatalogId,schedule.Id,schedule.Version,retained.EngineVersion,

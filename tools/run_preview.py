@@ -147,7 +147,7 @@ def main():
         parser.error('--with-ppa is an interactive standard-fixture option; use --ppa-check for verification')
     if args.with_custom_curves and args.example!='standard':
         parser.error('--with-custom-curves requires the standard fixture')
-    if not args.check and args.example=='standard': args.with_ppa=True
+    # Interactive dates-first demos admit optional markets only when explicitly requested.
     bins = {n: args.pg_bin.resolve()/n for n in ('initdb','pg_ctl','psql')}
     dotnet = args.dotnet.resolve()
     for binary in [dotnet,*bins.values()]:
@@ -214,7 +214,9 @@ def main():
             from mixed_preview_fixture import fixture as mixed_fixture
             reference,market,security,manifest=mixed_fixture(export)
         else:
-            reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames)
+            from demo_date_plan import compile_plan
+            date_plan=compile_plan(dotnet,dll,temporary) if not args.check else None
+            reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             if (args.assistant_check or args.provider_adapters_check) and migration.name=='0105_model_identifier_policy.sql':
                 from check_model_versions import check_identifier_policy_upgrade
@@ -535,6 +537,10 @@ def main():
                 subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
             return run
         if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
+            if not args.check and date_plan is not None:
+                from demo_date_plan import verify_instrument_dates
+                count=verify_instrument_dates(query,date_plan,manifest['catalogId'],manifest['revisionId'])
+                print(f'Verified {count} demo contracts and rate pillars against source schedule dates.',flush=True)
             from seed_preview_positions import seed_positions
             seed_positions(url,run_id,temporary)
             from seed_preview_swaps import seed_swaps
@@ -548,7 +554,7 @@ def main():
             if not args.check:
                 from seed_schedule_examples import seed_schedule_examples
                 seed_schedule_examples(url,run_id,temporary)
-                print('Published the synthetic monthly gas date schedule; daily power contract dates are backend-loadable session candidates.',flush=True)
+                print('Published date mappings and verified them against the schedule receipts used to compile demo instruments.',flush=True)
                 from delivery_price_seed import seed as seed_delivery_prices
                 seed_delivery_prices(query,manifest)
                 print('Collected seven synthetic days of hourly and quarter-hour delivery prices, including the 2026-11-01 fall-back day.',flush=True)

@@ -1,6 +1,6 @@
 # Markets desk
 
-Status: implemented on the markets desk branch, with the follow-ups listed
+Status: implemented in the local mainline preview, with the follow-ups listed
 under [Remaining work](#remaining-work). The decisions it introduces are D231 to
 D235 in [decisions.md](decisions.md). Its capability is recorded in
 [implementation.md](implementation.md) and verified by the browser and backend
@@ -9,8 +9,8 @@ checks named under Verification; the page benchmark covers all three pages.
 ## Why
 
 The Blotter became a desk ([blotter-desk.md](blotter-desk.md)): summary tiles,
-charts, grouped rows and a side panel beside them. The Markets pages still use
-the older layout:
+charts, grouped rows and a side panel beside them. Before this implementation,
+the Markets pages used the older layout described below:
 
 - **Curves & prices** opens on an empty "Select a curve" card. Its summary strip
   counts contracts and picks the front contract in the browser from the order

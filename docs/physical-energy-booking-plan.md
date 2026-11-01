@@ -1,9 +1,14 @@
 # Standalone physical energy booking plan
 
-This is a separate planned consumer of delivery obligations and operational
-settlement. It is not a prerequisite for financial gas swaps or cash-settled
-power swaps whose MW is integrated into an agreed energy payment basis. No
-standalone physical booking capability is established by this plan.
+This plan specifies broader standalone gas/power delivery obligations and
+operational settlement. Bounded [physical gas booking](physical-gas-side.md),
+[contractual quantities](physical-gas-quantities.md) and
+[daily quantity revisions](physical-gas-daily-quantities.md) are implemented;
+physical gas completion, settlement and standalone physical power booking remain
+work. [PPA booking](demo-instruments.md) and bounded
+[physical crude booking/operations](physical-crude.md) have separate contracts.
+These physical workflows are not prerequisites for financial gas swaps or
+cash-settled power swaps whose MW is integrated into an agreed energy payment basis.
 
 The common design retains Instrument → Side → SideSchedule. A delivery side owns
 explicit delivery obligations; a cash side owns the contractual link from those
@@ -19,7 +24,7 @@ calculations. Nomination, meter revisions, delivered/undelivered amounts and
 operational exceptions require explicit retained records and authorized operations.
 A forecast or current PV is not evidence of completed delivery.
 
-The first physical gas contract should specify delivery location, exact gas-day
+The broader physical gas contract must specify delivery location, exact gas-day
 boundary and pinned clock, total-period quantity versus a declared daily rate,
 nomination/confirmation, measurement basis and any consumed quality/conversion
 inputs. Energy and standard-volume quantities need an explicit versioned
