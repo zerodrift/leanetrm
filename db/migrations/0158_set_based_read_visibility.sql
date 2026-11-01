@@ -1,30 +1,13 @@
--- Prototype: row security asks once per statement for the set a request may see, instead of running the
--- visibility and authority chain for every row. Each set function returns exactly the arguments for which
--- the per-row function it replaces in read rules returns true, under the request bound to this transaction.
+-- Read rules decide visibility and authority once per statement (D282) instead of running the per-row visibility
+-- and authority chain for every row. Each set function returns exactly the arguments for which the per-row function
+-- it replaces in read rules returns true, under the request bound to this transaction. A cursor keeps the sets its
+-- first fetch decided until it closes, within the request's authority deadline.
 BEGIN;
 SELECT pg_advisory_xact_lock(730849102);
+SET LOCAL search_path=pg_catalog;
 
--- The instant until which the bound request's authority for a permission holds: the earliest of every time
--- bound the per-row checks test (token expiry, the grants that give the permission, an agent's delegation and
--- its delegator's grants, a pilot run's lease, deadline and job expiry). A statement decides its visible sets
--- once and each row compares the clock with this instant, so authority that ends mid-statement denies the rows
--- read after it. Overlapping later grants are not chained: the cutoff may come earlier, never later.
-CREATE FUNCTION security.authority_until(permission text) RETURNS timestamptz
- LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE c security.request_contexts;d security.agent_delegations;checked timestamptz=clock_timestamp();until timestamptz;
-BEGIN
- SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
- IF c.id IS NULL THEN RETURN '-infinity';END IF;
- until=least(c.expires_at,security.grant_until(c.actor_id,c.tenant_id,c.workspace_id,permission,checked));
- IF c.delegation_id IS NOT NULL THEN
-  SELECT * INTO d FROM security.agent_delegations WHERE id=c.delegation_id;
-  until=least(until,d.granted_to,security.grant_until(d.delegator_id,c.tenant_id,c.workspace_id,permission,checked),
-   security.grant_until(d.delegator_id,c.tenant_id,c.workspace_id,'CreateDelegations',checked));
- END IF;
- RETURN least(until,(SELECT least(r.lease_until,r.deadline_at,j.expires_at) FROM automation.pilot_run_contexts p
-  JOIN automation.runs r ON r.id=p.run_id JOIN automation.jobs j ON j.id=r.job_id WHERE p.context_id=c.id));
-END$$;
--- The latest end of the principal's grants that give a permission and are in force now; -infinity without one.
+-- The latest end of the principal's grants that give a permission and are in force at an instant; -infinity without
+-- one. Only authority_until calls it: it reads any principal's grants, so no client role may execute it.
 CREATE FUNCTION security.grant_until(actor uuid,tenant uuid,workspace uuid,permission text,checked timestamptz) RETURNS timestamptz
  LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
  SELECT coalesce(max(g.granted_to),'-infinity') FROM security.principals p JOIN security.workspace_memberships m ON m.principal_id=p.id
@@ -33,6 +16,46 @@ CREATE FUNCTION security.grant_until(actor uuid,tenant uuid,workspace uuid,permi
  WHERE p.id=actor AND p.enabled AND m.enabled AND m.tenant_id=tenant AND m.workspace_id=workspace
   AND NOT g.revoked AND g.granted_from<=checked AND checked<g.granted_to AND rp.permission=grant_until.permission;
 $$;
+
+-- The instant until which the bound request's authority for a permission holds: the earliest of every time bound the
+-- per-row checks test. For any request: the token's expiry and the grants that give the permission; for an agent, its
+-- delegation and its delegator's grants, CreateDelegations included. For a pilot run, also its lease, deadline and job
+-- expiry, and, for every permission the run's operation requires, the job owner's, the scheduler service's and the job
+-- delegator's grants with the job delegation's window. Each row compares the clock with this instant, so authority that
+-- ends within a statement denies the rows read after it. Overlapping later grants are not chained: the cutoff may come
+-- earlier, never later.
+CREATE FUNCTION security.authority_until(permission text) RETURNS timestamptz
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c security.request_contexts;d security.agent_delegations;checked timestamptz=clock_timestamp();until timestamptz;
+ run record;jd security.agent_delegations;required text;
+BEGIN
+ SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ IF c.id IS NULL THEN RETURN '-infinity';END IF;
+ until=least(c.expires_at,security.grant_until(c.actor_id,c.tenant_id,c.workspace_id,permission,checked));
+ IF c.delegation_id IS NOT NULL THEN
+  SELECT * INTO d FROM security.agent_delegations WHERE id=c.delegation_id;
+  until=least(until,coalesce(d.granted_to,'-infinity'),security.grant_until(d.delegator_id,c.tenant_id,c.workspace_id,permission,checked),
+   security.grant_until(d.delegator_id,c.tenant_id,c.workspace_id,'CreateDelegations',checked));
+ END IF;
+ SELECT j.*,r.lease_until,r.deadline_at,w.principal_id service INTO run FROM automation.pilot_run_contexts p
+  JOIN automation.runs r ON r.id=p.run_id JOIN automation.jobs j ON j.id=r.job_id JOIN automation.workers w ON w.login=p.worker_login
+  WHERE p.context_id=c.id;
+ IF NOT FOUND THEN RETURN until;END IF;
+ until=least(until,run.lease_until,run.deadline_at,run.expires_at);
+ IF run.delegation_id IS NOT NULL THEN
+  SELECT * INTO jd FROM security.agent_delegations WHERE id=run.delegation_id;
+  until=least(until,coalesce(jd.granted_to,'-infinity'),security.grant_until(jd.delegator_id,run.tenant_id,run.workspace_id,'CreateDelegations',checked));
+ END IF;
+ FOREACH required IN ARRAY CASE run.operation WHEN 'close_book_risk_v1' THEN ARRAY['RunJobs','ReadMarketData','ReadTrades','RunValuation','RunScenario']
+  ELSE automation.pilot_permissions() END LOOP
+  until=least(until,security.grant_until(run.owner_id,run.tenant_id,run.workspace_id,required,checked),
+   security.grant_until(run.service,run.tenant_id,run.workspace_id,required,checked));
+  IF run.delegation_id IS NOT NULL THEN
+   until=least(until,security.grant_until(jd.delegator_id,run.tenant_id,run.workspace_id,required,checked));
+  END IF;
+ END LOOP;
+ RETURN until;
+END$$;
 
 -- The request's catalogs for a permission: market_access(catalog, permission) for every catalog.
 CREATE FUNCTION security.market_catalogs(permission text) RETURNS SETOF uuid
@@ -162,6 +185,7 @@ BEGIN
 END$$;
 
 -- side_schedule_visible(catalog, schedule) for every schedule, from the sets above rather than per-schedule checks.
+-- Called directly, it lists the identities of the schedules the request may see, including any without readable rows.
 CREATE FUNCTION security.visible_side_schedules() RETURNS TABLE(catalog uuid, schedule uuid)
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE as_of timestamptz=security.request_trading_as_of();
@@ -185,21 +209,23 @@ END$$;
 DO $$ DECLARE f text; BEGIN
  FOREACH f IN ARRAY ARRAY['security.market_catalogs(text)','security.reference_catalogs(text)','security.trading_catalogs(text)',
   'security.request_market_cut()','security.visible_reference_revisions()','security.visible_market_revisions()','security.visible_trading_publications()','security.request_trading_as_of()',
-  'security.visible_observations()','security.visible_side_schedules()','security.authority_until(text)',
-  'security.grant_until(uuid,uuid,uuid,text,timestamptz)'] LOOP
+  'security.visible_observations()','security.visible_side_schedules()','security.authority_until(text)'] LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f);
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f);
   EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime,openetrm_risk_worker',f);
  END LOOP;
+ ALTER FUNCTION security.grant_until(uuid,uuid,uuid,text,timestamptz) OWNER TO openetrm_security_owner;
+ REVOKE ALL ON FUNCTION security.grant_until(uuid,uuid,uuid,text,timestamptz) FROM PUBLIC;
 END $$;
 
--- Every read rule that calls one of the per-row checks asks the statement's set instead. The rules are
--- printed and rewritten in UTC so their timestamp constants keep their instants.
+-- Every read rule that calls one of the per-row checks asks the statement's set instead; write rules keep
+-- their per-row checks. The rules are printed and rewritten in UTC so their timestamp constants keep their
+-- instants, and the migration fails if any read rule still calls a per-row check.
 SET LOCAL TimeZone='UTC';
 SET LOCAL DateStyle='ISO, YMD';
 DO $$ DECLARE p record; e text; BEGIN
  FOR p IN SELECT polname,polrelid::regclass t,pg_get_expr(polqual,polrelid) q FROM pg_policy
-  WHERE pg_get_expr(polqual,polrelid) ~ 'security\.(reference_version_visible|market_fact_visible|trading_visible|market_access|reference_access|trading_access|side_schedule_visible)\(' LOOP
+  WHERE polcmd IN('r','*') AND pg_get_expr(polqual,polrelid) ~ 'security\.(reference_version_visible|market_fact_visible|trading_visible|market_access|reference_access|trading_access|side_schedule_visible)\(' LOOP
   e=regexp_replace(p.q,'security\.market_fact_visible\(([a-z_.]+), ([a-z_.]+), ([a-z_.]+)\)',
     'COALESCE((\1, \2, \3) IN (SELECT v.catalog, v.revision, v.observation FROM security.visible_observations() v) AND clock_timestamp() < (SELECT security.authority_until(''ReadMarketData'')), false)','g');
   e=regexp_replace(e,'security\.side_schedule_visible\(([a-z_.]+), ([a-z_.]+)\)',
@@ -217,5 +243,7 @@ DO $$ DECLARE p record; e text; BEGIN
     'COALESCE(\2 IN (SELECT security.\1_catalogs(\3)) AND clock_timestamp() < (SELECT security.authority_until(\3)), false)','g');
   EXECUTE format('ALTER POLICY %I ON %s USING (%s)',p.polname,p.t,e);
  END LOOP;
+ IF EXISTS(SELECT 1 FROM pg_policy WHERE polcmd IN('r','*') AND pg_get_expr(polqual,polrelid) ~ '(reference_version_visible|market_fact_visible|trading_visible|market_access|reference_access|trading_access|side_schedule_visible)\(')
+ THEN RAISE EXCEPTION 'A read rule still calls a per-row visibility or authority check';END IF;
 END $$;
 COMMIT;

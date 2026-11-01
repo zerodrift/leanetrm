@@ -374,8 +374,10 @@ The guarded market-read policy change was also qualified on stock PostgreSQL
 decision per statement, and each row compares the clock with that authority's
 end; a 30-row scan computes each set once. Same-context rows remain identical.
 Checks cover current scope and role revocation, disabled principals, expiry
-between reads within one statement, additional permissive policies, unexpected
-migration prerequisites and transactional rollback.
+between reads within one statement and within one scan, each statement set
+accepting exactly what its per-row function accepts over every row for current,
+bound, trading-bound and write-profile requests, additional permissive policies,
+unexpected migration prerequisites and transactional rollback.
 
 On a 2026-11-01 physical copy of the hosted pilot database (stock PostgreSQL
 16.14 on Linux, schema 0157), reads under one bound request with current knowledge

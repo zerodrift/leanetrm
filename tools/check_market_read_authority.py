@@ -45,7 +45,7 @@ def run_checks(query, manifest):
       SELECT count(*)=16 AND bool_and(p.permissive='PERMISSIVE' AND p.roles=ARRAY['openetrm_runtime']::name[]
        AND p.cmd='SELECT' AND p.qual='true' AND p.with_check IS NULL
        AND t.permissive='RESTRICTIVE' AND t.roles=p.roles AND t.cmd='SELECT' AND t.with_check IS NULL
-       AND regexp_replace(t.qual,'\s+',' ','g')=CASE p.tablename
+       AND regexp_replace(t.qual,'\\s+',' ','g')=CASE p.tablename
         WHEN 'revisions' THEN 'COALESCE((((catalog_id, id) IN ( SELECT v.catalog, v.revision FROM security.visible_market_revisions() v(catalog, revision))) AND (clock_timestamp() < ( SELECT security.authority_until(''ReadMarketData''::text) AS authority_until))), false)'
         WHEN 'observations' THEN 'COALESCE((((catalog_id, definition_revision_id, id) IN ( SELECT v.catalog, v.revision, v.observation FROM security.visible_observations() v(catalog, revision, observation))) AND (clock_timestamp() < ( SELECT security.authority_until(''ReadMarketData''::text) AS authority_until))), false)'
         ELSE 'COALESCE((((catalog_id, revision_id) IN ( SELECT v.catalog, v.revision FROM security.visible_market_revisions() v(catalog, revision))) AND (clock_timestamp() < ( SELECT security.authority_until(''ReadMarketData''::text) AS authority_until))), false)' END
@@ -54,7 +54,7 @@ def run_checks(query, manifest):
       JOIN pg_class c ON c.oid=('market_data.'||quote_ident(p.tablename))::regclass
       WHERE p.schemaname='market_data' AND p.tablename IN({tables})
        AND p.policyname='scoped_read' AND t.policyname='temporal_read';""")=='t')
-    check('catalog-only access remains independently scoped',query("SELECT regexp_replace(qual,'\s+',' ','g')='COALESCE(((id IN ( SELECT security.market_catalogs(''ReadMarketData''::text) AS market_catalogs)) AND (clock_timestamp() < ( SELECT security.authority_until(''ReadMarketData''::text) AS authority_until))), false)' FROM pg_policies WHERE schemaname='market_data' AND tablename='catalogs' AND policyname='scoped_read';")=='t')
+    check('catalog-only access remains independently scoped',query("SELECT regexp_replace(qual,'\\s+',' ','g')='COALESCE(((id IN ( SELECT security.market_catalogs(''ReadMarketData''::text) AS market_catalogs)) AND (clock_timestamp() < ( SELECT security.authority_until(''ReadMarketData''::text) AS authority_until))), false)' FROM pg_policies WHERE schemaname='market_data' AND tablename='catalogs' AND policyname='scoped_read';")=='t')
     check('current working rows remain authorized',query(runtime(count))=='30')
     check('the exact retained bundle remains authorized',query(runtime(count,context))=='30')
     total = 'SELECT sum(n) FROM('+' UNION ALL '.join('SELECT count(*) n FROM market_data.'+name for name in TABLES)+')q;'
@@ -87,8 +87,49 @@ def run_checks(query, manifest):
       IF n=2 THEN PERFORM pg_sleep(2.1);END IF;
       RETURN EXISTS(SELECT 1 FROM market_data.contracts WHERE catalog_id='{catalog}' AND revision_id='{revision}' AND id=(ARRAY['{ids[0]}'::uuid,'{ids[1]}'::uuid])[n]);END$$;
       SELECT array_agg(pg_temp.read_market_after_pause(n) ORDER BY n) FROM generate_series(1,2)n;"""
+    # One scan, so the statement's sets are decided once: the first row read pauses past the token's expiry,
+    # and the second row is denied by the per-row clock cutoff alone.
+    scan=f"""CREATE FUNCTION pg_temp.pause_once() RETURNS boolean LANGUAGE plpgsql VOLATILE AS $$BEGIN
+      IF current_setting('check.paused',true) IS DISTINCT FROM '1' THEN PERFORM set_config('check.paused','1',true);PERFORM pg_sleep(2.1);END IF;
+      RETURN true;END$$;
+      SELECT count(*) FROM market_data.contracts WHERE catalog_id='{catalog}' AND revision_id='{revision}'
+       AND id=ANY(ARRAY['{ids[0]}'::uuid,'{ids[1]}'::uuid]) AND pg_temp.pause_once();"""
     for mode in ['force_custom_plan','force_generic_plan']:
         for selected,name in [(None,'current'),(context,'retained')]:
             result=query(runtime(f'SET LOCAL plan_cache_mode={mode};'+delayed,selected,seconds=2))
             check(name+' real RLS rechecks token expiry within one statement under '+mode,result=='{t,f}')
+            result=query(runtime(f'SET LOCAL plan_cache_mode={mode};'+scan,selected,seconds=2))
+            check(name+' authority ending within one scan denies the rows read after it under '+mode,result=='1')
+
+    # Each statement set accepts exactly what its per-row function accepts, over every row of its table, for a current,
+    # a bound, a trading-bound and a write-profile request. Candidates are copied before the request binds, so row
+    # security cannot hide the rows the two decisions are compared on.
+    pairs=[('market_data.revisions','security.market_fact_visible(r.catalog_id,r.id,NULL)',
+            'COALESCE((r.catalog_id,r.id) IN (SELECT v.catalog,v.revision FROM security.visible_market_revisions() v),false)',True),
+           ('ref_data.revisions','security.reference_version_visible(r.catalog_id,r.id)',
+            'COALESCE((r.catalog_id,r.id) IN (SELECT v.catalog,v.revision FROM security.visible_reference_revisions() v),false)',True),
+           ('market_data.observations','security.market_fact_visible(r.catalog_id,r.definition_revision_id,r.id)',
+            'COALESCE((r.catalog_id,r.definition_revision_id,r.id) IN (SELECT v.catalog,v.revision,v.observation FROM security.visible_observations() v),false)',True),
+           ('trading.instruments','security.trading_visible(r.catalog_id,r.publication_order,r.effective_at)',
+            'COALESCE((r.catalog_id,r.publication_order) IN (SELECT v.catalog,v.ordinal FROM security.visible_trading_publications() v) AND r.effective_at<=(SELECT security.request_trading_as_of()),false)',False),
+           ('trading.side_schedule_publications','security.side_schedule_visible(r.catalog_id,r.schedule_id)',
+            'COALESCE((r.catalog_id,r.schedule_id) IN (SELECT v.catalog,v.schedule FROM security.visible_side_schedules() v),false)',False)]
+    for permission in ['ReadMarketData','WriteMarketDefinitions','SealMarketDefinitions']:
+        pairs.append(('market_data.catalogs',f"security.market_access(r.id,'{permission}')",f"COALESCE(r.id IN (SELECT security.market_catalogs('{permission}')),false)",permission=='ReadMarketData'))
+    for permission in ['ReadMarketData','WriteReferenceData']:
+        pairs.append(('ref_data.catalogs',f"security.reference_access(r.id,'{permission}')",f"COALESCE(r.id IN (SELECT security.reference_catalogs('{permission}')),false)",permission=='ReadMarketData'))
+    pairs.append(('market_data.catalogs',"security.trading_access(r.id,'ReadTrades')","COALESCE(r.id IN (SELECT security.trading_catalogs('ReadTrades')),false)",False))
+    copies=''.join(f"CREATE TEMP TABLE candidates_{n} ON COMMIT DROP AS SELECT * FROM {table};GRANT SELECT ON candidates_{n} TO PUBLIC;"
+                   for n,(table,_,_,_) in enumerate(pairs))
+    compare=''.join(f"SELECT 'PAIR|{n}|'||count(*) FILTER(WHERE ({old}) IS DISTINCT FROM ({new}))||'|'||count(*) FILTER(WHERE {old}) FROM candidates_{n} r;"
+                    for n,(_,old,new,_) in enumerate(pairs))
+    trading=f"SELECT security.use_trading_context('{catalog}','2020-12-17T23:00:00Z');"
+    for name,selected,profile,extra in [('current',None,'viewer',''),('bound',context,'viewer',''),('trading-bound',context,'trader',trading),('editor',None,'editor','')]:
+        lines=[l for l in query(runtime(extra+compare,selected,profile=profile,prefix=copies)).splitlines() if l.startswith('PAIR|')]
+        assert len(lines)==len(pairs),lines
+        for line in lines:
+            n,differing,accepted=map(int,line.split('|')[1:])
+            table,old,_,populated=pairs[n]
+            check(f'{name} request: the statement set for {old.split("(")[0]} on {table} accepts exactly its per-row function '
+                  f'(differing={differing}, accepted={accepted})',differing==0 and (accepted>0 or not populated))
     print(f'{passed} market authority checks passed.',flush=True)
