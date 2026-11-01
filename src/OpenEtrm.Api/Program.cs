@@ -18,6 +18,8 @@ using OpenEtrm.MarketData;
 if(args.Length>0&&args[0]=="--import-reference"){Environment.ExitCode=await ReferenceImportCommand.Run(args[1..]);return;}
 if(args.Length>0&&args[0]=="--capture-reference"){Environment.ExitCode=await ReferenceCaptureCommand.Run(args[1..]);return;}
 
+if(args is ["--compile-date-seed",var dateSeedInput,var dateSeedOutput]){DateSeedCommand.Run(dateSeedInput,dateSeedOutput);return;}
+
 if(args is ["--render-power-days",var calendarInput,var calendarOutput]){PowerDayCalendar.Run(calendarInput,calendarOutput);return;}
 
 if(args.Length>0 && args[0]=="--collect-power"){Environment.ExitCode=await PowerCollection.Run(args[1..]);return;}
@@ -728,7 +730,9 @@ api.MapGet("/date-schedules",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,sessi
 },c.RequestAborted))));
 api.MapPost("/date-schedules/preview",(HttpContext c,DateSchedulePreviewRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(DateWorkspace.Compile(body.Definition??throw new TemporalException("schedule_definition","Supply an explicit schedule definition."),
-        await scheduleStore.Calendar(connection,body.Calendar,ct)))));
+        body.Definition is {Dates:not null}&&body.Calendar is null?null:await scheduleStore.Calendar(connection,body.Calendar,ct)))));
+api.MapPost("/date-schedules/import",(HttpContext c,ScheduleImportRequest body)=>DateOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>
+    Results.Ok(await ScheduleImports.Import(connection,scheduleStore,body,ct))));
 api.MapPost("/date-schedules/save",(HttpContext c,ScheduleSaveRequest body)=>DateOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>
     Results.Ok(await scheduleStore.Save(connection,body,ct))));
 api.MapPost("/date-schedules/publish",(HttpContext c,SchedulePublishRequest body)=>DateOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>

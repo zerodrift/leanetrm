@@ -17,8 +17,8 @@ public sealed record ReferenceCalendar(CalendarReference Reference,DateOnly Cove
         .Select(bit=>((DayOfWeek)((bit+1)%7)).ToString());
 }
 public sealed record MonthlyDraft(string? Name,string? Symbol,string? FirstMonth,string? LastMonth,string? Anchor,
-    int? Day,string? ShortMonth,string? Adjustment,CalendarDraft? Calendar);
-public sealed record MonthlySaved(MonthlyDraft Definition,ImmutableList<MonthlyOccurrence> Dates,[property: System.Text.Json.Serialization.JsonIgnore] DateSet BusinessDays);
+    int? Day,string? ShortMonth,string? Adjustment,CalendarDraft? Calendar,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ImmutableList<string>? Dates=null);
+public sealed record MonthlySaved(MonthlyDraft Definition,ImmutableList<MonthlyOccurrence> Dates,[property: System.Text.Json.Serialization.JsonIgnore] DateSet? BusinessDays);
 public sealed record DateExpressionRequest(string? Expression,string? At,CalendarDraft? RollingCalendar);
 public sealed record DateReceipt(string Expression,DateOnly Date,string Symbol,int? Index,int? BusinessDays,
     CalendarDraft? Calendar,object Source);
@@ -75,7 +75,7 @@ public sealed class DateWorkspace
         ("clamp","Use that month’s last day",ShortMonth.Clamp),("not_applicable","Not applicable · month-end anchor",ShortMonth.NotApplicable)];
     private static readonly (string Code,string Name,DateRoll Value)[] AdjustmentRules=[("unadjusted","Unadjusted",DateRoll.Unadjusted),("following","Following",DateRoll.Following),
         ("preceding","Preceding",DateRoll.Preceding),("modified_following","Modified following",DateRoll.ModifiedFollowing),("modified_preceding","Modified preceding",DateRoll.ModifiedPreceding)];
-    public static readonly (string Code,string Name)[] SelectionRules=[("context_month","Context month · [0] = this month"),("absolute_index","Fixed occurrences · [0] = first date")];
+    public static readonly (string Code,string Name)[] SelectionRules=[("on_or_after","Next date · [0] = first date on or after context"),("context_month","Context month · [0] = this month"),("absolute_index","Fixed occurrences · [0] = first date")];
     public static object Choices => new {
         anchors=AnchorRules.Select(r=>new {code=r.Code,name=r.Name}),shortMonths=ShortMonthRules.Select(r=>new {code=r.Code,name=r.Name}),
         adjustments=AdjustmentRules.Select(r=>new {code=r.Code,name=r.Name}),selections=SelectionRules.Select(r=>new {code=r.Code,name=r.Name})};
@@ -93,6 +93,16 @@ public sealed class DateWorkspace
         if(string.IsNullOrWhiteSpace(request.Name)||request.Name.Length>80 || request.Symbol is null ||
             !Regex.IsMatch(request.Symbol,@"\Aoe\.[a-z][a-z0-9_]{0,31}\z",RegexOptions.CultureInvariant))
             throw Error("monthly_definition","Name the schedule and give it a lowercase oe.shortcut.");
+        if(request.Dates is {} explicitDates)
+        {
+            if(!string.IsNullOrEmpty(request.FirstMonth)||!string.IsNullOrEmpty(request.LastMonth)||!string.IsNullOrEmpty(request.Anchor)||request.Day is not null||!string.IsNullOrEmpty(request.ShortMonth)||!string.IsNullOrEmpty(request.Adjustment))
+                throw Error("schedule_definition","Choose a date list or generation rules, not both.");
+            if(explicitDates.Count is <1 or >2000)throw Error("schedule_definition","Supply 1–2,000 dates.");
+            var dates=explicitDates.Select(Date).ToArray();
+            if(!dates.SequenceEqual(dates.Distinct().Order()))throw Error("schedule_definition","Saved dates must be unique and ordered.");
+            var businessDays=reference is null?(request.Calendar is null?null:Calendar(request.Calendar)):Calendar(reference);
+            return new(request,dates.Select(d=>new MonthlyOccurrence(new(d.Year,d.Month,1),d,d)).ToImmutableList(),businessDays);
+        }
         DateOnly Month(string? text)=>text?.Length==7?Date(text+"-01"):throw Error("monthly_definition","Choose explicit first and last months.");
         var anchor=Rule(AnchorRules,request.Anchor,"monthly_definition","Choose a monthly anchor.");
         var shortMonth=Rule(ShortMonthRules,request.ShortMonth,"monthly_definition","Choose a short-month policy.");
@@ -120,7 +130,7 @@ public sealed class DateWorkspace
         {
             if(reference.Index is not int index || index>=schedule.Dates.Count)throw Error("date_index","Select a zero-based occurrence within the schedule.");
             date=schedule.Dates[index].Date;source=schedule.Definition;calendar=schedule.Definition.Calendar;
-            if(reference.BusinessDays is int count)date=DateRolling.Advance(date,schedule.BusinessDays,count);
+            if(reference.BusinessDays is int count)date=DateRolling.Advance(date,schedule.BusinessDays??throw Error("calendar_reference","Business-day offsets require an explicit calendar."),count);
         }
         else
         {

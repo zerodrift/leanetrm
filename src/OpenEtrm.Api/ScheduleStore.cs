@@ -7,7 +7,6 @@ namespace OpenEtrm.Api;
 
 public sealed class ScheduleStore(Guid catalog,Guid referenceCatalog,Guid referenceRevision)
 {
-    private const string Engine="date_schedule_v2";
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     internal static NpgsqlCommand Command(NpgsqlConnection connection,string sql,params object[] args)
     {
@@ -68,12 +67,19 @@ WHERE(v.catalog_id,v.schedule_id,v.version)=($1,$2,$3) AND v.state='published'
     }
     public async Task<ScheduleVersion> Save(NpgsqlConnection connection,ScheduleSaveRequest body,CancellationToken ct)
     {
-        // New and edited versions always bind an exact calendar of this workspace's reference revision.
-        var calendar=await Calendar(connection,body.Calendar,ct);
-        PublishedSchedules.Validate(body,Engine,calendar);
+        // Generated schedules require a calendar; date lists bind one only when explicitly supplied.
+        var engine=body.Definition is not {Dates:not null}?"date_schedule_v2":"date_schedule_v3";
+        var calendar=body.Calendar is null&&engine=="date_schedule_v3"?null:await Calendar(connection,body.Calendar,ct);
+        PublishedSchedules.Validate(body,engine,calendar);
         // One catalog lock serializes create/fork and quota admission across sessions.
         await using(var gate=Command(connection,"SELECT pg_advisory_xact_lock(730849103)"))await gate.ExecuteNonQueryAsync(ct);
         var all=await Read(connection,ct);Guid id;int version,generation;
+        bool Same(ScheduleVersion value)=>value.Definition.Symbol==body.Definition.Symbol&&
+            JsonSerializer.Serialize(value.Definition,Json)==JsonSerializer.Serialize(body.Definition,Json)&&value.Selection==body.Selection&&
+            value.EffectiveFrom==DateWorkspace.Date(body.EffectiveFrom)&&value.EffectiveTo==DateWorkspace.Date(body.EffectiveTo)&&value.Calendar==body.Calendar;
+        var repeated=all.Where(v=>v.Definition.Symbol==body.Definition.Symbol).OrderByDescending(v=>v.Version).FirstOrDefault();
+        if(repeated is not null&&Same(repeated)&&(body.Id is null&&body.Version is null&&body.Generation is null&&body.ExpectedState is null||body.Id==repeated.Id&&body.Version==repeated.Version&&body.Generation==repeated.Generation&&body.ExpectedState==repeated.State))return repeated;
+        if(body.Id is null&&all.Any(v=>v.Definition.Symbol==body.Definition.Symbol))throw Error("schedule_conflict","This symbol already exists. Open its version to edit it, or import dates to append.");
         if(body.Id is null)
         {
             if(body.Version is not null || body.Generation is not null || body.ExpectedState is not null || all.Select(v=>v.Id).Distinct().Count()>=32)
@@ -100,14 +106,14 @@ WHERE(v.catalog_id,v.schedule_id,v.version)=($1,$2,$3) AND v.state='published'
         {
             await using var update=Command(connection,"UPDATE market_data.date_schedule_versions SET generation=$1,definition=$2::jsonb,selection=$3,effective_from=$4,effective_to=$5,engine_version=$10,calendar_catalog_id=$11,calendar_revision_id=$12,calendar_code=$13 WHERE catalog_id=$6 AND schedule_id=$7 AND version=$8 AND generation=$9 AND state='draft'",
                 generation,definition,body.Selection!,DateWorkspace.Date(body.EffectiveFrom),DateWorkspace.Date(body.EffectiveTo),catalog,id,version,body.Generation!.Value,
-                Engine,calendar.Reference.CatalogId,calendar.Reference.RevisionId,calendar.Reference.Code);
+                engine,(object?)calendar?.Reference.CatalogId??DBNull.Value,(object?)calendar?.Reference.RevisionId??DBNull.Value,(object?)calendar?.Reference.Code??DBNull.Value);
             if(await update.ExecuteNonQueryAsync(ct)!=1)throw Error("schedule_conflict","The draft changed. Reload it.");
         }
         else
         {
             await using var insert=Command(connection,"INSERT INTO market_data.date_schedule_versions(catalog_id,schedule_id,version,generation,state,definition,selection,effective_from,effective_to,engine_version,calendar_catalog_id,calendar_revision_id,calendar_code,publication_order,published_at) VALUES($1,$2,$3,$4,'draft',$5::jsonb,$6,$7,$8,$9,$10,$11,$12,NULL,NULL)",
                 catalog,id,version,generation,definition,body.Selection!,DateWorkspace.Date(body.EffectiveFrom),DateWorkspace.Date(body.EffectiveTo),
-                Engine,calendar.Reference.CatalogId,calendar.Reference.RevisionId,calendar.Reference.Code);
+                engine,(object?)calendar?.Reference.CatalogId??DBNull.Value,(object?)calendar?.Reference.RevisionId??DBNull.Value,(object?)calendar?.Reference.Code??DBNull.Value);
             await insert.ExecuteNonQueryAsync(ct);
         }
         return (await Read(connection,ct)).Single(v=>v.Id==id&&v.Version==version);
@@ -116,6 +122,7 @@ WHERE(v.catalog_id,v.schedule_id,v.version)=($1,$2,$3) AND v.state='published'
     {
         var row=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==body.Id&&v.Version==body.Version);
         if(row is null || row.Generation!=body.Generation)throw Error("schedule_conflict","Reload the changed schedule before publishing.");
+        _=PublishedSchedules.Compile(row);
         PublishedSchedules.Validate(new(row.Id,row.Version,row.Generation,row.Definition,row.Selection,row.EffectiveFrom.ToString("yyyy-MM-dd"),row.EffectiveTo.ToString("yyyy-MM-dd")),row.EngineVersion,row.ResolvedCalendar);
         await using var command=Command(connection,"SELECT security.publish_date_schedule($1,$2,$3,$4)",catalog,body.Id,body.Version,body.Generation);
         await command.ExecuteScalarAsync(ct);
