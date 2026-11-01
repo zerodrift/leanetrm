@@ -23,7 +23,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         raise ValueError(f'Unknown verification group: {group}')
     if not __debug__ or os.environ.get('PYTHONOPTIMIZE') not in (None, '', '0'):
         raise ValueError('Python assertions must remain enabled for verification.')
-    environment = {**os.environ, 'DOTNET_CLI_TELEMETRY_OPTOUT': '1', 'DOTNET_NOLOGO': '1'}
+    environment = {**os.environ, 'DOTNET_CLI_TELEMETRY_OPTOUT': '1', 'DOTNET_NOLOGO': '1',
+                   'CHROME_BIN': str(browser)}
 
     def check(label, command, *, suite=None):
         if group != 'all' and suite not in (None, group):

@@ -13,7 +13,8 @@ export function setupDetailsPane(host:HTMLElement,o:{unsaved:()=>boolean;busy:()
   const pane=node('section','position-details','details-pane');pane.tabIndex=-1;pane.hidden=true;
   const button=(id:string,text:string,label:string)=>{const b=node('button',id,'icon-button details-control');b.type='button';b.textContent=text;b.setAttribute('aria-label',label);return b;};
   const previous=button('details-previous','◂','Previous position'),next=button('details-next','▸','Next position'),collapse=button('details-collapse','⌄','Collapse details');
-  const heading=node('h2','details-title','details-title'),bar=node('div','','details-bar');bar.append(previous,next,heading,collapse);
+  const maximize=button('details-maximize','⛶','Maximize details');
+  const heading=node('h2','details-title','details-title'),bar=node('div','','details-bar');bar.append(previous,next,heading,maximize,collapse);
   const part=(name:string,className='')=>node('div',`${pane.id}-${name}`,className);
   const parts={prompt:part('prompt','side-panel-prompt'),head:part('head'),tabs:part('tabs'),body:part('body'),view:part('view'),form:part('form','details-form')};
   parts.prompt.setAttribute('role','alertdialog');parts.prompt.setAttribute('aria-label','Unsaved changes');parts.prompt.hidden=parts.form.hidden=true;
@@ -21,6 +22,12 @@ export function setupDetailsPane(host:HTMLElement,o:{unsaved:()=>boolean;busy:()
   const empty=node('p','details-empty','field-help');empty.textContent='Select a position and press Enter, or open one, to see it here.';
   host.replaceChildren(empty,pane);
   let mode:PanelMode=null,question:AbortController|undefined;
+  function size(expanded:boolean){
+    pane.dataset.maximized=String(expanded);maximize.setAttribute('aria-pressed',String(expanded));
+    const label=expanded?'Restore details':'Maximize details';maximize.setAttribute('aria-label',label);maximize.title=label;
+    maximize.textContent=expanded?'Restore':'⛶';
+  }
+  size(false);
   const abandonQuestion=()=>{question?.abort();question=undefined;};
   /** One question at a time; a request made while one is open is refused. A reset or a collapse answers the open one no. */
   async function ask(asker:(abandoned:AbortSignal)=>Promise<boolean>):Promise<boolean>{
@@ -36,6 +43,7 @@ export function setupDetailsPane(host:HTMLElement,o:{unsaved:()=>boolean;busy:()
   function form(on:boolean){parts.view.hidden=on;parts.form.hidden=!on;}
   function place(){const steps=mode?.kind!=='position'||o.busy();previous.disabled=next.disabled=steps;collapse.disabled=o.busy();}
   function draw(){
+    if(mode===null)size(false);
     form(false);empty.hidden=mode!==null;pane.hidden=mode===null;pane.dataset.mode=mode?.kind??'';
     pane.setAttribute('aria-label',mode===null?'Details':mode.kind==='position'?'Position details':modeLabel(mode));
     heading.textContent=mode===null?'':modeLabel(mode);place();
@@ -64,17 +72,20 @@ export function setupDetailsPane(host:HTMLElement,o:{unsaved:()=>boolean;busy:()
     o.collapsed();
   }
   function focusForm(){
-    const opening=mode,controls=()=>Array.from(parts.form.querySelectorAll<HTMLElement>('select:enabled,input:enabled:not([type=hidden]),textarea:enabled')).find(control=>control.getClientRects().length>0);
+    const opening=mode,controls=()=>Array.from((parts.form.querySelector('form')??parts.form).querySelectorAll<HTMLElement>('select:enabled,input:enabled:not([type=hidden]),textarea:enabled')).find(control=>control.getClientRects().length>0);
+    const revealActions=()=>parts.form.querySelector<HTMLElement>('.trade-editor-actions')?.scrollIntoView({block:'start'});
     controls()?.focus({preventScroll:true});
+    revealActions();
     // Opening an editor may finish while its action still disables the fields: once painted, focus goes in if neither the mode nor focus moved.
     requestAnimationFrame(()=>{
       const active=document.activeElement;
-      if(sameMode(mode,opening)&&!parts.form.hidden&&(!active||active===document.body||active===document.documentElement||active===pane))controls()?.focus({preventScroll:true});
+      if(sameMode(mode,opening)&&!parts.form.hidden&&(!active||active===document.body||active===document.documentElement||active===pane)){controls()?.focus({preventScroll:true});revealActions();}
     });
   }
   previous.onclick=()=>{if(!previous.disabled)o.step(-1);};
   next.onclick=()=>{if(!next.disabled)o.step(1);};
   collapse.onclick=()=>void close();
+  maximize.onclick=()=>{size(pane.dataset.maximized!=='true');};
   pane.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();void close();}});
   const shell:SidePanel={show,leave,ask,form,reset,place,current:()=>mode,element:name=>parts[name],reveal:o.expand,focusForm};
   return {shell,show,

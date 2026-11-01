@@ -117,6 +117,17 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value).value"));await wait(idle);
  await check('returning to working data and a market date lists the curves again',"document.querySelectorAll('#interval-curves-select option').length===5&&document.querySelector('#error').hidden",
   "({options:document.querySelectorAll('#interval-curves-select option').length,error:document.querySelector('#error').textContent})");
+ // Navigation must apply pending shared history inputs before this working-only reader opens.
+ await click('#nav-market');
+ await evaluate(`(()=>{const send=window.fetch;window.pendingIntervalContexts=[];window.pendingIntervalKnowledge=[];window.fetch=async(input,init)=>{const body=init?.body?JSON.parse(init.body):null;if(input==='/api/market/context')window.pendingIntervalContexts.push(body);const response=await send(input,init);if(input==='/api/date-schedules/context'&&body?.mode==='current')window.pendingIntervalKnowledge.push({status:response.status,body});return response;};})()`);
+ await set('#date-context-on','2020-12-17');await wait(idle);await click('#date-context-latest');
+ await wait("window.pendingIntervalKnowledge.some(read=>read.status===200&&read.body.effectiveOn==='2020-12-17')&&"+idle);
+ await click('#nav-interval-curves');
+ await check('interval-curve navigation applies a pending historical context instead of reading the old working close',
+  "window.pendingIntervalContexts.length===1&&window.pendingIntervalContexts[0].effectiveOn==='2020-12-17'&&document.querySelectorAll('#interval-curves-select option').length===0",
+  "({contexts:window.pendingIntervalContexts,options:document.querySelectorAll('#interval-curves-select option').length,error:document.querySelector('#error').textContent})");
+ await click('#current-view-context');
+ await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value).value"));await wait(idle);
  await evaluate(`(async()=>{
   const {mountIntervalDataWidget}=await import('/interval-data-widget.js');
   const host=document.createElement('section');host.id='synthetic-interval-widget';

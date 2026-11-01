@@ -499,8 +499,10 @@
 </div>
 <div id="swap-editing" class="editing swap-editing" hidden>
  <p id="swap-reference" class="profile-note"></p><p id="swap-mode" class="field-help" role="status"></p><p id="swap-error" role="alert" hidden></p>
+ <div class="trade-editor-actions"><p id="swap-action-status" class="field-help" role="status"></p><button id="swap-preview" type="submit" form="swap-form">Preview booking</button><button id="swap-submit" type="button" disabled>Book financial swap</button></div>
  <div id="swap-revisions" hidden><label for="swap-revision">Trade revision</label><select id="swap-revision"></select><button id="swap-latest" type="button" class="secondary">Reload latest revision</button></div>
  <form id="swap-form"><fieldset id="swap-fields">
+  <div id="swap-amendment" hidden><label for="swap-reason">Amendment reason</label><input id="swap-reason" maxlength="500"><p id="swap-effective" class="field-help"></p></div>
   <section id="swap-trade-terms" class="trade-booking-terms"></section>
   <section id="swap-instrument" class="instrument-editor" data-instrument-type="financial_swap"><div class="entry-section-heading"><span class="entry-step">02</span><div><div class="eyebrow">INSTRUMENT</div><h3>Choose the swap structure</h3></div></div>
   <div id="swap-type-choices" class="instrument-choices" role="group" aria-label="Instrument type"><button type="button" data-swap-type="financial_fixed_floating" aria-pressed="false"><span class="choice-diagram" aria-hidden="true"><b>Fixed</b><span>⇄</span><b>Floating</b></span><strong>Fixed for floating</strong><span>A fixed price exchanged for an index price</span></button><button type="button" data-swap-type="financial_floating_floating" aria-pressed="false"><span class="choice-diagram" aria-hidden="true"><b>Floating</b><span>⇄</span><b>Floating</b></span><strong>Floating for floating</strong><span>Two independent indices, each with a fixed spread</span></button></div>
@@ -522,28 +524,25 @@
   <section id="swaps-draft-valuation" class="draft-valuation"></section>
   </section>
   <p id="swap-coverage" class="field-help"></p><p class="field-help">Reset frequency selects observation dates; averaging method combines their prices. Payment frequency groups the resulting cash flows. The instrument quantity applies once after signed side PVs are summed. This model has one monthly payment per side. Each floating reset uses its index’s fixing convention and the selected market context; inspect its actual or projected state in the valued schedule.</p>
-  <div id="swap-amendment" hidden><label for="swap-reason">Amendment reason</label><input id="swap-reason" maxlength="500"><p id="swap-effective" class="field-help"></p></div>
-  <button id="swap-preview" type="submit">Prepare booking</button>
  </fieldset></form>
- <section id="swap-result" hidden><h3>Valuation &amp; schedules</h3><p id="swap-pv" class="profile-note"></p><div id="swap-schedules"></div></section>
  <section id="swap-change-review" class="trade-change-review" hidden></section>
- <div id="swap-confirmation" hidden><label><input id="swap-confirm" type="checkbox"> <span id="swap-confirm-label">Commit these exact reviewed terms</span></label><button id="swap-submit" type="button" disabled>Book financial swap</button></div>
+ <div id="swap-confirmation" class="trade-editor-confirmation" hidden><label><input id="swap-confirm" type="checkbox"> <span id="swap-confirm-label">I reviewed these exact terms and valuation.</span></label></div>
+ <section id="swap-result" hidden><h3>Valuation &amp; schedules</h3><p id="swap-pv" class="profile-note"></p><div id="swap-schedules"></div></section>
  <div id="swap-amount-format"></div>
 </div>
 <div id="trade-editing" class="editing" hidden>
   <div class="schedule-fields"><div><label for="trade-revision">Trade revision</label><select id="trade-revision"></select></div><div><label>View</label><p id="trade-editor-mode" role="status"></p><button id="trade-reload" type="button" class="secondary">Reload latest revision</button></div></div>
   <p id="trade-editor-reference" class="profile-note"></p>
   <p id="trade-error" role="alert" hidden></p>
+  <div class="trade-editor-actions"><p id="trade-action-status" class="field-help" role="status">Change the terms, enter an amendment reason, then preview changes.</p><button id="trade-preview" type="submit" form="trade-amend-form">Preview changes</button><button id="trade-submit" type="button" disabled>Save amendment</button></div>
   <form id="trade-amend-form"><fieldset id="trade-amend-fields" class="futures-fields">
+    <div><label for="trade-reason">Amendment reason</label><input id="trade-reason" required maxlength="500" autocomplete="off"><p id="trade-effective" class="field-help"></p></div>
     <section id="trade-trade-terms" class="trade-booking-terms"></section>
     <section id="trade-instrument"></section>
     <p id="trade-editor-terms" class="field-help"></p>
-    <p id="trade-effective" class="field-help"></p>
-    <label for="trade-reason">Amendment reason</label><input id="trade-reason" required maxlength="500" autocomplete="off">
     <p class="field-help">This corrects the current unprocessed booking. Standard contract terms stay shared. Rolls, termination and settlement are separate operations.</p>
-    <button id="trade-preview" type="submit">Preview amendment</button>
   </fieldset></form>
-  <div id="trade-preview-result" class="profile-note" hidden><p id="trade-preview-values"></p><label><input id="trade-confirm" type="checkbox"> Apply this amendment at the displayed working As of time</label><button id="trade-submit" type="button" disabled>Submit amendment</button></div>
+  <div id="trade-preview-result" class="profile-note trade-editor-confirmation" hidden><p id="trade-preview-values"></p><label><input id="trade-confirm" type="checkbox"> I reviewed these changes and their effective time.</label></div>
   <div id="trade-amount-format"></div>
 </div>
 </div>

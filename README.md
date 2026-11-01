@@ -114,6 +114,7 @@ existing database.
 ## Docs
 
 - [Public website source and checks](site/README.md)
+- [Frontend widget-to-backend operation map and verification](docs/frontend-wiring.md)
 
 **Design**
 
@@ -169,7 +170,9 @@ Read the [project instructions](AGENTS.md), [architecture](docs/architecture.md)
 
 - `python3 tools/check_standalone.py` checks dependency boundaries.
 - Add `--check` to the preview command to run the HTTP integration checks, then clean up.
-- `npm test --prefix web` runs the browser-independent presentation checks.
+- `npm test --prefix web` runs presentation checks, including isolated browser-control
+  checks when `CHROME_BIN` names an installed browser. The complete verification
+  command passes its explicit `--browser` selection to these checks.
 - [Local verification and CI](docs/verification.md) has the complete check command
   and hosted-runner boundaries.
 

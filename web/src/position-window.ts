@@ -14,13 +14,13 @@ const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementByI
 const error=get('position-window-error'),detail=get('position-window-detail'),retry=get<HTMLButtonElement>('position-window-retry');
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 const reads=new Set(['tickets/description','tickets/trade','tickets/choices','trading/crude','trading/gas','trading/position','futures/editor','swaps/editor','swaps/quantity-schedule','trade-formats/read','ppa/editor','ppa/preview','ppa/inspect','amounts/display']);
-let controller:AbortController|undefined,generation=0,loading=false,selection:PositionWindowSelection|undefined,reader:Api;
+let controller:AbortController|undefined,generation=0,loading=false,selection:PositionWindowSelection|undefined,reader:Api,readerActor='';
 const panel=setupPositionPanel({element:name=>get('position-window-'+name),form:on=>{if(on)throw Error('This trade window is read only.');},reveal(){},focusForm(){}},
  {zone:()=>selection!.zone,busy:()=>loading,canAmend:()=>false,tabs:['terms','history'],curveListed:()=>false,context:()=>JSON.stringify(selection),
   read:async(h,formats)=>{
-   const api=reader,context={...positionWindowRequest(selection!).context,
+   const api=reader,actor=readerActor,context={...positionWindowRequest(selection!).context,
     convention:h.instrumentType==='future'?'contract_lot_execution_pnl_v2':'independent_side_financial_swap_v2'};
-   const value:DetailRead=await(h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h):h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
+   const value:DetailRead=await(h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{actor:()=>actor,readOnly:true}):h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
     readTradeView(api,context,h,formats):readSwapView(api,context,h,formats,{busy:()=>loading,act:async work=>{await work();},settle(){throw Error('This trade window is read only.');}}));
    return {...value,view:zone=>({...value.view(zone),actions:undefined})};
   },amendment:{open(){throw Error('This trade window is read only.');},shown:()=>false,close:async()=>{}},onDenied:()=>fail('Current authority no longer permits this trade read.')});
@@ -55,7 +55,7 @@ async function load(){
   const read=readSelectedPosition(response,picked.context,picked.asOf,picked),h:Holding=read.holding;
   if(started!==generation||current.signal.aborted)return;
   setCurveNames(positionWindowNames(response.curveNames));
-  reader=api;loading=false;document.title=`${h.tradeReference} · Trade details · LeanETRM`;get('position-window-title').textContent=publicText(h.tradeReference);
+  reader=api;readerActor=boot.profile;loading=false;document.title=`${h.tradeReference} · Trade details · LeanETRM`;get('position-window-title').textContent=publicText(h.tradeReference);
   get('position-window-context').textContent=`As of ${displayInstant(read.asOf,picked.zone)} · Known at ${displayInstant(read.context.knownAt,picked.zone)} · Read only`;
   detail.dataset.context=read.context.contextId;detail.dataset.knownAt=read.context.knownAt;detail.dataset.asOf=read.asOf;
   detail.hidden=false;panel.show({holding:h,row:positionRows([h])[0],formats:holdingFormats(h),shape:'This window explores retained trade terms and schedules.',

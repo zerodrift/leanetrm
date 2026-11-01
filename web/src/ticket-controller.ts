@@ -10,9 +10,9 @@ import type {ScheduleView,TicketChoice,TicketDescription,TicketDraft,TicketField
 // Every value, choice, lookup and schedule is the backend's; the controller only keeps what the person sees in step with what they did.
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 type Opened={tradeId:string;bindingId:string;revision:number};
-type NewEntry={actor:()=>string;booked:(receipt:{tradeId:string})=>void};
+type NewEntry={booked:(receipt:{tradeId:string})=>void};
 // instant is the page's formatter for the instants the ticket shows.
-export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string;instant:(at:string)=>string}&({opened:Opened}|({opened?:undefined}&NewEntry));
+export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string;instant:(at:string)=>string;actor:()=>string;readOnly?:boolean}&({opened:Opened}|({opened?:undefined}&NewEntry));
 export type TicketHandle={unsaved():boolean;pending():boolean;destroy():void};
 
 /** Edits settle this long before the draft is previewed and its lookups read. */
@@ -24,8 +24,8 @@ const definite=(code:string|undefined)=>!!code&&(code.startsWith('gas_')||code.s
 // A booking request outlives the ticket that sent it, per product and person, until its outcome is known.
 const transports=new Map<string,ReturnType<typeof actorTransport<RequestCommand>>>();
 function requests(product:string,actor:()=>string){
- let transport=transports.get(product);
- if(!transport)transports.set(product,transport=actorTransport<RequestCommand>(()=>`deal-ticket-request:${product}:${actor()}`,()=>sessionStorage));
+ const owner=actor(),key=JSON.stringify([product,owner]);let transport=transports.get(key);
+ if(!transport)transports.set(key,transport=actorTransport<RequestCommand>(()=>`deal-ticket-request:${product}:${owner}`,()=>sessionStorage));
  return transport;
 }
 // A booked side's day entry, recorded as a daily quantity revision; one awaiting its outcome outlives the ticket that sent it while the page
@@ -53,13 +53,15 @@ function refocus(root:HTMLElement,at:Focus|undefined){
 
 export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  const entry:NewEntry|undefined=o.opened?undefined:o,mode=entry?'new':'booked';
+ const owner=o.actor();
  const view=document.createElement('div'),booking=document.createElement('section');
  booking.className='ticket-booking';booking.setAttribute('role','status');booking.hidden=true;
  const loading=document.createElement('p');loading.className='side-panel-status';loading.textContent='Loading the ticket…';view.append(loading);
  host.replaceChildren(view,booking);
- const transport=entry&&requests(o.product,entry.actor);
+ const transport=entry&&requests(o.product,()=>owner);
  const pending=new PendingCommand(definite);
  let alive=true,d:TicketDescription|undefined,state:TicketState|undefined,actions:TradeActions|null=null,drawn:ReturnType<typeof renderTicket>|undefined;
+ const current=()=>alive&&o.actor()===owner;
  let drawnKey='',drawnSchedules:[ScheduleView|null,ScheduleView|null]=[null,null];
  let panel:SchedulePanel={schedule:null,quantityUnit:null,previous:null,summaries:[],links:[],errors:{},status:{kind:'current',text:entry?'Not previewed yet. The ticket previews the trade after each change.':'Reading the booked trade…'}};
  const choices:Record<string,TicketChoice[]>={},choiceErrors:Record<string,string>={},lookupErrors:Record<string,string>={},asked=new Map<string,number>();
@@ -74,17 +76,17 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  function cancelPreview(){previewRead?.abort();lookupRead?.abort();lookupRead=undefined;looked=undefined;}
  let selectedSide:string|null=null,tab='instrument',level='',closed=new Set<string>();
  // The selection the booked schedule shows, as the trade read reports it, and the day entry open, if any.
- const entryKey=o.opened&&`${o.product}:${o.opened.tradeId}`;
+ const entryKey=o.opened&&!o.readOnly?JSON.stringify([o.product,owner,o.opened.tradeId]):undefined;
  let quantityPolicy:string|undefined,day=entryKey?entries.get(entryKey):undefined,recording=false;
  // The draft the ticket opened with, the last one previewed without refusal, and the one whose lookups were read last.
  let opened='',bookable:string|undefined,looked:string|undefined;
  let settling:ReturnType<typeof setTimeout>|undefined,queued=false,sending=false,booked:string|undefined,said='';
  const draft=()=>draftOf(state!),sent=()=>JSON.stringify(draft());
- const blocked=()=>!entry||!state||!!pending.command||sending||booked!==undefined;
+ const blocked=()=>!current()||o.readOnly||!entry||!state||!!pending.command||sending||booked!==undefined;
 
  function draw(){
   queued=false;
-  if(!alive||!d||!state)return;
+  if(!current()||!d||!state)return;
   const shown:TicketView={state,mode,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,previous:panel.previous,summaries:panel.summaries,links:panel.links,entry:entryView(),status:panel.status,
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
   // An answer that changes nothing on screen draws nothing again, so the person keeps their place in the ticket and its schedule.
@@ -107,7 +109,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  // Answers that arrive together are drawn once.
  function later(){if(!queued){queued=true;setTimeout(draw);}}
  function fail(error:unknown){
-  if(!alive)return;
+  if(!current())return;
   const note=document.createElement('p');note.className='side-panel-status side-panel-error';note.setAttribute('role','alert');note.textContent=reasonOf(error);view.replaceChildren(note);
  }
  function drawBooking(){
@@ -214,7 +216,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   preview:()=>void preview(),
   book:()=>void book(),
   enter:(side,at,value)=>{
-   if(!entryKey||day?.pending.command||recording)return;
+   if(!current()||!entryKey||!actions?.record.allowed||day?.pending.command||recording)return;
    day={side,day:at,values:{quantity:value},pending:new PendingCommand(definite),text:''};entries.set(entryKey,day);draw();
   },
   entryValue:(field,value)=>{if(day&&!day.pending.command)day.values[field]=value;},
@@ -229,10 +231,11 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  }
  // A day's record is built against the trade revision and the day's previous record of its kind as the daily quantity read returns them now.
  async function record(){
-  const at=day;if(!at||at.pending.command||recording||!o.opened||!quantityPolicy)return;
+  const at=day;if(!current()||o.readOnly||!at||at.pending.command||recording||!o.opened||!quantityPolicy)return;
   recording=true;at.text='';draw();
   try{
    const read=await o.api<GasQuantityView>('gas/quantities/read',{context:o.context(),tradeId:o.opened.tradeId,selectionPolicy:quantityPolicy,includeHistory:false});
+   if(!current())return;
    const row=read.rows.find(r=>r.sideCode===at.side&&r.day===at.day);
    if(!row)throw Error(`The trade has no daily quantity for ${at.side} on ${at.day}.`);
    const v=at.values;at.pending.begin('gas/quantities/record',quantityRecord(o.context(),read,row,{kind:v.kind??'',status:v.status??'',quantity:v.quantity??'',evidence:v.evidence??''}));
@@ -241,23 +244,27 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(at.pending.command)await sendRecord();else draw();
  }
  async function sendRecord(){
-  const at=day,command=at?.pending.command;if(!at||!command||recording)return;
+  const at=day,command=at?.pending.command;if(!current()||o.readOnly||!at||!command||recording)return;
   const uncertain=at.pending.sending();recording=true;at.text='';draw();
   try{const r=await o.api<GasQuantityReceipt>(command.path,{...command.body,operationId:command.operationId});recording=false;await recorded(at,command,r);}
   catch(error){
-   recording=false;at.pending.failed((error as {code?:string}).code,uncertain);
+   recording=false;if(!current())return;at.pending.failed((error as {code?:string}).code,uncertain);
    at.text=at.pending.command?`The quantity record is not confirmed: ${reasonOf(error)}`:`Record refused: ${reasonOf(error)}`;draw();
   }
  }
  async function checkRecord(){
-  const at=day,command=at?.pending.command;if(!at||!command||recording)return;
+  const at=day,command=at?.pending.command;if(!current()||o.readOnly||!at||!command||recording)return;
   try{
    const r=await o.api<GasQuantityReceipt|{found:false}>('gas/quantities/status',{operationId:command.operationId});
+   if(!current())return;
    if('revisionId' in r)await recorded(at,command,r);else{at.text='No accepted quantity record was found. Retry the original record.';draw();}
-  }catch(error){at.text=`The record status could not be read: ${reasonOf(error)}`;draw();}
+  }catch(error){if(!current())return;at.text=`The record status could not be read: ${reasonOf(error)}`;draw();}
  }
  // Once recorded, the ticket reads the trade again and draws the backend's schedule; the cells that moved are marked.
  async function recorded(at:Entry,command:RequestCommand,r:GasQuantityReceipt){
+  // A replacement ticket holds the same retained Entry. Only its own status or
+  // retry response may settle it; an abandoned view cannot strand its controls.
+  if(!current())return;
   if(!recordedBy({...command.body,operationId:command.operationId},r)){at.text='The record response could not be reconciled with its command. Check its status.';draw();return;}
   at.pending.clear();entries.delete(entryKey!);day=undefined;
   said=`Quantity revision ${r.revision} recorded${r.unchanged?' · existing business fact retained':''}.`;
@@ -265,10 +272,10 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  }
  async function readTrade(){
   const r=await o.api<TicketTrade>('tickets/trade',{context:o.context(),...o.opened!},lifetime.signal);
-  if(!alive)return;
+  if(!current())return;
   // A trade that records day quantities names the selection its schedule shows, whether or not this reader may record one here.
   if(r.actions.record.allowed&&!(typeof r.quantityPolicy==='string'&&r.quantityPolicy))throw Error('A booked read that offers day entries must name the quantity selection its schedule shows.');
-  state=ticketOf(d!,r.draft);actions=r.actions;quantityPolicy=r.quantityPolicy??undefined;
+  state=ticketOf(d!,r.draft);actions=o.readOnly?{...r.actions,record:{allowed:false,reason:'This trade window is read only.'}}:r.actions;quantityPolicy=r.quantityPolicy??undefined;
   panel=previewed(panel,{preview:r});
   if(panel.status.kind==='current')panel={...panel,status:{kind:'current',text:'Booked terms and their retained schedule.'}};
   draw();
@@ -282,22 +289,25 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   await send();
  }
  async function send(){
-  const command=pending.command;if(!command||sending)return;
+  const command=pending.command;if(!current()||!command||sending)return;
   const uncertain=pending.sending();retain();sending=true;said='';draw();
   try{const r=await o.api<TicketReceipt>('tickets/book',{...command.body,operationId:command.operationId});sending=false;receipt(command,r);}
   catch(error){
-   sending=false;pending.failed((error as {code?:string}).code,uncertain);retain();
+   sending=false;if(!current())return;pending.failed((error as {code?:string}).code,uncertain);retain();
    say(pending.command?`The booking is not confirmed: ${reasonOf(error)}`:`Booking refused: ${reasonOf(error)}`);
   }
  }
  async function check(){
-  const command=pending.command;if(!command||sending)return;
+  const command=pending.command;if(!current()||!command||sending)return;
   try{
    const r=await o.api<TicketReceipt|{found:false}>('tickets/status',{operationId:command.operationId});
    if('tradeId' in r)receipt(command,r);else say('No completed booking was found. Retry the original booking.');
   }catch(error){say(`The booking status could not be read: ${reasonOf(error)}`);}
  }
  function receipt(command:RequestCommand,r:TicketReceipt){
+  // A remounted ticket reconciles the retained request itself. An old reply
+  // cannot clear or overwrite a newer request owned by that same actor.
+  if(!current())return;
   if(r.operationId!==command.operationId||r.revision!==1||typeof r.tradeId!=='string'){say('The booking response could not be reconciled with its request. Check its status.');return;}
   pending.clear();retain();booked=r.tradeId;say(`Booked trade ${r.tradeId}.`);
   entry!.booked({tradeId:r.tradeId});
@@ -306,12 +316,12 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  async function load(){
   try{
    d=await o.api<TicketDescription>('tickets/description',{context:o.context(),product:o.product},lifetime.signal);
-   if(!alive)return;
+   if(!current())return;
    level=d.levels[0];
    if(o.opened)await readTrade();
    else{
     // A booking whose outcome is unknown opens with the exact terms it was sent with, to be checked or retried, never edited.
-    const saved=retainedBooking(o.product,entry!.actor);
+    const saved=retainedBooking(o.product,()=>owner);
     if(saved){
      pending.command={...saved,uncertain:true};
      // Terms the ticket cannot show still leave the request to be checked or retried.
