@@ -59,7 +59,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  host.replaceChildren(view,booking);
  const transport=entry&&requests(o.product,entry.actor);
  const pending=new PendingCommand(definite);
- let alive=true,d:TicketDescription|undefined,state:TicketState|undefined,actions:TradeActions|null=null,drawn:{destroy():void}|undefined;
+ let alive=true,d:TicketDescription|undefined,state:TicketState|undefined,actions:TradeActions|null=null,drawn:ReturnType<typeof renderTicket>|undefined;
  let drawnKey='',drawnSchedules:[ScheduleView|null,ScheduleView|null]=[null,null];
  let panel:SchedulePanel={schedule:null,quantityUnit:null,previous:null,summaries:[],links:[],errors:{},status:{kind:'current',text:entry?'Not previewed yet. The ticket previews the trade after each change.':'Reading the booked trade…'}};
  const choices:Record<string,TicketChoice[]>={},choiceErrors:Record<string,string>={},lookupErrors:Record<string,string>={},asked=new Map<string,number>();
@@ -68,10 +68,32 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  const entryKey=o.opened&&`${o.product}:${o.opened.tradeId}`;
  let quantityPolicy:string|undefined,day=entryKey?entries.get(entryKey):undefined,recording=false;
  // The draft the ticket opened with, the last one previewed without refusal, and the one whose lookups were read last.
- let opened='',bookable:string|undefined,looked:string|undefined;
+ let opened='',bookable:string|undefined,looked:string|undefined,lookupGeneration=0;
  let settling:ReturnType<typeof setTimeout>|undefined,queued=false,sending=false,booked:string|undefined,said='';
  const draft=()=>draftOf(state!),sent=()=>JSON.stringify(draft());
  const blocked=()=>!entry||!state||!!pending.command||sending||booked!==undefined;
+
+ // Reference reads share a small transport budget. Edits replace queued reads of the same field instead of sending every old draft.
+ // Running reads retain their response fences; a closed ticket starts no further work.
+ const referenceQueue=new Map<string,{start():Promise<void>;skip():void}>();
+ let referencesRunning=0;
+ function pumpReferences(){
+  while(alive&&referencesRunning<4&&referenceQueue.size){
+   const [key,work]=referenceQueue.entries().next().value!;referenceQueue.delete(key);referencesRunning++;
+   void work.start().finally(()=>{referencesRunning--;pumpReferences();});
+  }
+ }
+ function referenceRead<T>(key:string,current:()=>boolean,path:string,body:unknown):Promise<T|undefined>{
+  if(!alive)return Promise.resolve(undefined);
+  return new Promise((resolve,reject)=>{
+   referenceQueue.get(key)?.skip();
+   referenceQueue.set(key,{skip:()=>resolve(undefined),start:async()=>{
+    if(!alive||!current()){resolve(undefined);return;}
+    try{resolve(await o.api<T>(path,body));}catch(error){reject(error);}
+   }});
+   pumpReferences();
+  });
+ }
 
  function draw(){
   queued=false;
@@ -80,7 +102,9 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
   // An answer that changes nothing on screen draws nothing again, so the person keeps their place in the ticket and its schedule.
   // The schedules are compared by the preview they came from; everything else by its content.
-  const key=JSON.stringify({...shown,schedule:null,previous:null,closed:[...closed]});
+  // Booked choices label retained fields; only the read-only links grid also consumes those labels.
+  const labelsOnly=mode==='booked'&&tab!=='links';
+  const key=JSON.stringify({...shown,choices:labelsOnly?null:shown.choices,schedule:null,previous:null,closed:[...closed]});
   if(!drawn||key!==drawnKey||shown.schedule!==drawnSchedules[0]||shown.previous!==drawnSchedules[1]){
    const at=focusIn(view);drawn?.destroy();drawn=undefined;
    // A view the ticket cannot draw says why in its place.
@@ -89,6 +113,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    drawnKey=key;drawnSchedules=[shown.schedule,shown.previous];
    refocus(view,at);
   }
+  if(labelsOnly)drawn?.updateBookedChoiceLabels(choices);
   view.inert=!!entry&&blocked();
   drawBooking();
  }
@@ -128,23 +153,25 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  async function readChoices(targets:[string|null,TicketField][]){
   await Promise.all(targets.map(async([side,f])=>{
    const key=keyOf(side,f.id),values=valuesOf(side),n=(asked.get(key)??0)+1;asked.set(key,n);
+   const current=()=>alive&&asked.get(key)===n&&(side===null||state!.sides.some(s=>s.code===side));
    // A list whose parent has no value yet lists nothing and is not asked for.
    if(f.dependsOn.some(parent=>!values[parent]?.value)){delete choices[key];delete choiceErrors[key];return;}
-   try{const r=await o.api<{choices:TicketChoice[]}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id});if(asked.get(key)!==n)return;choices[key]=r.choices;delete choiceErrors[key];}
-   catch(error){if(asked.get(key)!==n)return;choices[key]=[];choiceErrors[key]=reasonOf(error);}
+   try{const r=await referenceRead<{choices:TicketChoice[]}>(`choices:${key}`,current,'tickets/choices',{context:o.context(),draft:draft(),side,field:f.id});if(!current()||!r)return;choices[key]=r.choices;delete choiceErrors[key];}
+   catch(error){if(!current())return;choices[key]=[];choiceErrors[key]=reasonOf(error);}
    later();
   }));
  }
  // Every lookup reads the whole draft, so all of them are read again once it changed.
  async function readLookups(){
-  const asking=sent();if(asking===looked)return;looked=asking;
+  const asking=sent();if(asking===looked)return;looked=asking;const generation=++lookupGeneration;
   const answers=await Promise.all(everyField(f=>f.lookup!==null).map(async([side,f])=>{
-   try{return {side,f,found:await o.api<TicketLookup>('tickets/lookup',{context:o.context(),draft:JSON.parse(asking),side,field:f.id})};}
+   try{return {side,f,found:await referenceRead<TicketLookup>(`lookup:${keyOf(side,f.id)}`,()=>lookupGeneration===generation&&sent()===asking,'tickets/lookup',{context:o.context(),draft:JSON.parse(asking),side,field:f.id})};}
    catch(error){return {side,f,found:undefined,refused:reasonOf(error)};}
   }));
   // Answers for a draft since edited are dropped, and that draft counts as unread, so returning to it reads its lookups again.
-  if(!alive||!state||sent()!==asking){if(looked===asking)looked=undefined;return;}
+  if(!alive||!state||lookupGeneration!==generation||sent()!==asking){if(lookupGeneration===generation)looked=undefined;return;}
   for(const a of answers){
+   if(a.found===undefined&&a.refused===undefined)continue; // A skipped queued read is not a backend refusal.
    const key=keyOf(a.side,a.f.id);
    if(a.found){state=applyLookup(state,a.side,a.f.id,a.found);delete lookupErrors[key];}
    else{state=dropLookup(state,a.side,a.f.id);lookupErrors[key]=a.refused!;}
@@ -173,6 +200,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!state||blocked())return;
   try{state=nextPreview(apply({...state,notices:[]})).state;}
   catch(error){state={...state,notices:[reasonOf(error)]};draw();return;}
+  lookupGeneration++;looked=undefined;
   said='';panel={...panel,status:{kind:'updating',text:'Updating…'}};draw();settle();
   void readChoices(lists==='all'?listed():lists);
  }
@@ -305,6 +333,6 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  return {
   unsaved:()=>!!entry&&!!state&&booked===undefined&&(!!pending.command||sent()!==opened),
   pending:()=>!!pending.command||!!day?.pending.command,
-  destroy(){alive=false;clearTimeout(settling);drawn?.destroy();host.replaceChildren();},
+  destroy(){alive=false;clearTimeout(settling);for(const work of referenceQueue.values())work.skip();referenceQueue.clear();drawn?.destroy();host.replaceChildren();},
  };
 }

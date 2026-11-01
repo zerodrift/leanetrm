@@ -33,6 +33,19 @@ internal static class CrudeLifecycleChecks
   }
   reversal["amount"]="1";
   try{CrudeLifecycleStore.Validate(JsonSerializer.SerializeToElement(reversal),"payment_reversal");throw new Exception("Partial or bank-refund amount accepted");}catch(MarketDataException){}
+  var allocation=System.Text.Json.Nodes.JsonNode.Parse(body.GetRawText())!.AsObject();
+  allocation.Remove("titleTransferred");allocation.Remove("disposition");allocation["receiptId"]=Guid.NewGuid().ToString();allocation["saleTradeId"]=Guid.NewGuid().ToString();allocation["saleRevision"]=1;
+  CrudeLifecycleStore.Validate(JsonSerializer.SerializeToElement(allocation),"allocation");
+  var dispatch=allocation.DeepClone().AsObject();dispatch.Remove("saleTradeId");dispatch.Remove("saleRevision");dispatch["titleTransferred"]=true;
+  CrudeLifecycleStore.Validate(JsonSerializer.SerializeToElement(dispatch),"dispatch");
+  dispatch["allocationId"]=null;
+  try{CrudeLifecycleStore.Validate(JsonSerializer.SerializeToElement(dispatch),"dispatch");throw new Exception("Explicit null allocation accepted instead of an absent legacy source or exact allocation identity");}catch(MarketDataException){}
+  var salesInvoice=allocation.DeepClone().AsObject();
+  foreach(var key in new[]{"quantity","receiptId","saleTradeId","saleRevision"})salesInvoice.Remove(key);
+  salesInvoice["profile"]="physical_crude_sale_cash_v1";salesInvoice["dispatchId"]=Guid.NewGuid().ToString();salesInvoice["component"]="consideration";salesInvoice["decimalPlaces"]=2;salesInvoice["roundingPolicy"]="crude_cumulative_receipt_cash_v1";
+  CrudeLifecycleStore.Validate(JsonSerializer.SerializeToElement(salesInvoice),"invoice");
+  salesInvoice["receiptId"]=Guid.NewGuid().ToString();
+  try{CrudeLifecycleStore.Validate(JsonSerializer.SerializeToElement(salesInvoice),"invoice");throw new Exception("Sales invoice accepted ambiguous source kinds");}catch(MarketDataException){}
   Console.WriteLine("PASS crude lifecycle command boundary: explicit transferred title, positive certified volume and closed command fields");
  }
 }

@@ -348,6 +348,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     const grid=holdings?table:undefined;if(!grid)return;
     return {selectRow:index=>grid.selectRow(index),focusRow:index=>grid.focusRow(index),revealRow:index=>grid.revealRow(index)};
   },notice:options.notice});
+  // Operational facts have their own authorized read; priced rows do not own that form's lifetime.
+  function syncPositionDetails(){if(!crudeOperations.shown())deskPanel.sync();}
   // Focus after details that showed no position collapse: the grid's selected row, or else its first row on screen.
   function focusSelected(){
     if(!table||!holdings)return;
@@ -961,7 +963,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     // until it is (renderChartPanels). A draw that fails above leaves it marked.
     const chartComing=pivot&&view.chart.visible&&get('blotter-chart-card').classList.contains('stale');
     kept=undefined;markStale(null,false,!chartComing);
-    options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();deskPanel.sync();drawContract();
+    options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();syncPositionDetails();drawContract();
   }
   // What the trade rows' desk shows, selected from the read: its rows, their trade fields, its group headers and its two charts.
   function planDesk(colors:ReadonlyMap<string,string>){
@@ -1253,7 +1255,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
     }else await pricingRead;
   }
   // Every row's curve unavailable, with the reason.
-  function noShapes(why:string){shapes={unavailable:`Curve shape unavailable · ${why}`};redrawCurves();deskPanel.sync();}
+  function noShapes(why:string){shapes={unavailable:`Curve shape unavailable · ${why}`};redrawCurves();syncPositionDetails();}
   // The rows' curve cells, once their shapes are read; the Risk lens draws none.
   function redrawCurves(){const column=tableColumns.indexOf('curve');if(column>=0)table?.redrawCells(column);}
   // Sparklines follow the first render: the held curves of the close's definitions, at most 64 to a read, in the market
@@ -1269,7 +1271,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;act:(work:(
       for(const [curve,shape] of await readCurveShapes(api,source,curves.slice(i,i+curvesPerShapeRead)))found.set(curve,shape);
       if(!current())return;
     }
-    shapes={revision,curves:found};redrawCurves();deskPanel.sync();
+    shapes={revision,curves:found};redrawCurves();syncPositionDetails();
   }
   async function loadChart(reportRequest:{context:unknown;view:unknown},started:number,scope:string){
     // Trade rows have the desk's charts; a pivot keeps its configurable chart.

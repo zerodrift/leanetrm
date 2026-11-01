@@ -1873,3 +1873,13 @@ an exact correction link. Effective/knowledge-time selection and idempotent
 command recovery apply to corrections as to original records. Dispatch reversal,
 backdated physical correction and actual bank refund contracts remain further
 work. See [physical crude operations](physical-crude-operations.md).
+
+D271 owned-inventory sales follow-up is accepted for local implementation.
+Explicit lot allocation reserves owned receipt quantity against an exact sale;
+separate dispatch transfers title. The fixed-price sale cash profile invoices
+certified dispatch quantities using retained sale terms, sharing cumulative
+rounding, payments and record corrections with receipt-backed purchase cash.
+Core relationships retain exact foreign keys, and capacity includes legacy
+onward reservations across purchases. No lot-selection policy is implicit.
+Allocation release, physical reversals, costing and post-delivery valuation are
+not part of this increment. See [physical crude operations](physical-crude-operations.md).

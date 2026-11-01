@@ -58,6 +58,8 @@ function editor(f:TicketField,value:string,choices:TicketChoice[]|undefined,edit
  return control;
 }
 
+const choiceText=(value:string,unit:string|null,choices:TicketChoice[]|undefined)=>{const label=choices?.find(c=>c.value===value)?.label??value;return label&&unit?`${label} ${unit}`:label;};
+
 function fieldRow(o:TicketView,f:TicketField,side:string|null,v:FieldValue|undefined){
  const key=side===null?f.id:`${side}.${f.id}`,value=v?.value??'',entry=o.mode==='new',unit=resolvedUnit(f.unit,o.quantityUnit);
  const row=el('div',`ticket-field ticket-${f.state}`);row.dataset.field=f.id;row.dataset.state=f.state;
@@ -74,8 +76,12 @@ function fieldRow(o:TicketView,f:TicketField,side:string|null,v:FieldValue|undef
   if(v?.offered)body.append(button('ticket-offer',`Use ${v.offered.value} (${v.offered.label})`,()=>o.on.accept(side,f.id)));
  }else{
   chip();
-  const shown=f.type==='choice'?o.choices[key]?.find(c=>c.value===value)?.label??value:value;
-  if(shown)body.append(el('span','ticket-value',unit?`${shown} ${unit}`:shown));
+  const shown=f.type==='choice'?choiceText(value,unit,o.choices[key]):value&&unit?`${value} ${unit}`:value;
+  if(shown||(o.mode==='booked'&&f.type==='choice'&&value)){
+   const text=el('span','ticket-value',shown);text.hidden=!shown;
+   if(o.mode==='booked'&&f.type==='choice'){text.dataset.choiceKey=key;text.dataset.choiceValue=value;if(unit)text.dataset.choiceUnit=unit;}
+   body.append(text);
+  }
   if(f.state==='derived'&&f.rule)body.append(el('span','ticket-rule',f.rule));
  }
  if(o.fieldErrors[key]){const error=el('p','ticket-error',o.fieldErrors[key]);error.setAttribute('role','alert');row.append(error);}
@@ -199,7 +205,7 @@ function linksGrid(o:TicketView,content:HTMLElement):GridHandle|undefined{
   displayRows:o.links.map((l,i)=>[l.source,l.target,rule(l),...rows[i].slice(3).map(numberText)]),rowKeys:o.links.map(l=>l.target),layout:emptyGridLayout(),onLayout:()=>{}});
 }
 
-export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
+export function renderTicket(host:HTMLElement,o:TicketView){
  const d=o.state.description,sides=o.state.sides,rows=bandRows(d,[...new Set(sides.map(s=>s.kind))]);
  const named:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:sideName(d,s)}));
  // The ticket keeps its controls' states itself: a page's busy sweep leaves them as drawn.
@@ -247,5 +253,13 @@ export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
   const open=o.entry&&o.entry.side===o.tab?o.entry:null;
   if(open)panel.append(entryForm(o,open,named.find(s=>s.code===open.side)!.name));
  }
- return {destroy(){grid?.destroy();host.replaceChildren();}};
+ return {
+  // Late labels for retained terms change only their text. In particular they never replace an editable daily quantity cell.
+  updateBookedChoiceLabels(choices:Record<string,TicketChoice[]>){
+   for(const text of root.querySelectorAll<HTMLElement>('[data-choice-key]')){
+    text.textContent=choiceText(text.dataset.choiceValue!,text.dataset.choiceUnit??null,choices[text.dataset.choiceKey!]);text.hidden=!text.textContent;
+   }
+  },
+  destroy(){grid?.destroy();host.replaceChildren();}
+ };
 }

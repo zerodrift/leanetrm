@@ -182,5 +182,67 @@ a rolled-back counterfactual that removes only its temporal predicate.
 These checks do not qualify separate title-acquisition timing, observed-volume
 conversion, actual bank refunds, dispatch reversals, inventory costing, transport/cargo,
 automated accounting closes or production activation. Operations are bounded to
-10,000 accepted event revisions per purchase; no throughput claim follows from
-this functional fixture.
+10,000 accepted event revisions per purchase or sale. A sale revision admits at
+most 10,000 dispatch sources across all purchases; the next dispatch refuses
+before it can make that sale unreadable. No throughput claim follows from this
+functional fixture.
+
+## Owned inventory to sales cash
+
+The locally implemented increment extends the quantity ledger with explicit allocation
+of an owned receipt lot to an exact compatible sale revision. The operator
+selects the lot, sale and quantity. No allocation policy, lot order or title
+transfer is inferred. Allocation reduces available inventory but retains owned
+quantity; a separately confirmed dispatch transfers title and reduces both
+owned and reserved quantities. Multiple lots may serve one sale, and one lot
+may serve multiple sales within its capacity. Legacy onward reservations and
+new inventory allocations share the same sale-capacity boundary.
+
+The `physical_crude_sale_cash_v1` profile requires a fixed-price physical sale
+with positive receivable consideration and unit quote multiplier. Optional
+handling fees retain their independently selected signs. Sales invoices select
+an exact certified dispatch and cash component, using the sale's booked price,
+currency and due date. Purchase invoices remain backed by receipts and retain
+the purchase's terms. The same managed cash ledger and persisted invoice,
+payment, reversal and void machinery serve both profiles. Cumulative rounding
+runs across all dispatches for each sale component, including dispatches from
+different purchase lots. Full dispatch invoicing does not infer collection.
+
+Exact foreign keys connect allocations to purchase receipts and sale revisions,
+and connect sales invoices to their dispatch and sale revision. Existing onward
+dispatches receive additive relationship rows without changing their original
+facts or knowledge publications. New allocation and dispatch commands serialize
+lot and sale capacity checks with publication. Reads resolve contributing
+purchase facts under the sale's selected effective/knowledge context and current
+authority; an unreadable source cannot become a partial successful balance.
+
+Allocation is immutable in this increment. A receipt with an allocation cannot
+be corrected; allocation release, dispatch reversal and physical returns require
+further explicit contracts. No controls for these operations are exposed.
+Inventory costing, realized P&L, post-delivery PV and accounting closes remain
+outside this quantity-and-cash workflow.
+
+Qualification passes the managed core and API suites, 1,050 frontend tests and
+45 native browser checks. Independent review found no unresolved material issue.
+Its acceptance cases include
+1,000 received barrels, 600 explicitly allocated, dispatches of 250 and 350,
+sales invoices of 20,000 and 28,000 at 80 per barrel, partial and full collection,
+and 400 remaining available barrels. Purchase cash must remain unchanged.
+Additional gates cover multiple lots/sales, shared capacity with legacy onward
+receipts, exact source mismatches, half-cent cumulative rounding, ordered
+corrections, replay, historical selection, source authority and browser recovery.
+
+The native suite additionally qualifies competing allocations from independent
+clients against one sale, old-context refusal when another purchase has reserved
+capacity, exact 10,000/10,001 dispatch-source boundaries, closed optional-source
+validation, and invisible source refusal. The browser follows the entire owned
+lot to collection, including lost allocation-response recovery, explicit title
+reconfirmation and survival of the operations panel when contractual valuation
+is unavailable. All quantity and cash figures come from the managed backend.
+
+A populated upgrade qualification from migration 0155 to the inventory-sales
+schema uses the previous application and schema to record receipts, dispatches,
+invoices, payments and corrections
+before applying the additive migration. Every original operational row and
+command remains unchanged; original certified historical balances are preserved,
+and exact relationships are added for already recorded onward dispatches.

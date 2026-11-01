@@ -1,3 +1,4 @@
+import {run as inventorySales} from './crude-inventory-sales.mjs';
 import {newTrade,closeNewTrade} from './new-trade.mjs';
 // Native API scenario against the owned synthetic crude fixture.
 export async function run(actions){
@@ -76,4 +77,5 @@ export async function run(actions){
  await check('corrected invoice can be reissued while retaining void and payment correction evidence',"document.querySelector('#crude-operation-ledger').textContent.includes('browser-reissued-invoice')&&document.querySelector('#crude-operation-ledger').textContent.includes('browser-invoice-void')&&document.querySelector('#crude-operation-ledger').textContent.includes('browser-payment-correction')&&document.querySelector('#crude-operation-invoice').options.length===2");
  await check('record corrections remain visibly mounted and fit the viewport',operationsVisible+'&&'+fitsWidth);await evaluate("[...document.querySelectorAll('#crude-operation-ledger h4')].find(h=>h.textContent.startsWith('Payment record reversals')).scrollIntoView({block:'center'})");await shot('physical-crude-record-corrections');
 
+ await inventorySales(actions);
 }
