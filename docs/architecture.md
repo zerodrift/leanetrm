@@ -675,7 +675,11 @@ its certified validation context and explicit UTC cutoff. Resolution selects an
 exact published definition version and context; a later schedule publication does
 not substitute a new source version. Publication visibility follows certified
 knowledge time and current schedule/calendar authority. This library resolves
-date rules only; instrument activation and booked side integration remain separate.
+date rules. The bounded verified-admission operation constructs draft dated
+contracts or reuses identical retained terms from exact published date-list
+mapping occurrences. Its own certified commit time makes the new verification
+visible; it does not rewrite the earlier contract's provenance. Instrument
+activation, native-curve editing and booked side integration remain separate.
 
 Reference choices come from the selected database revisions, including currencies,
 units, commodities, indices, calendars and curve bindings. Supported payment

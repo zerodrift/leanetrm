@@ -571,5 +571,49 @@ selection operation. Business-day movement uses the existing temporal library.
 The local demo compiler starts with declared date lists and resolves mappings
 through the same managed resolver before rendering instrument dates. The live
 seed publishes those mappings through the ordinary commands and verifies their
-receipts against the compilation. Complete instrument provenance and editable
-native curve definitions are still being implemented; production is unchanged.
+receipts against the compilation. Editable native curve definitions and the full
+instrument-authoring cutover remain separate work.
+
+### Verified contract admission
+
+`POST /api/date-schedules/contracts/materialize` requires current
+`WriteMarketDefinitions` authority. The request names a target revision, exact
+published mapping version, retained source context and explicit contract IDs,
+mapping ordinals, labels, kinds and futures-series references. The initial
+contract accepts only absolute occurrences of published explicit date lists,
+without business-day offsets. The UTC cutoff comes from each mapping row.
+
+The backend resolves the sources in the retained context, then restores the
+current-write binding before construction. Every requested label must match its
+declared occurrence. Existing contracts must match the target reference revision,
+kind, futures series, delivery interval and expiry exactly. Identical terms are
+reused, including in sealed revisions. Missing contracts require a draft target;
+futures must also match their exact reference-series dates and known last-trading
+instant. Changed retained terms fail rather than being revised in place.
+
+The immutable admission retains exact contract, mapping-version/occurrence and
+source-context foreign keys. It means that those terms were verified now, not
+that an earlier contract was originally constructed by this mapping. Its own
+transaction receives a certified knowledge receipt, independent of the source
+mapping's or target revision's publication time. Certification orders pending
+facts by actual commit time, since XID assignment order can differ from commit
+order. Current source access is required for reads and command replay.
+
+`POST /api/date-schedules/contracts/admissions` reads these proofs under an exact
+retained context and current target/source authority. Earlier cutoffs cannot see
+later verification. Command retries retain their request identity and first
+outcome, including whether a contract was created; another request for the same
+contract/mapping occurrence returns the existing admission. All construction and
+request records commit atomically.
+
+Migration `0161_contract_date_admissions.sql` requires a qualified schema release.
+Owned synthetic checks cover alignment, concurrent reuse, reversed XID/commit
+ordering, historical visibility, raw storage guards, source revocation, first
+outcomes after sealing and rollback on invalid references. This does not qualify
+a production cutover or native-curve authoring UI. Installation-specific seed
+plans, scripts, source data and operational records remain outside the repository.
+
+Mapping-library visibility checks each distinct exact schedule reference once per
+outer visibility evaluation. This avoids repeating the same source check for
+every field while preserving current authority, pinned versions and all field
+occurrences. It introduces no cross-request permission cache.

@@ -78,6 +78,8 @@ const string malformed="The request is incomplete or malformed.";
     PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
     PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
     MarketDataException m when m.Code is "swap_conflict" or "ppa_conflict" => (409,m.Code,m.Message),
+    MarketDataException m when m.Code=="contract_materialization_conflict" => (409,m.Code,m.Message),
+    PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/date-schedules/contracts/materialize") => (422,"contract_materialization","Select compatible exact reference terms and published date-list occurrences."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal) && p.MessageText.Contains("conflict",StringComparison.Ordinal)
         => (409,p.MessageText,"The request, retained content or trade revision changed. Reconcile the original operation or reload its current revision."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal)
@@ -783,6 +785,11 @@ api.MapPost("/date-schedules/contracts/publish",(HttpContext c,ContractDatePubli
     Results.Ok(await contractDateStore.Publish(connection,body,ct))));
 api.MapPost("/date-schedules/contracts/resolve",(HttpContext c,ContractDateResolveRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(await contractDateStore.Resolve(connection,body,session.MarketContext,ct))));
+var contractDateMaterialization=new ContractDateMaterialization(database.Manifest.CatalogId,contractDateStore);
+api.MapPost("/date-schedules/contracts/materialize",(HttpContext c,ContractMaterializationRequest body)=>DateOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>
+    Results.Ok(await contractDateMaterialization.Materialize(connection,body,ct))));
+api.MapPost("/date-schedules/contracts/admissions",(HttpContext c,ContractAdmissionRead body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+    Results.Ok(await contractDateMaterialization.Read(connection,body,session.MarketContext,ct))));
 // Selects a historical view: binds the context, under the explicit latest-known correction policy, and shows its frames.
 async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? selection,Func<NpgsqlConnection,CancellationToken,Task<KnowledgeSnapshot>> resolve)
 {

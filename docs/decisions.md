@@ -1906,6 +1906,19 @@ request-scoped preparation reuses date sequences, parsed expressions and receipt
 See [schedules and date mappings](schedules-and-contract-sequences.md#saved-schedules-and-date-mappings-d283)
 for local implementation status; the full authoring cutover remains in progress.
 
+D283 verified-admission amendment: publish date schedules before mappings, then
+materialize contracts from exact published mapping occurrences. The initial
+consumer requires absolute indexing of explicit date lists and an explicit UTC
+cutoff. Contracts with identical complete retained terms are reused under D238;
+different terms never overwrite a retained contract. A missing contract can be
+constructed only in a draft market revision, with exact futures-series dates
+and milestones checked before admission. An admission is a newly verified
+derivation with its own certified commit time, not a claim of original historical
+provenance. It retains exact contract, mapping-version/occurrence and source-context
+foreign keys. Existing curve memberships, observations, bookings and primary
+selection can remain pinned. This bounded operation does not supply native-curve
+editing, automatically migrate consumers or authorize a primary-revision switch.
+
 ## Dedicated Risk navigation
 
 The Risk directory is a separate Operations sidebar entry, using the existing
