@@ -106,3 +106,36 @@ test('a booked side tab enters day quantities and the links tab draws the backen
   assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-col-title')].map(c=>c.textContent).slice(4)"),['Receipt (MMBtu)','Delivery (MMBtu)','Fuel (MMBtu)']);
  });
 });
+
+// A late answer that changes nothing on screen leaves the drawn ticket standing, so the person keeps their place in its schedule.
+test('a lookup answer that changes nothing leaves the drawn schedule standing',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {setupTicket}=await import('/ticket-controller.js');
+   const f=(id,over)=>({id,label:id,meaning:'',type:'decimal',unit:null,state:'editable',required:true,band:null,choices:null,dependsOn:[],lookup:null,soon:null,rule:null,...over});
+   const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month'],modes:['new'],tabs:[],tradeColumns:[],
+    sides:[{kind:'leg',pill:'Leg',colour:'gas',min:1,initial:1,max:1,soon:null,fields:[f('q',{band:'quantity'}),f('price',{state:'info',type:'text',required:false,lookup:'market_price'})],
+     columns:[{id:'quantity',label:'Quantity',unit:null,measure:'quantity',input:[],soon:null}]}]};
+   const cells=q=>({'leg-1.quantity':{value:q,sources:[]}});
+   window.held=[];
+   const api=async(path,body)=>{
+    if(path==='tickets/description')return d;
+    if(path==='tickets/choices')return {choices:[]};
+    if(path==='tickets/lookup')return await new Promise(answer=>held.push(()=>answer({value:'3.25',source:{kind:'market',label:'Hub · close 2041-01-02'}})));
+    if(path==='tickets/preview'){const q=body.draft.sides[0].values.q;return {schedule:{levels:['month'],valuationAt:'',deliveredLeaves:0,leaves:1,delivered:null,remaining:null,totals:cells(q),
+     rows:[{key:'2041-02',parent:null,level:'month',start:'',end:'',operatingDate:null,cells:cells(q),delivered:false}]},summaries:[],scheduleRefusal:null,quantityUnit:'MMBtu',links:[]};}
+    throw Error('unexpected '+path);
+   };
+   setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:'synthetic_flow',instant:at=>at,actor:()=>'synthetic',booked:()=>{}});
+   const until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,20));if(!test())throw Error('timed out');};
+   const edit=async value=>{await until(()=>!!document.querySelector('[data-field=q] input'));const input=document.querySelector('[data-field=q] input');input.value=value;input.onchange();};
+   const drawn=q=>document.querySelector('.ticket-status')?.dataset.kind==='current'&&document.querySelector('.tabulator-row[data-row-key="2041-02"]')?.textContent.includes(q);
+   await edit('5');await until(()=>drawn('5')&&held.length===1);held.shift()();
+   await until(()=>!!document.querySelector('[data-field=price] .ticket-chip'));
+   await edit('6');await until(()=>drawn('6')&&held.length===1);
+   window.holder=document.querySelector('.ticket-grid .tabulator-tableholder');
+   held.shift()();await new Promise(r=>setTimeout(r,200));
+  })()`);
+  assert.equal(await evaluate("holder.isConnected&&holder===document.querySelector('.ticket-grid .tabulator-tableholder')"),true);
+ });
+});

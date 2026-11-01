@@ -1,9 +1,9 @@
-import {renderTicket,type TicketEntry,type TicketEvents} from './deal-ticket.js';
+import {renderTicket,type TicketEntry,type TicketEvents,type TicketView} from './deal-ticket.js';
 import {quantityRecord,quantityRecordChoices,quantityRecordFields,recordedBy,type GasQuantityReceipt,type GasQuantityView} from './gas-daily-quantities.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTicket,nextPreview,removeSide,setValue,ticketOf,type TicketState} from './ticket-model.js';
 import {previewed,reasonOf,type SchedulePanel} from './ticket-preview.js';
-import type {TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup,TicketPreview,TicketReceipt,TicketTrade,TradeActions} from './ticket-types.js';
+import type {ScheduleView,TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup,TicketPreview,TicketReceipt,TicketTrade,TradeActions} from './ticket-types.js';
 
 // Runs one deal ticket against the ticket routes (docs/deal-ticket.md). A new ticket reads the choices each field lists, previews the whole
 // draft and reads its lookups once edits settle, and books through the retained request protocol; a booked one reads its trade and shows it.
@@ -60,6 +60,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  const transport=entry&&requests(o.product,entry.actor);
  const pending=new PendingCommand(definite);
  let alive=true,d:TicketDescription|undefined,state:TicketState|undefined,actions:TradeActions|null=null,drawn:{destroy():void}|undefined;
+ let drawnKey='',drawnSchedules:[ScheduleView|null,ScheduleView|null]=[null,null];
  let panel:SchedulePanel={schedule:null,quantityUnit:null,previous:null,summaries:[],links:[],errors:{},status:{kind:'current',text:entry?'Not previewed yet. The ticket previews the trade after each change.':'Reading the booked trade…'}};
  const choices:Record<string,TicketChoice[]>={},choiceErrors:Record<string,string>={},lookupErrors:Record<string,string>={},asked=new Map<string,number>();
  let selectedSide:string|null=null,tab='instrument',level='',closed=new Set<string>();
@@ -75,13 +76,21 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  function draw(){
   queued=false;
   if(!alive||!d||!state)return;
-  const at=focusIn(view);drawn?.destroy();drawn=undefined;
-  // A view the ticket cannot draw says why in its place.
-  try{drawn=renderTicket(view,{state,mode,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,previous:panel.previous,summaries:panel.summaries,links:panel.links,entry:entryView(),status:panel.status,
-   fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on});}
-  catch(error){fail(error);return;}
+  const shown:TicketView={state,mode,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,previous:panel.previous,summaries:panel.summaries,links:panel.links,entry:entryView(),status:panel.status,
+   fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
+  // An answer that changes nothing on screen draws nothing again, so the person keeps their place in the ticket and its schedule.
+  // The schedules are compared by the preview they came from; everything else by its content.
+  const key=JSON.stringify({...shown,schedule:null,previous:null,closed:[...closed]});
+  if(!drawn||key!==drawnKey||shown.schedule!==drawnSchedules[0]||shown.previous!==drawnSchedules[1]){
+   const at=focusIn(view);drawn?.destroy();drawn=undefined;
+   // A view the ticket cannot draw says why in its place.
+   try{drawn=renderTicket(view,shown);}
+   catch(error){fail(error);return;}
+   drawnKey=key;drawnSchedules=[shown.schedule,shown.previous];
+   refocus(view,at);
+  }
   view.inert=!!entry&&blocked();
-  refocus(view,at);drawBooking();
+  drawBooking();
  }
  // Answers that arrive together are drawn once.
  function later(){if(!queued){queued=true;setTimeout(draw);}}
