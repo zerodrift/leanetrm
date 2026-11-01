@@ -205,6 +205,7 @@ def check_ticket_operations(c,context,cat,description,body,view):
     refused('tickets/trade',{'context':context,'tradeId':single_fact['tradeId'],'bindingId':single_fact['bindingId'],'revision':single_fact['revision']},'ticket_input')
 
     # Historical choices: a point retired by a later gas setup stays listed, and priced, in the earlier context.
+    # Publication is append-only, so the check leaves the setup as it found it by publishing the found configuration again.
     c.call('profile',{'profile':'editor'})
     authored=c.call('gas-setup/catalog');original=authored['configuration'];retired='synthetic_gas_point_d'
     without={**original,'paths':[x for x in original['paths'] if x['point']!=retired],'meters':[m for m in original['meters'] if m['point']!=retired]}
@@ -226,6 +227,7 @@ def check_ticket_operations(c,context,cat,description,body,view):
     then=lookup(retained,at_d(cat['gasSetupId']),'physical','price')
     assert then['value'] and then['source']['label']==f"{d['deliveryPointName']} · close 2020-12-18",then
     c.call('profile',{'profile':'editor'});publish(original,later)
+    assert c.call('gas-setup/catalog')['configuration']==original,'The deal ticket check must leave the gas setup configuration it found.'
 
     # Historical party choices: a counterparty revised after a context was captured lists its earlier revision there.
     party={'kind':'counterparty','id':None,'expectedRevision':None,'code':'ticket_counterparty','name':'Synthetic ticket counterparty','effectiveAt':'2020-12-01T00:00:00Z'}

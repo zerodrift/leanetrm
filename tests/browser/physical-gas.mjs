@@ -22,7 +22,8 @@ export async function run(actions){
  await submit('#gas-form');await wait(idle);
  await check('server preview shows the independent PV100 purchase oracle',"document.querySelector('#gas-total').textContent==='Present value: 100 USD'&&document.querySelectorAll('#gas-sides tbody tr').length===3&&!document.querySelector('#gas-book-submit').disabled","({error:document.querySelector('#error').textContent,value:document.querySelector('#gas-total').textContent})");
  await check('physical pricing discloses the shared group and separate adjustments',"document.querySelector('#gas-valuation-details').textContent.includes('synthetic_gas_group_a')&&document.querySelector('#gas-valuation-details').textContent.includes('Point price adjustment')&&document.querySelector('#gas-delivery-rows').textContent.includes('SYN-METER-A-JAN')");
- await set('#gas-tariff','synthetic_gas_usage_a');await submit('#gas-form');await wait(idle);
+ // A published gas setup renames its tariff codes, so the tariff is chosen by its configured name.
+ await set('#gas-tariff',await evaluate("[...document.querySelector('#gas-tariff').options].find(o=>o.textContent.startsWith('synthetic_gas_usage_a ·')).value"));await submit('#gas-form');await wait(idle);
  await check('a configured usage tariff prices an independently directed fee',"document.querySelector('#gas-fee').disabled&&document.querySelector('#gas-total').textContent==='Present value: 80 USD'&&document.querySelector('#gas-tariff-details').textContent.includes('2021-02-01')");
  await click('#gas-instructions');await wait(idle);
  await check('meter schedules are prepared before delivery and remain explicitly unsubmitted',"!document.querySelector('#gas-instruction-result').hidden&&document.querySelectorAll('#gas-instruction-rows tbody tr').length===31&&document.querySelector('#gas-instruction-rows').textContent.includes('SYN-METER-A-JAN')&&document.querySelector('#gas-instruction-status').textContent.includes('Not submitted')");
