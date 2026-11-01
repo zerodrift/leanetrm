@@ -9,7 +9,7 @@ test('a schedule draws as a tree with coloured header groups, decorations and th
    const {scheduleGridData}=await import('/schedule-grid.js'),{renderDataGrid}=await import('/data-grid.js');
    const col=(id,label,unit,measure)=>({id,label,unit,measure,input:false});
    const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month','day'],modes:['new'],tabs:[],
-    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,max:1,fields:[],columns:[col('quantity','Quantity','MMBtu','quantity')]}],tradeColumns:[col('net_cash','Net cash',null,'money')]};
+    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:1,fields:[],columns:[col('quantity','Quantity','MMBtu','quantity')]}],tradeColumns:[col('net_cash','Net cash',null,'money')]};
    const cells=(q,net)=>({'physical-1.quantity':{value:q,sources:['contract']},'trade.net_cash':{value:net,sources:[]}});
    const row=(key,parent,level,c,delivered)=>({key,parent,level,start:'',end:'',operatingDate:null,cells:c,delivered});
    const before={levels:['month','day'],valuationAt:'',delivered:null,remaining:null,deliveredLeaves:1,leaves:2,totals:cells('-7','99'),

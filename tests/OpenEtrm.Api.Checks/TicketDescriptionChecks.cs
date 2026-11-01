@@ -16,7 +16,7 @@ internal static class TicketDescriptionChecks
         }
         TicketField Field(string id, string state = "editable", string? band = null, string? choices = null, string? lookup = null, string? soon = null, string? rule = null, params string[] dependsOn) =>
             new(id, id, id, "text", null, state, false, band, choices, [..dependsOn], lookup, soon, rule);
-        TicketSideKind Kind(string kind, params TicketField[] fields) => new(kind, kind, "blue", 1, 2, [..fields], []);
+        TicketSideKind Kind(string kind, params TicketField[] fields) => new(kind, kind, "blue", 1, 1, 2, [..fields], []);
         var valid = new TicketDescription("fixture", 1, "flow",
             [Field("book"), Field("note", "info")],
             [Kind("buy", Field("buy_start", band: "start"), Field("buy_price", band: "price", dependsOn: "buy_start")), Kind("sell", Field("sell_start", band: "start"))],
@@ -44,12 +44,15 @@ internal static class TicketDescriptionChecks
         Reject("empty levels", valid with { Levels = [] });
         Reject("levels out of order", valid with { Levels = ["day", "month"] });
         Reject("a level outside month, day, hour", valid with { Levels = ["week"] });
-        Reject("a minimum above the maximum", valid with { Sides = [valid.Sides[0] with { Min = 3, Max = 2 }] });
-        Reject("a maximum below one", valid with { Sides = [valid.Sides[0] with { Min = 0, Max = 0 }] });
+        Reject("a minimum above the maximum", valid with { Sides = [valid.Sides[0] with { Min = 3, Initial = 2, Max = 2 }] });
+        Reject("a maximum below one", valid with { Sides = [valid.Sides[0] with { Min = 0, Initial = 0, Max = 0 }] });
         Reject("a side limit naming an unknown kind", valid with { SideLimits = [new(["buy", "swap"], 3)] });
         Reject("a side limit naming a kind twice", valid with { SideLimits = [new(["buy", "buy"], 3)] });
         Reject("a side limit below its kinds' minimum sides", valid with { SideLimits = [new(["buy", "sell"], 1)] });
         Reject("a negative minimum", valid with { Sides = [valid.Sides[0] with { Min = -1 }] });
+        Reject("initial sides below the minimum", valid with { Sides = [valid.Sides[0] with { Initial = 0 }, valid.Sides[1]] });
+        Reject("initial sides above the maximum", valid with { Sides = [valid.Sides[0] with { Initial = 3 }, valid.Sides[1]] });
+        Reject("initial sides above a side limit", valid with { Sides = [valid.Sides[0] with { Initial = 2 }, valid.Sides[1] with { Initial = 2 }] });
         foreach (var state in new[] { "info", "derived", "soon" })
             Reject($"a required {state} field", WithTrade(Field("book", state, soon: "later", rule: "copied") with { Required = true }));
         Reject("a mode outside new, booked, amend and close-out", valid with { Modes = ["new", "draft"] });

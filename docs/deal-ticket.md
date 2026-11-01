@@ -262,7 +262,7 @@ Its exact schema is left to the builder (below); it must express:
 
 - the product, its version and its row shape (flow or cargo);
 - trade-level fields;
-- the side kinds the product admits, with minimum and maximum counts, and for
+- the side kinds the product admits, with minimum, initial and maximum counts, and for
   each kind: its pill, colour role, name, common-band fields and detail fields;
 - for each field: its business meaning, type, unit, required condition, state,
   the reference read that lists its choices and the choices it depends on, and
@@ -417,7 +417,8 @@ single-point trade keeps its listed terms in the Details pane.
   decimal field that is not a plain decimal, a quantity against the link rule
   and a source naming no physical side are named this way.
 - The ticket controller (`web/src/ticket-controller.ts`) opens a new ticket with
-  the description's minimum sides and one payment side. After an edit it reads
+  each side kind's initial count from the description: one physical and one
+  payment side for gas. After an edit it reads
   the choices of the fields that depend on it and of the lists that refused;
   adding or removing a side, or editing a trade field, reads every list. Once
   edits settle (300 ms) it previews the whole draft and reads every lookup

@@ -9,8 +9,7 @@ import type {TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup
 // Every value, choice, lookup and schedule is the backend's; the controller only keeps what the person sees in step with what they did.
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Opened={tradeId:string;bindingId:string;revision:number};
-// A new ticket opens with the description's minimum sides and one more of each kind in `sides`.
-type Entry={actor:()=>string;booked:(receipt:{tradeId:string})=>void;sides?:readonly string[]};
+type Entry={actor:()=>string;booked:(receipt:{tradeId:string})=>void};
 export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string}&({opened:Opened}|({opened?:undefined}&Entry));
 export type TicketHandle={unsaved():boolean;pending():boolean;destroy():void};
 
@@ -224,7 +223,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
      pending.command={...saved,uncertain:true};
      // Terms the ticket cannot show still leave the request to be checked or retried.
      try{state=ticketOf(d,saved.body.draft as TicketDraft);}catch(error){fail(error);drawBooking();return;}
-    }else state=(entry!.sides??[]).reduce(addSide,newTicket(d));
+    }else state=newTicket(d);
     opened=sent();
    }
    draw();void readChoices(listed());

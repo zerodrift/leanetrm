@@ -31,10 +31,10 @@ const controls=root=>all(root).filter(n=>['INPUT','SELECT','TEXTAREA'].includes(
 const f=(id,label,over={})=>({id,label,meaning:`${label} meaning`,type:'text',unit:null,state:'editable',required:false,band:null,choices:null,dependsOn:[],lookup:null,soon:null,rule:null,...over});
 const description={product:'synthetic_flow',version:2,rowShape:'flow',levels:['month','day'],modes:['new','booked'],tradeColumns:[],tabs:[{id:'notes',label:'Notes'}],
  tradeFields:[f('book','Book',{type:'choice',choices:'books'}),f('agreement','Agreement',{state:'soon',soon:'Will name the master agreement.'})],
- sides:[{kind:'leg',pill:'Physical',colour:'gas',min:1,max:2,columns:[],fields:[f('direction','Direction',{band:'direction',type:'choice',choices:'directions'}),
+ sides:[{kind:'leg',pill:'Physical',colour:'gas',min:1,initial:1,max:2,columns:[],fields:[f('direction','Direction',{band:'direction',type:'choice',choices:'directions'}),
    f('start','From',{band:'start',type:'date'}),f('quantity','Quantity',{band:'quantity',type:'decimal',unit:'MMBtu'}),
    f('price','Price',{band:'price',state:'info',lookup:'market_price'}),f('point','Point',{lookup:'point'}),f('meter','Meter',{state:'soon',soon:'Will name the meter.'})]},
-  {kind:'cash',pill:'Payment',colour:'cash',min:1,max:2,columns:[],fields:[f('pay_direction','Direction',{band:'direction',type:'choice',choices:'pay'}),
+  {kind:'cash',pill:'Payment',colour:'cash',min:1,initial:1,max:2,columns:[],fields:[f('pay_direction','Direction',{band:'direction',type:'choice',choices:'pay'}),
    f('pay_start','From',{band:'start',state:'derived',rule:'Follows the source side.'}),f('pay_price','Price',{band:'price',type:'decimal'}),f('pay_at','Payment at',{band:'payment'})]}],
  sideLimits:[]};
 const status={kind:'current',text:'Up to date'};

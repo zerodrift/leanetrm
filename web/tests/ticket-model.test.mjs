@@ -5,18 +5,20 @@ import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTick
 const f=(id,label,over={})=>({id,label,meaning:'',type:'choice',unit:null,state:'editable',required:false,band:null,choices:null,dependsOn:[],lookup:null,soon:null,rule:null,...over});
 const description={product:'synthetic',version:3,rowShape:'flow',levels:['month'],tabs:[],modes:['new'],tradeColumns:[],
  tradeFields:[f('book','Book'),f('trade_date','Trade date',{state:'info',lookup:'trade_date'}),f('later','Later',{state:'soon',soon:'Not yet'})],
- sides:[{kind:'leg',pill:'Leg',colour:'blue',min:1,max:3,columns:[],fields:[f('region','Region',{lookup:'region'}),f('zone','Zone',{lookup:'zone',dependsOn:['region']}),f('point','Point',{dependsOn:['zone']}),
+ sides:[{kind:'leg',pill:'Leg',colour:'blue',min:1,initial:1,max:3,columns:[],fields:[f('region','Region',{lookup:'region'}),f('zone','Zone',{lookup:'zone',dependsOn:['region']}),f('point','Point',{dependsOn:['zone']}),
    f('price','Price',{state:'info',lookup:'market_price'}),f('note','Note',{state:'soon',soon:'Not yet'}),f('total','Total',{state:'derived',rule:'sum'})]},
-  {kind:'cash',pill:'Cash',colour:'green',min:0,max:2,columns:[],fields:[f('amount','Amount')]},
-  {kind:'fee',pill:'Fee',colour:'red',min:0,max:2,columns:[],fields:[f('rate','Rate')]}],
+  {kind:'cash',pill:'Cash',colour:'green',min:0,initial:0,max:2,columns:[],fields:[f('amount','Amount')]},
+  {kind:'fee',pill:'Fee',colour:'red',min:0,initial:0,max:2,columns:[],fields:[f('rate','Rate')]}],
  sideLimits:[{kinds:['cash','fee'],max:3}]};
 const leg='leg-1';
 const looked={value:'4.5',source:{kind:'market',label:'Market close'}};
 
-test('a new ticket has one side of each kind that needs one, coded by kind',()=>{
+test('a new ticket opens with each kind’s initial sides, coded by kind',()=>{
  const s=newTicket(description);
  assert.deepEqual(s.sides.map(x=>x.code),['leg-1']);
  assert.equal(s.previewSerial,0);assert.deepEqual(s.notices,[]);
+ const paid={...description,sides:description.sides.map(k=>k.kind==='cash'?{...k,initial:1}:k)};
+ assert.deepEqual(newTicket(paid).sides.map(x=>x.code),['leg-1','cash-1']);
 });
 
 test('editing a looked-up field removes its chip, and a later lookup offers instead of replacing it',()=>{

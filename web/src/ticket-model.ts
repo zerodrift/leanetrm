@@ -17,7 +17,7 @@ function lowestFreeCode(sides:TicketSide[],kind:string){
 
 export function newTicket(d:TicketDescription):TicketState{
  const sides:TicketSide[]=[];
- for(const k of d.sides)for(let i=0;i<k.min;i++)sides.push({kind:k.kind,code:lowestFreeCode(sides,k.kind),values:{}});
+ for(const k of d.sides)for(let i=0;i<k.initial;i++)sides.push({kind:k.kind,code:lowestFreeCode(sides,k.kind),values:{}});
  return {description:d,trade:{},sides,notices:[],previewSerial:0};
 }
 

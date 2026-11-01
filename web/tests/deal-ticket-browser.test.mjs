@@ -10,7 +10,7 @@ test('a ticket in delivery shows the delivered count and the delivered, remainin
    const {renderTicket}=await import('/deal-ticket.js'),{newTicket}=await import('/ticket-model.js');
    const col=(id,label,unit,measure)=>({id,label,unit,measure,input:false});
    const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month','day'],modes:['new','booked'],tabs:[],
-    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,max:1,fields:[],columns:[col('quantity','Quantity','MMBtu','quantity')]}],tradeColumns:[col('net_cash','Net cash',null,'money')]};
+    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:1,fields:[],columns:[col('quantity','Quantity','MMBtu','quantity')]}],tradeColumns:[col('net_cash','Net cash',null,'money')]};
    const cells=(q,net)=>({'physical-1.quantity':{value:q,sources:['contract']},'trade.net_cash':{value:net,sources:[]}});
    const row=(key,parent,level,c,delivered)=>({key,parent,level,start:'',end:'',operatingDate:null,cells:c,delivered});
    const schedule={levels:['month','day'],valuationAt:'2026-11-02T00:00:00+00:00',deliveredLeaves:1,leaves:2,
@@ -39,7 +39,7 @@ test('a redraw keeps the person\'s open and closed rows and leaves out a side th
   await evaluate(`(async()=>{
    const {renderTicket}=await import('/deal-ticket.js'),{newTicket,addSide}=await import('/ticket-model.js');
    const col=(id,label,unit,measure)=>({id,label,unit,measure,input:false});
-   const kind=(k,colour,min)=>({kind:k,pill:k,colour,min,max:2,fields:[],columns:[col('quantity','Quantity','MMBtu','quantity')]});
+   const kind=(k,colour,min)=>({kind:k,pill:k,colour,min,initial:min,max:2,fields:[],columns:[col('quantity','Quantity','MMBtu','quantity')]});
    const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month','day'],modes:['new','booked'],tabs:[],sides:[kind('physical','gas',1),kind('fee','fee',0)],tradeColumns:[]};
    const cells=q=>({'physical-1.quantity':{value:q,sources:[]}});
    const row=(key,parent,level,q)=>({key,parent,level,start:'',end:'',operatingDate:null,cells:cells(q),delivered:false});

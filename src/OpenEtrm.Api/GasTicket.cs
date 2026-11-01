@@ -24,7 +24,7 @@ public static class GasTicket
    Trade("counterparty","Counterparty","The other party to the trade.","choice",choices:"counterparties",required:false),
    Trade("gas_setup","Gas setup","Published gas conventions and market assignments that price the trade; empty where the context resolves none and the reference conventions apply.","choice",choices:"gas_setups",required:false),
    new("trade_date","Trade date","Date the trade is booked.","date",null,"info",false,null,null,[],"trade_date",null,null)],
-  [new(Physical,"Physical","gas",GasCompositionInstrument.MinPhysicalSides,GasCompositionInstrument.MaxPhysicalSides,
+  [new(Physical,"Physical","gas",GasCompositionInstrument.MinPhysicalSides,1,GasCompositionInstrument.MaxPhysicalSides,
     [Field("direction","Direction","Whether gas is delivered or received.","choice","direction",choices:"physical_direction"),
      Field("delivery_from","From","First gas day of delivery.","date","start"),
      Field("delivery_to","To","End of delivery, exclusive.","date","end"),
@@ -41,8 +41,9 @@ public static class GasTicket
      Field("link_formula","Link formula","How fuel loss relates this side to its source.","choice",choices:"link_formulas",required:false,dependsOn:"link_source"),
      Field("link_fraction","Link fraction","Fuel fraction used by the link formula.","decimal",required:false,dependsOn:"link_source")],
     [new("quantity","Quantity","MMBtu","quantity",false),new("market_price","Market price",null,"price",false),new("amount","Amount",null,"money",false)]),
-   CashKind("cash","Payment","cash",false),
-   CashKind("fee","Fee","fee",true)],
+   // A new trade opens with the payment for its gas; a fee is added when one applies.
+   CashKind("cash","Payment","cash",false,1),
+   CashKind("fee","Fee","fee",true,0)],
   // Payment and fee sides are the composition's cash sides.
   [new(["cash","fee"],GasCompositionInstrument.MaxCashSides)],
   [new("net_cash","Net cash",null,"money",false),new("payment_at","Payment at",null,"time",false)],
@@ -58,13 +59,13 @@ public static class GasTicket
  static TicketField Info(string id,string label,string meaning,string? band,string lookup)=>
   new(id,label,meaning,"text",null,"info",false,band,null,[],lookup,null,null);
 
- static TicketSideKind CashKind(string kind,string pill,string colour,bool fee)
+ static TicketSideKind CashKind(string kind,string pill,string colour,bool fee,int initial)
  {
   var follows="Follows the quantity source side.";
   TicketField Own(string id,string label,string meaning,string type,string? band=null,string? choices=null,bool required=true,string? lookup=null)=>
    new($"{kind}_{id}",label,meaning,type,null,"editable",required,band,choices,[],lookup,null,null);
   TicketField Follows(string id,string label)=>new($"{kind}_{id}",label,follows,"date",null,"derived",false,id,null,[],null,null,follows);
-  return new(kind,pill,colour,0,GasCompositionInstrument.MaxCashSides,
+  return new(kind,pill,colour,0,initial,GasCompositionInstrument.MaxCashSides,
    [Own("direction","Direction","Whether we pay or receive.","choice","direction","cash_direction"),
     Follows("start","From"),Follows("end","To"),
     Own("source","Quantity source","Physical side whose quantity this amount is charged on.","choice","quantity","physical_sides"),

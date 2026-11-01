@@ -130,7 +130,7 @@ export function setupPhysicalGas(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  get('gas-list').onclick=()=>void o.act(directory);get('gas-open').onclick=()=>void o.act(()=>open(val('gas-trade-id')));
  async function begin(){
   if(!await load())return;
-  ticket=setupTicket(get('gas-ticket'),{api:o.api,context,product:'physical_gas',actor:o.actor,sides:['cash'],booked:r=>void o.onBooked?.(r.tradeId)});
+  ticket=setupTicket(get('gas-ticket'),{api:o.api,context,product:'physical_gas',actor:o.actor,booked:r=>void o.onBooked?.(r.tradeId)});
  }
  return {begin,load,reset,sync,inspect:async(tradeId:string)=>{if(await load())await composer.quantities(tradeId);},pending:()=>!!pending||composer.pending()||ticketBookingRetained('physical_gas',o.actor),leave:composer.leave,unsaved:()=>!!ticket?.unsaved()||!!pending||!!reviewed||composer.unsaved()};
 }

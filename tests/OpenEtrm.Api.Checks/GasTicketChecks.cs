@@ -83,6 +83,8 @@ internal static class GasTicketChecks
             Equal(GasCompositionInstrument.MaxCashSides, GasTicket.Description.SideLimits.Single(l => l.Kinds.SequenceEqual(["cash", "fee"])).Max, "cash and fee sides");
             foreach (var role in new[] { "consideration", "fee" }) Equal(GasCompositionInstrument.MaxCashSides, GasTicket.SideKind(role).Max, role + " sides");
         });
+        Check("a new gas ticket opens with one physical and one payment side", () =>
+            Equal("physical:1,cash:1,fee:0", string.Join(",", GasTicket.Description.Sides.Select(k => $"{k.Kind}:{k.Initial}")), "initial sides"));
         Check("a role without a side kind refuses", () =>
         {
             try { GasTicket.SideKind("cash"); } catch (MarketDataException error) when (error.Code == "ticket_description") { return; }
