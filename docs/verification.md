@@ -370,11 +370,23 @@ workspace hydration. Exact frame/context selection and stale-response guards
 remain intact. All owned disposable resources completed teardown.
 
 The guarded market-read policy change was also qualified on stock PostgreSQL
-16.14. Actual runtime reads retain one fresh permission check per mandatory
-visibility check, including candidates excluded by their historical cutoff.
-Same-context rows remain identical. Checks cover current scope and role revocation,
-disabled principals, expiry between reads within one statement, additional
-permissive policies, unexpected migration prerequisites and transactional rollback.
+16.14. Under D282 a runtime read makes one fresh visibility and authority
+decision per statement, and each row compares the clock with that authority's
+end; a 30-row scan computes each set once. Same-context rows remain identical.
+Checks cover current scope and role revocation, disabled principals, expiry
+between reads within one statement and within one scan, each statement set
+accepting exactly what its per-row function accepts over every row for current,
+bound, trading-bound and write-profile requests, additional permissive policies,
+unexpected migration prerequisites and transactional rollback.
+
+On a 2026-11-01 physical copy of the hosted pilot database (stock PostgreSQL
+16.14 on Linux, schema 0157), reads under one bound request with current knowledge
+returned identical rows and bytes before and after migration 0158. Three runs each:
+3,444 side schedule rows 2.09-2.15 s before and 18-20 ms after; 20,975 observations
+1.21-1.30 s and 114-120 ms; 3,670 calendar days 530-590 ms and 7-13 ms; 1,239
+futures milestones 170-200 ms and 4-6 ms; 1,083 contracts about 57 ms and 4-5 ms.
+Two gas trade revisions, whose rule keeps a per-row check, took 8-10 ms before and
+22-38 ms after. These are row-security read times, not Blotter request times.
 
 A separate Linux x64 comparison isolated these eleven policy expressions on the
 schema-0041 application at `2cc918f67035fd671f3b2340b917704fe35c87c0`.
