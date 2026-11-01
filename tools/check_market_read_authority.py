@@ -103,22 +103,24 @@ def run_checks(query, manifest):
 
     # Each statement set accepts exactly what its per-row function accepts, over every row of its table, for a current,
     # a bound, a trading-bound and a write-profile request. Candidates are copied before the request binds, so row
-    # security cannot hide the rows the two decisions are compared on.
+    # security cannot hide the rows the two decisions are compared on; each pair names the requests that must accept
+    # rows, so a comparison cannot pass with nothing compared. The suite has published no side schedule at this point.
+    ALL=('current','bound','trading-bound','editor')
     pairs=[('market_data.revisions','security.market_fact_visible(r.catalog_id,r.id,NULL)',
-            'COALESCE((r.catalog_id,r.id) IN (SELECT v.catalog,v.revision FROM security.visible_market_revisions() v),false)',True),
+            'COALESCE((r.catalog_id,r.id) IN (SELECT v.catalog,v.revision FROM security.visible_market_revisions() v),false)',ALL),
            ('ref_data.revisions','security.reference_version_visible(r.catalog_id,r.id)',
-            'COALESCE((r.catalog_id,r.id) IN (SELECT v.catalog,v.revision FROM security.visible_reference_revisions() v),false)',True),
+            'COALESCE((r.catalog_id,r.id) IN (SELECT v.catalog,v.revision FROM security.visible_reference_revisions() v),false)',ALL),
            ('market_data.observations','security.market_fact_visible(r.catalog_id,r.definition_revision_id,r.id)',
-            'COALESCE((r.catalog_id,r.definition_revision_id,r.id) IN (SELECT v.catalog,v.revision,v.observation FROM security.visible_observations() v),false)',True),
+            'COALESCE((r.catalog_id,r.definition_revision_id,r.id) IN (SELECT v.catalog,v.revision,v.observation FROM security.visible_observations() v),false)',ALL),
            ('trading.instruments','security.trading_visible(r.catalog_id,r.publication_order,r.effective_at)',
-            'COALESCE((r.catalog_id,r.publication_order) IN (SELECT v.catalog,v.ordinal FROM security.visible_trading_publications() v) AND r.effective_at<=(SELECT security.request_trading_as_of()),false)',False),
+            'COALESCE((r.catalog_id,r.publication_order) IN (SELECT v.catalog,v.ordinal FROM security.visible_trading_publications() v) AND r.effective_at<=(SELECT security.request_trading_as_of()),false)',('trading-bound',)),
            ('trading.side_schedule_publications','security.side_schedule_visible(r.catalog_id,r.schedule_id)',
-            'COALESCE((r.catalog_id,r.schedule_id) IN (SELECT v.catalog,v.schedule FROM security.visible_side_schedules() v),false)',False)]
+            'COALESCE((r.catalog_id,r.schedule_id) IN (SELECT v.catalog,v.schedule FROM security.visible_side_schedules() v),false)',())]
     for permission in ['ReadMarketData','WriteMarketDefinitions','SealMarketDefinitions']:
-        pairs.append(('market_data.catalogs',f"security.market_access(r.id,'{permission}')",f"COALESCE(r.id IN (SELECT security.market_catalogs('{permission}')),false)",permission=='ReadMarketData'))
+        pairs.append(('market_data.catalogs',f"security.market_access(r.id,'{permission}')",f"COALESCE(r.id IN (SELECT security.market_catalogs('{permission}')),false)",ALL if permission=='ReadMarketData' else ('editor',) if permission=='WriteMarketDefinitions' else ()))
     for permission in ['ReadMarketData','WriteReferenceData']:
-        pairs.append(('ref_data.catalogs',f"security.reference_access(r.id,'{permission}')",f"COALESCE(r.id IN (SELECT security.reference_catalogs('{permission}')),false)",permission=='ReadMarketData'))
-    pairs.append(('market_data.catalogs',"security.trading_access(r.id,'ReadTrades')","COALESCE(r.id IN (SELECT security.trading_catalogs('ReadTrades')),false)",False))
+        pairs.append(('ref_data.catalogs',f"security.reference_access(r.id,'{permission}')",f"COALESCE(r.id IN (SELECT security.reference_catalogs('{permission}')),false)",ALL if permission=='ReadMarketData' else ('editor',)))
+    pairs.append(('market_data.catalogs',"security.trading_access(r.id,'ReadTrades')","COALESCE(r.id IN (SELECT security.trading_catalogs('ReadTrades')),false)",('trading-bound',)))
     copies=''.join(f"CREATE TEMP TABLE candidates_{n} ON COMMIT DROP AS SELECT * FROM {table};GRANT SELECT ON candidates_{n} TO PUBLIC;"
                    for n,(table,_,_,_) in enumerate(pairs))
     compare=''.join(f"SELECT 'PAIR|{n}|'||count(*) FILTER(WHERE ({old}) IS DISTINCT FROM ({new}))||'|'||count(*) FILTER(WHERE {old}) FROM candidates_{n} r;"
@@ -131,5 +133,5 @@ def run_checks(query, manifest):
             n,differing,accepted=map(int,line.split('|')[1:])
             table,old,_,populated=pairs[n]
             check(f'{name} request: the statement set for {old.split("(")[0]} on {table} accepts exactly its per-row function '
-                  f'(differing={differing}, accepted={accepted})',differing==0 and (accepted>0 or not populated))
+                  f'(differing={differing}, accepted={accepted})',differing==0 and (accepted>0 or name not in populated))
     print(f'{passed} market authority checks passed.',flush=True)
