@@ -75,7 +75,7 @@ const settlementText=(settlement:string)=>publicText(settlement==='unprocessed'?
  */
 export function positionSummary(h:Holding,row:DeskRow,formats:HoldingFormats):PositionSummary{
   if(row.unavailable!==null&&h.markMinusPrice!==null)throw Error('The Blotter returned a mark minus price for a position it cannot value.');
-  const label=row.measure==='Value excl. overdue'?'Value excluding overdue cash':row.measure==='PV'?'Present value':'Execution P&L';
+  const label=row.measure==='Value excl. overdue'?'Value excluding overdue cash':row.measure==='PV'?'Present value':row.measure==='Contractual PV'?'Contractual PV':'Execution P&L';
   const value:PositionSummary['value']=row.unavailable===null?{label,currency:row.currency,amount:signed(row.value,formats.money),unavailable:null}:{label,currency:row.currency,amount:null,unavailable:row.unavailable};
   if(h.markMinusPrice!==null&&row.priceUnit===null)throw Error('A mark minus price requires one explicit price unit.');
   const markMinusPrice=h.markMinusPrice===null?null:{text:signedText(h.markMinusPrice,formats.markMinusPrice),exact:h.markMinusPrice,label:`Mark − ${row.priceLabel.toLowerCase()}`,unit:row.priceUnit!};

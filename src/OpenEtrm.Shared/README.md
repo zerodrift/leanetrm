@@ -35,6 +35,16 @@ quantity, price and stored schedule values reuse this mechanism; their domain
 wrappers retain units, reference identities, bounds and structured errors. The
 shared primitive imposes no financial precision or range policy.
 
+## Explicit UTC instants
+
+`Temporal.UtcInstant.TryParse` accepts invariant ISO instants with an explicit
+`Z` or zero UTC offset and retains up to seven fractional-second digits exactly.
+It rejects date-only, local and nonzero-offset interpretations without consulting
+the host time zone. Schedule preview parsing and the market domain's
+`TradingInstant` reuse this syntax. The domain separately enforces PostgreSQL
+microsecond precision and its supported trading horizon; the shared parser
+chooses no financial range, rounding or error policy.
+
 ## Temporal payloads
 
 | Type | Contract |

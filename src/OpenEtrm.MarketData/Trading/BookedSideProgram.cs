@@ -149,7 +149,7 @@ public sealed partial class BookedSideProgram
             {
                 var lifecycle=row.Parameters["lifecycle"];
                 var dated=lifecycle=="undue_payment_v1";
-                if(lifecycle is not("undue_payment_v1" or "interval_payment_v1" or "interval_delivery_v1" or "certificate_holding_v1" or "future_gas_delivery_v1")||
+                if(lifecycle is not("undue_payment_v1" or "interval_payment_v1" or "interval_delivery_v1" or "certificate_holding_v1" or "future_gas_delivery_v1" or "future_crude_delivery_v1")||
                     row.ValueAt is not {} valueAt||!TradingInstant.IsSupported(valueAt)||row.Currency is null||
                     dated!=(row.Grid is null)||row.Parameters["measure"]!=(dated?"present_value_v1":"value_excluding_overdue_v1"))
                     throw Error("An output requires its explicit supported lifecycle, measure, value date and delivery shape.");
@@ -195,6 +195,18 @@ public sealed partial class BookedSideProgram
             for(var c=1;c<instruction.Consumers.Length;c++)
                 if(instruction.Consumers[c-1]>=instruction.Consumers[c])
                     throw Error("Executable value-use consumers require distinct ordered addresses.");
+        }
+        if(document.Family=="crude")
+        {
+            var prices=instructions.Where(i=>i.Output.Operation=="price_lookup").ToArray();
+            var guards=instructions.Where(i=>i.Output.Operation=="output_guard").ToArray();
+            var quantities=instructions.Where(i=>i.Output.Operation=="quantity_literal").ToArray();
+            if(document.Grids.Length!=1||document.Grids[0].CellCount!=1||!document.Ports.IsEmpty||
+                prices.Length!=1||!prices[0].Bindings.Any(b=>b.Kind=="crude_assignment")||
+                guards.Length!=1||guards[0].Output.Parameters["lifecycle"]!="future_crude_delivery_v1"||
+                quantities.Length!=1||quantities[0].Output.Parameters["numerator"]!="1"||quantities[0].Output.Parameters["denominator"]!="1"||
+                document.Roots.Count(r=>r.Measure=="physical_value")!=1||document.Roots.Any(r=>r.Measure=="contractual_amount"))
+                throw Error("A crude program must retain one normalized total-volume delivery, its exact assignment, noncash value and crude lifecycle.");
         }
         if(usedGrids.Count!=document.Grids.Length)
             throw Error("Every executable grid must be consumed by a stored operation.");

@@ -1,3 +1,4 @@
+import {isCrudeOperation} from './trade-requests.js';
 /** A request the page sends, kept exactly as it was first sent. Its `label` says what it is, for the person, and is never sent. */
 export type RequestCommand={operationId:string;path:string;body:Record<string,unknown>;uncertain?:boolean;label?:string};
 
@@ -32,7 +33,7 @@ export class PendingCommand {
 export function restoreTradeRequest(value:unknown):RequestCommand|undefined{
   if(!value||typeof value!=='object'||Array.isArray(value))return;
   const saved=value as Record<string,unknown>;
-  if(typeof saved.path!=='string'||!['futures/book','futures/amend','swaps/book','swaps/amend','swaps/settlement/determine','swaps/settlement/payment','swaps/settlement/net','tickets/book'].includes(saved.path)||
+  if(typeof saved.path!=='string'||(!isCrudeOperation(saved.path)&&!['futures/book','futures/amend','swaps/book','swaps/amend','swaps/settlement/determine','swaps/settlement/payment','swaps/settlement/net','tickets/book'].includes(saved.path))||
     typeof saved.operationId!=='string'||!saved.operationId||!saved.body||typeof saved.body!=='object'||Array.isArray(saved.body))return;
   return{path:saved.path,operationId:saved.operationId,body:structuredClone(saved.body as Record<string,unknown>),...(saved.uncertain===true?{uncertain:true}:{}),...(typeof saved.label==='string'?{label:saved.label}:{})};
 }

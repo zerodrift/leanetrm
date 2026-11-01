@@ -97,7 +97,11 @@ public static partial class RiskEngine
         var contracts=DeclarePortfolios(portfolios,valuation.Snapshot);
         var intervalBases=portfolios.Where(p=>p.Setup.Interval is not null).Select(p=>p.Setup.Interval!.BaseMarket).Distinct().ToArray();
         if(intervalBases.Length>1)throw Error("ppa_context","One market partition requires one shared prepared interval market.");
+        // Interval consumers retain prepared native values; every consumer still
+        // resolves prices through the complete shared connected bindings.
         var intervalBasis=intervalBases.SingleOrDefault();
+        if(portfolios.Any(p=>p.Instruments.Any(i=>i.RequiresNativeProgramMarket)))
+            intervalBasis??=authority??throw Error("native_program_context","Retained programs require the complete qualified native market authority.");
         var market=valuation.Market(bindings,authority,cancellation,intervalBasis?.BindConnected(valuation,bindings,cancellation));
         var factors=portfolios.SelectMany((portfolio,n)=>portfolio.RiskFactors(market,contracts[n],cancellation))
             .SelectMany(book=>book.Factors).DistinctBy(factor=>factor.Input).OrderBy(factor=>factor.Input.Series.Id).ToImmutableArray();

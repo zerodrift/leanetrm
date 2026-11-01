@@ -1453,9 +1453,9 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 #scheduled-swap-editor input[type=checkbox] { width:auto; }
 #scheduled-swap-editor .scheduled-period { border:1px solid var(--border); border-radius:8px; }
 #scheduled-swap-editor section { overflow-wrap:anywhere; }
-#swap-settlement>*{min-width:0;max-width:100%;box-sizing:border-box}
-#swap-settlement form>div{display:grid;gap:6px;margin-block:12px;min-width:0}
-#swap-settlement input,#swap-settlement select{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+:is(#swap-settlement,#crude-operations)>*{min-width:0;max-width:100%;box-sizing:border-box}
+:is(#swap-settlement,#crude-operations) form>div{display:grid;gap:6px;margin-block:12px;min-width:0}
+:is(#swap-settlement,#crude-operations) :is(input,select){width:100%;max-width:100%;min-width:0;box-sizing:border-box}
 
 /* Shared temporal controls keep their screen's form and exact read contract. The page keeps a band at its foot free
    for them (D217): the As of control with its close badge floats beside the shared Context panel, whose summary names the
@@ -1845,6 +1845,18 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 /* The gas page's deal ticket shares the available workspace width. */
 #gas-page,#gas-page label{min-width:0}
 #gas-page input,#gas-page select{min-width:0;max-width:100%;box-sizing:border-box}
+/* The physical crude ticket and its retained evidence share the workspace width. */
+#crude-page,#crude-page .card,#crude-page label{min-width:0}
+#crude-page .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
+#crude-page input,#crude-page select{min-width:0;max-width:100%;box-sizing:border-box}
+#crude-page .table-wrap{max-width:100%;overflow-x:auto}
+#crude-page .ppa-evidence{max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+#crude-receipt{overflow-wrap:anywhere}
+#crude-page fieldset{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0;min-width:0}
+#crude-page legend{font-weight:600;padding:0 8px}
+#crude-page dl{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,2fr);gap:8px 16px;font-size:13px}
+#crude-page dt{color:var(--text-muted)}
+#crude-page dd{margin:0;overflow-wrap:anywhere}
 
 .gas-setup-toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin:16px 0}
 .gas-setup-toolbar>label{flex:1 1 320px;min-width:0}
@@ -1898,6 +1910,10 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 /* The same product form lives in the shared trade panel. */
 .embedded-trade{min-width:0}
 .embedded-trade > .card{margin:0 0 1rem}
-.embedded-trade #ppa-book-directory{display:none}
+.embedded-trade #crude-book-directory,.embedded-trade #ppa-book-directory{display:none}
 #side-panel .product-switch{flex-wrap:wrap}
 #side-panel .embedded-trade .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
+
+#crude-operations table{width:100%;table-layout:fixed}
+#crude-operations th,#crude-operations td{white-space:normal;overflow-wrap:anywhere}
+#crude-operations input[type=checkbox]{width:auto;justify-self:start}

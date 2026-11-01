@@ -38,7 +38,7 @@ const record=<T>(key:Parse<string>,parse:Parse<T>):Parse<Record<string,T>>=>x=>i
 const strings=list(str);
 
 const selection=shape({mode:oneOf('trades','pivot'),bookIds:strings,portfolioIds:strings,groupBy:strings,measures:strings});
-const tradeShown=shape({tradeId:str,instrumentType:oneOf('future','financial_swap','heat_rate','ppa'),revision,reference:str});
+const tradeShown=shape({tradeId:str,instrumentType:oneOf('future','financial_swap','heat_rate','ppa','physical_gas','physical_crude'),revision,reference:str});
 // Grid keys are columns, which may be pivot keys longer than ordinary text, so the saved-view rule decides them.
 const layoutKey:Parse<string>=x=>typeof x==='string'&&validLayoutField(x)?x:refuse('a grid column is unknown');
 const gridLayout:Parse<GridLayout>=shape({order:list(layoutKey),widths:record(layoutKey,x=>Number.isSafeInteger(x)?x as number:refuse('a width is not a whole number')),sort:list(shape({key:layoutKey,direction:oneOf('asc','desc')}))});
@@ -46,7 +46,7 @@ const gridLayout:Parse<GridLayout>=shape({order:list(layoutKey),widths:record(la
 const pageStates:Record<string,Parse<object>>={
   market:shape({curve:orNull(str),tab:oneOf('prices','dependencies','inputs')}),power:shape({frame:bool}),configuration:shape({}),schedules:shape({}),
   reference:shape({table:str,search:str}),parties:shape({kind:str}),
-  futures:shape({risk:bool,trade:orNull(tradeShown),entry:orNull(shape({product:orNull(oneOf('futures','swaps','ppa','gas'))})),lens:oneOf('values','risk'),view:selection,pane:shape({details:bool,charts:bool}),poppedOut:bool}),
+  futures:shape({risk:bool,trade:orNull(tradeShown),entry:orNull(shape({product:orNull(oneOf('futures','swaps','ppa','gas','crude'))})),lens:oneOf('values','risk'),view:selection,pane:shape({details:bool,charts:bool}),poppedOut:bool}),
   jobs:shape({job:orNull(str)}),ppa:shape({trade:orNull(shape({tradeId:str,revision})),book:orNull(str)}),'custom-curves':shape({curve:orNull(str),unsaved:bool}),
   delivery:shape({}),'interval-series':shape({}),'interval-curves':shape({}),admin:shape({}),ai:shape({})};
 function pageState(state:unknown):PageState{

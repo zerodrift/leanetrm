@@ -6,7 +6,7 @@ fee sides. A purchase or sale at one point is the composition of one physical si
 
 The single-point template and its operations (`gas/preview`, `gas/instructions`,
 `gas/book`, `gas/status`, `gas/directory` and `gas/editor`) are removed; no new
-single-point trade can be booked, and migration 0151 revokes the runtime's call of
+single-point trade can be booked, and migration 0156 revokes the runtime's call of
 the retired booking entry, `security.book_physical_gas`. `gas/catalog` remains. Stored
 single-point trades stay readable: the Blotter values them and the trade read and the
 deal ticket open them read-only, all as the one-physical-side composition they are,

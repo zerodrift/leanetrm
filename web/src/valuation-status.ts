@@ -1,6 +1,6 @@
 // Plain words for the positions a close cannot value (D220). The backend decides which positions
 // those are and why; a status it has not defined is refused rather than shown as a value.
-export type ValuationReason='source_expired'|'missing_observation'|'index_fixing_missing'|'other_definition_versions'|'unpriced_delivery'|'needs_rebooking'|'gas_delivery_lifecycle'|'gas_market_context'|'physical_gas_risk_unavailable';
+export type ValuationReason='source_expired'|'missing_observation'|'index_fixing_missing'|'other_definition_versions'|'unpriced_delivery'|'needs_rebooking'|'gas_delivery_lifecycle'|'gas_market_context'|'physical_gas_risk_unavailable'|'crude_delivery_lifecycle'|'crude_lifecycle'|'crude_market_context';
 // An expired source is a future's own contract, awaiting settlement, but for a swap an input of the
 // composite or custom curve it is projected from. A PPA booked under other reference or definition
 // versions than the close is not valued at it (D246), nor is one whose delivery the close has no price for (D252).
@@ -8,6 +8,7 @@ const reasons:Readonly<Record<string,Readonly<Partial<Record<ValuationReason,str
   future:{source_expired:'Contract expired · awaiting settlement',missing_observation:'Missing price at this close'},
   financial_swap:{source_expired:'Past marking cutoff',missing_observation:'Missing price at this close',index_fixing_missing:'Missing published index fixing'},
   heat_rate:{source_expired:'Past marking cutoff',missing_observation:'Missing price at this close',index_fixing_missing:'Missing published index fixing'},
+  physical_crude:{crude_delivery_lifecycle:'Delivery has started; custody and actuals valuation are not supported',crude_lifecycle:'Delivery has started; custody and actuals valuation are not supported',source_expired:'Past marking cutoff',missing_observation:'Missing crude price at this close',index_fixing_missing:'Missing published crude fixing',crude_market_context:'Crude pricing inputs unavailable at this close'},
   physical_gas:{gas_delivery_lifecycle:'Delivery has started; operational valuation is not yet supported',source_expired:'Past marking cutoff',missing_observation:'Missing gas price at this close',index_fixing_missing:'Missing published gas fixing',gas_market_context:'Gas pricing inputs unavailable at this close',physical_gas_risk_unavailable:'Gas scenario risk is not supported; contractual PV remains available'},
   ppa:{other_definition_versions:'Booked under other reference data versions',unpriced_delivery:'No price for part of its delivery at this close',needs_rebooking:'Needs rebooking'},
 };

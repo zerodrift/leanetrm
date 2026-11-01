@@ -274,7 +274,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D278 | One description-driven deal ticket draws every sided product for new, booked, amend and close-out; product editors are removed as products move | Decided by the owner (2026-10-31, [deal-ticket.md](deal-ticket.md)). The backend serves each product's versioned description (fields, side kinds with their counts, schedule columns, tabs, levels and modes) and its operations hold every rule; the ticket only draws the description, the model's state and the backend's previews. A product's old editor is removed when it moves, with no second entry screen. Implemented locally for physical gas (`physical_gas` v1); swaps, heat-rate swaps, PPAs and later products still use their editors |
 | D279 | A ticket field is editable, looked up, derived, information or coming soon; coming-soon items are never sent | Decided by the owner (2026-10-31, [deal-ticket.md](deal-ticket.md#field-states)). A lookup proposes a value in the shape the booking takes and says where it came from; editing it makes it the person's. Derived and information fields take no value. A coming-soon field, side kind, side column or tab carries its hover text in the description, is drawn greyed and disabled with a Coming soon tag, holds no value, reads nothing and is never sent; description validation refuses one without hover text or with anything it would read, require or book, and the booking refuses a value for one |
 | D280 | The ticket's schedule panel is the joint Instrument schedule first, a tab per side, flow and cargo row shapes, and only backend-reported value sources | Decided by the owner (2026-10-31, [deal-ticket.md](deal-ticket.md#schedule-panel)). The rows are a tree of the product's levels; every value, aggregate, total and source tag is the backend's, and the browser never infers that a value is actual from its date. Only the flow shape is built; the cargo shape waits for its first product |
-| D281 | Physical gas has one ticket; a single-point trade is a composition of one physical side | Decided by the owner (2026-10-31). The deal ticket is the only gas entry: New trade lists one Physical gas entry, and the composition editor, the single-point template, the separate daily quantity panel and the single-point operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`, `gas/directory`, `gas/editor`) are removed. Stored single-point trades stay readable and open read-only in the ticket as the one-physical-side composition they are, with the schedule their retained programs give; they record no daily quantities. Migration 0151 revokes the runtime's call of the retired single-point booking entry. Meter instruction preparation, the strict billing view and the revision history of day quantities are not in the ticket yet, and a day record awaiting its outcome is kept only while the page is open, no longer across a reload; recording the same fact again after a reload is a no-op (D238) |
+| D281 | Physical gas has one ticket; a single-point trade is a composition of one physical side | Decided by the owner (2026-10-31). The deal ticket is the only gas entry: New trade lists one Physical gas entry, and the composition editor, the single-point template, the separate daily quantity panel and the single-point operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`, `gas/directory`, `gas/editor`) are removed. Stored single-point trades stay readable and open read-only in the ticket as the one-physical-side composition they are, with the schedule their retained programs give; they record no daily quantities. Migration 0156 revokes the runtime's call of the retired single-point booking entry. Meter instruction preparation, the strict billing view and the revision history of day quantities are not in the ticket yet, and a day record awaiting its outcome is kept only while the page is open, no longer across a reload; recording the same fact again after a reload is a no-op (D238) |
 
 ## Proposed implementation choices
 
@@ -1813,3 +1813,63 @@ being silently repaired. Local managed checks and independent review qualify the
 refactoring mechanics. Database startup, migration and full persisted workflows
 still require the corresponding disposable PostgreSQL checks before release;
 managed arithmetic tests alone do not qualify those operations.
+
+## D271 — Fixed-volume physical crude
+
+Accepted for local implementation on 2026-10-31. Introduce a future physical
+crude obligation with exact grade, facility/custody-point and standard-volume
+references. The bounded profile explicitly selects fixed total volume at 60°F,
+zero quantity tolerance, one covered monthly valuation assignment and no
+discounting. Independent fixed consideration and optional fixed per-unit handling
+memberships retain explicit signs and payment instants. Trade quantity remains
+external to normalized one-unit Side definitions.
+
+Use the shared executable schedule runtime, retaining physical-value outputs
+separately from cash and refusing once delivery starts. Booking must retain and
+independently admit the complete program and exact references; historical reads,
+current authorization and command recovery retain their existing contracts.
+Existing portfolio consumers cannot silently omit crude holdings. This change
+must be additive to existing booked programs and must not require rebuilding a
+populated environment.
+
+Measured receipts, quality acceptance, quantity elections, title/risk transfer,
+inventory, transport, cargo and physical settlement remain later scope. No
+exchange deliverability or production activation follows from this decision.
+See [physical crude](physical-crude.md) for the contract, independent acceptance
+oracles and qualification status.
+
+The next local increment admits retained crude holdings to the common trading
+workflow, contractual portfolio PV and shared base/up/down scenario risk. It
+uses the same immutable program execution and exact market partitions; it does
+not infer inventory or completed delivery. Unsupported gas scenario positions
+retain their existing explicit exclusions. Automated crude closes remain a
+separate qualification gate.
+
+The subsequent physical lifecycle must explicitly let the user select onward
+delivery or owned inventory. Each treatment needs a complete executable
+ownership/quantity accounting contract, retained choices and independent tests
+before it can be selected operationally. Neither disposition is a default.
+
+
+D271 delivery-to-cash follow-up is accepted for local implementation. The
+explicit `physical_crude_receipt_cash_v1` operational profile records certified
+partial standard-volume receipts with explicit coincident title acquisition,
+user-selected owned-inventory or exact-sale onward disposition, separate outward
+dispatch, component invoice allocation and partial payment. Original contractual
+quantity and cash obligations remain intact. Cumulative component rounding uses
+shared exact money and a retained ordinal/predecessor. Inventory quantity is not
+inventory costing, operational PV or general-ledger accounting. See
+[physical crude operations](physical-crude-operations.md) for the selected
+contract, limitations and qualification gates.
+
+
+D271 cash-record correction follow-up is accepted for local implementation.
+Explicit `crude_record_correction_v1` reverses a complete recorded payment or
+voids an eligible invoice without implying a bank refund. Original facts remain
+immutable. Invoice voids unwind the active cash-component allocation chain from
+its tail, after active payments have been reversed. Reissue uses a new historical
+ordinal and exact active predecessor; changed business-key replacements retain
+an exact correction link. Effective/knowledge-time selection and idempotent
+command recovery apply to corrections as to original records. Dispatch reversal,
+backdated physical correction and actual bank refund contracts remain further
+work. See [physical crude operations](physical-crude-operations.md).

@@ -105,6 +105,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
                 s.Location, s.DeliveryProfile, s.DeliveryFrom, s.DeliveryTo, s.LastTradingAt, s.LotQuantity, s.ContractSize, s.LotBasis, s.FirstTradingAt],
             QuoteSpecification q => ["quote", q.Key, q.Kind, q.Currency, q.Quantity, q.Multiplier, q.TradingTick, q.ClearingIncrement, q.Minimum, q.Maximum],
             Quantity q => ["quantity", q.Amount, q.Specification],
+            QuantitySpecification q => ["quantity_specification_v1", q.Key, q.Commodity, q.MeasurementBasis, q.Unit, q.Dimension],
             OpenEtrm.Shared.Numerics.ExactRatio r => ["exact_ratio", r.Numerator.ToString(CultureInfo.InvariantCulture), r.Denominator.ToString(CultureInfo.InvariantCulture)],
             UnitPrice p => ["price", p.Value, p.Unit],
             PriceUnit u => ["price_unit", u.Currency, u.Quantity, u.Multiplier],

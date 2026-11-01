@@ -3,6 +3,10 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--crude-instants"]){CrudeInstantChecks.Run();return;}
+if(args is ["--crude-lifecycle"]){CrudeLifecycleChecks.Run();return;}
+if(args is ["--crude-positions"]){CrudePositionChecks.Run();return;}
+if(args is ["--crude-market-selection"]){CrudeMarketSelectionChecks.Run();return;}
 if(args is ["--gas-market-selection"]){GasMarketSelectionChecks.Run();return;}
 if(args is ["--preview-failure-diagnostics"]){OpenEtrm.Api.Checks.PreviewFailureDiagnosticChecks.Run();return;}
 if(args is ["--position-qualification"]){await PositionQualificationChecks.Run();return;}
@@ -91,6 +95,10 @@ if (args is ["--schedules"])
     RetainedScheduleLimitChecks.Run();
     TradingReadSelectionChecks.Run();
     GasMarketSelectionChecks.Run();
+    CrudeMarketSelectionChecks.Run();
+    CrudePositionChecks.Run();
+    CrudeLifecycleChecks.Run();
+    CrudeInstantChecks.Run();
     TradePositionFactsChecks.Run();
     BookScopeChecks.Run();
     BookedScheduleLookupChecks.Run();

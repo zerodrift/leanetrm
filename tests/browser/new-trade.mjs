@@ -1,9 +1,9 @@
-// How the browser checks begin a new trade (D221): New trade opens the side panel on its four-product switch with nothing chosen, and a
+// How the browser checks begin a new trade (D221): New trade opens the side panel on its product switch with nothing chosen, and a
 // product is chosen there, which opens its form once what it needs has been read.
 import {idle} from './owned-browser.mjs';
 
 // The form each product opens, and the head the panel then shows.
-const forms={futures:{form:'#futures-new-trade',head:'New future'},swaps:{form:'#swap-editing',head:'New swap'},ppa:{form:'#ppa-page',head:'New PPA'},gas:{form:'#gas-page',head:'New physical gas trade'}};
+const forms={futures:{form:'#futures-new-trade',head:'New future'},swaps:{form:'#swap-editing',head:'New swap'},ppa:{form:'#ppa-page',head:'New PPA'},gas:{form:'#gas-page',head:'New physical gas trade'},crude:{form:'#crude-page',head:'New physical crude trade'}};
 
 /** Presses New trade and waits for the panel to offer its switch. */
 export async function startNewTrade({click,wait}){

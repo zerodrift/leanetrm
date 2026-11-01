@@ -1,6 +1,7 @@
 using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.Gas;
+using OpenEtrm.MarketData.Crude;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -32,6 +33,17 @@ public sealed partial class ScheduleMarketSources
             if(matching.Length!=1)throw Invalid("The gas price requires its exact admitted point/product assignment and complete definition.");
             gasAssignment=matching[0];
         }
+        CrudeValuationAssignment? crudeAssignment=null;
+        if(bindings.TryGetValue("crude",out var crude))
+        {
+            var matching=crudeAssignments.Where(a=>a.Key==crude.Reference&&
+                a.Location.Facility==bindings["facility"].Reference&&a.Location.CustodyPoint==bindings["custody"].Reference&&
+                a.Grade==bindings["grade"].Reference&&a.Commodity==bindings["commodity"].Reference&&
+                DefinitionIdentity.For(a).Canonical==crude.Coordinate&&a.Projection.Market.Curve.Revision==crude.Definitions&&
+                a.Projection.Contract.DeliveryFrom==row.ObservationFrom&&a.Projection.Contract.DeliveryTo==row.ObservationTo).ToArray();
+            if(matching.Length!=1)throw Invalid("The crude price requires its exact admitted grade, custody point and complete assignment.");
+            crudeAssignment=matching[0];
+        }
         var candidates=dated.Where(lookup=>lookup.Market==bindings["market"].Market&&lookup.Index==bindings["index"].Reference&&
             lookup.Quote.Key==bindings["quote"].Reference&&lookup.Contract.DeliveryFrom==row.ObservationFrom&&lookup.Contract.DeliveryTo==row.ObservationTo&&
             DefinitionIdentity.For(lookup.Settlement).Canonical==row.Parameters["selection"]&&
@@ -41,6 +53,8 @@ public sealed partial class ScheduleMarketSources
         if(candidates.Length!=1)throw Invalid("A stored dated lookup requires one exact admitted contract, quote, fixing and projection definition.");
         if(gasAssignment is not null&&candidates[0]!=gasAssignment.Lookup)
             throw Invalid("Gas price metadata must retain the complete qualified assignment lookup, including fixing time.");
+        if(crudeAssignment is not null&&candidates[0]!=crudeAssignment.Lookup)
+            throw Invalid("Crude metadata must retain the exact qualified quote, index, forward and fixing lookup.");
         var resolved=PeriodPriceSelector.Resolve(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default));
         RequireUnit(resolved.Price,row);
         return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected,new ScheduleDatedPriceEvidence(candidates[0],resolved));

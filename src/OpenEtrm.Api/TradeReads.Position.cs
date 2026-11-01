@@ -18,7 +18,7 @@ internal sealed record TradePositionSelection(Guid TradeId,Guid BindingId,int Re
     internal static TradePositionSelection From(TradePositionReadRequest request)
     {
         if(request.Context is null||request.TradeId==Guid.Empty||request.BindingId==Guid.Empty||request.Revision is <1 or >256||
-            request.InstrumentType is not("future" or "financial_swap" or "heat_rate" or "ppa" or "physical_gas"))
+            request.InstrumentType is not("future" or "financial_swap" or "heat_rate" or "ppa" or "physical_gas" or "physical_crude"))
             throw new MarketDataException("position_request","Select an exact trade, binding, revision and supported instrument type.");
         return new(request.TradeId,request.BindingId,request.Revision,request.InstrumentType);
     }
@@ -42,6 +42,26 @@ public sealed partial class TradeReads
         if(!Equals(await permission.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
     }
 
+    public Task<object> CrudeTrade(NpgsqlConnection connection,TradingView view,TradePositionReadRequest request,CancellationToken ct)
+    {
+        var selected=TradePositionSelection.From(request);
+        if(selected.InstrumentType!=CrudePositions.Type)throw TradePositionSelection.Unavailable();
+        return ReadBound(connection,view,async()=>
+        {
+            var position=(await CrudePositions.Read(connection,database.Manifest,[],[],ct,selected)).Single();
+            return new{head=position.Head,physical=position.Physical};
+        },ct);
+    }
+    public Task<object> CrudeTrade(NpgsqlConnection connection,TradingView view,Guid trade,int? revision,CancellationToken ct)=>
+        ReadBound(connection,view,async()=>
+        {
+            var positions=await CrudePositions.Read(connection,database.Manifest,[],[],ct,trade:trade);
+            if(positions.Length!=1)throw TradePositionSelection.Unavailable();
+            var position=positions[0];
+            if(revision is {} requested&&requested!=int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture))
+                throw new MarketDataException("position_revision","The selected context does not contain the requested crude revision.");
+            return new{head=position.Head,physical=position.Physical};
+        },ct);
     public Task<object> GasTrade(NpgsqlConnection connection,TradingView view,TradePositionReadRequest request,CancellationToken ct)
     {
         var selected=TradePositionSelection.From(request);

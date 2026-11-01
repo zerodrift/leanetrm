@@ -110,6 +110,7 @@ public sealed class ConnectedValuation
         private readonly ImmutableDictionary<CurveRequest,CurvePointKey> bindings;
         private readonly CurveBuild? authority;
         private readonly CurveBuild? nativeScenario;
+        private readonly CurveBuild? nativeProgramBasis;
         private readonly ImmutableDictionary<int,CurvePointKey> primitivePoints;
         private readonly ConnectedInputEvidence evidence;
         private readonly ConcurrentDictionary<int,QuoteFactor> factors=new();
@@ -120,6 +121,8 @@ public sealed class ConnectedValuation
             if(nativeScenario is not null && !ReferenceEquals(nativeScenario.Graph,valuation.Scenario))
                 throw new MarketDataException("ppa_context","Native interval inputs must name this exact scenario.");
             this.nativeScenario=nativeScenario;
+            nativeProgramBasis=nativeScenario is null?null:nativeScenario.Graph.Depth==0?nativeScenario:
+                nativeScenario.BindConnected(valuation.WithScenario(ConnectedScenario.Base(valuation.Scenario.Plan)),bindings,cancellation);
             this.valuation=valuation;this.bindings=bindings;this.authority=authority;
             evidence=new(valuation.Scenario.Plan);
             var primitives=valuation.Scenario.Plan.Primitives.Select(p=>p.Node).ToHashSet();
@@ -128,7 +131,7 @@ public sealed class ConnectedValuation
             foreach(var point in bindings.Values){cancellation.ThrowIfCancellationRequested();valuation.Scenario.Plan.GetPoint(point);}
         }
         private ConnectedMarket(ConnectedMarket parent,ConnectedValuation valuation,CurveBuild? nativeScenario)
-        {this.nativeScenario=nativeScenario;this.valuation=valuation;bindings=parent.bindings;authority=parent.authority;primitivePoints=parent.primitivePoints;evidence=parent.evidence;}
+        {this.nativeScenario=nativeScenario;nativeProgramBasis=parent.nativeProgramBasis;this.valuation=valuation;bindings=parent.bindings;authority=parent.authority;primitivePoints=parent.primitivePoints;evidence=parent.evidence;}
         internal ConnectedMarket WithScenario(ConnectedValuation child,CurveBuild? nativeScenario)
         {
             if(!ReferenceEquals(child.Scenario.Plan,valuation.Scenario.Plan)||!child.Snapshot.HasSameInputs(Snapshot))
@@ -143,6 +146,7 @@ public sealed class ConnectedValuation
         internal override object Identity=>this;
         internal override CurveBuild? Authority=>authority;
         internal override CurveBuild? NativeIntervalScenario=>nativeScenario;
+        internal override CurveBuild? NativeProgramBasis=>nativeProgramBasis;
         private CurvePointKey Point(CurveRequest request)=>bindings.TryGetValue(request,out var point)?point:
             throw new MarketDataException("risk_dependency","The exact connected pricing binding is unavailable.");
         internal override ExactUnitPrice Price(CurveRequest request,CancellationToken cancellation)=>valuation.Scenario.Price(Point(request),cancellation);

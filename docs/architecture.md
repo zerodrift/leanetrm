@@ -6,6 +6,18 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D271 introduces the bounded [fixed-volume physical crude](physical-crude.md)
+consumer for local implementation: exact grade/custody references, normalized
+physical and cash sides, retained executable booking, common trading views and
+shared contractual portfolio PV/scenario risk. Its documented
+qualification gates remain distinct from production activation and physical
+completion outside the bounded [delivery and cash workflow](physical-crude-operations.md).
+That workflow records explicit accepted receipts, owned/reserved quantities,
+dispatches, component invoices and payments without changing retained contractual
+valuation or introducing inventory costing. Explicit cash-record corrections
+retain immutable originals, restore active balances and preserve cumulative
+rounding through ordered invoice void/reissue.
+
 Gas may use an explicitly configured independent market/reference selection;
 this keeps physical location setup separate from the primary power and financial
 inputs without rebasing their source identities or feeds.
