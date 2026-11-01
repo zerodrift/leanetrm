@@ -212,3 +212,25 @@ test('settlement form waits for write, holdings and inspection without submittin
   assert.equal(submissions,1,'refreshing financial state must never repeat the payment');
   assert.equal(elapsed,46000);
 });
+
+
+test('setting a control waits through a redraw and dispatches each edit event once',async()=>{
+  let elapsed=0,reads=0;const events=[],control={value:'',dispatchEvent:event=>events.push(event.type)};
+  const document={querySelector:()=>++reads<3?null:control};
+  const actions=browserPageActions(async expression=>Function('document','Event',`return ${expression}`)(document,Event),
+    {pause:async ms=>{elapsed+=ms;},now:()=>elapsed});
+  await actions.set('#synthetic-quantity','990');
+  assert.equal(control.value,'990');assert.deepEqual(events,['input','change']);assert.equal(reads,3);
+});
+
+test('setting a missing control times out and an uncertain edit is never repeated',async()=>{
+  let elapsed=0;
+  const missing=browserPageActions(async expression=>Function('document',`return ${expression}`)({querySelector:()=>null}),
+    {pause:async ms=>{elapsed+=ms;},now:()=>elapsed});
+  await assert.rejects(missing.set('#synthetic-missing','990'),/Timed out/);
+  assert.equal(elapsed,10000);
+  let calls=0;
+  const uncertain=browserPageActions(async()=>{calls++;throw Error('"Inspected target navigated or closed"');});
+  await assert.rejects(uncertain.set('#synthetic-quantity','990'),/navigated or closed/);
+  assert.equal(calls,1);
+});

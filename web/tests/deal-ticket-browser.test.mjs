@@ -171,3 +171,55 @@ test('a draft whose lookup answers were dropped reads them again when the person
   assert.equal(await evaluate("document.querySelector('[data-field=price] .ticket-value').textContent"),'3.5');
  });
 });
+
+// Choices supply labels independently of a retained schedule. A late label must not
+// discard the quantity being typed, or interrupt the operational record it opens.
+test('late booked choice labels preserve the day input and its open record',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {setupTicket}=await import('/ticket-controller.js');
+   const field=id=>({id,label:id,meaning:'',type:'choice',unit:null,state:'editable',required:true,band:null,choices:id,dependsOn:[],lookup:null,soon:null,rule:null});
+   const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[field('book')],sideLimits:[],levels:['month','day'],modes:['booked'],tabs:[{id:'links',label:'Quantity links'}],tradeColumns:[],
+    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:2,soon:null,fields:[field('point'),field('link_formula')],columns:[{id:'quantity',label:'Quantity',unit:'quantity',measure:'quantity',input:['booked'],soon:null}]}]};
+   const cells=q=>({'physical-1.quantity':{value:q,sources:['contract']}});
+   const row=(key,parent,level)=>({key,parent,level,start:'',end:'',operatingDate:null,cells:cells('1000'),delivered:false});
+   const trade={draft:{product:d.product,version:1,trade:{book:'book_a'},sides:[{code:'physical-1',kind:'physical',values:{point:'point_a',link_formula:'gross_less_fraction'}},{code:'physical-2',kind:'physical',values:{}}]},
+    schedule:{levels:['month','day'],valuationAt:'2026-10-30T00:00:00Z',deliveredLeaves:0,leaves:1,delivered:null,remaining:null,totals:cells('1000'),rows:[row('2026-11',null,'month'),row('2026-11-01','2026-11','day')]},
+    summaries:[],links:[{source:'physical-2',target:'physical-1',formula:'gross_less_fraction',fraction:'0.02',receipt:'1000',delivery:'980',fuel:'20'}],scheduleRefusal:null,quantityUnit:'MMBtu',quantityPolicy:'synthetic_daily',actions:{amend:{allowed:false,reason:'No.'},closeOut:{allowed:false,reason:'No.'},record:{allowed:true,reason:'Allowed.'}}};
+   window.choiceAnswers={};
+   const api=async(path,body)=>{
+    if(path==='tickets/description')return d;
+    if(path==='tickets/trade')return trade;
+    if(path==='tickets/choices')return new Promise(resolve=>choiceAnswers[body.field]=()=>resolve({choices:[{value:body.field==='link_formula'?'gross_less_fraction':body.field+'_a',label:'Label for '+body.field}]}));
+    throw Error('unexpected '+path);
+   };
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,opened:{tradeId:'synthetic_trade',bindingId:'synthetic_binding',revision:1}});
+   window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,20));if(!test())throw Error('timed out: '+document.querySelector('#host').textContent);};
+   await until(()=>!!document.querySelector('.ticket-level')&&!!choiceAnswers.point&&!!choiceAnswers.book);
+   const level=document.querySelector('.ticket-level');level.value='day';level.dispatchEvent(new Event('change'));
+   document.querySelector('.ticket-tab[data-tab="physical-1"]').click();
+   await until(()=>!!document.querySelector('.ticket-cell-input'));
+   window.dayInput=document.querySelector('.ticket-cell-input');dayInput.focus();dayInput.value='990';dayInput.setSelectionRange(1,2);
+   choiceAnswers.point();await until(()=>document.querySelector('[data-field="point"] .ticket-value')?.textContent==='Label for point');
+  })()`);
+  assert.deepEqual(await evaluate("({same:dayInput===document.querySelector('.ticket-cell-input'),focused:document.activeElement===dayInput,value:dayInput.value,start:dayInput.selectionStart,end:dayInput.selectionEnd})"),
+   {same:true,focused:true,value:'990',start:1,end:2});
+  await evaluate(`(async()=>{
+   dayInput.dispatchEvent(new Event('change'));
+   await until(()=>!!document.querySelector('.ticket-record [data-field="evidence"] input'));
+   window.evidence=document.querySelector('.ticket-record [data-field="evidence"] input');evidence.focus();evidence.value='Unfinished record';
+   choiceAnswers.book();await until(()=>document.querySelector('.ticket-strip [data-field="book"] .ticket-value')?.textContent==='Label for book');
+  })()`);
+  assert.deepEqual(await evaluate("({same:evidence===document.querySelector('.ticket-record [data-field=\"evidence\"] input'),focused:document.activeElement===evidence,value:evidence.value})"),
+   {same:true,focused:true,value:'Unfinished record'});
+  await evaluate(`(async()=>{
+   document.querySelector('.ticket-record-cancel').click();
+   document.querySelector('.ticket-tab[data-tab="links"]').click();
+   await until(()=>document.querySelector('.ticket-grid .tabulator-row')?.textContent.includes('gross_less_fraction'));
+   choiceAnswers.link_formula();
+   await until(()=>document.querySelector('.ticket-grid .tabulator-row')?.textContent.includes('Label for link_formula'));
+  })()`);
+  assert.equal(await evaluate("document.querySelector('.ticket-grid .tabulator-row').textContent.includes('gross_less_fraction')"),false);
+  await evaluate('ticket.destroy()');
+ });
+});

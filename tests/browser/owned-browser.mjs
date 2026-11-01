@@ -146,9 +146,11 @@ export function browserPageActions(evaluate,{pause=delay,now=()=>performance.now
   // A navigation the page makes while a poll runs answers that poll with an error; the condition is read again on the next page.
   const navigated=error=>/"Inspected target navigated or closed"/.test(error.message);
   const poll=async expression=>{try{return await evaluate(expression);}catch(error){if(navigated(error))return false;throw error;}};
-  async function wait(expression,milliseconds){const duration=budget(milliseconds),until=now()+duration;while(now()<until){if(await poll(expression))return;await pause(Math.max(0,Math.min(50,until-now())));}throw Error('Timed out after '+duration+'ms: '+expression);}
+  async function until(expression,milliseconds,read){const duration=budget(milliseconds),until=now()+duration;while(now()<until){if(await read(expression))return;await pause(Math.max(0,Math.min(50,until-now())));}throw Error('Timed out after '+duration+'ms: '+expression);}
+  const wait=(expression,milliseconds)=>until(expression,milliseconds,poll);
   async function click(selector,milliseconds){const duration=budget(milliseconds);await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);await wait(idle,duration);}
-  async function set(selector,value){await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
+  // Retry only a missing control, never an edit whose result is uncertain. Find and edit in the same page turn.
+  async function set(selector,value){await until(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n)return false;n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`,undefined,evaluate);}
   async function submit(selector,milliseconds){const duration=budget(milliseconds);await evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);await wait(idle,duration);}
   return {wait,click,set,submit};
 }

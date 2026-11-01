@@ -59,8 +59,8 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  host.replaceChildren(view,booking);
  const transport=entry&&requests(o.product,entry.actor);
  const pending=new PendingCommand(definite);
- let alive=true,d:TicketDescription|undefined,state:TicketState|undefined,actions:TradeActions|null=null,drawn:{destroy():void}|undefined;
- let drawnKey='',drawnSchedules:[ScheduleView|null,ScheduleView|null]=[null,null];
+ let alive=true,d:TicketDescription|undefined,state:TicketState|undefined,actions:TradeActions|null=null,drawn:ReturnType<typeof renderTicket>|undefined;
+ let drawnKey='',drawnContentKey='',drawnSchedules:[ScheduleView|null,ScheduleView|null]=[null,null];
  let panel:SchedulePanel={schedule:null,quantityUnit:null,previous:null,summaries:[],links:[],errors:{},status:{kind:'current',text:entry?'Not previewed yet. The ticket previews the trade after each change.':'Reading the booked trade…'}};
  const choices:Record<string,TicketChoice[]>={},choiceErrors:Record<string,string>={},lookupErrors:Record<string,string>={},asked=new Map<string,number>();
  let selectedSide:string|null=null,tab='instrument',level='',closed=new Set<string>();
@@ -81,12 +81,16 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   // An answer that changes nothing on screen draws nothing again, so the person keeps their place in the ticket and its schedule.
   // The schedules are compared by the preview they came from; everything else by its content.
   const key=JSON.stringify({...shown,schedule:null,previous:null,closed:[...closed]});
+  const contentKey=JSON.stringify({...shown,choices:null,schedule:null,previous:null,closed:[...closed]});
   if(!drawn||key!==drawnKey||shown.schedule!==drawnSchedules[0]||shown.previous!==drawnSchedules[1]){
-   const at=focusIn(view);drawn?.destroy();drawn=undefined;
+   const at=focusIn(view);
    // A view the ticket cannot draw says why in its place.
-   try{drawn=renderTicket(view,shown);}
+   try{
+    if(drawn&&contentKey===drawnContentKey&&shown.schedule===drawnSchedules[0]&&shown.previous===drawnSchedules[1])drawn.updateChoices(choices);
+    else{drawn?.destroy();drawn=undefined;drawn=renderTicket(view,shown);}
+   }
    catch(error){fail(error);return;}
-   drawnKey=key;drawnSchedules=[shown.schedule,shown.previous];
+   drawnKey=key;drawnContentKey=contentKey;drawnSchedules=[shown.schedule,shown.previous];
    refocus(view,at);
   }
   view.inert=!!entry&&blocked();

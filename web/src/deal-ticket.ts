@@ -199,7 +199,7 @@ function linksGrid(o:TicketView,content:HTMLElement):GridHandle|undefined{
   displayRows:o.links.map((l,i)=>[l.source,l.target,rule(l),...rows[i].slice(3).map(numberText)]),rowKeys:o.links.map(l=>l.target),layout:emptyGridLayout(),onLayout:()=>{}});
 }
 
-export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
+export function renderTicket(host:HTMLElement,o:TicketView){
  const d=o.state.description,sides=o.state.sides,rows=bandRows(d,[...new Set(sides.map(s=>s.kind))]);
  const named:ScheduleSide[]=sides.map(s=>({kind:s.kind,code:s.code,name:sideName(d,s)}));
  // The ticket keeps its controls' states itself: a page's busy sweep leaves them as drawn.
@@ -247,5 +247,25 @@ export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
   const open=o.entry&&o.entry.side===o.tab?o.entry:null;
   if(open)panel.append(entryForm(o,open,named.find(s=>s.code===open.side)!.name));
  }
- return {destroy(){grid?.destroy();host.replaceChildren();}};
+ return {
+  // Choice replies change the fields' labels/options, not the retained schedule or
+  // the operational entry. Keep those standing, including an uncommitted day input.
+  updateChoices(choices:TicketView['choices']){
+   const next={...o,choices};
+   const update=(scope:Element,fields:TicketField[],side:string|null,values:Record<string,FieldValue>)=>{
+    for(const f of fields.filter(f=>f.choices!==null)){
+     const previous=scope.querySelector<HTMLElement>(`[data-field="${CSS.escape(f.id)}"]`);
+     if(!previous)continue;
+     const row=fieldRow(next,f,side,values[f.id]);
+     if(previous.dataset.band)row.dataset.band=previous.dataset.band;
+     previous.replaceWith(row);
+    }
+   };
+   update(root.querySelector('.ticket-strip')!,d.tradeFields,null,o.state.trade);
+   for(const side of sides)update(root.querySelector(`.ticket-card[data-side="${CSS.escape(side.code)}"]`)!,sideKind(d,side.kind).fields,side.code,side.values);
+   // The links grid also displays a choice label, for its quantity rule.
+   if(o.tab==='links'){grid?.destroy();content.replaceChildren();grid=linksGrid(next,content);}
+  },
+  destroy(){grid?.destroy();host.replaceChildren();},
+ };
 }
