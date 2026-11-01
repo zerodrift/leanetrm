@@ -103,7 +103,7 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
         {
             var node=dateNodes[schedule.Node];
             if(schedule.CatalogId!=Identity.CatalogId||schedule.ScheduleId==Guid.Empty||schedule.Version<1||
-                schedule.EngineVersion is not ("date_schedule_v1" or "date_schedule_v2")||
+                schedule.EngineVersion is not ("date_schedule_v1" or "date_schedule_v2" or "date_schedule_v3")||
                 !TemporalCurveBindings.IsInstant(schedule.KnownFrom)||schedule.KnownFrom>context.KnownAt||schedule.PublicationOrder<1||
                 node.Parameters.GetValueOrDefault("schedule")!=schedule.ScheduleId.ToString("D")+":"+schedule.Version.ToString(CultureInfo.InvariantCulture)||
                 !int.TryParse(node.Parameters.GetValueOrDefault("first"),NumberStyles.None,CultureInfo.InvariantCulture,out var first)||first!=schedule.First||
@@ -292,10 +292,11 @@ public static partial class RecipeEngine
     public static ImmutableArray<DateOnly> ScheduleDates(ImmutableArray<MonthlyOccurrence> occurrences,string selection,
         DateOnly contextDate,int first,int count,out int origin)
     {
-        if(occurrences.IsDefaultOrEmpty||occurrences.Length>120||occurrences.Any(o=>o is null||o.Month.Day!=1||o.Unadjusted.Year!=o.Month.Year||o.Unadjusted.Month!=o.Month.Month)||
-            occurrences.Zip(occurrences.Skip(1)).Any(p=>p.First.Month>=p.Second.Month)||first<0||count is <1 or >366)
-            throw Missing("Retain a complete ordered monthly occurrence sequence and an explicit bounded selection.");
-        origin=selection switch{"absolute_index"=>0,"context_month"=>Array.FindIndex(occurrences.ToArray(),o=>o.Month.Year==contextDate.Year&&o.Month.Month==contextDate.Month),_=>-1};
+        if(occurrences.IsDefaultOrEmpty||occurrences.Length>2000||occurrences.Any(o=>o is null||o.Month.Day!=1||o.Unadjusted.Year!=o.Month.Year||o.Unadjusted.Month!=o.Month.Month)||
+            occurrences.Zip(occurrences.Skip(1)).Any(p=>p.First.Month>p.Second.Month)||first<0||count is <1 or >366)
+            throw Missing("Retain a complete ordered date occurrence sequence and an explicit bounded selection.");
+        DateOccurrences.ValidateSelection(occurrences,selection);
+        origin=DateOccurrences.Origin(occurrences,selection,contextDate);
         if(origin<0||(long)origin+first+count>occurrences.Length)
             throw Missing("The selected occurrence range is outside the exact published schedule.");
         return occurrences.Skip(origin+first).Take(count).Select(o=>o.Date).ToImmutableArray();

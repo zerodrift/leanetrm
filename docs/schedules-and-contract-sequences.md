@@ -544,3 +544,32 @@ Source ingestion/activation and historical knowledge selection below remain work
 This clarification settles the expiry-based monthly contract selector. It does
 not choose the separate daily/BALMO window boundary at month-end; that remains
 open in [the composition proposal](examples/curve-composition-rollover.md).
+
+## Saved schedules and date mappings (D283)
+
+A schedule is an ordered series of dates, independent of instruments. The editor
+accepts explicit date lists and bounded monthly generation. Add/import merges
+unique dates in order; repeating an import records no new fact. Corrections use
+a new immutable version. A list needs no business calendar unless its expressions
+use business-day offsets. A declared calendar must remain visible and exact.
+
+Date mappings name symbolic fields such as `oe.delivery_months[0]` and
+`oe.gas_expiries[0]`. They do not hold tick sizes, lot sizes or other product
+specifications. Those belong to Futures reference data. The two primary workspace
+tabs are Schedules and Date mappings, with one shared calendar preview.
+
+The `on_or_after` selection makes index zero the first date on or after the
+explicit context date. Absolute indexing and generated anchor-month selection
+remain explicit alternatives. Resolution retains the exact publication and
+historical context. No hourly behavior is added.
+
+One request-scoped resolver indexes authorized versions, compiles each used
+schedule once and caches parsed expressions and receipts. It does not cache
+permissions across requests. Curve schedule selection shares the ordered-date
+selection operation. Business-day movement uses the existing temporal library.
+
+The local demo compiler starts with declared date lists and resolves mappings
+through the same managed resolver before rendering instrument dates. The live
+seed publishes those mappings through the ordinary commands and verifies their
+receipts against the compilation. Complete instrument provenance and editable
+native curve definitions are still being implemented; production is unchanged.

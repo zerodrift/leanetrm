@@ -40,12 +40,13 @@ public sealed class ContractDateStore(Guid catalog,ScheduleStore schedules)
             string.IsNullOrWhiteSpace(body.Name)||body.Name.Length>80||body.Contracts is null||body.Contracts.Length is <1 or >120||
             body.Contracts.Any(c=>c is null)||body.Contracts.Select(c=>c.Label).Distinct().Count()!=body.Contracts.Length)
             throw Invalid("Name the definition and supply uniquely named contracts.");
-        var source=versions.ToArray();
+        var resolver=new PublishedScheduleResolver(versions,context);
+        var bindings=pinned?.ToDictionary(b=>(b.Ordinal,b.Role));
         var rows=body.Contracts.Select((draft,ordinal)=>DateWorkspace.Contract(new(draft.Label,draft.Start,draft.End,draft.LastTrading,draft.CutoffUtc),(role,expression)=>
         {
-            var binding=pinned?.SingleOrDefault(b=>b.Ordinal==ordinal&&b.Role==role);
+            var binding=bindings?.GetValueOrDefault((ordinal,role));
             if(pinned is not null&&(binding is null||binding.Expression!=expression))throw Invalid("The exact retained date-field binding is missing or inconsistent.");
-            return PublishedSchedules.Resolve(binding?.ScheduleId is {} id?source.Where(v=>v.Id==id&&v.Version==binding.ScheduleVersion):source,expression,context);
+            return resolver.Resolve(expression,binding?.ScheduleId,binding?.ScheduleVersion);
         })).ToImmutableArray();
         for(var i=1;i<rows.Length;i++)if(rows[i].DeliveryFrom<rows[i-1].DeliveryTo||rows[i].Expiry<=rows[i-1].Expiry)
             throw Invalid("Contract periods must be ordered without overlap and have increasing last-trading instants.");

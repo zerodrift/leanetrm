@@ -1,3 +1,4 @@
+import {type CalendarEvent,instantDate} from './schedule-calendar.js';
 import {displayDate,displayInstant,publicText,friendly} from './market-view.js';
 import {renderRegularTable} from './regular-table.js';
 import {zonedInput} from './user-time.js';
@@ -5,7 +6,7 @@ import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {trackEdits} from './edit-tracking.js';
 
 type Calendar={name:string;from:string;to:string;weekendDays:number[];closedDates:string[]};
-type Definition={name:string;symbol:string;firstMonth:string;lastMonth:string;anchor:string;day:number|null;shortMonth:string;adjustment:string;calendar:Calendar|null};
+type Definition={name:string;symbol:string;firstMonth:string|null;lastMonth:string|null;anchor:string|null;day:number|null;shortMonth:string|null;adjustment:string|null;calendar:Calendar|null;dates?:string[]|null};
 type CalendarRef={catalogId:string;revisionId:string;code:string};
 export type LibraryCalendar={reference:CalendarRef;coverageFrom:string;coverageTo:string;weekendDays:string[];closedDates:string[];openDates:string[]};
 type SavedDates={definition:Definition;dates:{month:string;unadjusted:string;date:string}[]};
@@ -47,11 +48,12 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
    */
   guard:{holds:()=>boolean;mayChange:()=>Promise<boolean>}={holds:()=>false,mayChange:async()=>true},
   /** Runs work that completes a change made in these controls, the end-of-day knowledge of a changed effective date, leaving on screen what the change said. */
-  complete:(work:()=>Promise<void>)=>Promise<void>=run){
+  complete:(work:()=>Promise<void>)=>Promise<void>=run,
+  calendar:(title:string,events:CalendarEvent[],owner:string)=>void=()=>{}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const input=(id:string)=>get<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>(id);
   const value=(id:string)=>input(id).value;
-  const set=(id:string,text:string)=>{input(id).value=text;};
+  const set=(id:string,text:string|null)=>{input(id).value=text??'';};
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
   const form=get<HTMLFormElement>('dates-form'),curveForm=get<HTMLFormElement>('curve-dates-form');
   const empty=():Library=>({knownThrough:0,versions:[],canEdit:false,canPublish:false,contractDefinitions:[],calendars:[],choices:{anchors:[],shortMonths:[],adjustments:[],selections:[]},examples:{monthly:null,contracts:[]}});
@@ -64,8 +66,8 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   const current=(started:ReturnType<typeof fence>)=>started.generation===generation&&started.identity===identity();
   function storePending(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* Retained in memory when storage is unavailable. */}}
   const knownInput=zonedInput(get<HTMLInputElement>('date-context-view'),zone,api);
-  const clearDates=()=>{shownDates=undefined;get('dates-result').hidden=true;};
-  const clearCurve=()=>{shownCurve=undefined;get('curve-dates-result').hidden=true;};
+  const clearDates=()=>{calendar('',[],'generator');shownDates=undefined;get('dates-result').hidden=true;};
+  const clearCurve=()=>{calendar('',[],'template');shownCurve=undefined;get('curve-dates-result').hidden=true;};
   const clearExpression=()=>{get('date-expression-result').hidden=true;};
   for(const event of ['input','change']){
     form.addEventListener(event,clearDates);curveForm.addEventListener(event,()=>{contractDirty=true;clearCurve();contractState();});get('date-expression-form').addEventListener(event,clearExpression);
@@ -119,6 +121,8 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     setContext(snapshot.context);clearCurve();clearExpression();
   }
   function definition():Definition{
+    const dates=value('dates-import').trim().split(/[\s,;]+/).filter(Boolean);
+    if(dates.length)return {name:value('dates-name'),symbol:value('dates-symbol'),firstMonth:null,lastMonth:null,anchor:null,day:null,shortMonth:null,adjustment:null,calendar:null,dates};
     return {name:value('dates-name'),symbol:value('dates-symbol'),firstMonth:value('dates-first'),lastMonth:value('dates-last'),anchor:value('dates-anchor'),day:value('dates-day')?Number(value('dates-day')):null,shortMonth:value('dates-short'),adjustment:value('dates-adjustment'),calendar:null};
   }
   // The chosen calendar is one exact reference version served by the API; it is never assumed.
@@ -126,9 +130,10 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     const found=library.calendars.find(c=>calendarKey(c.reference)===value('dates-calendar'));
     if(!found)throw Error('Choose a business calendar.');return found;
   }
+  const selectedCalendar=()=>value('dates-import').trim()&&!value('dates-calendar')?null:calendarChoice().reference;
   function calendarNote(){
     const found=library.calendars.find(c=>calendarKey(c.reference)===value('dates-calendar'));
-    get('dates-calendar-summary').textContent=found?calendarSummary(found):selected&&!selected.calendar?'This earlier version used a typed calendar. Choose a reference calendar to save a new draft.':'';
+    get('dates-calendar-summary').textContent=found?calendarSummary(found):selected&&!selected.calendar&&!selected.definition.dates?'This earlier version used a typed calendar. Choose a reference calendar to save a new draft.':'';
   }
   function versionLabel(){
     (input('dates-symbol') as HTMLInputElement).readOnly=!!selected;
@@ -137,6 +142,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     get('dates-publish').hidden=!library.canPublish||selected?.state!=='draft';get('dates-keep').hidden=!library.canEdit;
   }
   function fill(d:Definition){
+    set('dates-import',d.dates?.join('\n')??'');syncDateInputs();
     for(const [id,text] of Object.entries({'dates-name':d.name,'dates-symbol':d.symbol,'dates-first':d.firstMonth,'dates-last':d.lastMonth,'dates-anchor':d.anchor,'dates-day':d.day===null?'':String(d.day),'dates-short':d.shortMonth,'dates-adjustment':d.adjustment}))set(id,text);
     clearDates();versionLabel();calendarNote();
   }
@@ -144,6 +150,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     selected=version;dateEdits.clear();set('dates-calendar',version.calendar?calendarKey(version.calendar):'');fill(version.definition);set('dates-selection',version.selection);set('dates-effective-from',version.effectiveFrom);set('dates-effective-to',version.effectiveTo);versionLabel();
   }
   function showDates(result:SavedDates){
+    calendar(result.definition.name,result.dates.map(d=>({date:d.date,label:result.definition.symbol,kind:'date',detail:'Anchor: '+displayDate(d.unadjusted)})),'generator');
     shownDates=result;get('dates-result-title').textContent=publicText(`${result.definition.symbol} · ${result.dates.length} dates`);
     renderRegularTable(get('dates-table'),'date-occurrences',JSON.stringify(result),['Index','Month','Anchor date','Adjusted date'],result.dates.map((d,i)=>[String(i),d.month.slice(0,7),displayDate(d.unadjusted),displayDate(d.date)]),[],isBusy);get('dates-result').hidden=false;
   }
@@ -157,18 +164,19 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
       const row=el('div');row.className='shortcut-saved-row';const actions=el('div');actions.className='schedule-actions';
       const view=el('button','View dates');view.type='button';view.className='secondary';view.onclick=()=>void run(async()=>{clearDates();showDates(await previewVersion(version));});actions.append(view);
       if(author){const use=el('button',version.state==='draft'?'Open draft':'Open');use.type='button';use.className='secondary';use.onclick=()=>{if(!isBusy())open(version);};actions.append(use);}
-      const label=el('div');label.append(el('strong',`${version.definition.name} · ${version.definition.symbol}`),el('span',`Version ${version.version} · ${version.state} · ${version.calendar?friendly(version.calendar.code)+' calendar':'typed calendar'}`));
+      const label=el('div');label.append(el('strong',`${version.definition.name} · ${version.definition.symbol}`),el('span',`Version ${version.version} · ${version.state} · ${version.calendar?friendly(version.calendar.code)+' calendar':version.definition.dates?'date list':'typed calendar'}`));
       row.append(label,actions);host.append(row);
     }
     const drafts=get('curve-dates-saved');drafts.replaceChildren();if(!library.contractDefinitions.length)drafts.textContent='No shared definitions are available in this view.';
     for(const version of library.contractDefinitions){const row=el('div');row.className='shortcut-saved-row';const actions=el('div');actions.className='schedule-actions';
       const open=el('button','Open');open.type='button';open.className='secondary';open.onclick=()=>{if(!isBusy())openContract(version);};actions.append(open);
       if(version.state==='published'){const resolve=el('button','Resolve in selected context');resolve.type='button';resolve.className='secondary';resolve.dataset.resolve='';resolve.onclick=()=>void run(async()=>{clearCurve();const started=fence();const c=await context();if(!current(started))return;const result=await api<Candidate>('date-schedules/contracts/resolve',{id:version.id,version:version.version,context:c});if(current(started))showCurve(result);});actions.append(resolve);}
-      row.append(el('span',`${version.definition.name} · version ${version.version} · ${version.state} · ${version.definition.contracts.length} contracts`),actions);drafts.append(row);
+      row.append(el('span',`${version.definition.name} · version ${version.version} · ${version.state} · ${version.definition.contracts.length} date sets`),actions);drafts.append(row);
     }
     contractState();
   }
   async function load(){
+    clearDates();clearCurve();
     const started=fence(),loaded=await api<Library>('date-schedules');if(!current(started))return;library=loaded;
     if(contractSelected&&!library.contractDefinitions.some(v=>v.id===contractSelected?.id&&v.version===contractSelected.version)){contractSelected=undefined;curveForm.reset();get('curve-dates-rows').replaceChildren();contractDirty=false;}
     try{const stored=sessionStorage.getItem(storageKey());pending.command=stored?{...JSON.parse(stored),uncertain:true}:undefined;}catch{pending.clear();}
@@ -184,11 +192,15 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     list();versionLabel();
   }
   // Published typed-calendar (v1) versions are compiled by the retained inline engine.
+  function syncDateInputs(){input('dates-calendar').toggleAttribute('required',!value('dates-import').trim());for(const id of ['dates-first','dates-last','dates-anchor','dates-day','dates-short','dates-adjustment'])input(id).toggleAttribute('disabled',!!value('dates-import').trim());}
+  get('dates-import').addEventListener('input',syncDateInputs);
+  get<HTMLInputElement>('dates-upload').onchange=()=>void run(async()=>{const file=get<HTMLInputElement>('dates-upload').files?.[0];if(!file)return;if(file.size>64000)throw Error('Choose a file no larger than 64 KB.');set('dates-import',await file.text());dateEdits.mark();syncDateInputs();clearDates();});
+  get('dates-merge').onclick=()=>void run(async()=>{const saved=await api<Version>('date-schedules/import',{name:value('dates-name'),symbol:value('dates-symbol'),dates:value('dates-import').trim().split(/[\s,;]+/).filter(Boolean),calendar:selectedCalendar(),selection:value('dates-selection'),effectiveFrom:value('dates-effective-from'),effectiveTo:value('dates-effective-to')});selected=saved;await load();open(saved);});
   const previewVersion=(v:Version)=>v.calendar?api<SavedDates>('date-schedules/preview',{definition:v.definition,calendar:v.calendar}):api<SavedDates>('schedules/dates/preview',v.definition);
-  form.onsubmit=e=>{e.preventDefault();void run(async()=>{clearDates();showDates(await api<SavedDates>('date-schedules/preview',{definition:definition(),calendar:calendarChoice().reference}));});};
+  form.onsubmit=e=>{e.preventDefault();void run(async()=>{clearDates();showDates(await api<SavedDates>('date-schedules/preview',{definition:definition(),calendar:selectedCalendar()}));});};
   get('dates-calendar').addEventListener('change',calendarNote);
   get('dates-keep').onclick=()=>{if(isBusy()||!form.reportValidity())return;void run(async()=>{
-    clearDates();const saved=await api<Version>('date-schedules/save',{id:selected?.id??null,version:selected?.version??null,generation:selected?.generation??null,expectedState:selected?.state??null,definition:definition(),calendar:calendarChoice().reference,selection:value('dates-selection'),effectiveFrom:value('dates-effective-from'),effectiveTo:value('dates-effective-to')});
+    clearDates();const saved=await api<Version>('date-schedules/save',{id:selected?.id??null,version:selected?.version??null,generation:selected?.generation??null,expectedState:selected?.state??null,definition:definition(),calendar:selectedCalendar(),selection:value('dates-selection'),effectiveFrom:value('dates-effective-from'),effectiveTo:value('dates-effective-to')});
     selected=saved;await load();open(saved);
   });};
   get('dates-publish').onclick=()=>void run(async()=>{
@@ -197,7 +209,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     if(JSON.stringify(definition())!==JSON.stringify(selected.definition)||value('dates-calendar')!==(selected.calendar?calendarKey(selected.calendar):'')||value('dates-selection')!==selected.selection||value('dates-effective-from')!==selected.effectiveFrom||value('dates-effective-to')!==selected.effectiveTo)throw Error('Save your changes before publishing.');
     const published=await api<Version>('date-schedules/publish',{id:selected.id,version:selected.version,generation:selected.generation});selected=published;await load();open(published);
   });
-  get('dates-new').onclick=()=>{if(!isBusy()){selected=undefined;form.reset();dateEdits.clear();clearDates();versionLabel();calendarNote();}};
+  get('dates-new').onclick=()=>{if(!isBusy()){selected=undefined;form.reset();dateEdits.clear();syncDateInputs();clearDates();versionLabel();calendarNote();}};
   get('dates-example').onclick=()=>void run(async()=>{selected=undefined;
     const example=library.examples.monthly;if(!example)throw Error('The monthly example is unavailable. Reload schedules.');
     // Exact example terms come from the backend; the calendar stays an explicit choice.
@@ -228,9 +240,10 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     get<HTMLButtonElement>('curve-dates-retry').disabled=pending.command?.path.endsWith('/publish')?!library.canPublish:!library.canEdit;
   }
   function showCurve(c:Candidate){
-    shownCurve=c;get('curve-dates-result-title').textContent=publicText(`${c.name} · ${c.contracts.length} contracts`);get('curve-dates-spec').textContent=`${c.version?'Saved version '+c.version+' · ':''}Context ${displayDate(c.context.effectiveOn)} · known ${c.context.knownAt?displayInstant(c.context.knownAt,zone()):'from a retained publication prefix'} · end dates excluded`;
+    calendar(c.name,c.contracts.flatMap(row=>[{date:row.start,label:row.label+' · delivery starts',kind:'start' as const},{date:row.end,label:row.label+' · delivery ends (exclusive)',kind:'end' as const},{date:row.lastTradingReference.date||instantDate(row.lastTradingAt,zone()),label:row.label+' · last trading',kind:'expiry' as const,detail:displayInstant(row.lastTradingAt,zone(),true)+' · '+zone()}]),'template');
+    shownCurve=c;get('curve-dates-result-title').textContent=publicText(`${c.name} · ${c.contracts.length} date sets`);get('curve-dates-spec').textContent=`${c.version?'Saved version '+c.version+' · ':''}Context ${displayDate(c.context.effectiveOn)} · known ${c.context.knownAt?displayInstant(c.context.knownAt,zone()):'from a retained publication prefix'} · end dates excluded`;
     const source=(r:Receipt)=>r.source.version?`v${r.source.version}`:'Literal';
-    renderRegularTable(get('curve-dates-table'),'curve-date-contracts',JSON.stringify(c),['Contract','Start reference','Start','Source','End reference','End','Last trading reference',`Last trading · ${zone()}`,'Source'],c.contracts.map(row=>[row.label,row.startReference.expression,displayDate(row.start),source(row.startReference),row.endReference.expression,displayDate(row.end),row.lastTradingReference.expression,displayInstant(row.lastTradingAt,zone()),source(row.lastTradingReference)]),[],isBusy);get('curve-dates-result').hidden=false;
+    renderRegularTable(get('curve-dates-table'),'curve-date-contracts',JSON.stringify(c),['Date set','Start reference','Start','Source','End reference','End','Last trading reference',`Last trading · ${zone()}`,'Source'],c.contracts.map(row=>[row.label,row.startReference.expression,displayDate(row.start),source(row.startReference),row.endReference.expression,displayDate(row.end),row.lastTradingReference.expression,displayInstant(row.lastTradingAt,zone()),source(row.lastTradingReference)]),[],isBusy);get('curve-dates-result').hidden=false;
   }
   get('curve-dates-add').onclick=()=>void run(async()=>{addRow();contractDirty=true;clearCurve();contractState();});
   get('curve-dates-example-kind').onchange=()=>{const choice=library.examples.contracts.find(c=>c.code===value('curve-dates-example-kind'));get('curve-dates-example-help').textContent=choice?.description??'Choose an example to review its explicit date conventions.';};
@@ -254,7 +267,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   get('curve-dates-discard').onclick=()=>{if(isBusy())return;pending.clear();storePending();contractState();};
   get('curve-dates-new').onclick=()=>{if(isBusy()||!library.canEdit)return;contractSelected=undefined;contractDirty=false;curveForm.reset();get('curve-dates-rows').replaceChildren();clearCurve();contractState();};
   get('curve-dates-reload').onclick=()=>void run(async()=>{const id=contractSelected?.id,version=contractSelected?.version;await load();const fresh=library.contractDefinitions.find(v=>v.id===id&&v.version===version);if(fresh)openContract(fresh);});
-  return {load,context,setContext,showContext,sync:contractState,
+  return {load,invalidatePreview(){clearDates();clearCurve();clearExpression();},context,setContext,showContext,sync:contractState,
     async initialize(effectiveOn:string){
       if(value('date-context-on')||!effectiveOn)return;
       const started=fence(),snapshot=await api<Snapshot>('date-schedules/context',{effectiveOn,knownAt:null,mode:'current'});

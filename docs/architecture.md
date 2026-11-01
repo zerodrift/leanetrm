@@ -2481,3 +2481,9 @@ the frontend presents its decision and values. Editor availability does not
 rewrite terms or authorize adoption of a newer index. Saved projection bindings
 currently belong to the trade contract and use its amendment operation. Market
 observation corrections continue through their existing context workflow.
+
+D283 makes saved date lists and symbolic date mappings the inputs to instrument
+and curve definitions. Dates resolve through a request-scoped shared resolver;
+product economics remain in reference data. See
+[schedules and date mappings](schedules-and-contract-sequences.md#saved-schedules-and-date-mappings-d283)
+for implemented behavior and remaining authoring work.
