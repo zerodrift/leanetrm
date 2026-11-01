@@ -33,6 +33,7 @@ def main():
     parser.add_argument('--gas-quantity-benchmark',action='store_true',help='Measure owned daily gas quantity grids with authorized revision history')
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
     parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
+    parser.add_argument('--deal-ticket-check',action='store_true',help='Qualify the deal ticket schedule view of composed gas trades')
     parser.add_argument('--gas-setup-check',action='store_true',help='Qualify versioned gas setup authoring and trade pins')
     parser.add_argument('--crude-lifecycle-check',action='store_true',help='Qualify crude receipts, inventory disposition and delivery-to-cash operations')
     parser.add_argument('--physical-crude-check',action='store_true',help='Qualify native fixed-volume crude booking and retained execution')
@@ -116,7 +117,7 @@ def main():
         args.demo_instruments_check=True;args.physical_gas_check=True
     if args.crude_lifecycle_check: args.physical_crude_check=True
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
-    if args.gas_setup_check or args.gas_composition_check or args.gas_daily_quantity_check: args.physical_gas_check=True
+    if args.gas_setup_check or args.gas_composition_check or args.deal_ticket_check or args.gas_daily_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check: args.check=True
     fixing_frames=args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
@@ -564,8 +565,8 @@ def main():
                 from check_demo_instruments import run_checks as check_demo
                 run_demo_worker=risk_worker_runner()
                 check_demo(url,manifest,query,run_worker=run_demo_worker,owned_root=temporary,run_id=run_id,psql=psql,environment=env)
-                from check_physical_gas_preview import run_checks as check_single
-                check_single(url)
+                from check_physical_gas_preview import run_checks as check_gas_purchase
+                check_gas_purchase(url)
                 from check_gas_composition import run_checks as check_composed
                 check_composed(url,query,manifest,run_worker=run_demo_worker)
                 if args.browser_check:
@@ -588,8 +589,8 @@ def main():
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-crude'],cwd=ROOT,env=env,check=True,timeout=180)
             elif args.physical_gas_check:
                 from check_physical_gas_preview import run_checks,run_shape_checks
-                gas_receipt=run_checks(url)
-                run_shape_checks(query,manifest,gas_receipt)
+                run_checks(url)
+                run_shape_checks(query,manifest)
                 if args.gas_daily_quantity_check:
                     from check_gas_daily_quantities import run_checks as check_gas_daily_quantities
                     check_gas_daily_quantities(url,query,manifest)
@@ -599,10 +600,15 @@ def main():
                 if args.gas_composition_check:
                     from check_gas_composition import run_checks as check_gas_composition
                     check_gas_composition(url,query,manifest,run_worker=risk_worker_runner())
+                if args.deal_ticket_check:
+                    from check_deal_ticket import run_checks as check_deal_ticket
+                    check_deal_ticket(url,query,manifest)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
+                    if args.deal_ticket_check:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_setup_check:
                     from check_gas_setup_editor import run_checks as check_gas_setup
                     check_gas_setup(url)

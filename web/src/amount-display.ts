@@ -1,4 +1,5 @@
 import {priceMeasureChoices} from './blotter-layout.js';
+import {exactNumber} from './exact-number.js';
 // The backend formats decimal/rational strings; the browser never rounds amounts.
 export type DisplayPrecision={money:number;price:number;quantity:number;factor:number};
 export const initialDisplayPrecision=():DisplayPrecision=>({money:3,price:4,quantity:3,factor:6});
@@ -32,7 +33,7 @@ export async function prepareAmountDisplay(payload:unknown,format:(body:Request[
   const row=value as Record<string,unknown>,priceTick=typeof row.priceTick==='string'?row.priceTick:tick,policy=row.amountFormat?displayPrecision(row.amountFormat):inherited;
   for(const [field,raw] of Object.entries(row)){
    const kind:Kind|undefined=money.has(field)?'money':prices.has(field)?'price':quantities.has(field)?'quantity':factors.has(field)?'factor':undefined;
-   if(kind&&typeof raw==='string'&&/^-?\d+(?:\.\d+|\/\d+)?$/.test(raw)){
+   if(kind&&typeof raw==='string'&&exactNumber(raw)){
     const selectedTick=kind==='price'?(['mark','markMinusPrice'].includes(field)&&typeof row.markTick==='string'?row.markTick:priceTick):undefined,selectedPolicy=field==='fixedPrice'&&row.fixedAmountFormat?displayPrecision(row.fixedAmountFormat):policy,k=key(raw,kind,selectedTick,selectedPolicy);
     if(!rendered.has(k))requests.set(k,{value:raw,decimalPlaces:selectedPolicy[kind],tick:selectedTick??null,trimTrailingZeros:kind!=='money'});
    }else visit(raw,priceTick,policy);

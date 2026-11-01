@@ -5,7 +5,7 @@ using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData;
 
-public sealed class MarketDataException(string code, string message) : Exception(message)
+public class MarketDataException(string code, string message) : Exception(message)
 {
     public string Code { get; } = code;
 }

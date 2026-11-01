@@ -41,6 +41,17 @@ internal static class PreviewDataChecks
             Reject("market_knowledge_context",()=>MarketSnapshotBinding.Bind(bound,Guid.NewGuid(),known));
             Reject("market_knowledge_context",()=>MarketSnapshotBinding.Bind(bound,context,known.AddTicks(10)));
         });
+        Check("a quantity specification names its unit from reference data, and a gas composition takes one",()=>
+        {
+            var units=Data(references:new(fixture.References){["units"]=[Row(new{code="mwh",symbol="MWh"}),Row(new{code="gj",symbol="GJ"})],
+                ["quantity_specifications"]=[..fixture.References["quantity_specifications"],Row(new{code="other",commodity_code="gas",basis_code="energy",unit_code="gj",dimension_code="energy"}),
+                    Row(new{code="unitless",commodity_code="gas",basis_code="energy",unit_code="absent",dimension_code="energy"})]});
+            ReferenceKey Quantity(string code)=>new(units.ReferenceRevision,code);
+            if(units.QuantityUnit("quantity")!="MWh"||GasCompositionStore.QuantityUnit(units,[Quantity("quantity"),Quantity("quantity")])!="MWh")throw new Exception("The unit symbol must come from the specification's unit.");
+            Reject("ambiguous_reference",()=>units.QuantityUnit("absent"));
+            Reject("ambiguous_reference",()=>units.QuantityUnit("unitless"));
+            Reject("gas_composition_input",()=>GasCompositionStore.QuantityUnit(units,[Quantity("quantity"),Quantity("other")]));
+        });
         Check("period settlement lookup retains exact index reference cardinality",()=>
         {
             var indexed=Data(references:new(fixture.References){["price_index_definitions"]=

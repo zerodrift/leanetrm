@@ -6,11 +6,6 @@ namespace OpenEtrm.Api;
 
 internal static class DraftRisk
 {
-    private static string Exact(ExactMoney value)
-    {
-        try{return value.ToMoney().Amount.ToString();}
-        catch(MarketDataException e)when(e.Code is "precision_loss" or "numeric_range"){return value.Numerator+"/"+value.Denominator;}
-    }
     internal static object Result(PreviewData data,DealRiskRun risk,string measure,ImmutableArray<ProjectionPolicyReceipt> projectionPolicies=default)
     {
         string Currency(ReferenceKey key)=>data.References["currencies"].Single(c=>c.Text("code")==key.Code).Text("display_code");
@@ -26,8 +21,8 @@ internal static class DraftRisk
             factors=risk.Factors.Select(row=>new{factor=new{seriesId=row.Factor.Input.Series.Id,quote=row.Factor.Quote.Code,
                 curves=row.Factor.Curves.Select(c=>c.Code),unit=Unit(row.Factor.Unit),contract=row.Factor.Contract,
                 deliveryFrom=data.Contracts.Single(c=>c.Key==row.Factor.Contract).DeliveryFrom,deliveryTo=data.Contracts.Single(c=>c.Key==row.Factor.Contract).DeliveryTo},
-                bump=row.Bump.Size.ToString(),basePv=Exact(row.Values.Base),upPv=Exact(row.Values.Up),downPv=Exact(row.Values.Down),
-                upPnl=Exact(row.Values.UpPnl),downPnl=Exact(row.Values.DownPnl),delta=Exact(row.Values.Delta.Value),gamma=Exact(row.Values.Gamma.Value),
+                bump=row.Bump.Size.ToString(),basePv=row.Values.Base.ToExactString(),upPv=row.Values.Up.ToExactString(),downPv=row.Values.Down.ToExactString(),
+                upPnl=row.Values.UpPnl.ToExactString(),downPnl=row.Values.DownPnl.ToExactString(),delta=row.Values.Delta.Value.ToExactString(),gamma=row.Values.Gamma.Value.ToExactString(),
                 deltaUnit=$"{Currency(row.Values.Base.Currency)} / ({Unit(row.Factor.Unit)})",gammaUnit=$"{Currency(row.Values.Base.Currency)} / ({Unit(row.Factor.Unit)})²"})};
     }
 }

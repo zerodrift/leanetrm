@@ -31,8 +31,6 @@ internal sealed record RetainedScheduleTerms(DefinitionRevision Definitions,Refe
         RetainedScheduleLimits.Require(definitions);
         if(Instrument is OpenEtrm.MarketData.Crude.PhysicalCrudeInstrument crude)
             outputs.Add(new(0,"quantity",crude.UnitQuantity.Specification,DefinitionIdentity.For(crude.Delivery).Canonical));
-        if(Instrument is OpenEtrm.MarketData.Gas.PhysicalGasInstrument gas)
-            outputs.Add(new(0,"quantity",gas.UnitQuantity.Specification,DefinitionIdentity.For(gas.Delivery.Quantities).Canonical));
         if(Instrument is OpenEtrm.MarketData.Gas.GasCompositionInstrument composition)
             for(var n=0;n<composition.Physical.Length;n++)outputs.Add(new(n,"quantity",composition.UnitQuantity.Specification,DefinitionIdentity.For(composition.Physical[n].Side.Quantities).Canonical));
         if(Instrument is PpaInstrument ppa)

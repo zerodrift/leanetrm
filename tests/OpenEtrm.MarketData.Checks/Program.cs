@@ -14,6 +14,7 @@ if(args is ["--schedule-input-batch"]){await ScheduleInputBatchChecks.Run();retu
 if(args is ["--booked-side-program"]){BookedSideProgramChecks.Run();return;}
 if(args is ["--schedule-program-execution"]){ScheduleProgramExecutionChecks.Run();return;}
 if(args is ["--schedule-program-demand"]){ScheduleProgramDemandChecks.Run();return;}
+if(args is ["--schedule-view"]){ScheduleViewChecks.Run();return;}
 
 if(args is ["--side-block-checks"]){SideBlockExperiment.Check();return;}
 if(args is ["--compact-retained"]){CompactRetainedChecks.Run();return;}
@@ -503,6 +504,7 @@ passed += CommodityLookupChecks.Run();
 PhysicalGasQuantityChecks.Run();passed++;
 PhysicalGasSideChecks.Run();passed++;
 GasDailyQuantityChecks.Run();passed++;
+ScheduleViewChecks.Run();passed++;
 passed += SnapshotInputChecks.Run();
 passed += MonthlySwapChecks.Run();
 passed += IndexFixingChecks.Run();

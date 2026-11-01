@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
@@ -19,7 +18,7 @@ internal static class GasBlotter
   public int Positions=>positions.Length;
   public async IAsyncEnumerable<ImmutableArray<JsonObject>> Units([EnumeratorCancellation]CancellationToken ct)
   {
-   var sources=new Dictionary<Guid,(PreviewData Data,InputFrame Frame)>();
+   var sources=new Dictionary<Guid,(PreviewData Data,InputFrame Frame)>();var composition=new GasCompositionStore(database);
    foreach(var position in positions)
    {
     var row=position.Holding();
@@ -27,11 +26,11 @@ internal static class GasBlotter
     {
      if(!sources.TryGetValue(position.Definition,out var source))
      {source=await PhysicalMarketSelection.Gas.Read(database,connection,frame,ct,position.Trade);sources.Add(position.Definition,source);}
-     var value=position.Head.GetProperty("composition").GetBoolean()
-      ?await new GasCompositionStore(database).Editor(connection,source.Data,source.Frame,position.Trade,ct)
-      :await new PhysicalGasStore(database).Editor(connection,source.Data,source.Frame,position.Trade,ct);
-     var result=JsonSerializer.SerializeToElement(value,TradingBlotter.Json).GetProperty("valuation");
-     row["presentValue"]=result.Text("presentValue");
+     // A single-point trade is valued as the composition it is, from its own retained programs (GasCompositionStore.ReadSinglePoint).
+     var read=position.Head.GetProperty("composition").GetBoolean()
+      ?await composition.Read(connection,source.Data,source.Frame,position.Trade,ct)
+      :await composition.ReadSinglePoint(connection,source.Data,source.Frame,position.Trade,ct);
+     row["presentValue"]=read.Valuation.PresentValue;
     }
     catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_market_context" or "gas_delivery_lifecycle")
     {row["unavailableReason"]=error.Code;}

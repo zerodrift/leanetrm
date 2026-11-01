@@ -34,9 +34,9 @@ test('an undeclared rejection cannot establish that a dispatched command did not
   assert.equal(pending.command.uncertain,true);
 });
 
-test('reload restores every settlement mutation with the exact original identity and payload',async()=>{
+test('reload restores every trade mutation with the exact original identity and payload',async()=>{
   const {restoreTradeRequest}=await import('../dist/pending-command.js');
-  for(const path of ['futures/book','futures/amend','swaps/book','swaps/amend','swaps/settlement/determine','swaps/settlement/payment','swaps/settlement/net']){
+  for(const path of ['futures/book','futures/amend','swaps/book','swaps/amend','swaps/settlement/determine','swaps/settlement/payment','swaps/settlement/net','tickets/book']){
     const command={operationId:'00000000-0000-0000-0000-000000000001',path,body:{previewHash:'synthetic-hash',amount:'50.00',allocations:[{determinationId:'synthetic-contribution',amount:'-300.00'}]}};
     const saved=JSON.parse(JSON.stringify(command));
     assert.deepEqual(restoreTradeRequest(saved),command);

@@ -18,6 +18,8 @@ public sealed record GasCompositionRole([property:IdentityField]string Code,[pro
 [EconomicDefinition("gas_composition_instrument_v1")]
 public sealed record GasCompositionInstrument:SidedInstrument
 {
+ // The fixed profile's side bounds. Cash sides include fees.
+ public const int MinPhysicalSides=1,MaxPhysicalSides=4,MaxCashSides=4;
  [IdentityField]public ImmutableArray<GasCompositionRole> Roles { get; }
  public ImmutableArray<GasPhysicalComponent> Physical { get; }
  public ImmutableArray<GasCashComponent> Cash { get; }
@@ -38,7 +40,8 @@ public sealed record GasCompositionInstrument:SidedInstrument
  private sealed record Composition(ImmutableArray<SideMembership> Members,ImmutableArray<ExactRatio> Receipts,ExactDecimal Base);
  private static Composition Resolve(ImmutableArray<GasPhysicalComponent> physical,ImmutableArray<GasCashComponent> cash)
  {
-  if(physical.IsDefaultOrEmpty||physical.Length>4||cash.IsDefault||cash.Length>4||physical.Any(p=>p is null||p.Side is null)||cash.Any(p=>p is null||p.Side is null))throw Invalid("Select one to four physical sides and up to four cash sides.");
+  if(physical.IsDefault||physical.Length is <MinPhysicalSides or >MaxPhysicalSides||cash.IsDefault||cash.Length>MaxCashSides||physical.Any(p=>p is null||p.Side is null)||cash.Any(p=>p is null||p.Side is null))
+   throw Invalid($"Select {MinPhysicalSides} to {MaxPhysicalSides} physical sides and up to {MaxCashSides} cash sides.");
   var codes=physical.Select(p=>p.Code).Concat(cash.Select(p=>p.Code)).ToArray();
   if(codes.Any(code=>string.IsNullOrWhiteSpace(code)||!System.Text.RegularExpressions.Regex.IsMatch(code,"^[a-z][a-z0-9_.-]{0,63}$"))||codes.Distinct(StringComparer.Ordinal).Count()!=codes.Length)throw Invalid("Every side requires its own unique code.");
   var root=physical.FirstOrDefault(p=>p.Link is null);

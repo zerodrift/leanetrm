@@ -26,11 +26,7 @@ public sealed record ExactUnitPrice
     {
         var (n,d)=ExactNumberText.Parse(value);return new(n,d,unit);
     }
-    public string ToExactString()
-    {
-        try{return ToUnitPriceExact().Value.ToString();}
-        catch(MarketDataException e)when(e.Code is "precision_loss" or "numeric_range"){return Numerator+"/"+Denominator;}
-    }
+    public string ToExactString()=>ExactNumberText.Format(value);
     public static ExactUnitPrice FromPrice(UnitPrice price)=>new(price.Value.ScaledValue,ExactDecimal.WorkingScale,price.Unit);
     internal static ExactUnitPrice FromFraction(BigInteger numerator,BigInteger denominator,PriceUnit unit)=>new(numerator,denominator,unit);
     internal ExactUnitPrice ScaleFraction(BigInteger factor,BigInteger divisor)
