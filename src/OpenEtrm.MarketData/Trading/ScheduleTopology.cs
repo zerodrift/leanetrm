@@ -122,12 +122,17 @@ internal static class ScheduleTopology
                         {
                             "market"=>"contract_price","index"=>"index","quote"=>"quote",
                             "fixing"=>"index_fixing","projection"=>"custom_output",
-                            "assignment"=>"gas_assignment","point"=>"location","product"=>"gas_product",_=>null
+                            "assignment"=>"gas_assignment","point"=>"location","product"=>"gas_product",
+                            "crude"=>"crude_assignment","facility" or "custody"=>"location","grade"=>"crude_grade","commodity"=>"crude_product",_=>null
                         })))
                         throw ScheduleDefinition.Error("A dated lookup requires its exact contract, index, quote and fixing bindings; a custom projection is optional.");
                     if(sources.Any(b=>b.Port is "assignment" or "point" or "product")&&
                         new[]{"assignment","point","product"}.Any(port=>!sources.Any(b=>b.Port==port)))
                         throw ScheduleDefinition.Error("A gas market lookup requires its complete assignment, point and product bindings.");
+                    if(sources.Any(b=>b.Port is "crude" or "facility" or "custody" or "grade" or "commodity")&&
+                        (new[]{"crude","facility","custody","grade","commodity"}.Any(port=>!sources.Any(b=>b.Port==port))||
+                         sources.Any(b=>b.Port is "assignment" or "point" or "product")))
+                        throw ScheduleDefinition.Error("A crude lookup requires complete grade, facility, custody and commodity bindings without gas semantics.");
                     if(sources.SingleOrDefault(b=>b.Port=="projection") is {Kind:"custom_output"} projection&&
                         projection.Market!=sources.Single(b=>b.Port=="market").Market)
                         throw ScheduleDefinition.Error("A custom projection must retain the same exact dated observation contract.");
@@ -176,8 +181,8 @@ internal static class ScheduleTopology
             {
                 "contract_price"=>empty with{Market=binding.Market},
                 "index_fixing" or "settlement_source"=>empty with{Reference=binding.Reference,Series=binding.Series,Coordinate=binding.Coordinate},
-                "index" or "quote" or "gas_product"=>empty with{Reference=binding.Reference},
-                "gas_assignment"=>empty with{Reference=binding.Reference,Coordinate=binding.Coordinate,Definitions=binding.Definitions,Code=binding.Code},
+                "index" or "quote" or "gas_product" or "crude_grade" or "crude_product"=>empty with{Reference=binding.Reference},
+                "gas_assignment" or "crude_assignment"=>empty with{Reference=binding.Reference,Coordinate=binding.Coordinate,Definitions=binding.Definitions,Code=binding.Code},
                 "location"=>empty with{Reference=binding.Reference,Coordinate=binding.Coordinate},
                 "sibling_quantity"=>empty with{Reference=binding.Reference,Coordinate=binding.Coordinate,Position=binding.Position},
                 "quantity_source" or "asset"=>empty with{Definitions=binding.Definitions,Code=binding.Code,Coordinate=binding.Coordinate},
@@ -191,8 +196,8 @@ internal static class ScheduleTopology
             {
                 "contract_price" => binding.Market is not null,
                 "index_fixing" or "settlement_source" => binding.Reference is not null&&binding.Series is not null&&!string.IsNullOrWhiteSpace(binding.Coordinate),
-                "index" or "quote" or "location" or "gas_product" or "sibling_quantity" => binding.Reference is not null,
-                "gas_assignment" => binding.Reference is not null&&binding.Definitions is not null&&binding.Code==binding.Reference.Value.Code&&!string.IsNullOrWhiteSpace(binding.Coordinate),
+                "index" or "quote" or "location" or "gas_product" or "crude_grade" or "crude_product" or "sibling_quantity" => binding.Reference is not null,
+                "gas_assignment" or "crude_assignment" => binding.Reference is not null&&binding.Definitions is not null&&binding.Code==binding.Reference.Value.Code&&!string.IsNullOrWhiteSpace(binding.Coordinate),
                 "curve_interval" or "quantity_source" or "asset" => binding.Definitions is not null&&!string.IsNullOrWhiteSpace(binding.Code),
                 "custom_output" => binding.EntityCatalog is {} catalog&&catalog!=Guid.Empty&&binding.Entity is {} entity&&entity!=Guid.Empty&&binding.Version>0&&
                     (binding.Position is null||binding.Position>=0)&&!string.IsNullOrWhiteSpace(binding.Coordinate),

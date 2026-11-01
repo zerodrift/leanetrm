@@ -33,7 +33,7 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  await persona('trader');const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
  await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
  await startNewTrade({click,wait});
- await check('trade entry offers all four products and selects none',"!!document.querySelector('#new-trade-ppa')&&[...document.querySelectorAll('#new-trade-product button')].map(b=>b.textContent+':'+b.getAttribute('aria-pressed')).join()==='Future:false,Swap:false,PPA:false,Physical gas:false'");
+ await check('trade entry offers all five products and selects none',"!!document.querySelector('#new-trade-ppa')&&[...document.querySelectorAll('#new-trade-product button')].map(b=>b.textContent+':'+b.getAttribute('aria-pressed')).join()==='Future:false,Swap:false,PPA:false,Physical gas:false,Physical crude:false'");
  await click('#details-collapse');
  await check('the swap form offers visual instrument choices with commodity owned by each floating side',"document.querySelectorAll('#swap-type-choices button').length===2&&!!document.querySelector('#swap-floating-delivery #swap-commodity')&&!!document.querySelector('#swap-first-delivery #swap-first-commodity')&&!document.querySelector('#swap-fixed-editor select[id*=commodity]')");
  await check('swap quantity basis is explicit and fixed pricing requires an agreed/par choice',"document.querySelector('#swap-quantity-terms')?.textContent.includes('Total for each side')&&!!document.querySelector('#swap-price-mode')");

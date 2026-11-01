@@ -46,6 +46,13 @@ internal sealed class SideValuationContexts
 public sealed class UnitValuationContext
 {
     internal CurveBuild? Market=>pricing?.Authority;
+    internal (CurveBuild Basis, CurveBuild Scenario) RetainedProgramMarkets(ImmutableArray<CurveRequest> dependencies)
+    {
+        if (pricing?.NativeProgramBasis is not {} basis || pricing.NativeIntervalScenario is not {} scenario ||
+            declaration is null || dependencies.Any(d => !declaration.Dependencies.Contains(d)))
+            throw new MarketDataException("native_program_context", "Retained programs require their declared inputs in the shared base and scenario market.");
+        return (basis, scenario);
+    }
     internal ValuationSetup Setup {get;}
     internal MarketSnapshot Snapshot {get;}
     private readonly PreparedValuationMarket? pricing;

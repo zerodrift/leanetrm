@@ -72,6 +72,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('isolated units and deal precision browser', [*preview, '--unit-check', '--browser-check', '--browser', str(browser)])
     preview_check('independent swap sides, spreads and reviewed par pricing', [*preview, '--draft-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('shared booking workflow and mixed gas portfolio', [*preview, '--unified-trading-check', '--browser-check', '--browser', str(browser)], suite='trading')
+    preview_check('physical crude booking, portfolio risk, delivery cash and record corrections', [*preview, '--crude-lifecycle-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('physical gas booking, setup and daily quantity workflow', [*preview, '--gas-daily-quantity-check', '--gas-composition-check', '--gas-setup-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('retained graph admission and reverse-boundary independent Side reuse', [*preview, '--retained-schedule-check'], suite='trading')
     preview_check('mixed PPA and heat-rate trades, exact worker custody and browser', [*preview, '--demo-instruments-check', '--browser-check', '--browser', str(browser)], suite='trading')

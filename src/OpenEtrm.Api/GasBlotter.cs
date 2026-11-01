@@ -26,7 +26,7 @@ internal static class GasBlotter
     try
     {
      if(!sources.TryGetValue(position.Definition,out var source))
-     {source=await GasMarketSelection.Read(database,connection,frame,ct,position.Trade);sources.Add(position.Definition,source);}
+     {source=await PhysicalMarketSelection.Gas.Read(database,connection,frame,ct,position.Trade);sources.Add(position.Definition,source);}
      var value=position.Head.GetProperty("composition").GetBoolean()
       ?await new GasCompositionStore(database).Editor(connection,source.Data,source.Frame,position.Trade,ct)
       :await new PhysicalGasStore(database).Editor(connection,source.Data,source.Frame,position.Trade,ct);

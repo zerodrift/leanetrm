@@ -53,7 +53,42 @@ internal static class PpaConnectedChecks
             var stressed=RiskEngine.CalculateExact(child,[bump],RiskEngine.ExactNumericalPolicy).Groups.Single().Factors.Single().Positions.Single().Values;
             if(stressed.Base.ToExactString()!="28840"||stressed.UpPnl!=value.UpPnl)throw new Exception("Nested PPA scenarios lost their parent or quantity basis.");
         }
+        var probeRequest = new CurveRequest(alias.Key.Curve, request.Contract);
+        var probe = new NativeProgramProbe(Guid.NewGuid(), probeRequest, f.EnergyPrice);
+        var probeTrade = new Trade(Guid.NewGuid(), trade.BookId,
+            [new TradeInstrument(Guid.NewGuid(), probe, new(ExactDecimal.Parse("1000"), probe.UnitQuantity.Specification))]);
+        var probePortfolio = ValuationPortfolio.FromTrades([probeTrade], new(ValuationMeasure.PresentValue,
+            ImmutableDictionary<Guid,FuturesMarketBinding>.Empty, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
+        // A second native-program consumer activates the shared authority path while
+        // the PPA still owns its independently prepared interval reads and schedule.
+        var mixed = RiskEngine.PrepareConnected(ConnectedValuation.Prepare(graph, market.Snapshot, [historical]),
+            bindings.SetItem(request, alias.Key).Add(probeRequest, alias.Key), [portfolio, probePortfolio], market.Model.Build(market.Snapshot, []));
+        var mixedBump = new ConnectedRiskBump(CurveShockCoordinate.ComputedOutput, new ContractCurveTarget(alias.Key.Curve, request.Contract),
+            f.EnergyPrice, ExactDecimal.Parse("1"), ConnectedRiskBump.Convention);
+        var mixedRun = RiskEngine.CalculateExact(mixed, [mixedBump], RiskEngine.ExactNumericalPolicy);
+        var ppaMixed = mixedRun.Groups[0].Factors.Single().Totals.Single().Values;
+        var probeMixed = mixedRun.Groups[1].Factors.Single().Totals.Single().Values;
+        if (ppaMixed.Base.ToExactString() != "14420" || ppaMixed.UpPnl.ToExactString() != "7210" ||
+            probeMixed.Base.ToExactString() != "42000" || probeMixed.UpPnl.ToExactString() != "1000" ||
+            probeMixed.DownPnl.ToExactString() != "-1000")
+            throw new Exception("PPA interval reads and retained-program native inputs must share the exact connected scenario.");
         Console.WriteLine("PASS PPA connected quote/output shocks, nested scenarios, native hours and one-time trade scaling");return 1;
+    }
+    [EconomicDefinition("synthetic_native_program_probe_v1")]
+    private sealed record NativeProgramProbe(Guid InstrumentId, CurveRequest Request, PriceUnit PriceUnit) : Instrument(InstrumentId)
+    {
+        public override ReferenceKey Currency => PriceUnit.Currency;
+        public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), PriceUnit.Quantity);
+        public override bool SupportsQuantityScaling => true;
+        internal override bool RequiresNativeProgramMarket => true;
+        public override UnitPricingContract Declare(UnitValuationContext context) => new(Id, "synthetic_native_program_probe_v1", [Request], PriceUnit.Quantity, PriceUnit.Currency);
+        public override ExactMoney Value(UnitValuationContext context)
+        {
+            var (basis, scenario) = context.RetainedProgramMarkets([Request]);
+            if (basis.Graph.Plan != scenario.Graph.Plan || basis.Graph.Depth != 0)
+                throw new Exception("Native inputs must preserve the immutable base graph.");
+            return scenario.Pricing.Price(Request, default).ExactTimes(UnitQuantity);
+        }
     }
     private sealed class Bindings:ICurveBindingResolver
     {

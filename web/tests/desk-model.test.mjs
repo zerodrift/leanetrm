@@ -542,3 +542,24 @@ test('gas contractual PV shares the desk without adding receipt and delivery qua
  assert.throws(()=>positionRows([{...gas,quantity:'1980'}]),/independent side quantities/);
  const [started]=positionRows([{...gas,presentValue:null,unavailableReason:'gas_delivery_lifecycle'}]);assert.match(started.unavailable,/Delivery has started/);
 });
+
+test('physical crude displays its exact total volume and independent-side contractual PV',()=>{
+ const crude={...fixture.holdings[0],instrumentType:'physical_crude',contractIdentityKind:'crude_instrument',direction:'receive',
+  quantity:'1000',lots:null,executionPrice:null,fixedPrice:'70',mark:'80',markMinusPrice:null,executionPnl:null,presentValue:'9900',measure:'crude_contractual_present_value',unavailableReason:null};
+ const [row]=positionRows([crude]);assert.equal(row.pill,'CRUDE');assert.equal(row.measure,'Contractual PV');assert.equal(row.value,'9900');
+ assert.equal(row.side,'Receive');assert.equal(row.exposure,null);assert.equal(row.quantity,'1000');
+ assert.equal(positionRows([{...crude,mark:null}])[0].markNote,'Independent side schedules');
+ assert.throws(()=>positionRows([{...crude,quantity:null}]),/total volume/);
+ const [started]=positionRows([{...crude,presentValue:null,mark:null,unavailableReason:'crude_delivery_lifecycle'}]);assert.match(started.unavailable,/Delivery has started/);
+});
+
+test('crude PV charts include server totals without inferring a long-short quantity from physical direction',()=>{
+ const summaries=clone(fixture.summaries),holdings=clone(fixture.holdings);
+ for(const summary of summaries)for(const group of summary.groups)if(group.instrumentType==='financial_swap')group.instrumentType='physical_crude';
+ for(const holding of holdings)if(holding.instrumentType==='financial_swap'){holding.instrumentType='physical_crude';holding.direction='receive';}
+ const values=pvChartPanels(summaries,new Map(),format);
+ assert.ok(values.some(p=>p.series.some(s=>s.name==='Physical crude · Contractual PV')));
+ const positions=positionChartPanels(summaries,holdings,new Map(),format);
+ const crude=positions.flatMap(p=>p.series.flatMap(s=>s.points)).filter(p=>p.label.includes('Physical crude'));
+ assert.ok(crude.length);assert.ok(crude.every(p=>p.y===null&&p.label.includes('no long/short quantity')));
+});

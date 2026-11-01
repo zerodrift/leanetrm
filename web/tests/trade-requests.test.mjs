@@ -40,3 +40,33 @@ test('a refusal for good releases a retained request on a first send, and on a r
   }
   for(const code of [undefined,'request_failed','swap_outcome_unknown'])for(const retrying of [false,true])assert.equal(releasesRetained('swaps/book',code,retrying),false,String(code));
 });
+
+test('crude receipt-to-cash commands share authorized lifecycle recovery without becoming bookings',async()=>{
+ const {isLifecycleCommand,tradeStatusPath,retryAllowed,releasesRetained}=await import('../dist/trade-requests.js');
+ const {restoreTradeRequest}=await import('../dist/pending-command.js');
+ for(const path of ['crude/operations/receipt','crude/operations/dispatch','crude/operations/invoice/issue','crude/operations/payment']){
+  assert.equal(isLifecycleCommand(path),true);assert.equal(tradeStatusPath(path),'crude/operations/status');
+  assert.equal(retryAllowed(path,{canBook:true,canAmendTrades:false}),false);
+  assert.equal(retryAllowed(path,{canBook:false,canAmendTrades:true}),true);
+  const command={operationId:'original',path,body:{quantity:'0.125',titleTransferred:true},uncertain:true};assert.deepEqual(restoreTradeRequest(command),command);
+  assert.equal(releasesRetained(path,'access_denied',true),false);assert.equal(releasesRetained(path,'crude_conflict',true),false);
+ }
+ assert.equal(isLifecycleCommand('crude/operations/invoice/preview'),false);
+ assert.equal(restoreTradeRequest({operationId:'original',path:'crude/operations/unknown',body:{}}),undefined);
+});
+test('an uncertain crude operation survives reference or lifecycle admission refusal on retry',()=>{
+ for(const path of ['crude/operations/receipt','crude/operations/dispatch','crude/operations/invoice/issue','crude/operations/payment']){
+  for(const code of ['crude_lifecycle_trade','crude_lifecycle_context','crude_lifecycle_profile'])assert.equal(releasesRetained(path,code,true),false);
+  assert.equal(releasesRetained(path,'crude_lifecycle_profile',false),true);
+ }
+});
+test('invoice void and payment record reversal retain exact identities through reload and uncertain retry',async()=>{
+ const {isLifecycleCommand,tradeStatusPath,retryAllowed}=await import('../dist/trade-requests.js');
+ const {restoreTradeRequest}=await import('../dist/pending-command.js');
+ for(const path of ['crude/operations/payment/reverse','crude/operations/invoice/void']){
+  const command={operationId:'original-correction',path,body:{reversalPolicy:'crude_record_correction_v1',paymentId:'exact-record'},uncertain:true};
+  assert.deepEqual(restoreTradeRequest(command),command);assert.equal(isLifecycleCommand(path),true);assert.equal(tradeStatusPath(path),'crude/operations/status');
+  assert.equal(retryAllowed(path,{canAmendTrades:true,canBook:false}),true);assert.equal(retryAllowed(path,{canAmendTrades:false,canBook:true}),false);
+  assert.equal(releasesRetained(path,'crude_lifecycle_trade',true),false);
+ }
+});

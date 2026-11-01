@@ -4,7 +4,7 @@ import type {Holding} from './desk-model.js';
 // draws rows from it; the complete priced response must still describe the same booked bindings.
 export type FactsContext={contextId:string;effectiveOn:string;knownAt:string};
 export type PositionFact={tradeId:string;bindingId:string;revision:number;tradeReference:string;bookId:string;book:string;
-  instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas';marketLabel:string|null;deliveryFrom:string|null;deliveryTo:string|null;
+  instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas'|'physical_crude';marketLabel:string|null;deliveryFrom:string|null;deliveryTo:string|null;
   bookedQuantity:string|null;bookedUnit:string|null};
 export type PositionFacts={context:FactsContext;asOf:string;positions:PositionFact[];total:number;nextOffset:number|null};
 const invalid='The position facts returned an inconsistent page. Refresh the Blotter.';
@@ -23,7 +23,7 @@ export function readPositionFactsPage(value:unknown,limit:number,offset:number):
     (page.total>offset&&page.positions.length===0)||page.nextOffset!==(offset+page.positions.length<page.total?offset+page.positions.length:null))throw Error(invalid);
   for(const position of page.positions){
     if(!position||['tradeId','bindingId','tradeReference','bookId','book'].some(field=>typeof position[field as keyof PositionFact]!=='string')||
-      !Number.isInteger(position.revision)||position.revision<1||!['future','financial_swap','heat_rate','ppa','physical_gas'].includes(position.instrumentType)||
+      !Number.isInteger(position.revision)||position.revision<1||!['future','financial_swap','heat_rate','ppa','physical_gas','physical_crude'].includes(position.instrumentType)||
       ['marketLabel','deliveryFrom','deliveryTo','bookedQuantity','bookedUnit'].some(field=>position[field as keyof PositionFact]!==null&&typeof position[field as keyof PositionFact]!=='string'))throw Error(invalid);
   }
   if(new Set(page.positions.map(key)).size!==page.positions.length)throw Error(invalid);
@@ -45,4 +45,13 @@ export function readSelectedPosition(value:unknown,context:FactsContext,asOf:str
    String(holding.revision)!==String(selected.revision)||holding.instrumentType!==selected.instrumentType)
   throw Error('The individual position does not match its booked facts. Refresh the Blotter.');
  return response;
+}
+/** Extend the displayed facts only within the same certified read and complete selected scope. */
+export function appendPositionFacts(current:PositionFacts,value:unknown,limit:number):PositionFacts{
+ if(current.nextOffset===null||current.nextOffset!==current.positions.length)throw Error(invalid);
+ const next=readPositionFactsPage(value,limit,current.nextOffset);
+ if(!sameContext(current.context,next.context)||current.asOf!==next.asOf||current.total!==next.total)throw Error(changed);
+ const positions=[...current.positions,...next.positions];
+ if(new Set(positions.map(key)).size!==positions.length)throw Error(changed);
+ return{...current,positions,nextOffset:next.nextOffset};
 }

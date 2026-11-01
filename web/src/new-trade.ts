@@ -3,10 +3,10 @@
 import {publicText} from './market-view.js';
 import {modeLabel,type PanelMode,type SidePanel} from './side-panel.js';
 
-export type NewProduct='futures'|'swaps'|'ppa'|'gas';
+export type NewProduct='futures'|'swaps'|'ppa'|'gas'|'crude';
 export type NewMode=Extract<PanelMode,{kind:'new'}>;
 /** The products a new trade can be of, in the order the switch lists them: none is chosen for the person. */
-export const newTradeProducts:readonly (readonly [NewProduct,string])[]=[['futures','Future'],['swaps','Swap'],['ppa','PPA'],['gas','Physical gas']];
+export const newTradeProducts:readonly (readonly [NewProduct,string])[]=[['futures','Future'],['swaps','Swap'],['ppa','PPA'],['gas','Physical gas'],['crude','Physical crude']];
 /** What holds New trade back while a request of the person's has no known outcome: it is settled before another is entered. */
 export const retainedBlock='A trade request is retained. Reconcile or retry it before creating another.';
 const noReason='Booking is not available in this view, and the backend did not say why.';
@@ -39,10 +39,10 @@ export function bookingFallback(state:{contextDirty:boolean;view:ReadView;canBoo
   return state.canBook?'Choose an As of date to book a trade.':'Your current role does not have Book Trade permission.';
 }
 
-const about:Readonly<Record<NewProduct,string>>={futures:'an exchange contract with a defined expiry',swaps:'fixed or floating prices on independent sides',ppa:'power delivery and cash components on independent schedules',gas:'physical delivery, cash and fees on independent sides'};
+const about:Readonly<Record<NewProduct,string>>={futures:'an exchange contract with a defined expiry',swaps:'fixed or floating prices on independent sides',ppa:'power delivery and cash components on independent schedules',gas:'physical delivery, cash and fees on independent sides',crude:'fixed standard-volume crude delivery with independent cash and handling fees'};
 // A line on the product chosen, or on both while none is: the person is told what each is, and none is chosen for them.
 const aboutLine=(product:NewProduct|null)=>product===null?'Choose an instrument type. Each ticket keeps its own delivery, pricing and lifecycle terms.':`${about[product][0].toUpperCase()}${about[product].slice(1)}.`;
-const loading:Readonly<Record<NewProduct,string>>={futures:'Loading the futures contracts…',swaps:'Loading the swap choices…',ppa:'Loading PPA choices…',gas:'Loading physical gas choices…'};
+const loading:Readonly<Record<NewProduct,string>>={futures:'Loading the futures contracts…',swaps:'Loading the swap choices…',ppa:'Loading PPA choices…',gas:'Loading physical gas choices…',crude:'Loading physical crude choices…'};
 const chooseText='Choose an instrument type to enter a new trade.';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?:string){

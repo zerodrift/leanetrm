@@ -54,7 +54,7 @@ test('a retained request holds New trade back, ahead of every other reason, beca
  assert.deepEqual(newTradeControl({catalog:{canBook:false,bookingUnavailableReason:'Historical view is read-only.'},retained:true,fallback}),{enabled:false,reason:retainedBlock});
 });
 
-test('one New trade product choice includes futures, swaps, PPAs and physical gas',async()=>{
+test('one New trade product choice includes futures, swaps, PPAs, physical gas and crude',async()=>{
  const {newTradeProducts}=await import('../dist/new-trade.js');
- assert.deepEqual(newTradeProducts.map(([key])=>key),['futures','swaps','ppa','gas']);
+ assert.deepEqual(newTradeProducts.map(([key])=>key),['futures','swaps','ppa','gas','crude']);
 });

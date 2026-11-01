@@ -28,6 +28,14 @@ class CheckAllTests(unittest.TestCase):
         for argument in ('--gas-composition-check','--gas-setup-check','--browser-check','--browser'):
             self.assertIn(argument,gas[0])
 
+    def test_physical_crude_lifecycle_and_recovery_are_qualified_in_trading_partition(self):
+        commands=[]
+        run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))
+        crude=[c for c in commands if '--crude-lifecycle-check' in c]
+        self.assertEqual(len(crude),1)
+        self.assertIn('--browser-check',crude[0])
+        self.assertIn('--browser',crude[0])
+
     def test_every_executable_check_project_is_restored_and_run(self):
         expected = {
             str(project.relative_to(ROOT))

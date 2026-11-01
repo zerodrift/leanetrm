@@ -1255,6 +1255,29 @@ Acceptance:
 - Operator instructions cover initialization, upgrade, backup/restore, credential
   lifecycle and recovery for the actual implemented feature set.
 
+## Fixed-volume physical crude (D271)
+
+Implement and qualify the bounded [physical crude workflow](physical-crude.md):
+exact grade and custody-point references, fixed contractual standard volume,
+independent physical/consideration/handling contributions, retained booking and
+read-only inspection, common positions/blotter and interactive/queued portfolio
+risk. Use failing behavior checks first, then isolated managed,
+database, API and browser qualification. Existing booked programs must survive
+the additive migration, and unsupported portfolio scopes must refuse rather
+than drop crude positions. Independent numerical, authorization and temporal
+review is required before publication.
+
+The bounded [delivery-to-cash slice](physical-crude-operations.md) now records
+certified partial receipts, explicit title transfer, user-selected onward-delivery
+or owned-inventory treatment, component invoice allocation and partial payments.
+Independent quantity, cash, historical and recovery checks cover both treatments;
+neither is a default. Full payment-record reversal and ordered invoice void/reissue
+now preserve immutable history and original cash obligations. Actual bank refunds,
+dispatch reversals, backdated physical corrections, raw custody measurement,
+inventory costing, cargo and broader physical completion remain further contracts.
+Automated crude closes, amendments and cancellation remain further work.
+Production activation remains a separate release gate.
+
 ## Later scope
 
 The [financial swap settlement sequence](swap-settlement.md) is now authorized

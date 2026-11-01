@@ -1,11 +1,19 @@
 using System.Collections.Immutable;
+using OpenEtrm.Shared.Temporal;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Power;
 
 namespace OpenEtrm.MarketData.Trading;
 
-internal static class TradingInstant
+public static class TradingInstant
 {
+    public static DateTimeOffset Parse(string? value,string errorCode)
+    {
+        if(value is null||!(value.EndsWith('Z')||value.EndsWith("+00:00",StringComparison.Ordinal))||
+            !UtcInstant.TryParse(value,out var instant)||!IsSupported(instant))
+            throw new MarketDataException(errorCode,"Supply an explicit UTC instant with exact microsecond precision within the supported trading horizon.");
+        return instant;
+    }
     public static bool IsSupported(DateTimeOffset at) => at.Offset == TimeSpan.Zero && at.Ticks % 10 == 0 &&
         at < new DateTimeOffset(9999, 12, 31, 0, 0, 0, TimeSpan.Zero);
 }
@@ -40,11 +48,12 @@ public abstract record Instrument
     public virtual DefinitionIdentity? PricingBindingIdentity => null;
     public ImmutableArray<SettlementProjection> SettlementProjections=>this is SidedInstrument sided?
         [..sided.Sides.SelectMany(m=>m.Side.SettlementProjections).Distinct()]:[];
-    public string? RetainedScheduleIdentity=>this is SidedInstrument sided?
+    public virtual string? RetainedScheduleIdentity=>this is SidedInstrument sided?
         "retained_side_schedules_v1/"+string.Join('/',sided.Sides.Select(m=>m.Side.RetainedSchedule?.Manifest??"transient")):null;
     public abstract ReferenceKey Currency { get; }
     public abstract Quantity UnitQuantity { get; }
     public virtual bool SupportsQuantityScaling=>false;
+    internal virtual bool RequiresNativeProgramMarket=>false;
     public virtual InstrumentValuation PV(SideValuationContext context)=>
         throw new MarketDataException("valuation_measure","This instrument requires its declared unit valuation context.");
     public abstract UnitPricingContract Declare(UnitValuationContext context);

@@ -13,20 +13,20 @@ internal interface IBlotterProductRun
 }
 
 // One Blotter valuation over one bound read: its products valued in the Blotter's order (futures, swaps and heat-rate swaps,
-// then PPAs and gas), and the report of all their rows. trading/workspace collects its units; the stream sends each as it completes.
+// then PPAs, gas and crude), and the report of all their rows. trading/workspace collects its units; the stream sends each as it completes.
 internal sealed class BlotterRun(FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries,FuturesStore.FuturesBlotterRun? futures,
     SwapStore.SwapBlotterRun? swaps,PpaBlotter.PpaBlotterRun? ppas,Action<JsonObject> futureTerms,
-    Dictionary<Guid,Dictionary<string,DealAmountFormats.Selection>> formats,IBlotterProductRun? gas=null)
+    Dictionary<Guid,Dictionary<string,DealAmountFormats.Selection>> formats,IBlotterProductRun? gas=null,IBlotterProductRun? crude=null)
 {
     // A run of an empty directory has no products (D160).
     internal static BlotterRun Empty(FuturesBlotterView view,ImmutableArray<FuturesBlotterView> summaries)=>new(view,summaries,null,null,null,_=>{},[]);
 
-    internal int Positions{get;}=(futures?.Positions??0)+(swaps?.Positions??0)+(ppas?.Positions??0)+(gas?.Positions??0);
+    internal int Positions{get;}=(futures?.Positions??0)+(swaps?.Positions??0)+(ppas?.Positions??0)+(gas?.Positions??0)+(crude?.Positions??0);
 
     // Each unit's rows, decorated as the Blotter lists them.
     internal async IAsyncEnumerable<ImmutableArray<JsonObject>> Units([EnumeratorCancellation]CancellationToken ct)
     {
-        foreach(var (product,future) in new (IBlotterProductRun? Product,bool Future)[]{(futures,true),(swaps,false),(ppas,false),(gas,false)})
+        foreach(var (product,future) in new (IBlotterProductRun? Product,bool Future)[]{(futures,true),(swaps,false),(ppas,false),(gas,false),(crude,false)})
         {
             if(product is null)continue;
             await foreach(var unit in product.Units(ct).WithCancellation(ct))
