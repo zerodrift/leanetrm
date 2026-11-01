@@ -1,5 +1,6 @@
 import {actorTransport} from './pending-command.js';
 import {setupGasComposer} from './gas-composer.js';
+import {setupTicket,ticketBookingRetained,type TicketHandle} from './ticket-controller.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type ValuationMapping={quote:string;group:string;groupAdjustment:string;locationAdjustment:string;index:string;curve:string;marketLocation:string;marketLocationName:string;quantityUnit:string;priceUnit:string;adjustment:string};
 type PhysicalLocation={clock:string;dayStartMinute:number;definitionRevisionId:string;pipeline:string;pipelineName:string;zone:string;zoneName:string;deliveryPoint:string;deliveryPointName:string;product:string;productName:string;valuation:ValuationMapping|null};
@@ -48,12 +49,13 @@ export function setupPhysicalGas(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  <details><summary>Daily contractual delivery schedule</summary><div id="gas-delivery-rows" class="table-wrap"></div></details></section>
  <section class="card" id="gas-instruction-result" hidden><h3>Contractual meter schedule</h3><p id="gas-instruction-status">Prepared from contractual quantities. Not submitted, confirmed or measured.</p><div id="gas-instruction-rows" class="table-wrap"></div></section>
  <section class="card"><h3>Single-point gas bookings</h3><button id="gas-list" type="button">Refresh gas trades</button><div id="gas-directory" class="table-wrap"></div><h3>Reopen a gas trade</h3><p id="gas-receipt" role="status"></p><label>Trade ID<input id="gas-trade-id"></label><button id="gas-open" type="button">Open retained trade</button></section>`;
- root.innerHTML='<div id="gas-composer"></div><details id="gas-template"><summary>Single-point purchase / sale template</summary>'+root.innerHTML+'</details>';
+ // A new gas trade is entered in the deal ticket; the composition and single-point editors below it stay until the ticket replaces them.
+ root.innerHTML='<div id="gas-ticket"></div><div id="gas-composer"></div><details id="gas-template"><summary>Single-point purchase / sale template</summary>'+root.innerHTML+'</details>';
  const composer=setupGasComposer(o);
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const input=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
  const val=(id:string)=>input(id).value;
- let catalog:GasCatalog|undefined,reviewed:Record<string,unknown>|undefined,pending:Record<string,unknown>|undefined,generation=0,owner='',uncertain=false;
+ let ticket:TicketHandle|undefined,catalog:GasCatalog|undefined,reviewed:Record<string,unknown>|undefined,pending:Record<string,unknown>|undefined,generation=0,owner='',uncertain=false;
  const storageKey=()=>`physical-gas-request:${o.actor()}`;
  const context=()=>({...o.source(),convention,knowledgeMode:'current'});
  const exact=(q:Quantity)=>q.denominator==='1'?q.numerator:`${q.numerator}/${q.denominator}`;
@@ -68,7 +70,7 @@ export function setupPhysicalGas(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  function definitions(id:string,rows:[string,string][]){const nodes=rows.flatMap(([key,value])=>{const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=key;dd.textContent=value;return[dt,dd];});get(id).replaceChildren(...nodes);}
  function table(id:string,headers:string[],rows:string[][]){const table=document.createElement('table'),head=table.createTHead().insertRow();for(const label of headers){const th=document.createElement('th');th.textContent=label;head.append(th);}const body=table.createTBody();for(const values of rows){const row=body.insertRow();for(const value of values)row.insertCell().textContent=value;}get(id).replaceChildren(table);}
  function invalidate(){reviewed=undefined;get<HTMLButtonElement>('gas-book-submit').disabled=true;get('gas-result').hidden=true;get('gas-instruction-result').hidden=true;generation++;}
- function reset(){composer.reset();catalog=undefined;reviewed=undefined;pending=undefined;generation++;owner=o.actor();uncertain=false;restore();if(pending)get<HTMLDetailsElement>('gas-template').open=true;get<HTMLFormElement>('gas-form').reset();get('gas-result').hidden=true;get('gas-instruction-result').hidden=true;get('gas-pending').hidden=!pending;get('gas-receipt').textContent='';get('gas-total').textContent='';input('gas-trade-id').value='';get('gas-reference').textContent='Select the product, pipeline, zone and delivery location to resolve its valuation index.';for(const id of ['gas-product','gas-pipeline','gas-zone','gas-location','gas-book','gas-entity','gas-party'])selections(id,[]);for(const id of ['gas-sides','gas-delivery-rows','gas-physical-details','gas-valuation-details','gas-directory'])get(id).replaceChildren();for(const id of ['gas-quantity-unit','gas-price-unit','gas-fee-unit','gas-day','gas-tariff-details'])get(id).textContent='';sync();}
+ function reset(){ticket?.destroy();ticket=undefined;composer.reset();catalog=undefined;reviewed=undefined;pending=undefined;generation++;owner=o.actor();uncertain=false;restore();if(pending)get<HTMLDetailsElement>('gas-template').open=true;get<HTMLFormElement>('gas-form').reset();get('gas-result').hidden=true;get('gas-instruction-result').hidden=true;get('gas-pending').hidden=!pending;get('gas-receipt').textContent='';get('gas-total').textContent='';input('gas-trade-id').value='';get('gas-reference').textContent='Select the product, pipeline, zone and delivery location to resolve its valuation index.';for(const id of ['gas-product','gas-pipeline','gas-zone','gas-location','gas-book','gas-entity','gas-party'])selections(id,[]);for(const id of ['gas-sides','gas-delivery-rows','gas-physical-details','gas-valuation-details','gas-directory'])get(id).replaceChildren();for(const id of ['gas-quantity-unit','gas-price-unit','gas-fee-unit','gas-day','gas-tariff-details'])get(id).textContent='';sync();}
  function selected(){return catalog?.locations.find(p=>p.product===val('gas-product')&&p.pipeline===val('gas-pipeline')&&p.zone===val('gas-zone')&&p.deliveryPoint===val('gas-location'));}
  function sync(){
   composer.sync();
@@ -126,5 +128,9 @@ export function setupPhysicalGas(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  get('gas-check').onclick=()=>void o.act(async()=>{if(!pending)return;const r=await o.api<Receipt|{found:false}>('gas/status',{operationId:pending.operationId});if('tradeId'in r){receipt(r);await open(r.tradeId);await o.onBooked?.(r.tradeId);}else get('gas-receipt').textContent='No completed booking found. Retry the original request.';});
  async function directory(){const g=generation,result=await o.api<{trades:{trade_id:string;book:string;quantity:string;direction:string;delivery_from:string;delivery_to:string}[]}>('gas/directory',context());if(g!==generation)return;const table=document.createElement('table'),head=table.createTHead().insertRow();for(const name of ['Trade','Book','Direction','Contract quantity','Delivery']){const th=document.createElement('th');th.textContent=name;head.append(th);}const body=table.createTBody();for(const trade of result.trades){const row=body.insertRow(),button=document.createElement('button');button.type='button';button.className='text-button';button.textContent=trade.trade_id;button.onclick=()=>void o.act(async()=>{input('gas-trade-id').value=trade.trade_id;await open(trade.trade_id);});row.insertCell().append(button);for(const value of [trade.book,trade.direction==='1'?'Receive':'Deliver',trade.quantity,`${trade.delivery_from} to ${trade.delivery_to}`])row.insertCell().textContent=value;}get('gas-directory').replaceChildren(table);}
  get('gas-list').onclick=()=>void o.act(directory);get('gas-open').onclick=()=>void o.act(()=>open(val('gas-trade-id')));
- return {load,reset,sync,inspect:async(tradeId:string)=>{if(await load())await composer.quantities(tradeId);},pending:()=>!!pending||composer.pending(),leave:composer.leave,unsaved:()=>!!pending||!!reviewed||composer.unsaved()};
+ async function begin(){
+  if(!await load())return;
+  ticket=setupTicket(get('gas-ticket'),{api:o.api,context,product:'physical_gas',actor:o.actor,sides:['cash'],booked:r=>void o.onBooked?.(r.tradeId)});
+ }
+ return {begin,load,reset,sync,inspect:async(tradeId:string)=>{if(await load())await composer.quantities(tradeId);},pending:()=>!!pending||composer.pending()||ticketBookingRetained('physical_gas',o.actor),leave:composer.leave,unsaved:()=>!!ticket?.unsaved()||!!pending||!!reviewed||composer.unsaved()};
 }

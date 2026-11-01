@@ -170,6 +170,12 @@ def check_ticket_operations(c,context,cat,description,body,view):
     direct=c.call('gas/composition/preview',body)
     assert preview['schedule']==view and preview['presentValue']==direct['presentValue'] and preview['sides']==direct['sides'],preview['presentValue']
     assert [s['role'] for s in preview['sides']]==['physical','consideration','fee'],preview['sides']
+    # A refused value names its side and field, so the ticket shows the reason on that field.
+    malformed={**draft,'sides':[{**draft['sides'][0],'values':{**physical,'quantity':'10,000'}},*draft['sides'][1:]]}
+    error=c.call('tickets/preview',{'context':context,'draft':malformed},expected=422)
+    assert (error['code'],error['side'],error['field'])==('numeric_format','physical','quantity'),error
+    error=c.call('tickets/preview',{'context':context,'draft':{**draft,'trade':{k:v for k,v in trade.items() if k!='book'}}},expected=422)
+    assert (error['code'],error['side'],error['field'])==('ticket_input',None,'book'),error
     operation=str(uuid4());request={'context':context,'draft':draft,'operationId':operation}
     booked=c.call('tickets/book',request)
     assert c.call('tickets/book',request)==booked and c.call('tickets/status',{'operationId':operation})['tradeId']==booked['tradeId'],booked

@@ -77,11 +77,11 @@ public static class GasTicket
  public static GasCompositionRequest Request(TicketDraft draft,Guid snapshotId,string knowledgeMode,Guid operationId,Guid definitionRevisionId)
  {
   RequireShape(draft);
-  Check(Description.TradeFields,draft.Trade,"trade");
+  Check(Description.TradeFields,draft.Trade,"trade",null);
   foreach(var side in draft.Sides)
   {
    var kind=Description.Sides.SingleOrDefault(k=>k.Kind==side.Kind)??throw Bad($"Unknown side kind '{side.Kind}'.");
-   Check(kind.Fields,side.Values,$"{side.Kind} side '{side.Code}'");
+   Check(kind.Fields,side.Values,$"{side.Kind} side '{side.Code}'",side.Code);
    if(string.IsNullOrWhiteSpace(side.Code))throw Bad($"Each {side.Kind} side needs a code.");
   }
   if(draft.Sides.GroupBy(s=>s.Code).Any(g=>g.Count()>1))throw Bad("Side codes must be unique.");
@@ -97,7 +97,7 @@ public static class GasTicket
   }
   var physical=draft.Sides.Where(s=>s.Kind==Physical).ToArray();
   var codes=physical.Select(s=>s.Code).ToHashSet();
-  string Source(TicketSideDraft side,string id)=>codes.Contains(side.Values[id])?side.Values[id]:throw Bad($"{side.Kind} side '{side.Code}' names '{side.Values[id]}', which is not a physical side code.");
+  string Source(TicketSideDraft side,string id)=>codes.Contains(side.Values[id])?side.Values[id]:throw On(side.Code,id,$"{side.Kind} side '{side.Code}' names '{side.Values[id]}', which is not a physical side code.");
   var t=draft.Trade;
   var (entity,entityRevision)=Versioned(t,"legal_entity");var (party,partyRevision)=Versioned(t,"counterparty");
   return new(snapshotId,PhysicalGasStore.Convention,knowledgeMode,GasCompositionStore.Profile,operationId,Id(t,"book")!.Value,definitionRevisionId,Id(t,"gas_setup"),false,entity,entityRevision,party,partyRevision,
@@ -121,18 +121,20 @@ public static class GasTicket
  }
 
  static string? Quantity(TicketSideDraft side,GasQuantityLinkRequest? link)=>
-  link is null?side.Values.GetValueOrDefault("quantity")??throw Bad($"Physical side '{side.Code}' needs a quantity or a link source."):
-  side.Values.ContainsKey("quantity")?throw Bad($"Physical side '{side.Code}' takes its quantity from its link source; leave quantity empty."):null;
+  link is null?side.Values.GetValueOrDefault("quantity")??throw On(side.Code,"quantity",$"Physical side '{side.Code}' needs a quantity or a link source."):
+  side.Values.ContainsKey("quantity")?throw On(side.Code,"quantity",$"Physical side '{side.Code}' takes its quantity from its link source; leave quantity empty."):null;
 
- static void Check(ImmutableArray<TicketField> fields,ImmutableDictionary<string,string> values,string scope)
+ static void Check(ImmutableArray<TicketField> fields,ImmutableDictionary<string,string> values,string scope,string? side)
  {
   foreach(var (id,value) in values)
   {
-   var field=fields.SingleOrDefault(f=>f.Id==id)??throw Bad($"The {scope} has no field '{id}'.");
-   if(field.State!="editable")throw Bad($"Field '{id}' on the {scope} is {field.State} and takes no value.");
-   if(string.IsNullOrWhiteSpace(value))throw Bad($"Field '{id}' on the {scope} is blank.");
+   var field=fields.SingleOrDefault(f=>f.Id==id)??throw On(side,id,$"The {scope} has no field '{id}'.");
+   if(field.State!="editable")throw On(side,id,$"Field '{id}' on the {scope} is {field.State} and takes no value.");
+   if(string.IsNullOrWhiteSpace(value))throw On(side,id,$"Field '{id}' on the {scope} is blank.");
+   // A decimal field holds one exact decimal, read by the parser the booking reads it with.
+   if(field.Type=="decimal")try{ExactDecimal.Parse(value);}catch(MarketDataException error){throw new TicketFieldException(error.Code,error.Message,side,id);}
   }
-  foreach(var field in fields.Where(f=>f.Required&&!values.ContainsKey(f.Id)))throw Bad($"The {scope} needs a value for '{field.Id}'.");
+  foreach(var field in fields.Where(f=>f.Required&&!values.ContainsKey(f.Id)))throw On(side,field.Id,$"The {scope} needs a value for '{field.Id}'.");
  }
 
  static Guid? Id(ImmutableDictionary<string,string> values,string id)=>values.TryGetValue(id,out var v)?Guid.TryParse(v,out var guid)?guid:throw Bad($"Field '{id}' must be an id."):null;
@@ -295,4 +297,5 @@ public static class GasTicket
 
  static MarketDataException Unresolved(string message)=>new("ticket_lookup",message);
  static MarketDataException Bad(string message)=>new("ticket_input",message);
+ static TicketFieldException On(string? side,string field,string message)=>new("ticket_input",message,side,field);
 }

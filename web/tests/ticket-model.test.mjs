@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,newTicket,nextPreview,removeSide,setValue} from '../dist/ticket-model.js';
+import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTicket,nextPreview,removeSide,setValue,ticketOf} from '../dist/ticket-model.js';
 
 const f=(id,label,over={})=>({id,label,meaning:'',type:'choice',unit:null,state:'editable',required:false,band:null,choices:null,dependsOn:[],lookup:null,soon:null,rule:null,...over});
 const description={product:'synthetic',version:3,rowShape:'flow',levels:['month'],tabs:[],modes:['new'],tradeColumns:[],
@@ -87,4 +87,29 @@ test('only the latest preview request may be shown',()=>{
  assert.equal(acceptPreview(second.state,first.serial),false);
  assert.equal(acceptPreview(second.state,second.serial),true);
  assert.equal(acceptPreview(setValue(second.state,null,'book','B'),second.serial),true);
+});
+
+test('a lookup that proposes the person\'s own value offers nothing',()=>{
+ const s=applyLookup(setValue(newTicket(description),leg,'region','R1'),leg,'region',{value:'R1',source:looked.source});
+ assert.deepEqual(s.sides[0].values.region,{value:'R1'});
+});
+
+test('a lookup that no longer resolves empties the value it filled and withdraws its offer, keeping the person\'s value',()=>{
+ let s=applyLookup(newTicket(description),leg,'price',looked);
+ s=dropLookup(s,leg,'price');
+ assert.deepEqual(s.sides[0].values.price,{value:''});
+ s=applyLookup(setValue(s,leg,'region','R1'),leg,'region',{value:'R2',source:looked.source});
+ s=dropLookup(s,leg,'region');
+ assert.deepEqual(s.sides[0].values.region,{value:'R1'});
+ assert.equal(dropLookup(s,leg,'point'),s);
+});
+
+test('a draft opens as a ticket holding its sides and values, each the person\'s',()=>{
+ const draft={product:'synthetic',version:3,trade:{book:'B1'},sides:[{kind:'leg',code:'L',values:{region:'R1',zone:'Z1'}},{kind:'fee',code:'F',values:{rate:'0.1'}}]};
+ const s=ticketOf(description,draft);
+ assert.deepEqual(s.trade,{book:{value:'B1'}});
+ assert.deepEqual(s.sides,[{kind:'leg',code:'L',values:{region:{value:'R1'},zone:{value:'Z1'}}},{kind:'fee',code:'F',values:{rate:{value:'0.1'}}}]);
+ assert.deepEqual(draftOf(s),draft);
+ assert.throws(()=>ticketOf(description,{...draft,version:2}),/version/);
+ assert.throws(()=>ticketOf(description,{...draft,sides:[{kind:'swap',code:'S',values:{}}]}),/swap/);
 });

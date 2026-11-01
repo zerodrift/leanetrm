@@ -57,12 +57,29 @@ export function setValue(s:TicketState,side:string|null,field:string,value:strin
  return withValues(s,side,values,notices);
 }
 
+// A draft the backend returned, such as a booked trade's, as a ticket whose every value is the person's.
+export function ticketOf(d:TicketDescription,draft:TicketDraft):TicketState{
+ if(draft.product!==d.product||draft.version!==d.version)throw new Error(`The draft is for ${draft.product} version ${draft.version}, not ${d.product} version ${d.version}.`);
+ const values=(given:Record<string,string>)=>Object.fromEntries(Object.entries(given).map(([id,value])=>[id,{value}]));
+ for(const side of draft.sides)if(!d.sides.some(k=>k.kind===side.kind))throw new Error(`The ticket has no side kind '${side.kind}'.`);
+ return {description:d,trade:values(draft.trade),sides:draft.sides.map(x=>({kind:x.kind,code:x.code,values:values(x.values)})),notices:[],previewSerial:0};
+}
+
 export function applyLookup(s:TicketState,side:string|null,field:string,r:{value:string;source:Source}):TicketState{
  if(!fieldOf(s,side,field).lookup)throw new Error(`Field '${field}' has no lookup.`);
  const current=valuesOf(s,side)[field];
+ // A proposal of the value the person already holds is nothing to offer, and withdraws an earlier offer.
+ if(current&&!current.looked&&current.value===r.value)return current.offered?withValues(s,side,{...valuesOf(s,side),[field]:{value:current.value}}):s;
  const open=!current||current.value===''||current.looked!==undefined;
  const next:FieldValue=open?{value:r.value,looked:r.source}:{value:current.value,offered:{value:r.value,...r.source}};
  return withValues(s,side,{...valuesOf(s,side),[field]:next});
+}
+
+// A lookup that no longer resolves: the value it filled is emptied and its offer withdrawn; a value of the person's stays.
+export function dropLookup(s:TicketState,side:string|null,field:string):TicketState{
+ const current=valuesOf(s,side)[field];
+ if(!current?.looked&&!current?.offered)return s;
+ return withValues(s,side,{...valuesOf(s,side),[field]:{value:current.looked?'':current.value}});
 }
 
 export function acceptOffer(s:TicketState,side:string|null,field:string):TicketState{

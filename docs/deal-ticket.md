@@ -343,8 +343,11 @@ Each move keeps the product's booking contract and removes its old editor
 ## Current implementation
 
 Physical gas has a description (`physical_gas` v1) and returns a schedule view
-from its preview and booked read. The ticket view is drawn but not yet placed
-on a page or wired to the ticket operations.
+from its preview and booked read. New trade → Physical gas opens the ticket,
+and a composed gas trade opens in it read-only from the Blotter's Details pane,
+its pop-out and the trade window. Until the ticket replaces them, the
+composition and single-point editors stay below it in New trade, and a
+single-point trade keeps its listed terms in the Details pane.
 
 - The schedule grid (`web/src/schedule-grid.ts`) turns a schedule view into the
   Instrument and side tabs: side-coloured header groups and a Trade group, the
@@ -408,6 +411,26 @@ on a page or wired to the ticket operations.
   back to exactly the stored terms), with `schedule`, `summaries` and `scheduleRefusal`
   at the top level. Amend and close-out are unavailable with a reason. A
   single-point gas trade refuses with `ticket_input`.
+- A refusal of one draft value names it: the error body adds `side` (null for a
+  trade field) and `field`. Missing, blank, unknown and non-editable values, a
+  decimal field that is not a plain decimal, a quantity against the link rule
+  and a source naming no physical side are named this way.
+- The ticket controller (`web/src/ticket-controller.ts`) opens a new ticket with
+  the description's minimum sides and one payment side. After an edit it reads
+  the choices of the fields that depend on it and of the lists that refused;
+  adding or removing a side, or editing a trade field, reads every list. Once
+  edits settle (300 ms) it previews the whole draft and reads every lookup
+  again; a lookup that fills a term previews the draft in turn. Only the latest
+  preview is drawn. A refused preview keeps the last schedule, marked stale,
+  with the reason on the field the refusal names; lookup and choice refusals
+  show on their fields. A side added since the last preview is left out of the
+  grid until a preview holds it. Book is taken only for the draft last previewed
+  without refusal, and sends `tickets/book` as a retained request: an unknown
+  outcome locks the ticket with Check and Retry, and survives a reload, where
+  the Blotter offers to reconcile it.
+- Not yet: tree rows load with their view rather than on demand; the trade date
+  lookup is declared but not served; a usage tariff list read earlier is not
+  read again when its source side's path changes (the booking still checks it).
 
 ## Dependencies and order
 

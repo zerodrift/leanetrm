@@ -579,13 +579,16 @@ def main():
                 if args.gas_composition_check:
                     from check_gas_composition import run_checks as check_gas_composition
                     check_gas_composition(url,query,manifest,run_worker=risk_worker_runner())
+                target=temporary/'browser-target.json'
+                if args.browser_check:
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
+                # The deal ticket check publishes gas setups that later reads resolve, so it runs after the gas browser scenarios.
                 if args.deal_ticket_check:
                     from check_deal_ticket import run_checks as check_deal_ticket
                     check_deal_ticket(url)
-                if args.browser_check:
-                    target=temporary/'browser-target.json'
-                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
-                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
+                    if args.browser_check:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=180)
                 if args.gas_setup_check:
                     from check_gas_setup_editor import run_checks as check_gas_setup
                     check_gas_setup(url)

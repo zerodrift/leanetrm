@@ -12,6 +12,12 @@ public sealed record TicketSideKind(string Kind,string Pill,string Colour,int Mi
 public sealed record TicketSideLimit(ImmutableArray<string> Kinds,int Max);
 public sealed record TicketTab(string Id,string Label);
 public sealed record TicketDescription(string Product,int Version,string RowShape,ImmutableArray<TicketField> TradeFields,ImmutableArray<TicketSideKind> Sides,ImmutableArray<TicketSideLimit> SideLimits,ImmutableArray<TicketColumn> TradeColumns,ImmutableArray<string> Levels,ImmutableArray<TicketTab> Tabs,ImmutableArray<string> Modes);
+// A refusal of one draft value, naming its side (null for a trade field) and field, so the ticket shows the reason on that field.
+public sealed class TicketFieldException(string code,string message,string? side,string field):MarketDataException(code,message)
+{
+ public string? Side{get;}=side;
+ public string Field{get;}=field;
+}
 
 public static class TicketDescriptions
 {

@@ -8,10 +8,11 @@ import {emptyGridLayout,renderDataGrid,type GridHandle} from './data-grid.js';
 // the view only lays them out and reports what the person does.
 export type TicketStatus={kind:'current'|'updating'|'stale'|'refused';text:string};
 export type TicketEvents={edit(side:string|null,field:string,value:string):void;accept(side:string|null,field:string):void;selectSide(code:string):void;tab(id:string):void;
- level(l:string):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void};
-// fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field.
+ level(l:string):void;toggle(row:string,open:boolean):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void};
+// fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field. Under the chosen
+// level every schedule row is open but those in `closed`, the rows the person closed.
 export type TicketView={state:TicketState;mode:'new'|'booked';actions:TradeActions|null;schedule:ScheduleView|null;previous:ScheduleView|null;summaries:TicketSummary[];
- status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;on:TicketEvents};
+ status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
 // The common band's rows, in order: TicketBand.Rows in TicketDescriptions.cs.
 const band=['direction','start','end','product','quantity','price','payment'];
@@ -174,14 +175,18 @@ export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
  host.replaceChildren(root);
  let grid:GridHandle|undefined;
  const shows=o.tab==='instrument'||sides.some(s=>s.code===o.tab);
+ // A side added since the last preview has no values in its schedule yet; the grid draws the sides it holds.
+ const previewed=named.filter(s=>o.schedule&&Object.keys(o.schedule.totals).some(key=>key.startsWith(`${s.code}.`)));
+ const unpreviewed=named.find(s=>s.code===o.tab&&!previewed.includes(s));
  if(!shows)content.append(el('p','muted',`${d.tabs.find(t=>t.id===o.tab)?.label??o.tab} is not drawn in this ticket yet.`));
  else if(!o.schedule)content.append(el('p','muted','No schedule yet. Preview the trade to draw it.'));
+ else if(unpreviewed)content.append(el('p','muted',`${unpreviewed.name} is not in the last preview yet.`));
  else{
-  const g=scheduleGridData(o.schedule,d,named,o.tab,o.level,o.previous??undefined);
+  const g=scheduleGridData(o.schedule,d,previewed,o.tab,o.level,o.previous??undefined);
   grid=renderDataGrid(content,'deal-ticket-schedule',`${d.product}:${o.tab}`,g.headers,g.rows,g.numeric,()=>false,{keys:g.columns,displayRows:g.displayRows,rowKeys:g.keys,
    layout:emptyGridLayout(),onLayout:()=>{},headerGroups:g.headerGroups,totals:g.totals,decorate:(r,c)=>g.decorations[r][c],
-   // The chosen level shows its rows open under their parents; opening and closing a row stays in the grid.
-   tree:{parents:g.parents,open:new Set(g.parents.filter((p):p is string=>p!==null)),onToggle:()=>{}}});
+   // The chosen level shows its rows open under their parents, except the rows the person closed; the rows they open or close are reported.
+   tree:{parents:g.parents,open:new Set(g.parents.filter((p):p is string=>p!==null&&!o.closed.has(p))),onToggle:(row,open)=>o.on.toggle(row,open)}});
   if(o.status.kind==='stale')grid.markStale(o.status.text);
  }
  return {destroy(){grid?.destroy();host.replaceChildren();}};

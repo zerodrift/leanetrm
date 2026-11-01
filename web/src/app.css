@@ -629,6 +629,9 @@ dialog label{margin-top:16px}
 .ticket-status[data-kind=updating]{color:var(--text-2)}
 .ticket-status[data-kind=stale]{color:var(--warn)}
 .ticket-status[data-kind=refused]{color:var(--danger)}
+/* A booking whose outcome is not known yet keeps its request, with Check and Retry, below the ticket it was sent from. */
+.ticket-booking{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;font-size:13px}
+.ticket-booking p{flex-basis:100%;margin:0}
 .ticket-notices{margin:0;padding:8px 14px;list-style:none;background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius);color:var(--warn)}
 .deal-ticket :is(.ticket-side-chip,.ticket-add-kind,.ticket-preview,.ticket-offer,.ticket-remove,.ticket-action){background:var(--surface);color:var(--text-2);border:1px solid var(--border-strong);font-weight:500}
 .deal-ticket :is(.ticket-side-chip,.ticket-add-kind,.ticket-preview,.ticket-offer,.ticket-remove,.ticket-action):hover:not(:disabled){background:var(--surface-3);border-color:var(--border-strong)}

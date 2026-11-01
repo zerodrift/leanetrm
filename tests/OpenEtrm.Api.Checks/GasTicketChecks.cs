@@ -108,6 +108,20 @@ internal static class GasTicketChecks
         Reject("an unknown side kind", Draft(Receipt, Side("swap", "X")));
         Reject("a repeated side code", Draft(Receipt, Cash with { Code = "RCT" }));
         Reject("a blank side code", Draft(Receipt with { Code = "" }));
+        // A refusal of one value names its side and field, so the ticket shows the reason there without reading the message.
+        void Names(string name, TicketDraft draft, string code, string? side, string field)
+        {
+            try { Map(draft); } catch (TicketFieldException error) when (error.Code == code && error.Side == side && error.Field == field) { passed++; Console.WriteLine($"PASS names the field of {name}"); return; }
+            throw new Exception($"Expected {code} on {side}.{field} for {name}.");
+        }
+        Names("a quantity that is not a plain decimal", Draft(With(Receipt, "quantity", "10,000")), "numeric_format", "RCT", "quantity");
+        Names("a fee price that is not a plain decimal", Draft(Receipt, Linked, With(With(Fee, "fee_tariff", null), "fee_price", "0.1x")), "numeric_format", "FEE", "fee_price");
+        Names("a missing required side value", Draft(With(Receipt, "product", null)), "ticket_input", "RCT", "product");
+        Names("a blank value", Draft(With(Receipt, "product", " ")), "ticket_input", "RCT", "product");
+        Names("a missing required trade value", full with { Trade = Trade.Remove("book") }, "ticket_input", null, "book");
+        Names("a missing quantity on an unlinked side", Draft(With(Receipt, "quantity", null)), "ticket_input", "RCT", "quantity");
+        Names("a quantity on a linked side", Draft(Receipt, With(Linked, "quantity", "5")), "ticket_input", "DLV", "quantity");
+        Names("a cash source naming no physical side", Draft(Receipt, With(Cash, "cash_source", "NOPE")), "ticket_input", "PAY", "cash_source");
         Reject("another product", full with { Product = "power" });
         Reject("another version", full with { Version = 2 });
         Reject("a malformed entity revision", full with { Trade = Trade.SetItem("legal_entity", $"{Entity}@x") });

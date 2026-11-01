@@ -19,3 +19,8 @@ export type ScheduleRefusal={code:string;message:string};
 export type TicketSummary={side:string;billedQuantity:string|null;amount:string|null;againstMarket:string|null};
 export type TradeAction={allowed:boolean;reason:string};
 export type TradeActions={amend:TradeAction;closeOut:TradeAction};
+// A preview answers its schedule, or why the schedule could not be built beside a valuation that succeeded; a booked trade read adds its draft
+// and the actions it offers; a booking answers its receipt.
+export type TicketPreview={schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null};
+export type TicketTrade=TicketPreview&{draft:TicketDraft;actions:TradeActions};
+export type TicketReceipt={operationId:string;tradeId:string;instrumentId:string;revision:number};
