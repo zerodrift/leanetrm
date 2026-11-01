@@ -9,6 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 CHECK_PROJECTS = (
     ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ()),
+    ('tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj', ('--futures-options',)),
     ('tests/OpenEtrm.Rates.Checks/OpenEtrm.Rates.Checks.csproj', ()),
     ('tests/OpenEtrm.Shared.Checks/OpenEtrm.Shared.Checks.csproj', ()),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--schedules',)),
@@ -39,11 +40,11 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     check('owned browser readiness', ['node', '--test', 'tests/browser/owned-browser.test.mjs', 'tests/browser/gas-ticket.test.mjs'])
     check('locked frontend install', ['npm', 'ci', '--prefix', 'web', '--ignore-scripts'])
     check('frontend build and checks', ['npm', 'test', '--prefix', 'web'])
-    for project, _ in CHECK_PROJECTS:
+    for project in dict.fromkeys(project for project, _ in CHECK_PROJECTS):
         check(f'locked restore: {Path(project).stem}', [str(dotnet), 'restore', project, '--locked-mode'])
     for project, arguments in CHECK_PROJECTS:
         command = [str(dotnet), 'run', '--no-restore', '--project', project]
-        check(Path(project).stem, [*command, '--', *arguments] if arguments else command)
+        check(' '.join((Path(project).stem, *arguments)), [*command, '--', *arguments] if arguments else command)
     worker_project='src/OpenEtrm.Worker/OpenEtrm.Worker.csproj'
     check('locked worker restore',[str(dotnet),'restore',worker_project,'--locked-mode'])
     check('independent worker build',[str(dotnet),'build',worker_project,'--no-restore'])
