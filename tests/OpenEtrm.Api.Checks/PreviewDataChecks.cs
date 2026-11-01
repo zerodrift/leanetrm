@@ -410,6 +410,27 @@ internal static class PreviewDataChecks
             Reject("duplicate_definition",()=>Data(definitions:new(fixture.Definitions){["contracts"]=[..fixture.Definitions["contracts"],fixture.Definitions["contracts"][0]]}));
             Reject("duplicate_definition",()=>Data(references:new(fixture.References){["quote_specifications"]=[..fixture.References["quote_specifications"],fixture.References["quote_specifications"][0]]}));
         });
+        Check("a futures-option contract loads with exactly its option series",()=>
+        {
+            var option=Guid.NewGuid();
+            Dictionary<string,ImmutableArray<JsonElement>> Listed(object row)=>new(fixture.Definitions)
+            {
+                ["contracts"]=[..fixture.Definitions["contracts"],Row(row)],
+                ["curves"]=[..fixture.Definitions["curves"],Change(fixture.Definitions["curves"].Single(),"code","options")],
+                ["curve_members"]=[..fixture.Definitions["curve_members"],Row(new{curve_code="options",contract_id=option,ordinal=0})],
+                ["series"]=[..fixture.Definitions["series"],Row(new{id=Guid.NewGuid(),contract_id=option,quote_code="price",value_specification_code=(string?)null})]
+            };
+            var loaded=Data(definitions:Listed(new{id=option,kind="future_option",delivery_from="2040-02-01",delivery_to="2040-03-01",expiry_at="2040-01-19T00:00:00Z",
+                futures_series_code=(string?)null,futures_option_series_code="synthetic_call"}));
+            var listed=loaded.ContractRows(option).Single();
+            if(listed.Kind!=ContractKind.FutureOption||listed.FuturesSeries!=new ReferenceKey(loaded.ReferenceRevision,"synthetic_call")||
+                loaded.FuturesSeries.Length!=data.FuturesSeries.Length)
+                throw new Exception("A futures-option contract must load as its exact option series, not as a future or forward.");
+            Reject("unsupported_definition",()=>Data(definitions:Listed(new{id=option,kind="future_option",delivery_from="2040-02-01",delivery_to="2040-03-01",
+                expiry_at="2040-01-19T00:00:00Z",futures_series_code="synthetic_0",futures_option_series_code=(string?)null})));
+            // An option settlement curve is not read as a forward's custom-curve source.
+            Reject("custom_curve_source",()=>CustomCurves.SourceEligibleFrom(loaded,"options",listed));
+        });
         Check("different authorized reads never reuse each other's source values",()=>
         {
             var changed=fixture.Observations.SetItem(0,Change(fixture.Observations[0],"value","201.001"));
@@ -548,7 +569,7 @@ internal static class PreviewDataChecks
         Dictionary<string,ImmutableArray<JsonElement>> definitions=new()
         {
             ["revisions"]=[Row(new{catalog_id=cat,id=rev,reference_catalog_id=rcat,reference_revision_id=rrev,state="sealed"})],
-            ["contracts"]=[..contract.Select((id,i)=>Row(new{id,kind="future",delivery_from="2040-02-01",delivery_to="2040-03-01",expiry_at="2040-01-20T00:00:00Z",futures_series_code="synthetic_"+i}))],
+            ["contracts"]=[..contract.Select((id,i)=>Row(new{id,kind="future",delivery_from="2040-02-01",delivery_to="2040-03-01",expiry_at="2040-01-20T00:00:00Z",futures_series_code="synthetic_"+i,futures_option_series_code=(string?)null}))],
             ["curves"]=[Row(new{code="future",quote_code="price",location_code="hub",profile_code="uniform",settlement_target_code="target",rule="direct",direct_role="daily_settlement",direct_source_code="synthetic"})],
             ["curve_members"]=[..contract.Select((id,i)=>Row(new{curve_code="future",contract_id=id,ordinal=i}))],
             ["series"]=[..series.Select((id,i)=>Row(new{id,contract_id=contract[i],quote_code="price",value_specification_code=(string?)null}))],

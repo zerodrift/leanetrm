@@ -332,8 +332,8 @@ internal static class SideObservationCompatibilityChecks
             Dictionary<string, ImmutableArray<JsonElement>> definitions = new()
             {
                 ["revisions"] = [Row(new { catalog_id = catalog, id = revision, reference_catalog_id = referenceCatalog, reference_revision_id = referenceRevision, state = "sealed" })],
-                ["contracts"] = [..contracts.Select((id, n) => Row(new { id, kind = "forward", delivery_from = Period(n).From, delivery_to = Period(n).To, expiry_at = "2048-05-03T00:00:00Z", futures_series_code = (string?)null })),
-                    ..unrelated.Select(pair=>Row(new{id=pair.Contract,kind="forward",delivery_from=From,delivery_to=To,expiry_at="2048-05-03T00:00:00Z",futures_series_code=(string?)null}))],
+                ["contracts"] = [..contracts.Select((id, n) => Row(new { id, kind = "forward", delivery_from = Period(n).From, delivery_to = Period(n).To, expiry_at = "2048-05-03T00:00:00Z", futures_series_code = (string?)null, futures_option_series_code = (string?)null })),
+                    ..unrelated.Select(pair=>Row(new{id=pair.Contract,kind="forward",delivery_from=From,delivery_to=To,expiry_at="2048-05-03T00:00:00Z",futures_series_code=(string?)null,futures_option_series_code=(string?)null}))],
                 ["curves"] = [Row(new { code = "projection", commodity_code = "synthetic_energy", quote_code = "price", location_code = "hub", profile_code = "uniform", settlement_target_code = "target", rule = "direct", direct_role = "trader_mark", direct_source_code = "projection_source" })],
                 ["curve_members"] = [..contracts.Take(31).Select((id, ordinal) => Row(new { curve_code = "projection", contract_id = id, ordinal }))],
                 ["series"] = [..series.Select((id, n) => Row(new { id, contract_id = contracts[n], quote_code = "price", value_specification_code = (string?)null })),

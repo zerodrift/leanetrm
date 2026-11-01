@@ -149,9 +149,9 @@ def run_checks(url,query=None,manifest=None):
     if query is not None:
         import json
         assert query(f"SELECT count(*) FROM ref_data.futures_products WHERE catalog_id='{manifest['referenceCatalogId']}' AND definition_state='synthetic';")=='0'
-        assert query(f"SELECT count(*) FROM ref_data.futures_products WHERE catalog_id='{manifest['referenceCatalogId']}';")=='19'
-        assert query(f"SELECT count(*) FROM ref_data.futures_series WHERE catalog_id='{manifest['referenceCatalogId']}';")=='72'
-        assert query(f"SELECT count(*) FROM ref_data.futures_milestones WHERE catalog_id='{manifest['referenceCatalogId']}' AND milestone='last_trading' AND value_state='known' AND event_at IS NULL;")=='11'
+        assert query(f"SELECT count(*) FROM ref_data.futures_products WHERE catalog_id='{manifest['referenceCatalogId']}';")=='20'
+        assert query(f"SELECT count(*) FROM ref_data.futures_series WHERE catalog_id='{manifest['referenceCatalogId']}';")=='78'
+        assert query(f"SELECT count(*) FROM ref_data.futures_milestones WHERE catalog_id='{manifest['referenceCatalogId']}' AND milestone='last_trading' AND value_state='known' AND event_at IS NULL;")=='17'
         assert query(f"SELECT count(*) FROM ref_data.exchanges WHERE catalog_id='{manifest['referenceCatalogId']}';")=='2'
         assert query("SELECT bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE oid IN('ref_data.futures_product_terms'::regclass,'ref_data.futures_basis_settlements'::regclass,'ref_data.futures_lot_resolutions'::regclass);")=='t'
         assert query("SELECT NOT has_table_privilege('preview_runtime','security.request_contexts','UPDATE');")=='t'

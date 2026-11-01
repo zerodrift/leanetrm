@@ -129,7 +129,7 @@ internal static class BookedScheduleLookupChecks
             Dictionary<string,ImmutableArray<JsonElement>> rows=new()
             {
                 ["revisions"]=[Row(new{catalog_id=definitions.CatalogId,id=definitions.RevisionId,reference_catalog_id=reference.CatalogId,reference_revision_id=reference.RevisionId,state="sealed"})],
-                ["contracts"]=[..Contracts.Append(OtherContract).Select(c=>Row(new{id=c.Key.Id,kind="forward",delivery_from=c.DeliveryFrom.ToString("yyyy-MM-dd"),delivery_to=c.DeliveryTo.ToString("yyyy-MM-dd"),expiry_at=c.Expiry,futures_series_code=(string?)null}))],
+                ["contracts"]=[..Contracts.Append(OtherContract).Select(c=>Row(new{id=c.Key.Id,kind="forward",delivery_from=c.DeliveryFrom.ToString("yyyy-MM-dd"),delivery_to=c.DeliveryTo.ToString("yyyy-MM-dd"),expiry_at=c.Expiry,futures_series_code=(string?)null,futures_option_series_code=(string?)null}))],
                 ["curves"]=[Row(new{code="projection",quote_code="price",location_code="hub",profile_code="uniform",settlement_target_code="target",rule="direct",direct_role="trader_mark",direct_source_code="marks"})],
                 ["curve_members"]=[..Contracts.Select((c,n)=>Row(new{curve_code="projection",contract_id=c.Key.Id,ordinal=n}))],
                 ["series"]=[..Fixings.Select((f,n)=>Row(new{id=f.Series.Id,contract_id=Contracts[n].Key.Id,quote_code="price",value_specification_code=(string?)null}))],

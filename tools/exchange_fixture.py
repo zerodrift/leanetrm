@@ -50,6 +50,81 @@ MONTH_ENDS=['2026-11-30','2026-12-31','2027-01-29','2027-02-26','2027-03-31','20
 BEFORE_MONTH=['2026-10-30','2026-11-30','2026-12-31','2027-01-29','2027-02-26','2027-03-31']
 NG_EXPIRIES=['2026-10-28T18:30:00Z','2026-11-25T19:30:00Z','2026-12-29T19:30:00Z','2027-01-27T19:30:00Z','2027-02-24T19:30:00Z','2027-03-29T18:30:00Z']
 
+# NYMEX CL and its options, from the public specifications, calendars and rulebooks
+# retrieved 2026-11-01. CL last-trading and option expiry times of day are not
+# stated by those sources, so their instants stay unknown and none of these
+# contracts is executable. Example option series lie on the listed strike grid.
+CME='https://www.cmegroup.com'
+CL_LAST_TRADING=['2026-10-20','2026-11-20','2026-12-21','2027-01-20','2027-02-22','2027-03-22']
+OPTION_SOURCES={
+ 'nymex_cl':(CME+'/markets/energy/crude-oil/light-sweet-crude.contractSpecs.html','Public specification facts and link only; no market prices or document text redistributed'),
+ 'nymex_cl_expiry':(CME+'/markets/energy/crude-oil/light-sweet-crude.calendar.html','Bounded factual monthly last-trading dates; no prices or source documents'),
+ 'nymex_on':(CME+'/markets/energy/natural-gas/natural-gas.contractSpecs.options.html','Public specification facts and link only; no market prices or document text redistributed'),
+ 'nymex_lo':(CME+'/markets/energy/crude-oil/light-sweet-crude.contractSpecs.options.html','Public specification facts and link only; no market prices or document text redistributed'),
+ 'nymex_on_expiry':(CME+'/markets/energy/natural-gas/natural-gas.calendar.options.html','Bounded factual option expiration dates; no prices or source documents'),
+ 'nymex_lo_expiry':(CME+'/markets/energy/crude-oil/light-sweet-crude.calendar.options.html','Bounded factual option expiration dates; no prices or source documents'),
+ 'nymex_on_rulebook':(CME+'/content/dam/cmegroup/rulebook/NYMEX/3/370.pdf','Rule facts only (document copyright 2009 New York Mercantile Exchange); the stated price multiple is used as both premium tick and settlement clearing increment'),
+ 'nymex_lo_rulebook':(CME+'/content/dam/cmegroup/rulebook/NYMEX/3/310.pdf','Rule facts only (document copyright 2009 New York Mercantile Exchange); the stated price multiple is used as both premium tick and settlement clearing increment'),
+ 'nymex_option_rulebook':(CME+'/content/dam/cmegroup/rulebook/NYMEX/3/300.pdf','Rule facts only (document copyright 2009 New York Mercantile Exchange); no document text redistributed'),
+ 'nymex_option_strikes':(CME+'/trading/files/strike-price/strike-price-listing-and-exercise-procedures-table.xlsx','Table as of 2026-08-24: exercise style, contrary instructions, margin style, at-the-money rule and near-the-money strike increments only'),
+}
+# code, name, underlying, multiplier, premium increment, strike interval, strike grid
+# centre for the first maturity and its monthly step, option expiry dates (Dec 2026-Apr 2027).
+OPTION_PRODUCTS=[
+ ('nymex_on','NYMEX Henry Hub Natural Gas Option (American) · ON','nymex_ng','10000','0.001','0.05','3.25','0.05',
+  ['2026-11-24','2026-12-28','2027-01-26','2027-02-23','2027-03-25']),
+ ('nymex_lo','NYMEX Crude Oil Option · LO','nymex_cl','1000','0.01','0.50','60.50','0.50',
+  ['2026-11-17','2026-12-16','2027-01-14','2027-02-17','2027-03-17']),
+]
+OPTION_RULES=[
+ ('nymex_on_american_v1','exercise','American-style; exercisable on any business day prior to and until expiration day','not_applicable','nymex_on_rulebook'),
+ ('nymex_lo_american_v1','exercise','American-style; exercisable on any business day prior to and until expiration day','not_applicable','nymex_lo_rulebook'),
+ ('nymex_on_expiry_v1','expiry','Expires at the close of trading on the business day immediately preceding the expiration of the underlying futures; time of day not stated','unknown','nymex_on_rulebook'),
+ ('nymex_lo_expiry_v1','expiry','Expires at the close of trading on the third business day immediately preceding the expiration of the underlying futures; time of day not stated','unknown','nymex_lo_rulebook'),
+ ('nymex_itm_settlement_v1','automatic_exercise','On the last exercise day an option in the money by any amount against the underlying futures daily settlement price on its last trading day is exercised; exactly at the money calls are exercised and puts abandoned; otherwise abandoned','not_applicable','nymex_option_rulebook'),
+ ('nymex_exercise_notice_v1','exercise_notice','Exercise notice by 4:15 p.m. from customer to clearing member and by 4:30 p.m. or 45 minutes after settlement posting to the clearing house; time zone not stated','unknown','nymex_option_rulebook'),
+]
+
+def crude_and_options(R):
+    """Reference rows for NYMEX CL and the ON/LO option products and series."""
+    def source(code,locator,note):
+        return f"INSERT INTO ref_data.sources(catalog_id,revision_id,code,kind,locator,retrieved_at,license_reference,distribution_review) VALUES({R},'{code}','external_document','{locator}','2026-11-01T00:00:00Z','{note}','not_reviewed');"
+    refs=[source(code,*value) for code,value in OPTION_SOURCES.items()]
+    refs+=[f"INSERT INTO ref_data.dimensions VALUES({R},'contract_count',0,0,0,0,0,0,0);",
+      f"INSERT INTO ref_data.units VALUES({R},'option_contract','contract','contract_count');",
+      f"INSERT INTO ref_data.commodities VALUES({R},'test_crude','Synthetic crude oil','volume');",
+      f"INSERT INTO ref_data.commodity_units VALUES({R},'test_crude','petroleum_barrel','volume');",
+      f"INSERT INTO ref_data.measurement_bases VALUES({R},'test_crude_volume','test_crude','volume'),({R},'test_gas_contracts','test_gas','contract_count'),({R},'test_crude_contracts','test_crude','contract_count');",
+      f"INSERT INTO ref_data.quantity_specifications VALUES({R},'test_crude_quantity','test_crude','test_crude_volume','petroleum_barrel','volume'),"
+      f"({R},'nymex_on_contract','test_gas','test_gas_contracts','option_contract','contract_count'),({R},'nymex_lo_contract','test_crude','test_crude_contracts','option_contract','contract_count');",
+      f"INSERT INTO ref_data.locations(catalog_id,revision_id,code,name,type_code,clock_code) VALUES({R},'cushing','Cushing, Oklahoma','test_hub','cpt');",
+      f"INSERT INTO ref_data.commodity_locations VALUES({R},'test_crude','cushing');",
+      f"INSERT INTO ref_data.quote_specifications VALUES({R},'nymex_cl_quote','test_crude','outright','test_crude_quantity','usd',1,0.01,0.01,-10000,100000);",
+      f"INSERT INTO ref_data.delivery_profiles VALUES({R},'nymex_cl_profile','exchange_published','cpt','source_business_days','fixed_total',60);",
+      f"INSERT INTO ref_data.futures_products(catalog_id,revision_id,code,name,definition_state,exchange_code,clearing_house_code,commodity_code,location_code,quote_currency_code,lot_unit_code,quote_unit_code,lot_basis,contract_size,quote_multiplier,outright_tick_size,settlement_method,market_clock_code,trading_calendar_code,delivery_calendar_code,settlement_calendar_code) VALUES({R},'nymex_cl','NYMEX Light Sweet Crude Oil · CL','candidate','nymex','cme_clearing','test_crude','cushing','usd','petroleum_barrel','petroleum_barrel','fixed_total',1000,1,0.01,'physical','cpt','source_business_days','source_business_days','source_business_days');",
+      f"INSERT INTO ref_data.futures_product_terms VALUES({R},'nymex_cl','nymex_cl_profile',NULL);",
+      f"INSERT INTO ref_data.product_evidence VALUES({R},'nymex_cl','nymex_cl','units'),({R},'nymex_cl','nymex_cl_expiry','listing'),({R},'nymex_cl','nymex_cl_expiry','dates');"]
+    for day,last in zip(MONTHS,CL_LAST_TRADING):
+        start=date.fromisoformat(day);end=date(start.year+(start.month==12),start.month%12+1,1);code='nymex_cl_'+start.strftime('%Y%m%d')
+        refs+=[f"INSERT INTO ref_data.futures_series VALUES({R},'{code}','nymex_cl','{day}','candidate','{start}','{end}');",
+          f"INSERT INTO ref_data.futures_milestones VALUES({R},'{code}','first_trading','unknown',NULL,NULL,NULL,NULL);",
+          f"INSERT INTO ref_data.futures_milestones VALUES({R},'{code}','last_trading','known','{last}',NULL,'cpt','nymex_cl_expiry');"]
+    refs+=[f"INSERT INTO ref_data.futures_option_rules VALUES({R},'{code}','{kind}',1,'{text}','{clock}',NULL,'{src}');" for code,kind,text,clock,src in OPTION_RULES]
+    for code,name,underlying,multiplier,increment,interval,centre,step,expiries in OPTION_PRODUCTS:
+        commodity='test_gas' if underlying=='nymex_ng' else 'test_crude'
+        refs.append(f"INSERT INTO ref_data.quote_specifications VALUES({R},'{code}_quote','{commodity}','outright','{commodity}_quantity','usd',1,{increment},{increment},0,100000);")
+        refs.append("INSERT INTO ref_data.futures_option_products(catalog_id,revision_id,code,name,definition_state,exchange_code,underlying_product_code,quote_code,lot_quantity_code,multiplier,"
+          "exercise_style,settlement_method,premium_style,contrary_instructions_allowed,strike_interval,strike_interval_source_code,exercise_rule_code,expiry_rule_code,automatic_exercise_rule_code,exercise_notice_rule_code) "
+          f"VALUES({R},'{code}','{name}','candidate','nymex','{underlying}','{code}_quote','{code}_contract',{multiplier},'american','exercise_into_future','premium_paid_up_front',false,{interval},'nymex_option_strikes',"
+          f"'{code}_american_v1','{code}_expiry_v1','nymex_itm_settlement_v1','nymex_exercise_notice_v1');")
+        # Three strikes per maturity on the listed grid around the example's centre.
+        for i,expiry in enumerate(expiries):
+            month=MONTHS[i+1].replace('-','');centre_i=Decimal(centre)+i*Decimal(step)
+            for strike in (centre_i-5*Decimal(interval),centre_i,centre_i+5*Decimal(interval)):
+                for right in ('call','put'):
+                    refs.append(f"INSERT INTO ref_data.futures_option_series VALUES({R},'{code}_{month}_{right[0]}{strike}','{code}','{underlying}_{month}','{right}',{strike},'candidate','{expiry}',NULL,NULL,'{code}_expiry');")
+    return refs
+
 def fixture(root):
     reference,old_market,security,manifest=baseline(root)
     reference=reference.replace("'synthetic', 'Synthetic test catalog'","'exchange_example', 'Exchange futures example'").replace("'other_synthetic', 'Other synthetic catalog'","'exchange_other', 'Other exchange fixture catalog'")
@@ -152,6 +227,8 @@ def fixture(root):
               f"INSERT INTO market_data.curve_members VALUES({M},'{code}','{cid}',{len(contracts[code])-1});",
               f"INSERT INTO market_data.series VALUES({M},'{sid}','{sc}',{R},'{cid}','{code}_quote',NULL);"])
             series_rows.append((sid,code,i,Decimal(mark),commodity))
+    # Option series name exact underlying series, so they follow every futures series.
+    refs.extend(crude_and_options(R))
     frames=[];now=datetime.now(timezone.utc).isoformat()
     for n in range(4):
         at=f'2026-10-{13+n:02d}T16:00:00Z';pins=[]

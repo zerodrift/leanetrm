@@ -43,6 +43,7 @@ internal static class FuturesOptionChecks
         Check("futures option fallback scenario value is floored at zero", FallbackFloor);
         Check("futures option binding is refused by another market definition with the same snapshot", ForeignMarketBinding);
         Check("futures option receipts record every calibration input", ReceiptInputs);
+        Check("an expired futures option settlement is never frozen as a forward block's final settlement", NoFrozenOptionSettlement);
     }
 
     private static readonly DateTimeOffset ValuationAt = new(2026, 1, 5, 19, 30, 0, TimeSpan.Zero);
@@ -522,7 +523,8 @@ internal static class FuturesOptionChecks
         }
         public FuturesOptionInstrument Option(int contract) => new(Series(contract));
         public CurveModel Model(ObservationRole optionRole = ObservationRole.DailySettlement,
-            ObservationRole futuresRole = ObservationRole.DailySettlement, string optionIncrement = Tick)
+            ObservationRole futuresRole = ObservationRole.DailySettlement, string optionIncrement = Tick,
+            ConstituentExpiryRule optionExpiry = ConstituentExpiryRule.RequireLive)
         {
             var options = Options.Select(o => new MarketContract(K(o.Contract), ContractKind.FutureOption, new(2041, 1, 1), new(2041, 2, 1),
                 Expiry, R(SeriesCode(o.Contract)))).ToArray();
@@ -535,7 +537,7 @@ internal static class FuturesOptionChecks
                  new(R("on_contract"), R("gas"), R("contract_basis"), R("contract_unit"), R("count"))],
                 [FuturesQuote, Quote("on_quote", optionIncrement)], [futures, .. options],
                 [Direct("ng", R("ng_quote"), [K(1)], futuresRole),
-                 Direct("on_settle", R("on_quote"), [.. options.Select(o => o.Key)], optionRole)],
+                 Direct("on_settle", R("on_quote"), [.. options.Select(o => o.Key)], optionRole) with { ConstituentExpiry = optionExpiry }],
                 [Underlying], [],
                 [new(S(1), K(1), R("ng_quote"), null), .. Options.Select(o => new MarketSeries(S(o.Contract), K(o.Contract), R("on_quote"), null))]);
         }
@@ -828,6 +830,19 @@ internal static class FuturesOptionChecks
             if (!american) return [hold];
             return [hold, new("exercise", Intrinsic(underlying), OmitExercised ? (TestState)7 : TestState.Exercised)];
         }
+    }
+
+    // Exercise replaces an option's final settlement: a frozen-settlement curve over options is refused, not read as a forward.
+    private static void NoFrozenOptionSettlement()
+    {
+        var market = new OptionMarket();
+        var model = market.Model(optionExpiry: ConstituentExpiryRule.FreezeFinalSettlement);
+        var after = OptionMarket.Expiry.AddHours(1);
+        var final = new MarketObservation(new(market.Revision.CatalogId, OptionMarket.G(799)), market.S(11), market.R("exchange"),
+            ObservationRole.FinalContractSettlement, PublicationState.Final, OptionMarket.Expiry, D("0.08"));
+        var snapshot = new MarketSnapshot(OptionMarket.G(798), market.Revision, after, after, InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
+            [new(new(market.S(11), InputUse.FrozenFact), final)]);
+        Reject("frozen_fact", () => model.Build(snapshot, [market.SettlementRequest(11)]));
     }
 
     private static void Check(string label, Action run) { run(); Console.WriteLine($"PASS {label}"); }

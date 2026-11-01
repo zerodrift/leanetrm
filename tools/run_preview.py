@@ -418,6 +418,9 @@ def main():
             er,em,es,et,exchange_manifest=exchange_fixture(ROOT)
             query(er);query(em);query(es);query(et)
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
+            if args.exchange_check:
+                from check_futures_option_storage import run_checks as check_futures_option_storage
+                check_futures_option_storage(query,exchange_manifest)
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
         if args.ppa_bookings_check or args.blotter_stream_benchmark:

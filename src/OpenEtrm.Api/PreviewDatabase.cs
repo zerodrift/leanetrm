@@ -761,7 +761,7 @@ public sealed class PreviewData
             DateOnly.ParseExact(i.Text("operating_date"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),
             int.Parse(i.Text("hour_beginning"),System.Globalization.CultureInfo.InvariantCulture),
             int.Parse(i.Text("minute"),System.Globalization.CultureInfo.InvariantCulture),int.Parse(i.Text("occurrence"),System.Globalization.CultureInfo.InvariantCulture)));
-        var contracts=Contracts=definitions["contracts"].Select(c => new MarketContract(K(c.Id("id")),c.Text("kind") switch {"future"=>ContractKind.Future,"forward"=>ContractKind.Forward,_=>throw Unsupported()},DateOnly.ParseExact(c.Text("delivery_from"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),DateOnly.ParseExact(c.Text("delivery_to"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),c.Instant("expiry_at"),c.OptionalText("futures_series_code") is {} series ? R(series):null,intervals.GetValueOrDefault(c.Id("id")))).ToImmutableArray();
+        var contracts=Contracts=definitions["contracts"].Select(c => ListedContract(c,intervals.GetValueOrDefault(c.Id("id")))).ToImmutableArray();
         contractRows=contracts.ToLookup(c=>c.Key.Id);
         var mappings=definitions["constituent_mappings"].ToLookup(row=>(row.Text("curve_code"),row.Text("slot")));
         var curves=definitions["curves"].Select(c =>
@@ -859,6 +859,19 @@ public sealed class PreviewData
     // The kind of a stored market curve from its rule and direct role.
     public static string CurveKind(string rule,string? directRole)=>CurveKinds.Of(ParseRule(rule),directRole is null?null:ParseRole(directRole));
     public static ObservationRole ParseRole(string role) => role switch {"trader_mark"=>ObservationRole.TraderMark,"daily_settlement"=>ObservationRole.DailySettlement,"final_contract_settlement"=>ObservationRole.FinalContractSettlement,"parameter"=>ObservationRole.Parameter,"index_fixing"=>ObservationRole.IndexFixing,_=>throw Unsupported()};
+    // A future names exactly its futures series and a futures option exactly its option series; a forward names neither.
+    private MarketContract ListedContract(JsonElement c,DeliveryInterval? interval)
+    {
+        var (kind,series)=(c.Text("kind"),c.OptionalText("futures_series_code"),c.OptionalText("futures_option_series_code")) switch
+        {
+            ("future",{} future,null)=>(ContractKind.Future,R(future)),
+            ("future_option",null,{} option)=>(ContractKind.FutureOption,R(option)),
+            ("forward",null,null)=>(ContractKind.Forward,(ReferenceKey?)null),
+            _=>throw Unsupported(),
+        };
+        return new(K(c.Id("id")),kind,DateOnly.ParseExact(c.Text("delivery_from"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),
+            DateOnly.ParseExact(c.Text("delivery_to"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),c.Instant("expiry_at"),series,interval);
+    }
     private static MarketDataException Unsupported()=>new("unsupported_definition","The selected definition uses an unsupported kind.");
     private static T Single<T>(IEnumerable<T> source)
     { var values=source.Take(2).ToArray(); return values.Length==1?values[0]:throw new MarketDataException("ambiguous_reference","A required exact reference is missing or ambiguous."); }

@@ -56,8 +56,8 @@ public sealed partial class CurveModel
                 var expectedRole=use==InputUse.FrozenFact?ObservationRole.FinalContractSettlement:curve.DirectRole;
                 if(observation.Source!=curve.DirectSource||observation.Role!=expectedRole||observation.State!=PublicationState.Final)
                     throw new MarketDataException("selection_mismatch","Selected quote, source, role or finality is incompatible.");
-                if(use==InputUse.FrozenFact&&(contract.Kind!=ContractKind.Future&&curve.ConstituentExpiry!=ConstituentExpiryRule.FreezeFinalSettlement||observation.ObservedAt<contract.Expiry))
-                    throw new MarketDataException("frozen_fact","Final future settlement must be observed at or after its explicit expiry.");
+                if(use==InputUse.FrozenFact&&(contract.Kind==ContractKind.FutureOption||contract.Kind!=ContractKind.Future&&curve.ConstituentExpiry!=ConstituentExpiryRule.FreezeFinalSettlement||observation.ObservedAt<contract.Expiry))
+                    throw new MarketDataException("frozen_fact","Final future settlement must be observed at or after its explicit expiry; a futures option has none.");
                 if(freezeObservation&&(use!=InputUse.Variable||observation.ObservedAt!=snapshot.ValuationAt||
                     observation.Role is not(ObservationRole.DailySettlement or ObservationRole.TraderMark)))
                     throw new MarketDataException("connected_curve_source","Explicit current fixing requires its exact current economic observation and live original source.");
