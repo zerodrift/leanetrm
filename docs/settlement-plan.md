@@ -587,4 +587,8 @@ The narrower power-only D203 consumer is implemented as [shared payment-lineage
 planning and monthly gross preview](settlement-preview.md), following the accepted
 SP1–SP9 specification and 0096 meter-finality prerequisite. It does not complete
 global S1/S2 or their gas dependencies. Approvals, accepted cash, financial claims,
-obligations, payments and settlement workers remain unimplemented.
+obligations, payments and settlement workers for this broader physical/PPA plan
+remain unimplemented. Financial swaps separately implement the bounded
+[D215–D216 settlement lifecycle](swap-settlement.md); crude has its own bounded
+[delivery-to-cash operations](physical-crude-operations.md). Neither completes
+this broader plan.

@@ -16,7 +16,7 @@ and configured per-unit tariffs are wired into that bounded profile. The
 Gas delivery setup editor saves immutable drafts, previews resolution/coverage and
 publishes versioned economic settings; saved trades retain their setup pins. Usage fees
 have independent pay/receive directions. The fixed-quantity composition ticket now adds independently directed physical
-and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. The common Blotter now includes gas positions, exact retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses one product panel and each product’s existing authorized booking operations. Daily gas quantities open from the position and remain separate operational revisions. Mixed risk reports list exact gas exclusions while valuing supported positions; gas scenario risk, physical completion, operational PV and settlement remain work.
+and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. The common Blotter now includes gas positions, exact retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses one product panel and each product’s existing authorized booking operations. Physical gas entry and booked daily quantities use the description-driven [deal ticket](deal-ticket.md); quantity records remain separate operational revisions. Mixed risk reports list exact gas exclusions while valuing supported positions; gas scenario risk, physical completion, operational PV and settlement remain work.
 The first gas composition gate now supports fixed contractual memberships and
 quantity links. Transport eligibility, allocation splits, operational inputs and
 ordered paths require their own behavior;
@@ -42,8 +42,9 @@ reuse. [Side schedules](side-schedules.md) records the exact oracle, bounds and
 rebooking boundary. D258 retains every logical pricing row, edge, typed binding and named root in
 PostgreSQL; loading and atomic staging/publication are under local qualification.
 [Evaluation](side-plans.md) defines the accepted trial contract. Migrations
-0123–0127 require a schema release; a private
-from-zero pilot seed and PPA entry in New trade remain separate work.
+0123–0127 require a schema release. PPA entry is available in the common New trade
+panel; the dedicated PPA page remains for its existing workflows. A private
+from-zero pilot seed remains separate work.
 
 An archive-and-rebook cutover retains a certified trading-history boundary and
 the display-reference high-water marks. Earlier trading contexts refuse
@@ -344,7 +345,7 @@ participate in keys, and floating sides separate contractual curve/observation
 configuration from resolved pricing bindings. Swap discounting remains marked.
 Lookup and uniqueness use typed primary/candidate keys; managed digests remain
 calculation aids rather than database authority. Observable/factor identity is
-separate from full contract equivalence. Options, standalone physical forward
+separate from full contract equivalence. Options, general standalone physical power
 booking, VaR/covariance and cross-revision forward-observable normalization remain
 explicit later work.
 
@@ -353,12 +354,16 @@ sealed index schedule supplies dated publication instants and actual-series/sour
 bindings. The valuation path combines final, exactly pinned actual fixings with
 remaining projections under unchanged observation weights. Due missing fixings
 are structured errors. Actuals retain frozen lineage and cannot become live quote
-risk. Legacy projection-only definitions and idempotent retries remain retained;
-new raw/manual boundary writes are closed. Every bundle, including the separate
+risk. The later D264 executable cutover refuses obsolete projection-only
+contracts instead of supplying compatibility pricing; retained facts remain
+auditable and incompatible contracts require explicit rebooking. New raw/manual
+boundary writes are closed. Every bundle, including the separate
 daily swap bundle, prices its snapshot's exact pins; a corrected actual needs a
 new snapshot or a certified cutoff (D172). Public fixtures are synthetic. Real
-publisher schedules, peak-product observations, licensed actual data ingestion and
-fixing/payment lifecycle operations require separate qualification.
+publisher schedules, peak-product observations and licensed actual data ingestion
+require separate qualification. The bounded enrolled financial-swap
+[settlement lifecycle](swap-settlement.md) now supplies determinations, corrections,
+cash recording and P&L reconciliation; it does not implement futures margining.
 
 Managed multi-year monthly pricing uses whole-term fixed/floating sides with
 explicit monthly periods, preserving exact per-payment lookups and DFs. Per-month quantity, an
@@ -401,8 +406,9 @@ and inspected. Migration 0102 supplies normalized immutable authoring and shared
 atomic booking. D253 replaces that earlier one-payment side shape with
 whole-term parameters, including the single-period case.
 Independent pricing windows, explicit zero weights, delivery blocks/events and
-contract-relative or paired observations require separately qualified versions.
-Fixing lifecycle events remain work. D214 adds explicitly versioned recurring
+paired observations require separately qualified versions. D261 separately adds
+the bounded [dated-contract observation consumer](observation-price-scenarios.md#bounded-source-consumer).
+D214 adds explicitly versioned recurring
 monthly financial-swap payments and quantity schedules; see
 [quantity contracts](financial-swap-quantities.md) for qualified bounds.
 Bounded physical and virtual PPA capabilities are documented below.
@@ -415,7 +421,9 @@ quantities, lookup terms/weights, prices/lineage, exact cash/PV and discount
 construction evidence.
 Instrument.PV only sums membership-signed side PVs under one full context; trade
 quantity scales afterward. D214 retains explicit recurring periods through a new
-scheduled contract. Fixing/payment lifecycle events remain work; the browser inspector now exposes the actual valued payment and reset rows. Options retain explicit sibling references
+scheduled contract. The browser inspector exposes valued payment and reset rows;
+enrolled trades also use the D215–D216 settlement and P&L operations. Options
+retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
 in O13 is still open and no option model is enabled.
 The D210 entry refinement places visual instrument cards between trade details
@@ -450,8 +458,10 @@ future consumers. Supplemental unit catalogs preserve existing market/trade pins
 
 The standalone [power TOU preview](power-preview.md) now connects editable masks
 to actual selected curve contracts and synthetic flat settlements. It qualifies
-current-input calculations, explicit clock captures and fixed-MW integration;
-durable TOU/product publication and historical clock selection remain work.
+current-input calculations, explicit clock captures and fixed-MW integration.
+The separate Power TOUs authoring workflow publishes immutable versions under
+the exact reference-clock and historical-visibility rules; see
+[the implementation record](implementation.md#role-tailored-workbench-and-reference-driven-choices).
 The bounded collected-interval HTTP consumer now connects explicit curve/source
 associations, one operating day and a certified price cutoff to the same typed
 settlement arithmetic (D171). It supports interval MW with explicit shape and
@@ -1520,8 +1530,10 @@ qualification shares required source/fixing checks with delivery-date availabili
 missing due actuals cannot remain offered as a usable selected plan. Entered
 incompatible terms stay visible without an automatic replacement, and required
 calendar controls remain available for repair. This is an extension of the D216
-compatibility controls, not contract-relative sampling: durable side selectors,
-flexible roll rules and observation-date/contract-delivery separation remain work.
+compatibility controls. D261 subsequently adds bounded exact-contract and
+prompt-offset observation authoring; broader source/calendar combinations and
+flexible roll rules remain work. See the
+[scenario matrix](observation-price-scenarios.md#bounded-source-consumer).
 
 Operational limits (P42, proposed): move each operating value out of code into
 explicit, versioned configuration, keeping its ceiling fixed, and state each value

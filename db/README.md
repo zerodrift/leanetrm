@@ -1,4 +1,35 @@
-# Reference-data storage foundation
+# Database schema and migration history
+
+The current ordered schema runs from `0001_reference_data.sql` through
+`0159_swap_projection_read_work.sql`. It includes reference/market data, certified
+knowledge, access control, trading and settlement, agents, jobs and risk, retained
+Side programs, dashboard layouts and bounded physical gas/crude operations.
+The migration notes below include historical foundation checkpoints; statements
+about what an individual migration lacks describe that checkpoint, not the whole
+application. See [current implementation](../docs/implementation.md) and
+[verification](../docs/verification.md) for consumers and qualification.
+
+Recent schema groups and their contracts:
+
+- 0131–0138: [dated-contract observations](../docs/observation-price-scenarios.md),
+  executable contract admission and retained worker reads.
+- 0139–0141: [dashboard layouts, saved risk runs and certified run knowledge](../docs/market-dashboard.md).
+- 0142–0146 and 0150: [physical gas setup/composition](../docs/physical-gas-side.md),
+  [daily quantities](../docs/physical-gas-daily-quantities.md) and explicit risk exclusions.
+- 0147–0149: [retained instrument cell mappings and booking admission](../docs/booked-side-programs.md)
+  and [exact observation reference integrity](../docs/retained-schedule-integrity.md).
+- 0151–0155 and 0157: [physical crude booking/risk](../docs/physical-crude.md)
+  and [receipts, inventory sales, cash and corrections](../docs/physical-crude-operations.md).
+- 0156: retirement of new single-point gas booking in favor of the
+  [composition deal ticket](../docs/deal-ticket.md).
+- 0158–0159: statement-scoped read visibility and bounded swap projection work;
+  see [Blotter verification](../docs/verification.md#blotter-read-preparation-2026-11-01-local).
+
+Apply migrations in order. Some deliberately refuse incompatible retained data;
+existing installations require the separately qualified schema/rebooking procedure.
+The local preview starts from a disposable cluster and applies the full chain.
+
+## Reference-data storage foundation
 
 [0019_contract_instruments.sql](migrations/0019_contract_instruments.sql) removes
 new-booking futures side/wrapper allocation. The existing exact futures-series
@@ -163,7 +194,7 @@ geometry and topology remain unimplemented. See
 [location semantics](../docs/reference-data.md#location-types-and-geography).
 
 Apply numbered migrations in order in a new installation. The preview applies
-0001 through 0010 before its current synthetic fixtures. The schema runner separately
+the full numbered chain before its current synthetic fixtures. The schema runner separately
 exercises upgrading already retained data with 0004 after the selected base suites,
 then checks coordinate bounds, null pairing, finite values, precision, exact type
 FKs and retained-version guards. The combined suite, including retirement and rates below, now passes 173 checks.
@@ -1469,7 +1500,7 @@ operator-qualified baseline (D135); it changes no worker deadlines.
 
 ## Market dashboard
 
-Migration `0130_dashboard_layouts.sql` stores one Market Dashboard layout per
+Migration `0139_dashboard_layouts.sql` stores one Market Dashboard layout per
 account and workspace in `presentation.dashboard_layouts` (D265), with its saves'
 request replay in `presentation.dashboard_layout_requests`. Both tables force row
 security: `security.dashboard_identity()` admits only the human actor of the
@@ -1479,7 +1510,7 @@ curves, contracts and definitions; the API validates its shape. The runtime role
 may update a layout in place and only insert requests. As a new migration it stops
 automatic hosted updates until the operator qualifies a new baseline (D135).
 
-Migration `0131_risk_run_definitions.sql` stores saved risk run definitions
+Migration `0140_risk_run_definitions.sql` stores saved risk run definitions
 (D266): `risk.run_definitions` owned by one account, immutable
 `risk.run_definition_versions` (name, preset and `saved_at`, the database clock at
 the save, never a knowledge time), `risk.run_definition_books` with exact foreign
@@ -1493,7 +1524,7 @@ runs and run jobs through their definition or run. Every table refuses update an
 delete. As a new migration it stops automatic hosted updates until the operator
 qualifies a new baseline (D135).
 
-Migration `0132_risk_run_knowledge.sql` makes a definition's runs known only
+Migration `0141_risk_run_knowledge.sql` makes a definition's runs known only
 through certified commit receipts (D267). Deferred constraint triggers publish a
 run's creation, and each of its parts reaching `completed`, `failed` or
 `cancelled`, into `risk.definition_run_publications` at commit under the knowledge

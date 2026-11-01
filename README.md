@@ -11,14 +11,22 @@ without a seven-figure implementation.
 > **Status:** a foundation, not a finished product. Try it as a disposable local
 > preview on synthetic data. Nothing here is production-qualified.
 
-For the experimental PPA branch, follow the [PPA tester guide](docs/experimental-ppa-testing.md)
+For a worked PPA example, follow the [PPA tester guide](docs/experimental-ppa-testing.md)
 for synthetic booking, graphical break-even pricing and settlement previews.
 
 ## What works today
 
-- **Trade capture:** futures, plus financial gas and power swaps built from reusable
-  fixed and floating sides, with legal entities, counterparties and an immutable
-  amendment history
+- **Trade capture:** futures, financial gas and power swaps, factor swaps and PPAs,
+  with exact party references and retained history. New trade opens each product's
+  booking workflow; supported amendments retain immutable revisions
+- **Physical gas:** independent fixed delivery, cash and fee sides in the
+  [deal ticket](docs/deal-ticket.md), with explicit fuel links, versioned delivery
+  setup and trade-owned daily quantity revisions. Contractual pre-delivery PV is
+  supported; gas scenario risk and physical settlement remain work
+- **Physical crude:** fixed standard-volume booking, contractual pre-delivery PV
+  and interactive/queued risk, plus bounded receipts, title transfer, inventory-lot
+  allocation, dispatch, invoices, payments and cash-record corrections. See
+  [the contract](docs/physical-crude.md) and [operations](docs/physical-crude-operations.md)
 - **Curves:** futures, gas and power forwards, basis and interest rates, built from
   explicitly selected prices, with a diagram showing which inputs built each
   contract's price. The custom-curve workbench supports visual/formula recipes and
@@ -27,31 +35,43 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   upstream graph links; the swap editor selects compatible published
   outputs for monthly or exact daily projections. Effective-version timelines
   resolve under the selected business date and knowledge cutoff
-- **P&L and risk:** futures execution P&L and swap PV using pinned actual fixings
-  and remaining projections. Connected quote and computed-output scenarios produce
-  exact delta and gamma; generated-close jobs retain mixed futures-and-swaps reports.
+- **P&L and risk:** futures execution P&L and swap/PPA PV using pinned actuals
+  and projections. Connected quote and computed-output scenarios produce exact
+  delta and gamma; generated-close jobs retain mixed futures-and-swaps reports.
+  Interactive and queued portfolio risk also cover supported PPA and crude bindings;
+  gas bindings appear as explicit exclusions, and automated gas/crude closes refuse.
   A delta ladder shows each shocked contract's totals by book and measure, see
   [the delta ladder](docs/delta-ladder.md)
-- **Agent curve drafts:** authorized agents can read curve ingredients and prepare a
-  pinned preview. Explicit Review opens an unpriced draft in the ordinary editor;
-  saving and publishing use the person’s authoring permissions
+- **Agent curve drafts:** authorized agents can read curve ingredients, prepare a
+  pinned preview and save a bounded custom-curve draft through the ordinary Save
+  operation under the person's authoring permission. Explicit Review opens the
+  ordinary editor; publishing remains a person’s action
 - **Live corrections:** push updates through the shared header context, with visible refresh/stale status; [policy and limits](docs/live-calculation.md)
 - **Risk jobs:** temporary nested stresses, risk around the stressed market,
   and queued mixed-book runs pinned to the header's financial context, with retained
   results and cancellation; see [the risk engine](docs/risk-engine.md)
-- **Monthly strips:** managed multi-year swap pricing with explicit monthly
-  quantity allocation and payment discounting; persistent multi-year booking remains work
-- **Blotter:** filters, pivots, saved views, charts and exports
+- **Scheduled swaps:** persistent booking, amendments and inspection of up to 120
+  monthly periods per side, with explicit quantities, observations, payment rules
+  and discounting; see [quantity contracts](docs/financial-swap-quantities.md)
+- **Swap settlement:** opt-in immutable determinations, corrections, gross/net
+  allocations, manual cash recording, reversals and a closing-context P&L bridge;
+  see [the bounded lifecycle](docs/swap-settlement.md)
+- **Blotter:** filters, pivots, saved views, charts, exports, docked trade details,
+  pop-out and backend-prepared close-out drafts; see [the workbench](docs/blotter-workbench.md)
+- **Dashboard:** account-owned layouts, curve levels/history and positions from
+  saved risk run definitions; see [implemented widgets and limits](docs/market-dashboard.md)
 - **Interval series:** audited per-interval values on any market clock (price shapes,
   capacity-factor forecasts, metered energy) with CSV import, corrections, a change
-  log and reads at a chosen knowledge time; shaped interval curves read price shapes,
-  and nothing settles from them yet, see
+  log and reads at a chosen knowledge time. Shaped interval curves consume price
+  shapes; PPA quantity/valuation consumes forecast and meter series. PPA settlement
+  has a separate read-only monthly gross preview, without cash posting; see
   [the implementation record](docs/implementation.md#audited-interval-series)
 - **Interval curves:** hourly and sub-hourly prices marked directly or shaped exactly
   from monthly peak and off-peak marks, delivered hours resolved to collected actuals
   under an explicit due rule, with lineage for every price, see
   [the implementation record](docs/implementation.md#interval-prices-curves-and-block-shaping)
-- **History:** view the market as you knew it on any past date and knowledge time
+- **History:** browse supported market and trade history at explicit business and
+  knowledge times; trading-history cutover boundaries refuse earlier trade contexts
 - **Access control:** roles enforced by PostgreSQL row-level security, with people
   and AI agents as separate principals; agent actions require an explicit delegation
 - **Private pilot mode:** invited user accounts and scheduled PJM and ERCOT day-ahead
@@ -62,18 +82,20 @@ for synthetic booking, graphical break-even pricing and settlement previews.
 
 ## What's not built yet
 
-Daily settlement and fixing lifecycle operations, persisted recurring payment
-strips, full futures PV and variation margin,
-options, physical forwards, VaR, broader agent credential lifecycle and production
-qualification remain work. Interactive risk and queued runs use the shared
-instrument valuation path for the currently supported futures and swaps. See the
+Full futures settlement PV and variation margin, options, VaR, gas scenario risk
+and physical settlement, general physical power booking, inventory costing,
+post-delivery crude valuation, PPA accepted-cash accounting/payments, broader agent
+credential lifecycle and production qualification remain work. General swap/PPA
+portfolio execution directly from compact retained programs is still an integration
+task; the booking-storage checkpoint alone does not complete it. See the
 [delivery plan](docs/plan.md). If you want to help with any of these, start with
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Quickstart
 
 You need the .NET SDK pinned in `global.json`, Node with npm (version in
-`.node-version`), Python 3 and PostgreSQL 16 or later. CI runs on Ubuntu 24.04.
+`.node-version`), Python 3.11+ with assertions enabled and PostgreSQL 16 or later.
+CI runs on Ubuntu 24.04.
 
 ```sh
 git clone https://github.com/zerodrift/leanetrm.git
@@ -105,6 +127,15 @@ existing database.
 **Implementation**
 
 - [Current implementation and verification](docs/implementation.md)
+- [Blotter workbench](docs/blotter-workbench.md)
+- [Description-driven deal ticket (physical gas)](docs/deal-ticket.md)
+- [Scheduled financial swaps](docs/financial-swap-quantities.md)
+- [Financial swap settlement and P&L](docs/swap-settlement.md)
+- [PPA and heat-rate portfolio consumers](docs/demo-instruments.md)
+- [Physical gas booking and quantities](docs/physical-gas-side.md)
+- [Physical crude booking](docs/physical-crude.md) and [delivery-to-cash operations](docs/physical-crude-operations.md)
+- [Market dashboard and saved risk runs](docs/market-dashboard.md)
+- [Booked executable schedule storage and remaining cutover](docs/booked-side-programs.md)
 - [Business scenarios, settlement gaps and shared scenarios](docs/business-scenarios.md)
 - [Market-data contracts](docs/market-data.md)
 - [Reference data and futures](docs/reference-data.md)

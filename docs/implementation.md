@@ -1,8 +1,20 @@
-# First market-data implementation
+# Current implementation record
 
 Status: local synthetic preview. This is a bounded
-foundation with a runnable local market-data and bounded futures trading preview. No existing application or production
-resource is used by its checks.
+foundation with runnable market-data, trading and operational workflows. No
+existing application or production resource is used by its checks.
+
+Current product scope includes futures execution P&L, single-period and
+[scheduled financial swaps](financial-swap-quantities.md), opt-in
+[swap settlement and P&L](swap-settlement.md), and common
+[PPA/heat-rate portfolio consumers](demo-instruments.md). Bounded physical
+[gas booking and daily quantities](physical-gas-side.md) and
+[crude booking/risk](physical-crude.md) with
+[delivery-to-cash operations](physical-crude-operations.md) have their own exact
+contracts and limits. The [Blotter workbench](blotter-workbench.md),
+[gas deal ticket](deal-ticket.md) and [market dashboard](market-dashboard.md)
+describe current presentation. The detailed sections below include earlier
+checkpoints; their dated counts and measurements are historical evidence.
 
 The managed [connected calculation engine](connected-calculation.md) now drives
 saved [custom curves](custom-curves.md), their authoring UI, booked swap
@@ -816,10 +828,11 @@ business-day observations, calendar-day weighting using the preceding/following
 eligible observation, and explicitly supplied positive daily quantity weights.
 Business-day rules require a covered exact calendar. Every required projection
 must be present in date order; unsupported rules and gaps fail explicitly. The
-bounded delivery interval is at most 366 days. Legacy projection-only sides reject
-valuation at or after their declared first fixing. Indexed sides consume exact
-pinned actual fixings from their qualified schedules (D165, D172); settlement
-remains future work.
+bounded primitive delivery interval is at most 366 days. Obsolete projection-only
+contracts require explicit replacement under D264. Indexed sides consume exact
+pinned actual fixings from their qualified schedules (D165, D172). Pure
+instrument pricing retains its due-payment refusal; enrolled trades use the
+separate [swap settlement lifecycle](swap-settlement.md).
 
 `FloatingObservationPlan` now supplies the same six-mode date selection to the
 Side and its booking adapter. A generated payment retains `Applications`, with
@@ -1387,11 +1400,13 @@ series; missing samples never become zero or an interpolated value.
 The selected specification explicitly stores `actual_365_fixed`, `simple` and
 `openetrm_rates_v1`. The curve explicitly chooses `valuation_utc_date`: its
 reference date is the UTC date of the selected valuation instant. Display zones
-never change it. Only exact maturity pillars are supported, without interpolation,
-extrapolation, holiday adjustment, bootstrapping or cashflow PV. Additional
+never change it. The direct zero-rate build evaluates exact maturity pillars.
+Payment discounting now uses [RatesCurve](curve-evaluation.md#rate-curves) with
+explicit bounded log-discount interpolation between pillars. Extrapolation,
+holiday adjustment and bootstrapping remain unsupported. Additional construction
 conventions need a concrete consumer and separately qualified behavior.
 
-[RateConventions.cs](../src/OpenEtrm.Rates/RateConventions.cs) is an original,
+[RateConventions.cs](../src/OpenEtrm.MarketData/Calculation/RateConventions.cs) is an original,
 framework-only implementation. Actual days are the half-open DateOnly difference,
 including leap days; Actual/365 Fixed always divides by 365. Simple discounting is
 `1 / (1 + annualRate * actualDays / 365)`. Integer-ratio intermediates are exact,

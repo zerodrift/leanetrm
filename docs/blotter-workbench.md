@@ -18,7 +18,7 @@ Remaining:
 A trader opens the Blotter to scan current positions against their view of
 market direction and to find what needs a hedge or a close-out. That is a
 top-to-bottom working pass over a long list, so the one thing the page must
-never do is lose the trader's place. Today it does, in four ways:
+never do is lose the trader's place. Before this implementation it did, in four ways:
 
 1. **First load shows two tables.** `load()` in `web/src/futures-view.ts`
    draws a provisional table of unvalued position facts (`renderFacts`: Value

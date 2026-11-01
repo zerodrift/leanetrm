@@ -1,7 +1,10 @@
 # Time, delivery calendars and TOU
 
 Status: baseline approved for implementation and publication on 2026-10-16.
-These are intended contracts, not implemented behavior.
+These are baseline contracts, not a claim that every combination is implemented.
+Bounded clock/TOU publication and MW integration are implemented in the
+[power preview](power-preview.md); retained schedule execution and its remaining
+integration limits are recorded in [whole-term side schedules](side-schedules.md).
 Historical selection is specified in [context.md](context.md).
 Reusable schedule rows, optional deterministic generators and expiry-based
 contract selectors are specified in

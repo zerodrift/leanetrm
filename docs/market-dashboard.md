@@ -1,6 +1,6 @@
 # Market dashboard
 
-Status: phase 1 implemented locally and unpublished. The adversarial review
+Status: phase 1 implemented in the local mainline preview. The adversarial review
 AGENTS.md requires was done once for the whole phase; its findings are fixed
 here, and a focused re-review of the changed temporal paths (the context the
 Positions widget reads in, and tied runs) found two more labelling defects, also fixed. The decisions are D265 (layout), D266 (risk run definitions) and D267

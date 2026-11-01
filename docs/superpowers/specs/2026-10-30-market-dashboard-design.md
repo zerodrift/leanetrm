@@ -1,7 +1,8 @@
 # Market dashboard
 
-Status: design, awaiting approval. Nothing here is implemented. Decision numbers
-are assigned when the records are added to [decisions.md](../../decisions.md).
+Status: historical design. Phase 1 is implemented in mainline under D265–D267;
+see the [current dashboard record](../../market-dashboard.md) for shipped scope,
+verification and remaining work. Later phases below remain proposals.
 
 ## Why
 
