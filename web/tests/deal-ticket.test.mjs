@@ -41,7 +41,7 @@ const status={kind:'current',text:'Up to date'};
 const noEvents=()=>new Proxy({},{get:(_,name)=>()=>assert.fail(`unexpected ${String(name)} event`)});
 const draw=(over={})=>{
  const host=new Element('section');
- renderTicket(host,{state:newTicket(description),mode:'new',actions:null,schedule:null,quantityUnit:null,previous:null,summaries:[],status,fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'month',closed:new Set(),on:noEvents(),...over});
+ renderTicket(host,{state:newTicket(description),mode:'new',actions:null,schedule:null,quantityUnit:null,instant:at=>at,previous:null,summaries:[],status,fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'month',closed:new Set(),on:noEvents(),...over});
  return host;
 };
 

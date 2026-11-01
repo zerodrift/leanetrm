@@ -354,7 +354,8 @@ single-point trade keeps its listed terms in the Details pane.
   rows of the chosen level and coarser as a tree, source tags, change markers
   against the previous view, dimmed delivered rows and the view's own totals as
   a pinned row. Exact decimals are shown with digit grouping only; an `a/b`
-  ratio is shown exact. In delivery the pinned row holds the view's delivered,
+  ratio is shown exact. Instants are shown in the person's chosen time zone,
+  by the formatter the rest of the workbench uses. In delivery the pinned row holds the view's delivered,
   remaining and total lines, in that order.
 - The ticket view (`web/src/deal-ticket.ts`) draws the trade strip (state,
   trade fields, delivered count, status and the model's notices), one card per

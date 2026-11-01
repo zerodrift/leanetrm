@@ -1,7 +1,7 @@
 import {renderTicket,type TicketEvents} from './deal-ticket.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTicket,nextPreview,removeSide,setValue,ticketOf,type TicketState} from './ticket-model.js';
-import {previewed,type SchedulePanel} from './ticket-preview.js';
+import {previewed,reasonOf,type SchedulePanel} from './ticket-preview.js';
 import type {TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup,TicketPreview,TicketReceipt,TicketTrade,TradeActions} from './ticket-types.js';
 
 // Runs one deal ticket against the ticket routes (docs/deal-ticket.md). A new ticket reads the choices each field lists, previews the whole
@@ -10,13 +10,13 @@ import type {TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Opened={tradeId:string;bindingId:string;revision:number};
 type Entry={actor:()=>string;booked:(receipt:{tradeId:string})=>void};
-export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string}&({opened:Opened}|({opened?:undefined}&Entry));
+// instant is the page's formatter for the instants the ticket shows.
+export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string;instant:(at:string)=>string}&({opened:Opened}|({opened?:undefined}&Entry));
 export type TicketHandle={unsaved():boolean;pending():boolean;destroy():void};
 
 /** Edits settle this long before the draft is previewed and its lookups read. */
 const settleMs=300;
 const keyOf=(side:string|null,field:string)=>side===null?field:`${side}.${field}`;
-const reason=(error:unknown)=>error instanceof Error?error.message:String(error);
 // A booking refused with one of these codes wrote nothing; any other failure leaves its outcome unknown.
 const definite=(code:string|undefined)=>!!code&&(code.startsWith('gas_')||code.startsWith('ticket_')||['access_denied','historical_read_only','numeric_format','request_format','swap_context','trade_party'].includes(code));
 
@@ -69,7 +69,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!alive||!d||!state)return;
   const at=focusIn(view);drawn?.destroy();drawn=undefined;
   // A view the ticket cannot draw says why in its place.
-  try{drawn=renderTicket(view,{state,mode,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,previous:panel.previous,summaries:panel.summaries,status:panel.status,
+  try{drawn=renderTicket(view,{state,mode,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,previous:panel.previous,summaries:panel.summaries,status:panel.status,
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on});}
   catch(error){fail(error);return;}
   view.inert=!!entry&&blocked();
@@ -79,7 +79,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  function later(){if(!queued){queued=true;setTimeout(draw);}}
  function fail(error:unknown){
   if(!alive)return;
-  const note=document.createElement('p');note.className='side-panel-status side-panel-error';note.setAttribute('role','alert');note.textContent=reason(error);view.replaceChildren(note);
+  const note=document.createElement('p');note.className='side-panel-status side-panel-error';note.setAttribute('role','alert');note.textContent=reasonOf(error);view.replaceChildren(note);
  }
  function drawBooking(){
   const command=pending.command,text=command?`${said?said+' ':''}The booking request is kept with its original terms until its outcome is known.`:said;
@@ -114,7 +114,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    // A list whose parent has no value yet lists nothing and is not asked for.
    if(f.dependsOn.some(parent=>!values[parent]?.value)){delete choices[key];delete choiceErrors[key];return;}
    try{const r=await o.api<{choices:TicketChoice[]}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id});if(asked.get(key)!==n)return;choices[key]=r.choices;delete choiceErrors[key];}
-   catch(error){if(asked.get(key)!==n)return;choices[key]=[];choiceErrors[key]=reason(error);}
+   catch(error){if(asked.get(key)!==n)return;choices[key]=[];choiceErrors[key]=reasonOf(error);}
    later();
   }));
  }
@@ -123,7 +123,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   const asking=sent();if(asking===looked)return;looked=asking;
   const answers=await Promise.all(everyField(f=>f.lookup!==null).map(async([side,f])=>{
    try{return {side,f,found:await o.api<TicketLookup>('tickets/lookup',{context:o.context(),draft:JSON.parse(asking),side,field:f.id})};}
-   catch(error){return {side,f,found:undefined,refused:reason(error)};}
+   catch(error){return {side,f,found:undefined,refused:reasonOf(error)};}
   }));
   if(!alive||!state||sent()!==asking)return;
   for(const a of answers){
@@ -154,7 +154,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  function change(apply:(s:TicketState)=>TicketState,lists:'all'|[string|null,TicketField][]){
   if(!state||blocked())return;
   try{state=nextPreview(apply({...state,notices:[]})).state;}
-  catch(error){state={...state,notices:[reason(error)]};draw();return;}
+  catch(error){state={...state,notices:[reasonOf(error)]};draw();return;}
   said='';panel={...panel,status:{kind:'updating',text:'Updating…'}};draw();settle();
   void readChoices(lists==='all'?listed():lists);
  }
@@ -189,7 +189,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   try{const r=await o.api<TicketReceipt>('tickets/book',{...command.body,operationId:command.operationId});sending=false;receipt(command,r);}
   catch(error){
    sending=false;pending.failed((error as {code?:string}).code,uncertain);retain();
-   say(pending.command?`The booking is not confirmed: ${reason(error)}`:`Booking refused: ${reason(error)}`);
+   say(pending.command?`The booking is not confirmed: ${reasonOf(error)}`:`Booking refused: ${reasonOf(error)}`);
   }
  }
  async function check(){
@@ -197,7 +197,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   try{
    const r=await o.api<TicketReceipt|{found:false}>('tickets/status',{operationId:command.operationId});
    if('tradeId' in r)receipt(command,r);else say('No completed booking was found. Retry the original booking.');
-  }catch(error){say(`The booking status could not be read: ${reason(error)}`);}
+  }catch(error){say(`The booking status could not be read: ${reasonOf(error)}`);}
  }
  function receipt(command:RequestCommand,r:TicketReceipt){
   if(r.operationId!==command.operationId||r.revision!==1||typeof r.tradeId!=='string'){say('The booking response could not be reconciled with its request. Check its status.');return;}

@@ -21,7 +21,7 @@ export async function readGasView(api:Api,context:Record<string,unknown>,h:Holdi
    actions:composed?[{id:'gas-operations',label:'Daily delivery quantities',run:operations}]:[],
    ...composed?{schedules:(host:HTMLElement)=>{
     const box=document.createElement('div');host.append(box);
-    const ticket=setupTicket(box,{api,context:()=>({...context,convention:'physical_gas_fixed_quantity_v4'}),product:'physical_gas',opened:{tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision)}});
+    const ticket=setupTicket(box,{api,context:()=>({...context,convention:'physical_gas_fixed_quantity_v4'}),product:'physical_gas',instant:at=>displayInstant(at,zone),opened:{tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision)}});
     return ()=>{ticket.destroy();box.remove();};
    }}:{}};
  }};

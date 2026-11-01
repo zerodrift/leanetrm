@@ -1,7 +1,8 @@
 import type {ScheduleView,TicketChoice,TicketDescription,TicketField,TicketSummary,TradeActions} from './ticket-types.js';
 import {addSide,removeSide,type FieldValue,type TicketSide,type TicketState} from './ticket-model.js';
-import {instantText,numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
-import {emptyGridLayout,renderDataGrid,type GridHandle} from './data-grid.js';
+import {numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
+import {emptyGridLayout,renderDataGrid,sideColour,type GridHandle} from './data-grid.js';
+import {reasonOf} from './ticket-preview.js';
 
 // Draws a deal ticket from its backend description, the model's state and the latest preview: the trade strip, one card per side whose
 // common band rows line up across the cards, and the schedule panel. Every value, aggregate and refusal is the backend's or the model's;
@@ -10,8 +11,9 @@ export type TicketStatus={kind:'current'|'updating'|'stale'|'refused';text:strin
 export type TicketEvents={edit(side:string|null,field:string,value:string):void;accept(side:string|null,field:string):void;selectSide(code:string):void;tab(id:string):void;
  level(l:string):void;toggle(row:string,open:boolean):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void};
 // fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field. Under the chosen
-// level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved.
-export type TicketView={state:TicketState;mode:'new'|'booked';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;previous:ScheduleView|null;summaries:TicketSummary[];
+// level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved,
+// and instant the page's formatter for the instants the ticket shows.
+export type TicketView={state:TicketState;mode:'new'|'booked';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;previous:ScheduleView|null;summaries:TicketSummary[];
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
 // The common band's rows, in order: TicketBand.Rows in TicketDescriptions.cs.
@@ -29,9 +31,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?
 }
 const button=(className:string,text:string,click:()=>void)=>{const b=el('button',className,text);b.type='button';b.onclick=()=>click();return b;};
 // What the model refuses, as the reason an action is unavailable; null when it is allowed.
-const refusal=(attempt:()=>unknown)=>{try{attempt();return null;}catch(error){return error instanceof Error?error.message:String(error);}};
+const refusal=(attempt:()=>unknown)=>{try{attempt();return null;}catch(error){return reasonOf(error);}};
 const sideName=(d:TicketDescription,side:TicketSide)=>`${sideKind(d,side.kind).pill} · ${side.code}`;
-const colour=(token:string)=>{if(!/^[a-z][a-z0-9_-]*$/.test(token))throw Error(`A side colour must be a colour token name, not '${token}'.`);return `var(--side-${token})`;};
 
 function editor(f:TicketField,value:string,choices:TicketChoice[]|undefined,edit:(value:string)=>void){
  let control:HTMLInputElement|HTMLSelectElement;
@@ -79,7 +80,7 @@ function summary(s:TicketSummary){
 
 function card(o:TicketView,side:TicketSide,rows:string[]){
  const d=o.state.description,kind=sideKind(d,side.kind),selected=o.selectedSide===side.code;
- const node=el('article','ticket-card');node.dataset.side=side.code;node.dataset.kind=side.kind;node.classList.toggle('selected',selected);node.style.setProperty('--side-colour',colour(kind.colour));
+ const node=el('article','ticket-card');node.dataset.side=side.code;node.dataset.kind=side.kind;node.classList.toggle('selected',selected);node.style.setProperty('--side-colour',sideColour(kind.colour));
  // A click on a card selects its side and that side's tab; a click on one of its controls is the control's.
  node.onclick=event=>{if(selected&&o.tab===side.code||(event.target as HTMLElement).closest('input,select,button'))return;o.on.selectSide(side.code);};
  const head=el('header','ticket-card-head');head.append(el('strong','ticket-side-name',sideName(d,side)),el('span','ticket-pill',kind.pill));
@@ -105,7 +106,7 @@ function addCard(o:TicketView){
  const node=el('div','ticket-add');node.append(el('span','ticket-add-title','Add side'));
  for(const kind of o.state.description.sides){
   const reason=refusal(()=>addSide(o.state,kind.kind)),offer=button('ticket-add-kind',kind.pill,()=>o.on.addSide(kind.kind));
-  offer.disabled=reason!==null;if(reason)offer.title=reason;offer.style.setProperty('--side-colour',colour(kind.colour));node.append(offer);
+  offer.disabled=reason!==null;if(reason)offer.title=reason;offer.style.setProperty('--side-colour',sideColour(kind.colour));node.append(offer);
  }
  return node;
 }
@@ -118,7 +119,7 @@ function strip(o:TicketView){
  node.append(title,fields);
  if(view?.delivered){
   const progress=el('div','ticket-progress'),bar=el('progress');bar.max=view.leaves;bar.value=view.deliveredLeaves;
-  progress.append(bar,el('span','ticket-progress-text',`${view.deliveredLeaves} of ${view.leaves} delivered`),el('span','ticket-valuation',`Valued at ${instantText(view.valuationAt)}`));
+  progress.append(bar,el('span','ticket-progress-text',`${view.deliveredLeaves} of ${view.leaves} delivered`),el('span','ticket-valuation',`Valued at ${o.instant(view.valuationAt)}`));
   node.append(progress);
  }
  const line=el('p','ticket-status',o.status.text);line.dataset.kind=o.status.kind;line.setAttribute('role','status');node.append(line);
@@ -129,7 +130,7 @@ function schedulePanel(o:TicketView,sides:ScheduleSide[]){
  const d=o.state.description,panel=el('section','ticket-schedule'),tabs=el('div','ticket-tabs');tabs.setAttribute('role','tablist');
  for(const t of scheduleTabs(d,sides)){
   const tab=button('ticket-tab',t.label,()=>o.on.tab(t.id));tab.dataset.tab=t.id;tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(o.tab===t.id));
-  tab.style.setProperty('--side-colour',colour(t.colour));tabs.append(tab);
+  tab.style.setProperty('--side-colour',sideColour(t.colour));tabs.append(tab);
  }
  const level=el('select','ticket-level');level.dataset.role='level';level.setAttribute('aria-label','Row level');
  for(const l of o.schedule?.levels??d.levels){
@@ -165,7 +166,7 @@ export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
  const chips=el('nav','ticket-chips');chips.setAttribute('aria-label','Sides');
  for(const s of named){
   const chip=button('ticket-side-chip',s.name,()=>o.on.selectSide(s.code));chip.setAttribute('aria-pressed',String(o.selectedSide===s.code));
-  chip.style.setProperty('--side-colour',colour(sideKind(d,s.kind).colour));chips.append(chip);
+  chip.style.setProperty('--side-colour',sideColour(sideKind(d,s.kind).colour));chips.append(chip);
  }
  const deck=el('div','ticket-deck');deck.style.setProperty('--band-rows',String(rows.length));deck.style.setProperty('--cards',String(sides.length));
  for(const side of sides)deck.append(card(o,side,rows));
@@ -183,7 +184,7 @@ export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
  else if(unpreviewed)content.append(el('p','muted',`${unpreviewed.name} is not in the last preview yet.`));
  else{
   if(o.quantityUnit===null)throw Error('A drawn schedule needs the quantity unit its preview resolved.');
-  const g=scheduleGridData(o.schedule,d,previewed,o.tab,o.level,o.quantityUnit,o.previous??undefined);
+  const g=scheduleGridData(o.schedule,d,previewed,o.tab,o.level,{quantityUnit:o.quantityUnit,instant:o.instant},o.previous??undefined);
   grid=renderDataGrid(content,'deal-ticket-schedule',`${d.product}:${o.tab}`,g.headers,g.rows,g.numeric,()=>false,{keys:g.columns,displayRows:g.displayRows,rowKeys:g.keys,
    layout:emptyGridLayout(),onLayout:()=>{},headerGroups:g.headerGroups,totals:g.totals,decorate:(r,c)=>g.decorations[r][c],
    // The chosen level shows its rows open under their parents, except the rows the person closed; the rows they open or close are reported.

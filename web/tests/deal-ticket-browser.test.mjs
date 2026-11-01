@@ -18,11 +18,12 @@ test('a ticket in delivery shows the delivered count and the delivered, remainin
     rows:[row('2026-11',null,'month',cells('-2000','6500'),false),row('2026-11-01','2026-11','day',cells('-1000','3250'),true),row('2026-11-02','2026-11','day',cells('-1000','3250'),false)]};
    const on=new Proxy({},{get:()=>()=>{}});
    window.ticket=renderTicket(document.querySelector('#host'),{state:newTicket(d),mode:'booked',actions:{amend:{allowed:false,reason:'No amendment.'},closeOut:{allowed:false,reason:'No close-out.'}},
-    schedule,quantityUnit:'MMBtu',previous:null,summaries:[],status:{kind:'current',text:'Up to date'},fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'day',closed:new Set(),on});
+    schedule,quantityUnit:'MMBtu',instant:at=>'at '+at,previous:null,summaries:[],status:{kind:'current',text:'Up to date'},fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'day',closed:new Set(),on});
    for(let i=0;i<250&&!document.querySelector('.tabulator-calcs-holder .tabulator-cell');i++)await new Promise(r=>setTimeout(r,20));
    await new Promise(r=>setTimeout(r,100));
   })()`);
   assert.equal(await evaluate("document.querySelector('.ticket-progress-text').textContent"),'1 of 2 delivered');
+  assert.equal(await evaluate("document.querySelector('.ticket-valuation').textContent"),'Valued at at 2026-11-02T00:00:00+00:00');
   assert.equal(await evaluate("document.querySelector('.ticket-state').textContent"),'Booked · in delivery');
   assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-calcs-holder .tabulator-cell')].map(c=>[...c.querySelectorAll('.grid-total-line')].map(l=>l.textContent))"),
    [['Delivered','Remaining','Total'],['-1,000','-1,000','-2,000'],['3,250','3,250','6,500']]);
@@ -47,7 +48,7 @@ test('a redraw keeps the person\'s open and closed rows and leaves out a side th
     rows:[row('2026-11',null,'month','2'),row('2026-11-01','2026-11','day','1'),row('2026-11-02','2026-11','day','1'),row('2026-12',null,'month','1'),row('2026-12-01','2026-12','day','1')]};
    window.toggles=[];
    const on=new Proxy({},{get:(_,name)=>name==='toggle'?(key,open)=>toggles.push([key,open]):()=>{}});
-   const view=(tab)=>({state:addSide(newTicket(d),'fee'),mode:'new',actions:null,schedule,quantityUnit:'MMBtu',previous:null,summaries:[],status:{kind:'stale',text:'Preview refused'},fieldErrors:{},choices:{},
+   const view=(tab)=>({state:addSide(newTicket(d),'fee'),mode:'new',actions:null,schedule,quantityUnit:'MMBtu',instant:at=>at,previous:null,summaries:[],status:{kind:'stale',text:'Preview refused'},fieldErrors:{},choices:{},
     selectedSide:null,tab,level:'day',closed:new Set(['2026-11']),on});
    window.draw=tab=>{window.ticket?.destroy();window.ticket=renderTicket(document.querySelector('#host'),view(tab));};
    window.draw('instrument');

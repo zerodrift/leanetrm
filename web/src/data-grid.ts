@@ -42,6 +42,11 @@ export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?
 export function gridIdentity(key:string,scope:string,headers:readonly string[],numeric:readonly number[],options:GridOptions){
   return JSON.stringify([key,scope,headers,numeric,options.keys,options.visual??[],options.columnGroups??null,!!options.stretch,options.headerGroups??null,!!options.tree,!!options.totals]);
 }
+/** The CSS colour of a side colour token: `--side-<token>` in app.css. */
+export function sideColour(token:string){
+  if(!/^[a-z][a-z0-9_-]*$/.test(token))throw Error(`A side colour must be a colour token name, not '${token}'.`);
+  return `var(--side-${token})`;
+}
 const frame=()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
 export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:string[],rows:Cells,numeric:number[],isBusy:()=>boolean,options:GridOptions){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,value?:string)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=publicText(value);return n;};
@@ -121,8 +126,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   };
   const groupTitle=(title:string,colour:string|null)=>{
     if(colour===null)return document.createTextNode(title);
-    if(!/^[a-z][a-z0-9_-]*$/.test(colour))throw Error(`A header group's colour must be a colour token name, not '${colour}'.`);
-    const span=el('span',title);span.className='grid-group-title';span.style.setProperty('--group-colour',`var(--side-${colour})`);return span;
+    const span=el('span',title);span.className='grid-group-title';span.style.setProperty('--group-colour',sideColour(colour));return span;
   };
   // A cell's sources and change marker, drawn before its content; its row's delivered state marks the row (rowFormatter).
   const decorated=(content:Node,index:number,i:number)=>{

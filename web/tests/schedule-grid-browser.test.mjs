@@ -15,7 +15,7 @@ test('a schedule draws as a tree with coloured header groups, decorations and th
    const before={levels:['month','day'],valuationAt:'',delivered:null,remaining:null,deliveredLeaves:1,leaves:2,totals:cells('-7','99'),
     rows:[row('2026-11',null,'month',cells('-2000','6500'),false),row('2026-11-01','2026-11','day',cells('-1000','3250'),true),row('2026-11-02','2026-11','day',cells('-1000','3250'),false)]};
    const after={...before,rows:before.rows.map(r=>r.key==='2026-11-02'?{...r,cells:cells('-1001','3250')}:r)};
-   const g=scheduleGridData(after,d,[{kind:'physical',code:'physical-1',name:'Leg A'}],'instrument','day','MMBtu',before);
+   const g=scheduleGridData(after,d,[{kind:'physical',code:'physical-1',name:'Leg A'}],'instrument','day',{quantityUnit:'MMBtu',instant:at=>at},before);
    window.toggles=[];
    await Promise.race([new Promise((_,fail)=>setTimeout(()=>fail(Error('The grid was not built.')),5000)),new Promise(ready=>renderDataGrid(document.querySelector('#host'),'schedule','synthetic',g.headers,g.rows,g.numeric,()=>false,{keys:g.columns,displayRows:g.displayRows,rowKeys:g.keys,
     layout:{order:[],widths:{},sort:[]},onLayout:()=>{},onReady:ready,headerGroups:g.headerGroups,totals:g.totals,decorate:(r,c)=>g.decorations[r][c],

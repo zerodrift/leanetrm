@@ -6,6 +6,9 @@ import type {ScheduleView,TicketPreview,TicketSummary} from './ticket-types.js';
 // quantityUnit is the unit the shown schedule's preview resolved.
 export type SchedulePanel={schedule:ScheduleView|null;quantityUnit:string|null;previous:ScheduleView|null;summaries:TicketSummary[];status:TicketStatus;errors:Record<string,string>};
 
+/** Why an attempt was refused or failed, in the words it gives. */
+export const reasonOf=(error:unknown)=>error instanceof Error?error.message:String(error);
+
 /** The field a refusal names, keyed as the ticket keys fields ("<side code>.<field id>", or the field id on the trade), or null. */
 export function refusedField(error:unknown):string|null{
  const details=(error as {details?:{side?:unknown;field?:unknown}}).details;
@@ -16,7 +19,7 @@ export function refusedField(error:unknown):string|null{
 export function previewed(panel:SchedulePanel,outcome:{preview:TicketPreview}|{refused:unknown}):SchedulePanel{
  const kept=(text:string,errors:Record<string,string>):SchedulePanel=>({...panel,status:{kind:panel.schedule?'stale':'refused',text},errors});
  if('refused' in outcome){
-  const reason=outcome.refused instanceof Error?outcome.refused.message:String(outcome.refused),field=refusedField(outcome.refused);
+  const reason=reasonOf(outcome.refused),field=refusedField(outcome.refused);
   return kept(`Preview refused: ${reason}`,field?{[field]:reason}:{});
  }
  const {schedule,summaries,scheduleRefusal,quantityUnit}=outcome.preview;
