@@ -24,6 +24,12 @@ internal static class FuturesOptionChecks
         Check("american futures options reject valuation at or after expiry", ExpiredValuation);
         Check("american futures options reject unsupported terms, policies and inputs", RejectsUnsupportedTerms);
         Check("american futures option unit price runtime", PrintRuntime);
+        Check("implied volatility reprices the settlement within half a clearing increment", ImpliedVolatilityRoundTrip);
+        Check("implied volatility caps its bracket inside the tree's range", ImpliedVolatilityRangeCap);
+        Check("implied volatility falls back to intrinsic only when declared", ImpliedVolatilityFallbackAtIntrinsic);
+        Check("implied volatility treats an out-of-the-money zero settlement as intrinsic", ImpliedVolatilityOutOfMoneyZero);
+        Check("implied volatility rejects settlements below intrinsic or above the bound", ImpliedVolatilityOutOfBounds);
+        Check("implied volatility rejects invalid inputs and non-convergence", ImpliedVolatilityErrors);
     }
 
     private static readonly DateTimeOffset ValuationAt = new(2026, 1, 5, 19, 30, 0, TimeSpan.Zero);
@@ -207,6 +213,121 @@ internal static class FuturesOptionChecks
         var watch = Stopwatch.StartNew();
         for (var i = 0; i < runs; i++) _ = Price(OptionRight.Put, "80", "82.5", "0.4", "0.5", "0.975");
         Console.WriteLine($"INFO one UnitPrice at {Policy.Steps} steps: {watch.Elapsed.TotalMilliseconds / runs:F1} ms (mean of {runs})");
+    }
+
+    private const string TwoDays = "0.005479452054794520547945205479";
+
+    private static OptionCalibration Calibrate(OptionRight right, string futures, string strike, string years, string discount,
+        string settlement, string increment, bool fallbackDeclared, OptionNumericalPolicy? policy = null) =>
+        ImpliedVolatility.Solve(
+            new FuturesOptionTerms(right, ExactDecimal.Parse(strike), ExpiryAfter(years), "american", "exercise_into_future"),
+            L(settlement), L(futures), L(discount), L(increment), ValuationAt, policy ?? Policy, fallbackDeclared, CancellationToken.None);
+
+    // An exchange publishes settlements on the clearing increment.
+    private static string RoundToIncrement(LatticeDecimal price, string increment) =>
+        decimal.Round(decimal.Parse(price.ToString(), CultureInfo.InvariantCulture), increment.Length - 2, MidpointRounding.ToEven)
+            .ToString(CultureInfo.InvariantCulture);
+
+    // Settlements come from pricing at a known oracle volatility and rounding to the
+    // clearing increment. The check is that the solver inverts the model: the solved
+    // volatility reprices within half an increment of the settlement.
+    private static void ImpliedVolatilityRoundTrip()
+    {
+        (OptionRight Right, int Case, string Increment)[] series =
+        [
+            (OptionRight.Call, 0, "0.001"), (OptionRight.Put, 1, "0.001"), (OptionRight.Call, 2, "0.001"), (OptionRight.Put, 5, "0.001"),
+            (OptionRight.Put, 6, "0.01"), (OptionRight.Call, 7, "0.01"), (OptionRight.Call, 9, "0.01"), (OptionRight.Put, 11, "0.01"),
+        ];
+        var cases = Black76Cases();
+        foreach (var (right, index, increment) in series)
+        {
+            var c = cases[index];
+            var settlement = RoundToIncrement(Price(c, right, c.Discount), increment);
+            var label = $"{right} F={c.Futures} K={c.Strike} T={c.Years} sigma={c.Volatility} settlement {settlement}";
+            var watch = Stopwatch.StartNew();
+            var solved = Calibrate(right, c.Futures, c.Strike, c.Years, c.Discount, settlement, increment, fallbackDeclared: false) as SolvedVolatility
+                ?? throw new Exception($"{label}: expected a solved volatility.");
+            var elapsed = watch.Elapsed.TotalMilliseconds;
+            var repriced = Price(right, c.Futures, c.Strike, solved.Volatility.ToString(), c.Years, c.Discount);
+            Within(repriced, L(settlement), L(increment) / L("2"), $"{label} repriced");
+            Equal(solved.Residual.ToString(), (repriced - L(settlement)).ToString());
+            AtLeast(solved.Volatility, Policy.VolatilityMin, $"{label} volatility");
+            AtMost(solved.Volatility, solved.UpperBound, $"{label} volatility");
+            AtMost(solved.UpperBound, Policy.VolatilityMax, $"{label} upper bound");
+            if (solved.Iterations < 1 || solved.Iterations > Policy.MaxIterations)
+                throw new Exception($"{label}: {solved.Iterations} iterations is outside 1..{Policy.MaxIterations}.");
+            Console.WriteLine($"INFO {label}: sigma {solved.Volatility.ToExact()} in {solved.Iterations} iterations, {elapsed:F0} ms");
+        }
+    }
+
+    // F=80 over two years at 400 steps: the extreme node F*exp(sigma*sqrt(Steps*T))
+    // reaches 10^23 below the policy's VolatilityMax of 3, so the tree's range sets
+    // the bound. A settlement above the price there is above_bound, never
+    // numeric_range, and a settlement below it still solves.
+    private static void ImpliedVolatilityRangeCap()
+    {
+        Reject("option_settlement_above_bound", () => Calibrate(OptionRight.Call, "80", "80", "2", "0.9", "79", "0.01", fallbackDeclared: true));
+        var settlement = RoundToIncrement(Price(OptionRight.Call, "80", "80", "1.5", "2", "0.9"), "0.01");
+        var solved = (SolvedVolatility)Calibrate(OptionRight.Call, "80", "80", "2", "0.9", settlement, "0.01", fallbackDeclared: false);
+        var extremeNode = L("80") * (solved.UpperBound * L("800").Sqrt()).Exp();
+        Within(extremeNode, L("100000000000000000000000"), L("10000000000000"), "extreme node at the bound");
+        AtMost(solved.UpperBound, L("1.72"), "range-capped bound");
+        Within(Price(OptionRight.Call, "80", "80", solved.Volatility.ToString(), "2", "0.9"), L(settlement), L("0.005"), "range-capped round trip");
+        // Short-dated gas: the policy's VolatilityMax is the bound.
+        var gas = (SolvedVolatility)Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.295", "0.001", fallbackDeclared: false);
+        Equal(gas.UpperBound.ToString(), Policy.VolatilityMax.ToString());
+    }
+
+    // A deep in-the-money put two days out: no volatility in the bracket lifts the
+    // tree above intrinsic, so a settlement at intrinsic, or up to one increment
+    // below it, is the declared fallback with residual settlement - intrinsic.
+    private static void ImpliedVolatilityFallbackAtIntrinsic()
+    {
+        Equal(ImpliedVolatility.FallbackMode, "option_settlement_at_intrinsic_v1");
+        foreach (var (settlement, residual) in new[] { ("1", "0"), ("0.9995", "-0.0005"), ("0.999", "-0.001") })
+        {
+            var fallback = Calibrate(OptionRight.Put, "2", "3", TwoDays, "0.9998", settlement, "0.001", fallbackDeclared: true) as IntrinsicFallback
+                ?? throw new Exception($"Expected the intrinsic fallback at settlement {settlement}.");
+            Equal(fallback.Intrinsic.ToString(), "1");
+            Equal(fallback.Residual.ToString(), residual);
+            Reject("option_calibration_fallback_undeclared",
+                () => Calibrate(OptionRight.Put, "2", "3", TwoDays, "0.9998", settlement, "0.001", fallbackDeclared: false));
+        }
+    }
+
+    private static void ImpliedVolatilityOutOfMoneyZero()
+    {
+        var fallback = Calibrate(OptionRight.Call, "3", "4", "0.1", "0.995", "0", "0.001", fallbackDeclared: true) as IntrinsicFallback
+            ?? throw new Exception("Expected the intrinsic fallback for an out-of-the-money zero settlement.");
+        Equal(fallback.Intrinsic.ToString(), "0");
+        Equal(fallback.Residual.ToString(), "0");
+        Reject("option_calibration_fallback_undeclared", () => Calibrate(OptionRight.Call, "3", "4", "0.1", "0.995", "0", "0.001", fallbackDeclared: false));
+    }
+
+    private static void ImpliedVolatilityOutOfBounds()
+    {
+        Reject("option_settlement_below_intrinsic", () => Calibrate(OptionRight.Put, "2", "3", TwoDays, "0.9998", "0.998", "0.001", fallbackDeclared: true));
+        Reject("option_settlement_below_intrinsic", () => Calibrate(OptionRight.Put, "2", "3", TwoDays, "0.9998", "0.998999", "0.001", fallbackDeclared: true));
+        // An American call on a future is worth less than the future, a put less than the strike.
+        Reject("option_settlement_above_bound", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "3", "0.001", fallbackDeclared: true));
+        Reject("option_settlement_above_bound", () => Calibrate(OptionRight.Put, "3", "3", "0.25", "0.99", "2.9", "0.001", fallbackDeclared: true));
+    }
+
+    private static void ImpliedVolatilityErrors()
+    {
+        Reject("option_input", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "-0.001", "0.001", fallbackDeclared: true));
+        Reject("option_input", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", "0", fallbackDeclared: true));
+        Reject("option_input", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", "-0.001", fallbackDeclared: true));
+        Reject("option_input", () => Calibrate(OptionRight.Call, "0", "3", "0.25", "0.99", "0.3", "0.001", fallbackDeclared: true));
+        Reject("option_expired", () => Calibrate(OptionRight.Call, "3", "3", "0", "0.99", "0.3", "0.001", fallbackDeclared: true));
+        Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", "0.001", true, Policy with { Steps = 0 }));
+        Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", "0.001", true, Policy with { MaxIterations = 0 }));
+        Reject("option_numerical_policy", () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.3", "0.001", true, Policy with { VolatilityMin = L("3") }));
+        // A futures price at the tree's range leaves no volatility in the bracket.
+        Reject("option_input", () => Calibrate(OptionRight.Call, "100000000000000000000000", "3", "0.25", "0.99", "0.3", "0.001", true));
+        // One halving cannot pin a gas-level settlement to half a tenth of a cent.
+        Reject("option_calibration_nonconvergent",
+            () => Calibrate(OptionRight.Call, "3", "3", "0.25", "0.99", "0.295", "0.001", true, Policy with { MaxIterations = 1 }));
     }
 
     private static void LatticeFunctionsMatchOracle()
