@@ -1,3 +1,4 @@
+import {setupWorkspaceProbe} from './workspace-probe.mjs';
 /** D220 at Dec 31, 2020, a close that values some positions and not others: every total says what it leaves out. */
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
   const menu=async id=>{if(!await evaluate(`document.querySelector(${JSON.stringify('#'+id)}).open`))await click('#'+id+'>summary');};
@@ -9,8 +10,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const note=count=>`(${count}===1?"Excludes 1 position that can't be valued at this close":"Excludes "+${count}+" positions that can't be valued at this close")`;
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});await wait(idle);
-  await evaluate(`(()=>{const send=window.fetch;window.__replies=[];window.fetch=async(input,init)=>{const path=typeof input==='string'?input:input.url,response=await send(input,init);
-    try{window.__replies.push({path,data:await response.clone().json()});}catch{}return response;};
+  await setupWorkspaceProbe(evaluate);
+ await evaluate(`(()=>{const send=window.fetch;window.__replies=[];window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{const path=typeof input==='string'?input:input.url,response=await send(input,init);
+    try{window.__replies.push({path,data:await response.clone().json()});}catch{}return response;});
     const create=URL.createObjectURL;URL.createObjectURL=b=>{window.__blotterCsv=b;return create(b);};
     const click=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(this.download==='leanetrm-blotter.csv')return;return click.call(this);};})()`);
   await persona('trader');await wait(loaded);

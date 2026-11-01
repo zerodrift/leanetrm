@@ -23,3 +23,5 @@ function workspaceProbe(transport,inspect){
   return new Response(frames.map(f=>JSON.stringify(f)+'\n').join(''),{status:200,headers:{'Content-Type':'application/x-ndjson'}});
  };
 }
+
+export const workspaceProbeScript = `window.__workspaceProbe=${workspaceProbe.toString()};`;

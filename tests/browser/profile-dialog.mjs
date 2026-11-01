@@ -16,7 +16,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await command('Page.enable');await command('Runtime.enable');await command('Accessibility.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});await wait(idle);
   // A blocked request waits for release, then fails as a dropped connection would.
-  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(input!==window.__block)return send(input,init);window.__block=null;await new Promise(resolve=>window.__release=resolve);window.__release=null;throw new TypeError('Synthetic blocked request');};})()`);
+  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(String(input).replace('/api/trading/workspace/stream','/api/trading/workspace')!==window.__block)return send(input,init);window.__block=null;await new Promise(resolve=>window.__release=resolve);window.__release=null;throw new TypeError('Synthetic blocked request');};})()`);
   async function block(path){await evaluate(`window.__block=${JSON.stringify(path)}`);await press('Enter',13);await wait('!!window.__release');}
   async function release(){await evaluate('window.__release()');await wait(idle);}
   await persona('trader');

@@ -26,7 +26,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const guide=await side.call('settings/ai/agents/publish',{operationId:crypto.randomUUID(),agentId:saved.id,expectedVersion:saved.version});
 
   // Each window records the API paths and bodies it sends.
-  const recorder="window.__reads=[];{const send=window.fetch;window.fetch=async(...args)=>{window.__reads.push({path:String(args[0]),body:args[1]?.body?JSON.parse(args[1].body):null});return send(...args);};}";
+  const recorder="window.__reads=[];{const send=window.fetch;window.fetch=async(...args)=>{window.__reads.push({path:String(args[0]).replace('/api/trading/workspace/stream','/api/trading/workspace'),body:args[1]?.body?JSON.parse(args[1].body):null});return send(...args);};}";
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.addScriptToEvaluateOnNewDocument',{source:recorder});
   await command('Page.navigate',{url:url+'/'});await wait(idle,30000);await persona('trader');
@@ -47,7 +47,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const away="document.querySelector('#blotter-away')";
   const popup=await popOut();
   await check('Pop out opens the Blotter in its own window, which reads its rows itself, with nothing of the session left in its address',
-    JSON.stringify(await popup.evaluate("location.pathname==='/blotter.html'&&location.hash===''&&location.search===''&&window.opener!==null&&!document.querySelector('#futures-page').hidden&&performance.getEntriesByType('resource').some(r=>new URL(r.name).pathname==='/api/trading/workspace')")));
+    JSON.stringify(await popup.evaluate("location.pathname==='/blotter.html'&&location.hash===''&&location.search===''&&window.opener!==null&&!document.querySelector('#futures-page').hidden&&performance.getEntriesByType('resource').some(r=>['/api/trading/workspace','/api/trading/workspace/stream'].includes(new URL(r.name).pathname))")));
   await check('the main window shows that the Blotter is in its own window, with Bring back and no Blotter controls',
     `${shown('#blotter-away')}&&${away}.textContent.includes('Blotter is in its own window')&&!!${q('#blotter-bring-back')}&&${q('#futures-page')}.hidden`,`[${away}?.textContent,${q('#futures-page')}.hidden]`);
   const asOf="document.querySelector('#header-calculation-time').textContent";
@@ -82,7 +82,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // Giving them up changes the date there, which is applied in the pop-out at once, and the pop-out says its edits went.
   await set('#snapshot',dates[1]);await wait(`!${prompt}.hidden`);await answer('Give them up');await wait(idle,30000);
   await popup.wait(`${idle}&&${asOf}!==${JSON.stringify(firstAsOf)}&&document.querySelector('#futures-page').dataset.pricingState==='complete'`,60000);
-  const followed=await popup.evaluate(`(()=>{const reads=performance.getEntriesByType('resource').filter(r=>new URL(r.name).pathname==='/api/trading/workspace');return reads.length>=2;})()`);
+  const followed=await popup.evaluate(`(()=>{const reads=performance.getEntriesByType('resource').filter(r=>['/api/trading/workspace','/api/trading/workspace/stream'].includes(new URL(r.name).pathname));return reads.length>=2;})()`);
   await check('the pop-out follows the market date the main window chose on Curves & prices: its As of and values are read again',
     JSON.stringify(followed&&await popup.evaluate(`${asOf}!==${JSON.stringify(firstAsOf)}&&(document.querySelector('#blotter-strip').textContent)!==${JSON.stringify(firstValues)}`)));
   await check('and says the edits in its details were given up',JSON.stringify(await popup.evaluate("document.querySelector('#notice').textContent.includes('the edits in this window’s details were given up')")));

@@ -9,7 +9,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await command('Page.navigate',{url});await wait(idle);
   // A held read, released by the scenario, shows what the details show while the Blotter is read again; a count of the positions can be
   // made to fail once.
-  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(String(input)==='/api/trading/workspace'&&window.__detailsHold){window.__detailsHold=false;await new Promise(resolve=>{window.__detailsRelease=resolve;});}
+  await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(['/api/trading/workspace','/api/trading/workspace/stream'].includes(String(input))&&window.__detailsHold){window.__detailsHold=false;await new Promise(resolve=>{window.__detailsRelease=resolve;});}
     if(String(input)==='/api/trading/positions'&&window.__failCount){window.__failCount=false;return new Response(JSON.stringify({code:'request_failed',message:'Synthetic count failure.'}),{status:500,headers:{'Content-Type':'application/json'}});}
     return send(input,init);};})()`);
   const press=async key=>{const codes={ArrowDown:40,ArrowUp:38,Enter:13,Escape:27};for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode:codes[key]});};

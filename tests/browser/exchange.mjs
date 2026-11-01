@@ -1,3 +1,4 @@
+import {setupWorkspaceProbe} from './workspace-probe.mjs';
 import {chooseFutures} from './futures-selection.mjs';
 import {newTrade} from './new-trade.mjs';
 import {newTarget,popOut,press} from './blotter-window.mjs';
@@ -5,7 +6,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/?example=exchange'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
- await evaluate(`(()=>{const send=window.fetch;window.__exchangeCatalog=null;window.fetch=async(input,init)=>{const response=await send(input,init);if(String(input).endsWith('/api/trading/workspace')&&response.ok){const data=await response.clone().json();if(data.catalog.kind==='priced_contracts')window.__exchangeCatalog=data.catalog;}return response;};})()`);
+ await setupWorkspaceProbe(evaluate);
+ await evaluate(`(()=>{const send=window.fetch;window.__exchangeCatalog=null;window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{const response=await send(input,init);if(String(input).endsWith('/api/trading/workspace')&&response.ok){const data=await response.clone().json();if(data.catalog.kind==='priced_contracts')window.__exchangeCatalog=data.catalog;}return response;});})()`);
  await persona('trader');await click('#example');await click('#nav-futures');
  await check('exchange dataset is visibly selected and prices are identified as synthetic',"document.querySelector('#example-dataset').value==='exchange'&&document.querySelector('#example-dataset').selectedOptions[0].textContent.includes('synthetic prices')");
  await wait("document.querySelectorAll('#desk-positions .sparkline-loading').length===0&&!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
@@ -28,7 +30,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await command('Page.navigate',{url:url+'/?example=exchange'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  await click('#example');await click('#nav-futures');await wait("!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&"+idle,30000);
  const popup=await popOut({command,evaluate,url,tab});
- await check('the pop-out Blotter reads the exchange example it was popped out of',JSON.stringify(await popup.evaluate("performance.getEntriesByType('resource').some(r=>new URL(r.name).pathname==='/examples/exchange/api/trading/workspace')&&!performance.getEntriesByType('resource').some(r=>new URL(r.name).pathname==='/api/trading/workspace')")));
+ await check('the pop-out Blotter reads the exchange example it was popped out of',JSON.stringify(await popup.evaluate("performance.getEntriesByType('resource').some(r=>['/examples/exchange/api/trading/workspace','/examples/exchange/api/trading/workspace/stream'].includes(new URL(r.name).pathname))&&!performance.getEntriesByType('resource').some(r=>['/api/trading/workspace','/api/trading/workspace/stream'].includes(new URL(r.name).pathname))")));
  const row="#desk-positions .tabulator-row[data-row-key] .desk-reference";
  const position=await newTarget(command,async()=>{await press(popup,row,1);await press(popup,row,2);},url+'/position.html#');
  if(!position)throw Error('A double click in the pop-out opened no trade window.');
