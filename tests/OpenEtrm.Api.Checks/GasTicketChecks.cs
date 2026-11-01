@@ -161,7 +161,7 @@ internal static class GasTicketChecks
         });
 
         var catalog = JsonDocument.Parse($$$"""
-            {"gasSetupId":"{{{Setup}}}","locations":[
+            {"gasSetupId":"{{{Setup}}}","gasSetupPublication":3,"locations":[
              {"pipeline":"PA","pipelineName":"Pipeline A","zone":"ZA1","zoneName":"Zone A1","deliveryPoint":"P1","deliveryPointName":"Point 1","clock":"fixed_utc","dayStartMinute":540,"product":"firm","productName":"Firm","valuation":{"quote":"Q"}},
              {"pipeline":"PA","pipelineName":"Pipeline A","zone":"ZA1","zoneName":"Zone A1","deliveryPoint":"P2","deliveryPointName":"Point 2","clock":"fixed_utc","dayStartMinute":540,"product":"firm","productName":"Firm","valuation":{"quote":"Q"}},
              {"pipeline":"PA","pipelineName":"Pipeline A","zone":"ZA2","zoneName":"Zone A2","deliveryPoint":"P3","deliveryPointName":"Point 3","clock":"fixed_utc","dayStartMinute":0,"product":"firm","productName":"Firm","valuation":{"quote":"Q"}},
@@ -193,7 +193,7 @@ internal static class GasTicketChecks
         Refuses("ticket_input", "side choices without the context's gas setup refuse", () => GasTicket.Choices(Open(A(Receipt)) with { Trade = Trade.Remove("gas_setup") }, "RCT", "zone", catalog));
         Check("side choices without a gas setup read the reference conventions of a context that resolves none", () =>
         {
-            var reference = JsonDocument.Parse(catalog.GetRawText().Replace($"\"gasSetupId\":\"{Setup}\"", "\"gasSetupId\":null")).RootElement;
+            var reference = JsonDocument.Parse(catalog.GetRawText().Replace($"\"gasSetupId\":\"{Setup}\",\"gasSetupPublication\":3", "\"gasSetupId\":null,\"gasSetupPublication\":null")).RootElement;
             Equal("ZA1,ZA2", string.Join(",", GasTicket.Choices(Open(A(Receipt)) with { Trade = Trade.Remove("gas_setup") }, "RCT", "zone", reference).Select(c => c.Value)), "reference zones");
             Equal(null, Map(full with { Trade = Trade.Remove("gas_setup") }).GasSetupId, "booked without a setup");
         });
@@ -204,7 +204,8 @@ internal static class GasTicketChecks
             Equal($"{Entity}@4", entity.Value, "entity choice"); Equal("Synthetic entity", entity.Label, "entity label");
             var r = Map(full with { Trade = Trade.SetItem("legal_entity", entity.Value).SetItem("counterparty", party.Value) });
             Equal(Entity, r.LegalEntityId, "booked entity"); Equal(7, r.CounterpartyRevision, "booked counterparty revision");
-            Equal(Book.ToString(), Listed(full, null, "book"), "books"); Equal(Setup.ToString(), Listed(full, null, "gas_setup"), "gas setups");
+            Equal(Book.ToString(), Listed(full, null, "book"), "books");
+            Equal(new TicketChoice(Setup.ToString(), "Published setup 3"), GasTicket.Choices(full, null, "gas_setup", catalog).Single(), "gas setup labelled by its publication");
         });
         Check("side sources list physical codes, never the side itself for a link", () =>
         {

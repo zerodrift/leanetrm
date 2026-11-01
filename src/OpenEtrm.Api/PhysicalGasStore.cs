@@ -94,8 +94,10 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
  }
  public async Task<object> CatalogRead(NpgsqlConnection c,PreviewData data,InputFrame frame,CancellationToken ct)
  {
-  await using var active=ScheduleStore.Command(c,"SELECT security.current_gas_setup($1,$2)",Catalog,data.DefinitionRevision.RevisionId);
-  var selected=await active.ExecuteScalarAsync(ct);Guid? setup=selected is Guid id?id:null;
+  // The setup the context resolves, with its publication order, which names it.
+  await using var active=ScheduleStore.Command(c,"SELECT id,publication_order FROM market_data.gas_setup_versions WHERE(catalog_id,id)=($1,security.current_gas_setup($1,$2))",Catalog,data.DefinitionRevision.RevisionId);
+  Guid? setup=null;int? publication=null;
+  await using(var selected=await active.ExecuteReaderAsync(ct))if(await selected.ReadAsync(ct))(setup,publication)=(selected.GetGuid(0),selected.GetInt32(1));
   var mappings=await Assignments(c,data,setup,ct);
   var paths=setup is null?await PreviewDatabase.Rows(c,"""
    SELECT row_to_json(x)::text FROM(SELECT a.*,e.clock_code,e.day_start_minute,c.commodity_code product_code,p.name pipeline_name,z.name zone_name,l.name point_name,k.name product_name
@@ -126,7 +128,7 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
     valuation=matched.Length==1?ValuationDetails(data,matched[0]):null};
   }).ToArray();
   var books=await PreviewDatabase.Rows(c,"SELECT row_to_json(b)::text FROM trading.books b WHERE catalog_id=$1 ORDER BY name",[Catalog],ct);
-  return new{gasSetupId=setup,locations,tariffs=(await Tariffs(c,data,setup,ct)).Select(t=>new{code=t.Text("code"),name=t.OptionalText("logical_code")??t.Text("code"),pipeline=t.Text("pipeline_code"),product=t.Text("product_code"),quote=t.Text("quote_code"),rate=t.Text("rate"),validFrom=t.Text("valid_from"),validTo=t.Text("valid_to"),basis="contractual_delivery_quantity"}),books,legalEntities=await TradeParties.Catalog(c,Catalog,true,ct),counterparties=await TradeParties.Catalog(c,Catalog,false,ct),
+  return new{gasSetupId=setup,gasSetupPublication=publication,locations,tariffs=(await Tariffs(c,data,setup,ct)).Select(t=>new{code=t.Text("code"),name=t.OptionalText("logical_code")??t.Text("code"),pipeline=t.Text("pipeline_code"),product=t.Text("product_code"),quote=t.Text("quote_code"),rate=t.Text("rate"),validFrom=t.Text("valid_from"),validTo=t.Text("valid_to"),basis="contractual_delivery_quantity"}),books,legalEntities=await TradeParties.Catalog(c,Catalog,true,ct),counterparties=await TradeParties.Catalog(c,Catalog,false,ct),
    scope="Future physical gas delivery with fixed contractual quantities, separate fixed consideration and optional usage fee. This profile admits up to 31 days within one forward month, fixed-offset gas days and no discounting. Actuals and settlement remain unavailable."};
  }
  private static object PhysicalDetails(PreviewData data,PhysicalGasWriteRequest body,JsonElement row)=>new{

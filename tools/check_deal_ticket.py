@@ -211,7 +211,11 @@ def check_ticket_operations(c,context,cat,description,body,view):
         c.call('profile',{'profile':'approver'});c.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':saved['setupId']});c.call('profile',{'profile':'editor'})
         return saved['setupId']
     later=publish(without,authored['activeSetupId'])
+    order=next(v['publication_order'] for v in c.call('gas-setup/catalog')['versions'] if v['id']==later)
     c.call('profile',{'profile':'trader'})
+    # A gas setup is named by its publication order.
+    named=c.call('tickets/choices',{'context':context,'draft':{'product':'physical_gas','version':1,'trade':{},'sides':[]},'side':None,'field':'gas_setup'})['choices']
+    assert named==[{'value':later,'label':f'Published setup {order}'}],named
     d=next(l for l in cat['locations'] if l['deliveryPoint']==retired)
     at_d=lambda setup_id:{**draft,'trade':{**{k:v for k,v in trade.items() if k!='gas_setup'},**setup(setup_id)},'sides':[{**draft['sides'][0],'values':{**physical,'pipeline':d['pipeline'],'zone':d['zone'],'delivery_point':retired,'product':d['product']}}]}
     assert retired in choices(retained,at_d(cat['gasSetupId']),'physical','delivery_point')

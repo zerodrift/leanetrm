@@ -203,7 +203,7 @@ public static class GasTicket
   return[..f.Choices switch{
    "books"=>catalog.GetProperty("books").EnumerateArray().Select(b=>new TicketChoice(b.Text("id"),b.Text("name"))),
    "legal_entities"=>Parties("legalEntities"),"counterparties"=>Parties("counterparties"),
-   "gas_setups"=>catalog.GetProperty("gasSetupId").ValueKind==JsonValueKind.Null?[]:[new TicketChoice(catalog.Text("gasSetupId"),$"Gas setup {catalog.Text("gasSetupId")}")],
+   "gas_setups"=>catalog.OptionalText("gasSetupId") is {} setup?[new TicketChoice(setup,$"Published setup {catalog.Text("gasSetupPublication")}")]:[],
    "pipelines"=>Distinct(paths,"pipeline","pipelineName"),
    "zones"=>Distinct(paths.Where(p=>p.Text("pipeline")==Term(target!,"pipeline",Bad)),"zone","zoneName"),
    "delivery_points"=>Distinct(paths.Where(p=>p.Text("pipeline")==Term(target!,"pipeline",Bad)&&p.Text("zone")==Term(target!,"zone",Bad)),"deliveryPoint","deliveryPointName"),

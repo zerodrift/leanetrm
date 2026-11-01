@@ -395,7 +395,9 @@ single-point trade keeps its listed terms in the Details pane.
   needs its side's pipeline, a point its zone, a usage tariff a delivery-stage
   fee whose source side has a valued path and delivery term. A side answer
   refuses (`ticket_input`) when the draft's `gas_setup` is not the one the
-  context resolves; `gas_setup` is empty where the context resolves none.
+  context resolves; `gas_setup` is empty where the context resolves none. A
+  setup has no name, so its choice is labelled by its publication order
+  (`Published setup <n>`).
 - Party choices are `<id>@<revision>`. `market_price` is the single price the
   side's schedule shows at the read's frame, labelled `"<point> · close <date>"`;
   `eligible_tariff` (on `fee_tariff`) proposes the code of the one tariff
