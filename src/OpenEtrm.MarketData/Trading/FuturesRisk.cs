@@ -12,6 +12,13 @@ public static class FuturesRisk
         ImmutableArray<QuoteShift> stress=default)
     {
         var (basis,portfolio)=PreparePortfolio(trades,snapshot,model,implementation,cancellation);
+        return Calculate(basis,portfolio,snapshot,model,bumps,numericalPolicy,cancellation,detail,stress);
+    }
+    // Applies the optional stress layers to a prepared base, then runs the shared
+    // base/up/down scenarios; preparation work counts towards the run.
+    internal static RiskRun Calculate(CurveBuild basis,ValuationPortfolio portfolio,MarketSnapshot snapshot,CurveModel model,
+        ImmutableArray<QuoteBump> bumps,string numericalPolicy,CancellationToken cancellation,RiskDetail detail,ImmutableArray<QuoteShift> stress)
+    {
         var preparedNodes=0;var reusedNodes=0;
         if(!stress.IsDefault)foreach(var shift in stress)
         {

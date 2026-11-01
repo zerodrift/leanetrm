@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Text.Json.Nodes;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Options;
+using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
 
 internal static class FuturesOptionChecks
 {
@@ -30,6 +32,14 @@ internal static class FuturesOptionChecks
         Check("implied volatility treats an out-of-the-money zero settlement as intrinsic", ImpliedVolatilityOutOfMoneyZero);
         Check("implied volatility rejects settlements below intrinsic or above the bound", ImpliedVolatilityOutOfBounds);
         Check("implied volatility rejects invalid inputs and non-convergence", ImpliedVolatilityErrors);
+        Check("futures option base unit PV equals settlement times multiplier", BasePvEqualsSettlement);
+        Check("futures option delta reprices at the held volatility under futures bumps", HeldVolatilityDelta);
+        Check("short futures option holdings flip delta", ShortPositionsFlipSign);
+        Check("futures option fallback delta is one contract in the money and zero out of it", FallbackDelta);
+        Check("futures option declares only its underlying futures input", DeclaredDependencies);
+        Check("futures option risk replays identically", ReplayIdentical);
+        Check("futures option risk digest is host independent", HostIndependentDigest);
+        Check("futures option binding rejects unsupported roles, terms and missing inputs", OptionBindingErrors);
     }
 
     private static readonly DateTimeOffset ValuationAt = new(2026, 1, 5, 19, 30, 0, TimeSpan.Zero);
@@ -459,6 +469,272 @@ internal static class FuturesOptionChecks
         var cancelled = new CancellationTokenSource(); cancelled.Cancel();
         try { BackwardInduction.Solve(new TestLattice(2, "0.9"), put, cancelled.Token, recordDecisions: true); throw new Exception("Expected cancellation."); }
         catch (OperationCanceledException) { }
+    }
+
+    // A synthetic two-curve market with fixed identities, so serialized results
+    // can be compared across runs and hosts: one NG-style future and a direct
+    // daily-settlement curve over four option series on it.
+    private sealed class OptionMarket
+    {
+        public static Guid G(int n) => Guid.Parse($"00000000-0000-0000-0000-{n:000000000000}");
+        public readonly DefinitionRevision Revision = new(G(901), G(902));
+        public readonly ReferenceRevision Reference = new(G(903), G(904));
+        public ReferenceKey R(string code) => new(Reference, code);
+        public ContractKey K(int n) => new(Revision, G(n));
+        public SeriesKey S(int n) => new(Revision, G(500 + n));
+        public CurveKey C(string code) => new(Revision, code);
+        public static readonly DateTimeOffset At = new(2040, 12, 18, 0, 0, 0, TimeSpan.Zero);
+        public static readonly DateTimeOffset Expiry = new(2040, 12, 24, 19, 30, 0, TimeSpan.Zero);
+        public static readonly ExactDecimal Multiplier = ExactDecimal.Parse("10000");
+        public static readonly ExactDecimal Discount = ExactDecimal.Parse("0.999");
+        public const string Futures = "3";
+        public const string Tick = "0.001";
+        // Contract number, right, strike, synthetic settlement.
+        public static readonly (int Contract, OptionRight Right, string Strike, string Settlement)[] Options =
+        [
+            (11, OptionRight.Call, "3", "0.08"),    // solved, at the money
+            (12, OptionRight.Put, "3", "0.08"),     // solved, at the money
+            (13, OptionRight.Call, "2", "1"),       // fallback, in the money at intrinsic
+            (14, OptionRight.Call, "5", "0"),       // fallback, out of the money at zero
+        ];
+        public QuoteSpecification FuturesQuote => Quote("ng_quote");
+        public QuoteSpecification OptionQuote => Quote("on_quote");
+        private QuoteSpecification Quote(string code) => new(R(code), QuoteKind.Outright, R("usd"), R("mmbtu"),
+            ExactDecimal.Parse("1"), ExactDecimal.Parse(Tick), ExactDecimal.Parse(Tick), ExactDecimal.Parse("0"), ExactDecimal.Parse("1000"));
+        public FuturesSeriesSpecification Underlying => new(R("ng_jan41"), R("mmbtu"), R("usd"), ExactDecimal.Parse("1"),
+            ExactDecimal.Parse(Tick), R("hub"), R("uniform"), new(2041, 1, 1), new(2041, 2, 1),
+            new DateTimeOffset(2040, 12, 28, 19, 30, 0, TimeSpan.Zero), R("mmbtu"), Multiplier, LotBasis.FixedTotal,
+            new DateTimeOffset(2040, 1, 2, 0, 0, 0, TimeSpan.Zero), "physical");
+        public CurveRequest UnderlyingRequest => new(C("ng"), K(1));
+        public CurveRequest SettlementRequest(int contract) => new(C("on_settle"), K(contract));
+        public static string SeriesCode(int contract) => $"on_jan41_{contract}";
+        public FuturesOptionSeriesSpecification Series(int contract, string premiumStyle = "premium_paid_up_front")
+        {
+            var option = Options.Single(o => o.Contract == contract);
+            return new(R(SeriesCode(contract)), R("on"), R("ng_jan41"),
+                new(option.Right, ExactDecimal.Parse(option.Strike), Expiry, "american", "exercise_into_future"),
+                Multiplier, R("usd"), R("on_contract"), ExactDecimal.Parse(Tick), "synthetic_auto_exercise_v1",
+                Expiry.AddHours(-2), premiumStyle);
+        }
+        public FuturesOptionInstrument Option(int contract) => new(Series(contract));
+        public CurveModel Model(ObservationRole optionRole = ObservationRole.DailySettlement)
+        {
+            var options = Options.Select(o => new MarketContract(K(o.Contract), ContractKind.FutureOption, new(2041, 1, 1), new(2041, 2, 1),
+                Expiry, R(SeriesCode(o.Contract)))).ToArray();
+            var futures = new MarketContract(K(1), ContractKind.Future, new(2041, 1, 1), new(2041, 2, 1), Underlying.LastTradingAt, R("ng_jan41"));
+            Curve Direct(string code, ReferenceKey quote, ImmutableArray<ContractKey> members, ObservationRole role) =>
+                new(C(code), quote, R("hub"), R("uniform"), new(SettlementKind.FutureSeries, null, null), CurveRule.Direct,
+                    members, [], role, R("exchange"), null);
+            return new(Revision, Reference,
+                [new(R("mmbtu"), R("gas"), R("energy_basis"), R("mmbtu_unit"), R("energy")),
+                 new(R("on_contract"), R("gas"), R("contract_basis"), R("contract_unit"), R("count"))],
+                [FuturesQuote, OptionQuote], [futures, .. options],
+                [Direct("ng", R("ng_quote"), [K(1)], ObservationRole.DailySettlement),
+                 Direct("on_settle", R("on_quote"), [.. options.Select(o => o.Key)], optionRole)],
+                [Underlying], [],
+                [new(S(1), K(1), R("ng_quote"), null), .. Options.Select(o => new MarketSeries(S(o.Contract), K(o.Contract), R("on_quote"), null))]);
+        }
+        public MarketSnapshot Snapshot(ObservationRole optionRole = ObservationRole.DailySettlement)
+        {
+            SelectedObservation Observation(int series, ObservationRole role, string value) => new(new(S(series), InputUse.Variable),
+                new(new(Revision.CatalogId, G(700 + series)), S(series), R("exchange"), role, PublicationState.Final, At, ExactDecimal.Parse(value)));
+            return new(G(800), Revision, At, At, InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
+                [Observation(1, ObservationRole.DailySettlement, Futures), .. Options.Select(o => Observation(o.Contract, optionRole, o.Settlement))]);
+        }
+        public QuoteBump FuturesBump => Bump(1, FuturesQuote);
+        public QuoteBump SettlementBump(int contract) => Bump(contract, OptionQuote);
+        private QuoteBump Bump(int series, QuoteSpecification quote) =>
+            new(new(S(series), InputUse.Variable), quote.Key, PriceUnit.FromQuote(quote), ExactDecimal.Parse(Tick), QuoteBump.Convention);
+        public static Trade Holding(int trade, int book, FuturesOptionInstrument option, string lots) => new(G(1000 + trade), G(2000 + book),
+            [new TradeInstrument(G(3000 + trade), option, new Quantity(ExactDecimal.Parse(lots), option.UnitQuantity.Specification))]);
+        public RiskRun Calculate(ImmutableArray<Trade> trades, ImmutableArray<QuoteBump> bumps, bool fallbackDeclared = true,
+            ISideDiscounting? discounting = null, string role = "daily_settlement", CurveModel? model = null, MarketSnapshot? snapshot = null) =>
+            FuturesOptionPricing.Calculate(trades, snapshot ?? Snapshot(), model ?? Model(), bumps, FuturesOptionPricing.ScenarioPolicy,
+                RiskEngine.NumericalPolicy, Policy, fallbackDeclared, discounting ?? new ExplicitDiscounting(Discount, DiscountFactorSource.Explicit), role);
+    }
+
+    // The fixed four-option case: long and short holdings across two books, with a
+    // one-tick futures bump and a bump on the call's own settlement price.
+    private static readonly Lazy<(OptionMarket Market, RiskRun Run)> Portfolio = new(() =>
+    {
+        var market = new OptionMarket();
+        ImmutableArray<Trade> trades =
+        [
+            OptionMarket.Holding(1, 1, market.Option(11), "2"),
+            OptionMarket.Holding(2, 1, market.Option(12), "1"),
+            OptionMarket.Holding(3, 1, market.Option(13), "3"),
+            OptionMarket.Holding(4, 1, market.Option(14), "1"),
+            OptionMarket.Holding(5, 2, market.Option(11), "-1"),
+            OptionMarket.Holding(6, 2, market.Option(12), "-1"),
+        ];
+        return (market, market.Calculate(trades, [market.FuturesBump, market.SettlementBump(11)]));
+    });
+
+    private static RiskPositionResult Position(RiskFactorResult factor, int trade) =>
+        factor.Positions.Single(p => p.TradeId == OptionMarket.G(1000 + trade));
+
+    private static ExactDecimal D(string value) => ExactDecimal.Parse(value);
+    private static void Same(ExactDecimal actual, ExactDecimal expected, string label)
+    { if (actual != expected) throw new Exception($"{label}: expected {expected}; got {actual}."); }
+
+    private static void BasePvEqualsSettlement()
+    {
+        var (_, run) = Portfolio.Value;
+        var factor = run.Factors[0];
+        // Calibration reprices settlement within half an increment; per lot that is
+        // multiplier * increment / 2 = 5 USD.
+        foreach (var (trade, settlement, lots) in new[] { (1, "0.08", "2"), (2, "0.08", "1"), (3, "1", "3"), (4, "0", "1") })
+        {
+            var expected = D(settlement) * OptionMarket.Multiplier * D(lots);
+            var bound = OptionMarket.Multiplier * D("0.0005") * D(lots);
+            var difference = Position(factor, trade).Base.Amount - expected;
+            if (difference.CompareTo(bound) > 0 || (default(ExactDecimal) - difference).CompareTo(bound) > 0)
+                throw new Exception($"Trade {trade}: base {Position(factor, trade).Base.Amount} is not settlement value {expected} within {bound}.");
+        }
+        // The fallback mode reproduces settlement exactly.
+        Same(Position(factor, 3).Base.Amount, D("30000"), "fallback base");
+        Same(Position(factor, 4).Base.Amount, D("0"), "out-of-the-money base");
+    }
+
+    private static void HeldVolatilityDelta()
+    {
+        var (market, run) = Portfolio.Value;
+        var factor = run.Factors[0];
+        if (factor.Bump.Input.Series != market.S(1)) throw new Exception("The first factor must be the futures bump.");
+        foreach (var (trade, contract, lots) in new[] { (1, 11, "2"), (2, 12, "1") })
+        {
+            var receipt = run.OptionCalibrations.Single(r => r.Series.Code == OptionMarket.SeriesCode(contract));
+            Equal(receipt.Mode, "solved");
+            var volatility = L(receipt.Volatility!);
+            ExactDecimal Expected(string futures)
+            {
+                var unit = AmericanFuturesOptionModel.UnitPrice(market.Series(contract).Terms, L(futures), volatility,
+                    LatticeDecimal.From(OptionMarket.Discount), OptionMarket.At, Policy, CancellationToken.None);
+                // The tree price carries 30 digits; the PV rounds it once, half-even, to 18.
+                if (unit.ToString().Split('.')[1].Length <= 18) throw new Exception("The case must exercise unit-price rounding.");
+                return unit.ToExact() * OptionMarket.Multiplier * D(lots);
+            }
+            var position = Position(factor, trade);
+            Same(position.Up.Amount, Expected("3.001"), $"trade {trade} up");
+            Same(position.Down.Amount, Expected("2.999"), $"trade {trade} down");
+            var sign = position.Delta.Value.CompareTo(default);
+            if (sign != (contract == 11 ? 1 : -1)) throw new Exception($"Trade {trade}: delta {position.Delta.Value} has the wrong sign.");
+        }
+    }
+
+    private static void ShortPositionsFlipSign()
+    {
+        var (_, run) = Portfolio.Value;
+        var factor = run.Factors[0];
+        // Trade 1 holds 2 long calls, trade 5 one short; trade 2 one long put, trade 6 one short.
+        Same(Position(factor, 5).Delta.Value * D("-2"), Position(factor, 1).Delta.Value, "short call delta");
+        Same(Position(factor, 6).Delta.Value, default(ExactDecimal) - Position(factor, 2).Delta.Value, "short put delta");
+        Same(Position(factor, 6).Base.Amount, default(ExactDecimal) - Position(factor, 2).Base.Amount, "short put base");
+    }
+
+    private static void FallbackDelta()
+    {
+        var (_, run) = Portfolio.Value;
+        var factor = run.Factors[0];
+        foreach (var contract in new[] { 13, 14 })
+            Equal(run.OptionCalibrations.Single(r => r.Series.Code == OptionMarket.SeriesCode(contract)).Mode, ImpliedVolatility.FallbackMode);
+        // Three in-the-money lots move one underlying contract each: 3 * 10000 USD per USD/MMBtu.
+        Same(Position(factor, 3).Delta.Value, D("30000"), "in-the-money fallback delta");
+        Same(Position(factor, 3).Up.Amount, D("30030"), "in-the-money fallback up");
+        Same(Position(factor, 3).Gamma.Value, D("0"), "in-the-money fallback gamma");
+        Same(Position(factor, 4).Delta.Value, D("0"), "out-of-the-money fallback delta");
+        Same(Position(factor, 4).Up.Amount, D("0"), "out-of-the-money fallback up");
+    }
+
+    private static void DeclaredDependencies()
+    {
+        var (market, run) = Portfolio.Value;
+        foreach (var contract in run.Contracts)
+        {
+            Equal(contract.ModelVersion, AmericanFuturesOptionModel.Id);
+            if (contract.Dependencies.Length != 1 || contract.Dependencies[0] != market.UnderlyingRequest)
+                throw new Exception("An option must declare exactly its underlying futures request.");
+        }
+        // Bumping the call's own settlement price is not a risk factor of any option:
+        // nothing reprices and every value stays at base.
+        var settlement = run.Factors[1];
+        if (settlement.Bump.Input.Series != market.S(11)) throw new Exception("The second factor must be the settlement bump.");
+        Equal(settlement.UpWork.UnitPricerCalls.ToString(CultureInfo.InvariantCulture), "0");
+        Equal(settlement.DownWork.UnitPricerCalls.ToString(CultureInfo.InvariantCulture), "0");
+        foreach (var position in settlement.Positions)
+        {
+            Same(position.Up.Amount, position.Base.Amount, "settlement-bumped up");
+            Same(position.Delta.Value, D("0"), "settlement-bumped delta");
+        }
+    }
+
+    // The result fields a replay must reproduce: every holding's values under every
+    // factor and every option's calibration receipt.
+    private static string Serialize(RiskRun run) => System.Text.Json.JsonSerializer.Serialize(new
+    {
+        factors = run.Factors.Select(f => new
+        {
+            series = f.Bump.Input.Series.Id, size = f.Bump.Size.ToString(),
+            positions = f.Positions.OrderBy(p => p.TradeId).Select(p => new
+            {
+                trade = p.TradeId, book = p.BookId, valuation = p.ValuationId,
+                values = new[] { p.Base.Amount, p.Up.Amount, p.Down.Amount, p.Delta.Value, p.Gamma.Value }.Select(v => v.ToString()),
+            }),
+        }),
+        totals = run.Factors.SelectMany(f => f.Totals).Select(t => new[] { t.Base.Amount, t.Up.Amount, t.Down.Amount, t.Delta.Value }.Select(v => v.ToString())),
+        calibrations = run.OptionCalibrations,
+    });
+
+    private static void ReplayIdentical()
+    {
+        var (_, run) = Portfolio.Value;
+        var market = new OptionMarket();
+        ImmutableArray<Trade> replay =
+        [
+            OptionMarket.Holding(1, 1, market.Option(11), "2"),
+            OptionMarket.Holding(2, 1, market.Option(12), "1"),
+            OptionMarket.Holding(3, 1, market.Option(13), "3"),
+            OptionMarket.Holding(4, 1, market.Option(14), "1"),
+            OptionMarket.Holding(5, 2, market.Option(11), "-1"),
+            OptionMarket.Holding(6, 2, market.Option(12), "-1"),
+        ];
+        var second = market.Calculate(replay, [market.FuturesBump, market.SettlementBump(11)]);
+        Equal(Serialize(second), Serialize(run));
+    }
+
+    // Pinned from the first macOS run; CI repeats the check on Linux.
+    private const string PinnedDigest = "8412fcd1230e8de6a36426683445c67cd82f1aa4a6e556b2c9fef846e42f1622";
+
+    private static void HostIndependentDigest()
+    {
+        var digest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(Serialize(Portfolio.Value.Run))));
+        Equal(digest, PinnedDigest);
+    }
+
+    private sealed class NoDiscounting : ISideDiscounting
+    {
+        public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments, MarketSnapshot snapshot) => [];
+    }
+
+    private static void OptionBindingErrors()
+    {
+        var market = new OptionMarket();
+        ImmutableArray<Trade> fallback = [OptionMarket.Holding(1, 1, market.Option(13), "1")];
+        ImmutableArray<QuoteBump> bumps = [market.FuturesBump];
+        Reject("option_observation_role", () => market.Calculate(fallback, bumps, role: "trader_mark"));
+        Reject("option_observation_role", () => market.Calculate(fallback, bumps,
+            model: market.Model(ObservationRole.TraderMark), snapshot: market.Snapshot(ObservationRole.TraderMark)));
+        Reject("option_discount", () => market.Calculate(fallback, bumps, discounting: new NoDiscounting()));
+        try { market.Calculate(fallback, bumps, fallbackDeclared: false); throw new Exception("Expected an undeclared fallback error."); }
+        catch (MarketDataException error) when (error.Code == "option_calibration_fallback_undeclared")
+        { if (!error.Message.Contains(OptionMarket.SeriesCode(13), StringComparison.Ordinal)) throw new Exception("The error must name the option series."); }
+        Reject("unsupported", () => new FuturesOptionInstrument(market.Series(13, "futures_style_margin")));
+        Reject("option_definition", () => new FuturesOptionInstrument(market.Series(13) with { Multiplier = D("0") }));
+        Reject("option_lots", () => OptionMarket.Holding(1, 1, market.Option(13), "1.5"));
+        Reject("option_lots", () => OptionMarket.Holding(1, 1, market.Option(13), "0"));
+        Reject("option_expired", () => market.Calculate(fallback, bumps, snapshot: market.Snapshot() with
+            { ValuationAt = OptionMarket.Expiry, MarketCutoff = OptionMarket.Expiry }));
     }
 
     private enum TestState { Alive, Exercised }

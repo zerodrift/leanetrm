@@ -45,6 +45,8 @@ public static class OptionNumericalPolicies
     //   ln F + 20*sigma*sqrt(T) <= 55.26.
     // - 30 bisection halvings narrow the bracket to 2.8e-9, so a vega below 100 per
     //   unit volatility leaves a residual under 3e-7.
+    // - Instrument PVs round the 30-digit unit price once, half-even, to the 18-digit
+    //   working scale before applying the contract multiplier (FuturesOptionInstrument.PV).
     private static readonly OptionNumericalPolicy CrrV1 = new(
         AmericanFuturesOptionModel.Id, 400, ActualOver365FixedInstant,
         LatticeDecimal.Parse("0.01"), LatticeDecimal.Parse("3"), LatticeDecimal.Parse("0.005"), 30);
