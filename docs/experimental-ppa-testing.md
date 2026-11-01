@@ -1,6 +1,6 @@
 # Experimental PPA testing checkpoint
 
-This feature branch is for synthetic testing and review. It is not a production
+This guide covers synthetic PPA testing on the current mainline. It is not a production
 release or an existing-database upgrade qualification. Do not point the preview
 at another application or database. The launcher creates and removes its own
 stock PostgreSQL cluster; stopping it discards all exploratory bookings.
