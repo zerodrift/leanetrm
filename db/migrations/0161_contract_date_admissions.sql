@@ -115,6 +115,9 @@ DO $$DECLARE t text;BEGIN
   EXECUTE format('ALTER TABLE market_data.%I ENABLE ROW LEVEL SECURITY',t);
   EXECUTE format('ALTER TABLE market_data.%I FORCE ROW LEVEL SECURITY',t);
   EXECUTE format('GRANT SELECT ON market_data.%I TO openetrm_runtime,openetrm_security_owner',t);
+  IF t<>'contract_date_admission_receipts' THEN
+   EXECUTE format('CREATE POLICY current_insert ON market_data.%I AS RESTRICTIVE FOR INSERT TO openetrm_runtime WITH CHECK(security.current_write_context())',t);
+  END IF;
   IF t<>'contract_date_admissions' THEN
    EXECUTE format('CREATE TRIGGER immutable_record BEFORE UPDATE OR DELETE ON market_data.%I FOR EACH ROW EXECUTE FUNCTION market_data.guard_knowledge_receipt()',t);
   END IF;
