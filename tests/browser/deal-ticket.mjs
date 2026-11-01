@@ -122,8 +122,8 @@ export async function run(actions){
 
  // A booked physical side's day quantities are entered in its tab and recorded as daily quantity revisions; the ticket then reads the trade
  // again, and only that day and its month change.
- // A row's text, with the values of its entries.
- const row=(key,root=booked)=>`(()=>{const r=document.querySelector(${q(root+' .tabulator-row[data-row-key="'+key+'"]')});return r?r.textContent+[...r.querySelectorAll('input')].map(i=>' '+i.value).join(''):'';})()`;
+ // A row's text, with the quantities its entries show: an entry opens empty, its drawn quantity its placeholder.
+ const row=(key,root=booked)=>`(()=>{const r=document.querySelector(${q(root+' .tabulator-row[data-row-key="'+key+'"]')});return r?r.textContent+[...r.querySelectorAll('input')].map(i=>' '+(i.value||i.placeholder)).join(''):'';})()`;
  await set(`${booked} .ticket-level`,'day');
  await wait(`!!document.querySelector(${q(booked+' .tabulator-row[data-row-key="2021-01-05"]')})`);
  await check('the Instrument tab takes no entries',`!document.querySelector(${q(booked+' .ticket-cell-input')})`);

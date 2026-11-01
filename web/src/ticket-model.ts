@@ -5,20 +5,21 @@ import type {TicketDescription,TicketDraft,TicketField} from './ticket-types.js'
 export type Source={kind:string;label:string};
 export type FieldValue={value:string;looked?:Source;offered?:{value:string;kind:string;label:string}};
 export type TicketSide={kind:string;code:string;values:Record<string,FieldValue>};
-export type TicketState={description:TicketDescription;trade:Record<string,FieldValue>;sides:TicketSide[];notices:string[];previewSerial:number};
+// removed holds the codes of the sides taken off the ticket, which no later side is given.
+export type TicketState={description:TicketDescription;trade:Record<string,FieldValue>;sides:TicketSide[];removed:string[];notices:string[];previewSerial:number};
 
 const sideCode=(kind:string,n:number)=>`${kind}-${n}`;
 
-function lowestFreeCode(sides:TicketSide[],kind:string){
+function lowestFreeCode(sides:TicketSide[],removed:string[],kind:string){
  let n=1;
- while(sides.some(s=>s.code===sideCode(kind,n)))n++;
+ while(sides.some(s=>s.code===sideCode(kind,n))||removed.includes(sideCode(kind,n)))n++;
  return sideCode(kind,n);
 }
 
 export function newTicket(d:TicketDescription):TicketState{
  const sides:TicketSide[]=[];
- for(const k of d.sides)for(let i=0;i<k.initial;i++)sides.push({kind:k.kind,code:lowestFreeCode(sides,k.kind),values:{}});
- return {description:d,trade:{},sides,notices:[],previewSerial:0};
+ for(const k of d.sides)for(let i=0;i<k.initial;i++)sides.push({kind:k.kind,code:lowestFreeCode(sides,[],k.kind),values:{}});
+ return {description:d,trade:{},sides,removed:[],notices:[],previewSerial:0};
 }
 
 function fieldsOf(s:TicketState,side:string|null):TicketField[]{
@@ -40,20 +41,20 @@ function withValues(s:TicketState,side:string|null,values:Record<string,FieldVal
  return side===null?{...s,trade:values,notices}:{...s,notices,sides:s.sides.map(x=>x.code===side?{...x,values}:x)};
 }
 
+// A dependent chosen under the old parent is cleared, never re-picked, and the user is told.
+function clearDependents(fields:TicketField[],values:Record<string,FieldValue>,parent:TicketField,notices:string[]){
+ for(const child of fields.filter(x=>x.dependsOn.includes(parent.id))){
+  if(values[child.id]?.value){notices.push(`${child.label} was cleared because ${parent.label} changed.`);values[child.id]={value:''};}
+  clearDependents(fields,values,child,notices);
+ }
+}
+
 export function setValue(s:TicketState,side:string|null,field:string,value:string):TicketState{
  const changed=fieldOf(s,side,field);
  if(changed.state!=='editable')throw new Error(`Field '${field}' is not editable.`);
- const fields=fieldsOf(s,side);
  const values={...valuesOf(s,side),[field]:{value}};
  const notices=[...s.notices];
- // A dependent chosen under the old parent is cleared, never re-picked, and the user is told.
- const clear=(parent:TicketField)=>{
-  for(const child of fields.filter(x=>x.dependsOn.includes(parent.id))){
-   if(values[child.id]?.value){notices.push(`${child.label} was cleared because ${parent.label} changed.`);values[child.id]={value:''};}
-   clear(child);
-  }
- };
- clear(changed);
+ clearDependents(fieldsOf(s,side),values,changed,notices);
  return withValues(s,side,values,notices);
 }
 
@@ -62,7 +63,7 @@ export function ticketOf(d:TicketDescription,draft:TicketDraft):TicketState{
  if(draft.product!==d.product||draft.version!==d.version)throw new Error(`The draft is for ${draft.product} version ${draft.version}, not ${d.product} version ${d.version}.`);
  const values=(given:Record<string,string>)=>Object.fromEntries(Object.entries(given).map(([id,value])=>[id,{value}]));
  for(const side of draft.sides)if(!d.sides.some(k=>k.kind===side.kind))throw new Error(`The ticket has no side kind '${side.kind}'.`);
- return {description:d,trade:values(draft.trade),sides:draft.sides.map(x=>({kind:x.kind,code:x.code,values:values(x.values)})),notices:[],previewSerial:0};
+ return {description:d,trade:values(draft.trade),sides:draft.sides.map(x=>({kind:x.kind,code:x.code,values:values(x.values)})),removed:[],notices:[],previewSerial:0};
 }
 
 export function applyLookup(s:TicketState,side:string|null,field:string,r:{value:string;source:Source}):TicketState{
@@ -96,15 +97,26 @@ export function addSide(s:TicketState,kind:string):TicketState{
  for(const limit of s.description.sideLimits)
   if(limit.kinds.includes(kind)&&s.sides.filter(x=>limit.kinds.includes(x.kind)).length>=limit.max)
    throw new Error(`A ticket takes at most ${limit.max} ${limit.kinds.join(' and ')} sides together.`);
- return {...s,sides:[...s.sides,{kind,code:lowestFreeCode(s.sides,kind),values:{}}]};
+ return {...s,sides:[...s.sides,{kind,code:lowestFreeCode(s.sides,s.removed,kind),values:{}}]};
 }
 
+// A choice that named the removed side is cleared with its dependents, and the user is told; the side's code is not given again.
 export function removeSide(s:TicketState,code:string):TicketState{
  const side=s.sides.find(x=>x.code===code);
  if(!side)throw new Error(`The ticket has no side '${code}'.`);
  const min=s.description.sides.find(k=>k.kind===side.kind)!.min;
  if(s.sides.filter(x=>x.kind===side.kind).length<=min)throw new Error(`A ticket needs at least ${min} ${side.kind} sides.`);
- return {...s,sides:s.sides.filter(x=>x!==side)};
+ const notices=[...s.notices];
+ let next:TicketState={...s,sides:s.sides.filter(x=>x!==side),removed:[...s.removed,code]};
+ for(const at of [null,...next.sides.map(x=>x.code)]){
+  const fields=fieldsOf(next,at),values={...valuesOf(next,at)};
+  for(const named of fields.filter(f=>f.choices!==null&&values[f.id]?.value===code)){
+   notices.push(`${named.label} was cleared because side ${code} was removed.`);values[named.id]={value:''};
+   clearDependents(fields,values,named,notices);
+  }
+  next=withValues(next,at,values,notices);
+ }
+ return next;
 }
 
 // Editable fields with a value only: soon, info and derived fields never reach the backend.

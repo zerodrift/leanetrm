@@ -23,7 +23,7 @@ export type ScheduleView={levels:string[];rows:ScheduleViewRow[];totals:Record<s
 export type ScheduleRefusal={code:string;message:string};
 export type TicketSummary={side:string;billedQuantity:string|null;amount:string|null;againstMarket:string|null};
 export type TradeAction={allowed:boolean;reason:string};
-// record says whether a booked side's day quantities are entries the trade records.
+// record says whether this reader may record a booked side's day quantities here, by the record operation's own rule, and why not.
 export type TradeActions={amend:TradeAction;closeOut:TradeAction;record:TradeAction};
 // A preview answers its schedule, or why the schedule could not be built beside a valuation that succeeded; a booked trade read adds its draft
 // and the actions it offers; a booking answers its receipt.

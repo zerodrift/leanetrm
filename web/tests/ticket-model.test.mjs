@@ -7,7 +7,7 @@ const description={product:'synthetic',version:3,rowShape:'flow',levels:['month'
  tradeFields:[f('book','Book'),f('trade_date','Trade date',{state:'info',lookup:'trade_date'}),f('later','Later',{state:'soon',soon:'Not yet'})],
  sides:[{kind:'leg',pill:'Leg',colour:'blue',min:1,initial:1,max:3,columns:[],fields:[f('region','Region',{lookup:'region'}),f('zone','Zone',{lookup:'zone',dependsOn:['region']}),f('point','Point',{dependsOn:['zone']}),
    f('price','Price',{state:'info',lookup:'market_price'}),f('note','Note',{state:'soon',soon:'Not yet'}),f('total','Total',{state:'derived',rule:'sum'})]},
-  {kind:'cash',pill:'Cash',colour:'green',min:0,initial:0,max:2,columns:[],fields:[f('amount','Amount')]},
+  {kind:'cash',pill:'Cash',colour:'green',min:0,initial:0,max:2,columns:[],fields:[f('amount','Amount'),f('source','Source',{choices:'leg_sides'}),f('stage','Stage',{dependsOn:['source']})]},
   {kind:'fee',pill:'Fee',colour:'red',min:0,initial:0,max:2,columns:[],fields:[f('rate','Rate')]},
   {kind:'later',pill:'Later',colour:'neutral',min:0,initial:0,max:0,columns:[],fields:[],soon:'Will price a later leg.'}],
  sideLimits:[{kinds:['cash','fee'],max:3}]};
@@ -70,10 +70,22 @@ test('sides are added and removed within each kind\'s limits and the shared limi
  assert.throws(()=>addSide(s,'fee'),/together/);
  assert.deepEqual(s.sides.map(x=>x.code),['leg-1','cash-1','cash-2','fee-1']);
  s=removeSide(s,'cash-1');s=addSide(s,'cash');
- assert.deepEqual(s.sides.map(x=>x.code),['leg-1','cash-2','fee-1','cash-1']);
+ assert.deepEqual(s.sides.map(x=>x.code),['leg-1','cash-2','fee-1','cash-3']);
  assert.throws(()=>removeSide(s,'leg-1'),Error);
  assert.throws(()=>removeSide(s,'nope'),Error);
  assert.throws(()=>addSide(s,'other'),Error);
+});
+
+// A removed side's code is never given to another side of the ticket, so a value that named it cannot come to name a different side.
+test('removing a side clears the values that named it, with a notice each, and its code is not given again',()=>{
+ let s=addSide(newTicket(description),'leg');s=addSide(s,'cash');
+ s=setValue(s,'cash-1','source','leg-2');s=setValue(s,'cash-1','stage','delivery');s=setValue(s,'cash-1','amount','leg-2');
+ s=removeSide(s,'leg-2');
+ const cash=s.sides.find(x=>x.code==='cash-1').values;
+ assert.deepEqual([cash.source,cash.stage,cash.amount],[{value:''},{value:''},{value:'leg-2'}]);
+ assert.deepEqual(s.notices,['Source was cleared because side leg-2 was removed.','Stage was cleared because Source changed.']);
+ s=addSide(s,'leg');
+ assert.deepEqual(s.sides.map(x=>x.code),['leg-1','cash-1','leg-3']);
 });
 
 test('a coming-soon side kind is never added, and says why in its own hover text',()=>{

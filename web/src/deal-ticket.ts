@@ -234,7 +234,8 @@ export function renderTicket(host:HTMLElement,o:TicketView):{destroy():void}{
   const side=sides.find(s=>s.code===o.tab),entered=side?sideKind(d,side.kind).columns.map(c=>c.input.includes(o.mode)&&(o.mode==='new'||o.actions!.record.allowed)):[];
   const cells=(r:number,c:number)=>{
    if(!side||c===0||!entered[c-1]||g.levels[r]!=='day')return null;
-   const input=el('input','ticket-cell-input');input.value=g.displayRows[r][c];input.inputMode='decimal';input.setAttribute('aria-label',`${g.headers[c]} · ${g.keys[r]}`);
+   // The entry opens empty: the drawn quantity is grouped and signed, and the record takes the backend's plain unsigned decimal.
+   const input=el('input','ticket-cell-input');input.placeholder=g.displayRows[r][c];input.inputMode='decimal';input.setAttribute('aria-label',`${g.headers[c]} · ${g.keys[r]}`);
    input.disabled=!!o.entry?.pending||!!o.entry?.sending;input.onchange=()=>o.on.enter(side.code,g.keys[r],input.value);
    return input;
   };

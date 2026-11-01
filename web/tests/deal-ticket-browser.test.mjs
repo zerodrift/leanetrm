@@ -88,6 +88,8 @@ test('a booked side tab enters day quantities and the links tab draws the backen
    draw('physical-1','booked',null);await settled();
   })()`);
   assert.deepEqual(await evaluate("[...document.querySelectorAll('.tabulator-row[data-row-key]')].map(r=>[r.dataset.rowKey,r.querySelectorAll('.ticket-cell-input').length])"),[['2026-11',0],['2026-11-01',1],['2026-11-02',1]]);
+  // An entry opens empty, showing the drawn quantity, grouped and signed, only as its placeholder: the record takes a plain unsigned decimal.
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.ticket-cell-input')].map(i=>[i.value,i.placeholder])"),[['','-1,000'],['','-1,000']]);
   await evaluate("(()=>{const input=document.querySelector('.tabulator-row[data-row-key=\"2026-11-02\"] .ticket-cell-input');input.value='900';input.dispatchEvent(new Event('change'));})()");
   assert.deepEqual(await evaluate('entered'),[['physical-1','2026-11-02','900']]);
   await evaluate("(async()=>{draw('physical-1','booked',entry);await settled();})()");
@@ -137,5 +139,35 @@ test('a lookup answer that changes nothing leaves the drawn schedule standing',{
    held.shift()();await new Promise(r=>setTimeout(r,200));
   })()`);
   assert.equal(await evaluate("holder.isConnected&&holder===document.querySelector('.ticket-grid .tabulator-tableholder')"),true);
+ });
+});
+
+// Lookup answers dropped because the draft changed leave that draft unread, so returning to it reads its lookups again.
+test('a draft whose lookup answers were dropped reads them again when the person returns to it',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {setupTicket}=await import('/ticket-controller.js');
+   const f=(id,over)=>({id,label:id,meaning:'',type:'decimal',unit:null,state:'editable',required:true,band:null,choices:null,dependsOn:[],lookup:null,soon:null,rule:null,...over});
+   const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month'],modes:['new'],tabs:[],tradeColumns:[],
+    sides:[{kind:'leg',pill:'Leg',colour:'gas',min:1,initial:1,max:1,soon:null,fields:[f('q',{band:'quantity'}),f('price',{state:'info',type:'text',required:false,lookup:'market_price'})],
+     columns:[{id:'quantity',label:'Quantity',unit:null,measure:'quantity',input:[],soon:null}]}]};
+   window.held=[];
+   const api=async(path,body)=>{
+    if(path==='tickets/description')return d;
+    if(path==='tickets/choices')return {choices:[]};
+    if(path==='tickets/lookup')return await new Promise(answer=>held.push(()=>answer({value:'3.'+body.draft.sides[0].values.q,source:{kind:'market',label:'Hub · close 2041-01-02'}})));
+    if(path==='tickets/preview')return {schedule:null,summaries:null,scheduleRefusal:{code:'schedule_view',message:'Not drawn here.'},quantityUnit:'MMBtu',links:[]};
+    throw Error('unexpected '+path);
+   };
+   setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:'synthetic_flow',instant:at=>at,actor:()=>'synthetic',booked:()=>{}});
+   window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,20));if(!test())throw Error('timed out');};
+   const edit=async value=>{await until(()=>!!document.querySelector('[data-field=q] input'));const input=document.querySelector('[data-field=q] input');input.value=value;input.onchange();};
+   await edit('5');await until(()=>held.length===1);
+   // The draft changes, so the answers for 5 are dropped, and changes back before the next preview reads anything.
+   await edit('6');held.shift()();await new Promise(r=>setTimeout(r,20));await edit('5');
+   await until(()=>held.length===1);held.shift()();
+   await until(()=>!!document.querySelector('[data-field=price] .ticket-chip'));
+  })()`);
+  assert.equal(await evaluate("document.querySelector('[data-field=price] .ticket-value').textContent"),'3.5');
  });
 });

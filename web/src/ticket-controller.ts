@@ -135,14 +135,15 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    later();
   }));
  }
- // Every lookup reads the whole draft, so all of them are read again once it changed; an answer for a draft since edited is dropped.
+ // Every lookup reads the whole draft, so all of them are read again once it changed.
  async function readLookups(){
   const asking=sent();if(asking===looked)return;looked=asking;
   const answers=await Promise.all(everyField(f=>f.lookup!==null).map(async([side,f])=>{
    try{return {side,f,found:await o.api<TicketLookup>('tickets/lookup',{context:o.context(),draft:JSON.parse(asking),side,field:f.id})};}
    catch(error){return {side,f,found:undefined,refused:reasonOf(error)};}
   }));
-  if(!alive||!state||sent()!==asking)return;
+  // Answers for a draft since edited are dropped, and that draft counts as unread, so returning to it reads its lookups again.
+  if(!alive||!state||sent()!==asking){if(looked===asking)looked=undefined;return;}
   for(const a of answers){
    const key=keyOf(a.side,a.f.id);
    if(a.found){state=applyLookup(state,a.side,a.f.id,a.found);delete lookupErrors[key];}
@@ -244,7 +245,8 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  async function readTrade(){
   const r=await o.api<TicketTrade>('tickets/trade',{context:o.context(),...o.opened!});
   if(!alive)return;
-  if(r.actions.record.allowed!==(typeof r.quantityPolicy==='string'&&!!r.quantityPolicy))throw Error('The booked read must name the quantity selection its schedule shows exactly when it records day quantities.');
+  // A trade that records day quantities names the selection its schedule shows, whether or not this reader may record one here.
+  if(r.actions.record.allowed&&!(typeof r.quantityPolicy==='string'&&r.quantityPolicy))throw Error('A booked read that offers day entries must name the quantity selection its schedule shows.');
   state=ticketOf(d!,r.draft);actions=r.actions;quantityPolicy=r.quantityPolicy??undefined;
   panel=previewed(panel,{preview:r});
   if(panel.status.kind==='current')panel={...panel,status:{kind:'current',text:'Booked terms and their retained schedule.'}};
