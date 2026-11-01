@@ -64,6 +64,14 @@ function formatter(options:Intl.DateTimeFormatOptions){
 export function displayInstant(value:string,zone:string,seconds=false){return formatter({year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',...(seconds?{second:'2-digit'}:{}),timeZone:zone}).format(new Date(value));}
 export function deliveryMonth(value:string){return new Intl.DateTimeFormat('en',{month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(value+'T00:00:00Z'));}
 export function deliveryLabel(from:string,to:string){
+  // Physical windows carry exact exclusive UTC instants, not calendar dates.
+  // Display their authoritative text without rounding fractional boundaries.
+  if(from.includes('T')||to.includes('T')){
+    const utc=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|\+00:00)$/;
+    if(!utc.test(from)||!utc.test(to)||!Number.isFinite(Date.parse(from))||!Number.isFinite(Date.parse(to)))throw Error('The delivery period is invalid.');
+    const label=(value:string)=>value.replace('T',' ').replace(/(?:Z|\+00:00)$/,' UTC');
+    return `${label(from)} – ${label(to)} (exclusive)`;
+  }
   const next=new Date(from+'T00:00:00Z'),end=new Date(to+'T00:00:00Z');
   if(!Number.isFinite(next.getTime())||!Number.isFinite(end.getTime())||next>=end)throw Error('The delivery period is invalid.');
   next.setUTCDate(next.getUTCDate()+1);if(next.getTime()===end.getTime())return displayDate(from);

@@ -73,3 +73,10 @@ test('summary tiles and the contract count come from the backend summary, not fr
  assert.equal(contractCountText(rates),'3 rate samples');
  assert.throws(()=>summaryTiles({curve:'gas',points:[]},'S'),/summary/);
 });
+
+test('physical delivery labels retain exclusive UTC intraday boundaries and fractional precision',()=>{
+ assert.equal(deliveryLabel('2021-01-04T09:00:00Z','2021-01-05T09:00:00+00:00'),'2021-01-04 09:00:00 UTC – 2021-01-05 09:00:00 UTC (exclusive)');
+ assert.equal(deliveryLabel('2021-01-04T09:00:00.000001Z','2021-01-04T09:00:00.000002Z'),'2021-01-04 09:00:00.000001 UTC – 2021-01-04 09:00:00.000002 UTC (exclusive)');
+ assert.throws(()=>deliveryLabel('2021-01-04','2021-01-05T09:00:00Z'),/invalid/);
+ assert.throws(()=>deliveryLabel('2021-01-04T09:00:00-06:00','2021-01-05T09:00:00Z'),/invalid/);
+});

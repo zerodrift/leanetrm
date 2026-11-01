@@ -16,9 +16,9 @@ export type Holding={booking:Booking;commodity:{code:string;name:string};priceTi
   instrumentType:string;traderId:string|null;trader:string|null;traderCode:string|null;memo:string|null;tradeReference:string;instrumentReference:string;tradeId:string;bindingId:string;
   bookId:string;book:string;portfolioId:string;portfolio:string;contractId:string;revision:string;curve:string;definitionRevisionId:string;deliveryFrom:string;deliveryTo:string;
   lots:string|null;quantity:string|null;unit:string;quantitySpecification:Reference;executedAt:string;executionPrice:string|null;fixedPrice:string|null;mark:string|null;markMinusPrice:string|null;
-  executionPnl:string|null;presentValue:string|null;currency:string;currencyReference:Reference;settlement:string;direction:'pay_fixed'|'receive_fixed'|'multi_side'|null;unavailableReason:ValuationReason|null;
+  executionPnl:string|null;presentValue:string|null;currency:string;currencyReference:Reference;settlement:string;direction:'pay_fixed'|'receive_fixed'|'multi_side'|'receive'|'deliver'|null;unavailableReason:ValuationReason|null;
   /** A swap's instrument kind: a scheduled one (D214) holds its quantities and prices by period. Futures state none. */
-  contractIdentityKind?:'swap_instrument'|'scheduled_swap_instrument'|'ppa_instrument'|'gas_instrument';
+  contractIdentityKind?:'swap_instrument'|'scheduled_swap_instrument'|'ppa_instrument'|'gas_instrument'|'crude_instrument';
   measure?:string;completePv?:string|null;overdueKnown?:string|null;overdueEstimated?:string|null;pendingActuals?:string;coverage?:{from:string;to:string};
   /** For a scheduled swap whose periods project from several curves: the markets together, as the backend keys and names them. */
   marketKey?:string|null;marketLabel?:string|null;projectionCurves?:string[]|null};
@@ -66,9 +66,10 @@ const commodityOf=(group:PivotGroup)=>{const named=group.commodity as {code?:unk
 const byText=(a:string,b:string)=>a<b?-1:a>b?1:0;
 
 // The measure, labels and pill of each instrument type the Blotter holds.
-const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';label:'PV'|'P&L'|'Value excl. overdue'|'Contractual PV';pill:'FUT'|'SWAP'|'HEAT'|'PPA'|'GAS';plural:string;price:'executionPrice'|'fixedPrice';priceLabel:'Executed'|'Fixed'|'Side'}>>={
+const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';label:'PV'|'P&L'|'Value excl. overdue'|'Contractual PV';pill:'FUT'|'SWAP'|'HEAT'|'PPA'|'GAS'|'CRUDE';plural:string;price:'executionPrice'|'fixedPrice';priceLabel:'Executed'|'Fixed'|'Side'}>>={
   future:{measure:'executionPnl',label:'P&L',pill:'FUT',plural:'Futures',price:'executionPrice',priceLabel:'Executed'},
   heat_rate:{measure:'presentValue',label:'PV',pill:'HEAT',plural:'Heat-rate swaps',price:'fixedPrice',priceLabel:'Fixed'},
+  physical_crude:{measure:'presentValue',label:'Contractual PV',pill:'CRUDE',plural:'Physical crude',price:'fixedPrice',priceLabel:'Fixed'},
   physical_gas:{measure:'presentValue',label:'Contractual PV',pill:'GAS',plural:'Physical gas',price:'fixedPrice',priceLabel:'Side'},
   ppa:{measure:'presentValue',label:'Value excl. overdue',pill:'PPA',plural:'PPAs',price:'fixedPrice',priceLabel:'Side'},
   financial_swap:{measure:'presentValue',label:'PV',pill:'SWAP',plural:'Swaps',price:'fixedPrice',priceLabel:'Fixed'},
@@ -131,14 +132,14 @@ function statedTotal(group:PivotGroup,measure:string){
 
 export type TileRow={currencyKey:string;currency:string;total:string|null;trades:number;excluded:number;note:string|null;byBook:{bookId:string;book:string;value:string|null;excluded:number}[]};
 /** A money tile: one row per exact currency, never added across currencies. `note` is the tile's own when it has one row. */
-export type Tile={key:'swapPv'|'futuresPnl'|'heatRatePv'|'ppaValue'|'gasPv';rows:TileRow[];note:string|null};
+export type Tile={key:'swapPv'|'futuresPnl'|'heatRatePv'|'ppaValue'|'gasPv'|'crudePv';rows:TileRow[];note:string|null};
 /** Swap PV and futures execution P&L, each per currency and split by book, from the money totals (D223). */
 export function summaryTiles(summaries:readonly Summary[]):Tile[]{
   const types=groupsOf(summaries,byType),books=groupsOf(summaries,byBook);
   const labels=currencyLabels([...types,...books]);
-  const extra:('heatRatePv'|'ppaValue'|'gasPv')[]=[];if(types.some(g=>g.instrumentType==='heat_rate'))extra.push('heatRatePv');if(types.some(g=>g.instrumentType==='ppa'))extra.push('ppaValue');if(types.some(g=>g.instrumentType==='physical_gas'))extra.push('gasPv');
+  const extra:('heatRatePv'|'ppaValue'|'gasPv'|'crudePv')[]=[];if(types.some(g=>g.instrumentType==='heat_rate'))extra.push('heatRatePv');if(types.some(g=>g.instrumentType==='ppa'))extra.push('ppaValue');if(types.some(g=>g.instrumentType==='physical_gas'))extra.push('gasPv');if(types.some(g=>g.instrumentType==='physical_crude'))extra.push('crudePv');
   return (['swapPv','futuresPnl',...extra] as const).map(key=>{
-    const type=({swapPv:'financial_swap',futuresPnl:'future',heatRatePv:'heat_rate',ppaValue:'ppa',gasPv:'physical_gas'} as const)[key],{measure,plural}=instrument(type);
+    const type=({swapPv:'financial_swap',futuresPnl:'future',heatRatePv:'heat_rate',ppaValue:'ppa',gasPv:'physical_gas',crudePv:'physical_crude'} as const)[key],{measure,plural}=instrument(type);
     const own=types.filter(g=>instrument(g.instrumentType)===instrument(type));
     const rows=own.map(group=>{
       const currencyKey=referenceKey(group.currencyReference),{value:total,excluded,note}=statedTotal(group,measure);
@@ -167,7 +168,7 @@ export type StripPositions={count:number;unvalued:number|null};
 export type StripRisk={state:'none';reason:string}|{state:'pending'|'unavailable';value:string;reason:string}
   |{state:'results';label:string;moves:readonly {currency:string;text:string;exact:string;sign:'positive'|'negative'|'zero';hint:string}[];empty:string|null;note:string|null};
 /** What each money total is called, on the strip and over its split by book. */
-export const tileLabels:Readonly<Record<Tile['key'],string>>={swapPv:'Swap PV',futuresPnl:'Futures execution P&L',heatRatePv:'Heat-rate PV',ppaValue:'PPA value excluding overdue cash',gasPv:'Gas contractual PV'};
+export const tileLabels:Readonly<Record<Tile['key'],string>>={swapPv:'Swap PV',futuresPnl:'Futures execution P&L',heatRatePv:'Heat-rate PV',ppaValue:'PPA value excluding overdue cash',gasPv:'Gas contractual PV',crudePv:'Crude contractual PV'};
 const stripSign={positive:'pos',negative:'neg',zero:'zero'} as const;
 const reasons=(...parts:(string|null|undefined)[])=>{const text=parts.filter(Boolean).join(' · ');return text?{reason:text}:{};};
 /**
@@ -279,7 +280,7 @@ export const minus=(text:string)=>text.replace(/^-/,'−');
  * marked with its commodity's color. The panel is captioned by its currency and says what it leaves out with that currency's
  * own backend count. Distinct native-quantity partitions remain separate bars, named by their units when they share a market.
  */
-export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{return ['financial_swap','heat_rate','ppa'].flatMap(type=>pvPanelsFor(summaries,colors,format,type));}
+export function pvChartPanels(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string):ChartSpec[]{return ['financial_swap','heat_rate','ppa','physical_crude'].flatMap(type=>pvPanelsFor(summaries,colors,format,type));}
 function pvPanelsFor(summaries:readonly Summary[],colors:ReadonlyMap<string,string>,format:(value:string)=>string,type:string):ChartSpec[]{
   const markets=groupsOf(summaries,byMarket),totals=groupsOf(summaries,byType),labels=marketLabels(markets);
   const swaps=markets.filter(g=>instrument(g.instrumentType)===instruments[type]);
@@ -331,6 +332,7 @@ export function positionChartPanels(summaries:readonly Summary[],holdings:readon
     // always has one.
     if(quantity===null){if(type===instruments.future||!unquantified.has(JSON.stringify([market,unit,currency])))throw Error(inconsistent);point.label+=' · no single quantity';}
     else if(type===instruments.future)point.text=signedText(quantity,format);
+    else if(type===instruments.physical_crude){point.y=null;point.label+=' · no long/short quantity';}
     else{
       const stated=directions.get(JSON.stringify([market,unit,currency]));
       if(!stated)throw Error(missingSummaries);
@@ -362,7 +364,7 @@ export function commodityColors(codes:Iterable<string>):Map<string,string>{
 
 /** A position the close values states its value; one it cannot value states why, and has no value. */
 type Valuation={value:string;unavailable:null}|{value:null;unavailable:string};
-export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP'|'HEAT'|'PPA'|'GAS';reference:string;
+export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP'|'HEAT'|'PPA'|'GAS'|'CRUDE';reference:string;
   market:string;commodity:string;commodityName:string;curve:string;delivery:string;deliveryFrom:string;deliveryTo:string;
   quantity:string|null;unit:string;quantityKey:string;side:string;exposure:'long'|'short'|'flat'|null;
   price:string|null;priceLabel:'Executed'|'Fixed'|'Side';priceUnit:string|null;mark:string|null;measure:'P&L'|'PV'|'Value excl. overdue'|'Contractual PV';currency:string;
@@ -423,6 +425,9 @@ export function positionRows(holdings:readonly Holding[]):DeskRow[]{
       const lots=h.lots.replace(/^-/,''),unit=lots==='1'?'lot':'lots';
       side=signOf(h.lots)==='zero'?`0 ${unit}`:h.lots.startsWith('-')?`−${lots} ${unit}`:`+${lots} ${unit}`;
       exposure=signOf(h.quantity)==='zero'?'flat':h.quantity.startsWith('-')?'short':'long';
+    }else if(type===instruments.physical_crude){
+      if(h.contractIdentityKind!=='crude_instrument'||h.measure!=='crude_contractual_present_value'||h.quantity===null||!['receive','deliver'].includes(h.direction??''))throw Error('The crude position must retain its total volume, physical direction and contractual PV.');
+      side=h.direction==='receive'?'Receive':'Deliver';exposure=null;
     }else if(type===instruments.physical_gas){
       if(h.contractIdentityKind!=='gas_instrument'||h.measure!=='gas_contractual_present_value'||h.quantity!==null)throw Error('The gas position must retain independent side quantities and contractual PV.');
       side='By physical side';exposure=null;
@@ -449,7 +454,7 @@ export function positionRows(holdings:readonly Holding[]):DeskRow[]{
     const price=h[type.price],unitOfPrice=(type===instruments.ppa||type===instruments.physical_gas)?null:priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo);
     // A scheduled swap states a fixed price only where every fixed period shares it; two floating sides have none at all.
     const quantityNote=h.quantity===null?(type===instruments.physical_gas?'By physical side':byPeriod):null,priceNote=(type===instruments.ppa||type===instruments.physical_gas)?'By side':scheduledSwap&&price===null&&h.direction!=='multi_side'?byPeriod:null;
-    const markNote=valuation.unavailable!==null||h.mark!==null?null:(type===instruments.ppa||type===instruments.physical_gas)?'Independent side schedules':h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';
+    const markNote=valuation.unavailable!==null||h.mark!==null?null:(type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_crude)?'Independent side schedules':h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';
     return {tradeId:h.tradeId,revision:h.revision,instrumentType:h.instrumentType,pill:type.pill,reference:h.tradeReference,
       market:h.marketLabel??curveName(h.curve),commodity:h.commodity.code,commodityName:h.commodity.name,curve:h.curve,delivery,deliveryFrom:h.deliveryFrom,deliveryTo:h.deliveryTo,
       quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark:h.mark,measure:type.label,currency:h.currency,...valuation,

@@ -34,6 +34,8 @@ def main():
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
     parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
     parser.add_argument('--gas-setup-check',action='store_true',help='Qualify versioned gas setup authoring and trade pins')
+    parser.add_argument('--crude-lifecycle-check',action='store_true',help='Qualify crude receipts, inventory disposition and delivery-to-cash operations')
+    parser.add_argument('--physical-crude-check',action='store_true',help='Qualify native fixed-volume crude booking and retained execution')
     parser.add_argument('--physical-gas-check',action='store_true',help='Qualify physical gas preview, durable schedules and booking UI operations')
     parser.add_argument('--demo-instruments-check',action='store_true',help='Verify mixed synthetic PPA and heat-rate bookings, blotter and risk')
     parser.add_argument('--pg-bin', type=Path, required=True, help='Installed stock PG16+ binaries')
@@ -112,11 +114,12 @@ def main():
         args.ppa_bookings_check = True
     if args.unified_trading_check:
         args.demo_instruments_check=True;args.physical_gas_check=True
+    if args.crude_lifecycle_check: args.physical_crude_check=True
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.gas_setup_check or args.gas_composition_check or args.gas_daily_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
-    if args.retained_schedule_check or args.physical_gas_check: args.check=True
-    fixing_frames=args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check: args.check=True
+    fixing_frames=args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
     if args.interval_series_benchmark or args.usage_benchmark or args.blotter_stream_benchmark:
@@ -317,6 +320,9 @@ def main():
             check_retained_side_schedules(query)
             from check_booked_side_programs import run_schema_checks as check_booked_program_schema
             check_booked_program_schema(query)
+        if args.physical_crude_check:
+            from crude_fixture import prepare as prepare_crude
+            reference,market,manifest=prepare_crude(reference,market,manifest)
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
             reference,market,manifest=prepare_execution(reference,market,manifest)
@@ -565,6 +571,21 @@ def main():
                 if args.browser_check:
                     target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--unified-trading'],cwd=ROOT,env=env,check=True,timeout=240)
+            elif args.physical_crude_check:
+                from check_physical_crude_preview import run_checks as check_crude,run_shape_checks as check_crude_shapes
+                crude_receipt=check_crude(url,query,manifest)
+                check_crude_shapes(query,manifest,crude_receipt)
+                from check_crude_portfolio import run_checks as check_crude_portfolio
+                check_crude_portfolio(url,crude_receipt,run_worker=risk_worker_runner())
+                if args.crude_lifecycle_check:
+                    from check_crude_lifecycle import run_checks as check_crude_lifecycle
+                    check_crude_lifecycle(url,query,manifest,crude_receipt)
+                    from check_crude_reversals import run_checks as check_crude_reversals
+                    check_crude_reversals(url,query,manifest,crude_receipt)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-crude'],cwd=ROOT,env=env,check=True,timeout=180)
             elif args.physical_gas_check:
                 from check_physical_gas_preview import run_checks,run_shape_checks
                 gas_receipt=run_checks(url)

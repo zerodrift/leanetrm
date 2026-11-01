@@ -205,7 +205,11 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             snapshot.Definitions!=data.DefinitionRevision||frame.ContextId!=exact.ContextId||frame.Id!=snapshot.Id||frame.At!=snapshot.ValuationAt||
             DateOnly.FromDateTime(snapshot.ValuationAt.UtcDateTime)!=PublishedSchedules.ContextDate(exact))
             throw new MarketDataException("portfolio_context","Select explicit books and exact market frames under one certified effective context.");
-        if(closePolicy is not null)await PhysicalGasStore.RequirePortfolioScope(connection,database.Manifest.CatalogId,bookIds,[],ct);
+        if(closePolicy is not null)
+        {
+            await PhysicalCrudeStore.RequireCloseScope(connection,database.Manifest.CatalogId,bookIds,[],ct);
+            await PhysicalGasStore.RequirePortfolioScope(connection,database.Manifest.CatalogId,bookIds,[],ct);
+        }
         var gasExclusions=await GasPositions.RiskExclusions(connection,database.Manifest.CatalogId,bookIds,ct);
         var retainedGas=excluded.Where(e=>e.InstrumentType==GasPositions.Type).ToImmutableArray();
         if((retainedGraphs is not null||!retainedGas.IsEmpty)&&(retainedGas.Length!=gasExclusions.Length||!retainedGas.ToHashSet().SetEquals(gasExclusions)))
@@ -235,6 +239,14 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var materialized=new List<(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,ValuationPortfolio Portfolio,string Measure)>();
         var materializationWork=new ScenarioWork(0,0,0,0);var materializationScenarios=0;
         var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
+        var crude=await CrudePortfolio.Prepare(connection,database,frame,
+            await CrudePositions.Read(connection,database.Manifest,bookIds,[],ct),
+            [(data,frame),..supplemental.IsDefault?[]:supplemental],retainedGraphs is not null,ct);
+        foreach(var market in crude)
+        {
+            materialized.Add((market.Data,market.Frame,market.Snapshot,market.Portfolio,CrudePositions.Measure));
+            evidence.AddRange(market.Evidence);
+        }
         if(!futuresTrades.IsEmpty)
         {
             var (market,portfolio)=FuturesRisk.PreparePortfolio(futuresTrades,snapshot,data.Model,policy.FuturesConvention,ct);
@@ -275,7 +287,9 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             if(retainedGraphs is not null&&retained is null)throw new MarketDataException("risk_graph_manifest","The job omitted a required connected market manifest.");
             // Demand belongs to each trade binding: a paid clone cannot remove
             // the observations still needed by another holder of the same side.
-            var activePrices=SwapPrices(swaps.Where(holding=>holding.Snapshot.Definitions==first.Snapshot.Definitions));
+            var activePrices=SwapPrices(swaps.Where(holding=>holding.Snapshot.Definitions==first.Snapshot.Definitions))
+                .AddRange(crude.Where(market=>market.Snapshot.Definitions==first.Snapshot.Definitions).SelectMany(market=>market.ActivePrices))
+                .Distinct().ToImmutableArray();
             var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,ct,retained,activePrices,operation?.Histories);
             markets.Add(new(first.Data,first.Frame,first.Snapshot,
                 RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,portfolios,connected.Authority,ct),

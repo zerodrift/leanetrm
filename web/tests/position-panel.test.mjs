@@ -252,3 +252,9 @@ test('why a position cannot be amended here: a PPA in PPA bookings; another as i
   // Before its revision is read nothing is known against it: the form's own read decides.
   assert.equal(amendRefusal('future',true,undefined),null);
 });
+
+test('a physical crude position labels its value as contractual PV and offers no invented cash spread',()=>{
+ const h={...fixture.holdings[0],instrumentType:'physical_crude',contractIdentityKind:'crude_instrument',direction:'deliver',quantity:'1000',measure:'crude_contractual_present_value',presentValue:'9900',mark:'80',fixedPrice:'70',markMinusPrice:null};
+ const shown=positionSummary(h,positionRows([h])[0],formats);
+ assert.equal(shown.value.label,'Contractual PV');assert.equal(shown.markMinusPrice,null);assert.match(shown.subtitle,/Deliver/);
+});

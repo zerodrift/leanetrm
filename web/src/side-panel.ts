@@ -10,7 +10,7 @@
  */
 export type PanelMode=
   |{kind:'position';tradeId:string;bindingId:string;revision:number}
-  |{kind:'new';product:'futures'|'swaps'|'ppa'|'gas'|null}
+  |{kind:'new';product:'futures'|'swaps'|'ppa'|'gas'|'crude'|null}
   |{kind:'risk'}
   |{kind:'contract';factorId:string}
   |{kind:'curve-contract';curve:string;contract:string}
@@ -36,7 +36,7 @@ export function sameMode(a:PanelMode,b:PanelMode):boolean{
 export function modeLabel(mode:NonNullable<PanelMode>):string{
   switch(mode.kind){
     case 'position':return 'Position';
-    case 'new':return mode.product===null?'New trade':({futures:'New future',swaps:'New swap',ppa:'New PPA',gas:'New physical gas trade'} as const)[mode.product];
+    case 'new':return mode.product===null?'New trade':({futures:'New future',swaps:'New swap',ppa:'New PPA',gas:'New physical gas trade',crude:'New physical crude trade'} as const)[mode.product];
     case 'risk':return 'Risk report';
     case 'contract':return 'Contract';
     case 'curve-contract':return 'Contract';

@@ -48,3 +48,9 @@ test('market labels must be returned explicitly by the authorized retained read,
  for(const value of [undefined,null,{},[{code:'synthetic_curve'}],[{code:'synthetic_curve',name:''}],[{code:4,name:'Synthetic'}]])
   assert.throws(()=>positionWindowNames(value),/authorized market names/);
 });
+
+test('physical crude popouts retain exact common position references',()=>{
+ const crude={...selection,instrumentType:'physical_crude'};
+ assert.deepEqual(readPositionWindowUrl(positionWindowUrl('https://example.invalid/',crude)),crude);
+ assert.equal(positionWindowRequest(crude).instrumentType,'physical_crude');
+});

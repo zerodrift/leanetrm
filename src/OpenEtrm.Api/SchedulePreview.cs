@@ -58,9 +58,7 @@ public static class SchedulePreview
     public static object DateRoleChoices => DateRoles.Select(r => new { code = r.Code, name = r.Name });
     public static DateTimeOffset ParseAt(string? value)
     {
-        if (value is null || !value.Contains('T') || !DateTimeOffset.TryParseExact(value,
-            ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", "yyyy-MM-dd'T'HH:mm:sszzz", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz"],
-            CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var at) || at.Offset != TimeSpan.Zero)
+        if (!OpenEtrm.Shared.Temporal.UtcInstant.TryParse(value,out var at))
             throw new MarketDataException("sequence_context", "Supply an explicit UTC valuation instant.");
         return at;
     }

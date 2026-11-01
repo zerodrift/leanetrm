@@ -47,3 +47,17 @@ test('physical gas shares mixed fact pages',()=>{
  const gas={...fact('gas-instrument'),tradeId:'gas-trade',instrumentType:'physical_gas',bookedQuantity:null,bookedUnit:null};
  assert.deepEqual(readPositionFacts(page([fact('ppa-binding'),gas],2,null),2).positions,[fact('ppa-binding'),gas]);
 });
+
+test('physical crude keeps its exact total-volume facts in mixed position pages',()=>{
+ const crude={...fact('crude-instrument'),tradeId:'crude-trade',instrumentType:'physical_crude',bookedQuantity:'1000',bookedUnit:'bbl'};
+ assert.deepEqual(readPositionFacts(page([fact('ppa-binding'),crude],2,null),2).positions,[fact('ppa-binding'),crude]);
+});
+test('additional booked fact pages preserve one exact context and reject overlaps or changed totals',async()=>{
+ const {appendPositionFacts}=await import('../dist/position-facts.js');
+ const p=id=>({tradeId:id,bindingId:id,tradeReference:id,bookId:'book',book:'Book',revision:1,instrumentType:'physical_crude',marketLabel:null,deliveryFrom:null,deliveryTo:null,bookedQuantity:'1',bookedUnit:'bbl'});
+ const first={context:{contextId:'retained',effectiveOn:'2030-01-01',knownAt:'2030-01-02T00:00:00Z'},asOf:'2030-01-01T00:00:00Z',positions:[p('a'),p('b')],total:3,nextOffset:2};
+ const next={...first,positions:[p('c')],nextOffset:null};
+ const all=appendPositionFacts(first,next,2);assert.deepEqual(all.positions.map(p=>p.tradeId),['a','b','c']);assert.equal(all.nextOffset,null);
+ for(const changed of [{...next,total:4,nextOffset:3},{...next,context:{...next.context,contextId:'other'}},{...next,positions:[p('a')]},{...next,asOf:'2030-01-02T00:00:00Z'}])assert.throws(()=>appendPositionFacts(first,changed,2));
+ assert.throws(()=>appendPositionFacts(all,next,2));
+});

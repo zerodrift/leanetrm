@@ -1,3 +1,4 @@
+import {setupPhysicalCrude} from './physical-crude-editor.js';
 import {productTickets} from './product-tickets.js';
 import {setupGasConfiguration} from './gas-setup-editor.js';
 import {setupPhysicalGas} from './physical-gas-editor.js';
@@ -120,7 +121,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  futures.sync();futures.follow();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();gasSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
+  futures.sync();futures.follow();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();crude.sync();gasSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
 }
 function renderWorkspaceMode(){
   const historical=!!historicalContext();
@@ -147,7 +148,7 @@ async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
  if(displayed!==undefined)await prepareAmountDisplay(displayed,request=>transport<string[]>('amounts/display',request,apiRoot,signal),path==='history'?decimalTick():undefined);
  return payload;
 }
-function pageStatus(){return page==='dashboard'?'Dashboard · widgets read at the selected market date and context.':page==='gas-setup'?'Gas delivery setup · immutable drafts and explicit publication.':page==='gas'?'Physical gas · reference-backed delivery points and independent delivery dates.':page==='delivery'?'Delivery prices · selected delivery dates and knowledge cutoff.':page==='ppa'?'PPA bookings · exact selected inputs and certified knowledge.':page==='interval-series'?'Interval data · working data, known at the chosen time.':page==='interval-curves'?'Hourly / sub-hourly prices · marks from the selected market date; shapes and actuals known at the chosen time.':page==='custom-curves'?'Curve builder · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant settings · current authority.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:select('snapshot').value?'Choose a curve to get started.':'Choose a curve and a market date to get started.';}
+function pageStatus(){return page==='dashboard'?'Dashboard · widgets read at the selected market date and context.':page==='gas-setup'?'Gas delivery setup · immutable drafts and explicit publication.':page==='crude'?'Physical crude · fixed contractual standard volume.':page==='gas'?'Physical gas · reference-backed delivery points and independent delivery dates.':page==='delivery'?'Delivery prices · selected delivery dates and knowledge cutoff.':page==='ppa'?'PPA bookings · exact selected inputs and certified knowledge.':page==='interval-series'?'Interval data · working data, known at the chosen time.':page==='interval-curves'?'Hourly / sub-hourly prices · marks from the selected market date; shapes and actuals known at the chosen time.':page==='custom-curves'?'Curve builder · selected market context.':page==='jobs'?'Jobs and infrastructure · current authority.':page==='futures'?'Trading blotter · saved market inputs.':page==='admin'?'Workspace identity and access administration.':page==='ai'?'Page-assistant settings · current authority.':page==='schedules'?'Reusable schedule shortcuts.':result?`Prices for ${instant(result.at)}`:select('snapshot').value?'Choose a curve to get started.':'Choose a curve and a market date to get started.';}
 const errorMessage=(error:unknown)=>error instanceof Error?error.message:'Something went wrong. Please refresh the page.';
 // `keepNotice` is for work that completes a change the person has already made, as reading a changed effective date's end-of-day
 // knowledge does: what that change said, such as that it cleared a risk run, stays on screen.
@@ -177,6 +178,7 @@ async function mayLeave(move:Move='discards',modal?:HTMLDialogElement){
     if(modal?.open)modal.close();
     if(!await futures.leaveWindow()){keptWindowEdits=true;return false;}
   }
+  if(page==='crude'&&move!=='keeps'&&move!=='follows'){if(modal?.open)modal.close();return crude.leave();}
   if(page==='gas'&&move!=='keeps'&&move!=='follows'){if(modal?.open)modal.close();return gas.leave();}
   if(page==='gas-setup'&&move!=='keeps'&&move!=='follows'){if(modal?.open)modal.close();return gasSetup.leave();}
   if(page==='reference'){
@@ -244,9 +246,9 @@ async function setPage(next:string){
   if(page==='dashboard'&&next!=='dashboard')dashboard.leave();
   // Only the reference page has an address; another page leaves none behind.
   if(next!=='reference'&&location.hash.startsWith('#reference'))window.history.replaceState(null,'',location.pathname+location.search);
-  page=next;$('gas-setup-page').hidden=next!=='gas-setup';$('gas-page').hidden=next!=='gas';$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('dashboard-page').hidden=next!=='dashboard';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures'||futures.poppedOut();$('blotter-away').hidden=next!=='futures'||!futures.poppedOut();$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next);$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('curve-date-editor').hidden=next!=='configuration';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin';$('ai-page').hidden=next!=='ai';$('no-access-page').hidden=true;
-  text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='dashboard'?'Dashboard':next==='jobs'?'Jobs & Infrastructure':next==='custom-curves'?'Curve builder':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='interval-curves'?'Curves & prices':next==='parties'?'Entities & counterparties':next==='gas-setup'?'Gas delivery setup':next==='gas'?'Physical gas bookings':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='market'?'Curves & prices':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules':'Reference data');
-  for(const name of ['gas-setup','gas','dashboard','market','custom-curves','delivery','interval-series','interval-curves','power','reference','configuration','schedules','admin','ai','parties','jobs'])$('nav-'+name).classList.toggle('active',next===name||(name==='market'&&next==='interval-curves'));
+  page=next;$('gas-setup-page').hidden=next!=='gas-setup';$('gas-page').hidden=next!=='gas';$('crude-page').hidden=next!=='crude';$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('dashboard-page').hidden=next!=='dashboard';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures'||futures.poppedOut();$('blotter-away').hidden=next!=='futures'||!futures.poppedOut();$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next);$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('curve-date-editor').hidden=next!=='configuration';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin';$('ai-page').hidden=next!=='ai';$('no-access-page').hidden=true;
+  text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='dashboard'?'Dashboard':next==='jobs'?'Jobs & Infrastructure':next==='custom-curves'?'Curve builder':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='interval-curves'?'Curves & prices':next==='parties'?'Entities & counterparties':next==='gas-setup'?'Gas delivery setup':next==='crude'?'Physical crude bookings':next==='gas'?'Physical gas bookings':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='market'?'Curves & prices':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules':'Reference data');
+  for(const name of ['gas-setup','gas','crude','dashboard','market','custom-curves','delivery','interval-series','interval-curves','power','reference','configuration','schedules','admin','ai','parties','jobs'])$('nav-'+name).classList.toggle('active',next===name||(name==='market'&&next==='interval-curves'));
   renderBlotterViews();
   text('status',pageStatus());syncControls();
 }
@@ -845,7 +847,7 @@ $('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were 
 async function blotterBack(){if(page==='futures'&&select('snapshot').value){futures.reset('read');await futures.load();}}
 async function loadIdentity(initialAccess?:unknown){
   $('curve-price-navigation').hidden=true;customCurves.reset();$('custom-curves-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
-  deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();gasSetup.reset();$('gas-setup-page').hidden=true;$('gas-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
+  deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();gasSetup.reset();$('gas-setup-page').hidden=true;$('gas-page').hidden=true;$('crude-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
   curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('curve-date-editor').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;$('date-context').hidden=true;
   if(initialAccess===undefined)permissions=(await api<{permissions:string[]}>('access')).permissions;
   else{
@@ -884,13 +886,13 @@ $('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was 
 // A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
 function closeChanged(){
   shownClose=select('snapshot').value;closeBasis=undefined;
-  marketCalendar.selectedChanged();customCurves.snapshotChanged();gas.reset();parties.reset();futures.reset('inputs');clearPrices();
+  marketCalendar.selectedChanged();customCurves.snapshotChanged();gas.reset();crude.reset();parties.reset();futures.reset('inputs');clearPrices();
   // The board and the library show nothing of the previous close while the new one is read.
   if(navigation)renderBrowse();renderMarketBoard();
 }
 async function loadSelectedClose(){
   if(!select('snapshot').value)return;
-  if(page==='gas')await gas.load();else if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'){if(curve)await build();await loadBoard();}else if(page==='dashboard')await dashboard.load();
+  if(page==='crude')await crude.load();else if(page==='gas')await gas.load();else if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'){if(curve)await build();await loadBoard();}else if(page==='dashboard')await dashboard.load();
 }
 // A close the person chooses waits for them to agree to what choosing it gives up. The hidden select that every read and command takes its close from
 // stays on the close the page shows until they do, so that nothing made while the question is open uses a close they have not confirmed, and keeping
@@ -905,7 +907,7 @@ $('browse-by').onchange=()=>void act(updateFilters);$('commodity').onchange=()=>
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];await updateFilters();}));
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
 const schedules=setupShortcutEditor(act,{time:api,load:()=>api('schedules'),preview:draft=>api('schedules/preview',draft),keep:draft=>api('schedules/keep',draft),resolve:body=>api('schedules/resolve',body)},()=>busy,()=>prefs.timeZone);
-function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();parties.reset();clearReference();referenceNavigation.clear();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose View this context to apply it.');}
+function dirtyContext(){stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();parties.reset();clearReference();referenceNavigation.clear();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose View this context to apply it.');}
 const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,source:()=>{if(contextDirty)throw Error('Apply the changed context first.');return frame().id;}});
 const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=>administrationScope+':'+currentProfile,profileChoices);
 // A person's own agent grants, in the profile dialog (docs/ai-assistant.md §7.1).
@@ -938,7 +940,7 @@ async function viewContext(snapshot:{context:Context}){
 }
 $('close-view-context').onclick=()=>{$<HTMLDetailsElement>('date-context').open=false;};
 $('apply-view-context').onclick=()=>leaving(async()=>{await applyContext();if(page==='dashboard')await dashboard.load();else if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
-async function currentInputs(){jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();parties.reset();unitConverter.reset();futures.reset('inputs');power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');text('environment-context-note','Working data uses current knowledge. These controls select a historical context when applied.');}
+async function currentInputs(){jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();parties.reset();unitConverter.reset();futures.reset('inputs');power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');text('environment-context-note','Working data uses current knowledge. These controls select a historical context when applied.');}
 // Returning to working data opens it on its newest close, as opening the workspace does (D217, D219), and the page that is
 // showing reads it. A latest instant with several closes opens the calendar on its date and selects nothing.
 async function returnToWorking(){
@@ -974,6 +976,7 @@ const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
 });
 const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant});
 const gasSetup=setupGasConfiguration({api,act,busy:()=>busy,actor:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext()});
+const crude=setupPhysicalCrude({api,act,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const gas=setupPhysicalGas({api,act,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext(),onBooked:ticketBooked});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
@@ -996,6 +999,7 @@ const unitConverter=setupUnitConverter({api,act,busy:()=>busy});
 // The knowledge the Blotter is read at: working data at current knowledge, the selected historical view, or live corrections.
 const knowledgeView=()=>navigation?.live?'live' as const:historicalContext()?'historical' as const:'working' as const;
 const tickets=productTickets({
+ crude:{root:$('crude-page'),begin:crude.load,inspect:crude.inspect,reset:crude.reset,unsaved:crude.unsaved,pending:crude.pending,sync:crude.sync},
  ppa:{root:$('ppa-page'),begin:()=>ppa.begin(frame().at),inspect:id=>ppa.inspect(frame().at,id),reset:ppa.reset,unsaved:ppa.unsaved,pending:ppa.pending,sync:ppa.sync},
  gas:{root:$('gas-page'),begin:async()=>{await gas.load();},inspect:gas.inspect,reset:gas.reset,unsaved:gas.unsaved,pending:gas.pending,sync:gas.sync},
 });
@@ -1047,6 +1051,7 @@ async function showPage(next:string){
     case 'interval-series':await setPage('interval-series');await intervalSeries.load();return;
     case 'interval-curves':await setPage('interval-curves');await intervalCurves.load();return;
     case 'gas-setup':await setPage('gas-setup');await gasSetup.load();return;
+    case 'crude':await setPage('futures');await futures.load();await futures.openProduct('crude');return;
     case 'gas':await setPage('futures');await futures.load();await futures.openProduct('gas');return;
     case 'ppa':await setPage('futures');await futures.load();await futures.openProduct('ppa');return;
     case 'dashboard':await setPage('dashboard');await dashboard.load();return;
@@ -1064,9 +1069,9 @@ async function showPage(next:string){
   }
 }
 // Pages that read the selected historical view apply a changed one before they open.
-const readsContext=['gas-setup','gas','dashboard','market','custom-curves','delivery','reference','configuration','parties','futures'];
+const readsContext=['gas-setup','gas','crude','dashboard','market','custom-curves','delivery','reference','configuration','parties','futures'];
 const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
-for(const name of ['gas-setup','gas','dashboard','market','custom-curves','delivery','interval-series','interval-curves','jobs','power','reference','schedules','configuration','parties','admin','ai','futures'])
+for(const name of ['gas-setup','gas','crude','dashboard','market','custom-curves','delivery','interval-series','interval-curves','jobs','power','reference','schedules','configuration','parties','admin','ai','futures'])
   $('nav-'+name).onclick=navigate(name);
 // The saved Blotter views the person lists in the sidebar, each under the Blotter, which is marked while none of them is the view it shows.
 let blotterViews:{listed:string[];shown:string|null}={listed:[],shown:null};
@@ -1093,7 +1098,7 @@ function pageState():PageState{
     case 'parties':return {page,kind:select('party-kind').value};
     case 'futures':return {page,...futures.report()};
     case 'jobs':return {page,job:jobs.shown()};
-    case 'gas-setup':case 'gas':return {page};
+    case 'gas-setup':case 'gas':case 'crude':return {page};
     case 'ppa':return {page,...ppa.shown()};
     case 'custom-curves':return {page,...customCurves.report()};
     case 'dashboard':case 'configuration':case 'schedules':case 'delivery':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':return {page};
@@ -1112,6 +1117,7 @@ function unsaved(){
   switch(page){
     case 'gas-setup':return gasSetup.unsaved();
     case 'gas':return gas.unsaved();
+    case 'crude':return crude.unsaved();
     case 'ppa':return ppa.unsaved();
     case 'futures':return futures.unsaved();
     case 'parties':return parties.unsaved();
@@ -1179,7 +1185,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
       await setPage('futures');futures.reset('read');
       if(selection.view==='trade'){
         if(select('snapshot').value)await futures.load();
-        await futures.openTrade(String(selection.tradeId),selection.instrumentType as 'future'|'financial_swap'|'heat_rate'|'ppa',selection.revision as number|null);
+        await futures.openTrade(String(selection.tradeId),selection.instrumentType as 'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas'|'physical_crude',selection.revision as number|null);
       }else await futures.show(selection as Parameters<typeof futures.show>[0]);
       return;
     default:return showPage(next);

@@ -1352,9 +1352,9 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 #scheduled-swap-editor input[type=checkbox] { width:auto; }
 #scheduled-swap-editor .scheduled-period { border:1px solid var(--border); border-radius:8px; }
 #scheduled-swap-editor section { overflow-wrap:anywhere; }
-#swap-settlement>*{min-width:0;max-width:100%;box-sizing:border-box}
-#swap-settlement form>div{display:grid;gap:6px;margin-block:12px;min-width:0}
-#swap-settlement input,#swap-settlement select{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+:is(#swap-settlement,#crude-operations)>*{min-width:0;max-width:100%;box-sizing:border-box}
+:is(#swap-settlement,#crude-operations) form>div{display:grid;gap:6px;margin-block:12px;min-width:0}
+:is(#swap-settlement,#crude-operations) :is(input,select){width:100%;max-width:100%;min-width:0;box-sizing:border-box}
 
 /* Shared temporal controls keep their screen's form and exact read contract. The page keeps a band at its foot free
    for them (D217): the As of control with its close badge floats beside the shared Context panel, whose summary names the
@@ -1741,18 +1741,18 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .blotter-window-question .side-panel-prompt{margin:0 0 12px;padding:10px 16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
 /* A pop-out whose main window is gone keeps only its unconfirmed trade request, with Check status and Retry, and no values. */
 #futures-page[data-retained-only]>:not(#futures-retained){display:none}
-/* Gas authoring and retained evidence share the available workspace width. */
-#gas-page,#gas-page .card,#gas-page label{min-width:0}
-#gas-page .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
-#gas-page input,#gas-page select{min-width:0;max-width:100%;box-sizing:border-box}
-#gas-page .table-wrap{max-width:100%;overflow-x:auto}
-#gas-page .ppa-evidence{max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
-#gas-receipt{overflow-wrap:anywhere}
-#gas-page fieldset{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0;min-width:0}
-#gas-page legend{font-weight:600;padding:0 8px}
-#gas-page dl{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,2fr);gap:8px 16px;font-size:13px}
-#gas-page dt{color:var(--text-muted)}
-#gas-page dd{margin:0;overflow-wrap:anywhere}
+/* Physical commodity tickets and retained evidence share the workspace width. */
+:is(#gas-page,#crude-page),:is(#gas-page,#crude-page) .card,:is(#gas-page,#crude-page) label{min-width:0}
+:is(#gas-page,#crude-page) .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
+:is(#gas-page,#crude-page) input,:is(#gas-page,#crude-page) select{min-width:0;max-width:100%;box-sizing:border-box}
+:is(#gas-page,#crude-page) .table-wrap{max-width:100%;overflow-x:auto}
+:is(#gas-page,#crude-page) .ppa-evidence{max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+#gas-receipt,#crude-receipt{overflow-wrap:anywhere}
+:is(#gas-page,#crude-page) fieldset{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0;min-width:0}
+:is(#gas-page,#crude-page) legend{font-weight:600;padding:0 8px}
+:is(#gas-page,#crude-page) dl{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,2fr);gap:8px 16px;font-size:13px}
+:is(#gas-page,#crude-page) dt{color:var(--text-muted)}
+:is(#gas-page,#crude-page) dd{margin:0;overflow-wrap:anywhere}
 #gas-page .gas-valuation{padding:12px 16px;background:var(--surface);border-radius:6px}
 
 #gas-fee-label{display:block;max-width:340px}
@@ -1810,6 +1810,10 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 /* The same product form lives in the shared trade panel. */
 .embedded-trade{min-width:0}
 .embedded-trade > .card{margin:0 0 1rem}
-.embedded-trade #ppa-book-directory,.embedded-trade #gc-book-directory,.inspect-trade #gas-composer > section:first-child,.inspect-trade #gas-template{display:none}
+.embedded-trade #crude-book-directory,.embedded-trade #ppa-book-directory,.embedded-trade #gc-book-directory,.inspect-trade #gas-composer > section:first-child,.inspect-trade #gas-template{display:none}
 #side-panel .product-switch{flex-wrap:wrap}
 #side-panel .embedded-trade .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
+
+#crude-operations table{width:100%;table-layout:fixed}
+#crude-operations th,#crude-operations td{white-space:normal;overflow-wrap:anywhere}
+#crude-operations input[type=checkbox]{width:auto;justify-self:start}

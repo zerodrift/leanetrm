@@ -1809,3 +1809,63 @@ being silently repaired. Local managed checks and independent review qualify the
 refactoring mechanics. Database startup, migration and full persisted workflows
 still require the corresponding disposable PostgreSQL checks before release;
 managed arithmetic tests alone do not qualify those operations.
+
+## D271 — Fixed-volume physical crude
+
+Accepted for local implementation on 2026-10-31. Introduce a future physical
+crude obligation with exact grade, facility/custody-point and standard-volume
+references. The bounded profile explicitly selects fixed total volume at 60°F,
+zero quantity tolerance, one covered monthly valuation assignment and no
+discounting. Independent fixed consideration and optional fixed per-unit handling
+memberships retain explicit signs and payment instants. Trade quantity remains
+external to normalized one-unit Side definitions.
+
+Use the shared executable schedule runtime, retaining physical-value outputs
+separately from cash and refusing once delivery starts. Booking must retain and
+independently admit the complete program and exact references; historical reads,
+current authorization and command recovery retain their existing contracts.
+Existing portfolio consumers cannot silently omit crude holdings. This change
+must be additive to existing booked programs and must not require rebuilding a
+populated environment.
+
+Measured receipts, quality acceptance, quantity elections, title/risk transfer,
+inventory, transport, cargo and physical settlement remain later scope. No
+exchange deliverability or production activation follows from this decision.
+See [physical crude](physical-crude.md) for the contract, independent acceptance
+oracles and qualification status.
+
+The next local increment admits retained crude holdings to the common trading
+workflow, contractual portfolio PV and shared base/up/down scenario risk. It
+uses the same immutable program execution and exact market partitions; it does
+not infer inventory or completed delivery. Unsupported gas scenario positions
+retain their existing explicit exclusions. Automated crude closes remain a
+separate qualification gate.
+
+The subsequent physical lifecycle must explicitly let the user select onward
+delivery or owned inventory. Each treatment needs a complete executable
+ownership/quantity accounting contract, retained choices and independent tests
+before it can be selected operationally. Neither disposition is a default.
+
+
+D271 delivery-to-cash follow-up is accepted for local implementation. The
+explicit `physical_crude_receipt_cash_v1` operational profile records certified
+partial standard-volume receipts with explicit coincident title acquisition,
+user-selected owned-inventory or exact-sale onward disposition, separate outward
+dispatch, component invoice allocation and partial payment. Original contractual
+quantity and cash obligations remain intact. Cumulative component rounding uses
+shared exact money and a retained ordinal/predecessor. Inventory quantity is not
+inventory costing, operational PV or general-ledger accounting. See
+[physical crude operations](physical-crude-operations.md) for the selected
+contract, limitations and qualification gates.
+
+
+D271 cash-record correction follow-up is accepted for local implementation.
+Explicit `crude_record_correction_v1` reverses a complete recorded payment or
+voids an eligible invoice without implying a bank refund. Original facts remain
+immutable. Invoice voids unwind the active cash-component allocation chain from
+its tail, after active payments have been reversed. Reissue uses a new historical
+ordinal and exact active predecessor; changed business-key replacements retain
+an exact correction link. Effective/knowledge-time selection and idempotent
+command recovery apply to corrections as to original records. Dispatch reversal,
+backdated physical correction and actual bank refund contracts remain further
+work. See [physical crude operations](physical-crude-operations.md).
