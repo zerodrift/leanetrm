@@ -205,7 +205,7 @@ public static class GasTicket
  // A single-point trade's retained terms as the composition they are: one physical side, the payment for its gas and an optional fee,
  // coded as a new ticket codes the first side of each kind. The single-point profile charges both on the side's contractual delivery
  // quantity and pays them at its one payment instant. Terms it does not admit refuse here or in Reopen; none is filled in.
- public static GasCompositionRequest SinglePoint(PhysicalGasWriteRequest t)
+ public static GasCompositionRequest SinglePoint(PhysicalGasTerms t)
  {
   static string Code(string kind)=>$"{kind}-1";
   var payment=t.Direction switch{"receive"=>"pay","deliver"=>"receive",_=>throw Bad($"The booked gas direction '{t.Direction}' is neither receive nor deliver.")};
@@ -299,13 +299,14 @@ public static class GasTicket
   return(target,kind.Fields.SingleOrDefault(f=>f.Id==field)??throw Bad($"The {target.Kind} side has no field '{field}'."));
  }
 
- // Side answers come from the gas setup the context resolves, or its reference conventions when it resolves none;
- // a draft naming another setup, or none where the context resolves one, refuses.
- static void RequireSetup(TicketDraft draft,JsonElement catalog)
+ // Side answers, previews and bookings come from the gas setup the context resolves, or its reference conventions when it resolves none;
+ // a draft naming another setup, or none where the context resolves one, refuses on the trade's setup field.
+ public static void RequireSetup(Guid? chosen,Guid? resolved)
  {
-  if(draft.Trade.GetValueOrDefault("gas_setup")!=catalog.OptionalText("gasSetupId"))
-   throw Bad(catalog.OptionalText("gasSetupId") is {} setup?$"Choose gas setup {setup}, the one this context resolves.":"This context resolves no gas setup; leave the gas setup empty.");
+  if(chosen!=resolved)
+   throw On(null,"gas_setup",resolved is {} setup?$"Choose gas setup {setup}, the one this context resolves.":"This context resolves no gas setup; leave the gas setup empty.");
  }
+ static void RequireSetup(TicketDraft draft,JsonElement catalog)=>RequireSetup(Id(draft.Trade,"gas_setup"),catalog.OptionalText("gasSetupId") is {} setup?Guid.Parse(setup):null);
 
  // A value the side must already hold for this answer; refuse names the code of the refusal.
  static string Term(TicketSideDraft side,string id,Func<string,MarketDataException> refuse)=>

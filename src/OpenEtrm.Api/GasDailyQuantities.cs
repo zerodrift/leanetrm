@@ -59,6 +59,16 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
   Mark();
   return new(header,days.ToImmutable(),history,heads.Length,programs,[..marks]);
  }
+ async Task<bool> MayAmend(NpgsqlConnection c,CancellationToken ct)
+ {
+  await using var permission=ScheduleStore.Command(c,"SELECT security.trading_access($1,'AmendTrade')",database.Manifest.CatalogId);
+  return await permission.ExecuteScalarAsync(ct) is true;
+ }
+ // Where a day's quantity is recorded, and by whom: on working data, by a reader the trading authority lets amend trades. The record
+ // operation refuses by this rule, and a booked trade's read offers day entries only where it holds, with the reason it does not.
+ internal async Task<MarketDataException?> RecordRefusal(NpgsqlConnection c,bool working,CancellationToken ct)=>
+  !working?new("historical_read_only","Return to working data before recording daily quantities."):
+  !await MayAmend(c,ct)?new("gas_quantity_denied","Your current role does not have Amend Trade permission."):null;
  public async Task<object> Read(NpgsqlConnection c,InputFrame frame,GasDailyReadRequest body,CancellationToken ct)
  {
   var s=await Select(c,frame,body.TradeId,body.SelectionPolicy,body.IncludeHistory,ct);
@@ -66,9 +76,8 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
    return new{obligationId=d.ObligationId,sideCode=d.SideCode,pipeline=d.Pipeline,zone=d.Zone,deliveryPoint=d.DeliveryPoint,day=contract.Day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),contract.Start,contract.End,quantitySpecification=contract.Quantity.Specification,
     contractual=Q(contract.Quantity),selected=Q(selected.Quantity),normalizedInput=Q(selected.NormalizedQuantity),selected.Kind,selected.RevisionId,selected.Evidence,contract.Root,contract.Instruction,contract.Grid,
     heads=d.Heads.Select(h=>new{id=h.Id("id"),kind=h.Text("kind"),status=h.Text("status"),quantity=h.OptionalText("quantity"),evidence=h.Text("evidence"),revision=int.Parse(h.Text("revision"),CultureInfo.InvariantCulture)})};}).ToArray();
-  await using var permission=ScheduleStore.Command(c,"SELECT security.trading_access($1,'AmendTrade')",database.Manifest.CatalogId);
   var ms=s.Milliseconds;
-  return new{tradeId=body.TradeId,expectedRevision=int.Parse(s.Header.Text("revision"),CultureInfo.InvariantCulture),body.SelectionPolicy,canWrite=await permission.ExecuteScalarAsync(ct) is true,rows,history=s.History,
+  return new{tradeId=body.TradeId,expectedRevision=int.Parse(s.Header.Text("revision"),CultureInfo.InvariantCulture),body.SelectionPolicy,canWrite=await MayAmend(c,ct),rows,history=s.History,
    scope="daily_delivery_quantity_inputs_only",valuationEffect="contractual_pv_unchanged",historyLimit=100,
    performance=body.MeasurePerformance?new{metadataMs=ms[0],headsMs=ms[1],historyMs=ms[2],programsMs=ms[3],selectionMs=ms[4],headCount=s.HeadCount,programCount=s.Programs.Length,uniquePrograms=s.Programs.Select(p=>p.Identity.ContentDigest).Distinct().Count(),dayCount=rows.Length}:null};
  }

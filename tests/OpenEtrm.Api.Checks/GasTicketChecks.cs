@@ -222,6 +222,16 @@ internal static class GasTicketChecks
             Equal("ZA1,ZA2", string.Join(",", GasTicket.Choices(Open(A(Receipt)) with { Trade = Trade.Remove("gas_setup") }, "RCT", "zone", reference).Select(c => c.Value)), "reference zones");
             Equal(null, Map(full with { Trade = Trade.Remove("gas_setup") }).GasSetupId, "booked without a setup");
         });
+        // Preview and booking hold a draft to the setup its context resolves, as choices and lookups do; the refusal names the trade's setup field.
+        void Pins(string name, Guid? chosen, Guid? resolved)
+        {
+            try { GasTicket.RequireSetup(chosen, resolved); } catch (TicketFieldException error) when (error.Code == "ticket_input" && error.Side is null && error.Field == "gas_setup") { passed++; Console.WriteLine($"PASS {name}"); return; }
+            throw new Exception($"Expected ticket_input on gas_setup for {name}.");
+        }
+        Pins("a draft naming a superseded gas setup refuses on the setup field", Setup, Guid.Empty);
+        Pins("a draft without the setup its context resolves refuses on the setup field", null, Setup);
+        Pins("a draft naming a setup where the context resolves none refuses on the setup field", Setup, null);
+        Check("a draft naming the resolved setup, or none where none resolves, is held to nothing more", () => { GasTicket.RequireSetup(Setup, Setup); GasTicket.RequireSetup(null, null); });
         Refuses("ticket_input", "choices for a field without a list refuse", () => GasTicket.Choices(Open(A(Receipt)), "RCT", "quantity", catalog));
         Check("party choices are exact '<id>@<revision>' references the booking accepts", () =>
         {
@@ -272,7 +282,7 @@ internal static class GasTicketChecks
         Refuses("ticket_input", "booked terms on another convention do not reopen", () => GasTicket.Reopen(Map(full) with { Convention = "physical_gas_fixed_quantity_v3" }));
         Refuses("ticket_input", "booked terms without an explicit discounting policy do not reopen", () => GasTicket.Reopen(Map(full) with { Discounting = null }));
         // A single-point trade's retained terms: a receipt priced at 2.5 with a 0.045 fee paid, both paid at one instant.
-        var point = new PhysicalGasWriteRequest(Snapshot, PhysicalGasStore.Convention, "current", Operation, Book, Definition, "PIPE", "Z1", "P1", "firm", "2027-01-01", "2027-02-01", "10000", "per_operating_day",
+        var point = new PhysicalGasTerms(Snapshot, PhysicalGasStore.Convention, "current", Operation, Book, Definition, "PIPE", "Z1", "P1", "firm", "2027-01-01", "2027-02-01", "10000", "per_operating_day",
             "receive", "2.5", "0.045", null, "pay", "2027-03-01T00:00:00+00:00", false, Entity, 4, Counterparty, 7, Setup);
         Check("a single-point trade opens as one physical side with its payment and fee, each charged on its delivered quantity", () =>
         {

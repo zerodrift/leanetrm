@@ -44,7 +44,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  // The trade's quantity unit: its sides share one quantity specification, whose unit the reference data names.
  internal static string QuantityUnit(PreviewData data,IEnumerable<ReferenceKey> quantities)=>quantities.Distinct().ToArray() is [var one]?data.QuantityUnit(one.Code):
   throw Invalid("The sides' gas paths are quoted in different quantity specifications; one trade takes one quantity unit.");
- static PhysicalGasWriteRequest Selection(GasCompositionRequest body,GasPhysicalRequest p)=>new(body.SnapshotId,body.Convention,body.KnowledgeMode,body.OperationId,body.BookId,body.DefinitionRevisionId,p.Pipeline,p.Zone,p.DeliveryPoint,p.Product,p.DeliveryFrom,p.DeliveryTo,p.Quantity,p.QuantityBasis,p.Direction,null,null,null,null,null,body.Discounting,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision,body.GasSetupId);
+ static PhysicalGasTerms Selection(GasCompositionRequest body,GasPhysicalRequest p)=>new(body.SnapshotId,body.Convention,body.KnowledgeMode,body.OperationId,body.BookId,body.DefinitionRevisionId,p.Pipeline,p.Zone,p.DeliveryPoint,p.Product,p.DeliveryFrom,p.DeliveryTo,p.Quantity,p.QuantityBasis,p.Direction,null,null,null,null,null,body.Discounting,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision,body.GasSetupId);
  async Task<GasCompositionDraft> Resolve(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)
  {
   if(body.Profile!=Profile||body.Discounting!=false||body.KnowledgeMode!="current"||body.PhysicalSides.IsDefault||body.PhysicalSides.Length is <GasCompositionInstrument.MinPhysicalSides or >GasCompositionInstrument.MaxPhysicalSides||body.CashSides.IsDefault||body.CashSides.Length>GasCompositionInstrument.MaxCashSides)
@@ -135,8 +135,10 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var summaries=schedule is null?null:views!.Select(v=>(object)new{side=v.Code,billedQuantity=schedule.Totals[v.Code+".quantity"].Value,amount=schedule.Totals[v.Code+".amount"].Value,againstMarket=(string?)null}).ToArray();
   return new(total!.ToExactString(),members[0].Assignment.Quote.Currency.Code,unit,sides,links,schedule,summaries,refusal);
  }
+ // A preview and a booking are held to the gas setup their context resolves (GasTicket.RequireSetup).
+ async Task RequireSetup(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)=>GasTicket.RequireSetup(body.GasSetupId,(await gas.CurrentSetup(c,data,ct)).Id);
  public async Task<object> Preview(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest body,CancellationToken ct)
- {var d=await Resolve(c,data,body,ct);return await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);}
+ {await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);return await Value(c,data,frame,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,true,ct);}
  // The single market price a physical side's schedule shows over its delivery term, evaluated from a price probe (GasTicket.PriceProbe).
  internal async Task<string> MarketPrice(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionRequest probe,CancellationToken ct)
  {
@@ -147,11 +149,9 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   if(value.Schedule is null)throw new MarketDataException("ticket_lookup",$"The side's schedule cannot be shown, so its market price is not read: {value.ScheduleRefusal!.Message}");
   return value.Schedule.Totals[$"{code}.market_price"].Value??throw new MarketDataException("ticket_lookup","The side's delivery term has no single market price.");
  }
- internal Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,CancellationToken ct)=>TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{var d=await Resolve(c,data,body,ct);_=await Value(c,data,pinned,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,false,ct);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,d.Instrument);},ct,gasMarket:true);
+ internal Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,CancellationToken ct)=>TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);_=await Value(c,data,pinned,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,false,ct);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,d.Instrument);},ct,gasMarket:true);
  internal async Task<JsonElement> Save(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,CancellationToken ct)
  {await using var q=ScheduleStore.Command(c,"SELECT security.book_gas_composition($1,$2::jsonb,$3)::text",database.Manifest.CatalogId,JsonSerializer.Serialize(body,Json),frame.At);return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);}
- public async Task<object> Directory(NpgsqlConnection c,CancellationToken ct)=>new{trades=await PreviewDatabase.Rows(c,
-  "SELECT row_to_json(x)::text FROM(SELECT r.trade_id,r.book_id,b.name book,(SELECT count(*) FROM trading.gas_component_terms m WHERE(m.catalog_id,m.instrument_id,m.role)=(r.catalog_id,r.instrument_id,'physical')) physical_count FROM trading.gas_trade_revisions r JOIN trading.gas_instruments i USING(catalog_id,instrument_id) JOIN trading.books b ON(b.catalog_id,b.id)=(r.catalog_id,r.book_id) WHERE r.catalog_id=$1 AND i.composition ORDER BY r.publication_order DESC LIMIT 256)x",[database.Manifest.CatalogId],ct)};
  public async Task<object> Editor(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)=>await Read(c,data,frame,trade,ct);
  // A single-point trade read as the composition it is (GasTicket.SinglePoint): every side a whole membership of the booked quantity on the
  // one physical side's path, valued from the trade's own retained programs, whose slots are the composition's: gas, payment, then fee.
@@ -164,8 +164,9 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var programs=await new RetainedScheduleStore(database).LoadPrograms(c,instrument,frame.ContextId,frame.ContextId is null?null:frame.At,ct);
   return new(body,await Value(c,data,frame,members,Number(physical.Quantity!),null,body.GasSetupId,programs,true,ct));
  }
+ // programs, when the caller already loaded the trade's retained programs under this frame, are used in place of loading them again.
  internal async Task<GasCompositionRead> Read(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
-  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null)
+  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,ImmutableArray<RetainedSideProgram>? programs=null)
  {
   var header=(await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT r.*,i.definition_revision_id,i.gas_setup_id,t.request FROM trading.gas_trade_revisions r JOIN trading.gas_instruments i USING(catalog_id,instrument_id) JOIN trading.trades t ON(t.catalog_id,t.id)=(r.catalog_id,r.trade_id) WHERE(r.catalog_id,r.trade_id)=($1,$2) AND i.composition)x",[database.Manifest.CatalogId,trade],ct)).SingleOrDefault();
   if(header.ValueKind!=JsonValueKind.Object)throw Invalid("The composed gas trade is unavailable.");
@@ -185,7 +186,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    var slot=int.Parse(r.Text("slot"));var source=r.OptionalText("source_slot") is {} s?int.Parse(s):(int?)null;var a=phys[r.Text("role")=="physical"?slot:source!.Value];
    members.Add(new(slot,r.Text("code"),r.Text("role"),int.Parse(r.Text("direction")),new(BigInteger.Parse(r.Text("ratio_n")),BigInteger.Parse(r.Text("ratio_d"))),new(BigInteger.Parse(r.Text("receipt_n")),BigInteger.Parse(r.Text("receipt_d"))),source is {} si?rows.Single(x=>x.Text("slot")==si.ToString(CultureInfo.InvariantCulture)).Text("code"):null,r.OptionalText("stage"),r.OptionalText("formula"),r.OptionalText("fraction"),null,null,a.Assignment,a.Clock));
   }
-  var programs=await new RetainedScheduleStore(database).LoadPrograms(c,header.Id("instrument_id"),frame.ContextId,frame.ContextId is null?null:frame.At,ct);
+  programs??=await new RetainedScheduleStore(database).LoadPrograms(c,header.Id("instrument_id"),frame.ContextId,frame.ContextId is null?null:frame.At,ct);
   var value=await Value(c,data,frame,members.ToImmutable(),Number(header.Text("quantity")),null,valuationBody.GasSetupId,programs,true,ct,recorded);
   return new(body,value);
  }

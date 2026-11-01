@@ -214,6 +214,13 @@ def check_ticket_operations(c,context,cat,description,body,view):
     assert cells['2021-01']['physical.quantity']['value']=='-309000' and cells['2021-01']['physical.amount']==before['2021-01']['physical.amount'],cells['2021-01']
     refused('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':str(uuid4()),'revision':fact['revision']},'position_unavailable')
     assert opened['actions']['record']['allowed'] is True,opened['actions']
+    # Day entries are offered only where the record operation takes them: on working data, to a role that may amend trades.
+    recording=lambda at:c.call('tickets/trade',{'context':at,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision']})['actions']['record']
+    captured_after={**context,'knowledgeMode':'retained','contextId':c.call('gas/catalog',context)['context']['contextId']}
+    assert recording(captured_after)=={'allowed':False,'reason':'Return to working data before recording daily quantities.'},recording(captured_after)
+    refused('gas/quantities/record',{**record,'context':captured_after,'operationId':str(uuid4()),'quantity':'9100','expectedPreviousId':receipt['revisionId']},'historical_read_only')
+    c.call('profile',{'profile':'risk'});unpermitted=recording(context);c.call('profile',{'profile':'trader'})
+    assert unpermitted=={'allowed':False,'reason':'Your current role does not have Amend Trade permission.'},unpermitted
 
     # Historical choices: a point retired by a later gas setup stays listed, and priced, in the earlier context.
     # Publication is append-only, so the check leaves the setup as it found it by publishing the found configuration again.
@@ -230,6 +237,15 @@ def check_ticket_operations(c,context,cat,description,body,view):
     # A gas setup is named by its publication order.
     named=c.call('tickets/choices',{'context':context,'draft':{'product':'physical_gas','version':1,'trade':{},'sides':[]},'side':None,'field':'gas_setup'})['choices']
     assert named==[{'value':later,'label':f'Published setup {order}'}],named
+    # A draft priced under the superseded setup, or under none, neither previews nor books once the context resolves the later one; the
+    # refusal names the trade's setup field. A booking already made still answers its retry with its first outcome.
+    def unpinned(path,body):
+        error=c.call(path,body,expected=422);assert (error['code'],error['side'],error['field'])==('ticket_input',None,'gas_setup'),(path,error)
+    without_setup={**draft,'trade':{k:v for k,v in trade.items() if k!='gas_setup'}}
+    for stale in [draft,without_setup]:
+        unpinned('tickets/preview',{'context':context,'draft':stale})
+        unpinned('tickets/book',{'context':context,'draft':stale,'operationId':str(uuid4())})
+    assert c.call('tickets/book',request)==booked,'A retried booking answers its first outcome after a later setup publication.'
     d=next(l for l in cat['locations'] if l['deliveryPoint']==retired)
     at_d=lambda setup_id:{**draft,'trade':{**{k:v for k,v in trade.items() if k!='gas_setup'},**setup(setup_id)},'sides':[{**draft['sides'][0],'values':{**physical,'pipeline':d['pipeline'],'zone':d['zone'],'delivery_point':retired,'product':d['product']}}]}
     assert retired in choices(retained,at_d(cat['gasSetupId']),'physical','delivery_point')

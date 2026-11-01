@@ -1204,7 +1204,7 @@ api.MapPost("/gas/quantities/history",(HttpContext c,PhysicalGasEditorRequest bo
  (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>gasDaily.History(connection,body.TradeId,ct),ct),expectedConvention:PhysicalGasStore.Convention));
 api.MapPost("/gas/quantities/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>Results.Ok(await gasDaily.Status(connection,body.OperationId,ct)),c.RequestAborted)));
 api.MapPost("/gas/quantities/record",(HttpContext c,GasDailyWriteRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>{
- if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before recording daily quantities.");
+ if(await gasDaily.RecordRefusal(connection,TradingReadSelection.IsWorking(session,body.Context),ct) is {} refused)throw refused;
  return Results.Ok(await gasDaily.Save(connection,Frame(session,body.Context.SnapshotId),body,ct));
 },c.RequestAborted)));
 
@@ -1213,9 +1213,9 @@ api.MapPost("/gas/composition/preview",(HttpContext c,GasCompositionRequest body
  (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention));
 api.MapPost("/gas/composition/editor",(HttpContext c,PhysicalGasEditorRequest body)=>FuturesRead(c,body.Context,
  (connection,data,frame,ct)=>gasComposition.Editor(connection,data,frame,body.TradeId,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId));
-api.MapPost("/gas/composition/directory",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,
- async(connection,data,frame,ct)=>await gasComposition.Directory(connection,ct),expectedConvention:PhysicalGasStore.Convention));
-api.MapPost("/gas/composition/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
+// A gas booking's outcome by its operation id, for the person who sent it; the composition and ticket bookings share it.
+Task<IResult> GasBookingStatus(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted));
+api.MapPost("/gas/composition/status",GasBookingStatus);
 api.MapPost("/gas/composition/book",(HttpContext c,GasCompositionRequest body)=>Locked(c,session=>BookGasComposition(c,session,body)));
 // Booking takes working data only: no selected historical context, current knowledge and no captured context.
 void RequireGasBooking(PreviewSession session,string? knowledgeMode,Guid? contextId=null)
@@ -1253,9 +1253,10 @@ api.MapPost("/tickets/lookup",(HttpContext c,TicketFieldRequest body)=>FuturesRe
  (connection,data,frame,ct)=>gasTicket.Lookup(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention));
 api.MapPost("/tickets/preview",(HttpContext c,TicketPreviewRequest body)=>FuturesRead(c,TicketContext(body.Context),
  (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,TicketRequest(body.Draft,body.Context,Guid.Empty,data.DefinitionRevision.RevisionId),ct),expectedConvention:PhysicalGasStore.Convention));
+// A booked trade offers day entries by the record operation's own rule, on the read's working or historical selection.
 api.MapPost("/tickets/trade",(HttpContext c,TicketTradeRequest body)=>FuturesRead(c,TicketContext(body.Context),
- (connection,data,frame,ct)=>gasTicket.Trade(connection,data,frame,body,ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId));
-api.MapPost("/tickets/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
+ (connection,data,frame,ct)=>gasTicket.Trade(connection,data,frame,body,TradingReadSelection.IsWorking(Session(c),body.Context),ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId));
+api.MapPost("/tickets/status",GasBookingStatus);
 // Booking maps the draft against the definition revision its booking read resolves for the selected frame.
 api.MapPost("/tickets/book",(HttpContext c,TicketBookRequest body)=>Locked(c,session=>{
  var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
