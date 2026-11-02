@@ -128,6 +128,7 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("payment_",StringComparison.Ordinal)||p.MessageText=="short_month") => (422,p.MessageText,"The generated payment date does not meet its explicit rule and calendar coverage."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("swap_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit side, reference, date or lifecycle terms."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_conflict" => (409,"futures_conflict","This trade request identity already has different economics or ownership."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="option_product_margined" => (422,p.MessageText,"This option product's premium is margined daily, which booking does not support yet; the product cannot be booked."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="option_unsupported" => (422,p.MessageText,"Margined premium is not supported; book the option with premium paid up front."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="option_conflict" => (409,p.MessageText,"This trade request identity already has different economics or ownership."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "option_instruction_conflict" or "option_expiry_conflict" => (409,p.MessageText,FuturesOptionStore.EventRefusal(p.MessageText)!),

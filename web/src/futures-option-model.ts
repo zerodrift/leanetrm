@@ -78,3 +78,17 @@ export function keepOffered(catalog:OptionCatalog,pick:OptionPick):OptionPick{
  }
  return kept;
 }
+
+/** Whether option lifecycle events may be recorded from a view, and why not when they may not. */
+export type LifecycleWrites={enabled:true;reason:null}|{enabled:false;reason:string};
+/**
+ * Lifecycle events are recorded at current knowledge, so only a view of working data at current knowledge offers them, and only to a
+ * person the backend lets book (`canBook`, with its own `reason` when not). Once an event is recorded in a view, that view reads the
+ * holding as it was, so it offers none until the trade is opened again.
+ */
+export function lifecycleWrites(state:{view:'working'|'historical'|'live'|'read_only';canBook:boolean;reason:string|null|undefined;recorded:boolean}):LifecycleWrites{
+ if(state.recorded)return {enabled:false,reason:'An event was recorded here. Open the trade again from the Blotter to read it at current knowledge.'};
+ if(state.view!=='working')return {enabled:false,reason:'Lifecycle events are recorded from working data at current knowledge. Return to working data to record one.'};
+ if(!state.canBook)return {enabled:false,reason:state.reason??'Booking is not available in this view, and the backend did not say why.'};
+ return {enabled:true,reason:null};
+}

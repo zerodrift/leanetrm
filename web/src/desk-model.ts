@@ -25,13 +25,13 @@ export type Holding={booking:Booking;commodity:{code:string;name:string};priceTi
   marketKey?:string|null;marketLabel?:string|null;projectionCurves?:string[]|null}&Partial<OptionFacts>;
 /**
  * What a futures option trade's two rows state (D283): the option on its series, for its open lots, and the premium paid up front as
- * unit cash. `settlement` is the option's settlement price at the close; `instructions` says whether the product accepts exercise or
- * abandon instructions, and why not when it does not.
+ * unit cash. `settlement` is the option's settlement price at the close; `actions` are the lifecycle actions open to the holding, each
+ * with the backend's reason when it is not; `closableLots` the unsigned open lots an exercise or assignment may close.
  */
 export type OptionFacts={component:'option'|'premium';series:string;product:string;exchange:{code:string;name:string};right:string;strike:string;expiryAt:string;
   underlyingSeries:string;openLots:string;lifecycleState:string;linkedFuturesTradeIds:string[];premium:string;premiumAmount:string;premiumPaymentDate:string;
   cashState:'pending'|'settled'|null;impliedVolatility:string|null;calibrationMode:string|null;numericalPolicy:string|null;
-  instructions:{allowed:boolean;reason:string|null}|null};
+  actions:Record<'exercise'|'assignment'|'instruction',{allowed:boolean;reason:string|null}>|null;closableLots:string|null;unitPresentValue:string|null};
 export type Summary={view:{groupBy:string[];measures:string[];pivotConvention:string|null};groups:PivotGroup[]};
 
 const moneyTotals='trading_blotter_money_totals_v1',quantityTotals='trading_blotter_totals_v1';

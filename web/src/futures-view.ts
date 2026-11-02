@@ -3,6 +3,7 @@ import {refreshAcceptedCrudeOperation,openCrudeOperationPanel} from './crude-ope
 import {setupCrudeOperations} from './crude-operations.js';
 import {readCrudeView} from './crude-trade-view.js';
 import {readOptionView} from './futures-option-view.js';
+import {lifecycleWrites} from './futures-option-model.js';
 import {readGasView} from './gas-trade-view.js';
 import type {ProductTickets,TicketProduct} from './product-tickets.js';
 import {readPpaView} from './ppa-trade-view.js';
@@ -331,7 +332,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
-      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,()=>void act(load)):h.instrumentType==='physical_crude'?readCrudeView(api,context,h,()=>void operateCrude(h.tradeId)):h.instrumentType==='physical_gas'?readGasView(api,context,h):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
+      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:options.profile,recorded:()=>void act(load)}):h.instrumentType==='physical_crude'?readCrudeView(api,context,h,()=>void operateCrude(h.tradeId)):h.instrumentType==='physical_gas'?readGasView(api,context,h):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
       return stale?{...read,view:zone=>({...read.view(zone),actions:undefined})}:read;
     },
@@ -449,6 +450,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // A position opens, in the details or a window of its own, only from the read on screen: rows kept from the previous read, or drawn
   // while the read is under way, say so.
   const notOpened=()=>options.notice('Positions open once the Blotter has valued them.');
+  // Option lifecycle events are recorded from the Blotter of working data at current knowledge, by a person the backend lets book.
+  const optionWrites=()=>lifecycleWrites({view:holdings?options.knowledge():'read_only',canBook:!!catalog?.canBook,reason:catalog?.bookingUnavailableReason,recorded:false});
   function popout(selected:Holding){
     if(busy())return;
     if(!holdings){notOpened();return;}
@@ -457,7 +460,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const example=options.window.example;if(!example){options.failed(refuse('this window does not know which example it reads, so it opens no trade window'));return;}
     const selection:PositionWindowSelection={snapshotId:snapshot,context:holdings.context,asOf:holdings.asOf,
       tradeId:selected.tradeId,bindingId:selected.bindingId,revision:Number(selected.revision),instrumentType:selected.instrumentType as PositionWindowSelection['instrumentType'],zone:options.zone(),
-      example};
+      example,lifecycle:optionWrites().enabled?'working':'read_only'};
     openPositionWindow(location.href,selection,(url,target,features)=>window.open(url,target,features));
   }
   // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
@@ -925,7 +928,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
-    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,coverage,exchange,linkedFuturesTradeIds,instructions,...fields}=h;
+    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,coverage,exchange,linkedFuturesTradeIds,actions,...fields}=h;
     return {...fields,exchange:exchange?.name??null,linkedFuturesTradeIds:linkedFuturesTradeIds?.join(', ')??null,priceUnit:h.instrumentType==='ppa'?null:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
   // What a trade row's value cell says when the close cannot value it, on screen and in exports (D220).

@@ -15,6 +15,11 @@ CONVENTION = 'futures_option_premium_v1'
 SPECIFICATION = {'nymex_on': (Decimal('10000'), Decimal('0.001')), 'nymex_lo': (Decimal('1000'), Decimal('0.01'))}
 
 
+
+def side_lots(lots):
+    """A signed lot count as the booking states it: a side and an unsigned whole number of lots."""
+    return {'side': 'sell' if lots.startswith('-') else 'buy', 'lots': lots.lstrip('-')}
+
 def run_checks(url, query, manifest):
     base = PreviewClient(url); base.bootstrap()
     c = PreviewClient(url, 'exchange'); c.opener = base.opener; c.bootstrap(); c.call('profile', {'profile': 'trader'})
@@ -40,7 +45,7 @@ def run_checks(url, query, manifest):
     book = catalog['books'][0]['id']
 
     def body(option, lots, premium, **changes):
-        return {'operationId': str(uuid4()), **context, 'bookId': book, 'series': option['series'], 'lots': lots, 'premium': premium,
+        return {'operationId': str(uuid4()), **context, 'bookId': book, 'series': option['series'], **side_lots(lots), 'premium': premium,
                 'premiumPaymentDate': '2026-10-19', 'premiumStyle': 'premium_paid_up_front', 'memo': 'Synthetic option booking', **parties, **changes}
 
     def stored(trade):
@@ -98,6 +103,9 @@ def run_checks(url, query, manifest):
     check('a missing premium payment date is refused', refused({'premiumPaymentDate': None}, 'option_booking_input'))
     check('zero lots are refused', refused({'lots': '0'}, 'option_booking_input'))
     check('fractional lots are refused', refused({'lots': '1.5'}, 'option_booking_input'))
+    check('lots are an unsigned whole number: the side states the direction, and a signed count is refused',
+          refused({'lots': '-1'}, 'option_booking_input') and refused({'lots': '+1'}, 'option_booking_input'))
+    check('a missing or unknown side is refused', refused({'side': None}, 'option_booking_input') and refused({'side': 'short'}, 'option_booking_input'))
     check('a negative premium is refused', refused({'premium': '-0.125'}, 'option_booking_input'))
     check('a premium off the product premium tick is refused', refused({'premium': '0.1255'}, 'option_booking_input'))
     check('server-owned execution time cannot be supplied', refused({'executedAt': frame['at']}, 'trade_booking_read_only'))
@@ -123,11 +131,11 @@ def run_checks(url, query, manifest):
     expiry = query(f"SELECT expiry_at FROM ref_data.futures_option_series WHERE (catalog_id,revision_id,code)=('{reference[0]}','{reference[1]}','{lo['series']}');")
     raw(lo['series'], expiry, 'option_booking_input')
     check('the booking operation refuses execution at the option expiry instant', rows() == before)
-    raw(lo['series'], frame['at'], 'option_unsupported',
+    raw(lo['series'], frame['at'], 'option_product_margined',
         "ALTER TABLE ref_data.futures_option_products DISABLE TRIGGER USER;"
         f"UPDATE ref_data.futures_option_products SET premium_style='futures_style_margin' WHERE (catalog_id,revision_id,code)=('{reference[0]}','{reference[1]}','nymex_lo');"
         "ALTER TABLE ref_data.futures_option_products ENABLE TRIGGER USER;")
-    check('premium paid up front on a futures-style margined product is option_unsupported', rows() == before)
+    check('a product whose own premium is futures-style margined is refused with its own code, not as an unsupported request', rows() == before)
 
     # Booking reads the option definition under the trader's own market and reference read authority.
     def withdrawn(table, column, catalog, work):
@@ -213,7 +221,7 @@ def run_lifecycle_checks(url, query, manifest):
         print('PASS ' + name, flush=True)
 
     def booked(option, lots):
-        return c.call('options/book', {'operationId': str(uuid4()), **context, 'bookId': book, 'series': option['series'], 'lots': lots,
+        return c.call('options/book', {'operationId': str(uuid4()), **context, 'bookId': book, 'series': option['series'], **side_lots(lots),
                                        'premium': '0.125', 'premiumPaymentDate': '2026-10-19', 'premiumStyle': 'premium_paid_up_front', **parties})['tradeId']
 
     def event(path, trade, expected=200, **fields):

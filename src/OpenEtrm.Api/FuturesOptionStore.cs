@@ -8,7 +8,7 @@ using OpenEtrm.MarketData.Trading;
 namespace OpenEtrm.Api;
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record FuturesOptionBookRequest(Guid OperationId,Guid SnapshotId,Guid BookId,string? Series,string? Lots,string? Premium,
+public sealed record FuturesOptionBookRequest(Guid OperationId,Guid SnapshotId,Guid BookId,string? Series,string? Side,string? Lots,string? Premium,
     string? PremiumPaymentDate,string? PremiumStyle,string? ExecutedAt,string? Convention,string? KnowledgeMode,Guid? TraderId=null,int? TraderRevision=null,
     string? Memo=null,string? TradeDate=null,Guid? LegalEntityId=null,int? LegalEntityRevision=null,Guid? CounterpartyId=null,int? CounterpartyRevision=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
@@ -24,8 +24,10 @@ public sealed record FuturesOptionHoldingRequest(FuturesReadRequest Context,Guid
 
 // Listed futures options with premium paid up front: the bookable series at a frame, and booking through the one
 // authorized operation, security.book_futures_option, which owns every booking rule.
-public sealed class FuturesOptionStore(PreviewManifest manifest)
+public sealed partial class FuturesOptionStore(PreviewManifest manifest)
 {
+    [System.Text.RegularExpressions.GeneratedRegex("^[0-9]+$")]
+    private static partial System.Text.RegularExpressions.Regex WholeLots();
     // The booking and valuation convention an option trade records.
     public const string Convention="futures_option_premium_v1";
     private static MarketDataException Input(string message)=>new("option_booking_input",message);
@@ -79,12 +81,16 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
         RequireConvention(body.Convention);
         if(body.KnowledgeMode!="current"||body.OperationId==Guid.Empty)throw Input("Booking needs explicit current knowledge and a stable operation identity.");
         if(string.IsNullOrWhiteSpace(body.Series)||body.Lots is null||body.Premium is null||body.PremiumStyle is null)throw Input("Supply the series, lots, premium and premium style explicitly.");
+        // The side states the direction; lots are an unsigned whole number, signed here for the booking operation.
+        if(body.Side is not("buy" or "sell"))throw Input("Choose an explicit buy or sell side.");
+        if(!WholeLots().IsMatch(body.Lots))throw Input("Supply the lots as an unsigned whole number; the side states the direction.");
+        var lots=ExactDecimal.Parse(body.Side=="sell"?"-"+body.Lots:body.Lots);
         if(!DateOnly.TryParseExact(body.PremiumPaymentDate,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var paymentDate))
             throw Input("Supply the premium payment date explicitly as a date.");
         TradeAnnotations.ValidateShape(null,null,body.Memo);
         await using var command=ScheduleStore.Command(connection,
             "SELECT security.book_futures_option($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)::text",
-            manifest.CatalogId,body.OperationId,body.BookId,manifest.RevisionId,body.Series,ExactDecimal.Parse(body.Lots).ToString(),ExactDecimal.Parse(body.Premium).ToString(),
+            manifest.CatalogId,body.OperationId,body.BookId,manifest.RevisionId,body.Series,lots.ToString(),ExactDecimal.Parse(body.Premium).ToString(),
             paymentDate,body.PremiumStyle,frame.At,DBNull.Value,Convention,DBNull.Value,DBNull.Value,body.Memo is {} memo?memo:DBNull.Value,
             TradeParties.Submitted(body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision));
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);

@@ -25,7 +25,9 @@ export function historyBooking(state:Annotation):(readonly [string,string])[]{
 
 // Shared trade header. Identity and dates are returned by the server, never read
 // from controls into a command. Each product editor owns its instrument quantity.
-export function tradeAnnotations(prefix:string,zone:()=>string){
+// An execution host, when given, takes the fields of the execution itself (counterparty, trade date, execution time and memo); the rest stay
+// in the trade terms host.
+export function tradeAnnotations(prefix:string,zone:()=>string,execution?:HTMLElement){
  const host=document.getElementById(prefix+'-trade-terms')!;
  const title=document.createElement('h3');title.textContent='Trade terms';
  function input(name:string,label:string,readonly=false){const wrap=document.createElement('div'),caption=document.createElement('label'),field=document.createElement('input');field.id=prefix+'-'+name;caption.htmlFor=field.id;caption.textContent=label;field.type='text';field.readOnly=readonly;wrap.append(caption,field);return{wrap,field};}
@@ -34,7 +36,8 @@ export function tradeAnnotations(prefix:string,zone:()=>string){
  const book=select('book','Book'),trader=input('trader','Trader',true),date=input('trade-date','Trade date',true),executed=input('executed','Execution time',true),entity=select('legal-entity','Legal entity'),party=select('counterparty','Counterparty');
  const provenance=document.createElement('p');provenance.className='field-help';provenance.hidden=true;
  const memoLabel=document.createElement('label'),memo=document.createElement('textarea');memo.id=prefix+'-memo';memoLabel.htmlFor=memo.id;memoLabel.textContent='Memo';memo.maxLength=4000;memo.rows=2;
- host.replaceChildren(title,row(book.wrap,entity.wrap,party.wrap),row(trader.wrap,date.wrap,executed.wrap),provenance,memoLabel,memo);
+ if(execution){host.replaceChildren(title,row(book.wrap,entity.wrap),row(trader.wrap),provenance);execution.replaceChildren(row(party.wrap),row(date.wrap,executed.wrap),memoLabel,memo);}
+ else host.replaceChildren(title,row(book.wrap,entity.wrap,party.wrap),row(trader.wrap,date.wrap,executed.wrap),provenance,memoLabel,memo);
  let initialMemo:string|null=null,executedAt:string|undefined;
  const key=(id:string,revision:number)=>JSON.stringify([id,revision]);
  function refresh(){executed.wrap.querySelector('label')!.textContent='Execution time · '+zone();executed.field.value=executedAt?displayInstant(executedAt,zone()):'Assigned when booked';}

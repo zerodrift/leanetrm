@@ -42,7 +42,17 @@ internal static class FuturesOptionBlotter
                 var trade=Guid.Parse(row["tradeId"]!.GetValue<string>());
                 if(reason is not null)row["unavailableReason"]=reason;
                 // A closed option binding holds no lots and is worth nothing; every valued binding has its value.
-                else row["presentValue"]=values.TryGetValue((trade,binding),out var value)?value.ToExactString():
+                else if(values.TryGetValue((trade,binding),out var value))
+                {
+                    row["presentValue"]=value.ToExactString();
+                    // An option is valued per contract and scaled by its signed open lots, so its value per contract is that value over them.
+                    if(row["component"]!.GetValue<string>()=="option")
+                    {
+                        var lots=ExactDecimal.Parse(row["openLots"]!.GetValue<string>());
+                        row["unitPresentValue"]=(lots.CompareTo(default)<0?value.Scale(ExactDecimal.Parse("-1")).DivideBy(-lots):value.DivideBy(lots)).ToExactString();
+                    }
+                }
+                else row["presentValue"]=
                     row["component"]!.GetValue<string>()=="option"&&row["openLots"]!.GetValue<string>()=="0"?"0":
                     throw new MarketDataException("option_portfolio","Every held option and premium binding must have exactly one value.");
             }

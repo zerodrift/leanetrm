@@ -9,6 +9,7 @@ from datetime import date
 from fractions import Fraction
 from uuid import uuid4
 from preview_client import PreviewClient
+from check_futures_option_lifecycle import side_lots
 
 OPTION = 'futures_option_premium_v1'
 TRADING = 'trading_workspace_v1'
@@ -64,7 +65,7 @@ def run_checks(url, query, manifest, *, run_worker):
 
     def book_option(option, lots, premium, into=book, paid=PAYMENT_DATE):
         return c.call('options/book', {'operationId': str(uuid4()), **booking, 'convention': OPTION, 'bookId': into, 'series': option['series'],
-                                       'lots': lots, 'premium': premium, 'premiumPaymentDate': paid,
+                                       **side_lots(lots), 'premium': premium, 'premiumPaymentDate': paid,
                                        'premiumStyle': 'premium_paid_up_front', **parties})
     futures_context = {**booking, 'convention': 'contract_lot_execution_pnl_v2'}
     crude = next(k for k in c.call('futures/catalog', futures_context)['contracts'] if k['curve'] == 'nymex_cl' and k['deliveryFrom'] == '2026-12-01')
@@ -107,9 +108,18 @@ def run_checks(url, query, manifest, *, run_worker):
         check(f'the {key} option row shows its series terms, booked lots, settlement and lifecycle from the backend',
               (row['instrumentType'], row['right'], row['strike'], row['expiryAt'], row['underlyingSeries'], row['lots'], row['settlement']) ==
               ('futures_option', option['right'], option['strike'], option['expiryAt'], option['underlyingSeries'], str(lots), option['settlementPrice']), row)
-    check('each option row states whether its product accepts contrary instructions, and why not in the backend\'s words',
-          all(option_row(k)['instructions'] == {'allowed': False, 'reason': 'This option product does not accept exercise or abandon instructions; expiry follows its automatic exercise rule.'}
-              for k in held) and all(premium_row(k)['instructions'] is None for k in held), option_row('on').get('instructions'))
+    contrary = {'allowed': False, 'reason': 'This option product does not accept exercise or abandon instructions; expiry follows its automatic exercise rule.'}
+    side = {'allowed': False, 'reason': 'Exercise and instructions apply to long holdings; assignment applies to short holdings.'}
+    allowed = {'allowed': True, 'reason': None}
+    check('each option row states the lifecycle actions open to its holding, each with the backend\'s reason when it is not',
+          [option_row(k)['actions'] for k in ('on', 'lo')] == [{'exercise': allowed, 'assignment': side, 'instruction': contrary},
+                                                               {'exercise': side, 'assignment': allowed, 'instruction': contrary}]
+          and [option_row(k)['closableLots'] for k in ('on', 'lo', 'deep')] == ['2', '1', '1']
+          and all(premium_row(k)['actions'] is None and premium_row(k)['closableLots'] is None for k in held),
+          [(option_row(k)['actions'], option_row(k)['closableLots']) for k in held])
+    check('each valued option row states its value per contract, which its open lots scale to its present value',
+          all(Fraction(option_row(k)['unitPresentValue']) * open_lots[k] == Fraction(option_row(k)['presentValue']) for k in held)
+          and all(premium_row(k)['unitPresentValue'] is None for k in held), [option_row(k)['unitPresentValue'] for k in held])
     check('solved options show their calibrated volatility; the deep in-the-money series is in the declared intrinsic mode',
           [option_row(k)['calibrationMode'] for k in ('on', 'lo', 'deep')] == ['solved', 'solved', FALLBACK_MODE]
           and option_row('on')['impliedVolatility'] and option_row('lo')['impliedVolatility'] and option_row('deep')['impliedVolatility'] is None,

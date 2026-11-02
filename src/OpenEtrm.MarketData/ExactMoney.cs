@@ -44,7 +44,7 @@ public sealed record ExactMoney
             throw new MarketDataException("quantity_mismatch","A unit value requires its exact external quantity basis.");
         return new(value * new SignedRatio(quantity.NumeratorValue, quantity.DenominatorValue), Currency);
     }
-    internal ExactMoney DivideBy(ExactDecimal divisor)
+    public ExactMoney DivideBy(ExactDecimal divisor)
     {
         if(divisor.CompareTo(default)<=0)throw new MarketDataException("numeric_division","An exact positive divisor is required.");
         return new(value * new SignedRatio(ExactDecimal.WorkingScale, divisor.ScaledValue), Currency);

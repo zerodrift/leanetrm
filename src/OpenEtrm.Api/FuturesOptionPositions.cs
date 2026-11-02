@@ -50,9 +50,22 @@ internal sealed record FuturesOptionPosition(JsonElement Head,JsonElement Book,J
         new(Trade,PremiumBinding,Revision,TradingReference.Trade(Head),Book.Id("id"),Book.Text("name"),FuturesOptionPositions.Type,
             Series.Text("curve_name"),Series.Text("delivery_from"),Series.Text("delivery_to"),Head.Text("premium_quantity"),Series.Text("currency"))];
 
-    // Whether the option's product accepts exercise or abandon instructions, and when it does not, why, in the refusal's own words.
-    private object Instructions=>Series.GetProperty("contrary_instructions_allowed").GetBoolean()?new{allowed=true,reason=(string?)null}
-        :new{allowed=false,reason=FuturesOptionStore.EventRefusal("option_contrary_instructions_not_accepted")};
+    // The lifecycle actions open to this holding, each with the refusal its operation would give when it is not: exercise and
+    // instructions for a long holding with open lots, assignment for a short one, and instructions only where the product accepts them.
+    // The operations still decide; this states their answer before the person asks.
+    private object Actions
+    {
+        get
+        {
+            var closed=OpenLots==default?(Head.GetProperty("expired").GetBoolean()?"option_expired":"option_holding_closed"):null;
+            object Action(string? refusal)=>new{allowed=refusal is null,reason=refusal is null?null:FuturesOptionStore.EventRefusal(refusal)};
+            var side="option_event_side";
+            return new{exercise=Action(closed??(Long?null:side)),assignment=Action(closed??(Long?side:null)),
+                instruction=Action(Series.GetProperty("contrary_instructions_allowed").GetBoolean()?closed??(Long?null:side):"option_contrary_instructions_not_accepted")};
+        }
+    }
+    // The open lots an exercise or assignment may close, unsigned: the side is the holding's.
+    private string ClosableLots=>(Long?OpenLots:-OpenLots).ToString();
 
     // A Blotter row of one binding, with its booked facts. The caller adds its valuation.
     internal JsonObject Row(bool option)=>JsonSerializer.SerializeToNode(new{
@@ -69,14 +82,14 @@ internal sealed record FuturesOptionPosition(JsonElement Head,JsonElement Book,J
         product=Series.Text("product_code"),series=SeriesKey.Code,right=Series.Text("option_right"),strike=Series.Text("strike"),
         expiryAt=Series.Instant("expiry_at").ToString("O",CultureInfo.InvariantCulture),underlyingSeries=Series.Text("underlying_series_code"),
         deliveryFrom=Series.Text("delivery_from"),deliveryTo=Series.Text("delivery_to"),
-        lots=Head.Text("lots"),openLots=OpenLots.ToString(),lifecycleState=LifecycleState,linkedFuturesTradeIds=LinkedFutures,instructions=option?Instructions:null,
+        lots=Head.Text("lots"),openLots=OpenLots.ToString(),lifecycleState=LifecycleState,linkedFuturesTradeIds=LinkedFutures,actions=option?Actions:null,closableLots=option?ClosableLots:null,
         quantity=option?OpenLots.ToString():Head.Text("premium_quantity"),unit=Series.Text(option?"unit":"currency"),quantitySpecification=option?LotQuantity:Currency,
         currency=Series.Text("currency"),currencyReference=Currency,quoteMultiplier=Series.Text("multiplier"),
         premium=Head.Text("premium"),premiumAmount=Head.Text("premium_quantity"),premiumPaymentDate=Head.Text("premium_payment_date"),cashState=(string?)null,
         executedAt=Head.Text("executed_at"),bookingFacts=new{implementation=Head.Text("booking_implementation"),labelCapturedAt=Head.Text("label_captured_at")},
         executionPrice=(string?)null,fixedPrice=(string?)null,mark=(string?)null,markMinusPrice=(string?)null,executionPnl=(string?)null,direction=(string?)null,
         settlement=(string?)null,impliedVolatility=(string?)null,calibrationMode=(string?)null,numericalPolicy=(string?)null,
-        measure=FuturesOptionPositions.Measure,measureLabel=FuturesOptionPositions.MeasureLabel,presentValue=(string?)null,unavailableReason=(string?)null
+        measure=FuturesOptionPositions.Measure,measureLabel=FuturesOptionPositions.MeasureLabel,presentValue=(string?)null,unitPresentValue=(string?)null,unavailableReason=(string?)null
     },TradingBlotter.Json)!.AsObject();
 }
 

@@ -539,7 +539,7 @@ BEGIN
   NOT security.reference_version_visible(contract_row.reference_catalog_id,contract_row.reference_revision_id) THEN RAISE EXCEPTION 'option_definition' USING ERRCODE='P0001';END IF;
  IF series_row.code IS NULL OR product.code IS NULL OR q.code IS NULL OR contract_row.expiry_at<>series_row.expiry_at
  THEN RAISE EXCEPTION 'option_definition' USING ERRCODE='P0001';END IF;
- IF product.premium_style='futures_style_margin' THEN RAISE EXCEPTION 'option_unsupported' USING ERRCODE='P0001';END IF;
+ IF product.premium_style='futures_style_margin' THEN RAISE EXCEPTION 'option_product_margined' USING ERRCODE='P0001';END IF;
  IF product.premium_style<>premium_style OR valuation>=series_row.expiry_at OR premium<q.minimum OR premium>q.maximum OR mod(premium,q.trading_tick)<>0
  THEN RAISE EXCEPTION 'option_booking_input' USING ERRCODE='P0001';END IF;
  SELECT(effective_from::timestamp AT TIME ZONE 'UTC') INTO definition_from FROM market_data.revision_periods
