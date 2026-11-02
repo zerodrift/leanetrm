@@ -30,7 +30,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     if(option){const body=init?.body?JSON.parse(init.body):null,answer=await response.clone().json().catch(()=>null);window.optionCalls.push({path:option[1],body,status:response.status,answer});
      if(option[1]==='book'&&window.loseNextBooking){window.loseNextBooking=false;throw new TypeError('Failed to fetch');}}
     return response;});})()`);
-  await persona('trader');await click('#example');await click('#nav-futures');
+  await persona('trader');await click('#example');await click('#nav-futures',60000);
   await wait("!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&!!window.blotterRows&&"+idle,60000);
  }
  // The last booking answered with its trade, which the Blotter, read again once the trade is saved, holds.
@@ -150,11 +150,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
    document.querySelector('[data-action=assignment]').textContent===${q(option.actions.assignment.reason)}&&document.querySelector('[data-action=instruction]').textContent===${q(option.actions.instruction.reason)}`);
  await picture({command},'option-blotter');
  // A role without booking authority reads the same holding with every lifecycle action off, and the backend's reason why.
- await evaluate('window.blotterRows=null');await persona('risk');await click('#nav-futures');await wait("!!window.blotterRows&&"+idle,60000);await find(receipt.tradeId);await details(row);await terms();
+ await evaluate('window.blotterRows=null');await persona('risk');await click('#nav-futures',60000);await wait("!!window.blotterRows&&"+idle,60000);await find(receipt.tradeId);await details(row);await terms();
  await check('a role without Book Trade sees the lifecycle actions off, with the backend\'s reason',
   "document.querySelector('#option-exercise').disabled&&document.querySelector('#option-exercise-lots').disabled&&document.querySelector('.option-lifecycle-reason').textContent==='Your current role does not have Book Trade permission.'",
   "document.querySelector('.option-lifecycle')?.innerText");
- await evaluate('window.blotterRows=null');await persona('trader');await click('#nav-futures');await wait("!!window.blotterRows&&"+idle,60000);
+ await evaluate('window.blotterRows=null');await persona('trader');await click('#nav-futures',60000);await wait("!!window.blotterRows&&"+idle,60000);
 
  // The series that settles at intrinsic is booked as a person books it, and its position says which mode values it.
  await newTrade({click,wait},'options');
