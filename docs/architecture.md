@@ -19,6 +19,13 @@ pre-delivery valuation and shared portfolio risk consume the original market
 identities. Separate-master delivery-to-cash remains unqualified and refuses;
 existing imported assignments keep their established workflow.
 
+D297 keeps physical master parameters separate in trade entry. Exact reference
+tables supply choices even without pricing coverage and even for singleton lists.
+Crude pricing is derived by the backend from the selected physical tuple and
+delivery interval; missing or ambiguous mappings refuse. Physical gas retains
+its product/pipeline/zone/location fields, and physical power retains its existing
+delivery location and unit fields. See [physical reference entry](crude-delivery-setups.md#physical-reference-entry).
+
 D271 introduces the bounded [fixed-volume physical crude](physical-crude.md)
 consumer for local implementation: exact grade/custody references, normalized
 physical and cash sides, retained executable booking, common trading views and
@@ -202,7 +209,7 @@ under the same authorization and temporal rules (D144).
 Reference inspection receives a server-declared source for each category: exact
 reference and definition revisions. The browser checks category pages and product
 reads against that source, profile and context, rather than assuming inspection
-uses the pricing bundle's reference revision (D297).
+uses the pricing bundle's reference revision (D298).
 
 A tab remembers only its current page identifier per workspace, example and
 account. Reload checks current navigation permissions before restoring it;

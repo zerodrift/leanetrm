@@ -224,14 +224,18 @@ public static class GasTicket
   ["quantity_stages"]=[new("receipt","Receipt"),new("delivery","Delivery"),new("fuel","Fuel")],
   ["link_formulas"]=[new("none","None"),new("gross_less_fraction","Gross less fraction"),new("gross_divided_by_one_plus_fraction","Gross divided by one plus fraction")]}.ToImmutableDictionary();
 
- // The eligible choices for one field, from the gas catalog read under the request's context and filtered by the draft's parent values.
+ public static bool PhysicalReferenceField(TicketDraft draft,string? side,string field)=>
+  Field(draft,side,field).Field.Choices is "pipelines" or "zones" or "delivery_points" or "gas_products";
+
+ // Physical choices use reference relationships, independently of valuation coverage.
  public static ImmutableArray<TicketChoice> Choices(TicketDraft draft,string? side,string field,JsonElement catalog)
  {
   var (target,f)=Field(draft,side,field);
   if(Fixed.TryGetValue(f.Choices??throw Bad($"Field '{field}' has no choice list."),out var fixedChoices))return fixedChoices;
   if(f.Choices=="physical_sides")return[..draft.Sides.Where(s=>s.Kind==Physical&&!(f.Id=="link_source"&&s==target)).Select(s=>new TicketChoice(s.Code,s.Code))];
-  if(target is not null)RequireSetup(draft,catalog);
-  var paths=catalog.GetProperty("locations").EnumerateArray().Where(l=>l.GetProperty("valuation").ValueKind!=JsonValueKind.Null).ToArray();
+  var physical=PhysicalReferenceField(draft,side,field);
+  if(target is not null&&!physical)RequireSetup(draft,catalog);
+  var paths=physical?catalog.GetProperty("physicalReferences").EnumerateArray().ToArray():[];
   IEnumerable<TicketChoice> Distinct(IEnumerable<JsonElement> rows,string code,string name)=>rows.Select(r=>new TicketChoice(r.Text(code),r.Text(name))).Distinct();
   IEnumerable<TicketChoice> Parties(string list)=>catalog.GetProperty(list).EnumerateArray().Select(p=>new TicketChoice($"{p.Text("id")}@{p.Text("revision")}",p.Text("name")));
   return[..f.Choices switch{

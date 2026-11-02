@@ -1,20 +1,21 @@
-// Presentation of the exact eligible tuples supplied by the managed catalog.
-// This does not infer a valuation setup or a compatible unit conversion.
-export const crudeReferenceFields=['commodity','grade','facility','custodyPoint','quantityCode','curve','clock'] as const;
+// Physical reference controls display database masters. Pricing resolution is a
+// managed operation; this module neither selects a mapping nor handles curves.
+export const crudeReferenceFields=['commodity','grade','facility','custodyPoint','quantityCode','clock'] as const;
 export type CrudeReferenceField=typeof crudeReferenceFields[number];
 export type CrudeSelection=Partial<Record<CrudeReferenceField,string>>;
-export type CrudeReference=Record<CrudeReferenceField,string>&{code:string;definitionRevisionId:string;commodityName:string;gradeName:string;facilityName:string;custodyPointName:string;quantityName:string;curveName:string;clockName:string};
-const labels={commodity:'commodityName',grade:'gradeName',facility:'facilityName',custodyPoint:'custodyPointName',quantityCode:'quantityName',curve:'curveName',clock:'clockName'} as const;
-export function crudeChoices<T extends CrudeReference>(rows:readonly T[],selected:CrudeSelection){
- return Object.fromEntries(crudeReferenceFields.map(field=>{
-  const eligible=rows.filter(row=>crudeReferenceFields.every(other=>other===field||!selected[other]||row[other]===selected[other]));
-  const choices=[...new Map(eligible.map(row=>[row[field],{value:row[field],label:row[labels[field]]}])).values()];
-  return[field,choices];
- })) as Record<CrudeReferenceField,{value:string;label:string}[]>;
+export type CrudeReferenceRow={code:string;name?:string;commodity_code?:string;quantity_code?:string;unit_code?:string;dimension_code?:string;symbol?:string;location_code?:string;standard_temperature?:string|number;temperature_scale?:string};
+export type CrudeReferenceData={catalogId:string;revisionId:string;commodities:CrudeReferenceRow[];grades:CrudeReferenceRow[];locations:CrudeReferenceRow[];deliveryPoints:{commodity_code:string;grade_code:string;facility_code:string;custody_point_code:string}[];quantities:CrudeReferenceRow[];units:CrudeReferenceRow[];clocks:CrudeReferenceRow[]};
+export function crudeChoices(references:CrudeReferenceData){
+ const commodities=new Set(references.grades.map(g=>g.commodity_code));
+ const facilities=new Set(references.deliveryPoints.map(r=>r.facility_code));
+ const custodyPoints=new Set(references.deliveryPoints.map(r=>r.custody_point_code));
+ const option=(r:CrudeReferenceRow)=>({value:r.code,label:r.name??r.code});
+ return{commodity:references.commodities.filter(r=>commodities.has(r.code)).map(option),grade:references.grades.map(option),
+  facility:references.locations.filter(r=>facilities.has(r.code)).map(option),custodyPoint:references.locations.filter(r=>custodyPoints.has(r.code)).map(option),
+  quantityCode:references.quantities.filter(r=>commodities.has(r.commodity_code)&&r.dimension_code==='volume').map(r=>({value:r.code,label:`${r.code} · ${references.units.find(u=>u.code===r.unit_code)?.symbol??r.unit_code}`})),
+  clock:references.clocks.map(option)};
 }
-export function crudeSelection<T extends CrudeReference>(rows:readonly T[],selected:CrudeSelection):T|undefined{
+export function crudeSelection(selected:CrudeSelection):Record<CrudeReferenceField,string>|undefined{
  if(crudeReferenceFields.some(field=>!selected[field]))return;
- const matches=rows.filter(row=>crudeReferenceFields.every(field=>row[field]===selected[field]));
- if(matches.length>1)throw Error('The selected references have ambiguous valuation bindings. Configure one exact binding.');
- return matches[0];
+ return Object.fromEntries(crudeReferenceFields.map(field=>[field,selected[field]!])) as Record<CrudeReferenceField,string>;
 }

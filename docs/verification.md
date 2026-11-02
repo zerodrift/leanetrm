@@ -1,5 +1,31 @@
 # Local verification and continuous integration
 
+## Separate physical references and derived crude pricing
+
+D297 was qualified locally on 2 November 2026 using owned disposable stock
+PostgreSQL clusters and isolated browser profiles. The API build had zero
+warnings; API schedule checks and all 1,211 frontend checks passed.
+
+`tools/run_preview.py --crude-setup-check --browser-check` passed native booking,
+retained reopen and worker risk oracles, missing/ambiguous/partial-overlap mapping
+refusals, source-pin bypass refusal at final SQL admission, exact reference
+namespace checks, and completed-command replay after conflicting publication.
+Observed storage waits followed by natural independent `ReadMarketData` expiry
+refused both raw crude/gas HTTP responses and the direct SQL resolver. Reapplying
+0173 over populated observations, bookings and retained programs preserved every
+captured business row and the completed native retry outcome. Thirteen setup and
+ticket browser checks passed, including explicit singleton selections, version
+reselection and stale asynchronous response rejection. A separate native gas
+browser check opened reference entry with no dated gas price frames.
+
+`--gas-setup-check --deal-ticket-check --browser-check` passed, including an
+unpriced reference path with no imported convention and its later explicit
+maintained pricing setup. `--ppa-bookings-check --browser-check` passed 55 browser
+checks and its exact API/worker oracles; valid unpriced power locations remain
+available and report missing valuation coverage. The existing crude lifecycle
+suite and its 47 browser checks also passed. These results establish the bounded
+local capability; production activation requires the qualified schema release.
+
 ## Joint risk admission and reports
 
 The D295 local qualification on 2 November 2026 passed 656 managed core checks,

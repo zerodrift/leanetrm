@@ -63,14 +63,44 @@ revision remains possible when the other current bindings are compatible with
 that scope; retained trades can continue to use earlier admitted revisions.
 A broader source-selection workflow remains planned.
 
+## Physical reference entry
+
+D297 keeps commodity, grade, facility, custody point, standard-volume
+specification and clock as separate dropdowns. Every master choice comes from
+the exact declared delivery reference tables. A singleton remains unselected
+until the user chooses it. Choices do not require a published pricing mapping,
+and an unmapped master is not removed to make pricing appear complete.
+
+`crude/references` reads those masters without selecting a market price frame.
+`crude/resolve` takes only the exact reference namespace, physical codes and
+delivery interval under the selected trading context. The managed operation and
+`security.resolve_crude_delivery` derive the source definition, assignment,
+setup and curve. Those outputs are read only in trade entry. Missing reference
+relationships, missing mapping, incomplete coverage or overlapping mappings
+produce structured refusals. A partially overlapping competing mapping is
+ambiguous even when another mapping covers the entire interval. Source hints
+never narrow the candidate set. Latest-known logical heads are selected before
+checking the authority of applicable tuple candidates; an unrelated delivery
+catalog does not gate that tuple.
+
+Physical gas continues to offer product, pipeline, zone and delivery point
+individually from the exact selected reference network. An imported convention
+or valuation mapping is not required to list a master path. Pricing and clock
+validation still use the selected versioned gas contract. Physical power's
+existing PPA energy side offers exact reference locations independently of
+valuation assignments and derives its valuation from the location. An unpriced
+valid location reports missing valuation coverage. Indexed cash sides retain
+their independent financial index terms. No new standalone power dimensions or
+cross-commodity parameter catalog are implied.
+
 ## Booking, retention and risk
 
-The crude ticket presents the authorized reference combinations. When several
-published bindings share the same displayed tuple, an explicit Delivery setup
-selection is required. The request retains `crudeSetupId`; a binding and setup
-cannot be mixed. Final database admission checks the native physical and cash
+The crude ticket presents separate authorized reference choices. A new booking
+retains the derived `crudeSetupId` and source pins; a binding and setup
+cannot be mixed or chosen to bypass ambiguity. Final database admission checks the native physical and cash
 graphs, exact setup, complete source terms, delivery coverage, and current
-published head. A competing publication invalidates a new booking under a stale
+published head, and repeats physical mapping resolution under the publication
+lock before accepting source pins. A competing publication invalidates a new booking under a stale
 head. An already admitted booking retry keeps its first outcome.
 
 The delivery assignment and physical side use explicit v2 economic contracts.
@@ -128,5 +158,6 @@ observations, native booking/reopen, stale-head refusal, corrected-source parity
 selected-trade and whole-book queued-worker risk parity, and permission
 revocation/recovery without following a hidden current head. Existing native crude and mixed-portfolio
 checks also run. Add `--browser-check --browser /path/to/browser` for authoring,
-post-commit coded-failure recovery across reloads, explicit ambiguous-binding
-selection, ticket booking and read-only-role checks.
+post-commit coded-failure recovery across reloads, separate explicit physical
+choices, rejection of stale asynchronous resolution, ticket booking and
+read-only-role checks.

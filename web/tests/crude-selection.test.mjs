@@ -1,16 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {crudeChoices,crudeSelection} from '../dist/crude-selection.js';
-const a={code:'a',definitionRevisionId:'revision',commodity:'crude',commodityName:'Crude',grade:'light',gradeName:'Light',facility:'west',facilityName:'West',custodyPoint:'dock',custodyPointName:'Dock',quantityCode:'bbl',quantityName:'Standard barrels',curve:'west_month',curveName:'West monthly',clock:'utc',clockName:'UTC'};
-const b={...a,code:'b',grade:'heavy',gradeName:'Heavy',facility:'east',facilityName:'East',custodyPoint:'tank',custodyPointName:'Tank',quantityCode:'m3',quantityName:'Standard cubic metres'};
-const rows=[a,b];
-test('separate crude reference choices filter only exact authorized tuples',()=>{
- const choices=crudeChoices(rows,{grade:'light'});assert.deepEqual(choices.facility.map(o=>o.value),['west']);assert.deepEqual(choices.quantityCode.map(o=>o.value),['bbl']);
- assert.deepEqual(crudeChoices(rows,{facility:'east'}).grade.map(o=>o.value),['heavy']);
- assert.deepEqual(crudeChoices(rows,{grade:'heavy',facility:'west'}).custodyPoint,[]);
+import {crudeChoices,crudeSelection,crudeReferenceFields} from '../dist/crude-selection.js';
+const refs={catalogId:'catalog',revisionId:'delivery',commodities:[{code:'crude',name:'Crude'}],
+ grades:[{code:'light',name:'Light',commodity_code:'crude'},{code:'unmapped',name:'Unmapped grade',commodity_code:'crude'}],
+ locations:[{code:'terminal',name:'Terminal'},{code:'new_dock',name:'New dock'},{code:'hub',name:'Unqualified hub'}],
+ deliveryPoints:[{commodity_code:'crude',grade_code:'light',facility_code:'terminal',custody_point_code:'new_dock'}],
+ quantities:[{code:'barrels',commodity_code:'crude',dimension_code:'volume',unit_code:'bbl'}],units:[{code:'bbl',symbol:'bbl'}],clocks:[{code:'utc'}]};
+test('physical parameters never include a trader-selected valuation curve',()=>{
+ assert.deepEqual([...crudeReferenceFields],['commodity','grade','facility','custodyPoint','quantityCode','clock']);
 });
-test('all independently selected terms identify one exact valuation binding, never a first match',()=>{
- assert.equal(crudeSelection(rows,{grade:'light'}),undefined);
- assert.equal(crudeSelection(rows,a),a);assert.equal(crudeSelection(rows,{...a,custodyPoint:'tank'}),undefined);
- assert.throws(()=>crudeSelection([a,{...a,code:'duplicate'}],a),/ambiguous/);
+test('separate controls offer reference masters without a precombined pricing tuple',()=>{
+ const choices=crudeChoices(refs);
+ assert.deepEqual(choices.grade.map(o=>o.value),['light','unmapped']);
+ assert.deepEqual(choices.facility.map(o=>o.value),['terminal']);
+ assert.deepEqual(choices.custodyPoint.map(o=>o.value),['new_dock']);
+ assert.equal(choices.quantityCode[0].label,'barrels · bbl');
+});
+test('one available reference never fills a missing physical choice',()=>{
+ assert.equal(crudeSelection({commodity:'crude',grade:'light'}),undefined);
+ assert.equal(crudeChoices(refs).clock.length,1);
+ assert.equal(crudeSelection({commodity:'crude',grade:'light',facility:'terminal',custodyPoint:'new_dock',quantityCode:'barrels'}),undefined);
+});
+test('physical selection sends no user-provided curve or binding override',()=>{
+ const selected={commodity:'crude',grade:'light',facility:'terminal',custodyPoint:'new_dock',quantityCode:'barrels',clock:'utc'};
+ assert.deepEqual(crudeSelection({...selected,curve:'override',crudeSetupId:'another'}),selected);
 });

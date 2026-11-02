@@ -93,7 +93,10 @@ internal sealed class PpaReads
                 if(attribute is null)continue;
                 var locations=binding.Instrument.NormalizationAssets.Select(a=>reference.Assets[a].Location).ToHashSet();
                 if(member.Side is PowerPhysicalSide physical && member.Side.Terms.Quantity is ProfileQuantity)locations.Add(physical.Location);
-                foreach(var assignment in assignments.Where(a=>a.Attribute==attribute && locations.Contains(a.Location) && a.From<binding.Coverage.To && a.To>binding.Coverage.From))Need(assignment.Curve,new(assignment.From>binding.Coverage.From?assignment.From:binding.Coverage.From,assignment.To<binding.Coverage.To?assignment.To:binding.Coverage.To),binding);
+                var applicable=assignments.Where(a=>a.Attribute==attribute && locations.Contains(a.Location) && a.From<binding.Coverage.To && a.To>binding.Coverage.From).ToArray();
+                if(!closeRiskInputs&&locations.Count>0&&applicable.Length==0)
+                    throw new MarketDataException("location_valuation_missing","No location/attribute valuation assignment covers the selected physical delivery.");
+                foreach(var assignment in applicable)Need(assignment.Curve,new(assignment.From>binding.Coverage.From?assignment.From:binding.Coverage.From,assignment.To<binding.Coverage.To?assignment.To:binding.Coverage.To),binding);
             }
         var snapshot=data.Snapshot(frame).WithKnowledge(knowledgeContext,resolvedKnowledge.KnownAt);var tou=await Tou(connection,data,frame,knowledgeContext,[],ct);
         var curves=ImmutableDictionary.CreateBuilder<CurveKey,PreparedCurve>();

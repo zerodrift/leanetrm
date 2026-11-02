@@ -51,12 +51,17 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
   return frame with{ObservationIds=pins,CurveContracts=contracts,
    FrozenObservationIds=selected.FrozenObservationIds is {} frozen?[..frozen]:[],OriginCloseId=null,SwapMarketSelections=null,PpaBundle=null};
  }
- private async Task<ReferenceRevision> DeliveryRevision(NpgsqlConnection c,CancellationToken ct)
+ internal async Task<ReferenceRevision> DeliveryRevision(NpgsqlConnection c,CancellationToken ct)
  {
   var definition=database.Manifest.ReferenceCatalog?.DefinitionRevisionId??database.Manifest.RevisionId;
   var row=One(await PreviewDatabase.Rows(c,"SELECT row_to_json(r)::text FROM market_data.revisions r WHERE(catalog_id,id)=($1,$2)",[Catalog,definition],ct));
   if(row.Text("state")!="sealed")throw Invalid("Delivery masters require a sealed declared reference bundle.");
-  return new(row.Id("reference_catalog_id"),row.Id("reference_revision_id"));
+  var revision=new ReferenceRevision(row.Id("reference_catalog_id"),row.Id("reference_revision_id"));
+  // A separately pinned definition may own a different reference catalog from
+  // the pricing bundle. Its immutable FK supplies that catalog identity.
+  var expected=database.Manifest.ReferenceCatalog?.ReferenceRevisionId??database.Manifest.ReferenceRevisionId;
+  if(revision.RevisionId!=expected)throw Invalid("The delivery master bundle does not match its declared exact reference revision.");
+  return revision;
  }
  public async Task<object> CatalogRead(NpgsqlConnection c,CancellationToken ct)
  {
@@ -81,7 +86,7 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
    """,[Catalog,Sources().ToArray()],ct);
   var versions=await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM market_data.crude_setup_versions v WHERE catalog_id=$1 ORDER BY publication_order DESC NULLS LAST,id LIMIT 100",[Catalog],ct);
   var clocks=await PreviewDatabase.Rows(c,"SELECT row_to_json(k)::text FROM ref_data.clock_rules k WHERE(catalog_id,revision_id)=($1,$2) AND kind='fixed_offset' AND fixed_offset_seconds=0 ORDER BY code",[revision.CatalogId,revision.RevisionId],ct);
-  return new{deliveryPoints=points,sources,clocks,versions,quantityPolicies=new[]{new{code=CrudeQuantityEquivalence.Policy,label="Same standard volume at 60°F · no conversion"}},
+  return new{deliveryReferences=await CrudeDeliveryReferences.Read(c,revision,ct),deliveryPoints=points,sources,clocks,versions,quantityPolicies=new[]{new{code=CrudeQuantityEquivalence.Policy,label="Same standard volume at 60°F · no conversion"}},
    canSave=await PreviewDatabase.HasPermission(c,"WriteMarketDefinitions",ct),canPublish=await PreviewDatabase.HasPermission(c,"SealMarketDefinitions",ct),
    scope="Maintain exact delivery-to-price bindings for pre-delivery crude booking and valuation. Booked contracts retain their exact setup and original pricing source. Delivery-to-cash for separate delivery masters remains unsupported."};
  }

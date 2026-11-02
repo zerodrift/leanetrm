@@ -26,7 +26,7 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  // Only static labels and generated numeric IDs enter markup; reference values use text/Option nodes.
  host.innerHTML=`<h3></h3><p class="ppa-link field-help"></p><div class="schedule-fields">
  <label data-section="quantity-choice">Amendment quantity source<select data-field="quantity-choice"></select></label><details class="ppa-retained-quantity" hidden><summary>Retained component quantity</summary><pre class="ppa-evidence"></pre></details><label>Component type<select data-field="side-kind"></select></label><label>Direction<select data-field="coefficient"><option value="">Choose…</option><option value="1">Receive</option><option value="-1">Pay</option></select></label>
- <label data-section="location">Valuation location<select data-field="location"></select></label>
+ <label data-section="location">Delivery location<select data-field="location"></select></label>
  <label data-section="fixed">Fixed price convention<select data-field="price-kind"></select></label>
  <label data-section="priced">Price quantity specification<select data-field="price-quantity"></select></label>
  <label data-section="priced">Quote multiplier<input data-field="multiplier" inputmode="decimal"></label>

@@ -49,6 +49,8 @@ UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{CAT}' AND id=
 DELIVERY_CATALOG = '10000000-0000-0000-0000-000000000169'
 DELIVERY_REVISION = '20000000-0000-0000-0000-000000000169'
 DELIVERY_DEFINITION = '60000000-0000-0000-0000-000000000169'
+UNRELATED_CATALOG = '10000000-0000-0000-0000-000000000173'
+UNRELATED_REVISION = '20000000-0000-0000-0000-000000000173'
 
 
 def prepare_delivery(market, manifest):
@@ -67,6 +69,9 @@ END$$;
 INSERT INTO ref_data.crude_grades SELECT catalog_id,revision_id,'synthetic_delivery_grade',commodity_code,'Synthetic delivery grade',quantity_code,standard_temperature,temperature_scale
  FROM ref_data.crude_grades WHERE(catalog_id,revision_id,code)=('{DELIVERY_CATALOG}','{DELIVERY_REVISION}','synthetic_grade_a');
 INSERT INTO ref_data.crude_delivery_points VALUES('{DELIVERY_CATALOG}','{DELIVERY_REVISION}','synthetic_crude','synthetic_delivery_grade','test_facility_a','test_delivery_point_a');
+INSERT INTO ref_data.crude_grades SELECT catalog_id,revision_id,'synthetic_unmapped_grade',commodity_code,'Unmapped delivery grade',quantity_code,standard_temperature,temperature_scale
+ FROM ref_data.crude_grades WHERE(catalog_id,revision_id,code)=('{DELIVERY_CATALOG}','{DELIVERY_REVISION}','synthetic_grade_a');
+INSERT INTO ref_data.crude_delivery_points VALUES('{DELIVERY_CATALOG}','{DELIVERY_REVISION}','synthetic_crude','synthetic_unmapped_grade','test_facility_a','test_delivery_point_a');
 UPDATE ref_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{DELIVERY_CATALOG}','{DELIVERY_REVISION}');
 INSERT INTO market_data.revisions VALUES('{CAT}','{DELIVERY_DEFINITION}','{DELIVERY_CATALOG}','{DELIVERY_REVISION}','draft',0);
 INSERT INTO market_data.revision_periods VALUES('{CAT}','{DELIVERY_DEFINITION}','2020-01-01','2022-01-01');
@@ -75,4 +80,5 @@ COMMIT;
 """
     manifest = {**manifest, 'referenceCatalog': {'referenceRevisionId': DELIVERY_REVISION, 'definitionRevisionId': DELIVERY_DEFINITION,
                 'tables': ['crude_grades', 'crude_delivery_points']}}
-    return market + sql, manifest
+    unrelated=sql.replace(DELIVERY_CATALOG,UNRELATED_CATALOG).replace(DELIVERY_REVISION,UNRELATED_REVISION).replace(DELIVERY_DEFINITION,'60000000-0000-0000-0000-000000000173').replace('synthetic_crude_delivery','synthetic_unrelated_delivery')
+    return market + sql + unrelated, manifest

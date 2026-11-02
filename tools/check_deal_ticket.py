@@ -170,13 +170,13 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     draft={'product':'physical_gas','version':1,'trade':trade,'sides':[{'kind':'physical','code':'physical','values':physical},
            {'kind':'cash','code':'cash','values':charge('cash','receive','3.412')},{'kind':'fee','code':'fee','values':charge('fee','pay','0.045')}]}
 
-    # Choices: a zone lists only its pipeline's valued zones and needs the pipeline; points follow the zone.
-    valued=[l for l in cat['locations'] if l['valuation'] is not None]
-    pipelines={l['pipeline'] for l in valued};assert len(pipelines)>1,pipelines
+    # Physical choices follow only the exact selected reference relationships, including unpriced points.
+    paths=cat['physicalReferences']
+    pipelines={l['pipeline'] for l in paths};assert len(pipelines)>1,pipelines
     assert set(choices(context,draft,'physical','pipeline'))==pipelines
     zones=choices(context,draft,'physical','zone')
-    assert set(zones)=={l['zone'] for l in valued if l['pipeline']==p['pipeline']} and not set(zones)&{l['zone'] for l in valued if l['pipeline']!=p['pipeline']},zones
-    assert set(choices(context,draft,'physical','delivery_point'))=={l['deliveryPoint'] for l in valued if (l['pipeline'],l['zone'])==(p['pipeline'],p['zone'])}
+    assert set(zones)=={l['zone'] for l in paths if l['pipeline']==p['pipeline']} and not set(zones)&{l['zone'] for l in paths if l['pipeline']!=p['pipeline']},zones
+    assert set(choices(context,draft,'physical','delivery_point'))=={l['deliveryPoint'] for l in paths if (l['pipeline'],l['zone'])==(p['pipeline'],p['zone'])}
     unpiped={**draft,'sides':[{**draft['sides'][0],'values':{k:v for k,v in physical.items() if k!='pipeline'}},*draft['sides'][1:]]}
     refused('tickets/choices',{'context':context,'draft':unpiped,'side':'physical','field':'zone'},'ticket_input')
     refused('tickets/choices',{'context':context,'draft':None,'side':'physical','field':'zone'},'ticket_input')
@@ -310,8 +310,8 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     d=next(l for l in cat['locations'] if l['deliveryPoint']==retired)
     at_d=lambda setup_id:{**draft,'trade':{**{k:v for k,v in trade.items() if k!='gas_setup'},**setup(setup_id)},'sides':[{**draft['sides'][0],'values':{**physical,'pipeline':d['pipeline'],'zone':d['zone'],'delivery_point':retired,'product':d['product']}}]}
     assert retired in choices(retained,at_d(cat['gasSetupId']),'physical','delivery_point')
-    assert retired not in choices(context,at_d(later),'physical','delivery_point')
-    refused('tickets/choices',{'context':context,'draft':at_d(cat['gasSetupId']),'side':'physical','field':'delivery_point'},'ticket_input')
+    assert retired in choices(context,at_d(later),'physical','delivery_point'), 'Removing a pricing path does not remove its master reference'
+    assert retired in choices(context,at_d(cat['gasSetupId']),'physical','delivery_point'), 'Physical choices do not select a pricing setup'
     then=lookup(retained,at_d(cat['gasSetupId']),'physical','price')
     assert then['value'] and then['source']['label']==f"{d['deliveryPointName']} · close 2020-12-18",then
     c.call('profile',{'profile':'editor'});publish(original,later)

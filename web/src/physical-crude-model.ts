@@ -6,12 +6,12 @@ export type CrudeFields={deliveryFrom:string;deliveryTo:string;quantity:string;d
 
 // Presentation binding only: native operations validate the selected reference,
 // delivery geometry, units, price convention and all numerical behavior.
-export function crudeRequest(context:Record<string,unknown>,header:Record<string,unknown>,assignment:{code:string;definitionRevisionId:string;crudeSetupId?:string|null}|undefined,profile:CrudeProfile|undefined,fields:CrudeFields):Record<string,unknown>{
+export function crudeRequest(context:Record<string,unknown>,header:Record<string,unknown>,assignment:{code:string;definitionRevisionId:string;crudeSetupId?:string|null;physical?:unknown}|undefined,profile:CrudeProfile|undefined,fields:CrudeFields):Record<string,unknown>{
  if(!assignment)throw Error('Choose the exact physical delivery reference.');
  if(!profile)throw Error('Choose an explicit contract profile.');
  if(!['none','per_unit'].includes(fields.feeMode))throw Error('Choose whether a handling fee applies.');
  if(fields.feeMode==='per_unit'&&(!fields.handlingFee||!['pay','receive'].includes(fields.handlingFeeDirection)))throw Error('Enter the fee and its independent direction.');
- return{...context,...header,...(assignment.crudeSetupId?{crudeSetupId:assignment.crudeSetupId}:{}),convention:crudeConvention,knowledgeMode:'current',definitionRevisionId:assignment.definitionRevisionId,assignmentCode:assignment.code,
+ return{...context,...header,...(assignment.physical?{physical:assignment.physical}:{}),...(assignment.crudeSetupId?{crudeSetupId:assignment.crudeSetupId}:{}),convention:crudeConvention,knowledgeMode:'current',definitionRevisionId:assignment.definitionRevisionId,assignmentCode:assignment.code,
   profile:profile.code,quantityBasis:profile.quantityBasis,tolerance:profile.tolerance,discounting:profile.discounting,
   deliveryFrom:instant(fields.deliveryFrom),deliveryTo:instant(fields.deliveryTo),quantity:fields.quantity,direction:fields.direction,
   fixedPrice:fields.fixedPrice,considerationDirection:fields.considerationDirection,paymentAt:instant(fields.paymentAt),

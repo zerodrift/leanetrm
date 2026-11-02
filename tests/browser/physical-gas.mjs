@@ -1,9 +1,20 @@
 // Physical gas is entered in the deal ticket (docs/deal-ticket.md). These are its entry checks beside the deal ticket scenario's: one gas
-// entry in New trade, the side the direction belongs to, the market date, points filtered by their zone, no point without a valuation mapping
+// entry in New trade, the side the direction belongs to, the market date, points filtered by their zone, unpriced reference points
 // and a usage tariff proposed for a fee. The gas setup editor follows.
 import {closeNewTrade,newTrade} from './new-trade.mjs';
 import {blotterAt,decemberClose,gasTicket,q} from './gas-ticket.mjs';
 import {run as gasSetup} from './gas-setup.mjs';
+
+export async function runReferenceOnly(actions){
+ const {command,wait,check,persona,idle,url}=actions;
+ const {ticket,control,choose}=gasTicket(actions);
+ await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
+ await newTrade(actions,'gas');await wait(`document.querySelectorAll(${q(ticket+' .ticket-card')}).length===2`);
+ for(const [id,value] of [['product','test_gas'],['pipeline','test_pipeline_a'],['zone','synthetic_gas_zone_b']])await choose('physical-1',id,value);
+ await wait(`document.querySelectorAll(${q(control('physical-1','delivery_point')+' option')}).length===2`);
+ await check('gas reference entry opens without any dated gas price frame and keeps its singleton point explicit',
+  `document.querySelector(${q(control('physical-1','delivery_point'))}).value===''&&!document.querySelector(${q(control('physical-1','delivery_point'))}).disabled&&!document.querySelector('#gas-curve')`);
+}
 
 export async function run(actions){
  const {command,evaluate,wait,set,check,persona,shot,idle,url}=actions;
@@ -32,8 +43,8 @@ export async function run(actions){
 
  await choose('physical-1','zone','synthetic_gas_zone_a');
  await wait(`${listed('physical-1','delivery_point')}.includes('synthetic_gas_point_a')`);
- await check('a point without a valuation mapping is not offered, so no gas side is entered that cannot be priced',
-  `!${listed('physical-1','delivery_point')}.includes('synthetic_gas_point_unpriced')`,listed('physical-1','delivery_point'));
+ await check('an unpriced delivery point remains a reference choice',
+  `${listed('physical-1','delivery_point')}.includes('synthetic_gas_point_unpriced')`,listed('physical-1','delivery_point'));
 
  // A delivery-stage fee without a manual price is offered the one usage tariff that covers its side, by the tariff's configured name.
  await physicalTerms('physical-1','receive','1000');

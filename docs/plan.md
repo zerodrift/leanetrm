@@ -4,6 +4,14 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D297 separates physical reference choices from pricing coverage in crude, gas
+and the existing physical PPA consumer. Crude entry has individual master fields
+and derives its unique pricing mapping in the backend. Missing or overlapping
+mappings refuse; retained trades keep their admitted source. Migration 0173 adds
+the final booking guard and needs a separately qualified release. Standalone
+physical power dimensions, LNG/cargo, saved Incoterms and fee catalogs remain
+subsequent work. See [the entry contract](crude-delivery-setups.md#physical-reference-entry).
+
 D289 adds the [Risk results workspace](risk-workspace.md): Risk-owned setup,
 shared sensitivity ladders/heatmaps and drill-through, visible incomplete coverage,
 retained report links, and multipart submission recovery. The bounded recent-job
@@ -1718,7 +1726,7 @@ capacity, arbitrary REC inventory and composed break-even/monthly settlement
 remain outside this contract. Production activation remains separate.
 
 
-### Page restoration and Blotter reuse (D297)
+### Page restoration and Blotter reuse (D298)
 
 Reference category sources are declared by the server and validated independently
 of pricing definitions. Reload restores the current permitted page, with explicit
@@ -1738,4 +1746,4 @@ shared deal precision, workspace reference labels and all current context-captur
 source streams. New input streams must extend this head before their values are
 eligible for browser reuse. This increment does not persist values across reload,
 introduce a shared pricing cache or subscribe ordinary working pages to live
-corrections. Migration 0173 requires normal qualified schema release handling.
+corrections. Migration 0174 requires normal qualified schema release handling.
