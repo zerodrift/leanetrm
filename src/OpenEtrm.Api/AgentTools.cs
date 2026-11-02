@@ -108,6 +108,7 @@ public sealed class TurnWrites
 // truncated, with the navigation targets it issues; Navigate checks its target's page in such a context.
 public sealed partial class AgentTools(PreviewDatabase database,MarketReads market,ScheduleReads schedules,PartyReads parties,TradeReads trades,ILogger logger)
 {
+    internal AssistantWorkspace? Workspace {get;init;}
     const string Uuid="^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
     static readonly ImmutableArray<string> MarketData=["ReadMarketData"];
 
@@ -170,6 +171,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             """,MarketData),
         ..CurveTools,
         JobTool,
+        ..WorkspaceTools,
         Tool("navigate","Requests a move of the user to a page, or to what a read in this turn showed. Every read result names a target handle for its "+
             "own view, and each curve and trade it lists names one too. Send page, with target null, to open a page as it opens; or send a handle as "+
             "target, with page null. Ordinary moves keep the knowledge and As of frame pinned when the question was asked. Curve proposals instead request explicit review of an unpriced draft under the user's current header, retaining the proposal's origin dates. Say where it leads.",
@@ -221,7 +223,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new("custom_curves.save_draft_v1","save_custom_curve_draft",ToolNeeds.CurrentOnlyFrame,MarketAccess,[]),
         new("jobs.list_v1","read_jobs",ToolNeeds.Operational,JobAccess,[]),
         new("jobs.history_v1","read_jobs",ToolNeeds.Operational,JobAccess,["job_not_found"])
-    }.ToImmutableDictionary(o=>o.Id);
+    }.Concat(WorkspaceOperations).ToImmutableDictionary(o=>o.Id);
     internal static ToolOperation Operation(string id)=>Operations[id];
     // Navigate reads no page: the accesses its check runs under are those of its target's page.
     static readonly ToolOperation Navigation=new(NavigationTargets.Operation,"navigate",ToolNeeds.View,_=>[],[]);
@@ -239,6 +241,10 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         var members=new ToolInput(input);
         switch(tool)
         {
+            case "read_workspace_page":
+            case "discover_page_operations":
+            case "read_page_operation":
+            case "propose_page_action":return ParseWorkspace(tool,members);
             case "read_custom_curves":members.Exactly();return new(Operations["custom_curves.catalog_v1"],new NoArguments());
             case "prepare_custom_curve":
                 members.Exactly("code","name","engine","formula");
@@ -315,6 +321,10 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     // structured refusal this table does not name carries the generic sentence.
     static readonly ImmutableDictionary<string,string> Texts=new Dictionary<string,string>
     {
+        ["approval_required"]="Prepare a proposal and ask the user to review and authorize it in the application. No business change was saved.",
+        ["operation_unavailable"]="That operation is not available through this application's assistant catalog.",
+        ["operation_context_mismatch"]="This request must use the exact knowledge and market frame pinned for the question. Prepare it again after changing context.",
+        ["operation_refused"]="The ordinary page operation refused this request. Inspect its input contract and supply complete authorized terms.",
         ["tool_arguments_invalid"]="The request's arguments are not ones this tool accepts: they do not match its input schema, name a target handle no "+
             "read in this turn returned, or name a page this agent cannot open for the user. Correct them and ask again.",
         ["page_not_supported"]="The page this question was asked from is not one the assistant reads, so nothing was read from it.",
@@ -408,6 +418,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         try
         {
             (call,dispatched)=Requested(turn,request);
+            if(turn.Pin.Operational&&call.Operation.Needs!=ToolNeeds.Operational&&call.Arguments is not WorkspaceArguments and not NavigateArguments)
+                throw new ToolRefusal("context_required");
             if(call.Arguments is SaveCurveArguments draft&&DraftRefusal(turn,draft) is {} refusal)throw new ToolRefusal(refusal);
             Require(turn.Pin,call.Operation.Needs);
         }
@@ -420,7 +432,10 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             if(!turn.Pin.Working&&PageReports.Operations(target.Page).Any(o=>Operations[o].Needs==ToolNeeds.Operational))return Before("jobs_current_only",input);
             return await Navigate(turn,tool,input!.Value,target,ct);
         }
-        if(call.Arguments is SaveCurveArguments save)return await SaveStep(turn,targets,tool,input!.Value,call,save,writes,ct);
+        // No model tool can save business data. Existing agent versions naming the old draft writer receive an
+        // explicit refusal and must prepare an ordinary command for a separate human approval.
+        if(call.Arguments is SaveCurveArguments)return Before("approval_required",input);
+        if(call.Arguments is WorkspaceArguments workspace)return await RunWorkspace(turn,targets,tool,input!.Value,call,workspace,ct);
         var operation=call.Operation;
         var access=operation.Access(database.Manifest);
         DateTimeOffset? readAt=null;
@@ -474,7 +489,17 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         var access=NavigationTargets.Access(target.Page,database.Manifest);
         DateTimeOffset? checkedAt=null;
         bool opens;
-        try{opens=await database.WithAgent(turn.Agent,turn.ReadLimit,NavigationTargets.Permissions(target.Page),at=>checkedAt=at,(connection,c)=>Opens(connection,access,c),ct);}
+        try
+        {
+            if(PageReports.Tool(target.Page)=="read_workspace_page"||turn.Tools.Contains("read_workspace_page")&&!turn.Tools.Contains(PageReports.Tool(target.Page)))
+            {
+                if(Workspace is null)return Unopened();
+                _=await database.WithAgent(turn.Agent,turn.ReadLimit,[AssistantOperations.Permission],at=>checkedAt=at,(_,_)=>Task.FromResult(true),ct);
+                access=await Workspace.SourceAccess(turn,ct);
+                opens=AssistantWorkspace.CanOpen(target.Page,access.Select(a=>a.Permission));
+            }
+            else opens=await database.WithAgent(turn.Agent,turn.ReadLimit,NavigationTargets.Permissions(target.Page),at=>checkedAt=at,(connection,c)=>Opens(connection,access,c),ct);
+        }
         catch(Exception e)
         {
             var (code,end)=Classify(e);
@@ -523,6 +548,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         {
             null=>throw new ToolRefusal("page_not_supported"),
             {Call:null}=>throw new ToolRefusal("page_selection_unavailable"),
+            {Page:var page,Call:{} call} read when!turn.Tools.Contains(call.Operation.Tool)&&turn.Tools.Contains("read_workspace_page")=>
+                (Parse("read_workspace_page",JsonSerializer.SerializeToElement(new{page})),read),
             {Call:{} call} when!turn.Tools.Contains(call.Operation.Tool)=>throw new ToolRefusal("tool_not_enabled"),
             {Call:{} call} read=>(call,read)
         };

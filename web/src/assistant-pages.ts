@@ -18,12 +18,13 @@ export type EntryShown={product:'futures'|'swaps'|'ppa'|'gas'|'crude'|null};
 /** What PPA bookings shows: the inspected trade's revision, else the book whose PPA trades it lists, else neither. */
 export type PpaShown={trade:{tradeId:string;revision:number}|null;book:string|null};
 // What a web page shows, as the page's own state names it.
-export type PageState=
+export type WorkspaceSelection={operation:string;inputJson:string};
+export type PageState=(
   {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
-  |{page:'risk'|'dashboard'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'};
+  |{page:'risk'|'dashboard'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'})&{assistant?:WorkspaceSelection};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null}
@@ -61,15 +62,15 @@ export function pageReport(state:PageState):PageReport{
     case 'jobs':return {page:'jobs',selection:state.job?{view:'history',job:state.job,page:null,before:null}:{view:'jobs',job:null,page:0,before:null}};
     case 'futures':{
       const layout:BlotterLayoutShown={pane:{...state.pane},poppedOut:state.poppedOut};
-      if(state.risk)return {page:'blotter_risk',selection:{},layout};
-      if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:{},layout};
-      if(!state.trade&&state.lens==='risk')return {page:'blotter_risk_lens',selection:{},layout};
+      if(state.risk)return {page:'blotter_risk',selection:state.assistant??{},layout};
+      if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:state.assistant??{},layout};
+      if(!state.trade&&state.lens==='risk')return {page:'blotter_risk_lens',selection:state.assistant??{},layout};
       const t=state.trade,v=state.view,pivot=v.mode==='pivot';
       return {page:'blotter',layout,selection:t?{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:t.tradeId,instrumentType:t.instrumentType,revision:t.revision}
         :{view:'blotter',mode:v.mode,bookIds:[...v.bookIds],portfolioIds:[...v.portfolioIds],groupBy:pivot?[...v.groupBy]:[],measures:pivot?[...v.measures]:[],
           tradeId:null,instrumentType:null,revision:null}};
     }
-    default:return {page:unsupported[state.page],selection:{}};
+    default:return {page:unsupported[state.page],selection:state.assistant??{}};
   }
 }
 
@@ -77,8 +78,8 @@ export function pageReport(state:PageState):PageReport{
 export const lookingKey=({report,context}:{report:PageReport;context:PageContext})=>JSON.stringify([report.page,report.selection,report.layout??null,context]);
 
 // The knowledge an ask pins: working data only at a chosen As of frame, the selected historical view with or without one.
-export function askKnowledge(context:PageContext){
-  if(context.mode==='unapplied'||context.mode==='current'&&!context.frameId)return undefined;
+export function askKnowledge(context:PageContext,page?:string){
+  if(context.mode==='unapplied'||context.mode==='current'&&!context.frameId&&!['users_access','settings_ai','jobs','risk_jobs','delivery_prices','interval_series'].includes(page??''))return undefined;
   return context.mode==='current'?{mode:'current',contextId:null,frameId:context.frameId}:{mode:'retained',contextId:context.contextId,frameId:context.frameId};
 }
 
@@ -91,7 +92,7 @@ const counted=(n:number,noun:string)=>`${n} ${noun}${n===1?'':'s'}`;
 const joined=(names:string[])=>names.length>1?`${names.slice(0,-1).join(', ')} and ${names.at(-1)}`:names[0];
 export type Names={curve:(code:string)=>string;table:(code:string)=>string};
 
-const unsent='The assistant does not read a trade being entered.';
+const unsent='The assistant can inspect available terms, preview explicit drafts and prepare changes for your authorization.';
 function shows(report:PageReport,names:Names,trade?:string){
   const s=report.selection;
   switch(report.page){
@@ -111,15 +112,15 @@ function shows(report:PageReport,names:Names,trade?:string){
     case 'jobs':return s.view==='history'?'The history of the job whose details are open':'Your jobs. Other people’s jobs are not sent.';
     case 'ppa':return `${s.view==='trade'?`Inspected PPA trade, revision ${s.revision}`:(s.bookIds as string[]).length?'PPA trades of the selected book'
       :'No PPA trades are listed yet: load a book’s PPA trades to ask about them'}. Read at the As of date and knowledge cutoff of the context below, not this page’s own.`;
-    case 'blotter_risk':return 'The assistant does not read risk results.';
-    case 'blotter_risk_lens':return 'Risk results on the trade rows. The assistant does not read risk results.';
+    case 'blotter_risk':return 'Risk operations and calculations under the pinned context.';
+    case 'blotter_risk_lens':return 'Risk operations for the trade rows under the pinned context.';
     case 'blotter_new_trade':return `A new trade is being started: no product is chosen yet. ${unsent}`;
     case 'blotter_new_future':return `A new future is being entered. ${unsent}`;
     case 'blotter_new_swap':return `A new swap is being entered. ${unsent}`;
-    case 'blotter_new_ppa':return `A new PPA is being entered. ${unsent}`;
-    case 'blotter_new_crude':return `A new physical crude trade is being entered. ${unsent}`;
-    case 'blotter_new_gas':return `A new physical gas trade is being entered. ${unsent}`;
-    default:return 'The assistant does not read this page.';
+    case 'blotter_new_ppa':return 'A new PPA is being entered. The assistant does not read a trade being entered.';
+    case 'blotter_new_crude':return 'A new physical crude trade is being entered. The assistant does not read a trade being entered.';
+    case 'blotter_new_gas':return 'A new physical gas trade is being entered. The assistant does not read a trade being entered.';
+    default:return ['dashboard','gas_setup','physical_gas','physical_crude'].includes(report.page)?'The assistant does not read this page.':'Authorized page operations, reads and previews. Changes require your authorization.';
   }
 }
 function contextLine(context:PageContext){
@@ -139,11 +140,12 @@ export function lookingAt(report:PageReport,context:PageContext,names:Names,extr
   // book, has nothing to be asked from.
   const named=!(report.page==='reference_data'&&report.selection.table===''||report.page==='ppa'&&report.selection.view==='ppa_book'&&!(report.selection.bookIds as string[]).length);
   return {page:pageNames[report.page],shows:shows(report,names,extra.trade),...(report.layout?{layout:layoutLine(report.layout)}:{}),context:contextLine(context),supported:readPages.includes(report.page)||unopened.includes(report.page),
-    askable:named&&askKnowledge(context)!==undefined};
+    askable:named&&askKnowledge(context,report.page)!==undefined};
 }
 
 // A target changes context when its pinned knowledge or As of frame is not what the page has selected.
 export function changesContext(target:TargetContext,page:PageContext){
+  if(target.mode==='operational')return page.mode!=='current';
   if(page.mode==='unapplied')return true;
   return target.mode==='current'?page.mode!=='current'||page.frameId!==target.frameId
     :page.mode!=='retained'||page.contextId!==target.contextId||page.frameId!==target.frameId;
@@ -153,7 +155,8 @@ export function changesContext(target:TargetContext,page:PageContext){
 export const targetAction=(target:{live:boolean;changesContext:boolean;unsaved:boolean;review?:boolean})=>target.live&&!target.changesContext&&!target.unsaved&&!target.review?'move':'go';
 
 const webPages:Record<string,string>={curves:'market',contract_definitions:'configuration',schedules:'schedules',power_tous:'power',reference_data:'reference',
-  parties:'parties',blotter:'futures',custom_curves:'custom-curves',jobs:'jobs'};
+  parties:'parties',blotter:'futures',custom_curves:'custom-curves',jobs:'jobs',risk_jobs:'risk',delivery_prices:'delivery',interval_series:'interval-series',
+  interval_curves:'interval-curves',users_access:'admin',settings_ai:'ai',blotter_risk:'futures',blotter_risk_lens:'futures',blotter_new_trade:'futures',blotter_new_future:'futures',blotter_new_swap:'futures'};
 // The web page a target opens: only one the assistant reads.
 export function webPage(page:string){if(!Object.hasOwn(webPages,page))throw inconsistent();return webPages[page];}
 
@@ -169,7 +172,8 @@ export class NavigationHistory{
 }
 
 const toolNames:Record<string,string>={read_current_page:'Read the page',read_market_data:'Read market data',read_trades:'Read trades',
-  read_trade_parties:'Read trade parties',read_schedules:'Read schedules',read_reference_data:'Read reference data',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',save_custom_curve_draft:'Save curve draft',read_jobs:'Read your jobs',navigate:'Navigate'};
+  read_trade_parties:'Read trade parties',read_schedules:'Read schedules',read_reference_data:'Read reference data',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',save_custom_curve_draft:'Prepare curve draft',read_jobs:'Read your jobs',navigate:'Navigate',
+  read_workspace_page:'Read workspace page',discover_page_operations:'Inspect available operations',read_page_operation:'Read or preview page data',propose_page_action:'Prepare change for authorization'};
 const reasons:Record<string,string>={tool_arguments_invalid:'the request was not one this tool accepts',result_too_large:'the result was larger than one read returns',
   page_not_supported:'the assistant does not read the page you asked from',tool_not_enabled:'this agent does not read the page you asked from',
   page_selection_unavailable:'what the page showed is not available in the pinned context',snapshot_missing:'it needs an As of date, and none was chosen',

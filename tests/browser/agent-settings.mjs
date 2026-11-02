@@ -31,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const sent=path=>`window.__requests.filter(r=>r.path==='/api/settings/ai/agents/${path}')`;
   const shown="!document.querySelector('#error').hidden&&document.querySelector('#error').textContent";
   const retained="Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.ai.agents.request.'))";
-  const tabs="['usage','models','providers','agents'].filter(t=>!document.querySelector('#ai-tab-'+t).hidden).join()";
+  const tabs="['usage','models','providers','agents','prompts'].filter(t=>!document.querySelector('#ai-tab-'+t).hidden).join()";
   const open=(agent=name)=>evaluate(`[...document.querySelectorAll('#ai-agent-table tbody tr')].find(r=>r.cells[0].textContent===${JSON.stringify(agent)}).cells[0].querySelector('button').click()`).then(()=>wait(idle));
   const tick=(group,values)=>evaluate(`(()=>{for(const box of document.querySelectorAll('#${group} input[type=checkbox]'))box.checked=${JSON.stringify(values)}.includes(box.value);})()`);
   const agentsTab=async()=>{await click('#nav-ai');await click('#ai-tab-agents');};
@@ -56,8 +56,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('an identity holding only ManageModelProviders is offered Models & prices and Providers alone',
     `${tabs}==='models,providers'&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-agents').hidden&&document.querySelector('#error').hidden`);
   await persona(manager);await click('#nav-ai');
-  await check('an access administrator is offered all four tabs, opening on Models & prices',
-    `${tabs}==='usage,models,providers,agents'&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-agents').hidden`);
+  await check('an access administrator is offered all five tabs, opening on Models & prices',
+    `${tabs}==='usage,models,providers,agents,prompts'&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-agents').hidden`);
   await click('#ai-tab-agents');
   await check('the Agents tab states what a save, Publish and Retire do',
     "!document.querySelector('#ai-agents').hidden&&document.querySelector('#ai-models').hidden&&/draft/.test(document.querySelector('#ai-agents').textContent)&&/Retire is permanent/.test(document.querySelector('#ai-agents').textContent)");
@@ -73,8 +73,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `(async()=>{const d=await(await window.__originalFetch('/api/settings/ai/agents')).json(),o=[...document.querySelector('#ai-agent-model').options];`
     +"return o[0].value===''&&o.length===d.models.length+1&&d.models.every((m,i)=>o[i+1].value===m.id&&o[i+1].textContent.endsWith('capability version '+m.version))"
     +`&&o.some(x=>x.value===${JSON.stringify(added.id)}&&x.textContent==='Browser agent model · ${identifier} (Anthropic) · capability version 1')`
-    +"&&JSON.stringify([...document.querySelectorAll('#ai-agent-roles input')].map(b=>b.value))==='[\"market_data_editor\",\"risk_analyst\",\"trader\"]'"
-    +"&&document.querySelectorAll('#ai-agent-tools input').length===11&&document.querySelector('#ai-agent-caching').value==='';})()");
+    +"&&JSON.stringify([...document.querySelectorAll('#ai-agent-roles input')].map(b=>b.value))==='[\"access_administrator\",\"market_data_editor\",\"risk_analyst\",\"trader\"]'"
+    +"&&document.querySelectorAll('#ai-agent-tools input').length===15&&document.querySelector('#ai-agent-caching').value==='';})()");
   await check('the form states the limits the API passes',"document.querySelector('#ai-agent-instructions-help').textContent==='Up to 6,000 characters, in lines.'&&document.querySelector('#ai-agent-grant-help').textContent==='Up to 90 days.'");
   await fill({caching:''});
   const before=await evaluate(`${sent('save')}.length`);
@@ -124,7 +124,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +"return new Response(JSON.stringify(d),{status:200,headers:{'Content-Type':'application/json'}});}");
   const offered="JSON.stringify([...document.querySelectorAll('#ai-agent-roles input')].map(b=>[b.value,b.checked]))";
   const leftOut="!document.querySelector('#ai-agent-roles-note').hidden&&document.querySelector('#ai-agent-roles-note').textContent==='A save leaves out risk_analyst: only roles that use agents can be allowed.'"
-    +`&&${offered}==='[["market_data_editor",false],["trader",true]]'`;
+    +`&&${offered}==='[["access_administrator",false],["market_data_editor",false],["trader",true]]'`;
   await click('#ai-agents-refresh');
   await check('a refresh names a chosen role that no longer uses agents, and no longer offers it',leftOut);
   await open();
@@ -132,7 +132,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `${leftOut}&&document.querySelector('#ai-agent-draft').textContent.includes('risk_analyst (no longer uses agents)')`);
   await evaluate('window.__dropRole=false');await click('#ai-agents-refresh');
   await check('a role that uses agents again is offered still chosen, and the note is gone',
-    `document.querySelector('#ai-agent-roles-note').hidden&&${offered}==='[["market_data_editor",false],["risk_analyst",true],["trader",true]]'`);
+    `document.querySelector('#ai-agent-roles-note').hidden&&${offered}==='[["access_administrator",false],["market_data_editor",false],["risk_analyst",true],["trader",true]]'`);
   await click('#ai-agent-publish');
   await check('Publish publishes the newest version, and the audit records it',
     `(()=>{const r=${row('ai-agent-table',name)};return r&&r[1]==='Active'&&r[2]==='Version 1'&&r[3]==='Version 1'&&r[4]==='Browser agent model · ${identifier} (Anthropic)';})()`

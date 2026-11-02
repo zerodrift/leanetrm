@@ -12,7 +12,7 @@ type Receipt={requestId:string;seriesId:string;revision:number;intervals:number}
 type Reading={series:{id:string};knownAt:string;head:number;rows:{start:string;end:string;value:string;revision:number}[]};
 type ChangeLog={series:{id:string};revisions:{revision:number;actor:string;reason:string;knownFrom:string;intervals:number;intervalsInWindow:number}[];
   rows:{start:string;end:string;revision:number;previousRevision:number|null;previousValue:string|null;value:string|null;actor:string;reason:string;knownFrom:string}[]};
-type Shown={scope:string;current:boolean;reading:Reading;log:ChangeLog};
+type Shown={scope:string;current:boolean;reading:Reading;log:ChangeLog;request:unknown};
 type Interval={start:string;label:string;value:string};
 type Staged=Interval&{withdraw:boolean};
 type Holder={path:string;pending:PendingCommand;suffix:string;panel:string;retry:string;discard:string;done:(receipt:Receipt,command:RequestCommand)=>Promise<void>};
@@ -137,7 +137,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
    throw Error('The series values are missing or inconsistent. Reload and try again.');
   const current=request.knownAt===catalog!.knownAt;
   if(current)latest={seriesId:selected.id,head:reading.head};
-  shown={scope:JSON.stringify([o.identity(),selected.id,request.from,request.to,request.knownAt]),current,reading,log};
+  shown={scope:JSON.stringify([o.identity(),selected.id,request.from,request.to,request.knownAt]),current,reading,log,request};
   render();
  }
 
@@ -232,6 +232,7 @@ export function setupIntervalSeries(o:{api:Api;act:(work:()=>Promise<void>)=>Pro
  }
 
  return{
+  assistant:()=>shown?{operation:'interval-series.values_v1',inputJson:JSON.stringify({body:shown.request,parameters:{}})}:undefined,
   sync,unconfirmed:()=>holders.some(h=>!!h.pending.command),
   async load(){
    // A failed read leaves an empty page, never the previous visit's catalog.

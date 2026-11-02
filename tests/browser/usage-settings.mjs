@@ -33,7 +33,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const day=offset=>new Date(Date.now()+offset*86400000).toISOString().slice(0,10),from=day(-1),to=day(2);
   const shown="!document.querySelector('#error').hidden&&document.querySelector('#error').textContent";
   const sent=path=>`window.__requests.filter(r=>r.path==='/api/settings/ai/usage${path}')`;
-  const tabs="['usage','models','providers','agents'].filter(t=>!document.querySelector('#ai-tab-'+t).hidden).join()";
+  const tabs="['usage','models','providers','agents','prompts'].filter(t=>!document.querySelector('#ai-tab-'+t).hidden).join()";
   const retained="Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.ai.usage.request.'))";
   const audit="(await(await window.__originalFetch('/api/settings/ai/usage')).json()).audit";
   const auditRows="[...document.querySelectorAll('#ai-usage-audit tbody tr')].map(r=>[...r.cells].map(c=>c.textContent))";
@@ -55,8 +55,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +"&&JSON.stringify([...document.querySelector('#ai-usage-by').options].map(o=>[o.value,o.textContent]))==='[[\"\",\"Choose a grouping…\"],[\"model\",\"Model\"],[\"user\",\"User\"],[\"agent\",\"Agent\"]]'"
     +"&&document.querySelector('#ai-usage-from').value===''&&document.querySelector('#ai-usage-to').value===''&&document.querySelector('#ai-usage-report').hidden");
   await persona(manager);await click('#nav-ai');
-  await check('an access administrator is offered all four tabs, Usage first, and still opens on Models & prices',
-    `${tabs}==='usage,models,providers,agents'&&document.querySelector('.tabs[aria-label="AI settings"] .ai-tab').id==='ai-tab-usage'&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-usage').hidden`);
+  await check('an access administrator is offered all five tabs, Usage first, and still opens on Models & prices',
+    `${tabs}==='usage,models,providers,agents,prompts'&&document.querySelector('.tabs[aria-label="AI settings"] .ai-tab').id==='ai-tab-usage'&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-usage').hidden`);
 
   // The zone starts as Profile's and stays as chosen.
   await persona(labeled);

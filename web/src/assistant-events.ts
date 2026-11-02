@@ -1,7 +1,7 @@
 // The events of a turn as the panel reads them (docs/ai-assistant.md §8): stored events under their fixed names, each
 // with its sequence, turn, hidden marker and a payload of one closed shape, and the stream's replaced and refused. The
 // panel accepts nothing else: anything it cannot read closes the stream, which then reads the turn again.
-export type TargetContext={mode:'current'|'retained';contextId:string;frameId:string|null};
+export type TargetContext={mode:'current'|'retained'|'operational';contextId:string|null;frameId:string|null};
 export type Target={page:string;selection:Record<string,unknown>|null;context:TargetContext;kind:'page'|'record'|'filter'|'proposal'|'draft';label:string};
 export type Dimension={count:number;unknownCalls:number};
 export type Usage={calls:number;uncachedInput:Dimension;cacheRead:Dimension;cacheWrite:Dimension;output:Dimension;reasoning:Dimension;
@@ -13,8 +13,8 @@ export type StreamItem=TurnEvent|{kind:'replaced'}|{kind:'refused';code:string;m
 
 const stored:readonly string[]=['accepted','step','navigation','text','usage','completed','failed','cancelled','interrupted'];
 const terminal:readonly string[]=['completed','failed','cancelled','interrupted'];
-export const tools:readonly string[]=['read_current_page','read_market_data','read_trades','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate'];
-export const readPages:readonly string[]=['curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter','custom_curves','jobs'];
+export const tools:readonly string[]=['read_current_page','read_market_data','read_trades','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate','read_workspace_page','discover_page_operations','read_page_operation','propose_page_action'];
+export const readPages:readonly string[]=['curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter','custom_curves','jobs','risk_jobs','delivery_prices','interval_series','interval_curves','users_access','settings_ai','blotter_risk','blotter_risk_lens','blotter_new_trade','blotter_new_future','blotter_new_swap'];
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,codePattern=/^[a-z][a-z0-9_]{0,63}$/,decimal=/^-?[0-9]+(\.[0-9]+)?$/;
 
 const unreadable=()=>Error('The assistant’s stream sent an event the panel cannot read.');
@@ -36,7 +36,7 @@ function target(value:unknown):Target{
   const t=exactly(value,['page','selection','context','kind','label']),c=exactly(t.context,['mode','contextId','frameId']);
   require(typeof t.page==='string'&&readPages.includes(t.page)&&(t.kind==='page'||t.kind==='record'||t.kind==='filter'||t.kind==='proposal'||t.kind==='draft')
     &&(t.kind==='page'?t.selection===null:isObject(t.selection))&&(t.kind!=='record'||t.page==='curves'||t.page==='blotter'||t.page==='jobs')
-    &&(c.mode==='current'||c.mode==='retained')&&id(c.contextId)&&(c.frameId===null||id(c.frameId))
+    &&(c.mode==='operational'?c.contextId===null&&c.frameId===null:(c.mode==='current'||c.mode==='retained')&&id(c.contextId))&&(c.frameId===null||id(c.frameId))
     &&typeof t.label==='string'&&t.label.length>=1&&t.label.length<=200&&!/[\u0000-\u001f\u007f-\u009f]/.test(t.label));
   // A proposal opens a preparation step for review, and a draft the curve a save step saved (D260): each names exactly its turn and step.
   if(t.kind==='proposal'||t.kind==='draft'){const p=exactly(t.selection,['turnId','step']);require(t.page==='custom_curves'&&id(p.turnId)&&positive(p.step));}

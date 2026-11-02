@@ -16,6 +16,7 @@ public sealed class TurnPin
     public Guid ContextId {get;}
     public DateTimeOffset Cutoff {get;}
     public InputFrame? Frame {get;}
+    public bool Operational {get;private init;}
 
     // The record as start_turn answers it: the turn's context and its frame's pins, for this scope's catalog. A record the
     // worker cannot read is a defect, never a reason to read another context.
@@ -23,6 +24,12 @@ public sealed class TurnPin
     {
         try
         {
+            if(context.GetProperty("mode").GetString()=="operational")
+            {
+                if(catalog!=manifest.CatalogId||context.GetProperty("contextId").ValueKind!=JsonValueKind.Null||
+                    context.GetProperty("frameId").ValueKind!=JsonValueKind.Null||pins.ValueKind!=JsonValueKind.Null)throw Unreadable();
+                return new(true,Guid.Empty,context.GetProperty("cutoff").GetDateTimeOffset(),null){Operational=true};
+            }
             var working=context.GetProperty("mode").GetString() switch{"current"=>true,"retained"=>false,_=>throw Unreadable()};
             var id=context.GetProperty("contextId").GetGuid();
             var frameId=context.GetProperty("frameId") is {ValueKind:JsonValueKind.String} named?named.GetGuid():(Guid?)null;

@@ -187,7 +187,7 @@ static class AgentToolChecks
             "a version's switched-on tools are offered in the fixed order, Navigate after the read tools, a version without tools offers none, "+
             "and Show card is not offered");
         var permissions=AgentTools.Tools.ToDictionary(t=>t.Name,t=>string.Join(",",t.Permissions));
-        Require(permissions.Count==11&&permissions["save_custom_curve_draft"]=="ReadMarketData,WriteMarketDefinitions"&&permissions["read_jobs"]=="ReadJobs"&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
+        Require(permissions.Count==15&&permissions["save_custom_curve_draft"]=="ReadMarketData,WriteMarketDefinitions"&&permissions["read_jobs"]=="ReadJobs"&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
             &&permissions["read_trades"]=="ReadMarketData,ReadTrades"&&permissions["read_trade_parties"]=="ReadMarketData,ReadTradeParties"
             &&permissions["read_schedules"]=="ReadMarketData"&&permissions["read_reference_data"]=="ReadMarketData"&&permissions["navigate"]=="",
             "each tool reads under exactly the permissions the database lists for it (assistant.agent_tools), and Navigate needs none of its own");
@@ -202,11 +202,11 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v10"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
+        Require(RuntimeSet.Turns=="turns_v11"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
             &&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
-            "turns_v10 bounds a tool read by its agent version's time per read, at most 30 seconds, and its turn's deadline (D245), gives no command of a read less, bounds tool results and keeps a workspace's turns below its agent pools");
+            "turns_v11 bounds a tool read by its agent version's time per read, at most 30 seconds, and its turn's deadline (D245), gives no command of a read less, bounds tool results and keeps a workspace's turns below its agent pools");
         Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
-            "require every member they state, and their permissions; turns_v10 bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
+            "require every member they state, and their permissions; turns_v11 bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";
@@ -393,7 +393,7 @@ static class AgentToolChecks
             ("read_reference_data","""{"table":"units","search":null}"""),("read_market_data","""{"view":"curve","curve":"\ud800"}"""),
             ("read_current_page","{}"),("navigate","{}"),("navigate","""{"page":"blotter"}"""),("navigate","""{"target":"n1"}"""),
             ("navigate","""{"page":null,"target":null}"""),("navigate","""{"page":"blotter","target":"n1"}"""),
-            ("navigate","""{"page":"settings_ai","target":null}"""),("navigate","""{"page":"Blotter","target":null}"""),("navigate","""{"page":1,"target":null}"""),
+            ("navigate","""{"page":"unknown_page","target":null}"""),("navigate","""{"page":"Blotter","target":null}"""),("navigate","""{"page":1,"target":null}"""),
             ("navigate","""{"page":null,"target":"n0"}"""),("navigate","""{"page":null,"target":"n01"}"""),("navigate","""{"page":null,"target":"N1"}"""),
             ("navigate","""{"page":null,"target":"1"}"""),("navigate","""{"page":null,"target":"n"}"""),("navigate","""{"page":null,"target":"n1234567890"}"""),
             ("navigate","""{"page":null,"target":" n1"}"""),("navigate","""{"page":null,"target":1}"""),("navigate","""{"page":null,"target":"n1","extra":null}"""),
@@ -444,14 +444,16 @@ static class AgentToolChecks
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"risk_jobs","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","blotter_new_ppa","blotter_new_gas","blotter_new_crude","gas_setup","physical_gas","physical_crude","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
+        var unsupported=new[]{"blotter_new_ppa","blotter_new_gas","blotter_new_crude","gas_setup","physical_gas","physical_crude"};
+        var workspace=new[]{"risk_jobs","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
-                .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs","ppa"}.Order()),
-            "the closed set names one id per navigable view, with each coverage row the assistant reads and each it does not");
-        foreach(var page in unsupported)
+                .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs","ppa"}.Concat(workspace).Order()),
+            "the closed set keeps newer product reports while enabling the workspace operation pages");
+        foreach(var page in unsupported.Concat(workspace))
         {
             PageReports.Require(Json(Report(page,"{}")));
-            Require(PageReports.Dispatch(Json(Report(page,"{}"))) is null,$"{page} is reported with no selection and read as unsupported");
+            var read=PageReports.Dispatch(Json(Report(page,"{}")));
+            Require(workspace.Contains(page)?read is {Call.Operation.Id:"workspace.page_v1"}:read is null,$"{page} follows its declared read boundary");
         }
         Console.WriteLine("PASS a page report names one page of the closed set, a supported page's selection in its read tool's input for a view it "+
             "shows and an unsupported page's none, and dispatches that read");
@@ -475,7 +477,7 @@ static class AgentToolChecks
         Require(call.Operation.Id=="market_data.curve_v1"&&call.Arguments==new CurveArguments("future")&&dispatched is {Page:"curves"}&&own.Operation.Id=="market_data.curves_v1"&&ownDispatched is null,
             "Read current page dispatches the stored report's read with its selection; another tool reads its own input");
         Require(Code(()=>AgentTools.Requested(Turn(curve,"read_current_page"),Current()))=="tool_not_enabled"
-            &&Code(()=>AgentTools.Requested(Turn("""{"page":"users_access","selection":{}}""","read_current_page","read_market_data"),Current()))=="page_not_supported"
+            &&Code(()=>AgentTools.Requested(Turn("""{"page":"users_access","selection":{}}""","read_current_page","read_market_data"),Current()))=="tool_not_enabled"
             &&Code(()=>AgentTools.Requested(Turn("""{"page":"curves","selection":{"view":"curve"}}""","read_current_page","read_market_data"),Current()))=="page_selection_unavailable"
             &&Code(()=>AgentTools.Requested(Turn(curve,"read_current_page","read_market_data"),Current("""{"page":"curves"}""")))=="tool_arguments_invalid",
             "Read current page takes no input, refuses an unsupported page page_not_supported, a stored selection it cannot read page_selection_unavailable "+
@@ -507,7 +509,7 @@ static class AgentToolChecks
             PageReports.Require(Json(Laid(page,selection)));
         Require(PageReports.Dispatch(Json(Laid("blotter",Blotter))) is {Page:"blotter",Call.Operation.Id:"trades.blotter_v1",Layout:{Details:true,Charts:false,PoppedOut:true}}
             &&PageReports.Dispatch(Json(Laid("blotter",trade,""" "layout":{"pane":{"details":false,"charts":true},"poppedOut":false}"""))) is {Layout:{Details:false,Charts:true,PoppedOut:false}}
-            &&PageReports.Dispatch(Json(Report("blotter",Blotter))) is {Call:not null,Layout:null}&&PageReports.Dispatch(Json(Laid("blotter_risk","{}"))) is null,
+            &&PageReports.Dispatch(Json(Report("blotter",Blotter))) is {Call:not null,Layout:null}&&PageReports.Dispatch(Json(Laid("blotter_risk","{}"))) is {Call.Operation.Id:"workspace.page_v1",Layout:{Details:true,Charts:false,PoppedOut:true}},
             "the Blotter's pages take its layout, which the read the report dispatches keeps; a report without one names none");
         Console.WriteLine("PASS the Blotter's page report may say which of its panes are open and whether it is popped out, and its read keeps that");
 
@@ -797,7 +799,10 @@ static class AgentToolChecks
 
         var names=new Dictionary<string,string>{["curves"]="Curves & prices",["contract_definitions"]="Contract definitions",["schedules"]="Schedules",
             ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter",["custom_curves"]="Curve builder",
-            ["jobs"]="Jobs & Infrastructure"};
+            ["jobs"]="Jobs & Infrastructure",["risk_jobs"]="Risk",["delivery_prices"]="Delivery prices",["interval_series"]="Interval data",
+            ["interval_curves"]="Hourly / sub-hourly curves",["users_access"]="Users & access",["settings_ai"]="AI settings",
+            ["blotter_risk"]="Blotter risk",["blotter_risk_lens"]="Blotter risk lens",["blotter_new_trade"]="New trade",
+            ["blotter_new_future"]="New futures trade",["blotter_new_swap"]="New swap"};
         Require(PageReports.Navigable.Order().SequenceEqual(names.Keys.Order())
             &&names.All(n=>NavigationTargets.Page(n.Key) is {Kind:"page",Selection:null} target&&target.Page==n.Key&&target.Label==n.Value),
             "a page target names one of the seven pages the assistant reads with no selection, the page as it opens, labeled with the page's name");

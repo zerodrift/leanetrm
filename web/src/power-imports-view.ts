@@ -27,6 +27,7 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
  const select=(name:typeof filterNames[number])=>get<HTMLSelectElement>('delivery-price-'+name);
  const from=get<HTMLInputElement>('delivery-price-from'),through=get<HTMLInputElement>('delivery-price-through');
  const overlays=get<HTMLDetailsElement>('delivery-price-overlays');
+ let assistantSelection:{operation:string;inputJson:string}|undefined;
  let catalog:Catalog|undefined,generation=0,session=0,chosenBy:ChosenBy='opening',menu:OverlayCatalog|undefined,requests:OverlayRequest[]=[],chart:TimeChart|undefined;
  let menuControls:ReturnType<typeof overlayMenu>|undefined;
  const firstDate=createAvailableDatePicker(get('delivery-price-from-calendar'),{id:'delivery-price-from-picker',label:'Delivery date from',busy:options.busy,onChange:date=>{from.value=date;syncDates();changed();}});
@@ -68,7 +69,7 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
  }
  // Puts away the prices on screen; a read that was under way is no longer shown.
  function clearShown(){
-  generation++;chart?.dispose();chart=undefined;
+  generation++;assistantSelection=undefined;chart?.dispose();chart=undefined;
   get('delivery-price-results').replaceChildren();get('delivery-price-head').hidden=true;tiles([]);empty(pending());
  }
  // A change of the person's: the range is theirs from now on, and is read when they choose Show prices.
@@ -88,6 +89,7 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
   const cutoff=await known.instant();
   const result=await options.api<Period>('power-imports/period',{...range,knownAt:cutoff,...(asked.length?{overlays:asked}:{})});
   if(catalog!==owner||generation!==started)return;
+  assistantSelection={operation:'power-imports.period_v1',inputJson:JSON.stringify({body:{...range,knownAt:cutoff,...(asked.length?{overlays:asked}:{})},parameters:{}})};
   // Overlays are asked for only from the menu, so a read with any to answer has the catalog they were chosen from.
   const drawn=shownMenu?answeredOverlays(asked,result.overlays,shownMenu):result.overlays===undefined?[]:(()=>{throw Error('The chart overlays do not match the ones chosen. Apply them again.');})();
   const points=periodChart(result),zone=options.zone(),rows=result.rows;
@@ -130,6 +132,7 @@ export function setupPowerImports(options:{zone:()=>string;api:<T>(path:string,b
   catalog=undefined;clearShown();get('delivery-price-attempts').replaceChildren();get('delivery-price-jobs').textContent='';get('delivery-price-known').textContent='';
  }
  return {
+  assistant:()=>!get('delivery-price-prices').hidden?assistantSelection:undefined,
   sync(){menuControls?.sync(options.busy());known.refresh();firstDate.sync();lastDate.sync();for(const name of filterNames)select(name).disabled=options.busy()||select(name).options.length<2;},
   reset(){session++;reading=false;known.clear();forget();menu=undefined;menuControls=undefined;requests=[];get('delivery-price-overlay-menu').replaceChildren();overlays.open=false;overlaySummary();
    for(const name of filterNames)select(name).replaceChildren();filters();tabs.mark('prices');show('prices');},

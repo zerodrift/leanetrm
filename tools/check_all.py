@@ -70,6 +70,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('standard preview and browser', [*preview, '--browser-check', '--browser', str(browser)], suite='standard')
     preview_check('isolated party maintenance and power browser', [*preview, '--party-check', '--browser-check', '--browser', str(browser)])
     preview_check('isolated page-assistant administration and browser', [*preview, '--assistant-check', '--browser-check', '--browser', str(browser)], suite='assistant')
+    preview_check('assistant page operations, approvals and guidance', [*preview, '--assistant-workspace-check'], suite='assistant')
     preview_check('isolated units and deal precision browser', [*preview, '--unit-check', '--browser-check', '--browser', str(browser)])
     preview_check('independent swap sides, spreads and reviewed par pricing', [*preview, '--draft-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('shared booking workflow and mixed gas portfolio', [*preview, '--unified-trading-check', '--browser-check', '--browser', str(browser)], suite='trading')
