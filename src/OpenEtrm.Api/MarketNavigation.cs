@@ -21,7 +21,7 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
     public object? Live{get;init;}
 
     // Interval curves are listed by the interval-curve screen, and futures-option settlement curves by their options,
-    // not here.
+    // not here. A curve that mixes option contracts with others has no classification and fails the read.
     internal static async Task<ImmutableArray<NavigationCurve>> ReadCurves(NpgsqlConnection connection,PreviewManifest manifest,CancellationToken ct)
     {
         var curves=ImmutableArray.CreateBuilder<NavigationCurve>();
@@ -43,7 +43,7 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
                 coalesce(m.futures,0),coalesce(m.forwards,0),c.rule,c.direct_role
             FROM market_data.curves c LEFT JOIN members m ON m.curve_code=c.code
                 LEFT JOIN ref_data.commodities r ON(r.catalog_id,r.revision_id,r.code)=($3,$4,c.commodity_code)
-            WHERE c.catalog_id=$1 AND c.revision_id=$2 AND coalesce(m.intervals,0)=0 AND coalesce(m.options,0)=0 ORDER BY c.code
+            WHERE c.catalog_id=$1 AND c.revision_id=$2 AND coalesce(m.intervals,0)=0 AND(coalesce(m.options,0)=0 OR m.options<>m.total) ORDER BY c.code
             """,manifest.CatalogId,manifest.RevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId))
         await using(var reader=await command.ExecuteReaderAsync(ct))
         {

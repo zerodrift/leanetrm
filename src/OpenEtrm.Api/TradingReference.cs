@@ -9,5 +9,6 @@ internal static class TradingReference
 {
     private static string Format(string prefix,JsonElement row,string field)=>prefix+int.Parse(row.Text(field),CultureInfo.InvariantCulture).ToString("D6",CultureInfo.InvariantCulture);
     public static string Trade(JsonElement row)=>Format("TR-",row,"trade_reference");
-    public static string Instrument(JsonElement row)=>Format("IN-",row,"instrument_reference");
+    public static string Instrument(JsonElement row)=>Instrument(row,"instrument_reference");
+    public static string Instrument(JsonElement row,string field)=>Format("IN-",row,field);
 }

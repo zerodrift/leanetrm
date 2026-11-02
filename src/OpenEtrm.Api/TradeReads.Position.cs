@@ -18,7 +18,7 @@ internal sealed record TradePositionSelection(Guid TradeId,Guid BindingId,int Re
     internal static TradePositionSelection From(TradePositionReadRequest request)
     {
         if(request.Context is null||request.TradeId==Guid.Empty||request.BindingId==Guid.Empty||request.Revision is <1 or >256||
-            request.InstrumentType is not("future" or "financial_swap" or "heat_rate" or "ppa" or "physical_gas" or "physical_crude"))
+            request.InstrumentType is not("future" or "financial_swap" or "heat_rate" or "ppa" or "physical_gas" or "physical_crude" or FuturesOptionPositions.Type))
             throw new MarketDataException("position_request","Select an exact trade, binding, revision and supported instrument type.");
         return new(request.TradeId,request.BindingId,request.Revision,request.InstrumentType);
     }

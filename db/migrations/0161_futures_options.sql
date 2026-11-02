@@ -84,12 +84,14 @@ CREATE TABLE ref_data.trading_close_times (
  FOREIGN KEY(catalog_id,revision_id,source_code) REFERENCES ref_data.sources(catalog_id,revision_id,code)
 );
 
--- A local date and time on a reference clock as an instant. The local time must exist and be unambiguous on that date.
+-- A local date and time on a reference clock as an instant. The clock must be visible to the caller, and the local time
+-- must exist and be unambiguous on that date.
 CREATE FUNCTION ref_data.local_instant(catalog uuid,revision uuid,clock text,local_time time,day date) RETURNS timestamptz
 LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
 DECLARE c ref_data.clock_rules;local_at timestamp=day+local_time;at timestamptz;
 BEGIN
  SELECT * INTO c FROM ref_data.clock_rules WHERE(catalog_id,revision_id,code)=(catalog,revision,clock);
+ IF c.code IS NULL THEN RAISE EXCEPTION 'close_time_clock';END IF;
  IF c.kind='fixed_offset' THEN RETURN (local_at AT TIME ZONE 'UTC')-make_interval(secs=>c.fixed_offset_seconds);END IF;
  at=local_at AT TIME ZONE c.iana_zone;
  IF (at AT TIME ZONE c.iana_zone)<>local_at OR ((at-interval '1 hour') AT TIME ZONE c.iana_zone)=local_at
@@ -832,5 +834,25 @@ DO $$BEGIN
  IF EXISTS(SELECT 1 FROM assistant.agent_tools() WHERE 'BookTrade'=ANY(permissions) OR 'AmendTrade'=ANY(permissions))
   OR EXISTS(SELECT 1 FROM security.role_permissions r JOIN security.roles o ON o.id=r.role_id WHERE o.code='agent_reader' AND r.permission IN('BookTrade','AmendTrade'))
  THEN RAISE EXCEPTION 'futures_options: agents cannot book' USING ERRCODE='55000';END IF;
+END$$;
+-- Retained portfolio risk jobs read option holdings as the trading reads do: workers keep every runtime authority and
+-- history predicate of these tables, plus their bound lease.
+DO $$DECLARE item record;policy record;table_name text;BEGIN
+ FOR item IN SELECT * FROM(VALUES
+  ('trading',ARRAY['futures_option_references','cash_payment_instruments','futures_option_trade_revisions','futures_option_events'])
+ )tables(schema_name,names) LOOP
+  FOREACH table_name IN ARRAY item.names LOOP
+   IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE schemaname=item.schema_name AND tablename=table_name
+    AND 'openetrm_runtime'=ANY(roles) AND cmd IN('SELECT','ALL') AND permissive='PERMISSIVE')
+   THEN RAISE EXCEPTION 'futures_option_worker_policy_missing';END IF;
+   FOR policy IN SELECT * FROM pg_policies WHERE schemaname=item.schema_name AND tablename=table_name
+    AND 'openetrm_runtime'=ANY(roles) AND cmd IN('SELECT','ALL') LOOP
+    EXECUTE format('CREATE POLICY %I ON %I.%I AS %s FOR SELECT TO openetrm_risk_worker USING(%s)',
+     'risk_worker_'||policy.policyname,policy.schemaname,policy.tablename,policy.permissive,policy.qual);
+   END LOOP;
+   EXECUTE format('CREATE POLICY risk_worker_service ON %I.%I AS RESTRICTIVE FOR SELECT TO openetrm_risk_worker USING(risk.worker_read())',item.schema_name,table_name);
+   EXECUTE format('GRANT SELECT ON %I.%I TO openetrm_risk_worker',item.schema_name,table_name);
+  END LOOP;
+ END LOOP;
 END$$;
 COMMIT;

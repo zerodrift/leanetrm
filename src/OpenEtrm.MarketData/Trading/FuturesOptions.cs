@@ -192,7 +192,7 @@ public static class FuturesOptionPricing
             throw FuturesOptionInstrument.Error("option_context", "Supply an explicit market model and snapshot.");
         if (trades.IsDefaultOrEmpty || trades.Any(t => t is null))
             throw new MarketDataException("risk_position", "Select explicit live holdings before running risk.");
-        var role = Role(observationRole);
+        Role(observationRole);
         var options = trades.SelectMany(t => t.Instruments).Select(p => p.Instrument as FuturesOptionInstrument ??
             throw new MarketDataException("risk_position", "This operation values futures-option holdings only.")).GroupBy(o => o.Id).Select(g =>
         {
@@ -202,10 +202,8 @@ public static class FuturesOptionPricing
         }).OrderBy(o => o.Id).ToArray();
         var requests = options.SelectMany(o =>
         {
-            var label = $"Option series {o.Series.Key.Code}";
-            RequireLive(o.Series, snapshot, label);
-            var (underlying, settlement) = Requests(model, model.ListedRequests(ContractKind.Future, o.Series.UnderlyingSeries)
-                .Concat(model.ListedRequests(ContractKind.FutureOption, o.Series.Key)), o.Series, role, label);
+            RequireLive(o.Series, snapshot, $"Option series {o.Series.Key.Code}");
+            var (underlying, settlement) = Requests(model, o.Series, observationRole);
             return new[] { underlying, settlement };
         }).Distinct().ToImmutableArray();
         var basis = model.Build(snapshot, requests, cancellation);
@@ -215,6 +213,16 @@ public static class FuturesOptionPricing
             new(ValuationMeasure.PresentValue, ImmutableDictionary<Guid, FuturesMarketBinding>.Empty, null) { OptionBindings = bindings });
         var result = FuturesRisk.Calculate(basis, portfolio, snapshot, model, bumps, numericalPolicy, cancellation, detail, stress);
         return result with { OptionCalibrations = [.. options.Select(o => bindings[o.Id].Receipt)], ScenarioPolicy = ScenarioPolicy };
+    }
+
+    // The two curve requests an option series is calibrated from: its underlying future's and its own settlement, each
+    // the one curve in the model observing that contract under the selected role.
+    public static (CurveRequest Underlying, CurveRequest Settlement) Requests(CurveModel model, FuturesOptionSeriesSpecification series, string observationRole)
+    {
+        if (model is null || series is null)
+            throw FuturesOptionInstrument.Error("option_context", "Supply an explicit market model and option series.");
+        return Requests(model, model.ListedRequests(ContractKind.Future, series.UnderlyingSeries)
+            .Concat(model.ListedRequests(ContractKind.FutureOption, series.Key)), series, Role(observationRole), $"Option series {series.Key.Code}");
     }
 
     private static ObservationRole Role(string observationRole) => observationRole == DailySettlement ? ObservationRole.DailySettlement

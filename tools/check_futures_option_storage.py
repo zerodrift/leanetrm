@@ -161,3 +161,5 @@ x AS(SELECT os.code,op.value premium,fu.value futures,os.strike,os.option_right,
           == '244|4|nymex_on_20261201_c2.00|0|0')
     check('every exchange price observation is labeled synthetic',
           query(f"SELECT count(*) FILTER(WHERE source_event_id NOT LIKE 'synthetic\\_%'),count(*)>0 FROM market_data.observations WHERE catalog_id='{manifest['catalogId']}';") == '0|t')
+    check('a close on a clock the caller cannot see is a structured error, never a missing instant that passes the close checks',
+          rejected(f"PERFORM ref_data.local_instant({R},'unseen_clock','14:30','2026-10-16');", 'P0001', message='close_time_clock'))

@@ -93,6 +93,10 @@ OPTION_PRODUCTS=[
  ('nymex_lo','NYMEX Crude Oil Option · LO','nymex_cl','1000','0.01','0.50','60.50','0.50',
   ['2026-11-17','2026-12-16','2027-01-14','2027-02-17','2027-03-17'],'0.40'),
 ]
+# Synthetic USD zero rates (simple, ACT/365F) at their pillar dates; the first pillar is the example premium payment date.
+USD_RATES=[('2026-10-19',Decimal('0.04')),('2027-06-30',Decimal('0.045'))]
+# The close and option series whose daily settlement that close does not pin: the missing-settlement case.
+MISSING_SETTLEMENT=('2026-10-13T17:00:00Z','nymex_on_20270101_c3.05')
 # One deliberately deep in-the-money near-expiry series settles exactly at intrinsic: the fallback case.
 AT_INTRINSIC=('nymex_on','20261201','call',Decimal('2.00'))
 OPTION_RULES=[
@@ -289,6 +293,13 @@ def fixture(root):
           f"INSERT INTO market_data.curve_members VALUES({M},'{code}','{cid}',{len(contracts[code])-1});",
           f"INSERT INTO market_data.series VALUES({M},'{sid}','{sc}',{R},'{cid}','{code}_quote',NULL);"])
         option_rows.append((sid,sc,code,underlying,right,strike,local_instant(expiry,OPTION_EXPIRY_CLOSE[code])))
+    # One synthetic USD zero-rate curve, the currency's default discounting for option values and premiums.
+    defs.append(f"INSERT INTO market_data.rate_curves VALUES({M},'usd_rates',{R},'test_interest','fixture','valuation_utc_date','Synthetic USD rates');")
+    rate_rows=[]
+    for n,(maturity,rate) in enumerate(USD_RATES):
+        sid=key('rate_'+maturity);rate_rows.append((sid,rate))
+        defs.extend([f"INSERT INTO market_data.series VALUES({M},'{sid}','usd_rate_{n}',{R},NULL,NULL,'test_zero_rate');",
+          f"INSERT INTO market_data.rate_curve_points VALUES({M},'usd_rates','{maturity}','{sid}',{n});"])
     price=black76(root)
     frames=[];now=datetime.now(timezone.utc).isoformat()
     for n in range(4):
@@ -307,13 +318,22 @@ def fixture(root):
                 years=Decimal((expiry_at-datetime.fromisoformat(at)).total_seconds())/Decimal(365*86400)
                 value=option_settlement(price,futures,strike,right,years,Decimal(products[code][9]),increment)
             observe(sid,value,'daily_settlement')
+        for sid,rate in rate_rows:observe(sid,rate,'parameter')
         frames.append({'at':at,'observationIds':pins,'curveContracts':contracts})
+    # A later close of the first day that pins every input of that day except one option series' settlement.
+    missing_at,missing_series=MISSING_SETTLEMENT
+    omitted=key(f"{key('price_'+missing_series)}:{frames[0]['at']}")
+    if omitted not in frames[0]['observationIds']:raise ValueError('The missing-settlement series must be settled at the first close.')
+    frames.append({'at':missing_at,'observationIds':[o for o in frames[0]['observationIds'] if o!=omitted],'curveContracts':contracts})
     sql='BEGIN;\n'+'\n'.join(ref_statements+refs+[seal]+defs+[f"UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{catalog}' AND id='{revision}';"]+observations
         +tou_products(catalog,R,{'eastern':'ept','central':'cpt','pacific':'ppt','fixed_est':'synthetic_fixed_est'},now,lambda n:key(f'tou_product_{n}')))+'\nCOMMIT;'
-    manifest.update(frames=frames,example={'at':frames[-1]['at'],'curve':'nymex_ng'},schedules=[],
+    manifest.update(frames=frames,example={'at':frames[3]['at'],'curve':'nymex_ng'},schedules=[],
+       missingSettlement={'at':missing_at,'series':missing_series},
        identityIssuer='https://exchange-preview.invalid',futuresConvention='contract_lot_execution_pnl_v2')
     # All identity/catalog IDs are independent. Shared public role-template IDs
     # remain unchanged, and runtime login roles are created once by the baseline.
     security='\n'.join(line for line in security.splitlines() if not line.startswith('CREATE ROLE ')).replace('https://preview.invalid','https://exchange-preview.invalid')
-    trading=baseline_trading(catalog)
+    trading=baseline_trading(catalog).replace('COMMIT;',
+        f"INSERT INTO trading.currency_discount_defaults VALUES('{catalog}','{key('usd_discount_default')}','{revision}',{R},'usd','usd_rates',"
+        "'log_discount_geometric_root_to_even_18_v1',1,'2026-10-01 00:00:00+00');\nCOMMIT;")
     return remap(reference),remap(sql),remap(security),remap(trading),json.loads(remap(json.dumps(manifest)))

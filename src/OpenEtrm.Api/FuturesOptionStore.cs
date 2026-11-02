@@ -40,8 +40,8 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
         return new {kind="futures_options",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,convention=Convention,options};
     }
 
-    // Every listed option series whose expiry is after the frame, with its daily settlement at the frame: read from the
-    // trading read's market data alone, which is all the page assistant's catalog tool reads.
+    // Every listed option series whose expiry is after the frame, with its exchange, commodity and daily settlement at the
+    // frame: read from the trading read's market data alone, which is all the page assistant's catalog tool reads.
     public static ImmutableArray<object> Series(PreviewData data,InputFrame frame)
     {
         var listed=data.FuturesOptionSeries.Where(s=>frame.At<s.Terms.ExpiryAt).Select(series=>
@@ -55,8 +55,10 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
             {
                 var product=Single(data.ReferenceRows("futures_option_products","code",s.Series.Product.Code));
                 var quote=Single(data.QuoteRows(product.Text("quote_code")));
+                var exchange=Single(data.ReferenceRows("exchanges","code",product.Text("exchange_code")));
                 return new {series=s.Series.Key.Code,instrumentId=ContractIdentity.FuturesOption(s.Series.Key),contractId=s.Contract.Key.Id,
-                    product=product.Text("code"),name=product.Text("name"),exchange=product.Text("exchange_code"),underlyingSeries=s.Series.UnderlyingSeries.Code,
+                    product=product.Text("code"),name=product.Text("name"),exchange=new{code=exchange.Text("code"),name=exchange.Text("name")},
+                    commodity=data.Commodity(s.Request.Curve.Code),underlyingSeries=s.Series.UnderlyingSeries.Code,
                     right=s.Series.Terms.Right.ToString().ToLowerInvariant(),strike=s.Series.Terms.Strike.ToString(),expiryAt=s.Series.Terms.ExpiryAt.ToString("O",CultureInfo.InvariantCulture),
                     exerciseStyle=s.Series.Terms.ExerciseStyle,premiumStyle=s.Series.PremiumStyle,contraryInstructionsAllowed=s.Series.ContraryInstructionsAllowed,
                     multiplier=s.Series.Multiplier.ToString(),currency=Single(data.ReferenceRows("currencies","code",s.Series.Currency.Code)).Text("display_code"),
