@@ -436,6 +436,8 @@ def main():
             if args.exchange_check:
                 from check_futures_option_storage import run_checks as check_futures_option_storage
                 check_futures_option_storage(query,exchange_manifest)
+                from check_vol_surface_storage import run_checks as check_vol_surface_storage
+                check_vol_surface_storage(query,exchange_manifest)
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
         if args.ppa_bookings_check or args.blotter_stream_benchmark:
