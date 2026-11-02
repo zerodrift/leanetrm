@@ -1,5 +1,24 @@
 # Local verification and continuous integration
 
+## Joint scenario calculation boundary
+
+The D291 qualification on 2 November 2026 passed 18 focused managed groups,
+the full managed suite (656 aggregate checks), the worker build with zero warnings,
+1,188 frontend checks and the owned stock PostgreSQL risk/retained-worker suite
+with 146 browser checks. It used the integrated explicit-side and option-event baseline.
+Synthetic linear, quadratic and cross-term oracles verify exact loss, unlike
+units, unequal bumps, external quantities, unit reuse and mixed derivatives.
+Cubic/kink cases and negative/zero nominal estimates qualify the explicit
+three-step agreement policy. Failure and cancellation preserve the parent.
+
+Independent adversarial review identified incomplete ancestry when preparation
+starts from an already layered context. Walking actual scenario parents fixes
+the receipt/work count; the regression fails with the old wrapper-only walk.
+Review cleared the resolved implementation. This qualifies the managed numerical
+boundary and existing report regressions, not new joint-run HTTP/worker retention,
+graphical widgets, a statistical estimator or production capacity. No schema or
+production deployment changed.
+
 ## Risk results workspace
 
 The D289 local qualification on 2 November 2026 passed all 1,172 frontend

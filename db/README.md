@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0166_futures_options.sql`. It includes reference/market data, certified
+`0168_option_event_time.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts and bounded physical gas/crude operations.
 The migration notes below include historical foundation checkpoints; statements
@@ -28,6 +28,8 @@ Recent schema groups and their contracts:
 - 0162–0164: [page assistant](../docs/ai-assistant.md) prompts, workspace operations and operational context.
 - 0165: gas in shared portfolio risk ([risk scenarios](../docs/risk-engine.md#shared-market-factors)).
 - 0166: [listed American futures options](../docs/futures-options.md).
+- 0167: explicit independent PPA composition ([deal ticket](../docs/deal-ticket.md)).
+- 0168: option lifecycle events cannot be dated after they are recorded (D290).
 
 Apply migrations in order. Some deliberately refuse incompatible retained data;
 existing installations require the separately qualified schema/rebooking procedure.

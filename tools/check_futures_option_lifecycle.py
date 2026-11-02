@@ -373,6 +373,10 @@ def run_lifecycle_checks(url, query, manifest):
     expiries = owner(f"SELECT count(*) FROM trading.futures_option_events WHERE catalog_id='{catalog_id}' AND kind='expiry';")
     strike = Decimal(call['strike'])
     itm, otm = strike + Decimal('0.5'), strike - Decimal('0.5')
+    call_events = owner(f"SELECT count(*) FROM trading.futures_option_events WHERE catalog_id='{catalog_id}' AND trade_id='{long_call}';")
+    check('an exercise dated after the moment it is recorded is refused and writes nothing',
+          sql(refused(f"SELECT security.record_futures_option_event('{catalog_id}','{uuid4()}','{long_call}','exercise',1,clock_timestamp()+interval '1 minute')",
+                      'option_event_future') + call_events) == ['1'])
     check('expiry before the option\'s expiry instant is refused and writes nothing, even with the expiry date\'s settlement selected',
           sql(refused(expire(long_call), 'option_expiry_not_reached') + expiries, settle(itm, expiry_day)) == ['0'])
     check('at expiry an in-the-money long call is exercised automatically into long futures for its open lots',
@@ -457,10 +461,11 @@ def run_lifecycle_checks(url, query, manifest):
           lines(close_all + refused(expire(long_call), 'option_holding_closed'), expired() + settle(itm))[-2:] == ['0', 'refused'], output)
 
     # Early exercise dates follow the underlying's trading calendar and end on the option's expiry date.
-    def exercise_at(at, code):
-        return sql(refused(f"SELECT security.record_futures_option_event('{catalog_id}','{uuid4()}','{long_call}','exercise',1,'{at}');", code))
+    def exercise_at(at, code, setup=''):
+        return sql(refused(f"SELECT security.record_futures_option_event('{catalog_id}','{uuid4()}','{long_call}','exercise',1,'{at}');", code), setup)
+    # An event cannot be dated after it is recorded, so the series is moved to a past expiry and exercised on a later past date.
     check('exercise after the option\'s expiry date is refused',
-          exercise_at(f'{date.fromisoformat(expiry_day) + timedelta(days=1)}T16:00:00Z', 'option_exercise_window') == ['refused'])
+          exercise_at(f'{date.fromisoformat(past_day) + timedelta(days=3)}T16:00:00Z', 'option_exercise_window', expired()) == ['refused'])
     check('exercise before the option trade was executed is refused', exercise_at('2026-10-15T16:00:00Z', 'option_exercise_window') == ['refused'])
     check('exercise on a date outside the trading calendar is refused', exercise_at('2026-10-20T16:00:00Z', 'option_calendar') == ['refused'])
     check('nothing was recorded by the rolled-back checks', counts() == settled, counts())

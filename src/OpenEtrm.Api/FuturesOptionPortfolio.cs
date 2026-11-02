@@ -45,12 +45,13 @@ internal sealed class FuturesOptionMarket
     // The codes that concern one option series or one premium; a read lists the position and values the rest.
     internal static bool Excludable(string? code)=>ValuationStatus.PositionSpecific(code)||code is "option_settlement_missing" or "option_underlying_missing" or
         "option_settlement_below_intrinsic" or "option_settlement_above_bound" or "option_calibration_nonconvergent" or
-        "option_calibration_fallback_undeclared" or "option_input" or "option_expired";
+        "option_calibration_fallback_undeclared" or "option_input" or "option_expired" or "discount_coverage";
 
     internal required ImmutableDictionary<Guid,FuturesOptionMarketBinding> Bindings{get;init;}
     internal required ImmutableDictionary<Guid,ExactDecimal> Settlements{get;init;}
     internal required ImmutableDictionary<Guid,string> OptionFailures{get;init;}
     internal required ImmutableDictionary<Guid,CashPayment> Premiums{get;init;}
+    internal required ImmutableDictionary<Guid,string> PremiumFailures{get;init;}
     internal required ImmutableDictionary<ReferenceKey,CurrencyDefaultDiscounting> Discounting{get;init;}
     // The snapshot's valuation instant, at which premium cash is pending or settled for both its value and its state.
     internal required DateTimeOffset ValuationAt{get;init;}
@@ -66,11 +67,14 @@ internal sealed class FuturesOptionMarket
     internal int TreePrices=>Bindings.Values.Sum(b=>b.TreePrices);
 
     // The structured reason an option binding has no value, or null when it is valued. A closed option binding has no value
-    // to give; premium cash is always valued.
+    // to give.
     internal string? Reason(FuturesOptionPosition position)=>position.OpenLots==default?null:OptionFailures.GetValueOrDefault(position.OptionBinding);
+    // Premium cash is valued unless its pending payment date lies outside the selected curve (discount_coverage).
+    internal string? PremiumReason(FuturesOptionPosition position)=>PremiumFailures.GetValueOrDefault(position.PremiumBinding);
 
-    internal ImmutableArray<ExcludedPosition> Unvalued(ImmutableArray<FuturesOptionPosition> positions)=>[..positions.Where(p=>Reason(p) is not null)
-        .Select(p=>new ExcludedPosition(p.Trade,p.OptionBinding,p.Book.Id("id"),TradingReference.Trade(p.Head),FuturesOptionPositions.Type,Reason(p)!))];
+    internal ImmutableArray<ExcludedPosition> Unvalued(ImmutableArray<FuturesOptionPosition> positions)=>[..positions.SelectMany(p=>
+        new[]{(Binding:p.OptionBinding,Reason:Reason(p)),(Binding:p.PremiumBinding,Reason:PremiumReason(p))}.Where(b=>b.Reason is not null)
+            .Select(b=>new ExcludedPosition(p.Trade,b.Binding,p.Book.Id("id"),TradingReference.Trade(p.Head),FuturesOptionPositions.Type,b.Reason!)))];
 
     // The valued bindings: each option for its open lots and each trade's premium cash.
     internal ValuationPortfolio? Portfolio(ImmutableArray<FuturesOptionPosition> positions)
@@ -80,9 +84,9 @@ internal sealed class FuturesOptionMarket
             var held=ImmutableArray.CreateBuilder<TradeInstrument>();
             if(p.OpenLots!=default&&Reason(p) is null)held.Add(new(p.OptionBinding,Bindings[p.OptionBinding].Instrument,new(p.OpenLots,p.LotQuantity)));
             var premium=Premiums[p.PremiumBinding];
-            held.Add(new(p.PremiumBinding,premium,new(p.PremiumQuantity,premium.Currency)));
+            if(PremiumReason(p) is null)held.Add(new(p.PremiumBinding,premium,new(p.PremiumQuantity,premium.Currency)));
             return new Trade(p.Trade,p.Book.Id("id"),held.ToImmutable());
-        }).ToImmutableArray();
+        }).Where(t=>!t.Instruments.IsEmpty).ToImmutableArray();
         if(trades.IsEmpty)return null;
         var instruments=trades.SelectMany(t=>t.Instruments).Select(i=>i.Instrument).DistinctBy(i=>i.Id).ToArray();
         return ValuationPortfolio.FromTrades(trades,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
@@ -118,7 +122,7 @@ internal static class FuturesOptionPortfolio
         if(positions.Any(p=>options[p.SeriesKey].Id!=p.OptionBinding))throw FuturesOptionPositions.Missing();
         var premiums=positions.Select(p=>p.Premium(options[p.SeriesKey].Series.Multiplier)).DistinctBy(p=>p.Id).ToImmutableDictionary(p=>p.Id);
         var unsettled=premiums.Values.Where(p=>!p.Settled(snapshot.ValuationAt)).ToArray();
-        var failures=new Dictionary<Guid,string>();
+        var failures=new Dictionary<Guid,string>();var premiumFailures=new Dictionary<Guid,string>();
         var held=positions.Where(p=>p.OpenLots!=default).Select(p=>options[p.SeriesKey]).DistinctBy(o=>o.Id).OrderBy(o=>o.Id).ToArray();
         foreach(var expired in held.Where(o=>snapshot.ValuationAt>=o.Series.Terms.ExpiryAt))failures[expired.Id]="option_expired";
         var live=held.Where(o=>!failures.ContainsKey(o.Id)).ToArray();
@@ -127,8 +131,11 @@ internal static class FuturesOptionPortfolio
         {
             ImmutableArray<SidePaymentKey> keys=[..live.Where(o=>o.Currency==currency).Select(o=>new SidePaymentKey(o.Id,0,o.Series.Terms.ExpiryAt,currency)),
                 ..unsettled.Where(p=>p.Currency==currency).Select(p=>p.Payment)];
-            discounting.Add(currency,new(keys,snapshot,true,await SwapStore.CurrencyDefault(connection,catalog,data,frame,currency,ct)));
+            // A payment date the curve does not cover leaves out only the option or premium that owns it.
+            discounting.Add(currency,CurrencyDefaultDiscounting.Covering(keys,snapshot,true,await SwapStore.CurrencyDefault(connection,catalog,data,frame,currency,ct),out var uncovered));
+            foreach(var key in uncovered)(premiums.ContainsKey(key.SideId)?premiumFailures:failures)[key.SideId]="discount_coverage";
         }
+        live=[..live.Where(o=>!failures.ContainsKey(o.Id))];
         var requests=new Dictionary<Guid,(CurveRequest Underlying,CurveRequest Settlement)>();
         foreach(var option in live)
         {
@@ -166,7 +173,7 @@ internal static class FuturesOptionPortfolio
             settlements.Add(option.Id,basis!.Values.Single(v=>v.Request==requests[option.Id].Settlement).Price.Value);
         }
         return new(){Bindings=bindings.ToImmutable(),Settlements=settlements.ToImmutable(),OptionFailures=failures.ToImmutableDictionary(),
-            Premiums=premiums,Discounting=discounting.ToImmutable(),ValuationAt=snapshot.ValuationAt};
+            Premiums=premiums,PremiumFailures=premiumFailures.ToImmutableDictionary(),Discounting=discounting.ToImmutable(),ValuationAt=snapshot.ValuationAt};
     }
 
     // The Blotter's base values of the held option and premium bindings, by trade and binding, through the same connected

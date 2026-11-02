@@ -140,13 +140,18 @@ labeled measure `futures_option_value_excluding_settled_cash`.
 **Exclusions.** A position the close cannot value is listed with its reason and no
 value: `option_settlement_missing`, `option_underlying_missing`, or `option_expired`
 for a held series at or past expiry with no recorded expiry (visibly unprocessed). A
-currency without a discount default fails the read with `discount_curve_missing`.
+pending premium, or an option's expiry, dated outside the selected rate curve's
+pillars is listed with `discount_coverage`; the curve is not extrapolated, and the
+rest of the book is valued (D290). A currency without a discount default fails the
+read with `discount_curve_missing`.
 
 ## Lifecycle
 
 Each event is one authorized operation with a request identity. A retry returns its
 first outcome; the same fact recorded again under a new request returns the existing
-record. Every write needs booking authority at current knowledge.
+record. Every write needs booking authority at current knowledge. An exercise,
+assignment or instruction dated after the moment it is recorded is refused with
+`option_event_future` (D290).
 
 - **`options/exercise`, `options/assignment`.** Close lots of a long or a short
   holding on a business day of the underlying's trading calendar, from the trade's
@@ -205,9 +210,6 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
 - **Recording expiry.** Expiry is recorded only through the `options/expiry` HTTP
   operation. No UI action or scheduled job records it yet, so a held series past
   expiry stays visibly unprocessed (`option_expired`) until someone calls it.
-- **Discount coverage scope.** A premium whose payment date lies outside the rate
-  curve's pillars fails the whole read with `discount_coverage`, as swaps do today.
-  Whether to exclude only that position is an open owner decision.
 - **Intraday notice cutoffs.** Not enforced until the source states a time zone; a
   same-day late notice is accepted.
 - **Close operations.** Pilot close and close-book policies do not yet state an

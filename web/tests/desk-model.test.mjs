@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,curveChart,commodityColors,signOf,valueFields,priceUnit,holdingFormats,quantityText,noteMeaning} from '../dist/desk-model.js';
 import {prepareAmountDisplay,selectDisplayPrecision,initialDisplayPrecision} from '../dist/amount-display.js';
 import {setCurveNames} from '../dist/market-view.js';
+import {valuationReason} from '../dist/valuation-status.js';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
 setCurveNames(fixture.curveNames);
 const clone=value=>structuredClone(value);
@@ -585,6 +586,12 @@ test('the premium row is cash with no mark of its own, and an option with no ope
  const closed=positionRows([optionRow({openLots:'0',quantity:'0',settlement:null,presentValue:'0',lifecycleState:'closed'})])[0];
  assert.deepEqual([closed.side,closed.exposure,closed.mark,closed.markNote],['Call 3.05 · 0 lots','flat',null,'No open lots']);
  assert.ok(noteMeaning('Premium cash')&&noteMeaning('No open lots'));
+});
+
+test('a pending premium dated outside the discount curve says so in place of its value',()=>{
+ const [premium]=positionRows([premiumRow({presentValue:null,unavailableReason:'discount_coverage'})]);
+ assert.deepEqual([premium.side,premium.value,premium.unavailable],['Premium pending',null,'Payment date outside the discount curve']);
+ assert.throws(()=>valuationReason('discount_coverage','future'),{message:'The Blotter returned an unknown valuation status.'});
 });
 
 test('an option row the close cannot value says why in the backend\'s words, and one missing its series or measure is refused',()=>{

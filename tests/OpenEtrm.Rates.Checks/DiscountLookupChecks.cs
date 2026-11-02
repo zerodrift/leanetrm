@@ -153,6 +153,17 @@ internal static class DiscountLookupChecks
             var empty=new CurrencyDefaultDiscounting(ImmutableArray<SidePaymentKey>.Empty,snapshot,true,null);
             if(!empty.Inputs.IsEmpty || !empty.Resolve(ImmutableArray<SidePaymentKey>.Empty,snapshot).IsEmpty)throw new Exception("No eligible value dates invented rate inputs.");
         });
+        Check("a payment date the curve does not cover is left out on its own; the covered dates keep their factors", () =>
+        {
+            var keys=dates.Select((date,n)=>new SidePaymentKey(Guid.NewGuid(),n,new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero),R("USD"))).ToImmutableArray();
+            var uncovered=new SidePaymentKey(Guid.NewGuid(),0,at.AddDays(1),R("USD"));
+            var covering=CurrencyDefaultDiscounting.Covering([uncovered,..keys],snapshot,true,mapping,out var left);
+            if(!left.SequenceEqual([uncovered]) || !covering.Inputs.Keys.ToHashSet().SetEquals(keys) ||
+                !keys.All(k=>covering.Inputs[k].Factor==new CurrencyDefaultDiscounting(keys,snapshot,true,mapping).Inputs[k].Factor))
+                throw new Exception("An uncovered payment date failed or changed the covered ones.");
+            Reject("discount_curve_missing",()=>CurrencyDefaultDiscounting.Covering(keys,snapshot,true,null,out _));
+            Reject("side_payment_due",()=>CurrencyDefaultDiscounting.Covering([keys[0] with {PaymentAt=at}],snapshot,true,mapping,out _));
+        });
         return passed;
     }
 }

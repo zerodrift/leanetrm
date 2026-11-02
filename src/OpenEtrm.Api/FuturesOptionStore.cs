@@ -153,6 +153,7 @@ public sealed partial class FuturesOptionStore(PreviewManifest manifest)
         "option_contrary_instructions_not_accepted"=>"This option product does not accept exercise or abandon instructions; expiry follows its automatic exercise rule.",
         "option_instruction_cutoff_unknown"=>"This series has no configured instruction cutoff.",
         "option_instruction_window"=>"An instruction is timed at or after the trade's execution.",
+        "option_event_future"=>"An event cannot be dated after the moment it is recorded.",
         "option_instruction_closed"=>"The series' instruction cutoff has passed.",
         "option_instruction_conflict"=>"This holding already has the contrary instruction.",
         "option_expiry_not_reached"=>"The option's expiry instant has not passed; expiry is recorded only after it.",

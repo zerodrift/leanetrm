@@ -259,6 +259,22 @@ def run_checks(url, query, manifest, *, run_worker):
           Fraction(settled_risk['values']['base']) == 0 and settled_risk['measureLabel'] == 'Option value excluding settled premium cash'
           and not any(e['tradeId'] == paid['tradeId'] for e in other_report['excludedPositions']), settled_risk)
 
+    # At the first close that premium is still pending, and its payment date lies before the curve's first pillar.
+    c.call('profile', {'profile': 'trader'})
+    early = c.call('trading/blotter', dict(context={**booking, 'convention': TRADING}, view=dict(mode='trades', bookIds=[other_book], portfolioIds=[],
+                   groupBy=[], measures=[], pivotConvention=None)), timeout=TIMEOUT)
+    early_rows = {r['bindingId']: r for r in early['holdings'] if r['tradeId'] == paid['tradeId']}
+    uncovered, covered_option = early_rows[paid['premiumInstrumentId']], early_rows[paid['optionInstrumentId']]
+    check('a pending premium dated before the curve\'s first pillar is unvalued with discount_coverage, and its option is still valued',
+          (uncovered['cashState'], uncovered['unavailableReason'], uncovered['presentValue']) == ('pending', 'discount_coverage', None)
+          and covered_option['unavailableReason'] is None and covered_option['presentValue'] is not None, early_rows)
+    c.call('profile', {'profile': 'risk'})
+    early_excluded = c.call('portfolio/risk/catalog', dict(context={**retained, 'snapshotId': first['id'], 'contextId': early['context']['contextId']}, bookIds=[other_book],
+                            portfolioIds=[]), timeout=TIMEOUT)['excludedPositions']
+    check('portfolio risk leaves out only that premium, with discount_coverage',
+          [(e['tradeId'], e['bindingId'], e['reason']) for e in early_excluded if e['tradeId'] == paid['tradeId']]
+          == [(paid['tradeId'], paid['premiumInstrumentId'], 'discount_coverage')], early_excluded)
+
     # A held series whose expiry instant passes with no recorded expiry stays visibly unprocessed: option_expired, no value.
     R, M = f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'", f"'{manifest['catalogId']}','{manifest['revisionId']}'"
     terms = query(f"SELECT concat_ws('|',s.last_trading_date,s.expiry_at,k.expiry_at) FROM ref_data.futures_option_series s JOIN market_data.contracts k "

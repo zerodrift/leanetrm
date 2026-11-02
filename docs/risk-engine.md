@@ -32,6 +32,11 @@ the same remaining graph; an expired unused forecast cannot block an actual.
 
 ## Nested scenarios
 
+The managed [joint scenario operation](joint-scenario-risk.md) (D291) prices
+bounded named sets of sibling layers through the same PV path and computes
+selected mixed derivatives with explicit three-step agreement checks. Its new
+result contracts are not yet admitted by the HTTP or durable-job operations below.
+
 The composition convention is
 `absolute_curve_coordinate_parent_additive_v1`. Each layer adds a signed,
 nonzero amount in the selected coordinate's exact price unit to its parent's
