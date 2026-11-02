@@ -135,6 +135,8 @@ knowledge and a request identity (D238):
   `options/instruction`):
   - exercise closes lots of a long holding, assignment lots of a short holding, at the
     frame's time;
+  - an event dated after the moment it is recorded raises `option_event_future` and
+    writes nothing (D290);
   - the date must be a business day of the underlying's trading calendar, from the
     trade's execution through the option's expiry date;
   - instructions are refused with `option_contrary_instructions_not_accepted` unless the

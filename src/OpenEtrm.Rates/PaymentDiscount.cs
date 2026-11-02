@@ -102,17 +102,43 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
     // Empty keys explicitly request no rate factors, as for an all-held or all-overdue PPA scope.
     public CurrencyDefaultDiscounting(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot,
         bool discounting,CurrencyDiscountCurve? currencyDefault)
+        : this(snapshot,Resolved(payments,snapshot,discounting,currencyDefault,null)) { }
+
+    // The payments the curve covers. Each payment date outside the curve's pillars is returned in `uncovered` rather than
+    // failing the others with discount_coverage; every other failure still fails the whole context.
+    public static CurrencyDefaultDiscounting Covering(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot,
+        bool discounting,CurrencyDiscountCurve? currencyDefault,out ImmutableArray<SidePaymentKey> uncovered)
+    {
+        var left=ImmutableArray.CreateBuilder<SidePaymentKey>();
+        var context=new CurrencyDefaultDiscounting(snapshot,Resolved(payments,snapshot,discounting,currencyDefault,left));
+        uncovered=left.ToImmutable();
+        return context;
+    }
+
+    private CurrencyDefaultDiscounting(MarketSnapshot snapshot,ImmutableDictionary<SidePaymentKey,PaymentDiscount> inputs)
+    {
+        Snapshot=snapshot;
+        Inputs=inputs;
+        factorsBySide=Inputs.GroupBy(p=>p.Key.SideId).ToImmutableDictionary(g=>g.Key,
+            g=>g.Select(p=>Factor(p.Key,p.Value)).ToImmutableArray());
+    }
+
+    private static ImmutableDictionary<SidePaymentKey,PaymentDiscount> Resolved(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot,
+        bool discounting,CurrencyDiscountCurve? currencyDefault,ImmutableArray<SidePaymentKey>.Builder? uncovered)
     {
         if(payments.IsDefault || snapshot is null)
             throw new MarketDataException("discount_context","Explicit side value keys and a selected market snapshot are required.");
         if(payments.Distinct().Count()!=payments.Length)
             throw new MarketDataException("side_payment_factors","Side value identities must be distinct in this discount context.");
-        Snapshot=snapshot;
         foreach(var payment in payments)payment.RequireUndue(snapshot);
         var resolver=new PaymentDiscount.Resolver(discounting,snapshot,currencyDefault);
-        Inputs=payments.ToImmutableDictionary(p=>p,p=>resolver.Resolve(p));
-        factorsBySide=Inputs.GroupBy(p=>p.Key.SideId).ToImmutableDictionary(g=>g.Key,
-            g=>g.Select(p=>Factor(p.Key,p.Value)).ToImmutableArray());
+        var inputs=ImmutableDictionary.CreateBuilder<SidePaymentKey,PaymentDiscount>();
+        foreach(var payment in payments)
+        {
+            try{inputs.Add(payment,resolver.Resolve(payment));}
+            catch(MarketDataException error) when(uncovered is not null&&error.Code=="discount_coverage"){uncovered.Add(payment);}
+        }
+        return inputs.ToImmutable();
     }
     private static ImmutableArray<SidePaymentKey> PaymentKeys(IEnumerable<SideSchedule> schedules,MarketSnapshot snapshot)
     {

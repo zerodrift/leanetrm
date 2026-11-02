@@ -34,7 +34,7 @@ internal static class FuturesOptionBlotter
                 Value(option,market.Reason(position),position.OptionBinding);
                 // Premium cash is pending until its payment date and settled from then on, when it adds no further value.
                 premium["cashState"]=market.PremiumState(position.PremiumBinding);
-                Value(premium,null,position.PremiumBinding);
+                Value(premium,market.PremiumReason(position),position.PremiumBinding);
                 yield return [option,premium];
             }
             void Value(JsonObject row,string? reason,Guid binding)
