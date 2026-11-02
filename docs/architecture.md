@@ -931,8 +931,9 @@ context/scenario are calculation inputs.
 Independent base outputs and final contributed values remain distinct typed
 outputs. The instrument specifies which output a connection consumes; call order
 cannot change its meaning. A Side cannot recursively request the instrument PV.
-Future option contracts still require explicit additional-obligation versus
-exercise-control accounting before that product is enabled.
+Option sides embedded in an instrument still require explicit additional-obligation
+versus exercise-control accounting before that product is enabled; listed futures
+options are standalone instruments (D285).
 
 ### 3.5 Physical and financial composition
 
@@ -1596,21 +1597,28 @@ Observable identity, observations and valuation dependencies remain separate.
 Current primitive input histories use exact `market_data.series` keys, shared by
 curve consumers within the selected versioned context. Covariance axes must use
 explicit selected factor identities/units; dependency membership alone supplies
-no exposure amount. VaR, covariance estimation, independent cross-revision forward
-observable normalization and executable option products are not implemented.
+no exposure amount. VaR, covariance estimation and independent cross-revision forward
+observable normalization are not implemented. Listed American options on NYMEX
+futures are executable (D285, [futures options](futures-options.md)); other option
+products are not.
 
 Pricing measure/numeraire, model versions, market-input mode and calibration belong
 to the selected valuation contract/context. An outright option mark has no inferred
 underlying exposure. Model-based option valuation declares its underlying,
 volatility, rates and any other inputs explicitly and reprices under shared
 scenarios. Premium-style versus daily-margin settlement is contractual; it cannot
-be inferred from the underlying being a future. None of this section claims an
-implemented option pricer or lifecycle.
+be inferred from the underlying being a future. The implemented listed-option
+pricer and lifecycle are limited to premium paid up front, American exercise into
+the underlying future and an implied volatility held under futures shocks; volatility
+as a shockable factor, margined premium and other exercise or settlement styles are
+not implemented.
 
 ### 5.4 Future option sides with instrument-supplied inputs
 
 This is a proposed extension boundary, not an implemented option product or a
-settled accounting choice. Preserve the instrument-owned connections in section 3.4.
+settled accounting choice. It concerns options embedded in an instrument. A listed
+futures option is a standalone instrument whose exercise books a separate future,
+so it does not use this boundary (D285). Preserve the instrument-owned connections in section 3.4.
 
 The instrument retains explicit target-member connections. An option side retains payoff/strike terms,
 exercise opportunities, settlement rules and model requirements. Its event plan

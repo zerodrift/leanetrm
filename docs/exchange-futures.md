@@ -196,7 +196,8 @@ composition and mappings; this example does not infer one.
 Executable scope is booking, amendments, exact execution P&L and deterministic
 shared base/up/down open sensitivity. Daily/final settlement, variation-margin
 transitions, final index fixings and physical delivery operations remain
-unimplemented. The power worksheet consumes an explicitly linked index using a
+unimplemented. Listed options on NG and CL have their own capability record in
+[futures options](futures-options.md). The power worksheet consumes an explicitly linked index using a
 synthetic flat price, not official hourly market observations.
 
 Amount precision belongs to shared current deal presentation, with independent

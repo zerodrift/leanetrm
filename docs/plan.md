@@ -425,7 +425,9 @@ scheduled contract. The browser inspector exposes valued payment and reset rows;
 enrolled trades also use the D215–D216 settlement and P&L operations. Options
 retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
-in O13 is still open and no option model is enabled.
+in O13 is still open for options embedded in an instrument. Listed American options
+on NYMEX futures are standalone instruments with their own model and lifecycle
+(D285, [futures options](futures-options.md)).
 The D210 entry refinement places visual instrument cards between trade details
 and side forms. A selected versioned template populates empty side terms;
 commodity and market selections remain explicit. Each floating side owns its
@@ -1329,7 +1331,8 @@ settlement document.
 Extend only after the baseline contracts are demonstrated:
 
 - Broader calendars, delivery shapes and schedule authoring.
-- Options and exercise rules, volatility inputs and nonlinear model diagnostics.
+- Options beyond listed American futures options (D285): other exercise and
+  settlement styles, volatility inputs and shocks, and nonlinear model diagnostics.
 - Option-side sibling dependencies, shared exercise groups and an explicit
   contribution/allocation convention that does not double-count the underlying.
 - Physical/financial composite sides with typed gas/power delivery metadata and

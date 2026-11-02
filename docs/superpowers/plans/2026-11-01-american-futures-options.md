@@ -302,6 +302,7 @@
     - otherwise the versioned automatic rule applies against the underlying's `daily_settlement` on the expiry date;
     - a missing settlement raises `option_expiry_settlement_missing` and writes nothing.
   - HTTP `options/exercise`, `options/assignment`, `options/instruction` and `options/expiry`, with matching agent tools.
+  - *Superseded by D285:* the expiry function is `security.process_futures_option_expiry(catalog uuid,request uuid,trade uuid,snapshot uuid,observations uuid[])`, run per holding with the frame's selected observations, and no agent tool records lifecycle events.
 - Open lots are never negative: exercising or assigning more than the open lots raises `option_lots_exceeded`. Instructions after `instruction_cutoff_at` raise `option_instruction_closed`.
 
 - [ ] **Step 1: Write the failing checks.**

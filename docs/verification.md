@@ -3220,3 +3220,61 @@ same 29 rows. The prior quote join is retained. Ordered projection sharing
 alone reduces the measured worker read from approximately 2.6 to 1.5 seconds
 relative to that rejected replacement, with identical results. All live service,
 lease, permission and temporal checks and the five-second command bound remain.
+
+## Listed American futures options (D285)
+
+Local runs on 2026-11-01 against the final change, each in its own disposable
+PostgreSQL cluster with synthetic data. The capability is described in
+[futures options](futures-options.md).
+
+| Run | Result |
+| --- | --- |
+| MarketData checks `--futures-options` | 33 PASS |
+| MarketData checks, default | 655 managed core checks passed |
+| API checks, default and `--schedules` | pass |
+| `run_preview.py --exchange-check --browser-check` | exit 0, 196 PASS, including 24 futures-option browser checks |
+| `run_preview.py --check --browser-check` (standard) | exit 0, 2,555 PASS, 1,099 owned browser checks |
+| `run_preview.py --unified-trading-check` | exit 0, 56 PASS |
+| `npm test --prefix web` | 1,129 pass |
+| Migration identity and `check_all` unit tests | 12 OK |
+
+The managed checks test the model against independent references, not against its
+own algorithm. A standard-library `decimal` oracle at 60 digits supplies `exp`,
+`ln`, `sqrt` and Black-76 values for 17 cases, including high-corner cases with
+F·σ·√T up to 400. At a unit discount every call and put lies within
+0.125·F·σ·√T/400 of Black-76; the largest observed ratio is 0.0996, CRR's leading
+at-the-money error term. Further checks cover bounds (at least intrinsic and the
+European value, calls at most the futures price, puts at most the strike),
+monotonicity, step stability against 1,600 steps, a two-step hand tree that
+exercises at an interior node, calibration round trips to half the clearing
+increment, the fallback for each right and direction, the zero floor on shocked
+fallback values, named errors outside the bounds, held-volatility delta signs,
+replay and a pinned risk digest. Temporary mutations confirmed that the hand-tree
+and accuracy checks fail when early exercise is offered only at the root or when
+volatility is inflated by 5%.
+
+The exchange preview check books one book holding a CL future, a long ON call (3
+lots, 1 exercised), a short LO put (2 lots, 1 assigned), a deep in-the-money ON call
+in fallback mode and their premiums. It verifies that each option's value equals
+settlement × multiplier × open lots within half an increment per lot; pending
+premium values against an independent simple ACT/365F discount; settled premium
+cash; linked futures from exercise and assignment; delta and gamma signs; queued-job
+replay equal to the immediate report; and the exclusions for a missing settlement,
+a missing underlying and an unprocessed expiry. The browser checks book through
+the option ticket, read the Blotter, retry idempotently and show backend refusals.
+
+Workload, one full risk run of the example's first book: 6 option positions across 5
+unique series (4 solved, 1 intrinsic fallback), with futures, premiums and seeded
+futures in the same run; 3 bumps and 7 scenarios (base plus up and down per bump);
+50 calibration tree prices, 8 scenario tree prices and 30 unit-pricer calls. The
+immediate report took 3.22 s, the Blotter read 2.83 s and the queued worker 4.66 s
+from process start to exit, with a sampled worker peak of 286 MiB (sampled every 50
+ms, not a guaranteed high-water mark). A later run of the same workload gave 3.11 s,
+2.71 s, 4.49 s and 292 MiB. One 400-step price takes about 71 ms and allocates about
+101 MB in a Release build (113 ms in Debug); one calibration takes 0.65 to 1.0 s per
+series in Release, and the run calibrates distinct series in parallel.
+
+Environment: macOS 26.6.2 arm64, Apple M4 Pro, 14 logical processors, PostgreSQL 16,
+.NET 10.0.402 Debug build for the preview runs, Node 24.22.0, Chrome, all components
+on one machine. These are local workload observations, not a performance
+qualification. The digest check has not yet been observed on Linux for this change.

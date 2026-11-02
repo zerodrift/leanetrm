@@ -1,4 +1,4 @@
-// Listed futures options from New trade (D283): the series picked through lists that cascade from the backend catalog, one field per row;
+// Listed futures options from New trade (D285): the series picked through lists that cascade from the backend catalog, one field per row;
 // the coming-soon items drawn and never sent; the backend's refusal of margined premium shown; a booking whose response is lost retried
 // under its own request identity into one trade; the trade in the Blotter with its settlement and PV; the fallback series labelled with its
 // calibration mode; and one lot exercised from the trade's own window, whose instruction actions show the backend's reason they are off.
