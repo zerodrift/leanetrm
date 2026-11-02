@@ -32,24 +32,42 @@ public sealed record CrudeValuationAssignment
     [IdentityField] public QuoteSpecification Quote { get; }
     [IdentityField] public SwapProjection Projection { get; }
     [IdentityField] public IndexFixing Fixing { get; }
+    [IdentityField] public CrudeQuantityEquivalence? QuantityEquivalence { get; }
     public IndexPriceLookup Lookup => new(Settlement, Quote, Projection.Market, Projection.Contract, null, Fixing);
 
     public CrudeValuationAssignment(ReferenceKey key, ReferenceKey commodity, ReferenceKey grade,
         CrudeDeliveryLocation location, QuantitySpecification quantity, ReferenceKey clock,
         ExactDecimal standardTemperature, string temperatureScale, PriceSettlementSelection settlement,
         QuoteSpecification quote, SwapProjection projection, IndexFixing fixing)
+        : this(key, commodity, grade, location, quantity, clock, standardTemperature, temperatureScale, settlement,
+            quote, projection, fixing, null) { }
+
+    public CrudeValuationAssignment(ReferenceKey key, ReferenceKey commodity, ReferenceKey grade,
+        CrudeDeliveryLocation location, QuantitySpecification quantity, ReferenceKey clock,
+        ExactDecimal standardTemperature, string temperatureScale, PriceSettlementSelection settlement,
+        QuoteSpecification quote, SwapProjection projection, IndexFixing fixing, CrudeQuantityEquivalence? quantityEquivalence)
     {
         if (location is null || quantity is null || settlement is null || quote is null || projection?.Contract is null || fixing is null)
             throw Invalid();
-        foreach (var reference in new[] { key, commodity, grade, location.Facility, location.CustodyPoint, quantity.Key,
-            quantity.Commodity, quantity.MeasurementBasis, quantity.Unit, quantity.Dimension, clock, quote.Key, quote.Quantity,
-            quote.Currency, settlement.SelectedIndex, fixing.Index, fixing.Quote, fixing.Source })
+        var deliveryRevision = quantityEquivalence?.Delivery.Key.Revision ?? key.Revision;
+        var pricingRevision = quantity.Key.Revision;
+        foreach (var reference in new[] { commodity, grade, location.Facility, location.CustodyPoint, clock })
         {
             Money.RequireKey(reference);
-            if (reference.Revision != key.Revision) throw Invalid();
+            if (reference.Revision != deliveryRevision) throw Invalid();
         }
+        foreach (var reference in new[] { key, quantity.Key, quantity.Commodity, quantity.MeasurementBasis, quantity.Unit,
+            quantity.Dimension, quote.Key, quote.Quantity, quote.Currency, settlement.SelectedIndex,
+            fixing.Index, fixing.Quote, fixing.Source })
+        {
+            Money.RequireKey(reference);
+            if (reference.Revision != pricingRevision) throw Invalid();
+        }
+        if (quantityEquivalence is null ? deliveryRevision != pricingRevision || quantity.Commodity != commodity :
+            quantityEquivalence.Delivery.Commodity != commodity || quantityEquivalence.Delivery.Key.Revision != deliveryRevision ||
+            quantityEquivalence.Pricing != quantity) throw Invalid();
         var contract = projection.Contract;
-        if (quantity.Commodity != commodity || quantity.Dimension.Code != "volume" || quote.Quantity != quantity.Key ||
+        if (quantity.Dimension.Code != "volume" || quote.Quantity != quantity.Key ||
             standardTemperature != ExactDecimal.Parse("60") || temperatureScale != "fahrenheit" ||
             quote.Kind != QuoteKind.Outright || !CrudeDeliveryWindow.IsMonthlyForward(contract) ||
             projection.Market.Curve.Revision != contract.Key.Revision || projection.Market.Contract != contract.Key ||
@@ -59,7 +77,7 @@ public sealed record CrudeValuationAssignment
             !TradingInstant.IsSupported(fixing.FixingAt)) throw Invalid();
         Key = key; Commodity = commodity; Grade = grade; Location = location; Quantity = quantity; Clock = clock;
         StandardTemperature = standardTemperature; TemperatureScale = temperatureScale;
-        Settlement = settlement; Quote = quote; Projection = projection; Fixing = fixing;
+        Settlement = settlement; Quote = quote; Projection = projection; Fixing = fixing; QuantityEquivalence = quantityEquivalence;
     }
     private static MarketDataException Invalid() => new("crude_valuation_assignment",
         "Select an exact grade, facility/custody point, 60 Fahrenheit standard-volume quantity and qualified monthly forward/index assignment.");
@@ -68,6 +86,7 @@ public sealed record CrudeValuationAssignment
 [EconomicDefinition("physical_crude_side_v1")]
 public sealed record PhysicalCrudeSide : Side
 {
+    [IdentityField] public CrudeQuantityEquivalence? QuantityEquivalence => Assignment.QuantityEquivalence;
     [IdentityField] public CrudeDeliveryLocation Location => Assignment.Location;
     [IdentityField] public ReferenceKey Commodity => Assignment.Commodity;
     [IdentityField] public ReferenceKey Grade => Assignment.Grade;

@@ -44,6 +44,8 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
     private static string ContractVersion(object definition,EconomicDefinitionAttribute contract)=>
         definition switch
         {
+            Crude.CrudeValuationAssignment a when a.QuantityEquivalence is not null => "crude_valuation_assignment_v2",
+            Crude.PhysicalCrudeSide s when s.QuantityEquivalence is not null => "physical_crude_side_v2",
             PpaInstrument p=>p.TermImplementation,
             FloatingSidePeriod p when !p.ContractObservations.IsDefaultOrEmpty=>"floating_side_period_v2",
             FloatingProjectionBinding b when !b.ContractObservations.IsDefaultOrEmpty=>"floating_projection_binding_v2",
@@ -64,6 +66,9 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             {
                 if(field.Name==nameof(FloatingSidePeriod.ContractObservations)&&
                     (value is FloatingSidePeriod p&&p.ContractObservations.IsDefaultOrEmpty||value is FloatingProjectionBinding b&&b.ContractObservations.IsDefaultOrEmpty))continue;
+                if (field.Name == nameof(Crude.CrudeValuationAssignment.QuantityEquivalence) &&
+                    (value is Crude.CrudeValuationAssignment { QuantityEquivalence: null } ||
+                     value is Crude.PhysicalCrudeSide { QuantityEquivalence: null })) continue;
                 var selected=field.GetValue(value);
                 writer.WritePropertyName(field.Name);Write(writer,selected);
             }

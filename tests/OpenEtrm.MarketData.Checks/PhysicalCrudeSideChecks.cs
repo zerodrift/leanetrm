@@ -79,9 +79,89 @@ internal static class PhysicalCrudeSideChecks
         if (converted.Amount.ToString()!="158.987294928" || converter.Convert(converted,quantity.Key).Amount!=thousand)
             throw new Exception("Standard barrels require exact reversible geometric conversion.");
         Reject("quantity_conversion", () => converter.Convert(new Quantity(thousand,quantity.Key),mass.Key));
+        SeparateDeliveryMasters(fixture,assignment,from,to,market,discount);
+        QuotedVolumeMultiplier();
         IndependentGrades(assignment,from,to);
         PortfolioRisk(fixture, purchase, market);
         Console.WriteLine("PASS physical crude: exact total-volume retained delivery, independent cash and fees, assignment pins, lifecycle refusal and symmetric shocks");
+    }
+    private static void SeparateDeliveryMasters(CommodityLookupFixture fixture,CrudeValuationAssignment pricing, DateTimeOffset from, DateTimeOffset to,
+        CurveBuild market, ExplicitDiscounting discount)
+    {
+        var revision = new ReferenceRevision(Guid.NewGuid(), Guid.NewGuid());
+        ReferenceKey D(string code) => new(revision, code);
+        var deliveryQuantity = new QuantitySpecification(D("delivery_volume"), D(pricing.Commodity.Code),
+            D(pricing.Quantity.MeasurementBasis.Code), D(pricing.Quantity.Unit.Code), D("volume"));
+        var powers = ImmutableArray.Create(0,3,0,0,0,0,0);
+        CrudeQuantityEquivalence Qualification(QuantitySpecification? quantity = null, string? policy = CrudeQuantityEquivalence.Policy,
+            ImmutableArray<int> dimensions = default) => new(quantity ?? deliveryQuantity, pricing.Quantity,
+                dimensions.IsDefault ? powers : dimensions, powers, policy!,
+                new UnitConverter([new((quantity??deliveryQuantity).Unit,(quantity??deliveryQuantity).Dimension,"barrel")],[],[quantity??deliveryQuantity]),
+                new UnitConverter([new(pricing.Quantity.Unit,pricing.Quantity.Dimension,"bbl")],[],[pricing.Quantity]));
+        var proof = Qualification();
+        UnitConverter Scales(QuantitySpecification q, string litres) => new(
+            [new(q.Unit,q.Dimension,"bbl"),new(new(q.Key.Revision,"m3"),q.Dimension,"m³"),new(new(q.Key.Revision,"litre"),q.Dimension,"L")],
+            [new(q.Unit,new(q.Key.Revision,"m3"),ExactDecimal.Parse("158987294928"),ExactDecimal.Parse("1000000000000")),
+             new(new(q.Key.Revision,"m3"),new(q.Key.Revision,"litre"),ExactDecimal.Parse(litres),ExactDecimal.Parse("1"))],[q]);
+        Reject("crude_quantity_equivalence", () => new CrudeQuantityEquivalence(deliveryQuantity,pricing.Quantity,powers,powers,
+            CrudeQuantityEquivalence.Policy,Scales(deliveryQuantity,"999"),Scales(pricing.Quantity,"1000")));
+        _ = new CrudeQuantityEquivalence(deliveryQuantity,pricing.Quantity,powers,powers,
+            CrudeQuantityEquivalence.Policy,Scales(deliveryQuantity,"1000"),Scales(pricing.Quantity,"1000"));
+        var before = DefinitionIdentity.For(pricing);
+        var assignment = new CrudeValuationAssignment(pricing.Key, deliveryQuantity.Commodity, D("delivery_grade"),
+            new(D("delivery_facility"), D("delivery_custody")), pricing.Quantity, D("utc"), ExactDecimal.Parse("60"), "fahrenheit",
+            pricing.Settlement, pricing.Quote, pricing.Projection, pricing.Fixing, proof);
+        var side = new PhysicalCrudeSide(Guid.NewGuid(), assignment, from, to, default);
+        var definition = ScheduleDefinitionCompiler.Generate(side);
+        if (DefinitionIdentity.For(assignment).Version != "crude_valuation_assignment_v2" ||
+            DefinitionIdentity.For(side).Version != "physical_crude_side_v2" || DefinitionIdentity.For(pricing) != before ||
+            side.UnitQuantity.Specification != pricing.Quantity.Key || assignment.Lookup != pricing.Lookup ||
+            side.Dependencies.Single() != pricing.Projection.Market ||
+            definition.Bindings.Single(b => b.Port == "grade").Reference != D("delivery_grade"))
+            throw new Exception("Delivery master revisions must preserve the original pricing identities and exact units.");
+        FixedSide Cash(string price) => new(Guid.NewGuid(),new FlatPrice(new UnitPrice(ExactDecimal.Parse(price),pricing.Quote)),
+            pricing.Quote,side.UnitQuantity,[new(side.DeliveryDateFrom,side.DeliveryDateTo,to.AddDays(5),new(1,1),null)]);
+        PortfolioRisk(fixture,new PhysicalCrudeInstrument(Guid.NewGuid(),side,Cash("78"),Cash("0.5"),
+            ExactDecimal.Parse("1"),ExactDecimal.Parse("-1"),ExactDecimal.Parse("-1")),market);
+        var bytes = BookedSideProgram.Compile(definition).Write();
+        var program = BookedSideProgram.Read(bytes, new(BookedSideProgram.Digest(bytes), definition.Manifest,
+            definition.Family, definition.EconomicIdentity, definition.PricingBindingIdentity));
+        var sources = ScheduleMarketSources.ForPhysicalCrude(market, [assignment]);
+        Equal(sources.Evaluate(program, side.Id, market, discount).PresentValue.Scale(ExactDecimal.Parse("1000")), "80000");
+        Reject("side_market_sources", () => ScheduleMarketSources.ForPhysicalCrude(market, [pricing]).Evaluate(program, side.Id, market, discount));
+        Reject("crude_quantity_equivalence", () => Qualification(policy: null));
+        Reject("crude_quantity_equivalence", () => Qualification(deliveryQuantity with { Unit = D("m3") }));
+        Reject("crude_quantity_equivalence", () => Qualification(deliveryQuantity with { Commodity = D("other_crude") }));
+        Reject("crude_quantity_equivalence", () => Qualification(deliveryQuantity with { MeasurementBasis = D("observed_volume") }));
+        Reject("crude_quantity_equivalence", () => Qualification(dimensions: [0,2,0,0,0,0,0]));
+        Reject("crude_valuation_assignment", () => new CrudeValuationAssignment(pricing.Key, deliveryQuantity.Commodity,
+            D("delivery_grade"), new(D("delivery_facility"), D("delivery_custody")), pricing.Quantity, D("utc"),
+            ExactDecimal.Parse("15"), "celsius", pricing.Settlement, pricing.Quote, pricing.Projection, pricing.Fixing, proof));
+    }
+    private static void QuotedVolumeMultiplier()
+    {
+        var fixture=new CommodityLookupFixture(31,monthly:true,volume:true,multiplier:"0.001");
+        var lookup=fixture.Swap(true,0).Floating.GenerateSchedule().Rows[0].Prices[0].Lookup!;
+        ReferenceKey P(string code)=>new(fixture.Quote.Key.Revision,code);
+        var revision=new ReferenceRevision(Guid.NewGuid(),Guid.NewGuid());
+        ReferenceKey D(string code)=>new(revision,code);
+        var pricing=new QuantitySpecification(fixture.Quote.Quantity,P("test_crude"),P("standard_volume"),P("unit"),P("volume"));
+        var delivery=new QuantitySpecification(D("delivery_volume"),D("test_crude"),D("standard_volume"),D("unit"),D("volume"));
+        var proof=new CrudeQuantityEquivalence(delivery,pricing,[0,3,0,0,0,0,0],[0,3,0,0,0,0,0],CrudeQuantityEquivalence.Policy,
+            new UnitConverter([new(delivery.Unit,delivery.Dimension,"barrel")],[],[delivery]),
+            new UnitConverter([new(pricing.Unit,pricing.Dimension,"bbl")],[],[pricing]));
+        var assignment=new CrudeValuationAssignment(P("thousand_barrel_quote"),delivery.Commodity,D("grade"),new(D("facility"),D("custody")),
+            pricing,D("utc"),ExactDecimal.Parse("60"),"fahrenheit",lookup.Settlement,fixture.Quote,new(lookup.Market,lookup.Contract),lookup.Fixing!,proof);
+        var side=new PhysicalCrudeSide(Guid.NewGuid(),assignment,new(2041,1,10,0,0,0,TimeSpan.Zero),new(2041,1,11,0,0,0,TimeSpan.Zero),default);
+        var snapshot=(fixture.Snapshot with{Selections=[..fixture.Snapshot.Selections.Select((s,n)=>s with{
+            Observation=s.Observation with{Value=ExactDecimal.Parse(n%2==0?"2":"0")}})]}).WithKnowledge(Guid.NewGuid(),fixture.Snapshot.ValuationAt);
+        var market=fixture.Model.Build(snapshot,side.DependenciesAt(snapshot));
+        var discount=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
+        ExactMoney Value(CurveBuild scenario)=>side.PV(SideValuationContext.ForPhysicalCrude(market,scenario,discount,[assignment])).PresentValue.Scale(ExactDecimal.Parse("1000"));
+        Equal(Value(market),"2");
+        var factor=fixture.Model.QuoteFactors(snapshot).Single(f=>f.Input==fixture.Selection(0,false).Input);
+        var shock=fixture.Model.Scenarios(market,[new QuoteBump(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("1"),QuoteBump.Convention)]).Single();
+        Equal(Value(shock.Up),"3");Equal(Value(shock.Down),"1");
     }
     private static void PortfolioRisk(CommodityLookupFixture fixture, PhysicalCrudeInstrument purchase, CurveBuild market)
     {

@@ -6,7 +6,7 @@ import {PendingCommand,actorTransport,type RequestCommand} from './pending-comma
 import {crudeConvention,crudeRequest,restoreCrudeCommand,type CrudeProfile,type CrudeFields} from './physical-crude-model.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Party={id:string;revision:number;name:string};
-type Assignment=CrudeReference&{code:string;definitionRevisionId:string;commodity:string;commodityName:string;grade:string;gradeName:string;facility:string;facilityName:string;custodyPoint:string;custodyPointName:string;standardTemperature:string;temperatureScale:string;quantityCode:string;quantityUnit:string;priceUnit:string;curve:string};
+type Assignment=CrudeReference&{crudeSetupId?:string|null;bindingName?:string;code:string;definitionRevisionId:string;commodity:string;commodityName:string;grade:string;gradeName:string;facility:string;facilityName:string;custodyPoint:string;custodyPointName:string;standardTemperature:string;temperatureScale:string;quantityCode:string;quantityUnit:string;priceUnit:string;curve:string};
 type Catalog={assignments:Assignment[];profiles:CrudeProfile[];books:{id:string;name:string}[];legalEntities:Party[];counterparties:Party[];canBook:boolean;scope:string};
 type Value={presentValue:string;currency:string;sides:{role:string;direction:string;presentValue:string;quantity:unknown}[];deliveryFrom:string;deliveryTo:string;quantity:string;quantityUnit:string};
 type Receipt={tradeId:string;instrumentId:string;operationId:string;revision:number};
@@ -24,7 +24,7 @@ export function setupPhysicalCrude(o:{api:Api;act:(work:()=>Promise<void>)=>Prom
  root.innerHTML=`<section class="card"><h2>Physical crude trade</h2><p id="crude-scope" class="field-help"></p>
  <form id="crude-form"><fieldset><legend>Trade details</legend><div class="schedule-fields"><label>Book<select id="crude-book" required></select></label><label>Legal entity<select id="crude-entity" required></select></label><label>Counterparty<select id="crude-party" required></select></label></div></fieldset>
  <fieldset><legend>Crude</legend><div class="schedule-fields">
- <label>Commodity<select id="crude-commodity" required></select></label><label>Grade<select id="crude-grade" required></select></label><label>Facility<select id="crude-facility" required></select></label><label>Custody point<select id="crude-custodyPoint" required></select></label><label>Volume specification<select id="crude-quantityCode" required></select></label><label>Valuation curve<select id="crude-curve" required></select></label><label>Delivery clock<select id="crude-clock" required></select></label><input id="crude-assignment" type="hidden"><button id="crude-clear-references" type="button" class="text-button">Clear reference selections</button><p id="crude-selection-note" class="field-help" role="status"></p><label>Contract profile<select id="crude-profile" required></select></label>
+ <label>Commodity<select id="crude-commodity" required></select></label><label>Grade<select id="crude-grade" required></select></label><label>Facility<select id="crude-facility" required></select></label><label>Custody point<select id="crude-custodyPoint" required></select></label><label>Volume specification<select id="crude-quantityCode" required></select></label><label>Valuation curve<select id="crude-curve" required></select></label><label>Delivery clock<select id="crude-clock" required></select></label><input id="crude-assignment" type="hidden"><label id="crude-binding-field" hidden>Delivery setup<select id="crude-binding-choice"></select></label><button id="crude-clear-references" type="button" class="text-button">Clear reference selections</button><p id="crude-selection-note" class="field-help" role="status"></p><label>Contract profile<select id="crude-profile" required></select></label>
  <label>Physical direction<select id="crude-direction" required><option value="">Choose direction</option><option value="receive">Receive crude</option><option value="deliver">Deliver crude</option></select></label>
  <label>Delivery from · <span class="crude-zone"></span><input id="crude-from" type="datetime-local" step="1" required></label><label>Delivery to · <span class="crude-zone"></span>, exclusive<input id="crude-to" type="datetime-local" step="1" required></label>
  <label>Contract volume · <span id="crude-quantity-unit"></span><input id="crude-quantity" inputmode="decimal" required></label></div><dl id="crude-reference"></dl></fieldset>
@@ -48,7 +48,7 @@ export function setupPhysicalCrude(o:{api:Api;act:(work:()=>Promise<void>)=>Prom
  const removeFee=document.createElement('button');removeFee.type='button';removeFee.id='crude-remove-fee';removeFee.className='text-button';removeFee.textContent='Remove fee side';removeFee.onclick=()=>{if(o.busy()||pending.command||o.historical()||!catalog)return;input('crude-fee-mode').value='none';input('crude-fee').value='';input('crude-fee-direction').value='';invalidate();sync();};sideCards[2].append(removeFee);
  sideAdder.append(addTitle,feeTerms,addFee);sideDeck.append(sideAdder);
  let catalog:Catalog|undefined,reviewed:Record<string,unknown>|undefined,epoch=0,dirty=false,owner=o.actor(),shownValue:{value:Value;title:string;terms?:Record<string,unknown>}|undefined,directoryRows:DirectoryRow[]|undefined;
- const pending=new PendingCommand(code=>!!code&&['crude_input','crude_definition','crude_profile','trade_party','access_denied','request_format'].includes(code));
+ const pending=new PendingCommand(code=>!!code&&['crude_setup_conflict','crude_setup_input','crude_setup_compatibility','crude_setup_coverage','crude_setup_market_scope','crude_input','crude_definition','crude_profile','trade_party','access_denied','request_format'].includes(code));
  const transport=actorTransport<RequestCommand>(()=>'physical-crude-request:'+o.actor(),()=>sessionStorage);
  const context=()=>({...o.source(),convention:crudeConvention,knowledgeMode:'current'});
  function options(id:string,rows:{value:string;label:string}[],selected=''){const n=get<HTMLSelectElement>(id);n.replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(r.label,r.value)));n.value=rows.some(r=>r.value===selected)?selected:'';}
@@ -56,13 +56,20 @@ export function setupPhysicalCrude(o:{api:Api;act:(work:()=>Promise<void>)=>Prom
  function persist(){transport.write(pending.command);}
  function invalidate(){reviewed=undefined;dirty=true;epoch++;get('crude-result').hidden=true;sync();}
  function selectedReferences(){return Object.fromEntries(crudeReferenceFields.map(k=>[k,val('crude-'+k)]));}
- function selection(){return crudeSelection(catalog?.assignments??[],selectedReferences());}
+ const bindingKey=(a:Assignment)=>JSON.stringify([a.definitionRevisionId,a.code]);
+ function selection(){const binding=val('crude-binding-choice');return crudeSelection((catalog?.assignments??[]).filter(a=>!binding||bindingKey(a)===binding),selectedReferences());}
  function referenceChoices(){
   for(let pass=0;pass<2;pass++){const choices=crudeChoices(catalog?.assignments??[],selectedReferences());for(const key of crudeReferenceFields)options('crude-'+key,choices[key],val('crude-'+key));}
+  const selected=selectedReferences(),complete=crudeReferenceFields.every(k=>selected[k]);
+  const matches=complete?(catalog?.assignments??[]).filter(a=>crudeReferenceFields.every(k=>a[k]===selected[k])):[];
+  const ambiguous=matches.length>1;
+  options('crude-binding-choice',ambiguous?matches.map(a=>({value:bindingKey(a),label:`${a.bindingName??a.code} · ${a.definitionRevisionId}`})):[],val('crude-binding-choice'));
+  get('crude-binding-field').hidden=!ambiguous;
+  input('crude-binding-choice').required=ambiguous;
   let chosen:Assignment|undefined;try{chosen=selection();get('crude-selection-note').textContent=chosen?'Each selected reference is bound to the exact authorized valuation setup.':'Choose each reference. Only configured compatible combinations are offered.';}catch(error){get('crude-selection-note').textContent=(error as Error).message;}
   input('crude-assignment').value=chosen?.code??'';reference(chosen);
  }
- function reference(a:Assignment|undefined){get('crude-quantity-unit').textContent=a?.quantityUnit??'';for(const id of ['crude-price-unit','crude-fee-unit'])get(id).textContent=a?.priceUnit??'';details('crude-reference',a?[['Commodity',a.commodityName],['Grade',a.gradeName],['Facility',a.facilityName],['Custody point',a.custodyPointName],['Volume specification',a.quantityCode],['Standard temperature',`${a.standardTemperature} ${a.temperatureScale}`],['Valuation curve',a.curve]]:[]);}
+ function reference(a:Assignment|undefined){get('crude-quantity-unit').textContent=a?.quantityUnit??'';for(const id of ['crude-price-unit','crude-fee-unit'])get(id).textContent=a?.priceUnit??'';details('crude-reference',a?[['Commodity',a.commodityName],['Grade',a.gradeName],['Facility',a.facilityName],['Custody point',a.custodyPointName],['Volume specification',a.quantityCode],['Standard temperature',`${a.standardTemperature} ${a.temperatureScale}`],['Valuation curve',a.curve],['Delivery setup',a.bindingName??a.code]]:[]);}
  function sync(){
   if(displayZone!==o.zone()){displayZone=o.zone();Object.values(times).forEach(t=>t.refresh());epoch++;reviewed=undefined;if(shownValue?.title.startsWith('Booked trade'))render(shownValue.value,shownValue.title,shownValue.terms);else get('crude-result').hidden=true;if(directoryRows)renderDirectory(directoryRows);}
   root.querySelectorAll('.crude-zone').forEach(n=>n.textContent=o.zone());
@@ -106,6 +113,7 @@ export function setupPhysicalCrude(o:{api:Api;act:(work:()=>Promise<void>)=>Prom
   options('crude-book',c.books.map(b=>({value:b.id,label:b.name})));for(const [id,parties] of [['crude-entity',c.legalEntities],['crude-party',c.counterparties]] as const)options(id,parties.map(p=>({value:JSON.stringify([p.id,p.revision]),label:p.name})));
   referenceChoices();options('crude-profile',c.profiles.map(p=>({value:p.code,label:p.label??p.code})));sync();await directory();
  }
+ input('crude-binding-choice').onchange=()=>{invalidate();referenceChoices();sync();};
  get('crude-clear-references').onclick=()=>{if(o.busy()||pending.command||o.historical()||!catalog)return;for(const key of crudeReferenceFields)input('crude-'+key).value='';for(const id of ['crude-quantity','crude-price','crude-fee'])input(id).value='';invalidate();referenceChoices();sync();};
  get('crude-form').oninput=invalidate;get('crude-form').addEventListener('change',invalidate);for(const key of crudeReferenceFields)input('crude-'+key).onchange=()=>{for(const id of ['crude-quantity','crude-price','crude-fee'])input(id).value='';invalidate();referenceChoices();sync();};input('crude-fee-mode').onchange=()=>{invalidate();sync();};
  get<HTMLFormElement>('crude-form').onsubmit=e=>{e.preventDefault();void o.act(async()=>{invalidate();const g=epoch,a=owner,body=await request();if(g!==epoch||a!==o.actor())return;const result=await o.api<Value>('crude/preview',{...body,operationId:crypto.randomUUID()});if(g!==epoch||a!==o.actor())return;reviewed=body;render(result,'Unbooked preview',body);sync();});};

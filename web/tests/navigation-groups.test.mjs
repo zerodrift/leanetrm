@@ -17,7 +17,7 @@ test('the groups and their pages keep the sidebar order',()=>{
   ['trading','Trading',['futures','gas','crude']],
   ['markets','Markets',['market','custom-curves','delivery','interval-series','interval-curves']],
   ['operations','Operations',['risk','jobs']],
-  ['settings','Settings',['schedules','power','gas-setup','reference','parties']],
+  ['settings','Settings',['schedules','power','gas-setup','crude-setup','reference','parties']],
   ['admin','Admin',['admin','ai']]]);
 });
 test('PPA bookings is a Trading page the Blotter opens, not a sidebar entry',()=>{
@@ -50,7 +50,7 @@ test('market data outranks administration and the Blotter outranks plain market 
 });
 
 test('the sidebar lists each page for the permissions that open it',()=>{
- const market=['dashboard','market','custom-curves','delivery','interval-series','interval-curves','schedules','power','gas-setup','reference'];
+ const market=['dashboard','market','custom-curves','delivery','interval-series','interval-curves','schedules','power','gas-setup','crude-setup','reference'];
  assert.deepEqual(listed(['ReadMarketData','RunJobs']).sort(),[...market,'jobs'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','futures','gas','crude','parties'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','futures','gas','crude'].sort());

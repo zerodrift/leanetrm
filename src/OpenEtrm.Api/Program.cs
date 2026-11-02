@@ -89,6 +89,10 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal)
         => (422,p.MessageText,"The complete retained schedule requires compatible exact references, typed operations and an immutable validated manifest."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "settlement_version_conflict" or "settlement_operation_conflict" => (409,p.MessageText,"Reconcile the original operation or reload the settlement version."),
+    PostgresException p when p.MessageText=="crude_mapped_lifecycle" => (422,p.MessageText,"Delivery-to-cash operations for separately maintained crude delivery masters are not yet qualified. Contractual booking and pre-delivery valuation remain available."),
+    PostgresException p when p.MessageText=="crude_setup_market_scope" => (422,p.MessageText,"Current crude bindings must use one original pricing revision. Multiple grades and curves within it are supported; saved trades keep earlier revisions."),
+    PostgresException p when p.MessageText=="crude_setup_conflict" => (409,p.MessageText,"The setup head or request changed. Reload or retry the original request."),
+    PostgresException p when p.MessageText.StartsWith("crude_setup_",StringComparison.Ordinal) => (422,p.MessageText,"Choose compatible exact delivery references and an admitted monthly index source."),
     MarketDataException m when m.Code is "crude_conflict" or "crude_invoice_preview" => (409,m.Code,m.Message),
     MarketDataException m when m.Code is "settlement_stale_preview" or "settlement_version_conflict" => (409,m.Code,m.Message),
     PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("settlement_",StringComparison.Ordinal) || p.MessageText.StartsWith("meter_finality_",StringComparison.Ordinal)) => (422,p.MessageText,"Settlement requires compatible, final, certified evidence and explicit policies."),
@@ -919,6 +923,32 @@ Task<IResult> ReferenceMutation(HttpContext c,string permission,Func<NpgsqlConne
         return Results.Ok(await work(connection,ct));
     },c.RequestAborted);
 });
+var crudeSetupEditor=new CrudeSetupEditor(database);
+api.MapGet("/crude-setup/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity<IResult>(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+ if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data to configure crude delivery.");
+ return Results.Ok(await crudeSetupEditor.CatalogRead(connection,ct));
+},c.RequestAborted))));
+api.MapPost("/crude-setup/save",(HttpContext c,CrudeSetupSaveRequest body)=>ReferenceMutation(c,"WriteMarketDefinitions",(connection,ct)=>crudeSetupEditor.Save(connection,body,ct)));
+api.MapPost("/crude-setup/validate",(HttpContext c,CrudeSetupVersionRequest body)=>Locked(c,session=>database.WithIdentity<IResult>(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+ if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data to validate crude delivery setup.");
+ return Results.Ok(await crudeSetupEditor.Validate(connection,body.SetupId,ct));
+},c.RequestAborted)));
+api.MapPost("/crude-setup/publish",(HttpContext c,CrudeSetupPublishRequest body)=>ReferenceMutation(c,"SealMarketDefinitions",async(connection,ct)=>
+{
+ _=await crudeSetupEditor.Validate(connection,body.SetupId,ct);
+ return await crudeSetupEditor.Publish(connection,body,ct);
+}));
+api.MapPost("/crude-setup/preview",(HttpContext c,CrudeSetupPreviewRequest body)=>Locked(c,session=>database.WithIdentity<IResult>(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+ var pin=Pin(session,body.SnapshotId);
+ if(body.KnowledgeMode!="current"||pin.Context is not null)throw new MarketDataException("crude_setup_input","Choose current working knowledge for delivery-mark preview.");
+ var frame=pin.RequireFrame();
+ var context=(await knowledgeStore.Capture(connection,new(DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
+ await PinnedContext.BindExact(connection,database.Manifest.CatalogId,context,ct);
+ return Results.Ok(await crudeSetupEditor.Preview(connection,frame with{ContextId=context.ContextId},body,ct));
+},c.RequestAborted)));
 var gasSetupEditor=new GasSetupEditor(database);
 api.MapGet("/gas-setup/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity<IResult>(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
@@ -1071,10 +1101,10 @@ Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession session,F
 // How trading reads publish their results: camel-case members, exact decimals as exact text.
 var tradingJson=new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase,Converters={new ExactDecimalJsonConverter()}};
 // Trading pages without a read operation of their own run their store's read on the shared trading read path.
-Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,Guid? gasTrade=null,Guid? crudeTrade=null)=>
+Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,Guid? gasTrade=null,Guid? crudeTrade=null,Guid? crudeSetup=null)=>
     TradingRead(c,body,(connection,view,ct)=>expectedConvention==PhysicalCrudeStore.Convention
         ?tradeReads.ReadBound(connection,view,async()=>{
-            var selected=await PhysicalMarketSelection.Crude.Read(database,connection,view.CalculationFrame,ct,crudeTrade);
+            var selected=await PhysicalMarketSelection.Crude.Read(database,connection,view.CalculationFrame,ct,crudeTrade,crudeSetup);
             return await read(connection,selected.Data,selected.Frame,ct);
         },ct)
         :expectedConvention==PhysicalGasStore.Convention&&PhysicalMarketSelection.Gas.Configured(database.Manifest)
@@ -1234,7 +1264,7 @@ var crudeStore=new PhysicalCrudeStore(database);
 api.MapPost("/crude/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,
  (connection,data,frame,ct)=>crudeStore.CatalogRead(connection,data,frame,ct),expectedConvention:PhysicalCrudeStore.Convention));
 api.MapPost("/crude/preview",(HttpContext c,PhysicalCrudeWriteRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
- (connection,data,frame,ct)=>crudeStore.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalCrudeStore.Convention));
+ (connection,data,frame,ct)=>crudeStore.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalCrudeStore.Convention,crudeSetup:body.CrudeSetupId));
 api.MapPost("/crude/directory",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,
  async(connection,data,frame,ct)=>await crudeStore.Directory(connection,ct),expectedConvention:PhysicalCrudeStore.Convention));
 api.MapPost("/crude/editor",(HttpContext c,PhysicalCrudeEditorRequest body)=>FuturesRead(c,body.Context,

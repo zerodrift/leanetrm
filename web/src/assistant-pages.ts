@@ -24,14 +24,14 @@ export type PageState=(
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
-  |{page:'risk'|'dashboard'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'})&{assistant?:WorkspaceSelection};
+  |{page:'risk'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'admin'|'ai'})&{assistant?:WorkspaceSelection};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null}
   |{mode:'retained';contextId:string;effectiveOn:string;knownAtLabel:string;frameId:string|null;frameLabel:string|null}|{mode:'unapplied'};
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
-const unsupported:Record<string,string>={risk:'risk_jobs',dashboard:'dashboard','gas-setup':'gas_setup',gas:'physical_gas',crude:'physical_crude',delivery:'delivery_prices','interval-series':'interval_series',
+const unsupported:Record<string,string>={risk:'risk_jobs',dashboard:'dashboard','crude-setup':'crude_setup','gas-setup':'gas_setup',gas:'physical_gas',crude:'physical_crude',delivery:'delivery_prices','interval-series':'interval_series',
   'interval-curves':'interval_curves',admin:'users_access',ai:'settings_ai'};
 // Pages the assistant reads but Navigate does not open (D250).
 const unopened:readonly string[]=['ppa'];

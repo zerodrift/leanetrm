@@ -2052,3 +2052,29 @@ D286 naming clarification: side names describe their terms (Power, REC, Capacity
 Fixed price, Index price, Fee, and attribute price sides). Direction is selected
 independently on each side. Delivery/payment role identifiers remain exact
 internal contract identifiers, rather than user-facing side names.
+
+
+## D293 — Maintained crude delivery masters use original pricing identities
+
+Local implementation contract, not publication or production activation approval.
+
+Maintain immutable crude setup versions over exact grade/facility/custody masters
+and an explicitly admitted original monthly index curve. Require an explicit
+one-to-one 60-Fahrenheit standard-volume policy, coherent unit graphs, unchanged
+pricing quantity semantics, typed foreign keys, effective delivery coverage and
+certified publication knowledge. Do not copy curves or observations to make new
+masters fit an older pricing namespace.
+
+Native v2 assignment/physical identities retain the separate delivery references;
+pricing quantities, currency, multiplier, contracts, series and factors remain
+original. V1 identities and retained programs remain unchanged. New bookings pin
+the exact setup and require its current head; retained trades and command retries
+keep their admitted version. Common interactive/queued scenarios evaluate shared
+original factors under current dual-reference authority and worker lease fencing.
+
+The executable baseline has one current original pricing revision with multiple
+grades/curves. A second simultaneous context refuses rather than choosing one.
+Separate-master delivery-to-cash remains unsupported and refuses before writes;
+legacy operations retain their existing contract. Broader source selection,
+physical LNG/cargo and saved Incoterms terms remain planned. Fee catalogs remain
+deferred. See [the implemented contract and qualification](crude-delivery-setups.md).

@@ -100,9 +100,9 @@ internal static class CrudePositions
     FROM trading.crude_instruments i
     JOIN market_data.crude_valuation_assignments a ON(a.catalog_id,a.revision_id,a.code)=(i.catalog_id,i.definition_revision_id,i.assignment_code)
     JOIN market_data.curves c ON(c.catalog_id,c.revision_id,c.code)=(a.catalog_id,a.revision_id,a.curve_code)
-    JOIN ref_data.crude_grades g ON(g.catalog_id,g.revision_id,g.code)=(a.reference_catalog_id,a.reference_revision_id,a.grade_code)
-    JOIN ref_data.locations facility ON(facility.catalog_id,facility.revision_id,facility.code)=(a.reference_catalog_id,a.reference_revision_id,a.facility_code)
-    JOIN ref_data.locations custody ON(custody.catalog_id,custody.revision_id,custody.code)=(a.reference_catalog_id,a.reference_revision_id,a.custody_point_code)
+    JOIN ref_data.crude_grades g ON(g.catalog_id,g.revision_id,g.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.grade_code)
+    JOIN ref_data.locations facility ON(facility.catalog_id,facility.revision_id,facility.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.facility_code)
+    JOIN ref_data.locations custody ON(custody.catalog_id,custody.revision_id,custody.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.custody_point_code)
     JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(a.reference_catalog_id,a.reference_revision_id,c.quote_code)
     JOIN ref_data.quantity_specifications n ON(n.catalog_id,n.revision_id,n.code)=(q.catalog_id,q.revision_id,q.quantity_code)
     JOIN ref_data.units u ON(u.catalog_id,u.revision_id,u.code)=(n.catalog_id,n.revision_id,n.unit_code)

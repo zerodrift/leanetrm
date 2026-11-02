@@ -1360,6 +1360,22 @@ populated additive-upgrade check preserves prior operational and cash history.
 Automated crude closes, amendments and cancellation remain further work.
 Production activation remains a separate release gate.
 
+D293 local implementation adds the [crude delivery setup workflow](crude-delivery-setups.md):
+versioned Save/Validate/Publish, separate exact delivery and pricing namespaces,
+explicit 60-Fahrenheit volume equivalence, native booking/reopen and common
+interactive/queued risk. Qualification uses independent numerical oracles,
+a separate delivery catalog, original swap-source selections, authorization and
+historical checks, and owned browser recovery/booking checks. One current pricing
+revision is supported; broader source selection remains planned. New bindings
+reject delivery-to-cash operations until their operational joins and contracts
+are independently qualified. Production custody references and publication are
+separate activation requirements.
+
+The next physical LNG/cargo slice includes the saved Incoterms edition, rule and
+named place. Physical cargo logistics and tanker freight need distinct explicit
+contracts. Additional fee types/amounts remain deferred to their first executable
+consumer; no unused catalog is added in this increment.
+
 ## Later scope
 
 The [financial swap settlement sequence](swap-settlement.md) is now authorized

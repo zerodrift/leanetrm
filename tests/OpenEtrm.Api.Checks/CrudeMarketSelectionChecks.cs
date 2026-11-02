@@ -17,7 +17,9 @@ internal static class CrudeMarketSelectionChecks
   Require(result.Frame.FrozenObservationIds.SequenceEqual([crudePin]),"Only explicitly declared crude pins retain their frozen treatment.");
   Require(result.Frame.OriginCloseId is null&&!result.Frame.ObservationIds.Contains(oldPin),"A financial close cannot certify an independent crude market.");
   Require(manifest.RevisionId==primary&&frame.ObservationIds.SequenceEqual([oldPin]),"Selection does not mutate the financial market.");
-  try{PhysicalMarketSelection.Crude.Select(configured,frame,primary);throw new Exception("Undeclared primary accepted.");}catch(OpenEtrm.MarketData.MarketDataException e)when(e.Code=="crude_market_context"){}
+  var original=PhysicalMarketSelection.Crude.Select(configured,frame,primary);
+  Require(original.Revision==primary&&ReferenceEquals(original.Frame,frame),
+   "An explicitly bound primary source preserves its original frame and price pins.");
   var previous=Guid.NewGuid();var previousPin=Guid.NewGuid();
   var history=configured with{RetainedCrudeMarkets=[new(previous,[declared with{ObservationIds=[previousPin]}])]};
   var oldCrude=PhysicalMarketSelection.Crude.Select(history,frame,previous);
@@ -40,8 +42,11 @@ internal static class CrudeMarketSelectionChecks
    "The common selection contract preserves separate gas/crude manifest fields and exact pins across JSON round trips.");
   Require(ReferenceEquals(PhysicalMarketSelection.Gas.Select(restored,frame,primary).Frame,frame),
    "Gas primary-market compatibility remains an explicit product rule in a mixed manifest.");
-  try{PhysicalMarketSelection.Crude.Select(restored,frame,primary);throw new Exception("Crude inherited gas primary-market behavior.");}
-  catch(OpenEtrm.MarketData.MarketDataException e)when(e.Code=="crude_market_context"){}
+  Require(ReferenceEquals(PhysicalMarketSelection.Crude.Select(restored,frame,primary).Frame,frame),
+   "An explicitly bound primary crude source survives a mixed-manifest round trip.");
+  Reject(restored with{CrudeMarket=null},frame);
+  Require(PhysicalMarketSelection.Crude.Select(restored,frame).Revision==selected,
+   "Without an explicit source, crude retains its declared independent market rather than inferring primary use.");
   Console.WriteLine("PASS scoped crude market: exact dates and pins, retained view, unchanged financial market and missing/ambiguous refusal");
  }
  static void Reject(PreviewManifest manifest,InputFrame frame){try{PhysicalMarketSelection.Crude.Select(manifest,frame);}catch(OpenEtrm.MarketData.MarketDataException e)when(e.Code=="crude_market_context"){return;}throw new Exception("An incomplete crude market silently fell back.");}

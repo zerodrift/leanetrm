@@ -90,6 +90,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         ("calendar_days","calendar_code,business_date"), ("commodity_units","commodity_code,unit_code"), ("location_types","code"),
         ("commodity_locations","commodity_code,location_code"), ("pipeline_zones","pipeline_code,zone_code"),
         ("pipeline_delivery_points","pipeline_code,zone_code,point_code"),
+        ("crude_grades","code"), ("crude_delivery_points","commodity_code,grade_code,facility_code,custody_point_code"),
         ("gas_delivery_conventions","pipeline_code,zone_code,point_code,product_code"), ("gas_meter_assignments","code"), ("exchanges","code"), ("clearing_houses","code"),
         ("exchange_clearing_houses","exchange_code,clearing_house_code"), ("interest_rate_definitions","code"), ("price_index_definitions","code"),
         ("sources","code"), ("product_evidence","product_code,source_code,fact_group"), ("delivery_profiles","code"), ("settlement_targets","code"),

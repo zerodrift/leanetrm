@@ -1,0 +1,53 @@
+import {newTrade} from './new-trade.mjs';
+// Owned synthetic browser qualification; no existing installation is opened.
+export async function run(actions){
+ const {command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url}=actions;
+ await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-crude-setup')&&"+idle);await persona('editor');
+ await evaluate("document.querySelector('#snapshot').value=''");
+ await click('#nav-crude-setup');await wait("document.querySelector('#cs-point').options.length>1&&"+idle);
+ await check('setup authoring loads without a market snapshot',"document.querySelector('#page-title').textContent==='Crude delivery setup'&&document.querySelector('#cs-market').textContent.includes('Select a market date')&&!document.querySelector('#cs-new').disabled");
+ await set('#cs-code','synthetic_browser_binding');
+ await set('#cs-point',await evaluate("[...document.querySelector('#cs-point').options].find(o=>o.value.includes('synthetic_delivery_grade')).value"));
+ await set('#cs-source',await evaluate("[...document.querySelector('#cs-source').options].find(o=>o.value.includes('synthetic_crude_forward')).value"));
+ for(const id of ['cs-clock','cs-policy'])await set('#'+id,await evaluate(`document.querySelector('#${id}').options[1].value`));
+ await set('#cs-from','2021-01-01');await set('#cs-to','2021-02-01');
+ const failAfterCommit=async path=>evaluate(`(()=>{const original=window.fetch;window.fetch=async function(input,init){const response=await original.call(this,input,init);if(String(input).endsWith('/api/${path}')){window.fetch=original;if(response.ok)return new Response(JSON.stringify({code:'preview_error',message:'Synthetic transport qualification'}),{status:500,headers:{'Content-Type':'application/json'}});}return response;};})()`);
+ await failAfterCommit('crude-setup/save');await click('#cs-save');await wait("!document.querySelector('#cs-retry').hidden&&"+idle);
+ await check('coded failure after committed save retains the exact pending command',"document.querySelector('#cs-save').disabled&&Object.keys(sessionStorage).some(k=>k.startsWith('crude-setup-command:'))");
+ await command('Page.reload');await wait("document.querySelector('#nav-crude-setup')&&"+idle);await click('#nav-crude-setup');await wait("!document.querySelector('#cs-retry').hidden&&"+idle);
+ await click('#cs-retry');await wait("document.querySelector('#cs-retry').hidden&&document.querySelector('#cs-version').value&&"+idle);
+ const id=await evaluate("document.querySelector('#cs-version').value");
+ await check('saved retry accepts a stable server version distinct from the request ID',"document.querySelector('#cs-status').textContent.startsWith('Draft saved')&&document.querySelector('#cs-version-state').textContent.startsWith('draft')");
+ await persona('approver');await click('#nav-crude-setup');await wait("document.querySelector('#cs-version').options.length>1&&"+idle);await set('#cs-version',id);await click('#cs-open');await click('#cs-validate');await wait("!document.querySelector('#cs-publish').disabled&&"+idle);
+ await evaluate(`(()=>{const original=window.fetch;window.fetch=async function(input,init){if(String(input).endsWith('/api/crude-setup/publish')){window.fetch=original;return new Response(JSON.stringify({code:'crude_setup_market_scope',message:'Synthetic definite publication rollback'}),{status:422,headers:{'Content-Type':'application/json'}});}return original.call(this,input,init);};})()`);
+ await click('#cs-publish');await wait(idle);
+ await check('a definite publication scope refusal releases its request and retains the draft',`document.querySelector('#cs-retry').hidden&&document.querySelector('#cs-version').value===${JSON.stringify(id)}&&!document.querySelector('#cs-validate').disabled&&!document.querySelector('#cs-publish').disabled`);
+ await failAfterCommit('crude-setup/publish');await click('#cs-publish');await wait("!document.querySelector('#cs-retry').hidden&&"+idle);
+ await command('Page.reload');await wait("document.querySelector('#nav-crude-setup')&&"+idle);await click('#nav-crude-setup');await wait("!document.querySelector('#cs-retry').hidden&&"+idle);await click('#cs-retry');await wait("document.querySelector('#cs-version-state').textContent.startsWith('published')&&"+idle);
+ await check('publication retry recovers its first outcome without replacing its request',"document.querySelector('#cs-retry').hidden&&!document.querySelector('#cs-preview').disabled&&document.querySelector('#cs-publish').disabled");
+ const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()");
+ await set('#snapshot',frame);await wait(idle);
+ // A financial-context change reloads the configuration page; explicitly reopen the retained version.
+ await set('#cs-version',id);await click('#cs-open');
+ await set('#cs-preview-from','2021-01-01T00:00:00');await set('#cs-preview-to','2021-02-01T00:00:00');await set('#cs-quantity','1000');await click('#cs-preview');await wait("document.querySelector('#cs-value').textContent.includes('80000')&&"+idle);
+ await check('published binding previews the original source with exact delivery volume',"document.querySelector('#cs-value').textContent.includes('synthetic_crude_forward')&&"+fitsWidth);
+ await shot('crude-delivery-setup');
+ await persona('trader');await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait(idle);await newTrade(actions,'crude');await wait("document.querySelector('#crude-grade').options.length>1&&"+idle);
+ for(const field of ['crude-book','crude-entity','crude-party','crude-commodity'])await set('#'+field,await evaluate(`document.querySelector('#${field}').options[1].value`));
+ await set('#crude-grade','synthetic_delivery_grade');
+ for(const field of ['crude-facility','crude-custodyPoint','crude-quantityCode','crude-curve','crude-clock','crude-profile'])await set('#'+field,await evaluate(`document.querySelector('#${field}').options[1].value`));
+ await check('duplicate reference tuples require an explicit retained binding choice',"!document.querySelector('#crude-binding-field').hidden&&document.querySelector('#crude-binding-choice').value===''&&document.querySelector('#crude-book-submit').disabled");
+ await set('#crude-binding-choice',await evaluate(`JSON.stringify([...document.querySelector('#crude-binding-choice').options].filter(o=>o.value).map(o=>[o,JSON.parse(o.value)]).find(([o,v])=>v[1]==='cs_'+${JSON.stringify(id)}.replaceAll('-',''))[1])`));
+ await set('#crude-direction','receive');await set('#crude-cash-direction','pay');await set('#crude-from','2021-01-10T00:00:00');await set('#crude-to','2021-01-11T00:00:00');await set('#crude-quantity','1000');await set('#crude-price','78');await set('#crude-payment','2021-02-02T00:00:00');await set('#crude-fee-mode','none');
+ await submit('#crude-form');await wait("document.querySelector('#crude-total').textContent==='Contractual present value: 2000 USD'&&"+idle);
+ await evaluate(`(()=>{const original=window.fetch;window.fetch=async function(input,init){if(String(input).endsWith('/api/crude/book')){window.fetch=original;window.syntheticRejectedCrudeCommand=JSON.parse(init.body);return new Response(JSON.stringify({code:'crude_setup_conflict',message:'Synthetic definite stale publication rollback'}),{status:409,headers:{'Content-Type':'application/json'}});}return original.call(this,input,init);};})()`);
+ await click('#crude-book-submit');await wait(idle);
+ await check('a definite stale-setup booking refusal unlocks the ticket for review',"document.querySelector('#crude-pending').hidden&&!document.querySelector('#crude-price').disabled");
+ await submit('#crude-form');await wait("!document.querySelector('#crude-book-submit').disabled&&"+idle);
+ await evaluate(`(()=>{const original=window.fetch;window.fetch=async function(input,init){const response=await original.call(this,input,init);if(String(input).endsWith('/api/crude/book')){window.fetch=original;window.syntheticCrudeCommand=JSON.parse(init.body);window.syntheticCrudeReceipt=await response.clone().json();}return response;};})()`);
+ await click('#crude-book-submit');await wait("window.syntheticCrudeReceipt?.tradeId&&"+idle);
+ await check('the native crude ticket books the explicitly chosen setup version',`window.syntheticCrudeCommand.crudeSetupId===${JSON.stringify(id)}&&!!window.syntheticCrudeReceipt.tradeId&&window.syntheticCrudeCommand.operationId!==window.syntheticRejectedCrudeCommand.operationId`);
+ await persona('viewer');await click('#nav-crude-setup');await wait("document.querySelector('#cs-version').options.length>1&&"+idle);
+ await check('viewer cannot save or publish a delivery binding',"document.querySelector('#cs-save').disabled&&document.querySelector('#cs-publish').disabled&&document.querySelector('#cs-new').disabled");
+}

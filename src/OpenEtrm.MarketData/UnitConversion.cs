@@ -60,6 +60,14 @@ public sealed class UnitConverter
                 }
         }
     }
+    // Exact scales relative to one unit in this immutable catalog. The crude
+    // delivery bridge compares these by code only under its explicit policy.
+    internal ImmutableDictionary<string,ExactRatio> RelativeUnitScales(ReferenceKey selected)
+    {
+        if (!scales.TryGetValue(selected, out var basis)) throw Invalid();
+        return scales.Where(p => p.Value.Root == basis.Root).ToImmutableDictionary(p => p.Key.Code,
+            p => Multiply(p.Value.Scale, basis.Scale.Inverse()), StringComparer.Ordinal);
+    }
     public QuantitySpecification Specification(ReferenceKey key) => quantities.TryGetValue(key, out var value) ? value :
         throw new MarketDataException("missing_reference", "The exact quantity specification is unavailable in this unit catalog.");
     public bool CanConvert(ReferenceKey from,ReferenceKey to)

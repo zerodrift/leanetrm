@@ -34,6 +34,7 @@ def main():
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
     parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
     parser.add_argument('--deal-ticket-check',action='store_true',help='Qualify the deal ticket schedule view of composed gas trades')
+    parser.add_argument('--crude-setup-check',action='store_true',help='Qualify exact crude delivery-to-market bindings')
     parser.add_argument('--gas-setup-check',action='store_true',help='Qualify versioned gas setup authoring and trade pins')
     parser.add_argument('--crude-lifecycle-check',action='store_true',help='Qualify crude receipts, inventory disposition and delivery-to-cash operations')
     parser.add_argument('--physical-crude-check',action='store_true',help='Qualify native fixed-volume crude booking and retained execution')
@@ -126,7 +127,7 @@ def main():
         args.ppa_bookings_check = True
     if args.unified_trading_check:
         args.demo_instruments_check=True;args.physical_gas_check=True
-    if args.crude_lifecycle_check: args.physical_crude_check=True
+    if args.crude_lifecycle_check or args.crude_setup_check: args.physical_crude_check=True
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.gas_setup_check or args.gas_composition_check or args.deal_ticket_check or args.gas_daily_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
@@ -337,6 +338,12 @@ def main():
         if args.physical_crude_check:
             from crude_fixture import prepare as prepare_crude
             reference,market,manifest=prepare_crude(reference,market,manifest)
+            if args.crude_setup_check:
+                from crude_fixture import prepare_delivery
+                market,manifest=prepare_delivery(market,manifest)
+                from crude_fixture import DELIVERY_CATALOG
+                from preview_fixture import TENANT, WORKSPACE
+                security+=f"\nINSERT INTO security.reference_catalog_scopes VALUES('{DELIVERY_CATALOG}','{TENANT}','{WORKSPACE}','owner');"
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
             reference,market,manifest=prepare_execution(reference,market,manifest)
@@ -411,6 +418,7 @@ def main():
                 swap_manifest['frames'].extend({'at':f['at'],'observationIds':[],'curveContracts':{}}
                     for f in manifest['frames'] if f['at'] not in times)
             manifest['swapMarkets']=[swap_manifest]
+            if args.crude_setup_check: manifest['swapMarkets'].append(manifest.pop('crudeMarket'))
             if args.factor_swap_check:
                 from factor_swap_fixture import prepare as prepare_factor
                 prepare_factor(manifest)
@@ -605,10 +613,17 @@ def main():
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--unified-trading'],cwd=ROOT,env=env,check=True,timeout=240)
             elif args.physical_crude_check:
                 from check_physical_crude_preview import run_checks as check_crude,run_shape_checks as check_crude_shapes
+                if args.crude_setup_check:
+                    from check_crude_setup_editor import run_checks as check_crude_setup
+                    check_crude_setup(url,query,manifest)
                 crude_receipt=check_crude(url,query,manifest)
                 check_crude_shapes(query,manifest,crude_receipt)
                 from check_crude_portfolio import run_checks as check_crude_portfolio
-                check_crude_portfolio(url,crude_receipt,run_worker=risk_worker_runner())
+                crude_risk_worker=risk_worker_runner()
+                check_crude_portfolio(url,crude_receipt,run_worker=crude_risk_worker)
+                if args.crude_setup_check:
+                    from check_crude_setup_editor import run_booking_checks
+                    run_booking_checks(url,query,manifest,run_worker=crude_risk_worker)
                 if args.crude_lifecycle_check:
                     from check_crude_lifecycle import run_checks as check_crude_lifecycle
                     check_crude_lifecycle(url,query,manifest,crude_receipt)
@@ -621,7 +636,7 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     # Full-page recovery scenarios repeatedly reload facts and valuation for the accumulated fixture.
                     # Keep each action bounded separately from the complete booking, corrections and sales suite.
-                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-crude'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},check=True,timeout=900)
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--crude-setup' if args.crude_setup_check else '--physical-crude'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},check=True,timeout=900)
             elif args.physical_gas_check:
                 from check_physical_gas_preview import run_checks,run_shape_checks
                 run_checks(url)

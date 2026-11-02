@@ -14,7 +14,8 @@ public sealed record PhysicalCrudeWriteRequest(Guid SnapshotId,string? Conventio
  Guid OperationId,Guid BookId,Guid DefinitionRevisionId,string? AssignmentCode,string? DeliveryFrom,string? DeliveryTo,
  string? Quantity,string? QuantityBasis,string? Tolerance,string? Direction,string? ConsiderationDirection,string? FixedPrice,string? PaymentAt,bool? Discounting,
  [property:System.Text.Json.Serialization.JsonRequired]string? HandlingFee,[property:System.Text.Json.Serialization.JsonRequired]string? HandlingFeeDirection,
- Guid? LegalEntityId,int? LegalEntityRevision,Guid? CounterpartyId,int? CounterpartyRevision);
+ Guid? LegalEntityId,int? LegalEntityRevision,Guid? CounterpartyId,int? CounterpartyRevision,
+ [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]Guid? CrudeSetupId=null);
 public sealed record PhysicalCrudeEditorRequest(FuturesReadRequest Context,Guid TradeId);
 
 public sealed class PhysicalCrudeStore(PreviewDatabase database)
@@ -29,16 +30,22 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
  private static ExactDecimal Sign(string? value,bool physical=false)=>value switch
  {"receive"=>ExactDecimal.Parse("1"),"pay" when !physical=>ExactDecimal.Parse("-1"),"deliver" when physical=>ExactDecimal.Parse("-1"),_=>throw Invalid("Choose each side direction explicitly.")};
  private static DateTimeOffset Instant(string? value)=>TradingInstant.Parse(Required(value),"crude_input");
- private async Task<ImmutableArray<JsonElement>> Assignments(NpgsqlConnection c,PreviewData data,CancellationToken ct)=>await PreviewDatabase.Rows(c,"""
-  SELECT row_to_json(x)::text FROM(SELECT a.*,g.name grade_name,g.quantity_code,g.standard_temperature,g.temperature_scale,
+ private async Task<ImmutableArray<JsonElement>> Assignments(NpgsqlConnection c,PreviewData data,CancellationToken ct,bool currentOnly=false)
+ {
+  var heads=currentOnly?await CrudeSetupEditor.CurrentSetups(c,Catalog,ct):null;
+  return await PreviewDatabase.Rows(c,"""
+  SELECT row_to_json(x)::text FROM(SELECT a.*,v.code setup_code,g.name grade_name,g.quantity_code,g.standard_temperature,g.temperature_scale,
    k.name commodity_name,f.name facility_name,p.name custody_point_name
   FROM market_data.crude_valuation_assignments a
-  JOIN ref_data.crude_grades g ON(g.catalog_id,g.revision_id,g.code,g.commodity_code)=(a.reference_catalog_id,a.reference_revision_id,a.grade_code,a.commodity_code)
-  JOIN ref_data.commodities k ON(k.catalog_id,k.revision_id,k.code)=(a.reference_catalog_id,a.reference_revision_id,a.commodity_code)
-  JOIN ref_data.locations f ON(f.catalog_id,f.revision_id,f.code)=(a.reference_catalog_id,a.reference_revision_id,a.facility_code)
-  JOIN ref_data.locations p ON(p.catalog_id,p.revision_id,p.code)=(a.reference_catalog_id,a.reference_revision_id,a.custody_point_code)
-  WHERE(a.catalog_id,a.revision_id)=($1,$2) ORDER BY a.code)x
-  """,[Catalog,data.DefinitionRevision.RevisionId],ct);
+  LEFT JOIN market_data.crude_setup_versions v ON(v.catalog_id,v.id)=(a.catalog_id,a.setup_id)
+  JOIN ref_data.crude_grades g ON(g.catalog_id,g.revision_id,g.code,g.commodity_code)=(a.delivery_catalog_id,a.delivery_revision_id,a.grade_code,a.commodity_code)
+  JOIN ref_data.commodities k ON(k.catalog_id,k.revision_id,k.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.commodity_code)
+  JOIN ref_data.locations f ON(f.catalog_id,f.revision_id,f.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.facility_code)
+  JOIN ref_data.locations p ON(p.catalog_id,p.revision_id,p.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.custody_point_code)
+  WHERE(a.catalog_id,a.revision_id)=($1,$2) AND($3::uuid[] IS NULL OR a.setup_id IS NULL OR a.setup_id=ANY($3::uuid[]))
+  ORDER BY a.setup_id NULLS FIRST,a.code)x
+  """,[Catalog,data.DefinitionRevision.RevisionId,(object?)heads??DBNull.Value],ct);
+ }
  private static string Unit(PreviewData data,ReferenceKey quantity)
  {
   var specification=One(data.References["quantity_specifications"].Where(x=>x.Text("code")==quantity.Code));
@@ -46,23 +53,30 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
  }
  public async Task<object> CatalogRead(NpgsqlConnection c,PreviewData data,InputFrame frame,CancellationToken ct)
  {
-  var assignments=(await Assignments(c,data,ct)).Select(row=>{
+  var assignments=(await Assignments(c,data,ct,true)).Select(row=>{
    var curve=One(data.Definitions["curves"].Where(x=>x.Text("code")==row.Text("curve_code")));
    var quote=One(data.Quotes.Where(x=>x.Key.Code==curve.Text("quote_code")));
    var unit=Unit(data,quote.Quantity);
    var currency=One(data.References["currencies"].Where(x=>x.Text("code")==quote.Currency.Code)).Text("display_code");
-   return new{code=row.Text("code"),definitionRevisionId=data.DefinitionRevision.RevisionId,commodity=row.Text("commodity_code"),commodityName=row.Text("commodity_name"),grade=row.Text("grade_code"),gradeName=row.Text("grade_name"),facility=row.Text("facility_code"),facilityName=row.Text("facility_name"),custodyPoint=row.Text("custody_point_code"),custodyPointName=row.Text("custody_point_name"),quantityCode=row.Text("quantity_code"),quantityName=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==row.Text("quantity_code"))).Text("code")+" · "+unit,quantityUnit=unit,priceUnit=currency+" / "+quote.Multiplier+" "+unit,curve=row.Text("curve_code"),curveName=curve.Text("name"),clock=row.Text("clock_code"),clockName=row.Text("clock_code"),standardTemperature=row.Text("standard_temperature"),temperatureScale=row.Text("temperature_scale")};
+   return new{code=row.Text("code"),crudeSetupId=row.OptionalText("setup_id"),bindingName=row.OptionalText("setup_code")??row.Text("code"),definitionRevisionId=data.DefinitionRevision.RevisionId,commodity=row.Text("commodity_code"),commodityName=row.Text("commodity_name"),grade=row.Text("grade_code"),gradeName=row.Text("grade_name"),facility=row.Text("facility_code"),facilityName=row.Text("facility_name"),custodyPoint=row.Text("custody_point_code"),custodyPointName=row.Text("custody_point_name"),quantityCode=quote.Quantity.Code,quantityName=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==quote.Quantity.Code)).Text("code")+" · "+unit,quantityUnit=unit,priceUnit=quote.Multiplier==ExactDecimal.Parse("1")?currency+" / 1 "+unit:currency+" × "+quote.Multiplier+" / "+unit,curve=row.Text("curve_code"),curveName=curve.Text("name"),clock=row.Text("clock_code"),clockName=row.Text("clock_code"),standardTemperature=row.Text("standard_temperature"),temperatureScale=row.Text("temperature_scale")};
   }).ToArray();
   return new{assignments,books=await PreviewDatabase.Rows(c,"SELECT row_to_json(b)::text FROM trading.books b WHERE catalog_id=$1 ORDER BY name",[Catalog],ct),
    legalEntities=await TradeParties.Catalog(c,Catalog,true,ct),counterparties=await TradeParties.Catalog(c,Catalog,false,ct),canBook=await PreviewDatabase.HasPermission(c,"BookTrade",ct),
    profiles=new[]{new{code=Profile,quantityBasis="standard_volume_total",tolerance="0",discounting=false,label="Fixed standard volume at 60°F · zero tolerance · undiscounted"}},
-   scope="Future fixed total standard volume at 60°F, one exact grade and custody point within one forward month. Independently directed physical delivery, fixed consideration and optional handling fee. Record accepted certified receipts, inventory disposition and invoice cash through Delivery and cash."};
+   scope="Future fixed total standard volume at 60°F, one exact grade and custody point within one forward month. Independently directed physical delivery, fixed consideration and optional handling fee. Imported assignments retain their supported Delivery and cash workflow. Separately maintained delivery setups currently support contractual booking and pre-delivery valuation; their receipt/inventory/cash workflow is not yet qualified."};
  }
  internal async Task<CrudeValuationAssignment> Metadata(NpgsqlConnection c,PreviewData data,PhysicalCrudeWriteRequest body,CancellationToken ct)
  {
   if(body.Convention!=Convention||body.KnowledgeMode!="current"||body.Profile!=Profile||body.QuantityBasis!="standard_volume_total"||body.Tolerance is null||ExactDecimal.Parse(body.Tolerance)!=default||body.Discounting!=false||body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
    throw Invalid("Choose the explicit fixed-total 60°F standard-volume, zero-tolerance, undiscounted profile and exact current source revision.");
   var row=One((await Assignments(c,data,ct)).Where(x=>x.Text("code")==body.AssignmentCode));
+  var setup=row.OptionalText("setup_id") is {} setupText?Guid.Parse(setupText):(Guid?)null;
+  if(setup!=body.CrudeSetupId)throw Invalid("Select the exact published delivery setup associated with this assignment.");
+  if(setup is {} id)
+  {
+   var editor=new CrudeSetupEditor(database);
+   return await editor.Assignment(c,data,await editor.Version(c,id,ct),new(Instant(body.DeliveryFrom),Instant(body.DeliveryTo)),ct);
+  }
   if(row.Id("reference_catalog_id")!=data.ReferenceRevision.CatalogId||row.Id("reference_revision_id")!=data.ReferenceRevision.RevisionId)throw Invalid("The assignment requires its exact reference revision.");
   var window=new CrudeDeliveryWindow(Instant(body.DeliveryFrom),Instant(body.DeliveryTo));
   var curve=One(data.Definitions["curves"].Where(x=>x.Text("code")==row.Text("curve_code")));
@@ -113,13 +127,18 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
    var amount=result.PresentValue.Scale(quantity*coefficient);total=total is null?amount:total.Add(amount);
    sides.Add(new{role=program.Slot switch{0=>"delivery",1=>"consideration",_=>"handling_fee"},direction=program.Slot switch{0=>body.Direction,1=>body.ConsiderationDirection,_=>body.HandlingFeeDirection},presentValue=amount.ToExactString(),quantity=quantity.ToString()});
   }
+  if(body.CrudeSetupId is {} setup)
+  {
+   await using var authority=ScheduleStore.Command(c,"SELECT security.crude_setup_visible($1,$2)",Catalog,setup);
+   if(!Equals(await authority.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+  }
   return new{presentValue=total!.ToExactString(),currency=One(data.References["currencies"].Where(x=>x.Text("code")==assignment.Quote.Currency.Code)).Text("display_code"),sides,body.DeliveryFrom,body.DeliveryTo,quantity=quantity.ToString(),quantityUnit=Unit(data,assignment.Quantity.Key)};
  }
  public async Task<object> Preview(NpgsqlConnection c,PreviewData data,InputFrame frame,PhysicalCrudeWriteRequest body,CancellationToken ct)
  {var r=await Resolve(c,data,body,ct);return await Value(c,data,frame,body,r.Instrument,r.Assignment,r.Quantity,null,ct);}
  internal async Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,PhysicalCrudeWriteRequest body,CancellationToken ct)=>await TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{
   var r=await Resolve(c,data,body,ct);_=await Value(c,data,pinned,body,r.Instrument,r.Assignment,r.Quantity,null,ct);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,r.Instrument);
- },ct,crudeMarket:true);
+ },ct,crudeMarket:true,crudeSetup:body.CrudeSetupId);
  public async Task<JsonElement> Status(NpgsqlConnection c,Guid operation,CancellationToken ct)
  {await using var q=ScheduleStore.Command(c,"SELECT security.crude_operation_status($1,$2)::text",Catalog,operation);return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);}
  public async Task<JsonElement> Save(NpgsqlConnection c,InputFrame frame,PhysicalCrudeWriteRequest body,CancellationToken ct)
@@ -145,10 +164,12 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   FROM trading.crude_trade_revisions r JOIN trading.crude_instruments i USING(catalog_id,instrument_id)
   JOIN trading.books b ON(b.catalog_id,b.id)=(r.catalog_id,r.book_id)
   JOIN market_data.crude_valuation_assignments a ON(a.catalog_id,a.revision_id,a.code)=(i.catalog_id,i.definition_revision_id,i.assignment_code)
-  JOIN ref_data.crude_grades g ON(g.catalog_id,g.revision_id,g.code)=(a.reference_catalog_id,a.reference_revision_id,a.grade_code)
-  JOIN ref_data.locations f ON(f.catalog_id,f.revision_id,f.code)=(a.reference_catalog_id,a.reference_revision_id,a.facility_code)
-  JOIN ref_data.locations p ON(p.catalog_id,p.revision_id,p.code)=(a.reference_catalog_id,a.reference_revision_id,a.custody_point_code)
-  JOIN ref_data.quantity_specifications q ON(q.catalog_id,q.revision_id,q.code)=(g.catalog_id,g.revision_id,g.quantity_code)
+  JOIN ref_data.crude_grades g ON(g.catalog_id,g.revision_id,g.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.grade_code)
+  JOIN ref_data.locations f ON(f.catalog_id,f.revision_id,f.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.facility_code)
+  JOIN ref_data.locations p ON(p.catalog_id,p.revision_id,p.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.custody_point_code)
+  JOIN market_data.curves curve ON(curve.catalog_id,curve.revision_id,curve.code)=(a.catalog_id,a.revision_id,a.curve_code)
+  JOIN ref_data.quote_specifications quote ON(quote.catalog_id,quote.revision_id,quote.code)=(a.reference_catalog_id,a.reference_revision_id,curve.quote_code)
+  JOIN ref_data.quantity_specifications q ON(q.catalog_id,q.revision_id,q.code)=(quote.catalog_id,quote.revision_id,quote.quantity_code)
   JOIN ref_data.units u ON(u.catalog_id,u.revision_id,u.code)=(q.catalog_id,q.revision_id,q.unit_code)
   WHERE r.catalog_id=$1 ORDER BY r.publication_order DESC LIMIT 256
   """,[Catalog],ct)};

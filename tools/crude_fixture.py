@@ -44,3 +44,35 @@ UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{CAT}' AND id=
         frames.append({'at':frame['at'],'observationIds':[oid],'curveContracts':{'synthetic_crude_forward':[CONTRACT]}})
     statements.append('COMMIT;')
     return reference, market+'\n'+'\n'.join(statements), {**manifest,'crudeMarket':{'revisionId':REVISION,'frames':frames}}
+
+
+DELIVERY_CATALOG = '10000000-0000-0000-0000-000000000169'
+DELIVERY_REVISION = '20000000-0000-0000-0000-000000000169'
+DELIVERY_DEFINITION = '60000000-0000-0000-0000-000000000169'
+
+
+def prepare_delivery(market, manifest):
+    """A separately maintained delivery catalog; original pricing data stays intact."""
+    sql = f"""
+BEGIN;
+INSERT INTO ref_data.catalogs VALUES('{DELIVERY_CATALOG}','synthetic_crude_delivery','Synthetic separate delivery masters');
+INSERT INTO ref_data.revisions(catalog_id,id,revision_key,state) VALUES('{DELIVERY_CATALOG}','{DELIVERY_REVISION}','synthetic_crude_delivery','draft');
+DO $$DECLARE t text;columns text;BEGIN
+ FOREACH t IN ARRAY security.reference_display_tables() LOOP
+  SELECT string_agg(CASE WHEN attname='catalog_id' THEN quote_literal('{DELIVERY_CATALOG}')||'::uuid' WHEN attname='symbol' AND t='units' THEN 'CASE WHEN code=''petroleum_barrel'' THEN ''barrel'' ELSE symbol END' WHEN attname='revision_id' THEN quote_literal('{DELIVERY_REVISION}')||'::uuid' ELSE quote_ident(attname) END,',' ORDER BY attnum)
+  INTO columns FROM pg_attribute WHERE attrelid=('ref_data.'||t)::regclass AND attnum>0 AND NOT attisdropped AND attgenerated='';
+  EXECUTE format('INSERT INTO ref_data.%I SELECT %s FROM ref_data.%I WHERE catalog_id=$1 AND revision_id=$2',t,columns,t) USING '{RCAT}'::uuid,'{RREV}'::uuid;
+ END LOOP;
+END$$;
+INSERT INTO ref_data.crude_grades SELECT catalog_id,revision_id,'synthetic_delivery_grade',commodity_code,'Synthetic delivery grade',quantity_code,standard_temperature,temperature_scale
+ FROM ref_data.crude_grades WHERE(catalog_id,revision_id,code)=('{DELIVERY_CATALOG}','{DELIVERY_REVISION}','synthetic_grade_a');
+INSERT INTO ref_data.crude_delivery_points VALUES('{DELIVERY_CATALOG}','{DELIVERY_REVISION}','synthetic_crude','synthetic_delivery_grade','test_facility_a','test_delivery_point_a');
+UPDATE ref_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{DELIVERY_CATALOG}','{DELIVERY_REVISION}');
+INSERT INTO market_data.revisions VALUES('{CAT}','{DELIVERY_DEFINITION}','{DELIVERY_CATALOG}','{DELIVERY_REVISION}','draft',0);
+INSERT INTO market_data.revision_periods VALUES('{CAT}','{DELIVERY_DEFINITION}','2020-01-01','2022-01-01');
+UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{CAT}','{DELIVERY_DEFINITION}');
+COMMIT;
+"""
+    manifest = {**manifest, 'referenceCatalog': {'referenceRevisionId': DELIVERY_REVISION, 'definitionRevisionId': DELIVERY_DEFINITION,
+                'tables': ['crude_grades', 'crude_delivery_points']}}
+    return market + sql, manifest

@@ -12,6 +12,13 @@ page guidance. Operational questions need no financial access or invented market
 snapshot. See [workspace assistance](assistant-workspace.md) for the operation
 boundary, replay contract and implemented limits.
 
+D293 implements [maintained crude delivery setups](crude-delivery-setups.md):
+exact delivery masters bind to an original admitted monthly index source,
+with explicit standard-volume equivalence and immutable booking pins. Native
+pre-delivery valuation and shared portfolio risk consume the original market
+identities. Separate-master delivery-to-cash remains unqualified and refuses;
+existing imported assignments keep their established workflow.
+
 D271 introduces the bounded [fixed-volume physical crude](physical-crude.md)
 consumer for local implementation: exact grade/custody references, normalized
 physical and cash sides, retained executable booking, common trading views and

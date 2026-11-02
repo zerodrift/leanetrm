@@ -10,7 +10,7 @@ export const navigationGroups:readonly NavigationGroup[]=[
  {id:'trading',label:'Trading',pages:['futures','gas','crude'],opened:['ppa']},
  {id:'markets',label:'Markets',pages:['market','custom-curves','delivery','interval-series','interval-curves']},
  {id:'operations',label:'Operations',pages:['risk','jobs']},
- {id:'settings',label:'Settings',pages:['schedules','power','gas-setup','reference','parties'],opened:['configuration']},
+ {id:'settings',label:'Settings',pages:['schedules','power','gas-setup','crude-setup','reference','parties'],opened:['configuration']},
  {id:'admin',label:'Admin',pages:['admin','ai']},
 ];
 
@@ -27,7 +27,7 @@ export function pageAvailable(page:string,permissions:string[]):boolean{
  switch(page){
   case 'futures':case 'ppa':case 'gas':case 'crude':return has('ReadMarketData','ReadTrades');
   case 'dashboard':case 'market':case 'custom-curves':case 'delivery':case 'interval-series':case 'interval-curves':
-  case 'configuration':case 'schedules':case 'power':case 'gas-setup':case 'reference':return has('ReadMarketData');
+  case 'configuration':case 'schedules':case 'power':case 'gas-setup':case 'crude-setup':case 'reference':return has('ReadMarketData');
   case 'parties':return has('ReadMarketData','ReadTradeParties');
   case 'risk':return has('ReadMarketData','ReadTrades','RunScenario');
   case 'jobs':return true; // listed for every account

@@ -30,3 +30,10 @@ test('uncertain crude request restores original identity and body; denied retry 
 test('wall-clock input cannot be silently interpreted as UTC',()=>{assert.throws(()=>crudeRequest({},header,assignment,profile,{...fields,paymentAt:'2027-02-01T12:00'}),/Resolve/);});
 
 test('managed UTC offset notation retains its exact resolved instant and fractional precision',()=>{const r=crudeRequest({},header,assignment,profile,{...fields,paymentAt:'2027-02-01T12:00:00.1234567+00:00'});assert.equal(r.paymentAt,'2027-02-01T12:00:00.1234567Z');});
+
+
+test('a selected maintained delivery setup is sent exactly and imported requests keep their original shape',()=>{
+ const mapped=crudeRequest({},header,{...assignment,crudeSetupId:'exact-setup-version'},profile,fields);
+ assert.equal(mapped.crudeSetupId,'exact-setup-version');
+ assert.equal('crudeSetupId' in crudeRequest({},header,assignment,profile,fields),false);
+});

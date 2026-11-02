@@ -48,7 +48,7 @@ internal sealed class PhysicalMarketSelection
     internal bool Configured(PreviewManifest manifest) => current(manifest) is not null || retained(manifest).Length > 0;
 
     internal async Task<(PreviewData Data, InputFrame Frame)> Read(PreviewDatabase database,
-        NpgsqlConnection connection, InputFrame frame, CancellationToken ct, Guid? trade = null)
+        NpgsqlConnection connection, InputFrame frame, CancellationToken ct, Guid? trade = null, Guid? setup = null)
     {
         Guid? revision = null;
         if (trade is {} id)
@@ -56,6 +56,17 @@ internal sealed class PhysicalMarketSelection
             var rows = await PreviewDatabase.Rows(connection, tradeRevisionQuery, [database.Manifest.CatalogId, id], ct);
             if (rows.Length != 1) throw Invalid($"The selected trade has no visible retained {product} market.");
             revision = rows[0].Id("definition_revision_id");
+        }
+        if (product == "crude" && revision is null)
+        {
+            var heads=setup is {} selectedSetup?new[]{selectedSetup}:await CrudeSetupEditor.CurrentSetups(connection,database.Manifest.CatalogId,ct);
+            var rows = await PreviewDatabase.Rows(connection, """
+                SELECT DISTINCT jsonb_build_object('definition_revision_id',v.definition_revision_id)::text
+                FROM market_data.crude_setup_versions v WHERE v.catalog_id=$1 AND v.state='published' AND v.id=ANY($2::uuid[])
+                """, [database.Manifest.CatalogId,heads], ct);
+            if (rows.Length > 1) throw Invalid("Choose one explicit crude pricing revision for the current delivery setups.");
+            if (rows.Length == 1) revision = rows[0].Id("definition_revision_id");
+            else if (setup is not null) throw Invalid("The requested published delivery setup is unavailable in this context.");
         }
         var selected = Select(database.Manifest, frame, revision);
         var corrections = selected.Revision != database.Manifest.RevisionId && frame.ResolvesLatestCorrection;
@@ -67,7 +78,7 @@ internal sealed class PhysicalMarketSelection
 
     internal (Guid Revision, InputFrame Frame) Select(PreviewManifest manifest, InputFrame frame, Guid? requiredRevision = null)
     {
-        if (primaryMarketUse == PrimaryMarketUse.Allowed && requiredRevision == manifest.RevisionId)
+        if ((primaryMarketUse == PrimaryMarketUse.Allowed || product == "crude") && requiredRevision == manifest.RevisionId)
             return (manifest.RevisionId, frame);
 
         var market = current(manifest);
@@ -77,6 +88,11 @@ internal sealed class PhysicalMarketSelection
             declared.Select(m => m.RevisionId).Distinct().Count() != declared.Length)
             throw Invalid($"Declare each independent {product} revision once, separately from the primary market.");
 
+        if (product == "crude" && requiredRevision is {} sourceRevision && !declared.Any(m=>m.RevisionId==sourceRevision))
+        {
+            var sources=(manifest.SwapMarkets??[]).Where(m=>m.RevisionId==sourceRevision).ToArray();
+            if(sources.Length==1)return(sourceRevision,CrudeSetupEditor.SourceFrame(manifest,frame,sourceRevision));
+        }
         if (requiredRevision is {} required)
         {
             var matches = declared.Where(m => m.RevisionId == required).ToArray();

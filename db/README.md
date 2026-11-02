@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0169_risk_trade_selection.sql`. It includes reference/market data, certified
+`0171_crude_setup_bookings.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts and bounded physical gas/crude operations.
 The migration notes below include historical foundation checkpoints; statements
@@ -32,6 +32,8 @@ Recent schema groups and their contracts:
 - 0168: option lifecycle events cannot be dated after they are recorded (D290).
 - 0169: selected-trade risk source reads and lease-fenced PPA identity discovery
   ([individual scope](../docs/risk-engine.md#individual-trade-scope-d292)).
+- 0170–0171: [maintained crude delivery setups](../docs/crude-delivery-setups.md),
+  exact original pricing bindings, versioned native booking and leased worker reads.
 
 Apply migrations in order. Some deliberately refuse incompatible retained data;
 existing installations require the separately qualified schema/rebooking procedure.
