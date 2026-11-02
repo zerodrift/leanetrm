@@ -93,7 +93,7 @@ BEGIN
  IF request IS NULL OR request='00000000-0000-0000-0000-000000000000'::uuid OR frame IS NULL
  OR NOT EXISTS(SELECT 1 FROM market_data.catalogs c WHERE c.id=catalog) OR NOT EXISTS(SELECT 1 FROM security.principals x WHERE x.id=actor)
  OR policy IS DISTINCT FROM 'american_futures_option_crr_v1'
- OR cardinality(inputs) NOT BETWEEN 1 AND 100000 OR array_position(inputs,NULL) IS NOT NULL
+ OR inputs IS NULL OR cardinality(inputs) NOT BETWEEN 1 AND 100000 OR array_position(inputs,NULL) IS NOT NULL
  OR(SELECT count(DISTINCT o) FROM unnest(inputs) o)<>cardinality(inputs)
  OR(SELECT count(*) FROM market_data.observations o WHERE o.catalog_id=catalog AND o.id=ANY(inputs))<>cardinality(inputs)
  OR jsonb_typeof(surface) IS DISTINCT FROM 'object' OR pg_column_size(surface)>8000000 OR digest IS NULL OR digest !~ '^[0-9a-f]{64}$'

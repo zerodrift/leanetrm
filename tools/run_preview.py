@@ -436,6 +436,7 @@ def main():
             if args.exchange_check:
                 from check_futures_option_storage import run_checks as check_futures_option_storage
                 check_futures_option_storage(query,exchange_manifest)
+                # Commits surface revisions, publications and contexts into the exchange catalog: later checks that count publications depend on running after it.
                 from check_vol_surface_storage import run_checks as check_vol_surface_storage
                 check_vol_surface_storage(query,exchange_manifest)
         from preview_fixture import trading_fixture

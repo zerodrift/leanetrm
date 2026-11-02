@@ -30,11 +30,16 @@ def run_checks(query, manifest):
     def digest(surface):
         return hashlib.sha256(json.dumps(surface, sort_keys=True).encode()).hexdigest()
 
-    def record(request, inputs, surface, sha=None, frame=first_frame, model=MODEL):
-        """The internal recording a risk worker's finish path makes, run here as the owning connection."""
-        array = 'ARRAY[' + ','.join(f"'{o}'" for o in inputs) + ']::uuid[]'
-        return (f"SELECT trading.record_vol_surface_revision('{catalog}','{actor}','{request}','{product}'::jsonb,'{day}','{model}','{POLICY}',"
-                f"'{frame}',{array},'{json.dumps(surface)}'::jsonb,'{sha or digest(surface)}')")
+    def record(request, inputs, surface, sha=None, frame=first_frame, model=MODEL, null=None):
+        """The internal recording a risk worker's finish path makes, run here as the owning connection; `null` names
+        one argument passed as SQL NULL."""
+        arguments = {'catalog': f"'{catalog}'", 'actor': f"'{actor}'", 'request': f"'{request}'", 'product': f"'{product}'::jsonb",
+                     'business_date': f"'{day}'", 'model': f"'{model}'", 'policy': f"'{POLICY}'", 'frame': f"'{frame}'",
+                     'inputs': 'ARRAY[' + ','.join(f"'{o}'" for o in inputs) + ']::uuid[]', 'surface': f"'{json.dumps(surface)}'::jsonb",
+                     'digest': f"'{sha or digest(surface)}'"}
+        if null is not None:
+            arguments[null] = 'NULL'
+        return f"SELECT trading.record_vol_surface_revision({','.join(arguments.values())})"
 
     def rejection(body, code, state='P0001'):
         """A block that fails unless body raises this SQLSTATE (and message)."""
@@ -120,6 +125,10 @@ def run_checks(query, manifest):
           and refused(record(uuid4(), first_inputs, first_surface, sha='not-a-digest'), 'vol_surface_input')
           and refused(record(uuid4(), first_inputs, first_surface, model='smile_unknown_v1'), 'vol_model_unknown')
           and refused(record(uuid4(), first_inputs, first_surface).replace('nymex_on', 'nymex_unlisted'), 'vol_surface_product'))
+    null_codes = {'product': 'vol_surface_product', 'model': 'vol_model_unknown'}
+    for argument in ('catalog', 'actor', 'request', 'product', 'business_date', 'model', 'policy', 'frame', 'inputs', 'surface', 'digest'):
+        check(f'a recording with a null {argument} is refused', refused(record(uuid4(), first_inputs, first_surface, null=argument),
+                                                                        null_codes.get(argument, 'vol_surface_input')))
     check('no runtime, worker or authenticator role can record directly',
           query("SELECT string_agg(r||':'||has_function_privilege(r,'" + RECORD + "','EXECUTE'),',' ORDER BY r) FROM unnest(ARRAY['openetrm_authenticator','openetrm_risk_worker','openetrm_runtime'])r;")
           == 'openetrm_authenticator:false,openetrm_risk_worker:false,openetrm_runtime:false'
