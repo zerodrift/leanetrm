@@ -32,7 +32,7 @@
 - The public catalog holds real public specification facts only. Prices are synthetic and labeled synthetic.
 - No customer, company or competing-product names in any file, commit or PR.
 - Commits use `git commit -s` and end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Nothing is pushed without the owner's approval.
-- Next migration number is `0160` (master holds 0159). Next decision row is `D283`.
+- The migration is `0166_futures_options.sql` and the decision row is `D288`, numbered after master's 0165 and D287.
 - Tests are written first and are independent of the algorithm: closed forms, bounds, independent oracles, never the tree's own output.
 
 ## Review Focus
@@ -54,7 +54,7 @@
 | `src/OpenEtrm.MarketData/Trading/FuturesOptions.cs` | `FuturesOptionInstrument`, `FuturesOptionMarketBinding`, portfolio preparation |
 | `tests/OpenEtrm.MarketData.Checks/FuturesOptionChecks.cs` | Unit checks for Tasks 1–5 (`--futures-options`) |
 | `tests/fixtures/futures-option-oracle.json` | Independent oracle values generated once with Python `decimal`/`mpmath` at 50 digits; the generator script is committed beside it |
-| `db/migrations/0160_futures_options.sql` | Option reference tables, booking, lifecycle and expiry functions, grants |
+| `db/migrations/0166_futures_options.sql` | Option reference tables, booking, lifecycle and expiry functions, grants |
 | `tools/exchange_fixture.py` | Adds NYMEX CL futures, ON/LO option products, series and synthetic settlements |
 | `src/OpenEtrm.Api/FuturesOptionStore.cs` | Catalog, booking, lifecycle and expiry HTTP operations |
 | `src/OpenEtrm.Api/Program.cs`, `AgentTools.cs` | Route and agent-tool registration |
@@ -226,7 +226,7 @@
 ### Task 6: Reference data and catalog
 
 **Files:**
-- Create: `db/migrations/0160_futures_options.sql` (reference section only in this task)
+- Create: `db/migrations/0166_futures_options.sql` (reference section only in this task)
 - Modify: `tools/exchange_fixture.py`, `docs/exchange-futures.md`
 - Create: `tools/check_futures_option_storage.py`
 - Modify: `tools/run_preview.py`, `tools/check_all.py` (register the check)
@@ -258,7 +258,7 @@
 ### Task 7: Booking
 
 **Files:**
-- Modify: `db/migrations/0160_futures_options.sql` (booking section)
+- Modify: `db/migrations/0166_futures_options.sql` (booking section)
 - Create: `src/OpenEtrm.Api/FuturesOptionStore.cs`
 - Modify: `src/OpenEtrm.Api/Program.cs`, `src/OpenEtrm.Api/AgentTools.cs`
 - Create: `tools/check_futures_option_lifecycle.py` (booking cases first)
@@ -287,7 +287,7 @@
 ### Task 8: Exercise, assignment, instructions and expiry
 
 **Files:**
-- Modify: `db/migrations/0160_futures_options.sql` (lifecycle section), `src/OpenEtrm.Api/FuturesOptionStore.cs`, `Program.cs`, `AgentTools.cs`, `tools/check_futures_option_lifecycle.py`
+- Modify: `db/migrations/0166_futures_options.sql` (lifecycle section), `src/OpenEtrm.Api/FuturesOptionStore.cs`, `Program.cs`, `AgentTools.cs`, `tools/check_futures_option_lifecycle.py`
 
 **Interfaces:**
 - Produces:
@@ -302,7 +302,7 @@
     - otherwise the versioned automatic rule applies against the underlying's `daily_settlement` on the expiry date;
     - a missing settlement raises `option_expiry_settlement_missing` and writes nothing.
   - HTTP `options/exercise`, `options/assignment`, `options/instruction` and `options/expiry`, with matching agent tools.
-  - *Superseded by D285:* the expiry function is `security.process_futures_option_expiry(catalog uuid,request uuid,trade uuid,snapshot uuid,observations uuid[])`, run per holding with the frame's selected observations, and no agent tool records lifecycle events.
+  - *Superseded by D288:* the expiry function is `security.process_futures_option_expiry(catalog uuid,request uuid,trade uuid,snapshot uuid,observations uuid[])`, run per holding with the frame's selected observations, and no agent tool records lifecycle events.
 - Open lots are never negative: exercising or assigning more than the open lots raises `option_lots_exceeded`. Instructions after `instruction_cutoff_at` raise `option_instruction_closed`.
 
 - [ ] **Step 1: Write the failing checks.**
@@ -371,7 +371,7 @@
 - Create: `docs/futures-options.md`
 - Modify: `docs/decisions.md`, `docs/architecture.md` (section 5.4 and "Observable instruments and option underlyings"), `docs/plan.md`, `docs/verification.md`, `docs/exchange-futures.md`
 
-- [ ] **Step 1: Add the D283 row.**
+- [ ] **Step 1: Add the D288 row.**
   - Listed futures options are standalone instruments with an exact underlying series. Exercise creates a separate futures obligation; O13 stays open for embedded options.
   - Owner decisions 1–8 from the spec, dated 2026-11-01.
   - Model `american_futures_option_crr_v1`, scenario policy `option_implied_volatility_held_v1` and fallback `option_settlement_at_intrinsic_v1`.

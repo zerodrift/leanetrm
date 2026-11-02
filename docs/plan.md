@@ -360,7 +360,8 @@ participate in keys, and floating sides separate contractual curve/observation
 configuration from resolved pricing bindings. Swap discounting remains marked.
 Lookup and uniqueness use typed primary/candidate keys; managed digests remain
 calculation aids rather than database authority. Observable/factor identity is
-separate from full contract equivalence. Options, general standalone physical power
+separate from full contract equivalence. Options other than the listed American
+futures options added on 1 November 2026 (D288), general standalone physical power
 booking, VaR/covariance and cross-revision forward-observable normalization remain
 explicit later work.
 
@@ -442,7 +443,7 @@ retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
 in O13 is still open for options embedded in an instrument. Listed American options
 on NYMEX futures are standalone instruments with their own model and lifecycle
-(D285, [futures options](futures-options.md)).
+(D288, [futures options](futures-options.md)).
 The D210 entry refinement places visual instrument cards between trade details
 and side forms. A selected versioned template populates empty side terms;
 commodity and market selections remain explicit. Each floating side owns its
@@ -1346,7 +1347,7 @@ settlement document.
 Extend only after the baseline contracts are demonstrated:
 
 - Broader calendars, delivery shapes and schedule authoring.
-- Options beyond listed American futures options (D285): other exercise and
+- Options beyond listed American futures options (D288): other exercise and
   settlement styles, volatility inputs and shocks, and nonlinear model diagnostics.
 - Option-side sibling dependencies, shared exercise groups and an explicit
   contribution/allocation convention that does not double-count the underlying.

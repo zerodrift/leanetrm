@@ -1934,8 +1934,9 @@ standalone fixed valuation, reversed memberships and delayed trade scaling.
 
 This qualifies the managed bounded fixed/floating valuation path only. Recurring
 payments, actual fixings, persistent swap/default-mapping operations, swap booking,
-blotter/editor inspector and risk integration remain work. Options are not
-implemented; the exercise-control accounting choice remains open in O13.
+blotter/editor inspector and risk integration remained work at this checkpoint. Options
+were not implemented then; listed American futures options followed on 1 November 2026
+(D288), and the exercise-control accounting choice for embedded options remains open in O13.
 
 
 ## Vertical instrument-side editor checkpoint
@@ -1986,8 +1987,8 @@ This checkpoint supersedes earlier statements that swap booking/default storage
 and side inspection were pending. The booking model is one whole delivery month
 with monthly-index or daily-calendar arithmetic projection and one payment per
 side before the first fixing. Actual fixings, recurring payment strips, additional
-persisted averaging rules, swap risk, fees, physical products and options remain
-unimplemented. Independent review found no remaining source blocker in this
+persisted averaging rules, swap risk, fees, physical products and options remained
+unimplemented at this checkpoint (listed American futures options followed on 1 November 2026, D288). Independent review found no remaining source blocker in this
 bounded path; local activation and publication remain distinct operations.
 
 
@@ -2100,7 +2101,8 @@ Independent adversarial review found no remaining blocker in this supported path
 Futures retain explicit execution-P&L and outstanding-exposure behavior; full
 variation-margin lifecycle/PV remains unfinished. Supported swaps retain
 discounted/undiscounted choice in their instrument identity. Standalone physical
-forward booking, executable options and VaR/covariance remain planned work.
+forward booking, executable options and VaR/covariance remained planned work at this
+checkpoint; listed American futures options followed on 1 November 2026 (D288).
 
 ## Amount formatting and common unit conversion checkpoint
 
@@ -3242,7 +3244,7 @@ alone reduces the measured worker read from approximately 2.6 to 1.5 seconds
 relative to that rejected replacement, with identical results. All live service,
 lease, permission and temporal checks and the five-second command bound remain.
 
-## Listed American futures options (D285)
+## Listed American futures options (D288)
 
 Local runs on 2026-11-01 against the final change, each in its own disposable
 PostgreSQL cluster with synthetic data. The capability is described in

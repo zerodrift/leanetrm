@@ -7,7 +7,7 @@ import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} f
 import type {DetailRead,TermSection} from './position-panel.js';
 import {tradeAnnotations,type PartyCatalog,type Trader} from './trade-annotations.js';
 
-// Listed futures options (D285): New trade's option ticket and the option position's lifecycle actions. Every series, value, rule and
+// Listed futures options (D288): New trade's option ticket and the option position's lifecycle actions. Every series, value, rule and
 // refusal is the backend's; the page lays them out, one field per row, and sends what the person entered to the authorized operations.
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 /** The booking and lifecycle convention option operations state. */

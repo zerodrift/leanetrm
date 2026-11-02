@@ -1,7 +1,7 @@
 import {compareDecimalStrings} from './analytics-model.js';
 import {deliveryLabel} from './market-view.js';
 
-// The option ticket's selection of a listed series (D285): exchange and commodity, then the underlying future, then call or put, then
+// The option ticket's selection of a listed series (D288): exchange and commodity, then the underlying future, then call or put, then
 // strike. Each list offers only what the catalog lists under the selections above it, in the catalog's order; nothing is chosen for the
 // person, and a changed selection clears every selection below it. The browser groups nothing the catalog does not state.
 type Named={code:string;name:string};

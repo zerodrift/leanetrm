@@ -24,7 +24,7 @@ export type Holding={booking:Booking;commodity:{code:string;name:string};priceTi
   /** For a scheduled swap whose periods project from several curves: the markets together, as the backend keys and names them. */
   marketKey?:string|null;marketLabel?:string|null;projectionCurves?:string[]|null}&Partial<OptionFacts>;
 /**
- * What a futures option trade's two rows state (D285): the option on its series, for its open lots, and the premium paid up front as
+ * What a futures option trade's two rows state (D288): the option on its series, for its open lots, and the premium paid up front as
  * unit cash. `settlement` is the option's settlement price at the close; `actions` are the lifecycle actions open to the holding, each
  * with the backend's reason when it is not; `closableLots` the unsigned open lots an exercise or assignment may close.
  */

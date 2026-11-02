@@ -1,7 +1,7 @@
 # American options on exchange futures
 
-Status: design dated 2026-11-01, implemented locally as recorded in D285 and
-[futures-options.md](../../futures-options.md). Notes marked "Superseded by D285"
+Status: design dated 2026-11-01, implemented locally as recorded in D288 and
+[futures-options.md](../../futures-options.md). Notes marked "Superseded by D288"
 record where the implementation departs from this text.
 
 ## Intent
@@ -111,7 +111,7 @@ The owner decided these on 2026-11-01:
    transport can reuse it later.
 6. The exchange's automatic exercise rule at expiry is a versioned contract term.
    The holder can override it by filing abandon (or exercise) before the cutoff.
-   *Superseded by D285 for ON and LO:* the exchange accepts no contrary
+   *Superseded by D288 for ON and LO:* the exchange accepts no contrary
    instructions for them, so the override applies only to products whose row
    allows instructions.
 7. Volatility shocks and vega come second.
@@ -171,7 +171,7 @@ One trade holds:
 - a premium cash instrument for premium × multiplier × lots, in the opposite
   direction, with an explicit payment date term. Both payment date and direction are
   booked, never derived from a clearing convention.
-  *Superseded by D285:* the premium is a shared unit cash instrument (one currency
+  *Superseded by D288:* the premium is a shared unit cash instrument (one currency
   unit on its payment date) held at the signed premium amount; after its payment
   date it is settled cash under a labeled measure.
 
@@ -345,7 +345,7 @@ Booking, exercise, instructions, assignment and expiry each get one authorized
 backend operation. The ticket and agent tools call the same operations. No business
 rules in TypeScript.
 
-*Superseded by D285:* agents get a read-only option catalog tool only. Booking and
+*Superseded by D288:* agents get a read-only option catalog tool only. Booking and
 lifecycle facts need a human booker, as for futures.
 
 ## Tests that define done
@@ -357,7 +357,7 @@ These are behavior checks, independent of the algorithm:
   within the stated tolerance, computed by an independent check.
 - **Bounds.** The value is at least intrinsic and at least the European value.
   Calls are at most the futures price; puts at most the discounted strike.
-  *Superseded by D285:* an American put on a future is bounded by the strike, not
+  *Superseded by D288:* an American put on a future is bounded by the strike, not
   the discounted strike, because early exercise can pay up to the strike at once.
 - **Monotonicity.** Value rises with volatility and time to expiry. Calls rise and
   puts fall with the futures price.

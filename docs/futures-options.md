@@ -1,8 +1,8 @@
 # Listed American options on futures
 
 Status: local implementation, verified as recorded in
-[verification](verification.md#listed-american-futures-options-d285). This is not a
-production activation record. The decision is [D285](decisions.md).
+[verification](verification.md#listed-american-futures-options-d288). This is not a
+production activation record. The decision is [D288](decisions.md).
 
 The first release covers two NYMEX products in the
 [exchange futures example](exchange-futures.md#nymex-cl-and-listed-options):
@@ -30,7 +30,9 @@ A listed option is its own immutable instrument. It references its exact underly
 style `american`, settlement method `exercise_into_future` and the versioned rules of
 its product. The exact `ref_data.futures_option_series` key is the identity; each
 strike and right is a different instrument. Series exist only as explicit catalog
-rows. The quantity basis is one option contract, and one contract exercises into one
+rows: the exchange's strike listing ranges and intervals are not modeled, so no
+series is generated from them, and the example catalog's products and series carry
+definition state `candidate`, not a production activation. The quantity basis is one option contract, and one contract exercises into one
 underlying futures contract.
 
 An option is not a side of another instrument. Exercise or assignment books a
@@ -169,6 +171,11 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   offered only on working data with booking authority.
 - **Agents.** Agents have the read-only `futures_option_catalog` tool. They cannot
   book options or record lifecycle events: booking facts need a human booker.
+  Migration `0166_futures_options.sql` adds the tool only when the agent tool list
+  is exactly the reviewed one, and fails if any agent tool or the agent reader role
+  holds BookTrade or AmendTrade. The option entry page (`blotter_new_option`) is a
+  page the assistant does not read: it can be asked from there and its page
+  guidance is configurable, but the workspace operations do not cover it.
 
 ## Remaining work
 

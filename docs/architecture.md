@@ -943,7 +943,7 @@ outputs. The instrument specifies which output a connection consumes; call order
 cannot change its meaning. A Side cannot recursively request the instrument PV.
 Option sides embedded in an instrument still require explicit additional-obligation
 versus exercise-control accounting before that product is enabled; listed futures
-options are standalone instruments (D285).
+options are standalone instruments (D288).
 
 ### 3.5 Physical and financial composition
 
@@ -1611,7 +1611,7 @@ curve consumers within the selected versioned context. Covariance axes must use
 explicit selected factor identities/units; dependency membership alone supplies
 no exposure amount. VaR, covariance estimation and independent cross-revision forward
 observable normalization are not implemented. Listed American options on NYMEX
-futures are executable (D285, [futures options](futures-options.md)); other option
+futures are executable (D288, [futures options](futures-options.md)); other option
 products are not.
 
 Pricing measure/numeraire, model versions, market-input mode and calibration belong
@@ -1630,7 +1630,7 @@ not implemented.
 This is a proposed extension boundary, not an implemented option product or a
 settled accounting choice. It concerns options embedded in an instrument. A listed
 futures option is a standalone instrument whose exercise books a separate future,
-so it does not use this boundary (D285). Preserve the instrument-owned connections in section 3.4.
+so it does not use this boundary (D288). Preserve the instrument-owned connections in section 3.4.
 
 The instrument retains explicit target-member connections. An option side retains payoff/strike terms,
 exercise opportunities, settlement rules and model requirements. Its event plan
