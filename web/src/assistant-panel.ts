@@ -439,11 +439,18 @@ export function setupAssistant(options:PanelOptions){
   // temporary window/navigation constraints never replace the browser's chosen width (D45).
   const widthKey='openetrm.assistant.width';
   const workspace=document.querySelector('main');
+  const availableWidth=()=>document.documentElement.clientWidth-(workspace?.getBoundingClientRect().left??0);
+  let measuredAvailable=availableWidth(),scrollbarRoom=0;
   const bounds=()=>{
-    const available=window.innerWidth-(workspace?.getBoundingClientRect().left??0),min=320;
-    const overlay=window.innerWidth<=760||available<640+min;
+    const viewportWidth=document.documentElement.clientWidth,gutter=window.innerWidth-viewportWidth;
+    const available=availableWidth(),min=320;measuredAvailable=available;
+    // Overlaying can shorten the page and remove its scrollbar. Keep room for an
+    // observed gutter when choosing the mode so that it cannot flip back and forth.
+    scrollbarRoom=Math.max(scrollbarRoom,gutter);
+    const dockAvailable=available+gutter-scrollbarRoom;
+    const overlay=window.innerWidth<=760||dockAvailable<640+min;
     document.body.classList.toggle('assistant-overlay',overlay);
-    return {min,max:Math.max(min,Math.min(720,overlay?Math.round(window.innerWidth*.6):available-640))};
+    return {min,max:Math.max(min,Math.min(720,overlay?Math.round(viewportWidth*.6):available-640))};
   };
   let chosenWidth=400;try{chosenWidth=Number(localStorage.getItem(widthKey))||400;}catch{/* The default width is used. */}
   function setWidth(value:number,save:boolean){
@@ -455,7 +462,7 @@ export function setupAssistant(options:PanelOptions){
   }
   handle.onpointerdown=event=>{
     event.preventDefault();handle.setPointerCapture(event.pointerId);
-    handle.onpointermove=move=>setWidth(window.innerWidth-move.clientX,false);
+    handle.onpointermove=move=>setWidth(panel.getBoundingClientRect().right-move.clientX,false);
     const finish=(save:boolean)=>{
       handle.onpointermove=handle.onpointerup=handle.onpointercancel=null;
       setWidth(save?Number(handle.getAttribute('aria-valuenow')):chosenWidth,save);
@@ -469,8 +476,19 @@ export function setupAssistant(options:PanelOptions){
     if(next!==undefined){event.preventDefault();setWidth(next,true);}
   };
   window.addEventListener('resize',()=>setWidth(chosenWidth,false));
+  // Content can add/remove a reserved scrollbar without resizing the window. The
+  // available-width guard ignores the main-width changes caused by dragging itself.
+  let geometryFrame=0;
+  const geometry=new ResizeObserver(()=>{
+    if(availableWidth()===measuredAvailable||geometryFrame)return;
+    geometryFrame=requestAnimationFrame(()=>{
+      geometryFrame=0;
+      if(availableWidth()!==measuredAvailable)setWidth(chosenWidth,false);
+    });
+  });
+  if(workspace)geometry.observe(workspace);
   const navigation=document.getElementById('app-sidebar');
-  if(navigation)new ResizeObserver(()=>setWidth(chosenWidth,false)).observe(navigation);
+  if(navigation)geometry.observe(navigation);
   setWidth(chosenWidth,false);
 
   launcher.onclick=()=>{if(options.launcherMinimized?.())options.restoreLauncher?.();show(!opened);};

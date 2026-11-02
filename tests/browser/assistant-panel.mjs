@@ -97,7 +97,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `${q('#assistant-panel')}.getBoundingClientRect().width===${width+16}&&localStorage.getItem('openetrm.assistant.width')==='${width+16}'&&${q('#assistant-resize')}.getAttribute('aria-valuenow')==='${width+16}'`);
   await evaluate(`${q('#assistant-resize')}.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))`);
   await check('the widest assistant preserves room for the market workspace and stacks its library',
-    "document.querySelector('main').getBoundingClientRect().width>=640&&getComputedStyle(document.querySelector('.market-layout')).gridTemplateColumns.split(' ').length===1");
+    "document.querySelector('main').getBoundingClientRect().width>=640&&getComputedStyle(document.querySelector('.market-layout')).gridTemplateColumns.split(' ').length===1",
+    "({window:innerWidth,viewport:document.documentElement.clientWidth,workspace:document.querySelector('main').getBoundingClientRect().width,panel:document.getElementById('assistant-panel').getBoundingClientRect().width,columns:getComputedStyle(document.querySelector('.market-layout')).gridTemplateColumns})");
   const widest=await evaluate(`${q('#assistant-panel')}.getBoundingClientRect().width`);
   await command('Emulation.setDeviceMetricsOverride',{width:900,height:1050,deviceScaleFactor:1,mobile:false});await wait("document.body.classList.contains('assistant-overlay')");
   await check('a narrower desktop overlays the assistant and keeps floating page controls below it',
