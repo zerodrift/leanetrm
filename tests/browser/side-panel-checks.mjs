@@ -501,20 +501,22 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await check('and asks it to confirm while the form holds edits',unloadAsks);
   await click('#side-panel-amend');await asks();await answer(1);
   await check('and no longer once they are given up',`!${unloadAsks}`);
-  // Save preferences reads the Blotter again, which closes the panel.
+  // Display preferences preserve the open amendment and its selected context.
   const savePreferences=async()=>{await click('#profile-open');await evaluate("document.querySelector('#preferences-form').requestSubmit()");};
   await amend(refB);
-  const readsBeforeNoEdits=await evaluate(workspaceReads);
-  await savePreferences();await wait(`${redrawn(idle)}&&${workspaceReads}>${readsBeforeNoEdits}`);
-  await check('Save preferences reads the Blotter again without a question when the form holds no edits',`${prompt}.hidden&&${workspaceReads}>${readsBeforeNoEdits}&&!document.querySelector('#profile-dialog').open`);
-  await amend(refB);await typeInto('#trade-lots','5');
-  const readsBeforePreferences=await evaluate(workspaceReads);
-  await savePreferences();await asks();
-  await check('Save preferences asks before it reads the Blotter again over a form with edits, and the dialog has made way for the question',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#profile-dialog').open&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforePreferences}`,`[${prompt}.textContent,document.querySelector('#profile-dialog').open,${workspaceReads},${readsBeforePreferences}]`);
+  const readsBeforePreferences=await evaluate(workspaceReads),lotsBeforePreferences=await evaluate("document.querySelector('#trade-lots').value"),closeBeforePreferences=await evaluate("document.querySelector('#snapshot').value");
+  const preferencesPreserveContext=`${prompt}.hidden&&${editing}&&${workspaceReads}===${readsBeforePreferences}&&document.querySelector('#snapshot').value===${JSON.stringify(closeBeforePreferences)}&&!document.querySelector('#profile-dialog').open`;
+  await savePreferences();await wait(`${idle}&&!document.querySelector('#profile-dialog').open`);
+  await check('Save preferences preserves an unedited amendment and its close without reading the Blotter again or asking to discard it',`${preferencesPreserveContext}&&document.querySelector('#trade-lots').value===${JSON.stringify(lotsBeforePreferences)}&&!${unloadAsks}`);
+  await typeInto('#trade-lots','5');
+  await savePreferences();await wait(`${idle}&&!document.querySelector('#profile-dialog').open`);
+  await check('Save preferences preserves unsaved amendment edits and their close without a discard question or another Blotter read',`${preferencesPreserveContext}&&document.querySelector('#trade-lots').value==='5'&&${unloadAsks}`,`[${prompt}.textContent,document.querySelector('#profile-dialog').open,${workspaceReads},${readsBeforePreferences},document.querySelector('#trade-lots').value]`);
+  await click('#details-collapse');await asks();
+  await check('closing the preserved amendment still asks before discarding its edits',`${prompt}.querySelectorAll('button').length===2&&${editing}&&document.querySelector('#trade-lots').value==='5'`);
   await answer(0);
-  await check('keeping the edits saves nothing, says so, and leaves the form',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforePreferences}&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes('Your preferences were not saved')`,`[document.querySelector('#notice').hidden,document.querySelector('#notice').textContent]`);
-  await savePreferences();await asks();await answer(1);await wait(`${redrawn(idle)}&&${workspaceReads}>${readsBeforePreferences}`);
-  await check('and agreeing saves them: the Blotter is read again, and the form is given up',`${workspaceReads}>${readsBeforePreferences}&&document.querySelector('#trade-editing').hidden&&!document.querySelector('#profile-dialog').open`);
+  await check('keeping the preserved edits leaves the amendment and browser guard intact',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${unloadAsks}`);
+  await click('#details-collapse');await asks();await answer(1);await wait(`${panel}.hidden`);
+  await check('discarding the preserved amendment closes it and clears the browser guard',`document.querySelector('#trade-editing').hidden&&!${unloadAsks}`);
   // A newer close arriving while a form is open is offered, and taking it asks first. The calendar's newest date is held back until the window is
   // focused again, as a close that becomes available during a session is.
   await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{const path=typeof input==='string'?input:input.url;let response=await send(input,init);
