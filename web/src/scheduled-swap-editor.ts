@@ -1,3 +1,4 @@
+import {decorateSideCard,sideAddButton} from './side-card.js';
 import type {ContractObservationSource} from './contract-observation-ticket.js';
 import {explainUnavailableValue,markUnavailableValue,renderChangeReview,unavailableValueLabel,type ChangeReview} from './saved-trade-terms.js';
 import {priceSourceElement,priceSourceNote,renderCloseOut,type CloseOutShown,type SwapCloseOut} from './close-out-draft.js';
@@ -84,7 +85,7 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
  const changeReview=node('section');changeReview.id='scheduled-change-review';changeReview.className='trade-change-review';changeReview.hidden=true;
  const form=node('form'),fields=node('fieldset'),review=node('section'),confirmation=node('div');form.id='scheduled-swap-form';
  const ownership=node('section');ownership.id='scheduled-trade-terms';ownership.className='trade-booking-terms';
- const product=node('section'),delivery=node('div');delivery.className='scheduled-side-columns';
+ const product=node('section'),delivery=node('div');delivery.className='scheduled-side-columns entry-side-deck';
  // A close-out draft heads the ticket, and its fixed prices are labelled with their source until a price or the pricing choice is changed.
  const closeOut=node('div');closeOut.id='scheduled-close-out';closeOut.hidden=true;
  const annotationsHost=ownership;shelf.append(root);root.append(heading,closeOut,message,error,form);fields.append(product,delivery,annotationsHost);form.append(fields,review,changeReview,confirmation);
@@ -106,6 +107,10 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
  const invalidate=()=>{renderChangeReview(changeReview,null);generation++;prepared=undefined;confirm.checked=false;visibleValuation=undefined;visibleQuantities=undefined;review.replaceChildren();confirmation.hidden=true;};
  product.append(node('h3','Product and commodity'),node('p','Author complete monthly periods. Stubs, irregular periods, non-monthly payment aggregation and arbitrary daily/hourly quantity profiles are unsupported. Existing single-payment contracts retain their original terms.'));
  const kind=select(product,'Swap structure',[{value:'fixed_floating',label:'Fixed for floating'},{value:'floating_floating',label:'Floating for floating'},{value:'factor_floating',label:'Heat rate · cross-commodity floating for floating'}]);identify(kind,'scheduled-kind');
+ const structureButtons=document.createElement('div');structureButtons.className='ticket-add scheduled-side-adder';structureButtons.setAttribute('aria-label','Add scheduled swap sides');
+ for(const choice of [...kind.options].filter(o=>o.value)){const button=sideAddButton(choice.text,()=>{if(options.busy()||options.pending()||!catalog||detail&&!detail.canAmend||kind.value===choice.value)return;edits.mark();kind.value=choice.value;kind.dispatchEvent(new Event('change',{bubbles:true}));});button.dataset.scheduledStructure=choice.value;structureButtons.append(button);}
+ kind.parentElement!.hidden=true;product.append(structureButtons);
+
  const commodity=select(product,'Commodity',[]);identify(commodity,'scheduled-commodity');
  const secondCommodity=select(product,'Second-side commodity',[]);identify(secondCommodity,'scheduled-second-commodity');
  const factorFields=node('fieldset');factorFields.append(node('legend','Contractual quantity factor'));product.append(factorFields);
@@ -171,6 +176,7 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
  }
  function sideEditor(slot:number,saved?:QuantitySide){
   const host=node('section');host.className='instrument-side';delivery.append(host);host.append(node('h3',slot===0?'First side':'Second side'),node('p','Keep one index and quote basis within each side. Enter each period quantity, price observations and payment rule explicitly.'));
+  decorateSideCard(host,host.querySelector('h3')!,slot===0&&kind.value==='fixed_floating'?'Fixed':'Floating',slot===0?'cash':'fee');
   const from=input(host,'Contract delivery start','date',saved?.periods[0]?.fixed?.deliveryFrom??saved?.periods[0]?.floating?.deliveryFrom??'');from.dataset.role='delivery-from';
   const last=saved?.periods.at(-1),to=input(host,'Contract delivery end · exclusive','date',last?.fixed?.deliveryTo??last?.floating?.deliveryTo??'');to.dataset.role='delivery-to';
   const quantity=node('fieldset');quantity.append(node('legend','Quantity amount, unit and application'));host.append(quantity);
@@ -236,6 +242,7 @@ export function setupScheduledSwapEditor(options:{api:Api;act:(work:()=>Promise<
   status.textContent=detail&&!detail.canAmend?(detail.amendUnavailableReason??'This revision is read-only.'):prepared?(confirm.checked?detail?'Ready to save this amendment.':'Ready to book these reviewed terms.':'Review the preview below and tick the confirmation to enable saving.'):detail?'Change the terms, enter an amendment reason, then preview changes.':'Enter the trade terms, then preview the booking.';
   const waiting=options.busy()||!!options.pending(),locked=waiting||!!detail&&!detail.canAmend;
   settlementButton.hidden=!detail;settlementButton.disabled=waiting;fields.disabled=locked;
+  for(const button of structureButtons.querySelectorAll<HTMLButtonElement>('button')){const selected=button.dataset.scheduledStructure===kind.value;button.disabled=locked||!catalog||selected;button.setAttribute('aria-pressed',String(selected));}
   sideEditors.forEach(side=>side.sync());syncFixedQuotes();revision.disabled=waiting;reason.required=!!detail?.canAmend;
   preview.disabled=locked||!catalog||!kind.value||!commodity.value||!market.value||(!detail&&!catalog.canBook);
   submit.disabled=locked||!prepared||!confirm.checked;confirm.disabled=locked||!prepared;

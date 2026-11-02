@@ -31,7 +31,7 @@
 body{margin:0;background:var(--bg)}
 button,input,select,textarea{font:inherit;color:inherit}
 button,select,summary{cursor:pointer}
-:focus-visible{outline:3px solid #e0b35a;outline-offset:2px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 [hidden]{display:none!important}
 .curve-kind{display:inline-grid;place-items:center;flex:none;width:20px;height:20px;border-radius:5px;background:var(--kind);color:#fff}
 .curve-kind svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -69,6 +69,9 @@ button:disabled,select:disabled,input:disabled,textarea:disabled{opacity:.55;cur
 label{display:block;font-size:13px;font-weight:500;color:var(--text-2);margin-bottom:6px}
 select,input,textarea{border:1px solid var(--border-strong);padding:7px 10px;border-radius:var(--radius-sm);background:var(--surface);color:var(--text);min-height:36px;max-width:100%;font-size:13px}
 select:hover,input:hover,textarea:hover{border-color:#b3c0b9}
+:is(select,input,textarea):focus{border-color:var(--accent);box-shadow:none}
+:is(select,input,textarea):focus:not(:focus-visible){outline:none}
+:is(select,input,textarea):focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 textarea{width:100%;line-height:1.5}
 input[type=checkbox]{min-height:0}
 
@@ -1400,7 +1403,7 @@ body.assistant-open.assistant-overlay main{margin-right:0}
 .swap-sides>#swap-first-editor{display:contents}.swap-sides>[hidden]{display:none!important}
 
 /* PPA forms and exact inspection stay within the page; wide native tables scroll locally. */
-#ppa-page{min-width:0}#ppa-page fieldset{min-width:0;border:0;padding:0;margin:16px 0}#ppa-page legend{font-weight:650;margin-bottom:14px}#ppa-page .schedule-fields label{min-width:0}#ppa-page input:not([type=checkbox]),#ppa-page select,#ppa-page textarea{max-width:100%;width:100%;min-width:0}#ppa-page select[multiple]{min-height:100px}.ppa-steps{display:flex;flex-wrap:wrap;gap:10px 28px;padding-left:24px}.ppa-steps [aria-current=step]{font-weight:700;color:var(--accent,#2255a4)}.ppa-evidence{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;font-size:12px;background:#f4f6f8;padding:12px;border-radius:8px}.ppa-components{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px}.ppa-component{margin:0!important;min-width:0}#ppa-page .table-wrap{max-width:100%;overflow:auto}#ppa-page td,#ppa-page th{padding:9px 12px;vertical-align:top;text-align:left}#ppa-page td button{margin:2px;white-space:nowrap}#ppa-page .schedule-actions{flex-wrap:wrap}#ppa-page label:has(input[type=checkbox]){display:flex;align-items:flex-start;gap:8px}#ppa-pins,#ppa-trade-title{overflow-wrap:anywhere}@media(max-width:600px){.ppa-steps{display:block}.ppa-steps li{padding:3px 0}#ppa-page .schedule-fields{grid-template-columns:minmax(0,1fr)}#ppa-page .card{padding:16px}#ppa-page .schedule-actions button{max-width:100%}}
+#ppa-page{min-width:0}#ppa-page fieldset{min-width:0;border:0;padding:0;margin:16px 0}#ppa-page legend{font-weight:650;margin-bottom:14px}#ppa-page .schedule-fields label{min-width:0}#ppa-page input:not([type=checkbox]),#ppa-page select,#ppa-page textarea{max-width:100%;width:100%;min-width:0}#ppa-page select[multiple]{min-height:100px}.ppa-evidence{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;font-size:12px;background:#f4f6f8;padding:12px;border-radius:8px}.ppa-components{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px}.ppa-component{margin:0!important;min-width:0}#ppa-page .table-wrap{max-width:100%;overflow:auto}#ppa-page td,#ppa-page th{padding:9px 12px;vertical-align:top;text-align:left}#ppa-page td button{margin:2px;white-space:nowrap}#ppa-page .schedule-actions{flex-wrap:wrap}#ppa-page label:has(input[type=checkbox]){display:flex;align-items:flex-start;gap:8px}#ppa-pins,#ppa-trade-title{overflow-wrap:anywhere}@media(max-width:600px){#ppa-page .schedule-fields{grid-template-columns:minmax(0,1fr)}#ppa-page .card{padding:16px}#ppa-page .schedule-actions button{max-width:100%}}
 #ppa-measures table{width:100%;min-width:0;table-layout:fixed}#ppa-measures th,#ppa-measures td{white-space:normal;overflow-wrap:anywhere;width:50%}#ppa-measures td:nth-child(2){font-variant-numeric:tabular-nums}
 
 .ppa-plots { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr)); gap:1rem; }
@@ -2018,3 +2021,36 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
   .delivery-filter-fields{grid-template-columns:minmax(0,1fr)}
   .delivery-filter-source,.delivery-filter-cutoff,.delivery-filter-fields>button{grid-column:auto}
 }
+
+/* Side cards share the gas ticket presentation; native operations own their terms. */
+.entry-side-deck{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px;align-items:start;container-type:inline-size}
+.entry-side-deck>[hidden]{display:none!important}
+.entry-side-deck>.ticket-add,.entry-side-card{grid-row:auto}
+.entry-side-card{display:block;min-width:0;padding:0;cursor:default;background:var(--surface);border-top:4px solid var(--side-colour)}
+.entry-side-card>.ticket-card-head{border-bottom:1px solid var(--border);margin:0}
+.entry-side-card>fieldset,.entry-side-card>.schedule-fields,.entry-side-card>.field-help,.entry-side-card>h4,.entry-side-card>details,.entry-side-card>div:not(.ticket-card-head){margin:12px;padding:0;min-width:0}
+.entry-side-card>.schedule-fields,.entry-side-card .schedule-fields{grid-template-columns:minmax(0,1fr)}
+.entry-side-card fieldset{min-width:0;border:0}
+.entry-side-card .ticket-card-head h3{margin:0;font-size:15px;white-space:normal}
+.entry-side-card .ticket-pill{max-width:45%;white-space:normal}
+.entry-side-card>.text-button{margin:10px 12px}
+.ppa-component.entry-side-card>p,.ppa-component.entry-side-card>.ppa-retained-quantity{margin:12px}
+.ppa-component.entry-side-card>h4{font-size:13px}
+#ppa-ticket>.schedule-actions{position:static}
+#ppa-ticket .entry-section{margin:0 0 22px;padding:0;border:0;min-width:0}
+#ppa-ticket .entry-section>legend{font-size:15px;font-weight:600;margin:12px 0}
+#ppa-components .ticket-add{min-height:160px}
+.swap-side-adder,.scheduled-side-adder{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;grid-row:auto;margin:14px 0;min-width:0}
+.swap-side-adder .ticket-add-title{width:100%;text-align:left}
+#swap-pending-sides:empty{display:none}
+.swap-sides.entry-side-deck{display:grid}
+.entry-side-card .side-payment-rule{padding:0;border:0;background:none}
+.futures-market-price{display:flex;flex-direction:column;gap:7px;margin:14px 0;padding:14px 16px;border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:var(--radius);background:var(--surface-2);font-variant-numeric:tabular-nums}
+.futures-market-price>span{font-size:22px;font-weight:650}
+.futures-market-price>small{color:var(--text-2);line-height:1.6}
+@media(max-width:639px){.entry-side-deck{grid-template-columns:minmax(0,1fr)}.entry-side-card{width:100%}.swap-side-adder,.scheduled-side-adder{flex-direction:column;align-items:stretch}}
+
+/* The trade panel supplies the outer frame; native tickets keep only side cards. */
+#ppa-page.embedded-trade>.card:first-child,#ppa-page.embedded-trade>#ppa-ticket,
+#crude-page.embedded-trade>.card:first-child{border:0;box-shadow:none;background:transparent;padding:0}
+#ppa-page.embedded-trade>.card:first-child>h2,#ppa-page.embedded-trade>#ppa-ticket>h2{display:none}

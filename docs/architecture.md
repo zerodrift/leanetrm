@@ -2505,3 +2505,18 @@ and curve definitions. Dates resolve through a request-scoped shared resolver;
 product economics remain in reference data. See
 [schedules and date mappings](schedules-and-contract-sequences.md#saved-schedules-and-date-mappings-d283)
 for implemented behavior and remaining authoring work.
+
+
+The D285 [manual-entry update](deal-ticket.md#manual-entry-across-native-products-d285)
+removes PPA wizard navigation, shares side cards and supported add-side controls
+across native sided products, and offers dated futures contracts with a contextual
+curve price. Native authorized operations and financial contracts remain in use;
+migrating these products to the common description and joint schedule remains work.
+
+D286 adds an explicit independent PPA composition contract alongside the legacy
+native presets. Composed side quantities and typed links remain managed business
+contracts, with exact retained version admission for common schedule reads.
+Crude entry projects separate facets of authorized exact valuation assignments.
+Actual instants use the selected user timezone; managed local-time resolution
+retains DST disambiguation, and operating dates retain their original meaning.
+See [decisions](decisions.md#d286--user-zone-instants-and-independent-ppa-composition).

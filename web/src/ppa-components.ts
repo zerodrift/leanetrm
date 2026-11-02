@@ -1,7 +1,10 @@
+import {ppaQuantityEditor} from './ppa-quantity-editor.js';
 import {componentQuantity} from './ppa-view.js';
 import {friendly} from './market-view.js';
-import type {Catalog,Member,Quantity,Side,Template,DataRow,PriceSettlement} from './ppa-contract.js';
+import type {Catalog,Member,Quantity,Side,Template,DataRow,PriceSettlement,Slot} from './ppa-contract.js';
 import type {PaymentInput} from './swap-contract.js';
+import {decorateSideCard} from './side-card.js';
+import {ppaSideLabel} from './ppa-side-label.js';
 export const code=(r:DataRow,key='code')=>String(r[key]??'');
 export const choices=(rows:DataRow[])=>rows.map(r=>({value:code(r),label:code(r,'name')||friendly(code(r))}));
 export function readSettlementChoice(curveKind:string,mode:string,index:string):PriceSettlement|null{
@@ -17,7 +20,7 @@ export function readSettlementChoice(curveKind:string,mode:string,index:string):
 export function selectChoices(node:HTMLSelectElement,rows:{value:string;label:string}[],value=''){
  node.replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(r.label,r.value)));node.value=value;
 }
-export function componentEditor(host:HTMLElement,catalog:Catalog,template:Template['members'][number],index:number,changed:()=>void,initial?:Member){
+export function componentEditor(host:HTMLElement,catalog:Catalog,template:Template['members'][number],index:number,changed:()=>void,initial?:Member,composition?:{delivery:()=>{clock:string;cadence:string};links:()=>Slot[]}){
  const prefix=`ppa-component-${index}`;
  host.className='card ppa-component';host.dataset.role=template.role;
  // Only static labels and generated numeric IDs enter markup; reference values use text/Option nodes.
@@ -52,13 +55,14 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  <label>Adjustment<select data-field="adjustment"></select></label>
  <label data-section="calendar">Payment calendar<select data-field="payment-calendar"></select></label></div>`;
  const field=(name:string)=>host.querySelector<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>(`[data-field="${name}"]`)!;
- const value=(name:string)=>{const v=field(name).value;if(!v)throw Error(`Complete ${friendly(template.role)}: ${friendly(name)}.`);return v;};
- host.querySelector('h3')!.textContent=friendly(template.role);
- host.querySelector('.ppa-link')!.textContent=template.linkedSlots.length?`Quantity follows ${template.linkedSlots.map(s=>friendly(s.role)+' '+s.ordinal).join(', ')}. Positive quantities retain their units; direction signs the value.`:'Uses the explicitly selected delivery quantity. Direction signs the value.';
+ const value=(name:string)=>{const v=field(name).value;if(!v)throw Error(`Complete ${ppaSideLabel(template.role)}: ${friendly(name)}.`);return v;};
+ host.querySelector('h3')!.textContent=ppaSideLabel(template.role);
+ decorateSideCard(host,host.querySelector('h3')!,ppaSideLabel(template.role),template.sideKind==='energy'?'gas':template.sideKind==='fixed'?'cash':'fee');
+ host.querySelector('.ppa-link')!.textContent=template.linkedSlots.length?`Quantity follows ${template.linkedSlots.map(s=>ppaSideLabel(s.role)+' '+s.ordinal).join(', ')}. Positive quantities retain their units; direction signs the value.`:'Uses the explicitly selected delivery quantity. Direction signs the value.';
  host.querySelectorAll<HTMLInputElement>('input,select,textarea').forEach(n=>{n.id=prefix+'-'+n.dataset.field;n.autocomplete='off';});
  const pick=(name:string,rows:{value:string;label:string}[])=>selectChoices(field(name) as HTMLSelectElement,rows);
  const enums=(name:string,values:string[])=>pick(name,values.map(value=>({value,label:friendly(value)})));
- pick('location',choices(catalog.references.locations));pick('price-quantity',choices(catalog.references.quantitySpecs));pick('attribute-quantity',choices(catalog.references.quantitySpecs));
+ pick('location',choices(catalog.references.locations));pick('price-quantity',choices([...catalog.references.quantityGroups.energy,...catalog.references.quantityGroups.certificate,...catalog.references.quantityGroups.capacity]));pick('attribute-quantity',choices(template.sideKind==='certificate'?catalog.references.quantityGroups.certificate:catalog.references.quantityGroups.capacity));
  enums('quantity-choice',['retained','selected']);field('quantity-choice').value=initial?'retained':'selected';if(initial&&!template.linkedSlots.length){host.querySelector<HTMLElement>('.ppa-retained-quantity')!.hidden=false;host.querySelector('.ppa-retained-quantity pre')!.textContent=JSON.stringify(initial.side.quantity,null,2);}
  enums('side-kind',template.sideKinds);field('side-kind').value=initial?.side.kind??(template.sideKinds.length===1?template.sideKinds[0]:'');
  enums('price-kind',catalog.priceKinds.filter(k=>k!=='indexed'));pick('curve',choices(catalog.definitionsMetadata.priceCurves));
@@ -69,9 +73,10 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  const pay=catalog.paymentOptions;
  for(const [name,rows] of [['frequency',pay.frequencies],['payment-rule',pay.rules],['day-basis',pay.dayBases],['short-month',pay.shortMonths],['adjustment',pay.adjustments]] as const)pick(name,rows);
  pick('payment-calendar',choices(catalog.references.calendars));
- function sync(busy=false){
+ const sideQuantity=composition?ppaQuantityEditor(host,catalog,template,prefix,composition.delivery,composition.links,initial?.side.quantity):undefined;
+ function sync(busy=false){sideQuantity?.sync(busy);
   const kind=field('side-kind').value,price=field('price-kind').value,rule=field('payment-rule').value;
-  const active:Record<string,boolean>={'quantity-choice':!!initial&&!template.linkedSlots.length,location:kind==='energy',fixed:kind==='fixed',priced:kind==='fixed'||kind==='indexed',flat:kind==='fixed'&&price==='flat',escalated:kind==='fixed'&&price==='escalated',stepped:kind==='fixed'&&price==='stepped',indexed:kind==='indexed',attribute:kind==='certificate'||kind==='capacity',certificate:kind==='certificate',capacity:kind==='capacity',lag:rule==='days_after_period_end',next:rule==='day_of_following_month',calendar:!!field('adjustment').value&&(field('adjustment').value!=='unadjusted'||rule==='days_after_period_end'&&field('day-basis').value==='business_days')};
+  const active:Record<string,boolean>={'quantity-choice':!composition&&!!initial&&!template.linkedSlots.length,location:kind==='energy',fixed:kind==='fixed',priced:kind==='fixed'||kind==='indexed',flat:kind==='fixed'&&price==='flat',escalated:kind==='fixed'&&price==='escalated',stepped:kind==='fixed'&&price==='stepped',indexed:kind==='indexed',attribute:kind==='certificate'||kind==='capacity',certificate:kind==='certificate',capacity:kind==='capacity',lag:rule==='days_after_period_end',next:rule==='day_of_following_month',calendar:!!field('adjustment').value&&(field('adjustment').value!=='unadjusted'||rule==='days_after_period_end'&&field('day-basis').value==='business_days')};
   active['period-settlement']=kind==='indexed'&&selectedCurve()?.kind==='period';
   active['override-settlement']=active['period-settlement']&&field('settlement-mode').value==='override';
   for(const label of host.querySelectorAll<HTMLElement>('[data-section]')){label.hidden=!active[label.dataset.section!];label.querySelectorAll<HTMLInputElement>('input,select,textarea').forEach(n=>n.disabled=busy||!!label.hidden);}
@@ -79,7 +84,7 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  function read(quantity:Quantity):Member{
   const rule=value('payment-rule'),lag=rule==='days_after_period_end',adjustment=value('adjustment'),dayBasis=lag?value('day-basis'):null;
   const payment={frequency:value('frequency'),rule,days:lag?Number(value('payment-number')):null,dayOfMonth:lag?null:Number(value('payment-number')),dayBasis,shortMonth:lag?null:value('short-month'),adjustment,calendar:adjustment!=='unadjusted'||dayBasis==='business_days'?value('payment-calendar'):null,implementation:pay.implementation} as PaymentInput;
-  const kind=value('side-kind'),side:Side={kind,quantity:componentQuantity<Quantity>(template.linkedSlots.length?{kind:'slots',slots:template.linkedSlots,sources:[],assets:[],stage:null,capacity:null,energy:null,hours:null}:quantity,initial?.side.quantity,initial?value('quantity-choice'):'selected'),paymentRule:payment,location:kind==='energy'?value('location'):null,fixedPrice:null,indexPrice:null,attribute:null};
+  const kind=value('side-kind'),side:Side={kind,quantity:sideQuantity?sideQuantity.read():componentQuantity<Quantity>(template.linkedSlots.length?{kind:'slots',slots:template.linkedSlots,sources:[],assets:[],stage:null,capacity:null,energy:null,hours:null}:quantity,initial?.side.quantity,initial?value('quantity-choice'):'selected'),paymentRule:payment,location:kind==='energy'?value('location'):null,fixedPrice:null,indexPrice:null,attribute:null};
   if(kind==='fixed'){
    const mode=value('price-kind');side.fixedPrice={kind:mode,quantity:value('price-quantity'),multiplier:value('multiplier'),price:mode==='stepped'?null:value(mode==='escalated'?'initial-price':'price'),rate:mode==='escalated'?value('rate'):null,baseDate:mode==='escalated'?value('base-date'):null,basis:mode==='escalated'?value('basis'):null,steps:mode==='stepped'?value('steps').split('\n').filter(Boolean).map(line=>{const parts=line.split(',');if(parts.length!==2)throw Error('Write each price step as operating date,price.');return{from:parts[0].trim(),price:parts[1].trim()};}):[]};
   }
@@ -95,5 +100,5 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  }
  field('curve').addEventListener('change',()=>{field('settlement-mode').value='';field('settlement-index').value='';});
  host.addEventListener('input',()=>{changed();sync();});host.addEventListener('change',()=>{changed();sync();});sync();
- return{read,sync,template};
+ return{read,sync,template,linkedSlots:()=>sideQuantity?.linkedSlots()??template.linkedSlots};
 }

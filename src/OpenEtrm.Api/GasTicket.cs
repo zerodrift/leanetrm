@@ -56,7 +56,7 @@ public static class GasTicket
      new("volume","Volume",null,"quantity",[],"Will show the day's gas volume beside its energy quantity, converted with the side's heat content."),
      new("market_price","Market price",null,"price",[]),new("amount","Amount",null,"money",[])]),
    // A new trade opens with the payment for its gas; a fee is added when one applies.
-   CashKind("cash","Payment","cash",false,1),
+   CashKind("cash","Cash","cash",false,1),
    CashKind("fee","Fee","fee",true,0),
    // An index price is the existing floating side (FloatingSide, D84 and D93), offered greyed until gas booking takes it.
    new("floating","Floating","neutral",0,0,0,[],[],"Index price: pays for the gas at a published index, the same floating side swaps book. Gas booking does not accept it yet.")],

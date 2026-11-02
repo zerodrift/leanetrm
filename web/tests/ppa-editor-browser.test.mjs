@@ -13,7 +13,7 @@ async function fixture(work){
    const catalog={knownAt:'2031-11-01T00:00:00Z',definitions:{revisionId:'definitions-v1'},reference,compositionTemplates:[],cadences:[60],
     breakEven:{compositions:[],selectedRole:'fixed_payment',measures:['CompletePv'],quoteRounding:['half_even_v1']},
     books:[{id:'book-a',name:'Book A',portfolio:'Synthetic'},{id:'book-b',name:'Book B',portfolio:'Synthetic'}],legalEntities:[],counterparties:[],
-    references:{currencies:[{code:'usd'}],quantitySpecs:[{code:'energy',unit_code:'mwh'}],units:[{code:'mwh',symbol:'MWh'}],clocks:[],calendars:[],locations:[],priceIndices:[]},
+    references:{quantityGroups:{contract:[],energy:[{code:'energy',unit_code:'mwh'}],certificate:[],capacity:[]},currencies:[{code:'usd'}],quantitySpecs:[{code:'energy',unit_code:'mwh'}],units:[{code:'mwh',symbol:'MWh'}],clocks:[],calendars:[],locations:[],priceIndices:[]},
     definitionsMetadata:{generationAssets:[],assetVersions:[],volumeSources:[],priceCurves:[]},touVersions:[],limits:{requestRows:100},
     policies:{pendingActuals:['require_actuals_v1','estimate_until_actual_v1']},
     authoringPolicies:{discounting:[false],quantityStages:[],hourMemberships:[]}};

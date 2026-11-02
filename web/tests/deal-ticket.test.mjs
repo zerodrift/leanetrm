@@ -35,7 +35,7 @@ const description={product:'synthetic_flow',version:2,rowShape:'flow',levels:['m
  sides:[{kind:'leg',pill:'Physical',colour:'gas',min:1,initial:1,max:2,columns:[],fields:[f('direction','Direction',{band:'direction',type:'choice',choices:'directions'}),
    f('start','From',{band:'start',type:'date'}),f('quantity','Quantity',{band:'quantity',type:'decimal',unit:'quantity'}),
    f('price','Price',{band:'price',state:'info',lookup:'market_price'}),f('point','Point',{lookup:'point'}),f('meter','Meter',{state:'soon',soon:'Will name the meter.'})]},
-  {kind:'cash',pill:'Payment',colour:'cash',min:1,initial:1,max:2,columns:[],fields:[f('pay_direction','Direction',{band:'direction',type:'choice',choices:'pay'}),
+  {kind:'cash',pill:'Cash',colour:'cash',min:1,initial:1,max:2,columns:[],fields:[f('pay_direction','Direction',{band:'direction',type:'choice',choices:'pay'}),
    f('pay_start','From',{band:'start',state:'derived',rule:'Follows the source side.'}),f('pay_price','Price',{band:'price',type:'decimal'}),f('pay_at','Payment at',{band:'payment'})]},
   {kind:'index',pill:'Floating',colour:'neutral',min:0,initial:0,max:0,columns:[],fields:[],soon:'Will price the gas at an index.'}],
  sideLimits:[]};
@@ -136,7 +136,7 @@ test('clicking a card selects its side, and the selected side\'s tab is marked s
  const tabs=all(host).filter(n=>n.getAttribute('role')==='tab');
  assert.deepEqual(tabs.map(t=>[t.dataset.tab,t.getAttribute('aria-selected')]),[['instrument','false'],['leg-1','false'],['cash-1','true'],['notes','false'],['balance','false']]);
  assert.ok(byClass(host,'ticket-card')[1].classList.contains('selected'));
- assert.deepEqual(byClass(one(host,'ticket-chips'),'ticket-side-chip').map(c=>c.textContent),['Physical · leg-1','Payment · cash-1']);
+ assert.deepEqual(byClass(one(host,'ticket-chips'),'ticket-side-chip').map(c=>c.textContent),['Physical · leg-1','Cash · cash-1']);
 });
 
 test('in booked mode nothing is editable, no chip is drawn and Amend and Close out are disabled with their reasons',()=>{
@@ -159,7 +159,7 @@ test('the strip shows the status and the model\'s notices, and the ghost card of
  const line=one(host,'ticket-status');assert.equal(line.dataset.kind,'refused');assert.equal(line.textContent,'Preview refused: no point.');
  assert.deepEqual(byClass(host,'ticket-notice').map(n=>n.textContent),['Point was cleared because Zone changed.']);
  const offers=all(one(host,'ticket-add')).filter(n=>n.tagName==='BUTTON');
- assert.deepEqual(offers.map(b=>[b.textContent,b.disabled]),[['Physical',false],['Payment',false],['FloatingComing soon',true]]);
+ assert.deepEqual(offers.map(b=>[b.textContent,b.disabled]),[['Physical',false],['Cash',false],['FloatingComing soon',true]]);
  offers[1].onclick();assert.deepEqual(added,['cash']);
  const full=draw({state:{...state,sides:[...state.sides,{kind:'cash',code:'cash-2',values:{}}]}});
  const payment=all(one(full,'ticket-add')).filter(n=>n.tagName==='BUTTON')[1];

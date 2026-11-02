@@ -80,3 +80,5 @@ test('physical delivery labels retain exclusive UTC intraday boundaries and frac
  assert.throws(()=>deliveryLabel('2021-01-04','2021-01-05T09:00:00Z'),/invalid/);
  assert.throws(()=>deliveryLabel('2021-01-04T09:00:00-06:00','2021-01-05T09:00:00Z'),/invalid/);
 });
+
+test('instant delivery labels follow the selected user zone without shifting operating dates',()=>{assert.equal(deliveryLabel('2021-01-04T09:00:00.000001Z','2021-01-05T09:00:00Z','America/Chicago'),'2021-01-04 03:00:00.000001 UTC-06:00 · America/Chicago – 2021-01-05 03:00:00 UTC-06:00 · America/Chicago (exclusive)');assert.equal(deliveryLabel('2021-01-01','2021-02-01','America/Chicago'),'Jan 2021');});

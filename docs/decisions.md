@@ -1957,3 +1957,61 @@ Workspace/page guidance is immutable versioned configuration under separately
 delegable `ManageAssistantPrompts`, pinned to each ask. It cannot expand business
 authority or replace mandatory financial choices and approval rules. See
 [the implementation contract and limits](assistant-workspace.md).
+
+## D285 — Manual trade entry uses one ticket with visible sides
+
+Decided by the owner (2026-11-01): remove wizard navigation from manual trade
+entry. PPAs and swaps expose plus controls for their supported sides, using the
+physical gas ticket's presentation; futures stay a separate ticket with dependent
+reference choices, explicit dated-contract selection and a contextual price.
+Execution price remains explicitly entered.
+
+The bounded implementation shares side-card presentation while preserving each
+native managed booking contract. PPA optional roles come from the selected
+template; ordinary swaps have exactly two opposite sides, as enumerated by the
+backend catalog. A different ordinary swap pair requires explicitly clearing the
+previous pair and its terms. Scheduled and heat-rate entry add an admitted pair;
+crude adds at most one handling-fee side. There is no new arbitrary side model,
+price inference or financial default. D278's migration to a common versioned
+product description and joint schedule remains planned for these native products.
+See [deal ticket](deal-ticket.md#manual-entry-across-native-products-d285).
+
+## D286 — User-zone instants and independent PPA composition
+
+Decided by the owner (2026-11-01) for local implementation: display actual
+instants in the user's selected timezone, with UTC available in preferences.
+Operating dates retain their contractual clock. Local datetime entry resolves
+through the managed timezone service; gaps refuse and repeated hours require an
+explicit offset. Changing display timezone preserves resolved instants and
+pending command bodies, invalidates reviewed drafts, and refreshes displayed
+terms. Quieter control borders retain visible keyboard focus.
+
+Crude entry selects commodity, grade, facility, custody point, volume
+specification, valuation curve and delivery clock independently. These choices
+come from exact versioned reference objects and authorized valuation-assignment
+relationships. A complete selection must identify one binding; missing or
+ambiguous configuration refuses. The bounded delivery clock and standard-volume
+contract are unchanged. Separate reference choices do not infer new assignments,
+unit conversions or optional contractual fields.
+
+PPA `ppa_composed_instrument_v1` explicitly admits two to eight native sides,
+selected with plus controls, with independent quantity sources, directions and
+payment rules. Power, generation-based REC, accredited capacity, fixed/indexed
+payments and per-unit fees may coexist. Multiple same-role sides and independent
+cash quantities are deliberate composed semantics. Legacy `ppa_instrument_v2`
+retains its existing composition and payment-link guards, identities and replay;
+there is no fallback or implicit upgrade between versions.
+
+Every composed side retains the shared delivery terms, currency, one-MW basis
+and normalization asset set. Every volume/accredited side must cover that whole
+set. Typed delivery links retain their ordered slots and exact native units;
+payments cannot supply quantities. Any capacity side requires whole operating
+months. REC conversion, eligibility, vintage holding and disposition remain
+explicit. Break-even and monthly settlement remain restricted to their qualified
+legacy compositions; composed valuation is not evidence of those capabilities.
+No production activation or publication is implied by this local increment.
+
+D286 naming clarification: side names describe their terms (Power, REC, Capacity,
+Fixed price, Index price, Fee, and attribute price sides). Direction is selected
+independently on each side. Delivery/payment role identifiers remain exact
+internal contract identifiers, rather than user-facing side names.

@@ -1,5 +1,6 @@
 // Each supported side has its own presentation template. Payment/observation
 // choices, resolved dates, quantities and values are supplied by the backend.
+import {decorateSideCard} from './side-card.js';
 export function mountSwapSideEditor(side:'fixed'|'floating'){
  const host=document.getElementById(`swap-${side}-editor`)!;
  const template=document.getElementById(`swap-${side}-template`) as HTMLTemplateElement;
@@ -39,7 +40,7 @@ function mountIndexSearch(host:HTMLElement,id:string){
 // Present the independent terms in business order; no common economics are inferred.
 export function arrangeSwapSections(){
  for(const side of ['fixed','first','floating']){
-  const root=document.querySelector(`#swap-${side}-editor .instrument-side`)!;
+  const root=document.querySelector<HTMLElement>(`#swap-${side}-editor .instrument-side`)!;
   const delivery=document.getElementById(`swap-${side}-delivery`)!;
   const observations=document.getElementById(`swap-${side}-observations`)!;
   const prefix=side==='first'?'swap-first':'swap';
@@ -52,5 +53,10 @@ export function arrangeSwapSections(){
   }
   for(const suffix of ['from','to'])delivery.append(document.getElementById(`swap-${side}-${suffix}`)!.parentElement!);
   observations.append(root.querySelector('.side-payment-rule')!);
+  delivery.querySelector('h4')?.remove();observations.querySelector('h4')?.remove();
+  root.append(delivery,observations);decorateSideCard(root,root.querySelector('h3')!,side==='fixed'?'Fixed':'Floating',side==='fixed'?'cash':'fee');
  }
+ const dates=document.getElementById('swap-date-tools')!;document.getElementById('swap-quantity-terms')!.after(dates);
+ document.getElementById('swap-delivery')!.remove();document.getElementById('swap-observations')!.remove();
+ document.querySelector('.swap-sides')!.classList.add('entry-side-deck');
 }

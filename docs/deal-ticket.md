@@ -1,10 +1,12 @@
 # Deal ticket
 
-Status: implemented locally for physical gas (see [Current implementation](#current-implementation));
-the other sided products are still to move: financial gas and power swaps
-(including scheduled swaps), heat-rate swaps, PPAs, physical crude, and gas
-transport, park and loan and storage. Its decisions are recorded as D278–D281 in
-[decisions.md](decisions.md).
+Status: the description-driven ticket is implemented for physical gas. The local
+manual-entry update (D285) gives PPAs, native swaps, heat-rate swaps and physical
+crude the shared side-card presentation and removes PPA wizard navigation. These
+products still use their native booking contracts; moving them to the gas ticket's
+versioned description and joint schedule remains work. Transport, park and loan
+and storage are not implemented by this update. Decisions are recorded as
+D278–D281 and D285 in [decisions.md](decisions.md).
 
 ## Why
 
@@ -344,6 +346,49 @@ Each move keeps the product's booking contract and removes its old editor
 
 ## Current implementation
 
+### Manual entry across native products (D285)
+
+PPA entry is one editable ticket: ownership, delivery, side terms, preview and
+booking are visible together. The plus control offers only the selected backend
+template's absent optional roles. Removing a supported optional side invalidates
+the preview; booking retains its exact role, ordinal, direction and quantity link.
+An unbooked pricing draft has no booking action. Exact PPA market inputs are
+selected in the visible workbench, including when several bundles share a time;
+the actuals policy stays visible in the shared workbench for both entry and
+inspection. Neither required choice is hidden under Context.
+
+Ordinary swaps begin with plus controls for fixed and floating sides. The backend
+catalog names the two admitted structures: fixed/floating and floating/floating.
+Each side card contains its own delivery, observations and payment terms. Once
+the two sides are present, adding another side is unavailable. Changing the pair
+requires explicitly clearing both sides and their terms, including discarded
+close-out price provenance. There is no implicit remapping between floating slots.
+Scheduled and heat-rate entry offer the supported pairs together and retain
+independent period editors and explicit factor units. Crude has physical and
+consideration cards plus one optional, independently directed handling fee.
+
+Futures remain a distinct ticket. Commodity, exchange and product filter the
+available dated contracts. A delivery-start calendar is an optional filter; the
+contract label includes its exact series, delivery range and pricing curve. The
+read-only mark states its selected context time and quote units and never fills
+the execution price. A catalog refresh clears an unavailable date filter before
+rendering the remaining contracts.
+
+The shared headers and add controls are presentation only. Native managed
+operations continue to decide eligibility, quantities, schedules, valuation,
+authorization and request reconciliation. This is a bounded UI update; the
+common versioned description and joint schedule for these products remain planned.
+
+Owned-browser qualification exercises preview, booking and retained reopening for
+physical and virtual PPAs (including a third charge side), both ordinary swap
+pairs, independent scheduled swaps, typed heat-rate swaps and crude with a handling
+fee. Checks retain independent PV oracles, exact submitted terms, lost-response
+reconciliation, stale-preview rejection and current authorization. Futures checks
+book an explicitly selected contract while keeping its curve mark separate from
+the execution price. These are synthetic disposable-database checks.
+
+### Physical gas
+
 Physical gas has a description (`physical_gas` v1) and returns a schedule view
 from its preview and booked read. It is the one gas entry screen: New trade lists
 one Physical gas entry, which opens the ticket, and every gas trade, composed or
@@ -591,3 +636,46 @@ D281 (one gas ticket).
   with the rules above; coming-soon fields are never sent.
 - **Schedule panel.** Joint Instrument schedule first, a tab per side, flow and
   cargo row shapes, backend-reported value sources.
+
+### Independent PPA sides and reference selection (D286)
+
+New PPA tickets offer **Build from sides**, initially empty, with plus controls
+for Power, REC, Capacity, Fixed price, Index price and Fee sides. REC price
+and Capacity price identify the corresponding priced terms. Direction is selected
+separately on each side. Each side selects its quantity source and payment convention.
+A linked payment selects its delivery sides explicitly; a referenced side cannot
+be removed until those links change. Native presets remain explicit choices for
+their existing pricing workflows. Saved amendments retain their original
+composition version and exact quantity relationships.
+
+The composed contract uses two to eight sides. Shared normalization assets are
+required for volume/accredited quantities, and every such side must use the full
+selected set. A capacity side requires whole operating months for the binding.
+REC sides still consume generation sources with explicit conversion and holding
+policies. The ticket disables break-even for compositions that are not qualified
+for that operation.
+
+Crude uses separate commodity, grade, facility, custody point, volume
+specification, valuation curve and clock selectors. Their options come from the
+current authorized catalog's exact configured assignment tuples. Clear reference
+selections starts another combination; the ticket never picks an assignment from
+an incomplete or ambiguous selection. Grade, locations, volume specifications
+and valuation assignments are separately configured versioned objects.
+
+Datetime inputs and displayed instants use the timezone in user preferences;
+UTC is available there. Delivery clocks and operating-date fields remain
+contractual terms. A display-zone change keeps the ticket and resolved instants,
+invalidates the draft review, and preserves an unconfirmed command's exact UTC
+payload. A repeated local hour requires an offset selection; a nonexistent local
+time refuses. Operational crude ledgers and invoice due dates follow the same
+presentation timezone.
+
+Local verification: 1,164 frontend checks, 656 managed core checks and the API
+checks pass. Disposable-database qualification includes the legacy PPA numerical,
+revision and authorization suites, the composed four-side oracle and capacity
+shock, 53 PPA browser checks and 46 crude lifecycle browser checks. Separate
+local smoke tests book and reopen both products and switch Chicago/UTC in entry,
+the common Blotter and retained detail. Independent review covered version
+admission, direct-write parity, normalization, ordered links, current authority,
+async responses and pending-command recovery. This is bounded local evidence,
+not production activation.

@@ -415,7 +415,7 @@ export const rowKey=(position:{tradeId:string;bindingId:string})=>position.trade
  * future its mark; a swap without one mark says why. A swap's bar side is its backend direction: pay fixed is long. A scheduled
  * swap (D214) has its quantities, prices and marks by period, and the market of the curves its periods project from together.
  */
-export function positionRows(holdings:readonly Holding[]):DeskRow[]{
+export function positionRows(holdings:readonly Holding[],zone='UTC'):DeskRow[]{
   return holdings.map(h=>{
     const type=instrument(h.instrumentType),value=h[type.measure];
     let side:string,exposure:DeskRow['exposure'],scheduledSwap=false;
@@ -452,7 +452,7 @@ export function positionRows(holdings:readonly Holding[]):DeskRow[]{
       if(h.mark===null&&type===instruments.future)throw Error('The Blotter returned a valued future without its mark.');
       valuation={value,unavailable:null};
     }
-    const price=h[type.price],unitOfPrice=(type===instruments.ppa||type===instruments.physical_gas)?null:priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo);
+    const price=h[type.price],unitOfPrice=(type===instruments.ppa||type===instruments.physical_gas)?null:priceUnit(h),delivery=deliveryLabel(h.deliveryFrom,h.deliveryTo,zone);
     // A scheduled swap states a fixed price only where every fixed period shares it; two floating sides have none at all.
     const quantityNote=h.quantity===null?(type===instruments.physical_gas?'By physical side':byPeriod):null,priceNote=(type===instruments.ppa||type===instruments.physical_gas)?'By side':scheduledSwap&&price===null&&h.direction!=='multi_side'?byPeriod:null;
     const markNote=valuation.unavailable!==null||h.mark!==null?null:(type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_crude)?'Independent side schedules':h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';
