@@ -47,7 +47,7 @@
   - Commit with `git commit -s`, and end each commit message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
   - Never push without the user's approval.
 - **TDD.** Each behaviour check is written first and fails for the right reason before the code exists.
-- **Migration** `db/migrations/0170_vol_surfaces.sql` is the next number after `0169_risk_trade_selection.sql`. Renumber it if master moves on before merge.
+- **Migration** `db/migrations/0172_vol_surfaces.sql` is the next number after `0171_crude_setup_bookings.sql`. Renumber it if master moves on before merge.
 - **Fits are background jobs.** A fit runs as job kind `vol_surface_fit_v1` on the existing retained risk-job queue (`risk.jobs`, `src/OpenEtrm.Api/RiskWorker.cs`), under its lease, attempt, cancellation and security-generation rules. Add no new queue, service or cache. Fit runtime is measured and recorded (series, solves, elapsed); no budget is enforced.
 
 ## Review Focus
@@ -163,7 +163,7 @@
 ### Task 4: Bitemporal storage of surface revisions
 
 **Files:**
-- Create: `db/migrations/0170_vol_surfaces.sql`
+- Create: `db/migrations/0172_vol_surfaces.sql`
 - Create: `tools/check_vol_surface_storage.py`, run from `tools/run_preview.py` next to `check_futures_option_storage`
 - Modify: `tests/test_migration_identity.py` only if it pins the migration list
 
@@ -210,7 +210,7 @@
 - Modify:
   - `src/OpenEtrm.Api/RiskWorker.cs`: dispatch by retained request convention. `vol_surface_fit_v1` runs the fit; portfolio risk is unchanged.
   - `src/OpenEtrm.Api/Program.cs`: routes next to `/options/*`.
-  - A migration, only if the risk queue's SQL (`risk.claim`, `risk.finish` and the job list or read functions) must learn the new convention. Fold it into `0170_vol_surfaces.sql` if Task 4 is not yet merged, otherwise make it `0171`.
+  - A migration, only if the risk queue's SQL (`risk.claim`, `risk.finish` and the job list or read functions) must learn the new convention. Fold it into `0172_vol_surfaces.sql` if Task 4 is not yet merged, otherwise make it `0173`.
 - Create: `tools/check_vol_surface_api.py`, run from `tools/run_preview.py`
 
 **Interfaces:**
@@ -346,7 +346,7 @@
 ### After the plan: the final review and the pilot
 
 - **Final review.** One combined adversarial review of the whole branch, as the user prefers. It covers temporal behaviour, authorization and numerical correctness, as AGENTS.md requires. Resolve its findings before asking to publish.
-- **Pull request and the pilot.** Open the pull request only with the user's approval. After merge and the 0170 schema window, the pilot example-data load runs as installation work outside the repository:
+- **Pull request and the pilot.** Open the pull request only with the user's approval. After merge and the 0172 schema window, the pilot example-data load runs as installation work outside the repository:
   - it adds the strikes and settlement revisions idempotently;
   - it submits a fit job for each loaded date through `/api/vol-surfaces/fit` and checks each completes;
   - it is rehearsed on a disposable copy first;
