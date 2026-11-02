@@ -33,7 +33,7 @@ internal static class FuturesOptionBlotter
                 }
                 Value(option,market.Reason(position),position.OptionBinding);
                 // Premium cash is pending until its payment date and settled from then on, when it adds no further value.
-                premium["cashState"]=market.Premiums[position.PremiumBinding].Settled(frame.At)?"settled":"pending";
+                premium["cashState"]=market.PremiumState(position.PremiumBinding);
                 Value(premium,null,position.PremiumBinding);
                 yield return [option,premium];
             }

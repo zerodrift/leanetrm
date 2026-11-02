@@ -52,6 +52,10 @@ internal sealed class FuturesOptionMarket
     internal required ImmutableDictionary<Guid,string> OptionFailures{get;init;}
     internal required ImmutableDictionary<Guid,CashPayment> Premiums{get;init;}
     internal required ImmutableDictionary<ReferenceKey,CurrencyDefaultDiscounting> Discounting{get;init;}
+    // The snapshot's valuation instant, at which premium cash is pending or settled for both its value and its state.
+    internal required DateTimeOffset ValuationAt{get;init;}
+
+    internal string PremiumState(Guid premium)=>Premiums[premium].Settled(ValuationAt)?"settled":"pending";
 
     internal ImmutableArray<FuturesOptionCalibrationReceipt> Receipts=>[..Bindings.Values.OrderBy(b=>b.Instrument.Id).Select(b=>b.Receipt)];
     internal ImmutableArray<PortfolioDiscountEvidence> DiscountInputs=>[..Discounting.Values.SelectMany(d=>d.Inputs)
@@ -162,7 +166,7 @@ internal static class FuturesOptionPortfolio
             settlements.Add(option.Id,basis!.Values.Single(v=>v.Request==requests[option.Id].Settlement).Price.Value);
         }
         return new(){Bindings=bindings.ToImmutable(),Settlements=settlements.ToImmutable(),OptionFailures=failures.ToImmutableDictionary(),
-            Premiums=premiums,Discounting=discounting.ToImmutable()};
+            Premiums=premiums,Discounting=discounting.ToImmutable(),ValuationAt=snapshot.ValuationAt};
     }
 
     // The Blotter's base values of the held option and premium bindings, by trade and binding, through the same connected
