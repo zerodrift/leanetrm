@@ -223,14 +223,18 @@ function lifecycle(host:HTMLElement,api:Api,snapshotId:string,h:Holding,writes:L
  }
  async function send(){
   const command=pending.command;if(!command||sending)return;
-  // The view is asked again when the request is sent: its context or the person's authority may have changed since it was drawn.
-  const now=await o.writes();if(!now.enabled){writes=now;said.textContent=now.reason;sync();return;}
-  const uncertain=pending.sending();transport.write(pending.command);sending=true;said.textContent='Recording…';sync();
+  sending=true;said.textContent='Checking that events may be recorded…';sync();
+  // Null until the request is sent: a failure before then sent nothing, and the request is kept as it was entered.
+  let uncertain:boolean|null=null;
   try{
+   // The view is asked again when the request is sent: its context or the person's authority may have changed since it was drawn.
+   const now=await o.writes();if(!now.enabled){writes=now;said.textContent=now.reason;return;}
+   uncertain=pending.sending();transport.write(pending.command);said.textContent='Recording…';
    const r=await api<Outcome>(command.path,{...command.body,operationId:command.operationId});pending.clear();transport.write(undefined);recorded=true;
    const note=`${eventNames[r.kind]??publicText(r.kind)} recorded${r.lots?` for ${lotsWord(r.lots)}`:''} · ${lotsWord(r.remainingLots)} open${r.futuresTradeId?` · linked future ${r.futuresTradeId}`:''}.`;
    said.textContent=note;o.recorded(note);
   }catch(error){
+   if(uncertain===null){said.textContent=publicText(`Not sent: ${reason(error)} Retry the request once events may be recorded.`);return;}
    pending.failed(codeOf(error),uncertain);transport.write(pending.command);
    said.textContent=pending.command?`Not confirmed: ${reason(error)} The request awaits its outcome; retry it as it was sent.`:`Refused: ${reason(error)}`;
   }finally{sending=false;sync();}

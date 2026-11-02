@@ -39,7 +39,7 @@ function showRecorded(){const line=get('position-window-context');if(recordedHer
 async function optionWrites(){
  const access=await reader<{access:{profile:string;permissions:string[]}|null}>('bootstrap?includeFrames=false&includeAccess=true');
  const canBook=!!access.access&&access.access.profile===readerActor&&access.access.permissions.includes('BookTrade');
- return lifecycleWrites({view:selection!.lifecycle,canBook,reason:canBook?null:'Your current role does not have Book Trade permission.',recorded:recordedHere});
+ return lifecycleWrites({view:selection!.lifecycle,canBook,reason:canBook?null:'Your current role does not have Book Trade permission.',contextDirty:false,recorded:recordedHere});
 }
 function clearTrade(){
  panel.clear();detail.hidden=true;setCurveNames([]);document.title='Trade details · LeanETRM';get('position-window-title').textContent='Trade details';get('position-window-context').textContent='';

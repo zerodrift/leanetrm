@@ -115,7 +115,7 @@ function apply(context:BlotterContext,next:MarketNavigation){applied=context;nav
 const mainWindowTickets:ProductTickets={async open(product){throw Error(`${product==='ppa'?'PPA':'Physical gas'} trades are entered and inspected in the main window.`);},
   detach:()=>undefined,active:()=>undefined,unsaved:()=>false,pending:()=>[],sync:()=>undefined};
 const futures=setupFutures({window:{kind:'popout',close:()=>bringBack(),example:tied?.example},api,stream:async(body,handlers,signal)=>{await streamBlotter(responseFor,body,handlers,signal);if(!busy)checkAccount();},act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>scope,knowledge,
-  narrow:()=>main.clientWidth<dockedGroupsFrom,canRunRisk:()=>can('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty:false,view:knowledge(),canBook:can('BookTrade')}),
+  narrow:()=>main.clientWidth<dockedGroupsFrom,canRunRisk:()=>can('RunScenario'),contextDirty:()=>false,bookingUnavailableReason:()=>bookingFallback({contextDirty:false,view:knowledge(),canBook:can('BookTrade')}),
   onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),failed,failureCleared:()=>{$('error').hidden=true;},notice,
   definitionRevision:()=>{if(!navigation)throw Error('The market navigation is still loading.');return navigation.definitionRevision.revisionId;},
   // This window has no navigation of saved views, Curves & prices, or PPA and physical gas editors: those are the main window's.

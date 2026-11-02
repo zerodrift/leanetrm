@@ -81,10 +81,14 @@ test('a catalog that lists two series for one pick, or a series whose underlying
 });
 
 test('lifecycle events are offered only from working data at current knowledge, to a person who may book, and not again once one is recorded',()=>{
- assert.deepEqual(lifecycleWrites({view:'working',canBook:true,reason:null,recorded:false}),{enabled:true,reason:null});
+ assert.deepEqual(lifecycleWrites({view:'working',canBook:true,reason:null,contextDirty:false,recorded:false}),{enabled:true,reason:null});
  for(const view of ['historical','live','read_only'])
-  assert.deepEqual(lifecycleWrites({view,canBook:true,reason:null,recorded:false}),{enabled:false,reason:'Lifecycle events are recorded from working data at current knowledge. Return to working data to record one.'});
- assert.deepEqual(lifecycleWrites({view:'working',canBook:false,reason:'Your current role does not have Book Trade permission.',recorded:false}),{enabled:false,reason:'Your current role does not have Book Trade permission.'});
- assert.equal(lifecycleWrites({view:'working',canBook:false,reason:null,recorded:false}).reason,'Booking is not available in this view, and the backend did not say why.');
- assert.deepEqual(lifecycleWrites({view:'working',canBook:true,reason:null,recorded:true}),{enabled:false,reason:'An event was recorded here. Open the trade again from the Blotter to read it at current knowledge.'});
+  assert.deepEqual(lifecycleWrites({view,canBook:true,reason:null,contextDirty:false,recorded:false}),{enabled:false,reason:'Lifecycle events are recorded from working data at current knowledge. Return to working data to record one.'});
+ assert.deepEqual(lifecycleWrites({view:'working',canBook:false,reason:'Your current role does not have Book Trade permission.',contextDirty:false,recorded:false}),{enabled:false,reason:'Your current role does not have Book Trade permission.'});
+ assert.equal(lifecycleWrites({view:'working',canBook:false,reason:null,contextDirty:false,recorded:false}).reason,'Booking is not available in this view, and the backend did not say why.');
+ assert.deepEqual(lifecycleWrites({view:'working',canBook:true,reason:null,contextDirty:false,recorded:true}),{enabled:false,reason:'An event was recorded here. Open the trade again from the Blotter to read it at current knowledge.'});
+});
+
+test('lifecycle events are not offered while a changed historical context is unapplied, as booking is not',()=>{
+ assert.deepEqual(lifecycleWrites({view:'working',canBook:true,reason:null,contextDirty:true,recorded:false}),{enabled:false,reason:'Apply the changed historical context first.'});
 });

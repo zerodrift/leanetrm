@@ -102,6 +102,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   reported:()=>void;
   // The knowledge the Blotter is read at: working data at current knowledge, a historical view, or live corrections.
   knowledge:()=>keyof typeof knowledgeWords;
+  // Whether a changed historical context is selected but not yet applied: nothing is written until it is.
+  contextDirty:()=>boolean;
   // The panel's form started or stopped holding unsaved edits.
   unsavedChanged:()=>void;
   // Whether the page is too narrow to show the panes side by side or above one another.
@@ -451,7 +453,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // while the read is under way, say so.
   const notOpened=()=>options.notice('Positions open once the Blotter has valued them.');
   // Option lifecycle events are recorded from the Blotter of working data at current knowledge, by a person the backend lets book.
-  const optionWrites=()=>lifecycleWrites({view:holdings?options.knowledge():'read_only',canBook:!!catalog?.canBook,reason:catalog?.bookingUnavailableReason,recorded:false});
+  const optionWrites=()=>lifecycleWrites({view:holdings?options.knowledge():'read_only',canBook:!!catalog?.canBook,reason:catalog?.bookingUnavailableReason,contextDirty:options.contextDirty(),recorded:false});
   function popout(selected:Holding){
     if(busy())return;
     if(!holdings){notOpened();return;}

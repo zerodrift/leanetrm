@@ -28,13 +28,15 @@ export function newTradeControl(state:{catalog:{canBook:boolean;bookingUnavailab
 
 /** The view a person is in, as the page knows it before it has read anything: working data, a historical context or a live selection. */
 export type ReadView='working'|'historical'|'live';
+/** Why nothing is written while a changed historical context is not yet applied. */
+export const unappliedContext='Apply the changed historical context first.';
 /**
  * Why booking is not offered before any catalog has been read, when the page has only what it knows of the view and the account to go on: a
  * changed context not yet applied, a view that is not working data, which says which it is, a role without the permission, and otherwise
  * what the person has yet to choose. Once a catalog is read the backend's own words stand (`bookingAllowed`).
  */
 export function bookingFallback(state:{contextDirty:boolean;view:ReadView;canBook:boolean}):string{
-  if(state.contextDirty)return 'Apply the changed historical context first.';
+  if(state.contextDirty)return unappliedContext;
   if(state.view!=='working')return `${state.view==='live'?'Live':'Historical'} view is read-only. Return to working data to book or amend.`;
   return state.canBook?'Choose an As of date to book a trade.':'Your current role does not have Book Trade permission.';
 }
