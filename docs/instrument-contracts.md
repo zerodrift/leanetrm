@@ -35,6 +35,14 @@ contexts and measures returned values. It does not select pricing formulas by
 concrete instrument type. Binding validation, scoped workload estimates and
 lifecycle dispatch belong to the instrument contracts.
 
+`MarketFactors(context)` returns the canonical shared market factors resolved
+from those declarations. The portfolio unions them by exact factor identity,
+independently of instrument family: several sides and instruments referencing
+the same dated contract contribute one factor to the run. One immutable shock
+then reaches every consumer through normal PV evaluation. The dependency graph
+retains price construction and exact source identity; curve labels, instrument
+IDs and repeated holdings do not create extra market factors.
+
 Only instruments declaring `SupportsQuantityScaling` can enter this unit-based
 trade/portfolio path. This means linear scaling in booked size, not linearity in
 prices. A nonlinear market model can still scale by contract count. A

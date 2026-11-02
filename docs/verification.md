@@ -1,5 +1,26 @@
 # Local verification and continuous integration
 
+## Shared market factors and retained gas portfolio risk
+
+The D287 local checks on 1 November 2026 cover canonical factor sharing across
+distinct instruments and repeated holdings, with one base/up/down scenario set
+and independent book delta oracles. Managed physical-gas, trade-contract and
+connected-portfolio checks pass, as do the managed API schedule/admission checks.
+
+Owned PostgreSQL previews pass the mixed crude/futures/gas and unified trading
+workflows. They verify exact contractual PV and sensitivities, shared upstream
+factor propagation, unaffected holdings, nested stress isolation and retained
+worker parity. Gas-only scope is admitted. Hidden held instruments and hidden
+physical or fee memberships refuse rather than publishing incomplete values;
+the latter checks also cover the ordinary inspector. A worker without a live
+claim reads no gas trade rows, and an altered graph manifest fails reconstruction.
+The omitted-member regression failed before its fix and passed afterward.
+
+Migration 0166 preserves runtime history/current-authority predicates and adds a
+worker lease fence. Independent adversarial review found no remaining blocker
+after the member/program completeness fix. These are synthetic correctness and
+authority checks, not a throughput benchmark or an installed schema upgrade.
+
 ## Generic trade bindings and typed PV
 
 The D218 change passed the trading verification group on 25 October 2026,

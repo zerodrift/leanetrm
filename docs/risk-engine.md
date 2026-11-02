@@ -98,6 +98,32 @@ calculation then uses the same generic scenario engine for every group. New
 instrument pricing models implement the common contracts; supporting their booked
 definitions still requires an authorized materialization path.
 
+### Shared market factors
+
+`Instrument.MarketFactors(context)` supplies the shared market inputs consumed by
+the instrument's declared pricing dependencies. Portfolio risk takes their unique
+union by exact input identity across instruments, sides, books and repeated trade
+bindings. A shared dated contract is one factor regardless of how many product
+families consume it. A prompt selector resolves to its dated contract under the
+pinned context; a new context may resolve another contract without rebinding a
+retained run. Curve labels and product types are not factor identities.
+
+Each selected factor creates one common up/down scenario pair. Every dependent
+instrument observes that same moved input through its ordinary PV operation;
+unaffected work reuses its base value. Factor discovery establishes which inputs
+can affect a value, while repricing measures the exposure. A zero local delta
+does not remove a declared factor or its nonlinear consumers.
+
+The fixed contractual gas profiles enter this same path through retained
+programs, including independent side directions and exact quantity ratios. They
+report `gas_contractual_present_value`; gas-only scopes and mixed portfolios can
+run immediate and retained risk without a gas product exclusion. Migration 0166
+adds the read-only worker policies needed to load those programs under the same
+history, current-authority and lease checks. Started delivery and missing inputs
+still fail explicitly. Operational gas valuation and automated-close source
+admission remain separate capabilities. Older retained reports keep their
+original exclusion evidence and are never reinterpreted.
+
 ## User and job operations
 
 The portfolio risk API supports immediate calculations and durable runs:
@@ -315,10 +341,11 @@ explicit failed job, so lease recovery cannot repeatedly compute it forever.
 
 ## Scope and verification
 
-The interactive consumer covers the current preview's eight futures and sixteen
-financial swaps across primary and supplemental market revisions. It values
-unprocessed futures execution P&L/open sensitivity and swap PV under fixed rate
-inputs. Full futures settlement PV, variation-margin transitions and executable
+The interactive and retained consumers include futures, financial and heat-rate
+swaps, qualified PPAs, and fixed contractual crude and gas holdings across exact
+primary and supplemental market revisions. They preserve the distinct native
+valuation measures, including futures execution P&L/open sensitivity and swap PV
+under fixed rate inputs. Full futures settlement PV, variation-margin transitions and executable
 options remain work. The generic valuation contract does not imply that every
 instrument type has an implemented pricer or persisted booking adapter. Managed
 checks exercise common instrument PV, nonlinear scenarios and independent
