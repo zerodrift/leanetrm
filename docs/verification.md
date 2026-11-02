@@ -3246,20 +3246,23 @@ lease, permission and temporal checks and the five-second command bound remain.
 
 ## Listed American futures options (D288)
 
-Local runs on 2026-11-01 against the final change, each in its own disposable
-PostgreSQL cluster with synthetic data. The capability is described in
-[futures options](futures-options.md).
+Local runs on 2026-11-01 against the branch head after the master merge (migrations
+0161 to 0165) and the final fixes, each in its own disposable PostgreSQL cluster with
+synthetic data. The capability is described in [futures options](futures-options.md).
 
 | Run | Result |
 | --- | --- |
 | MarketData checks `--futures-options` | 33 PASS |
 | MarketData checks, default | 655 managed core checks passed |
 | API checks, default and `--schedules` | pass |
-| `run_preview.py --exchange-check --browser-check` | exit 0, 196 PASS, including 24 futures-option browser checks |
-| `run_preview.py --check --browser-check` (standard) | exit 0, 2,555 PASS, 1,099 owned browser checks |
-| `run_preview.py --unified-trading-check` | exit 0, 56 PASS |
-| `npm test --prefix web` | 1,129 pass |
-| Migration identity and `check_all` unit tests | 12 OK |
+| `npm test --prefix web` | 1,165 pass |
+| `python3 -m unittest discover -s tests -p 'test_*.py'` | 81 OK |
+| `run_preview.py --check --exchange-check --browser-check` | exit 0, 202 PASS, including 24 futures-option browser checks |
+| `run_preview.py --check --browser-check` (standard) | exit 0, 2,564 PASS, 1,108 owned browser checks |
+| `run_preview.py --check --assistant-check --browser-check` | exit 0, 1,104 PASS, 288 owned browser checks |
+
+The pinned risk digest of `--futures-options` passed on macOS arm64; its Linux run is
+to be confirmed by CI.
 
 The managed checks test the model against independent references, not against its
 own algorithm. A standard-library `decimal` oracle at 60 digits supplies `exp`,
@@ -3300,4 +3303,4 @@ series in Release, and the run calibrates distinct series in parallel.
 Environment: macOS 26.6.2 arm64, Apple M4 Pro, 14 logical processors, PostgreSQL 16,
 .NET 10.0.402 Debug build for the preview runs, Node 24.22.0, Chrome, all components
 on one machine. These are local workload observations, not a performance
-qualification. The digest check has not yet been observed on Linux for this change.
+qualification. The digest check has not yet been observed on Linux for this change; CI is to confirm it.
