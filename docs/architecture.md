@@ -6,6 +6,12 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D284 extends the assistant across existing page operations, with explicit human
+approval of every proposed business command and separately delegated, versioned
+page guidance. Operational questions need no financial access or invented market
+snapshot. See [workspace assistance](assistant-workspace.md) for the operation
+boundary, replay contract and implemented limits.
+
 D271 introduces the bounded [fixed-volume physical crude](physical-crude.md)
 consumer for local implementation: exact grade/custody references, normalized
 physical and cash sides, retained executable booking, common trading views and
@@ -32,7 +38,7 @@ and configured per-unit tariffs are wired into that bounded profile. The
 Gas delivery setup editor saves immutable drafts, previews resolution/coverage and
 publishes versioned economic settings; saved trades retain their setup pins. Usage fees
 have independent pay/receive directions. The fixed-quantity composition ticket now adds independently directed physical
-and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. The common Blotter now includes gas positions, exact retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses one product panel and each product’s existing authorized booking operations; physical gas is entered and opened in the description-driven [deal ticket](deal-ticket.md) (D278–D281), which replaced the gas single-point and composition editors. Daily gas quantities are recorded in the booked ticket and remain separate operational revisions. Mixed risk reports list exact gas exclusions while valuing supported positions; gas scenario risk, physical completion, operational PV and settlement remain work.
+and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. The common Blotter now includes gas positions, exact retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses one product panel and each product’s existing authorized booking operations; physical gas is entered and opened in the description-driven [deal ticket](deal-ticket.md) (D278–D281), which replaced the gas single-point and composition editors. Daily gas quantities are recorded in the booked ticket and remain separate operational revisions. Interactive and retained portfolio risk include fixed contractual gas through the common PV and shared market-factor operations (D287). Physical completion, operational PV, settlement and automated-close gas admission remain work.
 
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.
@@ -675,7 +681,11 @@ its certified validation context and explicit UTC cutoff. Resolution selects an
 exact published definition version and context; a later schedule publication does
 not substitute a new source version. Publication visibility follows certified
 knowledge time and current schedule/calendar authority. This library resolves
-date rules only; instrument activation and booked side integration remain separate.
+date rules. The bounded verified-admission operation constructs draft dated
+contracts or reuses identical retained terms from exact published date-list
+mapping occurrences. Its own certified commit time makes the new verification
+visible; it does not rewrite the earlier contract's provenance. Instrument
+activation, native-curve editing and booked side integration remain separate.
 
 Reference choices come from the selected database revisions, including currencies,
 units, commodities, indices, calendars and curve bindings. Supported payment
@@ -1123,7 +1133,7 @@ objects once. The guided composer, advanced editor and agent preparation all use
 these managed contracts. Agents prepare read-only proposals at their turn's pin;
 explicit owner Review revalidates it and opens an unpriced human draft, retaining
 the current header. No agent write or portfolio-risk authority is added.
-D260 permits exactly one agent write: a custom-curve draft, saved through the
+D260 previously permitted one agent write: a custom-curve draft, saved through the
 ordinary Save under the agent's own `DraftCustomCurves` and the person's current
 `WriteMarketDefinitions`, for a new curve or a draft whose latest generation the
 assistant saved in the same conversation. Each draft generation records its saver;
@@ -1131,6 +1141,8 @@ publishing and activation stay human operations. Save curve draft
 (`custom_curves.save_draft_v1`, runtime set `turns_v9`) claims, saves and records
 its successful step in one transaction under the agent's context, so a draft never
 commits without its step and any refusal rolls both back.
+That direct-write exception is superseded by D284: new saves require the human's
+separate approval of an exact retained proposal through the ordinary operation.
 
 The saved managed recipe adapter supplies an explicit projected price to the
 existing monthly indexed floating side. A booking pins a published custom curve

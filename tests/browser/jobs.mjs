@@ -74,4 +74,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('explicit infrastructure operator queues a durable node command',"document.querySelector('#jobs-node-commands').textContent.includes('queued')&&document.querySelector('#error').hidden");
   await persona('viewer');await click('#nav-jobs');
   await check('owner sees the administrator outcome without stale controls',"document.querySelector('#jobs-table').textContent.includes('cancelled')&&![...document.querySelectorAll('#jobs-table button')].some(b=>['Pause','Resume','Cancel'].includes(b.textContent))");
+  // A presentation fixture supplies enough pages to exercise the two independent
+  // pagers; reads still go through the real authorized directory operation.
+  await evaluate(`(()=>{const send=window.fetch;window.jobDirectoryPages=[];window.fetch=async(input,init)=>{const response=await send(input,init),path=String(input);if(!path.includes('/api/jobs?page=')||!response.ok)return response;const query=new URL(path,location.origin).searchParams,page=Number(query.get('page')),collectionPage=Number(query.get('collectionPage'));window.jobDirectoryPages.push({page,collectionPage});const directory=await response.json();directory.page=page;directory.total=300;directory.collectionJobs.page=collectionPage;directory.collectionJobs.total=300;return new Response(JSON.stringify(directory),{status:200,headers:{'Content-Type':'application/json'}});};})()`);
+  await click('#jobs-refresh');await click('#collection-jobs-next');await click('#jobs-next');
+  await check('automation paging preserves the selected collection page',"window.jobDirectoryPages.at(-1).page===1&&window.jobDirectoryPages.at(-1).collectionPage===1&&document.querySelector('#collection-jobs-page-count').textContent.includes('page 2')");
+  await click('#jobs-previous');
+  await check('previous automation page also preserves the collection selection',"window.jobDirectoryPages.at(-1).page===0&&window.jobDirectoryPages.at(-1).collectionPage===1");
+  await click('#jobs-next');await click('#collection-jobs-previous');
+  await check('collection paging preserves the selected automation page',"window.jobDirectoryPages.at(-1).page===1&&window.jobDirectoryPages.at(-1).collectionPage===0");
 }

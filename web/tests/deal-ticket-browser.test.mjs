@@ -342,7 +342,7 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
     throw Error(path);
    };
    window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,20));if(!test())throw Error('Condition not ready');};
-   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,opened:{tradeId:'synthetic',bindingId:'synthetic',revision:1}});
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,actor:()=>'synthetic-reader',opened:{tradeId:'synthetic',bindingId:'synthetic',revision:1}});
    await until(()=>held.length===1);
    const level=document.querySelector('.ticket-level');level.value='day';level.onchange();
    document.querySelector('.ticket-tab[data-tab="physical-1"]').click();

@@ -233,9 +233,10 @@ def run_checks(url, query, psql, manifest, environment, fake, trap, admin, trade
     admin.call('profile', {'profile': 'risk'})
     other = Stream(admin, conversation, 0)
     other = (other.status, other.refusal()['code'])
-    admin.call('profile', {'profile': 'admin'})
+    admin.call('profile', {'profile': 'viewer'})
     unauthorized = Stream(admin, conversation, 0)
     unauthorized = (unauthorized.status, unauthorized.refusal()['code'])
+    admin.call('profile', {'profile': 'admin'})
     check('a stream refuses a sequence that does not parse and a negative one, another person\'s conversation as an unknown one, and a person '
           'without UseAgents', malformed == {'x': (400, 'request_format'), '-1': (422, 'turn_input'), 'header': (400, 'request_format')}
           and other == (404, 'conversation_not_found') and unauthorized == (403, 'access_denied'), (malformed, other, unauthorized))

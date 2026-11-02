@@ -192,7 +192,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     list();versionLabel();
   }
   // Published typed-calendar (v1) versions are compiled by the retained inline engine.
-  function syncDateInputs(){input('dates-calendar').toggleAttribute('required',!value('dates-import').trim());for(const id of ['dates-first','dates-last','dates-anchor','dates-day','dates-short','dates-adjustment'])input(id).toggleAttribute('disabled',!!value('dates-import').trim());}
+  function syncDateInputs(){input('dates-calendar').toggleAttribute('required',!value('dates-import').trim());for(const id of ['dates-first','dates-last','dates-anchor','dates-day','dates-short','dates-adjustment'])input(id).toggleAttribute('disabled',isBusy()||!!value('dates-import').trim());}
   get('dates-import').addEventListener('input',syncDateInputs);
   get<HTMLInputElement>('dates-upload').onchange=()=>void run(async()=>{const file=get<HTMLInputElement>('dates-upload').files?.[0];if(!file)return;if(file.size>64000)throw Error('Choose a file no larger than 64 KB.');set('dates-import',await file.text());dateEdits.mark();syncDateInputs();clearDates();});
   get('dates-merge').onclick=()=>void run(async()=>{const saved=await api<Version>('date-schedules/import',{name:value('dates-name'),symbol:value('dates-symbol'),dates:value('dates-import').trim().split(/[\s,;]+/).filter(Boolean),calendar:selectedCalendar(),selection:value('dates-selection'),effectiveFrom:value('dates-effective-from'),effectiveTo:value('dates-effective-to')});selected=saved;await load();open(saved);});
@@ -267,7 +267,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   get('curve-dates-discard').onclick=()=>{if(isBusy())return;pending.clear();storePending();contractState();};
   get('curve-dates-new').onclick=()=>{if(isBusy()||!library.canEdit)return;contractSelected=undefined;contractDirty=false;curveForm.reset();get('curve-dates-rows').replaceChildren();clearCurve();contractState();};
   get('curve-dates-reload').onclick=()=>void run(async()=>{const id=contractSelected?.id,version=contractSelected?.version;await load();const fresh=library.contractDefinitions.find(v=>v.id===id&&v.version===version);if(fresh)openContract(fresh);});
-  return {load,invalidatePreview(){clearDates();clearCurve();clearExpression();},context,setContext,showContext,sync:contractState,
+  return {load,invalidatePreview(){clearDates();clearCurve();clearExpression();},context,setContext,showContext,sync(){syncDateInputs();contractState();},
     async initialize(effectiveOn:string){
       if(value('date-context-on')||!effectiveOn)return;
       const started=fence(),snapshot=await api<Snapshot>('date-schedules/context',{effectiveOn,knownAt:null,mode:'current'});

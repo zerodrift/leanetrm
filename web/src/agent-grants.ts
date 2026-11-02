@@ -18,23 +18,24 @@ const inconsistent=()=>Error('The agent grants are inconsistent. Refresh them.')
 // What a grant lets its agent read, named by the permission each read needs, in a fixed order; and the one thing a grant
 // may let it write, saving curve drafts under the person's own market-definition authoring (D260).
 const reads:[string,string][]=[['ReadTrades','trades'],['ReadTradeParties','trade parties'],['ReadMarketData','market data'],['ReadJobs','your jobs']];
-const draftsPermission='WriteMarketDefinitions',drafts='save curve drafts you could save yourself',saves='saves curve drafts you could save yourself';
+const draftsPermission='WriteMarketDefinitions',drafts='prepare curve drafts for approval',saves='prepares curve drafts for approval';
 function writesDrafts(permissions:string[]){
-  if(new Set(permissions).size!==permissions.length||!permissions.every(p=>p===draftsPermission||reads.some(([code])=>code===p)))throw inconsistent();
+  if(new Set(permissions).size!==permissions.length||!permissions.every(p=>p===draftsPermission||p==='UseAssistantWorkspace'||reads.some(([code])=>code===p)))throw inconsistent();
   return permissions.includes(draftsPermission);
 }
 export function readsPhrase(permissions:string[]){
   writesDrafts(permissions);
+  if(permissions.includes('UseAssistantWorkspace'))return 'your currently authorized workspace pages';
   const named=reads.filter(([code])=>permissions.includes(code)).map(([,name])=>name);
   return named.length>1?`${named.slice(0,-1).join(', ')} and ${named.at(-1)}`:named[0]??'no workspace data';
 }
 // Everything a grant lets its agent do, as the consent asks it: "read market data and save curve drafts you could save yourself".
 export function grantPhrase(permissions:string[]){
-  return `read ${readsPhrase(permissions)}${writesDrafts(permissions)?` and ${drafts}`:''}`;
+  return `read ${readsPhrase(permissions)}${permissions.includes('UseAssistantWorkspace')?', run previews and prepare changes that require your separate approval before saving':''}${writesDrafts(permissions)?` and prepare curve drafts for approval`:''}`;
 }
 // What a grant allows, as its rows show it: its reads, then any drafts it saves.
 function allowsPhrase(permissions:string[],separator:string){
-  return `${readsPhrase(permissions)}${writesDrafts(permissions)?`${separator}${saves}`:''}`;
+  return `${readsPhrase(permissions)}${permissions.includes('UseAssistantWorkspace')?`${separator}previews; changes require separate user approval`:''}${writesDrafts(permissions)?`${separator}${saves}`:''}`;
 }
 const outcomes:Record<string,string>={granted:'Granted',replaced:'Replaced by a newer grant',revoked:'Revoked',retired:'Ended by Retire'};
 export function grantOutcome(outcome:string){if(!Object.hasOwn(outcomes,outcome))throw inconsistent();return outcomes[outcome];}

@@ -24,14 +24,10 @@ public sealed partial class AgentTools
              "name":{"type":"string","minLength":1,"maxLength":80},"engine":{"type":"string","enum":["custom_curve_recipe_v2"]},
              "formula":{"type":"string","minLength":1,"maxLength":6144}},"required":["code","name","engine","formula"],"additionalProperties":false}
             """,["ReadMarketData"]),
-        // Its permissions are those assistant.agent_tools() lists for it; the agent itself never holds WriteMarketDefinitions,
-        // so the save runs holding ReadMarketData and the database checks the draft authority (D260).
-        Tool("save_custom_curve_draft","Saves a custom curve as a draft for the user through the same managed save as the curve editor's Save draft, "+
-            "under the user's own market-data authoring. First preview the curve with prepare_custom_curve and report its key values; save only when "+
-            "the user asked for the curve to be set up or saved, sending the code, name, engine and formula you prepared. Send curveId null for a new "+
-            "curve, or the curve id an earlier save in this conversation returned to revise that draft; a draft a person has saved since, a published "+
-            "curve, or one the user has open with unsaved edits is refused. It never publishes, changes activations or saves any other definition. "+
-            "Its target opens the saved draft when the user chooses to; navigate to it and say where it leads.",
+        // Retain the legacy definition for stored versions; its execution path is closed by D284.
+        Tool("save_custom_curve_draft","This legacy direct-save tool is disabled and returns approval_required. It never publishes or saves. "+
+            "Use prepare_custom_curve for a preview, then discover_page_operations and propose_page_action for the ordinary custom-curves/save "+
+            "command. Only the user's separate authorization can save the reviewed proposal.",
             $$$"""
             {"type":"object","properties":{"code":{"type":"string","minLength":1,"maxLength":32,"pattern":"^[a-z][a-z0-9_]{0,31}$"},
              "name":{"type":"string","minLength":1,"maxLength":80},"engine":{"type":"string","enum":["custom_curve_recipe_v2"]},
@@ -75,49 +71,6 @@ public sealed partial class AgentTools
     // page reports open with unsaved edits, which the person saves or discards first.
     internal static string? DraftRefusal(TurnReads turn,SaveCurveArguments save)=>!turn.Pin.Working?"historical_read_only"
         :save.CurveId is {} curve&&PageReports.HoldsUnsaved(turn.PageReport,curve)?"custom_curve_open_unsaved":null;
-
-    // Save curve draft's step (D260). The exact references the curve resolves to at the turn's pin are read first, as its
-    // preparation previewed them. Then, in one transaction under the agent's context, the claim, the managed save, its saver
-    // and the step's own record, so a draft commits only with its successful step: any refusal, at the claim, a write or
-    // the commit, rolls both back, and the worker records the refused step as any other. A record the database does not take,
-    // for a turn whose cancel was requested or whose publication it refused, is such a refusal.
-    async Task<ToolStep> SaveStep(TurnReads turn,TurnTargets targets,string tool,JsonElement input,ToolCall call,SaveCurveArguments save,TurnWrites writes,
-        CancellationToken ct)
-    {
-        var step=targets.Steps+1;
-        var access=call.Operation.Access(database.Manifest);
-        DateTimeOffset? savedAt=null;
-        ToolStep Ended(string? code,ToolStepEnd end)=>new(tool,savedAt is null?null:call.Operation.Id,input,code,savedAt,savedAt is null?[]:access,
-            end==ToolStepEnd.Refusal?Refusal(code!):null,end);
-        try
-        {
-            var definition=CompileCurve(save.Curve);
-            var pinned=await Previewed(turn,definition,ct);
-            return await database.WithAgent(turn.Agent,turn.ReadLimit,MarketData,at=>savedAt=at,async(connection,t)=>
-            {
-                var draft=await SaveDraft(connection,turn,save,definition,step,writes,pinned,t);
-                var landed=Returned(tool,input,call,turn.Pin,savedAt!.Value,access,new(Saved(draft,turn.TurnId,step),1,false),targets.Next);
-                if(landed.End!=ToolStepEnd.Result)throw new Unrecorded(landed);
-                var recorded=await writes.Record(connection,landed,turn.Pin,t);
-                if(!recorded.TryGetProperty("step",out var number))throw new Unrecorded(Ended("delegation_denied",ToolStepEnd.Refusal));
-                if(number.GetInt32()!=step)throw new InvalidOperationException("A save step was recorded under another number.");
-                return landed with{Recorded=recorded};
-            },ct);
-        }
-        catch(Unrecorded refused){return refused.Step;}
-        catch(Exception e)
-        {
-            var (code,end)=savedAt is null?Classify(e):ClassifySave(e);
-            if(end==ToolStepEnd.Failure)logger.LogError("A curve draft save failed: {ErrorType}",e.GetType().Name);
-            return Ended(code,end);
-        }
-    }
-
-    // A step rolled back with its save, which the worker records instead.
-    sealed class Unrecorded(ToolStep step):Exception(nameof(Unrecorded))
-    {
-        public ToolStep Step {get;}=step;
-    }
 
     // How a save that bound its context ended (D260): authority lost at a write or at commit is delegation_denied, and a code
     // already held, by a curve the agent may not see too, is a conflict that names nothing of it.

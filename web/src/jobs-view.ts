@@ -114,8 +114,8 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
   function fields(){field('job-attempts').setAttribute('max',field('job-operation').value==='swarm_job'?'1':'3');get('job-interval-field').hidden=field('job-frequency').value!=='interval';get('job-profile-field').hidden=field('job-operation').value!=='swarm_job';}
   field('job-frequency').onchange=fields;field('job-operation').onchange=fields;
   get('jobs-refresh').onclick=()=>void options.act(()=>load());
-  get('jobs-previous').onclick=()=>void options.act(()=>load(Math.max(0,(directory?.page??0)-1)));
-  get('jobs-next').onclick=()=>void options.act(()=>load((directory?.page??0)+1));
+  get('jobs-previous').onclick=()=>void options.act(()=>load(Math.max(0,(directory?.page??0)-1),directory?.collectionJobs.page??0));
+  get('jobs-next').onclick=()=>void options.act(()=>load((directory?.page??0)+1,directory?.collectionJobs.page??0));
   get('collection-jobs-previous').onclick=()=>void options.act(()=>load(directory?.page??0,Math.max(0,(directory?.collectionJobs.page??0)-1)));
   get('collection-jobs-next').onclick=()=>void options.act(()=>load(directory?.page??0,(directory?.collectionJobs.page??0)+1));
   get('collection-job-close').onclick=()=>{if(!options.busy())closeCollectionEditor();};

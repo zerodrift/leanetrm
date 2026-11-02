@@ -4,6 +4,21 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D284 adds [workspace assistant operations and page guidance](assistant-workspace.md):
+discovery, reads/previews and separately human-approved commands, immutable page
+prompts under a delegated permission, and operational turns without financial-data
+authority. Migrations 0162–0164 require a separately qualified schema release.
+Existing versions need explicit tool configuration/publication and user consent;
+their authority is not silently expanded. This supersedes D260's direct draft-save
+exception and does not complete the wider scheduled/external-agent milestone.
+
+The bounded D283 verified-admission operation now connects published date-list
+mappings to draft contract construction or identical retained-contract reuse.
+Admissions have exact source/context relationships and independent certified
+knowledge times. Migration 0161 requires a qualified schema release; native-curve
+editing, automatic consumer migration and primary-revision cutover remain work.
+Private installation seeds are maintained outside the public repository.
+
 Gas may use an explicitly configured independent market/reference selection;
 this keeps physical location setup separate from the primary power and financial
 inputs without rebasing their source identities or feeds.
@@ -16,7 +31,7 @@ and configured per-unit tariffs are wired into that bounded profile. The
 Gas delivery setup editor saves immutable drafts, previews resolution/coverage and
 publishes versioned economic settings; saved trades retain their setup pins. Usage fees
 have independent pay/receive directions. The fixed-quantity composition ticket now adds independently directed physical
-and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. The common Blotter now includes gas positions, exact retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses one product panel and each product’s existing authorized booking operations. Physical gas entry and booked daily quantities use the description-driven [deal ticket](deal-ticket.md); quantity records remain separate operational revisions. Mixed risk reports list exact gas exclusions while valuing supported positions; gas scenario risk, physical completion, operational PV and settlement remain work.
+and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. The common Blotter now includes gas positions, exact retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses one product panel and each product’s existing authorized booking operations. Physical gas entry and booked daily quantities use the description-driven [deal ticket](deal-ticket.md); quantity records remain separate operational revisions. Interactive and retained portfolio risk include fixed contractual gas through the common PV and shared market-factor operations (D287). Physical completion, operational PV, settlement and automated-close gas admission remain work.
 The first gas composition gate now supports fixed contractual memberships and
 quantity links. Transport eligibility, allocation splits, operational inputs and
 ordered paths require their own behavior;

@@ -16,7 +16,7 @@ export async function withBrowserPage(page,body){
  const root=fileURLToPath(new URL('../dist/',import.meta.url));
  const server=createServer(async(req,res)=>{
   try{
-   if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end(page);return;}
+   if(req.url==='/'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(page);return;}
    const file=resolve(root,'.'+new URL(req.url,'http://localhost').pathname);
    if(!file.startsWith(root)){res.writeHead(404).end();return;}
    res.setHeader('Content-Type',extname(file)==='.js'?'text/javascript':extname(file)==='.css'?'text/css':'application/octet-stream');res.end(await readFile(file));
@@ -34,6 +34,6 @@ export async function withBrowserPage(page,body){
   await command('Page.enable');
   await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
   for(let i=0;i<100&&!await evaluate('!!document.querySelector("#host")');i++)await new Promise(r=>setTimeout(r,20));
-  await body(evaluate);
+  await body(evaluate,command);
  }finally{ws?.close();await stopOwnedBrowserGroup(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
 }

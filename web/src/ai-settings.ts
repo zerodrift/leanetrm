@@ -4,6 +4,7 @@ import {PendingCommand,type RequestCommand} from './pending-command.js';
 import {zonedInput} from './user-time.js';
 import {setupAgentSettings,aiTabNames,type AiTab} from './agent-settings.js';
 import {setupUsageSettings} from './usage-settings.js';
+import {setupPagePrompts} from './page-prompts.js';
 import {currencyKey,currencyLabels,type Currency,type CurrencyReference} from './currency-labels.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
@@ -378,7 +379,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     get('ai-key-pending-text').textContent=keyPending.command?`A key replacement for ${name} is unconfirmed. The providers table shows the current key once it loads. To retry, enter the same key and choose Retry; a different key is refused. Discard the request once the table shows your key.`:'';
     get<HTMLButtonElement>('ai-key-submit').disabled=busy||!!keyPending.command;get<HTMLButtonElement>('ai-key-cancel').hidden=!!keyPending.command;
   }
-  const agents=setupAgentSettings(options),usage=setupUsageSettings(options);
+  const agents=setupAgentSettings(options),usage=setupUsageSettings(options),prompts=setupPagePrompts(options);
   async function loadModels(){
     const request=++generation,identity=options.identity();
     clearDirectories();
@@ -392,7 +393,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     const tabs=options.tabs();
     for(const tab of aiTabNames)get('ai-tab-'+tab).hidden=!tabs.includes(tab);
     if(!tabs.some(tab=>!get('ai-'+tab).hidden))show(tabs[0]??'models');
-    await Promise.all([tabs.includes('usage')?usage.load():undefined,tabs.includes('models')?loadModels():undefined,tabs.includes('agents')?agents.load():undefined]);
+    await Promise.all([tabs.includes('usage')?usage.load():undefined,tabs.includes('models')?loadModels():undefined,tabs.includes('agents')?agents.load():undefined,tabs.includes('prompts')?prompts.load():undefined]);
   }
   // A confirmed change clears only the form that made it.
   const resets:Record<string,(command:RequestCommand)=>void>={
@@ -508,9 +509,9 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     for(const name of aiTabNames){const active=name===tab,b=get('ai-tab-'+name);get('ai-'+name).hidden=!active;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));}
   }
   return {load,
-    sync(){sync();agents.sync();usage.sync();},
+    sync(){sync();agents.sync();usage.sync();prompts.sync();},
     // A change, key, test or export whose outcome is unconfirmed, on any tab.
-    unconfirmed:()=>[pending,providerPending,keyPending,testPending].some(p=>!!p.command)||agents.unconfirmed()||usage.unconfirmed(),
+    unconfirmed:()=>[pending,providerPending,keyPending,testPending].some(p=>!!p.command)||agents.unconfirmed()||usage.unconfirmed()||prompts.unconfirmed(),
     refresh(){for(const zoned of [priceFrom,priceTo,withdrawFrom,withdrawTo])zoned.refresh();render();sync();agents.refresh();usage.refresh();},
     reset(){
       generation++;clearDirectories();selected=undefined;selectedVendor=undefined;statementPair='';
@@ -520,6 +521,6 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
       providerPending.command=stored(providerPending,c=>providerPaths.includes(c.path));
       keyPending.command=stored(keyPending,c=>c.path===keyPath&&Object.keys(c.body).sort().join()==='expectedVersion,vendor');
       testPending.command=stored(testPending,c=>c.path===testPath&&Object.keys(c.body).sort().join()==='modelId,reasoning');
-      sync();agents.reset();usage.reset();
+      sync();agents.reset();usage.reset();prompts.reset();
     }};
 }

@@ -57,19 +57,21 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet, admin
                 "WHERE p.permission='ManageModelProviders';") == 'access_administrator')
     tables = "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='assistant' AND c.relkind='r'"
     check('every page-assistant table forces row security',
-          query(f"SELECT count(*) {tables};") == query(f"SELECT count(*) {tables} AND c.relrowsecurity AND c.relforcerowsecurity;") == '23')
+          query(f"SELECT count(*) {tables};") == query(f"SELECT count(*) {tables} AND c.relrowsecurity AND c.relforcerowsecurity;") == '28')
     check('the runtime holds no privilege on any page-assistant table or column',
           query(f"SELECT count(*) {tables} AND(has_table_privilege('preview_runtime',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
                 "OR has_any_column_privilege('preview_runtime',c.oid,'SELECT,INSERT,UPDATE,REFERENCES'));") == '0')
     functions = "SELECT string_agg(proname,',' ORDER BY proname) FROM pg_proc WHERE pronamespace='assistant'::regnamespace"
-    check('the administration, grant, turn, Test, worker and usage operations are the only definers and all the runtime may execute',
-          query(f"{functions} AND prosecdef;") == query(f"{functions} AND has_function_privilege('preview_runtime',oid,'EXECUTE');")
-          == 'add_model,add_price,agent_directory,append_turn_text,ask_turn,attest,close_test,close_turn_call,conversation,conversations,'
-          'create_agent,credential_slot,curve_proposal,disable_model,disable_provider,edit_model,enable_model,enable_provider,end_turn,end_turn_session,'
-          'export_usage,grant_agent,grants,mark_read,model_directory,open_test,open_turn_call,pin_turn,provider_directory,publish_agent,'
-          'record_terms,record_tool_step,rename_model,replace_credential,retire_agent,revoke_grant,save_agent_version,start_turn,start_worker,'
-          'stop_turn,turn_stream,unfinished_turn,usable_agents,usage_directory,usage_report,use_agent_admission,use_grant_admission,withdraw_price,'
-          'workspace_grants')
+    public_operations = set(('add_model,add_price,agent_directory,append_turn_text,ask_turn,attest,close_test,close_turn_call,conversation,conversations,'
+        'create_agent,credential_slot,curve_proposal,disable_model,disable_provider,edit_model,enable_model,enable_provider,end_turn,end_turn_session,'
+        'export_usage,grant_agent,grants,mark_read,model_directory,open_test,open_turn_call,pin_turn,provider_directory,publish_agent,'
+        'record_terms,record_tool_step,rename_model,replace_credential,retire_agent,revoke_grant,save_agent_version,start_turn,start_worker,'
+        'stop_turn,turn_stream,unfinished_turn,usable_agents,usage_directory,usage_report,use_agent_admission,use_grant_admission,withdraw_price,'
+        'workspace_grants,action_proposal,authorize_action,action_outcome,record_action_outcome,page_prompt_directory,save_page_prompt,workspace_sources').split(','))
+    private_definers = {'pin_page_prompt', 'pin_market_turn', 'start_turn_without_page_prompt'}
+    check('runtime execution is limited to the named application operations and excludes private pin/trigger helpers',
+          set(query(f"{functions} AND prosecdef;").split(',')) == public_operations | private_definers
+          and set(query(f"{functions} AND has_function_privilege('preview_runtime',oid,'EXECUTE');").split(',')) == public_operations)
     for table in ('providers', 'credentials', 'administration_audit'):
         contexts.runtime('admin', expect(f'PERFORM 1 FROM assistant.{table};', '42501'))
         check(f'the runtime reads {table} only through administration operations')

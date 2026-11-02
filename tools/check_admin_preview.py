@@ -12,10 +12,10 @@ def run_checks(Client, check):
           [(k['code'], k['creatable']) for k in directory['kinds']] == [('human', True), ('service', True), ('agent', False)] and all(k['name'] for k in directory['kinds']))
     admin.call('workspace', expected=403)
     check('access administration does not imply market-data access')
-    check('the six human roles are assignable, and both agent-only roles are listed only to name what agents hold',
-          sorted(r['code'] for r in directory['roles'] if r['assignable']) == ['access_administrator', 'market_data_approver', 'market_data_editor', 'risk_analyst', 'trader', 'viewer']
+    check('the seven human roles are assignable, and both agent-only roles are listed only to name what agents hold',
+          sorted(r['code'] for r in directory['roles'] if r['assignable']) == ['access_administrator', 'assistant_prompt_editor', 'market_data_approver', 'market_data_editor', 'risk_analyst', 'trader', 'viewer']
           and sorted(r['code'] for r in directory['roles'] if not r['assignable']) == ['agent_reader', 'swap_settlement_operator'])
-    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == len(directory['roles']) == 8)
+    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == len(directory['roles']) == 9)
     request = {'operationId': str(uuid4()), 'login': 'synthetic_reader', 'name': 'Synthetic reader',
                'kind': 'human', 'roles': ['viewer']}
     created = admin.call('admin/create', request)

@@ -1,6 +1,15 @@
 """Synthetic checks for service-only collection and commit-certified corrections."""
 from uuid import uuid4
+from datetime import timedelta
 import json
+
+
+def malformed_report_window(today):
+    # Keep the live worker's calendar separate from the fixed Eastern DST oracles.
+    offset = -1
+    while (today + timedelta(days=offset)).isoformat() in ('2026-11-01', '2026-11-02'):
+        offset -= 1
+    return today + timedelta(days=offset), offset
 
 
 def run_checks(query,manifest,dotnet,root,environment):
@@ -134,13 +143,13 @@ SELECT power_data.finish_attempt(:'fence_token','{payload('5')}'::jsonb,NULL);""
     import os,subprocess
     from pathlib import Path
     from preview_fixture import installed_tzdb
-    yesterday=datetime.now(timezone.utc).date()-timedelta(days=1)
+    worker_day,worker_offset=malformed_report_window(datetime.now(timezone.utc).date())
     directory=root/'collector-check';directory.mkdir(mode=0o700)
     request=directory/'calendar.json';calendar_sql=directory/'calendar.sql'
-    request.write_text(json.dumps({'referenceCatalogId':r,'referenceRevisionId':rr,'from':yesterday.isoformat(),'through':yesterday.isoformat(),'clocks':[{'code':'synthetic_eastern','kind':'iana','fixedOffsetSeconds':None,'ianaZone':'America/New_York','tzdbVersion':installed_tzdb()}]}))
+    request.write_text(json.dumps({'referenceCatalogId':r,'referenceRevisionId':rr,'from':worker_day.isoformat(),'through':worker_day.isoformat(),'clocks':[{'code':'synthetic_eastern','kind':'iana','fixedOffsetSeconds':None,'ianaZone':'America/New_York','tzdbVersion':installed_tzdb()}]}))
     repository=Path(__file__).resolve().parents[1]
     subprocess.run([str(dotnet),str(repository/'src/OpenEtrm.Api/bin/Debug/net10.0/OpenEtrm.Api.dll'),'--render-power-days',str(request),str(calendar_sql)],cwd=repository,env=environment,check=True,timeout=30)
-    query(calendar_sql.read_text());query(f"UPDATE power_data.jobs SET from_day=-1,through_day=-1 WHERE id='{job}';INSERT INTO power_data.request_gates VALUES('PJM',120,clock_timestamp());")
+    query(calendar_sql.read_text());query(f"UPDATE power_data.jobs SET from_day={worker_offset},through_day={worker_offset} WHERE id='{job}';INSERT INTO power_data.request_gates VALUES('PJM',120,clock_timestamp());")
     connection=directory/'connection';connection.write_text(f'Host={root};Port=55439;Database=postgres;Username=synthetic_collector;SSL Mode=Disable');connection.chmod(0o600)
     config=directory/'collection.json';config.write_text(json.dumps({'connectionFile':str(connection),'providers':[{'provider':'PJM','baseUrl':'https://provider.synthetic.invalid/api','apiKey':'synthetic-key','requestsPerMinute':120,'tokenUrl':None,'clientId':None,'tokenScope':None,'accountId':None,'apiSecret':None}],'pjmPageSize':50,'ercotPageSize':1000,'maximumRows':100000,'timeoutSeconds':10}));config.chmod(0o600)
     project='tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj'

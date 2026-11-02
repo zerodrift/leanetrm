@@ -830,9 +830,10 @@ END$$;
 -- nothing: booking facts need a human booker, as for futures, and no agent tool needs BookTrade.
 DO $$BEGIN
  IF(SELECT array_agg(code||':'||array_to_string(permissions,',') ORDER BY code) FROM assistant.agent_tools())IS DISTINCT FROM
-  ARRAY['navigate:','prepare_custom_curve:ReadMarketData','read_current_page:','read_custom_curves:ReadMarketData','read_jobs:ReadJobs',
-   'read_market_data:ReadMarketData','read_reference_data:ReadMarketData','read_schedules:ReadMarketData','read_trade_parties:ReadMarketData,ReadTradeParties',
-   'read_trades:ReadMarketData,ReadTrades','save_custom_curve_draft:ReadMarketData,WriteMarketDefinitions']
+  ARRAY['discover_page_operations:UseAssistantWorkspace','navigate:','prepare_custom_curve:ReadMarketData','propose_page_action:UseAssistantWorkspace',
+   'read_current_page:','read_custom_curves:ReadMarketData','read_jobs:ReadJobs','read_market_data:ReadMarketData','read_page_operation:UseAssistantWorkspace',
+   'read_reference_data:ReadMarketData','read_schedules:ReadMarketData','read_trade_parties:ReadMarketData,ReadTradeParties',
+   'read_trades:ReadMarketData,ReadTrades','read_workspace_page:UseAssistantWorkspace','save_custom_curve_draft:ReadMarketData,WriteMarketDefinitions']
  THEN RAISE EXCEPTION 'futures_options: unexpected agent tools' USING ERRCODE='55000';END IF;
 END$$;
 CREATE OR REPLACE FUNCTION assistant.agent_tools() RETURNS TABLE(code text,permissions text[]) LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
@@ -841,7 +842,20 @@ CREATE OR REPLACE FUNCTION assistant.agent_tools() RETURNS TABLE(code text,permi
   ('read_trade_parties',ARRAY['ReadMarketData','ReadTradeParties']),('read_trades',ARRAY['ReadMarketData','ReadTrades']),
   ('futures_option_catalog',ARRAY['ReadMarketData','ReadTrades']),
   ('read_custom_curves',ARRAY['ReadMarketData']),('prepare_custom_curve',ARRAY['ReadMarketData']),('read_jobs',ARRAY['ReadJobs']),
-  ('save_custom_curve_draft',ARRAY['ReadMarketData','WriteMarketDefinitions'])
+  ('save_custom_curve_draft',ARRAY['ReadMarketData','WriteMarketDefinitions']),
+  ('read_workspace_page',ARRAY['UseAssistantWorkspace']),('discover_page_operations',ARRAY['UseAssistantWorkspace']),
+  ('read_page_operation',ARRAY['UseAssistantWorkspace']),('propose_page_action',ARRAY['UseAssistantWorkspace'])
+$$;
+-- The option entry page is a page the assistant is asked from; it reads nothing there, and its guidance is configurable like every page.
+DO $$BEGIN
+ IF pg_get_functiondef('assistant.is_prompt_page(text)'::regprocedure) NOT LIKE '%''blotter_new_crude'',''gas_setup'',''physical_gas'',''physical_crude'');%'
+ THEN RAISE EXCEPTION 'futures_options: unexpected prompt pages' USING ERRCODE='55000';END IF;
+END$$;
+CREATE OR REPLACE FUNCTION assistant.is_prompt_page(page text) RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT page IN('curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter','custom_curves','jobs','ppa',
+  'blotter_risk','blotter_risk_lens','blotter_new_trade','blotter_new_future','blotter_new_swap','risk_jobs','delivery_prices',
+  'interval_series','interval_curves','users_access','settings_ai','blotter_new_ppa','blotter_new_gas','blotter_new_crude','gas_setup','physical_gas','physical_crude',
+  'blotter_new_option');
 $$;
 DO $$BEGIN
  IF EXISTS(SELECT 1 FROM assistant.agent_tools() WHERE 'BookTrade'=ANY(permissions) OR 'AmendTrade'=ANY(permissions))

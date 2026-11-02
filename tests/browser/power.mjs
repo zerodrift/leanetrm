@@ -51,5 +51,9 @@ export async function run({command,wait,click,set,submit,check,evaluate,idle,url
   }finally{await sideApi('admin/update',{operationId:crypto.randomUUID(),id:viewer.id,expectedVersion:changed.version,name:viewer.name,enabled:true,roles:viewer.roles});}
   await click('#profile-open');
   await check('profile refresh restores currently granted access with the right user label',"document.querySelector('#profile-label').textContent==='Viewer'&&document.querySelector('#profile-access').textContent.includes('Read Market Data')&&document.querySelector('#no-access-page').hidden");await click('#profile-close');
-
+  await click('#nav-market');
+  await evaluate(`window.powerHistoricalCatalogs=[];{const send=window.fetch;window.fetch=async(input,init)=>{const response=await send(input,init);if(['/api/power/catalog','/api/tou-products'].includes(String(input)))window.powerHistoricalCatalogs.push({path:String(input),request:init?.body?JSON.parse(init.body):null,status:response.status,result:await response.clone().json()});return response;};}`);
+  await set('#date-context-on','2020-12-17');await wait(idle);await click('#date-context-latest');await click('#nav-power');
+  await check('Power TOUs applies pending history and shows its backend historical limitation',"window.powerHistoricalCatalogs.at(-1)?.result.code==='power_historical'&&!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.includes('Return to current inputs')&&document.querySelector('#power-result').hidden","({catalog:window.powerHistoricalCatalogs.at(-1),error:document.querySelector('#error').textContent,effective:document.querySelector('#date-context-on').value,known:document.querySelector('#date-context-view').value})");
+  await click('#current-view-context');
 }
