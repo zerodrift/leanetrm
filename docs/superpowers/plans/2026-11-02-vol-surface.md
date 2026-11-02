@@ -38,7 +38,7 @@
 - **Bitemporal storage reuses the existing protocol.** Use `trading.publications`, `trading.knowledge_receipts`, `security.trading_visible(catalog_id,publication_order,effective_at)` and the `market_data.guard_knowledge_receipt()` immutability trigger, exactly as `db/migrations/0154_crude_receipt_cash.sql` does for crude operational events. Do not create a new knowledge clock or timestamp column.
 - **Permissions.**
   - Reading needs `ReadMarketData`.
-  - Fitting needs `PublishMarketData`, and only in the current workspace: a historical context is refused with `historical_read_only`.
+  - Submitting a fit job needs `PublishMarketData` and `ReadTrades`, and only in the current workspace: a historical context is refused with `historical_read_only`. The worker rechecks the actor's current authority before fitting and at publication.
   - Agents get no fit operation in this work.
 - **Commodity-neutral.** No code or copy names gas or crude except example data.
 - **Public repository rules (AGENTS.md).**
@@ -48,7 +48,7 @@
   - Never push without the user's approval.
 - **TDD.** Each behaviour check is written first and fails for the right reason before the code exists.
 - **Migration** `db/migrations/0170_vol_surfaces.sql` is the next number after `0169_risk_trade_selection.sql`. Renumber it if master moves on before merge.
-- **Fit budget.** The synchronous fit of one example product takes at most 5 seconds on the local toolchain. If it misses, stop and report; do not add caching or async execution.
+- **Fits are background jobs.** A fit runs as job kind `vol_surface_fit_v1` on the existing retained risk-job queue (`risk.jobs`, `src/OpenEtrm.Api/RiskWorker.cs`), under its lease, attempt, cancellation and security-generation rules. Add no new queue, service or cache. Fit runtime is measured and recorded (series, solves, elapsed); no budget is enforced.
 
 ## Review Focus
 
@@ -56,7 +56,8 @@
 2. **Two near-simultaneous fits of the same key with different request ids.** They must produce one revision, with the second a no-op returning it. Task 4 adds `concurrent identical fits record one revision`.
 3. **A product whose underlying has no settlement for one expiry.** That expiry's series carry `option_underlying_missing` and the expiry is `vol_fit_insufficient_strikes`. The rest of the surface is fitted, with no request-level failure. Task 2 adds `expiry without underlying is a gap, others fit`.
 4. **A cutoff before any surface was recorded, after one exists.** The read returns `notFitted`, never the later revision. Task 5 adds `earlier cutoff does not see later revision`.
-5. **Strikes exactly at the forward.** The call is the fitted point, and k = 0 is in range. Task 2 adds `at-the-forward strike uses the call`.
+5. **Authority removed between submit and run.** The job fails with the existing authority-changed outcome and records no revision. Task 5 adds `revoked fitter's job records nothing`.
+6. **Strikes exactly at the forward.** The call is the fitted point, and k = 0 is in range. Task 2 adds `at-the-forward strike uses the call`.
 
 ---
 
@@ -153,10 +154,10 @@
   - `surface fit reproduces each settlement's solved volatility`: every `solved` series' `MarketVolatility` equals the receipt volatility `FuturesOptionPricing.Prepare` gives that series alone.
   - `observation ids are exactly the pinned inputs`: the set equals the frame's option and underlying settlement observations for the product.
   - `unknown product is refused` and `product without settlements is refused`, with their codes.
-  - `surface fit runtime`: prints the series count, solve count and elapsed milliseconds, and fails above 5,000 ms.
+  - `surface fit runtime`: prints the series count, solve count and elapsed milliseconds. It records them and enforces no budget.
 - [ ] **Step 2: Run and see them fail.** Run `~/.openetrm-tools/dotnet run --project tests/OpenEtrm.Api.Checks -- --vol-surface-fit`. Expected: a build failure.
 - [ ] **Step 3: Extract `Calibrate` and implement `Compute`.** The existing `--futures-options` MarketData checks and the option portfolio checks must stay green unchanged.
-- [ ] **Step 4: Run the new checks and the existing ones.** Run `--vol-surface`, `--futures-options` and `python3 tools/check_all.py` for the option rows. Expected: all pass, with the runtime under 5,000 ms. Record it in the commit body.
+- [ ] **Step 4: Run the new checks and the existing ones.** Run `--vol-surface`, `--futures-options` and `python3 tools/check_all.py` for the option rows. Expected: all pass. Record the runtime in the commit body.
 - [ ] **Step 5: Commit.** `git commit -s -m "Calibrate every listed series of an option product for its surface"`
 
 ### Task 4: Bitemporal storage of surface revisions
@@ -202,39 +203,51 @@
 - [ ] **Step 4: Run the checks.** Same command. Expected: all `PASS`, with the existing storage checks still green.
 - [ ] **Step 5: Commit.** `git commit -s -m "Store volatility surface revisions bitemporally"`
 
-### Task 5: Fit and read operations in the API
+### Task 5: Fit jobs on the risk queue, and the read
 
 **Files:**
-- Create: `src/OpenEtrm.Api/VolSurfaceStore.cs`
-- Modify: `src/OpenEtrm.Api/Program.cs`, adding routes next to `/options/*`
+- Create: `src/OpenEtrm.Api/VolSurfaceStore.cs`, holding job admission, worker execution and the read
+- Modify:
+  - `src/OpenEtrm.Api/RiskWorker.cs`: dispatch by retained request convention. `vol_surface_fit_v1` runs the fit; portfolio risk is unchanged.
+  - `src/OpenEtrm.Api/Program.cs`: routes next to `/options/*`.
+  - A migration, only if the risk queue's SQL (`risk.claim`, `risk.finish` and the job list or read functions) must learn the new convention. Fold it into `0170_vol_surfaces.sql` if Task 4 is not yet merged, otherwise make it `0171`.
 - Create: `tools/check_vol_surface_api.py`, run from `tools/run_preview.py`
 
 **Interfaces:**
-- Consumes: Task 3's `VolSurfaceFit.Compute` and Task 4's SQL functions.
+- Consumes: Task 3's `VolSurfaceFit.Compute` and Task 4's SQL functions. `RiskJobs.Submit`, `RiskJobs.Read` and `RiskWorker` are the patterns to reuse.
 - Produces:
   - `public sealed record VolSurfaceFitRequest(Guid RequestId, Guid SnapshotId, string Product, string Model)` and `public sealed record VolSurfaceReadRequest(FuturesReadRequest Context, string Product, string Model)`. Both have `[JsonUnmappedMemberHandling(Disallow)]`.
-  - `POST /api/vol-surfaces/fit`, under `PublishMarketData`, using the `MarketCloses.Register` shape. It resolves the frame from `SnapshotId`, computes, serializes the result canonically and hashes it, then records.
-  - `POST /api/vol-surfaces/read`, under `ReadMarketData`. It resolves the context as option valuation does, then reads. It returns:
+  - `POST /api/vol-surfaces/fit`, under `PublishMarketData` and `ReadTrades`. It pins the frame, product, business date, model and actor, and returns `{jobId, state}`.
+    - The same request id returns the same job.
+    - A queued or running job for the same key and pinned frame is returned instead of a new one.
+  - **Worker execution.** The worker claims the job and rechecks authority. It computes, serializes the result canonically and hashes it. It calls `security.record_vol_surface` and finishes the job, with the job result holding `{revision, created, series, solves, elapsedMs}`. Recording and finishing happen in one transaction.
+    - A fit error finishes the job `failed` with its code and records nothing.
+  - `POST /api/vol-surfaces/read`, under `ReadMarketData`. It resolves the context as option valuation does, then returns:
     - `context`: business date, cutoff and snapshot id;
     - `model` and `solverPolicy`;
     - `state`, which is `fitted` or `notFitted`;
     - `revision`: id, knownFrom, actor and `inputsRevised`;
-    - `canFit`: whether the caller holds `PublishMarketData`;
+    - `job`: the newest fit job for the key visible to the caller, with id, state and error code, or null;
+    - `canFit`: whether the caller may submit;
     - `surface`: the `VolSurfaceResult`, with camel-case fields and exact decimal text.
   - `inputsRevised` is true when any pinned observation has a newer revision visible at the cutoff.
-- [ ] **Step 1: Write the failing HTTP checks**, in the style of `check_futures_option_portfolio.py`:
+- [ ] **Step 1: Write the failing HTTP checks**, in the style of `check_futures_option_portfolio.py`, running the risk worker the way the existing risk-job checks do:
   - `not fitted before any fit`;
-  - `fit then read returns the stored surface`;
-  - `refit is a no-op`: the same revision with `created=false`;
+  - `fit job completes and read returns the stored surface`;
+  - `same request id returns the same job` and `a second submit while queued returns the queued job`;
+  - `refit is a no-op`: the job completes with the same revision and `created=false`;
   - `revised settlement flags the stored surface`: record a settlement revision for one series, read, and expect `inputsRevised: true` with the surface unchanged;
   - `refit after revision records a new revision`, after which the old cutoff still reads the old one;
-  - `unknown model is refused`, with `vol_model_unknown`;
+  - `unknown model is refused at submit`, with `vol_model_unknown`;
   - `historical context cannot fit`, with `historical_read_only`;
-  - `reader without PublishMarketData sees canFit false and cannot fit`.
+  - `reader without PublishMarketData sees canFit false and cannot fit`;
+  - `revoked fitter's job records nothing`: revoke `PublishMarketData` after submit and before the worker runs;
+  - `a failing fit finishes failed with its code`: a product with no settlements at the frame gives `vol_surface_no_settlements`;
+  - `portfolio risk jobs are unaffected`: the existing risk-job checks still pass.
 - [ ] **Step 2: Run and see them fail.** Run `python3 tools/run_preview.py --exchange-check`. Expected: FAIL with 404 on the new routes.
-- [ ] **Step 3: Implement the store and routes.**
-- [ ] **Step 4: Run the checks.** Same command. Expected: all `PASS`.
-- [ ] **Step 5: Commit.** `git commit -s -m "Fit and read stored volatility surfaces through the API"`
+- [ ] **Step 3: Implement admission, worker dispatch and the read.**
+- [ ] **Step 4: Run the checks.** Same command. Expected: all `PASS`, including the existing risk-job checks.
+- [ ] **Step 5: Commit.** `git commit -s -m "Fit volatility surfaces as risk-queue jobs and read them"`
 
 ### Task 6: Example data with a synthetic smile
 
@@ -272,6 +285,7 @@
   - the page is listed in Markets for a market reader and absent without `ReadMarketData`;
   - a product picker and the read-only model label `smile_quadratic_log_moneyness_v1` are shown;
   - `notFitted` shows "Not fitted for this date" and a *Fit now* button only when `canFit`;
+  - after *Fit now*, a queued or running job shows its state, and the page checks back until the job finishes and then shows the surface; a failed job shows its code next to the button;
   - after fitting, the heat map has one row per expiry and one column per strike axis value;
   - call and put halves are labelled, and a "not listed" cell is distinct from a gap cell, whose title gives the reason;
   - the gap expiry shows its reason in both views;
@@ -284,7 +298,7 @@
 - [ ] **Step 3: Implement the page.**
   - The heat map is an echarts `heatmap` series. The diverging colour scale is centred on 0 and uses the app's theme tokens.
   - The smiles are echarts small multiples showing the fitted grid line, market scatter shaped by right, and rich/cheap bars.
-  - *Fit now* and *Refit* send a fresh request id. An uncertain response is retried with the same id, following the existing pending-command pattern (`pending-command.ts`).
+  - *Fit now* and *Refit* submit a job with a fresh request id. An uncertain response is retried with the same id, following the existing pending-command pattern (`pending-command.ts`). While the read reports a queued or running job, the page re-reads on a short fixed interval, at most every 2 seconds, and stops when the job finishes or the page closes.
 - [ ] **Step 4: Run the browser checks.** Same command. Expected: `PASS`.
 - [ ] **Step 5: Commit.** `git commit -s -m "Show volatility surfaces with a rich/cheap heat map and smiles"`
 
@@ -334,6 +348,6 @@
 - **Final review.** One combined adversarial review of the whole branch, as the user prefers. It covers temporal behaviour, authorization and numerical correctness, as AGENTS.md requires. Resolve its findings before asking to publish.
 - **Pull request and the pilot.** Open the pull request only with the user's approval. After merge and the 0170 schema window, the pilot example-data load runs as installation work outside the repository:
   - it adds the strikes and settlement revisions idempotently;
-  - it fits each loaded date through `/api/vol-surfaces/fit`;
+  - it submits a fit job for each loaded date through `/api/vol-surfaces/fit` and checks each completes;
   - it is rehearsed on a disposable copy first;
   - each phase needs the user's approval in chat.

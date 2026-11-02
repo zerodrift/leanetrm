@@ -62,9 +62,9 @@ cool". The pictures are meant to be good-looking as well as correct.
 - **Heavier vol models.** SABR, stochastic or local volatility, vol dynamics (sticky
   strike or sticky delta) and arbitrage-free fitting across expiries wait for a
   consumer that needs them.
-- **Fitting on a schedule.** There is no automatic fit after each close yet. A
-  surface is fitted when someone asks for it, from the page or through the same
-  operation, and the pilot data step fits its loaded dates. A scheduled fit waits
+- **Fitting on a schedule.** There is no automatic fit after each close yet. A fit
+  job is submitted when someone asks for it, from the page or through the same
+  operation, and the pilot data step submits jobs for its loaded dates. A scheduled fit waits
   for a close-triggered job design.
 - **Settlement ingestion.** Option settlements remain synthetic example rows.
 - **Strategies, payoff diagrams and option-chain screens.**
@@ -222,34 +222,58 @@ Decided by the user: surfaces are stored, bitemporally. The details are my calls
   - Everything in the response shape below: per expiry, per series, and the fitted
     grid.
   - Revisions are immutable once written.
-- **Writing.** One authorized operation, *fit vol surface*.
-  - It needs `PublishMarketData` and a request identity.
-  - It fits from the inputs known now for that key's business date, resolved as
-    option valuation resolves them.
-  - The same request identity returns its first outcome (D238).
-  - If the latest revision for the key already pinned the same input revisions, the
-    operation is a no-op and returns that revision. The fit is deterministic, so a
-    recomputed result that differs from it is refused with
-    `vol_surface_nondeterministic`, never stored.
-  - If settlements were revised since, so the pinned inputs differ, it records a new
-    revision with its own knowledge time. The earlier revision stays readable at
-    earlier cutoffs.
-  - A fit that raises a request-level error (unknown product, no settlements,
-    `discount_curve_missing`, `vol_model_unknown`) records nothing. Per-expiry
-    gaps and per-series reasons are part of a successful revision.
+- **Writing is a background job (decided by the user).** One authorized
+  operation, *fit vol surface*, admits a job; a worker does the fit.
+  - **Why:** one product fits in about 12 seconds today (each series runs the full
+    pinned tree solve). The user chose a job over a longer synchronous request.
+  - **Admission.**
+    - It needs `PublishMarketData`, plus `ReadTrades`, because the currency's
+      discount default is read through a trading read today. It needs a request
+      identity.
+    - It pins the exact input frame, the product, the business date, the vol model
+      and the actor.
+    - The same request identity returns the same job (D238).
+    - A job already queued or running for the same key and the same pinned frame is
+      returned instead of a second one.
+  - **Queue (my call).** The job uses the existing retained risk-job queue and its
+    replicated risk workers, as a second job kind (`vol_surface_fit_v1`) next to
+    portfolio risk. It has the same lease, attempt, cancellation and security
+    generation rules. This adds no new queue or service.
+  - **Execution.**
+    - The worker rechecks the actor's current authority before the fit and again
+      at publication.
+    - It fits from the pinned frame and records the revision with the rules below,
+      in the transaction that completes the job.
+    - A fit that fails records no revision and finishes the job as `failed`, with
+      its structured code.
+  - **Recording rules.**
+    - If the latest revision for the key already pinned the same input revisions, the
+      job completes with that revision and records nothing new. The fit is
+      deterministic, so a recomputed result that differs from it fails the job with
+      `vol_surface_nondeterministic` and is never stored.
+    - If settlements were revised since, so the pinned inputs differ, it records a
+      new revision with its own knowledge time. The earlier revision stays readable
+      at earlier cutoffs.
+    - A request-level error (unknown product, no settlements,
+      `discount_curve_missing`, `vol_model_unknown`) records nothing. Per-expiry
+      gaps and per-series reasons are part of a successful revision.
 - **Reading.**
   - A read at (business date, knowledge cutoff) returns the latest revision for the
     key whose knowledge time is at or before the cutoff, ordered by knowledge time,
     never by row order.
   - It never falls back to another date's surface or another model's.
-  - With no such revision, the page shows "not fitted for this date". A user with
-    `PublishMarketData` gets a *Fit now* button; others see who can fit it.
+  - With no such revision, the page shows "not fitted for this date". A user who
+    may fit gets a *Fit now* button; others see who can fit it.
+  - **Job state.** The read also returns the newest fit job for the key that the
+    caller may see: queued, running, failed (with its code) or cancelled. While a
+    job is queued or running, the page shows its progress and checks back until it
+    finishes. It shows a failed job's reason next to the button.
   - **Out-of-date state.** The read also checks whether any input settlement has a
     newer revision known at the cutoff than the ones the surface pinned. If so, the
     surface is still shown, labelled "inputs revised after this fit", with a *Refit*
     button for those allowed to fit. The read never refits by itself.
-- **Read cost.** Reading is a lookup. The 5-second budget below applies to the fit
-  operation.
+- **Cost.** Reading is a lookup. The fit runs off the request path; its runtime is
+  measured and recorded (series, solves, elapsed) rather than held to a budget.
 - **Agents.** A later agent tool calls the same read and fit operations under the
   same permissions. Fitting is a market-data publication, so it is not offered to
   agents in this piece.
@@ -348,15 +372,14 @@ One read returns, for a product, a date and a vol model:
     - A changed settlement for an existing series is recorded as a new revision with
       its own knowledge time, never an overwrite. Earlier cutoffs still show the
       earlier values.
-  - It then runs the fit operation for each loaded settlement date and product.
+  - It then submits a fit job for each loaded settlement date and product, and
+    checks that each one completes.
   - It runs only with the user's approval in chat. It is rehearsed on a disposable
     copy first, and its result is checked on the pilot afterwards.
-- **Fit cost.**
-  - The fit operation is synchronous, with no job.
-  - The plan measures it on the example product, with the number of series and
-    solves recorded. The budget is 5 seconds for one product on the local toolchain.
-  - If it misses the budget, the work stops and comes back for a decision rather than
-    adding async execution.
+- **Fit cost.** The first build measured 11.7 seconds for one product with 30
+  series in a debug build, about 0.7–1.0 seconds per solve when optimised. That
+  missed the original synchronous 5-second budget. The user chose a background job
+  (see "Stored surfaces"), so the runtime is now recorded rather than enforced.
 
 ## Left to the builder
 
