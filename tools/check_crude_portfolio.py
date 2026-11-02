@@ -45,13 +45,18 @@ def run_checks(url, receipt, *, run_worker):
 
     c.call('profile', {'profile': 'risk'})
     catalog = c.call('portfolio/risk/catalog', dict(context=retained, bookIds=[book], portfolioIds=[]))
-    assert any(x['tradeId'] == gas['tradeId'] and x['reason'] == 'physical_gas_risk_unavailable' for x in catalog['excludedPositions'])
+    assert not any(x['tradeId'] == gas['tradeId'] for x in catalog['excludedPositions']), 'PV-capable gas must enter the common risk portfolio'
     assert not any(x['tradeId'] == receipt['tradeId'] for x in catalog['excludedPositions'])
     crude_factor = next(f for f in catalog['factors'] if 'synthetic_crude_forward' in f['curves'])
     future_factor = next(f for f in catalog['factors'] if 'future' in f['curves'])
+    gas_curve = location['valuation']['curve']
+    assert len({f['id'] for f in catalog['factors']}) == len(catalog['factors']), 'Shared market factors must appear once'
+    assert any(t['id'] in catalog['heldCurveTargets'] and t['factor']['target']['curve']['code'] == gas_curve for t in catalog['scenarioTargets'])
+    gas_factor = next(f for f in catalog['factors'] if 'gas_basis' in f['curves'])
     request = dict(context=retained, bookIds=[book], portfolioIds=[], bumps=[
         dict(factor=crude_factor['factor'], size='1', convention=catalog['bumpConvention']),
-        dict(factor=future_factor['factor'], size='1', convention=catalog['bumpConvention'])],
+        dict(factor=future_factor['factor'], size='1', convention=catalog['bumpConvention']),
+        dict(factor=gas_factor['factor'], size='0.1', convention=catalog['bumpConvention'])],
         convention=catalog['convention'], numericalPolicy=catalog['numericalPolicy'], pricingPolicy=catalog['pricingPolicy'], stress=[])
     report = c.call('portfolio/risk', request)
     crude_risk = next(p for p in report['factors'][0]['positions'] if p['tradeId'] == receipt['tradeId'])
@@ -61,7 +66,14 @@ def run_checks(url, receipt, *, run_worker):
     untouched_future = next(p for p in report['factors'][0]['positions'] if p['tradeId'] == future['tradeId'])
     untouched_crude = next(p for p in report['factors'][1]['positions'] if p['tradeId'] == receipt['tradeId'])
     assert Fraction(untouched_future['values']['upPnl']) == Fraction(untouched_crude['values']['upPnl']) == 0
-    assert not any(p['tradeId'] == gas['tradeId'] for factor in report['factors'] for p in factor['positions'])
+    gas_risk = next(p for p in report['factors'][2]['positions'] if p['tradeId'] == gas['tradeId'])
+    assert gas_risk['measure'] == 'gas_contractual_present_value'
+    assert {key: Fraction(gas_risk['values'][key]) for key in ('base', 'up', 'down', 'delta', 'gamma')} == {
+        'base': 100, 'up': 200, 'down': 0, 'delta': 1000, 'gamma': 0}
+    untouched_gas = next(p for p in report['factors'][0]['positions'] if p['tradeId'] == gas['tradeId'])
+    assert Fraction(untouched_gas['values']['upPnl']) == Fraction(untouched_gas['values']['downPnl']) == 0
+    shared_gas = next(p for p in report['factors'][1]['positions'] if p['tradeId'] == gas['tradeId'])
+    assert Fraction(shared_gas['values']['delta']) == 1000, 'The shared futures factor must also propagate into physical gas'
     stressed = c.call('portfolio/risk', {**request, 'stress': [dict(factor=crude_factor['factor'], size='2', convention=catalog['stressConvention'])]})
     stressed_crude = next(p for p in stressed['factors'][0]['positions'] if p['tradeId'] == receipt['tradeId'])
     assert Fraction(stressed_crude['values']['base']) == 12100
@@ -73,4 +85,4 @@ def run_checks(url, receipt, *, run_worker):
     assert completed['state'] == 'completed', completed
     assert completed['result']['factors'] == report['factors']
     assert completed['result']['excludedPositions'] == report['excludedPositions']
-    print('PASS mixed crude/futures/gas: exact retained PV, independent shocks and stress, explicit gas exclusions, queued replay parity', flush=True)
+    print('PASS mixed crude/futures/gas: exact retained PV, unique held factors, independent shocks and stress, queued replay parity', flush=True)
