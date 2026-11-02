@@ -74,7 +74,8 @@ test('a narrow window overlays the assistant and restores the chosen dock width 
   assert.equal((await evaluate('geometry()')).panel,original.panel);
   for(const width of [760,390,320]){
    await viewport(width);
-   assert.equal((await evaluate('geometry()')).panel,width);
+   // A full-width sheet fills the usable viewport, excluding any reserved scrollbar.
+   assert.equal((await evaluate('geometry()')).panel,await evaluate('document.documentElement.clientWidth'));
    const overflow=await evaluate(`(()=>{const panel=document.getElementById('assistant-panel'),bounds=panel.getBoundingClientRect();return [...panel.querySelectorAll('button,select,textarea')].filter(n=>n.getClientRects().length).filter(n=>{const r=n.getBoundingClientRect();return r.left<bounds.left+3||r.right>bounds.right-3;}).map(n=>n.id);})()`);
    assert.deepEqual(overflow,[],`controls and focus rings fit at ${width}px`);
   }
