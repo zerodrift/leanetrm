@@ -95,6 +95,17 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate(`${q('#assistant-resize')}.focus();${q('#assistant-resize')}.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))`);
   await check('its left edge widens it by keyboard, and this browser remembers the width',
     `${q('#assistant-panel')}.getBoundingClientRect().width===${width+16}&&localStorage.getItem('openetrm.assistant.width')==='${width+16}'&&${q('#assistant-resize')}.getAttribute('aria-valuenow')==='${width+16}'`);
+  await evaluate(`${q('#assistant-resize')}.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))`);
+  await check('the widest assistant preserves room for the market workspace and stacks its library',
+    "document.querySelector('main').getBoundingClientRect().width>=640&&getComputedStyle(document.querySelector('.market-layout')).gridTemplateColumns.split(' ').length===1",
+    "({window:innerWidth,viewport:document.documentElement.clientWidth,workspace:document.querySelector('main').getBoundingClientRect().width,panel:document.getElementById('assistant-panel').getBoundingClientRect().width,columns:getComputedStyle(document.querySelector('.market-layout')).gridTemplateColumns})");
+  const widest=await evaluate(`${q('#assistant-panel')}.getBoundingClientRect().width`);
+  await command('Emulation.setDeviceMetricsOverride',{width:900,height:1050,deviceScaleFactor:1,mobile:false});await wait("document.body.classList.contains('assistant-overlay')");
+  await check('a narrower desktop overlays the assistant and keeps floating page controls below it',
+    `getComputedStyle(document.querySelector('main')).marginRight==='0px'&&getComputedStyle(${q('#context-dock')}).display==='none'&&document.querySelector('main').getBoundingClientRect().width>=640`
+    +`&&Number(localStorage.getItem('openetrm.assistant.width'))===${widest}`);
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});await wait("!document.body.classList.contains('assistant-overlay')");
+  await check('a wider window restores the docked preference',`${q('#assistant-panel')}.getBoundingClientRect().width===${widest}&&!document.body.classList.contains('assistant-overlay')`);
   await check('Looking at names the page and its automatically selected latest market date',
     `${looking}[0]==='Curves & prices'&&${looking}[1]==='Curve directory'&&${looking}[2].startsWith('Working data · As of ')&&!!${q('#snapshot')}.value`,looking);
   const [first,later]=await evaluate(`[...${q('#snapshot')}.options].map(o=>o.value).filter(Boolean)`);

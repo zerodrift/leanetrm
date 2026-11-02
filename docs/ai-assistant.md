@@ -89,7 +89,9 @@ per exact currency reference with provider tests as their own row and a daily ch
 an audited export of that report as a formula-guarded CSV. From step 6 the panel asks
 and answers in the local preview (§10.1, D191): a header launcher, shown to a person who
 uses agents and may use one, opens a panel docked beside the narrowed page, resized by
-pointer or keyboard, and a full-width sheet below 760 px. Its picker lists the usable
+pointer or keyboard. The dock preserves at least 640 px for the workspace; when that
+and the minimum 320 px assistant cannot fit beside navigation, the assistant overlays
+the page. It becomes a full-width sheet at 760 px and below. Its picker lists the usable
 versions with provider, model and a Draft label and preselects the last explicit choice
 only while it is listed; Looking at shows the page report and context an ask sends;
 consent grants the version and sends the question again; answers stream with collapsible
@@ -1091,9 +1093,13 @@ credential entries read only "key replaced".
 ### 10.1 Layout and contents
 
 - The panel docks right and the page narrows; its left edge resizes it by pointer or
-  keyboard, the width a browser-local preference (D45). Below 760 px it is a
-  full-width sheet. A header launcher toggles it and is hidden without `UseAgents` or
-  a usable agent.
+  keyboard, the width a browser-local preference (D45). Docking reserves at least
+  640 px for the workspace beside navigation. If that and the minimum 320 px
+  assistant cannot fit, the panel overlays the page and its floating controls;
+  at 760 px and below it is a full-width sheet. Temporary window or navigation
+  constraints preserve the preferred width for when space returns. Page layouts
+  reflow to their available workspace or dock-pane width. A launcher toggles it and
+  is hidden without `UseAgents` or a usable agent.
 - The panel keeps its conversation across pages and has its own busy state. Closing or
   reloading does not cancel a turn; after a reload the panel reads the unfinished turn
   and resumes with `after`. A turn finishing while the panel is closed shows a
