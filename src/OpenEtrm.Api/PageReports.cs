@@ -34,7 +34,7 @@ static class PageReports
         ["jobs"]=new("read_jobs",["jobs.list_v1","jobs.history_v1"],"Jobs & Infrastructure"),
         // The inspected PPA is the Blotter's trade view of it; its target opens it in the Blotter.
         ["ppa"]=new("read_trades",["trades.trade_v1","trades.ppa_book_v1"],"PPA bookings",false),
-        ["blotter_risk"]=Unsupported(),["blotter_risk_lens"]=Unsupported(),["blotter_new_trade"]=Unsupported(),["blotter_new_future"]=Unsupported(),["blotter_new_swap"]=Unsupported(),["blotter_new_ppa"]=Unsupported(),["blotter_new_gas"]=Unsupported(),["blotter_new_crude"]=Unsupported(),
+        ["blotter_risk"]=Unsupported(),["blotter_risk_lens"]=Unsupported(),["blotter_new_trade"]=Unsupported(),["blotter_new_future"]=Unsupported(),["blotter_new_swap"]=Unsupported(),["blotter_new_ppa"]=Unsupported(),["blotter_new_gas"]=Unsupported(),["blotter_new_crude"]=Unsupported(),["blotter_new_option"]=Unsupported(),
         ["gas_setup"]=Unsupported(),["physical_gas"]=Unsupported(),["physical_crude"]=Unsupported(),["risk_jobs"]=Unsupported(),["delivery_prices"]=Unsupported(),["interval_series"]=Unsupported(),
         ["interval_curves"]=Unsupported(),["users_access"]=Unsupported(),["settings_ai"]=Unsupported()
     }.ToImmutableDictionary(StringComparer.Ordinal);
@@ -42,7 +42,7 @@ static class PageReports
     static Page Unsupported()=>new(null,[],null);
 
     // The pages the Blotter reports, which alone may state its layout.
-    static readonly ImmutableHashSet<string> BlotterPages=["blotter","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","blotter_new_ppa","blotter_new_gas"];
+    static readonly ImmutableHashSet<string> BlotterPages=["blotter","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","blotter_new_ppa","blotter_new_gas","blotter_new_option"];
 
     // The pages the assistant reads, those Navigate opens, and those it does not read.
     internal static IEnumerable<string> Supported=>Pages.Where(p=>p.Value.Tool is not null).Select(p=>p.Key);

@@ -82,10 +82,11 @@ export function positionSummary(h:Holding,row:DeskRow,formats:HoldingFormats):Po
   const facts:PositionSummary['facts']=[
     // A scheduled swap whose fixed periods differ in price states none, by period, in that price unit; a swap with no fixed side has none.
     {label:`${row.priceLabel} price`,text:row.price!==null?minus(formats.price(row.price)):row.priceNote??'None',unit:row.price===null&&row.priceNote===null?null:row.priceUnit},
-    ...(row.mark!==null?[{label:'Mark',text:minus(formats.mark(row.mark)),unit:row.priceUnit}]:row.markNote!==null?[{label:'Mark',text:row.markNote,unit:null}]:[]),
+    // An option's mark is its settlement price at the close, which it is called.
+    ...(row.mark!==null?[{label:row.pill==='OPT'?'Settlement price':'Mark',text:minus(formats.mark(row.mark)),unit:row.priceUnit}]:row.markNote!==null?[{label:'Mark',text:row.markNote,unit:null}]:[]),
     {label:'Quantity',text:quantityText(row,formats.quantity),unit:row.unit},
     ...(h.instrumentType==='ppa'&&h.unavailableReason===null?[{label:'Complete PV',text:h.completePv===null?'Unavailable while cash is overdue':formats.money(h.completePv??h.presentValue!),unit:h.currency},{label:'Overdue known',text:formats.money(h.overdueKnown!),unit:h.currency},{label:'Overdue estimated',text:formats.money(h.overdueEstimated!),unit:h.currency}]:[]),
-    ...(typeof h.settlement==='string'?[{label:'Settlement',text:settlementText(h.settlement),unit:null}]:[]),
+    ...(typeof h.settlement==='string'&&row.pill!=='OPT'?[{label:'Settlement',text:settlementText(h.settlement),unit:null}]:[]),
   ];
   return {pill:row.pill,reference:row.reference,revision:row.revision,book:h.book,market:row.market,commodity:h.commodity,
     subtitle:`${row.delivery} · ${row.side} · ${quantityText(row,formats.quantity)} ${row.unit}`,value,markMinusPrice,facts};

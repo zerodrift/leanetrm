@@ -4,6 +4,7 @@ import {setupPhysicalCrude} from './physical-crude-editor.js';
 import {productTickets} from './product-tickets.js';
 import {setupGasConfiguration} from './gas-setup-editor.js';
 import {setupGasTicket} from './gas-trade-view.js';
+import {setupOptionTicket} from './futures-option-view.js';
 import {refreshContextPanels} from './context-view.js';
 import {setupPpa} from './ppa-editor.js';
 import {setupCustomCurves} from './custom-curves-view.js';
@@ -988,6 +989,7 @@ const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=
 const gasSetup=setupGasConfiguration({api,act,busy:()=>busy,actor:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext()});
 const crude=setupPhysicalCrude({api,act,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const gas=setupGasTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,onBooked:ticketBooked});
+const optionTicket=setupOptionTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
 const ppa=setupPpa({api,act,busy:()=>busy,zone:()=>prefs.timeZone,actor:()=>administrationScope+':'+currentProfile,can,historical:()=>contextDirty||!!historicalContext(),onBooked:ticketBooked});
 const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.timeZone,frame:()=>frame().id,unit:async quote=>{await loadWorkspace();return unit(quote);}});
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
@@ -1015,6 +1017,7 @@ const tickets=productTickets({
  crude:{root:$('crude-page'),begin:crude.load,inspect:crude.inspect,reset:crude.reset,unsaved:crude.unsaved,pending:crude.pending,sync:crude.sync},
  ppa:{root:$('ppa-page'),begin:()=>ppa.begin(frame().at),inspect:id=>ppa.inspect(frame().at,id),reset:ppa.reset,unsaved:ppa.unsaved,pending:ppa.pending,sync:ppa.sync},
  gas,
+ options:optionTicket,
 });
 async function ticketBooked(tradeId:string):Promise<void>{if(tickets.active())await futures.bookedExternal(tradeId);}
 const futures=setupFutures({narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:error=>{text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');},failureCleared:()=>{$('error').hidden=true;if(!busy)text('status',pageStatus());},onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
@@ -1199,7 +1202,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
       await setPage('futures');futures.reset('read');
       if(selection.view==='trade'){
         if(select('snapshot').value)await futures.load();
-        await futures.openTrade(String(selection.tradeId),selection.instrumentType as 'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas'|'physical_crude',selection.revision as number|null);
+        await futures.openTrade(String(selection.tradeId),selection.instrumentType as 'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas'|'physical_crude'|'futures_option',selection.revision as number|null);
       }else await futures.show(selection as Parameters<typeof futures.show>[0]);
       return;
     default:return showPage(next);

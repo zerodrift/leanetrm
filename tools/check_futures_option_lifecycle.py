@@ -91,7 +91,9 @@ def run_checks(url, query, manifest):
 
     def refused(changes, code, expected=422):
         return c.call('options/book', {**body(on, '1', '0.125'), **changes}, expected=expected)['code'] == code
-    check('futures-style margined premium is unsupported', refused({'premiumStyle': 'futures_style_margin'}, 'option_unsupported'))
+    margined = c.call('options/book', {**body(on, '1', '0.125'), 'premiumStyle': 'futures_style_margin'}, expected=422)
+    check('futures-style margined premium is unsupported, and the refusal says only premium paid up front is bookable',
+          margined['code'] == 'option_unsupported' and 'paid up front' in margined['message'] and 'margined' in margined['message'].lower(), margined)
     check('an unknown premium style is refused', refused({'premiumStyle': 'premium_on_expiry'}, 'option_booking_input'))
     check('a missing premium payment date is refused', refused({'premiumPaymentDate': None}, 'option_booking_input'))
     check('zero lots are refused', refused({'lots': '0'}, 'option_booking_input'))

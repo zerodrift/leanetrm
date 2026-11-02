@@ -33,18 +33,24 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
     { if(value!=Convention)throw new MarketDataException("option_convention",$"Select the explicit {Convention} convention."); }
 
     // The options/catalog page read: the listed series and the booking directory a booking chooses from.
+    // Each underlying future is described once, with its delivery period, for the page's choice of the contract its options exercise into.
     public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)
     {
         var options=Series(data,frame);
+        var underlyings=Listed(data,frame).Select(s=>s.UnderlyingSeries).Distinct().Select(key=>Single(data.FuturesSeries.Where(f=>f.Key==key)))
+            .Select(f=>new{series=f.Key.Code,deliveryFrom=f.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),deliveryTo=f.DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)}).ToArray();
         var directory=await FuturesStore.ReadBookingDirectory(connection,manifest.CatalogId,ct);
-        return new {kind="futures_options",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,convention=Convention,options};
+        return new {kind="futures_options",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,convention=Convention,options,underlyings};
     }
+
+    // The listed option series whose expiry is after the frame.
+    private static IEnumerable<FuturesOptionSeriesSpecification> Listed(PreviewData data,InputFrame frame)=>data.FuturesOptionSeries.Where(s=>frame.At<s.Terms.ExpiryAt);
 
     // Every listed option series whose expiry is after the frame, with its exchange, commodity and daily settlement at the
     // frame: read from the trading read's market data alone, which is all the page assistant's catalog tool reads.
     public static ImmutableArray<object> Series(PreviewData data,InputFrame frame)
     {
-        var listed=data.FuturesOptionSeries.Where(s=>frame.At<s.Terms.ExpiryAt).Select(series=>
+        var listed=Listed(data,frame).Select(series=>
         {
             var contract=Single(data.Contracts.Where(c=>c.Kind==ContractKind.FutureOption&&c.FuturesSeries==series.Key));
             var curve=Single(data.Definitions["curve_members"].Where(m=>m.Id("contract_id")==contract.Key.Id)).Text("curve_code");

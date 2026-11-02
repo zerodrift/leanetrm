@@ -49,6 +49,11 @@ def run_checks(url, query, manifest, *, run_worker):
     check('the option catalog states each series\' exchange and commodity from reference data',
           all(o['exchange'] == {'code': 'nymex', 'name': 'NYMEX'} and o['commodity']['code'] == ('test_gas' if o['product'] == 'nymex_on' else 'test_crude')
               and o['commodity']['name'] for o in options.values()), catalog['options'][0])
+    described = {u['series']: u for u in catalog['underlyings']}
+    check('the option catalog describes each underlying future its series exercise into once, with its delivery period',
+          len(described) == len(catalog['underlyings']) == len({o['underlyingSeries'] for o in options.values()})
+          and all(described[o['underlyingSeries']]['deliveryFrom'] < described[o['underlyingSeries']]['deliveryTo'] for o in options.values())
+          and described['nymex_ng_20261201'] == {'series': 'nymex_ng_20261201', 'deliveryFrom': '2026-12-01', 'deliveryTo': '2027-01-01'}, catalog['underlyings'])
     # The long ON call is the series the later close leaves without a settlement; no earlier check books it.
     on = options[manifest['missingSettlement']['series']]
     lo = next(o for o in catalog['options'] if o['product'] == 'nymex_lo' and o['right'] == 'put' and o['underlyingSeries'] == 'nymex_cl_20270101')
@@ -102,6 +107,9 @@ def run_checks(url, query, manifest, *, run_worker):
         check(f'the {key} option row shows its series terms, booked lots, settlement and lifecycle from the backend',
               (row['instrumentType'], row['right'], row['strike'], row['expiryAt'], row['underlyingSeries'], row['lots'], row['settlement']) ==
               ('futures_option', option['right'], option['strike'], option['expiryAt'], option['underlyingSeries'], str(lots), option['settlementPrice']), row)
+    check('each option row states whether its product accepts contrary instructions, and why not in the backend\'s words',
+          all(option_row(k)['instructions'] == {'allowed': False, 'reason': 'This option product does not accept exercise or abandon instructions; expiry follows its automatic exercise rule.'}
+              for k in held) and all(premium_row(k)['instructions'] is None for k in held), option_row('on').get('instructions'))
     check('solved options show their calibrated volatility; the deep in-the-money series is in the declared intrinsic mode',
           [option_row(k)['calibrationMode'] for k in ('on', 'lo', 'deep')] == ['solved', 'solved', FALLBACK_MODE]
           and option_row('on')['impliedVolatility'] and option_row('lo')['impliedVolatility'] and option_row('deep')['impliedVolatility'] is None,

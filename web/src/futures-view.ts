@@ -2,6 +2,7 @@ import type {BlotterStreamRequest,BlotterStreamHandlers,BlotterStreamStart} from
 import {refreshAcceptedCrudeOperation,openCrudeOperationPanel} from './crude-operations-model.js';
 import {setupCrudeOperations} from './crude-operations.js';
 import {readCrudeView} from './crude-trade-view.js';
+import {readOptionView} from './futures-option-view.js';
 import {readGasView} from './gas-trade-view.js';
 import type {ProductTickets,TicketProduct} from './product-tickets.js';
 import {readPpaView} from './ppa-trade-view.js';
@@ -330,7 +331,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
-      const read=await(h.instrumentType==='physical_crude'?readCrudeView(api,context,h,()=>void operateCrude(h.tradeId)):h.instrumentType==='physical_gas'?readGasView(api,context,h):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
+      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,()=>void act(load)):h.instrumentType==='physical_crude'?readCrudeView(api,context,h,()=>void operateCrude(h.tradeId)):h.instrumentType==='physical_gas'?readGasView(api,context,h):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
       return stale?{...read,view:zone=>({...read.view(zone),actions:undefined})}:read;
     },
@@ -924,8 +925,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
-    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,coverage,...fields}=h;
-    return {...fields,priceUnit:h.instrumentType==='ppa'?null:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
+    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,coverage,exchange,linkedFuturesTradeIds,instructions,...fields}=h;
+    return {...fields,exchange:exchange?.name??null,linkedFuturesTradeIds:linkedFuturesTradeIds?.join(', ')??null,priceUnit:h.instrumentType==='ppa'?null:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
   // What a trade row's value cell says when the close cannot value it, on screen and in exports (D220).
   function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}

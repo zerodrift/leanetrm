@@ -50,6 +50,10 @@ internal sealed record FuturesOptionPosition(JsonElement Head,JsonElement Book,J
         new(Trade,PremiumBinding,Revision,TradingReference.Trade(Head),Book.Id("id"),Book.Text("name"),FuturesOptionPositions.Type,
             Series.Text("curve_name"),Series.Text("delivery_from"),Series.Text("delivery_to"),Head.Text("premium_quantity"),Series.Text("currency"))];
 
+    // Whether the option's product accepts exercise or abandon instructions, and when it does not, why, in the refusal's own words.
+    private object Instructions=>Series.GetProperty("contrary_instructions_allowed").GetBoolean()?new{allowed=true,reason=(string?)null}
+        :new{allowed=false,reason=FuturesOptionStore.EventRefusal("option_contrary_instructions_not_accepted")};
+
     // A Blotter row of one binding, with its booked facts. The caller adds its valuation.
     internal JsonObject Row(bool option)=>JsonSerializer.SerializeToNode(new{
         booking=new{tradeDate=Head.Text("trade_date"),legalEntityId=Head.Id("legal_entity_id"),legalEntityRevision=Integer(Head,"legal_entity_revision"),
@@ -65,7 +69,7 @@ internal sealed record FuturesOptionPosition(JsonElement Head,JsonElement Book,J
         product=Series.Text("product_code"),series=SeriesKey.Code,right=Series.Text("option_right"),strike=Series.Text("strike"),
         expiryAt=Series.Instant("expiry_at").ToString("O",CultureInfo.InvariantCulture),underlyingSeries=Series.Text("underlying_series_code"),
         deliveryFrom=Series.Text("delivery_from"),deliveryTo=Series.Text("delivery_to"),
-        lots=Head.Text("lots"),openLots=OpenLots.ToString(),lifecycleState=LifecycleState,linkedFuturesTradeIds=LinkedFutures,
+        lots=Head.Text("lots"),openLots=OpenLots.ToString(),lifecycleState=LifecycleState,linkedFuturesTradeIds=LinkedFutures,instructions=option?Instructions:null,
         quantity=option?OpenLots.ToString():Head.Text("premium_quantity"),unit=Series.Text(option?"unit":"currency"),quantitySpecification=option?LotQuantity:Currency,
         currency=Series.Text("currency"),currencyReference=Currency,quoteMultiplier=Series.Text("multiplier"),
         premium=Head.Text("premium"),premiumAmount=Head.Text("premium_quantity"),premiumPaymentDate=Head.Text("premium_payment_date"),cashState=(string?)null,
@@ -124,7 +128,7 @@ internal static class FuturesOptionPositions
              SELECT k.id contract_id,k.revision_id definition_revision_id,s.catalog_id reference_catalog_id,s.revision_id reference_revision_id,s.code series_code,
               s.option_right,trim_scale(s.strike)::text strike,s.underlying_series_code,s.expiry_at,pr.code product_code,trim_scale(pr.multiplier)::text multiplier,
               pr.lot_quantity_code,ex.code exchange_code,ex.name exchange_name,co.code commodity_code,co.name commodity_name,q.currency_code,cu.display_code currency,
-              u.symbol unit,us.delivery_from,us.delivery_to,c.code curve_code,c.name curve_name
+              pr.contrary_instructions_allowed,u.symbol unit,us.delivery_from,us.delivery_to,c.code curve_code,c.name curve_name
              FROM market_data.contracts k
              JOIN ref_data.futures_option_series s ON(s.catalog_id,s.revision_id,s.code)=(k.reference_catalog_id,k.reference_revision_id,k.futures_option_series_code)
              JOIN ref_data.futures_option_products pr ON(pr.catalog_id,pr.revision_id,pr.code)=(s.catalog_id,s.revision_id,s.product_code)

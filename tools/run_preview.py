@@ -927,6 +927,10 @@ def main():
                 check_agent_catalog(url,query,exchange_manifest,fake_provider)
                 from check_futures_option_portfolio import run_checks as check_option_portfolio
                 check_option_portfolio(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_risk_worker'))
+                if args.browser_check:
+                    # The option ticket and position window, beside the options the checks above booked.
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--futures-options'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=300):raise RuntimeError('Owned futures option browser checks failed')
             elif args.party_check:
                 from check_party_editors import run_checks as check_parties
                 check_parties(url)

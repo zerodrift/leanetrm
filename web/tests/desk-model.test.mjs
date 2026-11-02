@@ -563,3 +563,35 @@ test('crude PV charts include server totals without inferring a long-short quant
  const crude=positions.flatMap(p=>p.series.flatMap(s=>s.points)).filter(p=>p.label.includes('Physical crude'));
  assert.ok(crude.length);assert.ok(crude.every(p=>p.y===null&&p.label.includes('no long/short quantity')));
 });
+
+// A futures option trade's two rows as the Blotter returns them: the option for its open lots and the premium paid up front.
+const optionRow=(changes={})=>({...fixture.holdings[1],instrumentType:'futures_option',component:'option',contractIdentityKind:'futures_option',measure:'futures_option_value_excluding_settled_cash',
+  series:'synthetic_on_c3.05',product:'synthetic_on',right:'call',strike:'3.05',lots:'3',openLots:'2',quantity:'2',unit:'contract',settlement:'0.125',premium:'0.1',direction:null,
+  executionPrice:null,fixedPrice:null,mark:null,markMinusPrice:null,executionPnl:null,presentValue:'2500',cashState:null,lifecycleState:'partially_closed',...changes});
+const premiumRow=(changes={})=>optionRow({component:'premium',contractIdentityKind:'cash_payment',quantity:'-3000',unit:'USD',settlement:null,cashState:'pending',presentValue:'-2990',...changes});
+
+test('an option row states its right, strike and signed open lots, its premium as its price and its settlement price as its mark',()=>{
+ const [option]=positionRows([optionRow()]);
+ assert.deepEqual([option.pill,option.side,option.exposure,option.price,option.priceLabel,option.mark,option.measure,option.value],['OPT','Call 3.05 · +2 lots','long','0.1','Premium','0.125','PV','2500']);
+ assert.equal(option.priceUnit,null,'premium and settlement are quoted in a unit the row does not state');
+ assert.equal(positionRows([optionRow({openLots:'-1',quantity:'-1',right:'put'})])[0].side,'Put 3.05 · −1 lot');
+ assert.equal(positionRows([optionRow({openLots:'-1'})])[0].exposure,'short');
+});
+
+test('the premium row is cash with no mark of its own, and an option with no open lots says so in place of its mark',()=>{
+ const [premium]=positionRows([premiumRow()]);
+ assert.deepEqual([premium.side,premium.exposure,premium.mark,premium.markNote,premium.quantity,premium.unit],['Premium pending',null,null,'Premium cash','-3000','USD']);
+ assert.equal(positionRows([premiumRow({cashState:'settled'})])[0].side,'Premium settled');
+ const closed=positionRows([optionRow({openLots:'0',quantity:'0',settlement:null,presentValue:'0',lifecycleState:'closed'})])[0];
+ assert.deepEqual([closed.side,closed.exposure,closed.mark,closed.markNote],['Call 3.05 · 0 lots','flat',null,'No open lots']);
+ assert.ok(noteMeaning('Premium cash')&&noteMeaning('No open lots'));
+});
+
+test('an option row the close cannot value says why in the backend\'s words, and one missing its series or measure is refused',()=>{
+ const missing=positionRows([optionRow({presentValue:null,settlement:null,unavailableReason:'option_settlement_missing'})])[0];
+ assert.deepEqual([missing.value,missing.unavailable],[null,'Missing option settlement at this close']);
+ assert.throws(()=>positionRows([optionRow({presentValue:null,unavailableReason:'option_settlement_missing'})]),{message:'The Blotter returned a value for a position it cannot value.'});
+ for(const broken of [{measure:'presentValue'},{component:'cash'},{contractIdentityKind:'cash_payment'},{openLots:'1.5'},{strike:null}])
+  assert.throws(()=>positionRows([optionRow(broken)]),/option position must retain/,JSON.stringify(broken));
+ assert.throws(()=>positionRows([premiumRow({cashState:null})]),/option position must retain/);
+});
