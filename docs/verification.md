@@ -3289,7 +3289,9 @@ replay equal to the immediate report; and the exclusions for a missing settlemen
 a missing underlying and an unprocessed expiry. The browser checks book through
 the option ticket, read the Blotter, retry idempotently and show backend refusals.
 
-Workload, one full risk run of the example's first book: 6 option positions across 5
+Workload, measured on the branch before the master merge (the merge added retained gas
+to the shared risk path; these timings were not re-measured after it), one full risk
+run of the example's first book: 6 option positions across 5
 unique series (4 solved, 1 intrinsic fallback), with futures, premiums and seeded
 futures in the same run; 3 bumps and 7 scenarios (base plus up and down per bump);
 50 calibration tree prices, 8 scenario tree prices and 30 unit-pricer calls. The
