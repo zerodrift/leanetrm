@@ -239,9 +239,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const reloading=await popOut(),reloaded=await holdBooking(reloading);await reported();
   // Requests are never given up, so a change made in the main window while the pop-out holds only requests asks nothing, and they stay.
   const shownDate=await evaluate(`${q('#snapshot')}.value`),otherDate=dates.find(d=>d!==shownDate);
+  await reloading.evaluate(recorder);
   await set('#snapshot',otherDate);await wait(`${q('#snapshot')}.value===${JSON.stringify(otherDate)}&&${idle}`,30000);
+  // The two windows finish independently; wait for this window's read of the exact new close and its own idle state.
+  await reloading.wait(`window.__reads.some(r=>r.path==='/api/trading/workspace'&&r.body?.context?.snapshotId===${JSON.stringify(otherDate)})&&${idle}`,30000);
   await check('a change in the main window asks nothing while the pop-out holds only unconfirmed requests, which stay with it',
-    `${prompt}.hidden&&${JSON.stringify(await reloading.evaluate("!document.querySelector('#futures-pending').hidden"))}`);
+    `${prompt}.hidden&&${JSON.stringify(await reloading.evaluate(`!document.querySelector('#futures-pending').hidden&&Object.keys(sessionStorage).filter(k=>k.startsWith('openetrm.futures.request.server_booking_utc_v1.blotter-window.')).some(k=>JSON.parse(sessionStorage.getItem(k)).operationId===${JSON.stringify(reloaded)})`))}`);
   // A main window that reloads may ask, as a browser does; the person goes on.
   const loaded=await evaluate('performance.timeOrigin');await evaluate('setTimeout(()=>location.reload(),0);true');
   for(let n=0;n<100;n++){if(await command('Page.handleJavaScriptDialog',{accept:true}).then(()=>true,()=>false))break;if(await evaluate(`performance.timeOrigin!==${loaded}`).catch(()=>false))break;await new Promise(r=>setTimeout(r,50));}

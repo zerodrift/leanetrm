@@ -63,7 +63,7 @@ import {run as notices} from './notices.mjs';
 import {run as intervalSeries} from './interval-series.mjs';
 import {run as intervalCurves} from './interval-curves.mjs';
 import {run as valuationStatus} from './valuation-status.mjs';
-async function marketNavigation(browser){await dateContext(browser);await startupRequests(browser);await marketNavigationRead(browser);await marketsDesk(browser);await deliveryDesk(browser);await startupAccess(browser);await reference(browser);await marketContext(browser);await scheduleExamples(browser);await referenceEditor(browser);}
+async function marketNavigation(browser){await startupRequests(browser);await dateContext(browser);await marketNavigationRead(browser);await marketsDesk(browser);await deliveryDesk(browser);await startupAccess(browser);await reference(browser);await marketContext(browser);await scheduleExamples(browser);await referenceEditor(browser);}
 async function tradingNavigation(browser){await blotterStreaming(browser);await futuresLoading(browser);await futuresAdmission(browser);await futures(browser);}
 // The Dashboard shares the risk suite's browser: each owned browser opens a preview session, and the preview caps them.
 async function ppaEntry(browser){await ppa(browser);await ppaComposed(browser);}

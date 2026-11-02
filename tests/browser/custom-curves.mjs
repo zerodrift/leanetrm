@@ -370,10 +370,13 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('#custom-curves-name','Unsaved edit');await set('#snapshot',otherClose);await wait(idle);
  await check('changing the close keeps the graph, so it asks nothing and leaves the edit unsaved',`${question}.hidden&&document.querySelector('#snapshot').value===${JSON.stringify(otherClose)}&&${unloadAsks}`);
  await set('#snapshot',shownClose);await wait(idle);
- await evaluate("document.querySelector('#date-context > summary').click()");
- await check('opening the historical time controls asks, and they stay closed',`${asking}&&!document.querySelector('#date-context').open`);
+ await click('#knowledge-context>summary');
+ await check('revealing knowledge controls preserves the unsaved graph without a question',`${question}.hidden&&document.querySelector('#knowledge-context').open&&${unloadAsks}&&document.querySelector('#custom-curves-name').value==='Unsaved edit'`);
+ const previousKnowledge=await evaluate("document.querySelector('#date-context-view').value");
+ await set('#date-context-view','2020-12-16T12:00:01');
+ await check('changing knowledge asks before giving up the unsaved graph',`${asking}&&${unloadAsks}`);
  await keep();
- await check('keeping the edits leaves the controls closed and the edit in place',`${question}.hidden&&!document.querySelector('#date-context').open&&${unloadAsks}`);
+ await check('keeping the graph restores its exact cutoff and leaves the edit in place',`${question}.hidden&&document.querySelector('#date-context-view').value===${JSON.stringify(previousKnowledge)}&&${unloadAsks}&&document.querySelector('#custom-curves-name').value==='Unsaved edit'`);
  await click('#profile-open');await set('#profile','viewer');await click('#open',30000);
  await check('switching the account asks, with the profile dialog closed, and says nothing was switched',`${asking}&&!document.querySelector('#profile-dialog').open`);
  await keep();

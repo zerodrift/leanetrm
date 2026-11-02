@@ -79,12 +79,16 @@ async function fixture(work){
 
 test('market controls use the available workspace width beside a wide assistant',{skip:!browserAvailable,timeout:30000},async()=>{
  await fixture(async({evaluate,size})=>{
-  await size(1440,592); // 560 content pixels with the expanded navigation.
-  await evaluate("showLayoutPage('market-page')");
-  const [workspace,content]=await evaluate("['.market-layout','.market-content'].map(layoutBox)");
-  assert.ok(workspace.width>=550&&workspace.width<=570,JSON.stringify(workspace));
-  assert.ok(content.width>=workspace.width-1,JSON.stringify({workspace,content}));
-  assert.deepEqual(await evaluate("layoutOverflow('.market-content')"),[]);
+  for(const width of [1440,1425]){
+   await size(width,592);
+   await evaluate("showLayoutPage('market-page')");
+   const [workspace,content]=await evaluate("['.market-layout','.market-content'].map(layoutBox)");
+   // Classic scrollbars consume viewport width; the grid must fill the space that remains.
+   const available=await evaluate("(()=>{const main=document.querySelector('main'),style=getComputedStyle(main);return main.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);})()");
+   assert.ok(Math.abs(workspace.width-available)<=1,JSON.stringify({workspace,available}));
+   assert.ok(content.width>=workspace.width-1,JSON.stringify({workspace,content}));
+   assert.deepEqual(await evaluate("layoutOverflow('.market-content')"),[]);
+  }
  });
 });
 
