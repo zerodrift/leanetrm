@@ -172,7 +172,7 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
 - **Agents.** Agents have the read-only `futures_option_catalog` tool. They cannot
   book options or record lifecycle events: booking facts need a human booker.
   Migration `0166_futures_options.sql` adds the tool only when the agent tool list
-  is exactly the reviewed one, and fails if any agent tool or the agent reader role
+  is exactly the expected one, and fails if any agent tool or the agent reader role
   holds BookTrade or AmendTrade. The option entry page (`blotter_new_option`) is a
   page the assistant does not read: it can be asked from there and its page
   guidance is configurable, but the workspace operations do not cover it.

@@ -97,7 +97,7 @@ they are not new choices.
 - Public catalogs use real public specification facts and synthetic prices only.
 - Tests are written first and are independent of the implementation's algorithm.
 
-## Decisions taken in conversation
+## Owner decisions (2026-11-01)
 
 The owner decided these on 2026-11-01:
 
@@ -389,7 +389,7 @@ These are behavior checks, independent of the algorithm:
   check, holds a future, an ON option and an LO option, verifies PV equals
   settlement prices, delta signs and queued-job replay parity.
 
-## Review focus
+## Highest-risk inputs
 
 The inputs most likely to break this for someone using it, most likely first:
 

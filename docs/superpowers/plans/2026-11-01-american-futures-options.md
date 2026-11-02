@@ -1,6 +1,6 @@
 # American Futures Options Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Book, value at settlement, risk-manage and exercise listed American options on NYMEX NG and CL futures (ON, LO).
 
@@ -35,7 +35,7 @@
 - The migration is `0166_futures_options.sql` and the decision row is `D288`, numbered after master's 0165 and D287.
 - Tests are written first and are independent of the algorithm: closed forms, bounds, independent oracles, never the tree's own output.
 
-## Review Focus
+## Highest-Risk Inputs
 
 1. **Delta collapses to zero.** A futures-shocked scenario must not re-solve volatility. Pinned in Task 5 by the "held volatility" check.
 2. **Deep in-the-money near expiry.** The fallback applies only under its stated conditions; otherwise the error is named. Pinned in Task 4.
@@ -379,6 +379,6 @@
 - [ ] **Step 3: Check the repository rules.** Run `python3 tools/check_all.py` with the pinned toolchain. Also run a grep for forbidden names over the diff; it must find nothing.
 - [ ] **Step 4: Commit** with `git commit -s -m "Record the futures options decision and verified capability"`.
 
-### Final review
+### Independent adversarial review
 
-After Task 11, run one combined independent adversarial review of the whole branch. It covers numerical correctness, temporal behavior, authorization of the lifecycle operations and scenario reuse, as AGENTS.md requires for those areas. Resolve its findings before asking the owner to publish.
+After Task 11, the whole change receives independent adversarial review covering numerical correctness, temporal behavior, authorization of the lifecycle operations and scenario reuse, as AGENTS.md requires for those areas. Its findings are resolved before publication.
