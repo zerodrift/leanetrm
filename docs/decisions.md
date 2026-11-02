@@ -443,6 +443,14 @@ numerical policy does not silently reinterpret an old result.
   ([hosted-pilot.md](hosted-pilot.md)). The preview's provider check endpoint variable is
   renamed `OPENETRM_PROVIDER_CHECK_ENDPOINT`.
 
+- **D45/D191 presentation refinement (2026-11-01):** assistant resizing preserves a
+  640 px workspace beside navigation. When that and a 320 px assistant cannot fit,
+  the assistant overlays the page; at 760 px and below it fills the window. Floating
+  page controls stay beneath that overlay, and temporary space constraints do not
+  overwrite the preferred width. Dense page and dock-pane controls reflow according
+  to their available width rather than the browser viewport. This changes no
+  financial inputs, permissions or assistant operations.
+
 - **D221 refines D191 (2026-10-24):** a trade is open in the Blotter's side panel, not in a
   modal dialog, so the assistant is asked while it is open. Looking at names the trade at its
   revision, the ask's page report is unchanged in form for a trade, a new trade being entered is

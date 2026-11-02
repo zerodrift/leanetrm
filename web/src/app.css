@@ -105,7 +105,7 @@ nav{display:grid;gap:2px}
 .sidebar-collapsed #sidebar-menus{gap:12px}
 
 /* Page shell */
-main{margin-left:var(--sidebar-width);padding:24px 32px 28px;max-width:1680px;min-width:0}
+main{margin-left:var(--sidebar-width);padding:24px 32px 28px;max-width:1680px;min-width:0;container-name:workspace;container-type:inline-size}
 body.showing-all-contracts main{max-width:none}
 header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:16px}
 header>div:first-child{flex:1 1 280px;min-width:0}
@@ -169,11 +169,12 @@ footer{font-size:12px;color:var(--text-3);margin-top:24px}
 
 /* Cards and shared layout */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;box-shadow:var(--shadow);min-width:0}
-.card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:8px}
+.card-heading{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:8px}
 .card-heading p{font-size:13px;color:var(--text-3);margin:2px 0 0}
 .card>p{font-size:13px;color:var(--text-2)}
-.schedule-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px;margin-bottom:16px}
-.schedule-fields input,.schedule-fields select{width:100%}
+.schedule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px;margin-bottom:16px}
+.schedule-fields>*{min-width:0}
+.schedule-fields input,.schedule-fields select{width:100%;min-width:0;max-width:100%}
 .schedule-actions,.schedule-roll-test{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .schedule-roll-test{margin:16px 0}
 .schedule-roll-test label{margin:0}
@@ -181,7 +182,7 @@ footer{font-size:12px;color:var(--text-3);margin-top:24px}
 .profile-note{font-size:12px;color:var(--text-3);padding:14px 0}
 
 /* Tabs and segmented filters */
-.tabs{display:flex;gap:24px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.tabs{display:flex;flex-wrap:wrap;gap:8px 24px;border-bottom:1px solid var(--border);margin-bottom:16px}
 .tab,.ai-tab{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--text-3);font-weight:500;padding:10px 0 10px;margin-bottom:-1px}
 .tab:hover,.ai-tab:hover{background:none;color:var(--text)}
 .tab.active,.ai-tab.active{color:var(--accent-text);border-bottom-color:var(--accent)}
@@ -385,7 +386,7 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .workbook-simple .sheet-caption,.workbook-simple .workbook-table.output .sheet-caption{height:auto;min-height:0}
 
 /* Forms */
-.schedule-fields.three{grid-template-columns:repeat(3,1fr)}
+.schedule-fields.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 .form-section{font-size:13px;font-weight:600;color:var(--text-2);margin:20px 0 10px;padding-top:16px;border-top:1px solid var(--border)}
 form>.form-section:first-child{border-top:0;padding-top:0;margin-top:6px}
 .label{display:block;font-size:13px;font-weight:500;color:var(--text-2);margin-bottom:6px}
@@ -396,7 +397,7 @@ form>.form-section:first-child{border-top:0;padding-top:0;margin-top:6px}
 
 #tou-editor{margin-top:20px;padding-top:4px;border-top:1px solid var(--border)}
 .inline-form{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
-.inline-form>div{flex:1;min-width:220px;max-width:420px}
+.inline-form>div{flex:1;min-width:min(100%,220px);max-width:420px}
 .inline-form input{width:100%}
 .shortcut-saved-row strong{font-size:13px;font-weight:600}
 
@@ -846,7 +847,7 @@ dialog label{margin-top:16px}
 .side-panel[data-placement=docked] .side-panel-frame{position:sticky;top:8px;max-height:calc(100vh - 16px)}
 .side-panel[data-placement=overlay]{position:fixed;top:0;right:0;bottom:0;z-index:10;width:min(var(--panel-overlay-width),100%);border-left:1px solid var(--border);box-shadow:-8px 0 24px rgba(18,34,27,.14)}
 .side-panel[data-placement=overlay] .side-panel-frame{height:100%}
-body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-width);width:min(var(--panel-overlay-width),calc(100% - var(--assistant-width)))}
+body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{right:var(--assistant-width);width:min(var(--panel-overlay-width),calc(100% - var(--assistant-width)))}
 @media(max-width:760px){.side-panel[data-placement=overlay],body.assistant-open .side-panel[data-placement=overlay]{right:0;left:0;width:100%;border-left:0}}
 .side-panel-close{position:absolute;top:8px;right:8px;z-index:1;width:32px;height:32px;display:grid;place-items:center;padding:0;border-radius:var(--radius-sm)}
 .side-panel-close:hover{background:var(--surface-3);color:var(--text)}
@@ -917,7 +918,7 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 .side-panel-form .instrument-choices{grid-template-columns:minmax(0,1fr);margin:12px 0}
 .side-panel-form .instrument-choices button{white-space:normal;min-width:0}
 .side-panel-form .available-date-calendar{width:min(21rem,100%)}
-.side-panel-form select,.side-panel-form input:not([type=checkbox]),.side-panel-form textarea{width:100%}
+.side-panel-form select,.side-panel-form input:not([type=checkbox]):not([type=radio]),.side-panel-form textarea{width:100%}
 /* The swap tickets and the settlement view take the panel's one column too (D221): each side's terms stack, and a payment table too wide
    for the panel gives way to its one-line summary of each payment, as it does on a phone. */
 .side-panel-form .swap-term-columns,.side-panel-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
@@ -1011,7 +1012,7 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 /* Unit converter: amount, from and to on one row; precision and action aligned below. */
 .converter-fields{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) minmax(0,1.4fr)}
 .converter-precision{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-top:4px}
-.converter-precision>div{min-width:220px}.converter-precision>#unit-rounding-fields{flex:1 1 280px;margin:0}
+.converter-precision>div{min-width:min(100%,220px)}.converter-precision>#unit-rounding-fields{flex:1 1 280px;margin:0}
 .converter-precision label{display:block}.converter-precision button{margin:0 0 1px}
 @media(max-width:760px){.converter-fields{grid-template-columns:1fr}}
 /* Party editor: the form reads as part of the card, with history clearly separated. */
@@ -1023,7 +1024,7 @@ body.assistant-open .side-panel[data-placement=overlay]{right:var(--assistant-wi
 #power-form,#dates-form{counter-reset:power-step}
 #power-form .form-section,#dates-form .form-section{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--text)}
 #power-form .form-section::before,#dates-form .form-section::before{counter-increment:power-step;content:counter(power-step);display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text);font-size:12px;font-weight:600;flex:none}
-#power-form>div:has(>button[type=submit]),#dates-form>div:has(>button[type=submit]){position:sticky;bottom:0;z-index:3;margin:0 -20px -20px;padding:12px 20px;background:var(--surface);border-top:1px solid var(--border);border-radius:0 0 var(--radius-lg) var(--radius-lg)}
+#power-form>div:has(>button[type=submit]),#dates-form>div:has(>button[type=submit]){position:sticky;bottom:var(--dock-band);z-index:3;margin:0 -20px -20px;padding:12px 20px;background:var(--surface);border-top:1px solid var(--border);border-radius:0 0 var(--radius-lg) var(--radius-lg)}
 .advanced-settings{margin-block:1rem;color:#657080}
 .advanced-settings>summary{cursor:pointer;font-size:.875rem}
 .advanced-settings[open]>summary{margin-bottom:.75rem}
@@ -1339,12 +1340,13 @@ button.custom-curve-dot.connectable:hover,button.custom-curve-dot.connectable:fo
 .assistant-launcher{display:inline-flex;align-items:center;gap:6px}
 .assistant-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
 body.assistant-open main{margin-right:var(--assistant-width)}
+body.assistant-open.assistant-overlay main{margin-right:0}
 .assistant-panel{position:fixed;top:0;right:0;bottom:0;width:var(--assistant-width);background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:3;box-shadow:-4px 0 18px rgba(18,34,27,.06)}
 .assistant-resize{position:absolute;left:-4px;top:0;bottom:0;width:8px;cursor:col-resize;touch-action:none;z-index:1}
 .assistant-resize:hover,.assistant-resize:focus-visible{background:var(--accent-soft)}
 .assistant-header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border)}
 .assistant-header select{flex:1 1 180px;min-width:0}
-.assistant-header-actions{display:flex;gap:6px;align-items:center;margin-left:auto}
+.assistant-header-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:auto;max-width:100%}
 .assistant-header-actions .secondary{padding:6px 10px}
 .assistant-conversation,.assistant-history{flex:1 1 auto;overflow-y:auto;padding:14px;min-height:0}
 .assistant-empty{color:var(--text-3);font-size:13px}
@@ -1370,7 +1372,7 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 .assistant-stream,.assistant-consent{margin:0 14px 10px;padding:10px;border:1px solid var(--warn-border);background:var(--warn-soft);border-radius:var(--radius-sm);font-size:13px}
 .assistant-stream p,.assistant-consent p{margin:0 0 8px}
 .assistant-stream button+button{margin-left:6px}
-.assistant-consent-actions{display:flex;gap:8px}
+.assistant-consent-actions{display:flex;flex-wrap:wrap;gap:8px}
 .assistant-looking{display:flex;flex-direction:column;gap:2px;padding:10px 14px;border-top:1px solid var(--border);background:var(--surface-2);font-size:12.5px;overflow-wrap:anywhere}
 .assistant-looking .eyebrow{margin:0}
 .assistant-looking-context{color:var(--text-3)}
@@ -1379,7 +1381,7 @@ body.assistant-open main{margin-right:var(--assistant-width)}
 .assistant-composer-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;margin-top:8px}
 .assistant-composer-actions .field-help{margin:0 auto 0 0}
 .assistant-error{color:var(--danger);font-size:12.5px;margin:6px 0 0}
-.assistant-history-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.assistant-history-heading{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}
 .assistant-history-heading h2{font-size:15px}
 #assistant-history-list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
 .assistant-history-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;background:var(--surface);color:var(--text);border:1px solid var(--border);white-space:normal;font-weight:400}
@@ -1558,7 +1560,8 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 /* Delivery prices (power-imports-view.ts): a filter bar over the page, the range shown with how it was chosen, the summary tiles, and
    tabs over the interval prices (chart with its latest values beside it, then every interval) and the collection history. */
 .delivery-filters{margin:0 0 18px;padding:14px 16px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
-.delivery-filter-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));align-items:end;gap:12px 14px}
+.delivery-filter-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr));align-items:end;gap:12px 14px}
+.delivery-filter-fields>*{min-width:0}
 .delivery-filter-fields>label{display:flex;flex-direction:column;gap:5px;margin:0;font-size:12px;color:var(--text-3)}
 .delivery-filter-fields>div>label{margin:0 0 5px;overflow:hidden;font-size:12px;color:var(--text-3);text-overflow:ellipsis;white-space:nowrap}
 .delivery-filter-fields select,.delivery-filter-fields input:not([type=hidden]),.delivery-filter-fields .available-date-picker>summary{width:100%;min-width:0;box-sizing:border-box}
@@ -1669,7 +1672,7 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 @container (max-width:600px){
   .details-form .schedule-fields,.details-form .trade-annotation-fields,.details-form .schedule-date-fields,.details-form .instrument-choices,.details-form .swap-term-columns,.details-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
   .details-form .instrument-choices button,.details-form #swap-scheduled-open{white-space:normal;min-width:0;max-width:100%}
-  .details-form select,.details-form input:not([type=checkbox]),.details-form textarea{width:100%}
+  .details-form select,.details-form input:not([type=checkbox]):not([type=radio]),.details-form textarea{width:100%}
 }
 .details-pane #position-details-head{border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
 .details-pane #position-details-head:not(:empty){margin-bottom:12px}
@@ -1700,11 +1703,11 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 :is(.details-pane,.position-window) .side-panel-section>h3{margin:-12px -12px 12px;padding:9px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;font-size:12.5px;font-weight:650}
 :is(.details-pane,.position-window) .side-panel-section>h3:last-child{margin-bottom:-12px;border-bottom:0}
 /* Terms: a grid of cells whose rules line up, the outer ones clipped by the card. */
-:is(.details-pane,.position-window) .side-panel-section>.side-terms-list{margin:-12px;overflow:hidden;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+:is(.details-pane,.position-window) .side-panel-section>.side-terms-list{margin:-12px;overflow:hidden;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,210px),1fr))}
 :is(.details-pane,.position-window) .side-terms-list .side-term{display:flex;flex-direction:column;gap:2px;margin:0 -1px -1px 0;padding:8px 12px;border:0;border-right:1px solid var(--border);border-bottom:1px solid var(--border);font-size:12.5px;line-height:1.45}
 :is(.details-pane,.position-window) .side-term dt{font-size:11px;font-weight:550;color:var(--text-3)}
 :is(.details-pane,.position-window) .side-term dd{margin:0;color:var(--text);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
-:is(.details-pane,.position-window) .side-panel-facts{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin:0}
+:is(.details-pane,.position-window) .side-panel-facts{grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr));margin:0}
 :is(.details-pane,.position-window) .side-panel-facts b{font-weight:600}
 /* Schedules: one card per side, figures above tables with right-aligned numbers. */
 :is(.details-pane,.position-window) table{border-collapse:collapse;width:100%;font-size:12.5px}
@@ -1739,9 +1742,9 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .position-schedules .schedule-pager{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 .position-schedules .schedule-pager button{font-size:12px;padding:6px 12px}
 @media(max-width:760px){
-  :is(#position-details-head,#position-window-head){grid-template-columns:minmax(0,1fr)}
+  .details-pane #position-details-head,.position-window #position-window-head{grid-template-columns:minmax(0,1fr)}
   :is(#position-details-head,#position-window-head) .side-panel-value{grid-column:1;grid-row:auto;justify-content:stretch;margin-top:12px}
-  :is(#position-details-head,#position-window-head) :is(.side-panel-figure,.side-panel-delta){flex:1 1 140px;text-align:left}
+  :is(#position-details-head,#position-window-head) :is(.side-panel-figure,.side-panel-delta){flex:1 1 220px;text-align:left}
   .details-pane #position-details-tabs{gap:16px;padding:0 12px;overflow-x:auto}
   .details-pane #position-details-body{padding:10px}
   :is(.details-pane,.position-window) .side-panel-section>.side-terms-list{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
@@ -1882,7 +1885,7 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 /* Dashboard */
 .dashboard-board{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:72px;gap:16px}
 .dashboard-board>.dashboard-widget{margin-bottom:0;overflow:auto}
-.dashboard-widget-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;align-items:center}
+.dashboard-widget-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;align-items:flex-end}
 .dashboard-arrange{font-size:12px}
 .dashboard-arrange>summary{cursor:pointer;color:var(--text-2)}
 .dashboard-arrange-buttons{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
@@ -1896,7 +1899,7 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .dashboard-add-form label{display:flex;flex-direction:column;gap:2px;font-size:12px}
 .dashboard-add-curves{display:flex;flex-wrap:wrap;gap:4px 12px;border:0;padding:0;margin:0;max-width:100%}
 .dashboard-add-curves .dashboard-add-curve{flex-direction:row;align-items:center;gap:4px}
-.level-tile-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;list-style:none;margin:0;padding:0}
+.level-tile-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr));gap:12px;list-style:none;margin:0;padding:0}
 .level-tile{padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);min-width:0}
 .level-tile[data-state=refused]{background:var(--surface)}
 .level-tile-name{margin:0;font-size:13px;font-weight:600}
@@ -1946,3 +1949,64 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .schedule-calendar.card{position:sticky;top:20px;padding:22px;margin:0;min-width:0}.schedule-calendar-heading>span{font-size:10px;color:var(--text-3);letter-spacing:.14em;font-weight:700}.schedule-calendar-heading h2{font-size:18px;margin:7px 0 22px;overflow-wrap:anywhere}.calendar-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:18px}.calendar-toolbar button{padding:4px 12px;font-size:24px;background:transparent;color:var(--text-2);border-color:var(--border)}.calendar-toolbar input{min-width:0;flex:1;text-align:center;border:0;background:transparent;font-weight:600;font-size:14px}.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}.calendar-weekday{text-align:center;font-size:10px;color:var(--text-3);padding:7px 0}.calendar-day{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-width:0;height:43px;padding:4px 0;background:transparent;border:1px solid transparent;color:var(--text-2);font-size:12px;border-radius:7px}.calendar-day.has-events{background:#eff5f1;font-weight:700}.calendar-day:hover{border-color:#9db9a8;background:#e6f0ea}.calendar-day[aria-pressed=true]{background:#22583f;color:white}.calendar-dots{display:flex;gap:3px;min-height:5px}.calendar-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:#657c91;flex-shrink:0}.calendar-dot.start{background:#2c8a60}.calendar-dot.end{background:#7889a5}.calendar-dot.expiry{background:#cc7a38}.calendar-dot.date{background:#8370ad}.calendar-legend{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:22px 0;font-size:10px;color:var(--text-3)}.calendar-legend>span{display:flex;gap:6px;align-items:center}.calendar-agenda{border-top:1px solid var(--border);padding-top:16px;max-height:360px;overflow:auto}.calendar-agenda h3{font-size:12px;margin:0 0 14px}.calendar-agenda>p{font-size:12px;color:var(--text-3)}.calendar-event{border-left:3px solid #8370ad;padding:5px 0 5px 11px;margin:12px 0;display:flex;flex-direction:column;gap:4px}.calendar-event.start{border-color:#2c8a60}.calendar-event.end{border-color:#7889a5}.calendar-event.expiry{border-color:#cc7a38}.calendar-event small,.calendar-event>span{font-size:10px;color:var(--text-3)}.calendar-event strong{font-size:12px;font-weight:500;overflow-wrap:anywhere}.calendar-empty{padding:30px 8px 50px;text-align:center;color:var(--text-3)}.calendar-empty>span{font-size:45px;color:#9ab9a7}.calendar-empty h3{font-size:15px;color:var(--text-2)}.calendar-empty p{font-size:12px;line-height:1.6}
 @media(max-width:1250px){.schedule-workspace-content{grid-template-columns:minmax(0,1fr) 300px;gap:16px}.schedule-workspace-editor{padding:18px}}
 @media(max-width:900px){.schedule-workspace-content{grid-template-columns:1fr}.schedule-calendar.card{position:static}.schedule-path{gap:12px;flex-wrap:wrap}.schedule-tabs button{padding:11px 10px;font-size:12px}.schedule-workspace-intro h2{font-size:25px}}
+
+/* Page layouts follow the space left by navigation and the assistant, including on wide displays. */
+body.assistant-open.assistant-overlay .assistant-panel{z-index:42}
+body.assistant-open.assistant-overlay :is(.assistant-launcher,.context-dock),
+body.assistant-open.assistant-overlay main .floating-context{display:none}
+/* Nested dock panes can be narrower than the workspace itself. */
+@container (max-width:760px){
+  .details-pane #position-details-head,.position-window #position-window-head{grid-template-columns:minmax(0,1fr)}
+  :is(#position-details-head,#position-window-head) .side-panel-value{grid-column:1;grid-row:auto;justify-content:stretch;margin-top:12px}
+  :is(#position-details-head,#position-window-head) :is(.side-panel-figure,.side-panel-delta){flex:1 1 220px;text-align:left}
+  .details-pane #position-details-tabs{gap:16px;padding:0 12px;flex-wrap:wrap}
+  .details-pane #position-details-body{padding:10px}
+  .position-schedules .schedule-fields select{min-width:0;width:100%}
+  .position-schedules .schedule-fields label{flex:1 1 140px}
+}
+@container workspace (max-width:960px){
+  .custom-curve-desk,.custom-curve-desk.rail-collapsed{grid-template-columns:minmax(0,1fr)}
+  .custom-curve-rail{position:static;max-height:none}
+  .custom-curve-list{max-height:220px;overflow:auto}
+  .rail-collapsed .custom-curve-rail-title{display:inline}
+  .rail-collapsed .custom-curve-rail-chevron{margin:0 0 0 auto}
+}
+@container workspace (max-width:900px){
+  .schedule-workspace-content{grid-template-columns:minmax(0,1fr)}
+  .schedule-calendar.card{position:static}
+  .schedule-path{gap:12px;flex-wrap:wrap}
+  .schedule-tabs button{padding:11px 10px;font-size:12px}
+  .schedule-workspace-intro h2{font-size:25px}
+}
+@container workspace (max-width:760px){
+  .market-layout,.library-collapsed .market-layout{grid-template-columns:minmax(0,1fr)}
+  .curve-library{position:static;max-height:none}
+  .library-collapsed .library-title,.library-collapsed #curve-count{display:inline}
+  .library-collapsed .library-chevron{margin:0 0 0 auto}
+  .curve-header{flex-direction:column}
+  .curve-header-actions{justify-content:flex-start}
+  .dashboard-board{display:block}
+  .dashboard-board>.dashboard-widget{margin-bottom:16px}
+  .delivery-filter-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .delivery-filter-fields>button{grid-column:span 2}
+  .custom-curve-actions{width:100%}
+  .custom-curve-actions button{flex:1}
+  .custom-curve-graph-tools{margin-left:0}
+  .table-workspace-actions{flex-wrap:wrap;margin-left:0;border-left:0;padding-left:0}
+  .table-workspace-rows{flex-wrap:wrap;flex-basis:100%}
+  #blotter-workspace .table-workspace-filters{flex-basis:100%}
+  #blotter-workspace .table-workspace-filters .table-filters{flex-wrap:wrap;justify-content:flex-start;min-width:0}
+}
+@container workspace (max-width:600px){
+  .schedule-fields,.schedule-fields.three,.converter-fields,.trade-annotation-fields,.swap-term-columns,.scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
+  .schedule-actions{flex-wrap:wrap}
+  .product-switch,.revision-switch,.custom-curve-mode{flex-wrap:wrap;max-width:100%}
+  .pivot-builder{grid-template-columns:minmax(0,1fr)}
+  .pivot-builder>fieldset:nth-child(3){grid-column:auto}
+  .pivot-builder-heading,.analysis-heading{align-items:flex-start;flex-direction:column}
+  #blotter-pivot .pivot-builder #blotter-measures{grid-template-columns:1fr 1fr}
+}
+@container workspace (max-width:400px){
+  .delivery-filter-fields{grid-template-columns:minmax(0,1fr)}
+  .delivery-filter-source,.delivery-filter-cutoff,.delivery-filter-fields>button{grid-column:auto}
+}

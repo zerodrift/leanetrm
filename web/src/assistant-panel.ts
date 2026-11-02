@@ -428,10 +428,16 @@ export function setupAssistant(options:PanelOptions){
     get('assistant-conversation').setAttribute('aria-busy',String(turn));
   }
 
-  // Resizing (D45): the left edge drags or steps the width the person chose, which this browser remembers; a window too
-  // narrow for it shows less of it, and it returns once the window is wide enough again.
+  // Keep a usable workspace beside the dock. When both panes cannot fit, overlay the assistant;
+  // temporary window/navigation constraints never replace the browser's chosen width (D45).
   const widthKey='openetrm.assistant.width';
-  const bounds=()=>({min:320,max:Math.max(320,Math.min(720,Math.round(window.innerWidth*.6)))});
+  const workspace=document.querySelector('main');
+  const bounds=()=>{
+    const available=window.innerWidth-(workspace?.getBoundingClientRect().left??0),min=320;
+    const overlay=window.innerWidth<=760||available<640+min;
+    document.body.classList.toggle('assistant-overlay',overlay);
+    return {min,max:Math.max(min,Math.min(720,overlay?Math.round(window.innerWidth*.6):available-640))};
+  };
   let chosenWidth=400;try{chosenWidth=Number(localStorage.getItem(widthKey))||400;}catch{/* The default width is used. */}
   function setWidth(value:number,save:boolean){
     const {min,max}=bounds(),next=Math.min(max,Math.max(min,Math.round(value)));
@@ -443,7 +449,12 @@ export function setupAssistant(options:PanelOptions){
   handle.onpointerdown=event=>{
     event.preventDefault();handle.setPointerCapture(event.pointerId);
     handle.onpointermove=move=>setWidth(window.innerWidth-move.clientX,false);
-    handle.onpointerup=handle.onpointercancel=()=>{handle.onpointermove=handle.onpointerup=handle.onpointercancel=null;setWidth(Number(handle.getAttribute('aria-valuenow')),true);};
+    const finish=(save:boolean)=>{
+      handle.onpointermove=handle.onpointerup=handle.onpointercancel=null;
+      setWidth(save?Number(handle.getAttribute('aria-valuenow')):chosenWidth,save);
+    };
+    handle.onpointerup=()=>finish(true);
+    handle.onpointercancel=()=>finish(false);
   };
   handle.onkeydown=event=>{
     const step=event.shiftKey?64:16,{min,max}=bounds(),shown=Number(handle.getAttribute('aria-valuenow'));
@@ -451,6 +462,8 @@ export function setupAssistant(options:PanelOptions){
     if(next!==undefined){event.preventDefault();setWidth(next,true);}
   };
   window.addEventListener('resize',()=>setWidth(chosenWidth,false));
+  const navigation=document.getElementById('app-sidebar');
+  if(navigation)new ResizeObserver(()=>setWidth(chosenWidth,false)).observe(navigation);
   setWidth(chosenWidth,false);
 
   launcher.onclick=()=>show(!opened);
