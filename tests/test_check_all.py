@@ -127,6 +127,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--unit-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--exchange-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--risk-jobs-check' in command and '--browser-check' in command for command in commands))
+        self.assertTrue(any('--factor-history-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('mixed-gas' in command for command in commands))
         self.assertTrue(any('--hosted-check' in command and '--browser-check' in command for command in commands))
 
@@ -188,6 +189,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(group_of('--close-risk-check'), 'ppa')
         self.assertEqual(group_of('--assistant-check'), 'assistant')
         self.assertEqual(group_of('--risk-jobs-check'), 'assistant')
+        self.assertEqual(group_of('--factor-history-check'), 'assistant')
         self.assertEqual(group_of('--hosted-check'), 'workspace')
         for flag in ('--draft-check', '--factor-swap-check', '--index-fixing-check',
                      '--side-observation-check', '--demo-instruments-check', '--close-out-drafts-check', '--unified-trading-check'):

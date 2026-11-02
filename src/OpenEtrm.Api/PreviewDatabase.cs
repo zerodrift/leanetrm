@@ -926,6 +926,8 @@ public sealed class PreviewData
         }).ToImmutableArray();
         return frame with {ObservationIds=pins};
     }
+    internal MarketObservation ReadObservation(JsonElement row)=>new(new(manifest.CatalogId,row.Id("id")),S(row.Id("series_id")),R(row.Text("source_code")),ParseRole(row.Text("role")),
+        row.Text("publication_state") switch{"final"=>PublicationState.Final,"preliminary"=>PublicationState.Preliminary,_=>throw Unsupported()},row.Instant("observed_at"),row.Number("value"));
     public MarketSnapshot Snapshot(InputFrame frame)
     {
         if(frame.ObservationIds.Distinct().Count()!=frame.ObservationIds.Length)
@@ -933,8 +935,7 @@ public sealed class PreviewData
         var selections=frame.ObservationIds.Select(id=>
         {
             var o=Observation(id);
-            return new SelectedObservation(new(S(o.Id("series_id")),o.Text("role")=="index_fixing"||!frame.FrozenObservationIds.IsDefault&&frame.FrozenObservationIds.Contains(id)?InputUse.FrozenFact:InputUse.Variable),new(new(manifest.CatalogId,id),S(o.Id("series_id")),R(o.Text("source_code")),ParseRole(o.Text("role")),
-                o.Text("publication_state") switch {"final"=>PublicationState.Final,"preliminary"=>PublicationState.Preliminary,_=>throw Unsupported()},o.Instant("observed_at"),o.Number("value")));
+            return new SelectedObservation(new(S(o.Id("series_id")),o.Text("role")=="index_fixing"||!frame.FrozenObservationIds.IsDefault&&frame.FrozenObservationIds.Contains(id)?InputUse.FrozenFact:InputUse.Variable),ReadObservation(o));
         }).ToImmutableArray();
         return new(frame.Id,revision,frame.At,frame.At,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,selections);
     }

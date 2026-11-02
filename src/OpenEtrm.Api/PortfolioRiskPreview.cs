@@ -58,6 +58,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             measures=portfolio.Positions.Select(p=>p.Measure).Distinct().Order().Select(m=>new{measure=m,measureLabel=MeasureLabel(m)}),
             bumpConvention=ConnectedRiskBump.Convention,stressConvention=CurveShift.ParentAdditive,convention=Convention,
             numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=PricingPolicy,
+            history=HistoryCapabilities(portfolio),
             joint=new{convention=PortfolioJointRiskRequest.Version1,scenarioConvention=ConnectedRiskScenarioSet.Independent,bumpConvention=ConnectedRiskBump.Convention,shiftConvention=CurveShift.ParentAdditive,
                 derivativeConvention=ConnectedFiniteDifferenceRequest.HalfNominalDouble,maxScenarios=PortfolioJointRisk.MaxScenarios,
                 maxShifts=PortfolioJointRisk.MaxShifts,maxAxes=RiskEngine.MaxSensitivityAxes,maxMixed=RiskEngine.MaxMixedSensitivities,

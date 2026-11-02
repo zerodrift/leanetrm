@@ -1560,6 +1560,9 @@ api.MapPost("/portfolio/risk/catalog",(HttpContext c,PortfolioRiskCatalogRequest
 api.MapPost("/portfolio/risk",(HttpContext c,PortfolioRiskRequest body)=>PortfolioRead(c,
     body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
     (connection,data,frame,ct)=>portfolioRisk.Calculate(connection,data,frame,body,ct)));
+api.MapPost("/portfolio/risk/history",(HttpContext c,PortfolioHistoryRequest body)=>PortfolioRead(c,
+    body.Scope?.Context??throw new MarketDataException("risk_context","Select the retained risk scope and context."),
+    (connection,data,frame,ct)=>portfolioRisk.History(connection,data,frame,body,ct)));
 api.MapPost("/portfolio/risk/jobs",(HttpContext c,SubmitPortfolioRiskJob body)=>PortfolioRead(c,
     body.Request?.Context??throw new MarketDataException("risk_job_context","Supply the risk request and exact retained context."),
     (connection,data,frame,ct)=>

@@ -154,6 +154,8 @@ Integration checks cover simultaneous moves under a nonzero parent, independent
 siblings, multiple exact market partitions and explicit unaffected partitions;
 selected local/cross-market derivatives, native aggregation, direct/worker parity,
 selected product binding PV oracles, private SQL admission and report reload.
-Aligned dated-factor history, statistical calibration, VaR/ES, Monte Carlo/PCA/hybrid, EVT and
-backtesting remain subsequent work. No production deployment is implied by these
+[Aligned dated-factor history](risk-factor-history.md) is implemented as a bounded
+managed/read/export consumer (D296). Statistical calibration, VaR/ES,
+Monte Carlo/PCA/hybrid, EVT and backtesting remain subsequent work.
+No production deployment is implied by these
 local checks. Migration 0172 requires separate installation qualification.

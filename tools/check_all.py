@@ -108,6 +108,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('additive reference demo and exact-version discounting',[*preview,'--reference-demo-check'])
     preview_check('isolated reference metadata editor',[*preview,'--reference-check','--browser-check','--browser',str(browser)])
     preview_check('isolated nested risk and durable workers', [*preview, '--risk-jobs-check', '--browser-check', '--browser', str(browser)], suite='assistant')
+    preview_check('aligned held-factor history and graphical diagnostics', [*preview, '--factor-history-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('mixed-period preview', [*preview, '--example', 'mixed-gas'])
     message = ('All synthetic verification suites passed.' if group == 'all'
                else f'Synthetic verification group {group} passed.')

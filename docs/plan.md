@@ -7,9 +7,9 @@ capabilities described here have their own implementation and verification recor
 D289 adds the [Risk results workspace](risk-workspace.md): Risk-owned setup,
 shared sensitivity ladders/heatmaps and drill-through, visible incomplete coverage,
 retained report links, and multipart submission recovery. The bounded recent-job
-directory remains separate from a complete archive. Joint statistical scenarios,
-aligned history, VaR/expected shortfall, Monte Carlo/PCA/hybrid, EVT and backtesting
-remain subsequent increments; deterministic graphics do not establish them.
+directory remains separate from a complete archive. VaR/expected shortfall,
+Monte Carlo/PCA/hybrid, EVT and backtesting remain subsequent increments;
+deterministic graphics do not establish them.
 
 D294 adds temporary maximize/restore to every Blotter pane, a shared searchable
 portfolio/book picker in Blotter and Risk, and personal saved-view sidebar pins
@@ -21,8 +21,16 @@ D291 adds the [managed joint-scenario and mixed-derivative boundary](joint-scena
 bounded named sibling shocks, exact full-PV loss, selected cross-gammas and explicit
 half/nominal/double step diagnostics. D295 integrates typed HTTP admission,
 durable worker replay and graphical scenario/Greek reports in Risk and Blotter.
-Migration 0172 needs a separately qualified schema release. Aligned history (R3)
-and statistical engines remain subsequent increments.
+Migration 0172 needs a separately qualified schema release.
+
+D296 adds [aligned dated-factor history](risk-factor-history.md) (R3): complete
+held-factor union, certified correction/knowledge selection, captured calendar
+closes, exact common adjacent-session changes and explicit coverage diagnostics.
+Risk prepares, graphs and reauthorizes exported manifests for the shared
+portfolio/book/trade scope. Owned development data supplies 250 weekday closes
+without changing factor identity. This bounded read adds no persistence table or
+worker. R4 starts covariance/delta-normal VaR/ES and the statistical archive/read
+contract; R5 follows with full-repricing historical simulation and rolling checks.
 
 D292 adds [individual trade selection in Risk](risk-workspace.md), following
 portfolio → book → trades. Backend filtering precedes valuation, and retained

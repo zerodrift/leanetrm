@@ -98,8 +98,13 @@ the displayed address. Exports reread every part under current authority.
 
 The [joint-scenario and selected mixed-derivative operation](joint-scenario-risk.md)
 is integrated through admission, retained workers and graphical reports (D291,
-D295). Migration 0172 needs a separately qualified schema release. Aligned
-dated-factor history, parametric and historical VaR/expected
+D295). Migration 0172 needs a separately qualified schema release.
+The [aligned factor history panel](risk-factor-history.md) (D296) prepares the
+shared selected scope's exact common changes, shows coverage and rejected
+intervals, graphs one dated factor and exports a reauthorized manifest. All history
+choices are explicit; insufficient history is unavailable. This read/export panel
+does not add a durable report archive or statistical worker.
+Parametric and historical VaR/expected
 shortfall, Monte Carlo, PCA/hybrid,
 EVT, distribution diagnostics and backtesting remain separate increments. The
 current graphs describe deterministic sensitivity/scenario results. They do not

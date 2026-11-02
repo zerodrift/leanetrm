@@ -1590,6 +1590,13 @@ book/measure/currency estimates are added before step agreement is assessed.
 Migration 0172 preserves the existing authority, input and publication fences;
 joint runs cannot use sensitivity multipart frames.
 
+The [aligned dated-factor history](risk-factor-history.md) operation (D296)
+deduplicates the complete held input closure and retains exact common
+adjacent-session changes, certified correction evidence and captured calendar
+closes. Its authorized Risk read/export and graphics preserve portfolio/book/trade
+scope, current authority and unavailable coverage. This bounded manifest consumer
+adds no table or worker job; statistical estimation and a durable archive follow.
+
 Finite differences and full repricing are the generic black-box mechanism. For
 an absolute bump `h` in factor `f`:
 
