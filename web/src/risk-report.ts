@@ -1,5 +1,6 @@
 import type {ProjectionPolicyReceipt} from './projection-policy.js';
 import type {ValuationReason} from './valuation-status.js';
+import type {JointReport} from './joint-risk.js';
 
 export type RiskAmounts={base:string;up:string;down:string;upPnl:string;downPnl:string;delta:string;gamma:string};
 export type RiskValues=RiskAmounts&{display:RiskAmounts;currency:string;currencyReference:unknown;deltaUnit:string;gammaUnit:string};
@@ -20,8 +21,15 @@ export type RiskWorkReport={heldInstruments:number;work:{positionCount:number;un
  * A portfolio risk report: each factor's results by book and by holding, and the positions the run leaves out. An earlier job's
  * result can lack its list of those positions, which is refused when it is shown, never read as leaving out none.
  */
-export type RiskReport=RiskWorkReport&{projectionPolicies:ProjectionPolicyReceipt[];displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;tradeIds?:string[]|null;
-  excludedPositions?:ExcludedPosition[];factors:{factor:RiskFactor;bump:string;totals:RiskTotal[];positions:RiskPosition[]}[]};
+type ReportBase=RiskWorkReport&{projectionPolicies:ProjectionPolicyReceipt[];displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;tradeIds?:string[]|null;
+  detail?:string;inputs?:{positions:{tradeId:string;bindingId:string;bookId:string;measure:string}[];markets:{definitions:{revisionId:string}}[]};excludedPositions?:ExcludedPosition[]};
+export type RiskFactorResult={factor:RiskFactor;bump:string;totals:RiskTotal[];positions:RiskPosition[]};
+export type RiskSensitivityReport=ReportBase&{joint?:undefined;factors:RiskFactorResult[]};
+export type RiskReport=RiskSensitivityReport|(ReportBase&{joint:JointReport;factors?:never});
+export function sensitivityFactors(report:{factors?:RiskFactorResult[];joint?:unknown}):RiskFactorResult[]{
+ if(report.joint||!Array.isArray(report.factors))throw Error('This report is not an independent sensitivity report. Open its joint scenario or selected-Greek report.');
+ return report.factors;
+}
 export function riskWorkDetails(report:RiskWorkReport){
   return [
     `Materialization · ${report.work.rebuiltCurveNodes} curve nodes evaluated · ${report.work.reusedCurveNodes} reused.`,

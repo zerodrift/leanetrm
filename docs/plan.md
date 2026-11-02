@@ -13,9 +13,10 @@ remain subsequent increments; deterministic graphics do not establish them.
 
 D291 adds the [managed joint-scenario and mixed-derivative boundary](joint-scenario-risk.md):
 bounded named sibling shocks, exact full-PV loss, selected cross-gammas and explicit
-half/nominal/double step diagnostics. Joint-run HTTP admission, durable retention
-and graphical widgets remain the next integration gate. Aligned history and
-statistical engines remain subsequent increments.
+half/nominal/double step diagnostics. D295 integrates typed HTTP admission,
+durable worker replay and graphical scenario/Greek reports in Risk and Blotter.
+Migration 0172 needs a separately qualified schema release. Aligned history (R3)
+and statistical engines remain subsequent increments.
 
 D292 adds [individual trade selection in Risk](risk-workspace.md), following
 portfolio → book → trades. Backend filtering precedes valuation, and retained

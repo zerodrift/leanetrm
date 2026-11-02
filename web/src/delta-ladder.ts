@@ -5,7 +5,7 @@ import {compareDecimalStrings} from './analytics-model.js';
 import {deliveryLabel} from './market-view.js';
 import {signOf} from './desk-model.js';
 import {positionKey} from './risk-lens.js';
-import type {RiskReport,RiskTotal} from './risk-report.js';
+import {sensitivityFactors,type RiskReport,type RiskFactorResult,type RiskTotal} from './risk-report.js';
 
 /** Which of a total's values the ladder shows: its delta per one unit of the factor's price, or its P&L if the factor moves up or down. */
 export type LadderValue='delta'|'upPnl'|'downPnl';
@@ -24,7 +24,7 @@ const columnKey=(t:RiskTotal)=>JSON.stringify([t.bookId,t.measure,t.values.curre
  * factor, is refused rather than merged; a curve `curveName` cannot name refuses the ladder rather than showing a code in its place.
  */
 export function deltaLadder(reports:readonly Pick<RiskReport,'factors'>[],value:LadderValue,curveName:(code:string)=>string):Ladder{
-  const factors=reports.flatMap(r=>r.factors);
+  const factors=reports.flatMap(sensitivityFactors);
   if(new Set(factors.map(f=>f.factor.id)).size!==factors.length)throw Error('This run returns a shocked factor more than once, so its ladder is not shown. Run it again.');
   const columns=new Map<string,LadderColumn>();
   for(const t of factors.flatMap(f=>f.totals)){
@@ -63,7 +63,7 @@ export type ContractPosition={key:string;tradeReference:string;label:string;text
  * What a ladder row's shock moves: each position whose chosen value under it is not zero, as the server values it, by its book and
  * measure, largest magnitude first (compared exactly, never converted), and how many it does not move.
  */
-export function contractPositions(factor:RiskReport['factors'][number],value:LadderValue):{positions:ContractPosition[];unmoved:number}{
+export function contractPositions(factor:RiskFactorResult,value:LadderValue):{positions:ContractPosition[];unmoved:number}{
   const moved=factor.positions.filter(p=>signOf(p.values[value])!=='zero');
   const magnitude=(v:string)=>v.replace(/^-/,'');
   return {unmoved:factor.positions.length-moved.length,

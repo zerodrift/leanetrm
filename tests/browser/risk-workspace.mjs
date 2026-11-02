@@ -1,4 +1,5 @@
 // Risk owns its setup; both entry points show the same exact report widget. All data is the owned synthetic preview's.
+import {runJointChecks} from './joint-risk-workspace.mjs';
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,fitsWidth,url}){
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1150,deviceScaleFactor:1,mobile:false});
  const hook=`(()=>{const send=window.fetch;window.__workspaceRiskReads=[];window.__workspaceRiskPosts=[];window.fetch=async(input,init)=>{
@@ -51,6 +52,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   `(()=>{const report=window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk').data,base=${JSON.stringify(baseline)};return JSON.stringify(report.factors.map(f=>f.totals))===JSON.stringify(base.factors.map(f=>f.totals))&&document.querySelector('#desk-risk-full-results').textContent.includes(base.factors[0].totals[0].values.display.delta);})()`);
 
  await tradeSelection({command,evaluate,wait,click,set,check,shot,idle,url,frame});
+ await runJointChecks({command,evaluate,wait,click,set,check,shot,idle,url,frame});
  await click('#nav-risk');await wait(idle);await click('#risk-jobs-new');await wait("!document.querySelector('#workspace-risk-fields').disabled&&"+idle);
  await click('#workspace-risk-form input[value=custom]');await set('#workspace-risk-factor',target);await set('#workspace-risk-bump','0.05');
  await evaluate('window.__hideWorkspaceHistory=false;window.__holdWorkspaceReply=true;document.querySelector("#workspace-risk-queue").click();true');
@@ -149,9 +151,11 @@ async function tradeSelection({command,evaluate,wait,click,set,check,shot,idle,u
  await wait("window.__workspaceRiskReads.some(r=>r.path==='/api/portfolio/risk/jobs'&&r.data?.id)&&"+idle,60000);
  const job=await evaluate("window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk/jobs'&&r.data?.id).data.id");
  await wait(`window.__workspaceRiskReads.some(r=>r.data?.id===${JSON.stringify(job)}&&r.data?.state==='completed'&&r.data?.result)&&${idle}`,60000);
- await command('Page.navigate',{url:url.replace(/#.*$/,'')+'#risk/job/'+job});await wait("document.querySelector('#risk-workspace-results canvas')&&"+idle,60000);
+ await evaluate(`location.hash=${JSON.stringify('#risk/job/'+job)};true`);
+ await wait("document.querySelector('#risk-workspace-results canvas')&&document.querySelector('#risk-workspace-context-note').textContent.startsWith('Retained report:')&&"+idle,60000);
  const origin=await evaluate('performance.timeOrigin');await command('Page.reload');
- await wait(`performance.timeOrigin!==${origin}&&document.querySelector('#risk-workspace-results canvas')&&${idle}`,60000);
+ try{await wait(`performance.timeOrigin!==${origin}&&document.querySelector('#risk-workspace-results canvas')&&${idle}`,60000);}
+ catch(error){console.error('TRADE_RELOAD_STATE',JSON.stringify(await evaluate(`({origin:performance.timeOrigin,before:${origin},hash:location.hash,busy:document.body.getAttribute('aria-busy'),error:document.querySelector('#error')?.textContent,note:document.querySelector('#risk-workspace-note')?.textContent,result:document.querySelector('#risk-workspace-results')?.textContent})`)));await shot('risk-joint-trade-reload-failure');throw error;}
  await check('a queued trade subset survives a retained link and reload without widening its captured selection',
   `(()=>{const j=window.__workspaceRiskReads.findLast(r=>r.data?.id===${JSON.stringify(job)}&&r.data?.result).data;return JSON.stringify(j.scope.tradeIds)===${JSON.stringify(JSON.stringify([trade]))}&&j.result.inputs.positions.every(p=>p.tradeId===${JSON.stringify(trade)})&&document.querySelector('#risk-workspace-results').textContent.includes('1 selected trade');})()`);
  await set('#snapshot',frame);await wait(idle);

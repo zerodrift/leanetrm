@@ -14,7 +14,7 @@ export type ChartPoint={x:string;y:string|null;label?:string;color?:string;marke
  */
 export type ChartSpec={title:string;subtitle?:string;axis:'delivery'|'observation'|'maturity'|'category';categoryTitle?:string;axisName?:string;dense?:boolean;unit:string;exportImage?:(download:()=>void)=>void;kind?:'line'|'bar'|'heatmap';
   onSelect?:(category:string)=>void;
-  orientation?:'vertical'|'horizontal';colorBySign?:boolean;marked?:string[];reference?:{value:string;label:string};series:{id?:string;name:string;points:ChartPoint[]}[]};
+  orientation?:'vertical'|'horizontal';colorBySign?:boolean;positiveTone?:'gain'|'loss';marked?:string[];reference?:{value:string;label:string};series:{id?:string;name:string;points:ChartPoint[]}[]};
 // Validated categorical order. The last two sit under 3:1 contrast on white, so a chart that reaches them keeps its table view.
 export const palette=['#2f8a66','#2a78d6','#eb6834','#6250d6','#e87ba4','#eda100'];
 // Gains, losses and neither, as the CSS tokens --gain, --loss and --text-3 name them, and the --gain-ink and --loss-ink
@@ -64,7 +64,7 @@ export function chartOptions(spec:ChartSpec,size?:{width:number}){
     if(point.y!.startsWith('-'))throw Error('A chart point with a stated direction needs an unsigned amount.');
     return point.direction==='negative'?-value:value;
   };
-  const tone=(value:number|null)=>value===null||value===0?'none':value>0?'gain':'loss';
+  const tone=(value:number|null)=>value===null||value===0?'none':value>0?(spec.positiveTone??'gain'):(spec.positiveTone==='loss'?'gain':'loss');
   const reference=spec.reference&&plotNumber(spec.reference.value);
   // A point drawn with its own color or direction; other points stay plain values.
   const styled=spec.colorBySign||all.some(p=>p.color||p.direction);
@@ -118,8 +118,8 @@ export function chartOptions(spec:ChartSpec,size?:{width:number}){
   return {...option,grid:{...option.grid,top:24,bottom:zoom?114:94,left:16},legend:{show:false},
     xAxis:{...categoryAxis,splitArea:{show:true,areaStyle:{color:['#f4f7f5','#f4f7f5']}}},
     yAxis:{type:'category',data:spec.series.map((_,i)=>seriesName(i)),axisLabel:{color:'#52665b',fontSize:11,width:180,overflow:'truncate'},axisLine:{show:false},axisTick:{show:false},splitArea:{show:true,areaStyle:{color:['#f4f7f5','#f4f7f5']}}},
-    // Signed cells shade from loss through neutral to gain; others in one hue of the palette's first color.
-    visualMap:{min:negative?-(magnitude||1):0,max:magnitude||1,calculable:true,orient:'horizontal',left:'center',bottom:zoom?32:10,itemHeight:150,itemWidth:10,text:['Higher','Lower'],textStyle:{color:'#64776d',fontSize:10},inRange:{color:negative?[polarity.loss,'#f7f8f7',polarity.gain]:['#eaf3ee','#8cc0a8',palette[0]]}},
+    // The caller states whether a positive coordinate is a gain or a loss; plotting never changes its sign.
+    visualMap:{min:negative?-(magnitude||1):0,max:magnitude||1,calculable:true,orient:'horizontal',left:'center',bottom:zoom?32:10,itemHeight:150,itemWidth:10,text:['Higher','Lower'],textStyle:{color:'#64776d',fontSize:10},inRange:{color:negative?[polarity[tone(-1)],'#f7f8f7',polarity[tone(1)]]:spec.positiveTone==='loss'?['#faeeed','#eba7a2',polarity.loss]:['#eaf3ee','#8cc0a8',palette[0]]}},
     tooltip:{...option.tooltip,trigger:'item',formatter:(item:{value:number[]})=>{const [x,y]=item.value,series=spec.series[y],point=points[y].get(categories[x]);return escape(publicText(`${point?.label??categories[x]} · ${seriesName(y)}: ${point?.y??'Unavailable'} ${spec.unit}`));}},
     series:[{type:'heatmap',data:cells,itemStyle:{borderWidth:3,borderColor:'#fff',borderRadius:4},emphasis:{itemStyle:{borderColor:'#203d30',borderWidth:2}},label:{show:cells.length<=48,fontSize:11,rich:{light:{color:'#fff'},dark:{color:'#183c2d'}},formatter:(item:{value:number[]})=>{const [x,y,coordinate]=item.value,value=points[y].get(categories[x])?.y??'';return value.length<=12?`{${Math.abs(coordinate)>magnitude*.55?'light':'dark'}|${value}}`:'';}}}],
   };

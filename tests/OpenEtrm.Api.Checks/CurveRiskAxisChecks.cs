@@ -90,6 +90,31 @@ internal static class CurveRiskAxisChecks
             !whole.ContractsWithoutTarget.IsEmpty||!whole.CurvesWithoutTarget.IsEmpty)
             throw new Exception("A held live contract must be shocked by its exact contract target, and its curve by its whole-curve target.");
         Console.WriteLine("PASS curve risk axes: a held live contract has its contract and curve targets, and a held price no coordinate publishes is named instead");
+        var tolerance=new RiskToleranceRequest("0","0");
+        void RefuseJoint(PortfolioValuation.Prepared selected,PortfolioJointRiskRequest input)
+        {
+            try{PortfolioJointRisk.Resolve(selected,input,default);}
+            catch(MarketDataException error)when(error.Code=="risk_joint_contract"){return;}
+            throw new Exception("Joint admission accepted overlapping targets that would fail only after queueing.");
+        }
+        RefuseJoint(direct,new(PortfolioJointRiskRequest.Version1,new("overlap","1",ConnectedRiskScenarioSet.Independent,
+            [new("one","Overlapping curve and contract",[new(heldCurve.Request,"1",CurveShift.ParentAdditive),new(heldContract.Request,"1",CurveShift.ParentAdditive)])]),null));
+        var originalPoint=current.Definitions.SelectMany(d=>d.Points).Single(p=>p.Key==live);
+        var aliasCurve=new CurveKey(live.Curve.Revision,"synthetic_source_alias");
+        var sourceAlias=originalPoint with{Key=new(aliasCurve,Guid.NewGuid()),Expression=((ConnectedSource)originalPoint.Expression) with{Request=request with{Curve=aliasCurve}}};
+        var aliasPlan=ConnectedCurves.Compile(current.Definitions.Add(new(aliasCurve,[sourceAlias])),[live,sourceAlias.Key],context,new Visible());
+        var aliasPrepared=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(ConnectedScenario.Base(aliasPlan),snapshot),
+            ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(request,live),[Holding(new MeanInstrument(request,factor.Unit))]);
+        var aliasOperation=operation with{Markets=[market with{Connected=aliasPrepared}]};
+        var firstAliasAxis=CurveRiskAxes.Resolve(aliasOperation.Markets[0],CurveShockCoordinate.MarketQuote,new PointCurveTarget(live.Curve,[live.PointId]),default);
+        var secondAliasAxis=CurveRiskAxes.Resolve(aliasOperation.Markets[0],CurveShockCoordinate.MarketQuote,new PointCurveTarget(aliasCurve,[sourceAlias.Key.PointId]),default);
+        RefuseJoint(aliasOperation,new(PortfolioJointRiskRequest.Version1,null,new(ConnectedFiniteDifferenceRequest.HalfNominalDouble,
+            [new("first",new(firstAliasAxis.Request,"1",ConnectedRiskBump.Convention),tolerance,tolerance),
+             new("alias",new(secondAliasAxis.Request,"1",ConnectedRiskBump.Convention),tolerance,tolerance)],
+            [new("pair","first","alias",tolerance)])));
+        RefuseJoint(aliasOperation,new(PortfolioJointRiskRequest.Version1,new("aliases","1",ConnectedRiskScenarioSet.Independent,
+            [new("one","Aliased shared input",[new(firstAliasAxis.Request,"1",CurveShift.ParentAdditive),new(secondAliasAxis.Request,"1",CurveShift.ParentAdditive)])]),null));
+        Console.WriteLine("PASS joint admission: overlapping curve/contract targets and source aliases refuse before pricing or queueing");
         RecipeNode Node(string id,string kind,ImmutableDictionary<string,string>? parameters=null,ImmutableDictionary<string,string>? inputs=null)=>
             new(id,kind,parameters??ImmutableDictionary<string,string>.Empty,inputs??ImmutableDictionary<string,string>.Empty);
         var recipe=new RecipeDefinition("synthetic_output_labels","Synthetic mapped curve",[

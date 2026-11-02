@@ -35,7 +35,9 @@ the same remaining graph; an expired unused forecast cannot block an actual.
 The managed [joint scenario operation](joint-scenario-risk.md) (D291) prices
 bounded named sets of sibling layers through the same PV path and computes
 selected mixed derivatives with explicit three-step agreement checks. Its new
-result contracts are not yet admitted by the HTTP or durable-job operations below.
+result contracts are admitted by the explicit D295 joint request described in
+[joint risk](joint-scenario-risk.md#http-and-retained-runs-d295). Legacy symmetric
+requests keep their original wire and multipart behavior.
 
 The composition convention is
 `absolute_curve_coordinate_parent_additive_v1`. Each layer adds a signed,

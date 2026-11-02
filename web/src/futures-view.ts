@@ -18,9 +18,10 @@ import {PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-
 import {releasesRetained,retainedText,retryAllowed,isLifecycleCommand,isCrudeOperation,tradeStatusPath} from './trade-requests.js';
 import {setupRisk,riskDenied,type RunView} from './risk-view.js';
 import {setupRiskResults} from './risk-results-view.js';
+import {validateJoint} from './joint-risk.js';
 import {changeChart,changeScales,gapsText,lensCells,madeHere,noMoveText,positionKey,positionMoves,runBar,runExclusions,runGaps,runSummary,shockCount,shocksText,tileWords,unmovedNote,
   type LensCell,type ReadPlace,type RunGap} from './risk-lens.js';
-import type {ExcludedPosition,RiskReport} from './risk-report.js';
+import {sensitivityFactors,type ExcludedPosition,type RiskReport} from './risk-report.js';
 import {setupFuturesBooking} from './futures-booking.js';
 import {draftShapes,otherRevision,readCurveShapes} from './curve-shapes.js';
 import {newTradeControl,newTradeProducts,setupNewTrade,type NewProduct} from './new-trade.js';
@@ -73,13 +74,14 @@ type ReadCause=keyof typeof readNotes;
 // The knowledge a read is made at, as the run bar says a run made on it was: working data, a historical view or live corrections.
 const knowledgeWords={working:'current knowledge',historical:'historical view',live:'live corrections'} as const;
 // What the risk tile calls the report a run was set up as; a retained run does not record one.
-const tileReports={held:'every held contract',parallel:'every held curve',custom:'custom scenario'} as const;
+const tileReports={held:'every held contract',parallel:'every held curve',custom:'custom scenario',scenarios:'named joint scenarios',derivatives:'selected Greeks'} as const;
 /**
  * A run's results as the desk shows them inline (D222), by the key of the results they are: made at another close, context or books than
  * the read on screen, refused with why, or shown, with each position's cell, what the run leaves out, its summary and the parts that have
  * no results.
  */
 type Inline={key:string;state:'elsewhere'}|{key:string;state:'failed';reason:string}
+  |{key:string;state:'joint';excluded:ExcludedPosition[]}
   |{key:string;state:'shown';run:number;cells:Map<string,LensCell>;excluded:ExcludedPosition[];summary:ReturnType<typeof runSummary>;scales:Map<string,string>;gaps:RunGap[]};
 // How the Group by control names each row grouping; a view without one is a flat list.
 const rowGroupLabels:Readonly<Record<NonNullable<RowGroup>,string>>={book:'Book',market:'Market',instrumentType:'Instrument type'};
@@ -752,6 +754,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function stripRisk():StripRisk{
     const run=risk.current();
     if(inline?.state==='shown')return riskResults(inline);
+    if(inline?.state==='joint')return {state:'unavailable',value:'Joint risk report',reason:'Open Full risk report and graphics for named scenario contributions and mixed Greeks.'};
     if(inline?.state==='failed')return {state:'unavailable',value:'Results not shown',reason:inline.reason};
     if(inline?.state==='elsewhere')return {state:'unavailable',value:'Results made elsewhere',reason:'The run on screen was made at another close, context or books than the Blotter read on screen. Export downloads its results.'};
     if(run&&!run.running&&!run.parts.some(p=>p.report))return {state:'unavailable',value:'No results',reason:gapsText(runGaps(run))};
@@ -776,7 +779,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const fullKey=resultsKey(run)+':'+run.key+':'+run.running+':'+options.zone();
     if(fullReportPanel.open&&fullReportKey!==fullKey){fullReportKey=fullKey;fullReport.show(run);}
     const results=inline===undefined||inline.key!==resultsKey(run)?{state:'none' as const}:inline.state==='shown'?{state:view.mode==='pivot'?'pivot' as const:'shown' as const,excluded:inline.excluded}
-      :inline.state==='failed'?{state:'failed' as const,reason:inline.reason}:{state:'elsewhere' as const};
+      :inline.state==='failed'?{state:'failed' as const,reason:inline.reason}:inline.state==='joint'?{state:'joint' as const,excluded:inline.excluded}:{state:'elsewhere' as const};
     renderRunBar(get('desk-run'),{...runBar(run,{zone:options.zone(),knowledge:knowledgeWords[options.knowledge()],results}),setup:run.setupText},busy());
   }
   // The results of a run are the reports its parts returned, and what became of the parts that returned none, at the read on screen. A
@@ -796,6 +799,13 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const read=holdings!,parts=run.parts.flatMap(p=>p.report?[p.report]:[]);
     if(!readPlace||!madeHere(run,readPlace))return {key,state:'elsewhere'};
     try{
+      if(parts.some(p=>p.joint)){
+        if(parts.length!==1)throw Error('A joint report is one complete job.');
+        validateJoint(parts[0]);const excluded=runExclusions(parts),held=new Set(read.holdings.map(positionKey));
+        const covered=new Set(parts[0].inputs!.positions.map(positionKey)),left=new Set(excluded.map(positionKey));
+        if(read.holdings.some(h=>covered.has(positionKey(h))===(h.unavailableReason!==null)||left.has(positionKey(h))!==(h.unavailableReason!==null))||[...covered,...left].some(k=>!held.has(k)))throw Error('The joint report bindings do not match this retained Blotter read.');
+        return {key,state:'joint',excluded};
+      }
       const excluded=runExclusions(parts),cells=lensCells(parts),held=new Set(read.holdings.map(positionKey)),left=new Set(excluded.map(positionKey));
       if(read.holdings.some(h=>cells.has(positionKey(h))===(h.unavailableReason!==null)||left.has(positionKey(h))!==(h.unavailableReason!==null))
         ||[...cells.keys(),...left].some(k=>!held.has(k)))
@@ -803,7 +813,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       await prepareAmountDisplay({rows:read.holdings.flatMap(h=>(cells.get(positionKey(h))?.shocks??[]).map(shock=>({amountFormat:h.amountFormat,
         upPnl:shock.up,downPnl:shock.down,basePv:shock.base,upPv:shock.upValue,downPv:shock.downValue,delta:shock.delta,gamma:shock.gamma}))),
         // The delta ladder's totals by book and measure (D230), in the desk's own precision: a total has no position's format.
-        totals:parts.flatMap(r=>r.factors.flatMap(f=>f.totals.map(t=>({upPnl:t.values.upPnl,downPnl:t.values.downPnl,delta:t.values.delta}))))},body=>api<string[]>('amounts/display',body));
+        totals:parts.flatMap(r=>sensitivityFactors(r).flatMap(f=>f.totals.map(t=>({upPnl:t.values.upPnl,downPnl:t.values.downPnl,delta:t.values.delta}))))},body=>api<string[]>('amounts/display',body));
       return {key,state:'shown',run:run.key,cells,excluded,summary:runSummary(parts,excluded),scales:changeScales(cells),gaps:runGaps(run)};
     }catch(error){
       if((error as {code?:string}).code==='access_denied')throw error;
@@ -859,6 +869,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   }
   // What the run on screen says of the position at a row, for its panel's Risk tab.
   function positionRisk(h:Holding,row:DeskRow):PositionRisk{
+    if(inline?.state==='joint')return {state:'empty',reason:'Open Full risk report and graphics for this trade’s joint scenario contributions or selected derivatives.'};
     if(inline?.state==='elsewhere')return {state:'elsewhere'};
     if(inline?.state==='failed')return {state:'failed',reason:inline.reason};
     const run=risk.current();
@@ -1074,7 +1085,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function drawContract(){
     const mode=panel.current();
     if(mode?.kind!=='contract')return;
-    const reports=shownReports(),factor=reports.flatMap(r=>r.factors).find(f=>f.factor.id===mode.factorId);
+    const reports=shownReports(),factor=reports.flatMap(sensitivityFactors).find(f=>f.factor.id===mode.factorId);
     if(!factor){panel.reset();options.notice('The contract the panel showed is not in the run on screen, so the panel was closed.');return;}
     const ladder=deltaLadder(reports,ladderValue,curveName),group=ladder.groups.find(g=>g.rows.some(r=>r.factorId===mode.factorId))!,row=group.rows.find(r=>r.factorId===mode.factorId)!;
     const node=<K extends keyof HTMLElementTagNameMap>(tag:K,className:string,value:string)=>{const n=document.createElement(tag);n.className=className;n.textContent=publicText(value);return n;};

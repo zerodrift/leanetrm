@@ -12,5 +12,5 @@ export function scenarioShift(target:ScenarioTarget|undefined,size:string,conven
  return {factor,size,convention};
 }
 
-const rejectedRiskAdmissions=new Set(['request_format','request_too_large','request_token','access_denied','risk_context','risk_job_context','risk_job_conflict','risk_factor','risk_bump','risk_stress','scenario_shift','scenario_coordinate','scenario_target','scenario_bucket','unit_mismatch','risk_position','risk_convention','risk_policy','risk_detail','numeric_format','numeric_range','futures_context','portfolio_context','portfolio_policy','swap_risk_model','blotter_view']);
+const rejectedRiskAdmissions=new Set(['request_format','request_too_large','request_token','access_denied','risk_context','risk_job_context','risk_job_conflict','risk_factor','risk_bump','risk_stress','scenario_shift','scenario_coordinate','scenario_target','scenario_bucket','unit_mismatch','risk_position','risk_convention','risk_policy','risk_detail','numeric_format','numeric_range','futures_context','portfolio_context','portfolio_policy','swap_risk_model','blotter_view','risk_joint_contract','risk_joint_input','risk_scenario_capacity','risk_size','risk_sensitivity','risk_axis_input','risk_job_run']);
 export function knownRiskRejection(code:string|undefined):boolean{return !!code&&rejectedRiskAdmissions.has(code);}

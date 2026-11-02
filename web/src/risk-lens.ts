@@ -7,7 +7,7 @@ import {compareDecimalStrings} from './analytics-model.js';
 import type {ChartPoint,ChartSpec} from './chart-view.js';
 import {signOf,signedText} from './desk-model.js';
 import {displayInstant} from './market-view.js';
-import type {ExcludedPosition,RiskReport} from './risk-report.js';
+import {sensitivityFactors,type ExcludedPosition,type RiskReport} from './risk-report.js';
 import type {RunView} from './risk-view.js';
 import {valuationReason} from './valuation-status.js';
 
@@ -31,7 +31,7 @@ const plural=(count:number,word:string)=>`${count} ${word}${count===1?'':'s'}`;
  */
 export function lensCells(reports:readonly RiskReport[]):Map<string,LensCell>{
   const cells=new Map<string,LensCell>(),stated=new Map<string,string>();
-  for(const report of reports)for(const item of report.factors){
+  for(const report of reports)for(const item of sensitivityFactors(report)){
     const results=canonical(item),earlier=stated.get(item.factor.id);
     if(earlier!==undefined){if(earlier!==results)throw Error('The parts of this run state one factor twice with different results, so its results are not shown. Run it again.');continue;}
     stated.set(item.factor.id,results);
@@ -63,7 +63,7 @@ export type LargestMove=Move&{currency:string};
 export function runSummary(reports:readonly RiskReport[],excluded:readonly {tradeReference:string;reason:string}[]):{factors:number;largest:LargestMove[];excluded:number}{
   const best=new Map<string,Move>();
   for(const [key,cell] of lensCells(reports))for(const move of moves(key,cell))best.set(move.shock.currencyKey,larger(best.get(move.shock.currencyKey)??null,move)!);
-  return {factors:new Set(reports.flatMap(r=>r.factors.map(f=>f.factor.id))).size,excluded:excluded.length,
+  return {factors:new Set(reports.flatMap(r=>sensitivityFactors(r).map(f=>f.factor.id))).size,excluded:excluded.length,
     largest:[...best.values()].map(move=>({...move,currency:move.shock.currency})).sort((a,b)=>a.currency.localeCompare(b.currency)||byText(a.shock.currencyKey,b.shock.currencyKey))};
 }
 
@@ -146,7 +146,7 @@ export function tileWords(o:{largest:number;gaps:readonly RunGap[];unknown:numbe
  * part the job history no longer lists states no count, so a run with one has none.
  */
 export function shockCount(run:Pick<RunView,'factors'|'parts'>):{known:number;total:number|null}{
-  const known=new Set(run.parts.flatMap(p=>p.report?p.report.factors.map(f=>f.factor.id):[])).size,stated=run.parts.map(p=>p.job?.shocks);
+  const known=new Set(run.parts.flatMap(p=>p.report?.joint?(p.report.joint.kind==='scenarios'?p.report.joint.samples.map(s=>s.id):p.report.joint.derivatives.map(d=>d.formula+'/'+d.id)):p.report?p.report.factors.map(f=>f.factor.id):[])).size,stated=run.parts.map(p=>p.job?.shocks);
   return {known,total:run.factors??(stated.every(count=>count!==undefined)?stated.reduce<number>((sum,count)=>sum+count!,0):null)};
 }
 /** A run's shock count as it is known: all of them, or how many are known, of how many when that is stated; never fewer than it ran. */
@@ -197,8 +197,8 @@ export type RunNote={kind:'note'|'failed'|'missing'|'alert';text:string};
  * Where a run's results stand on the desk: none yet; shown in the positions, or in a pivot view, which has no lens; refused, with why;
  * or made at another close, context or books than the read on screen, against whose positions they are never shown.
  */
-export type RunResults={state:'none'|'elsewhere'}|{state:'shown'|'pivot';excluded:readonly ExcludedPosition[]}|{state:'failed';reason:string};
-const reportNouns={held:'held contract',parallel:'held curve',custom:'shock'} as const;
+export type RunResults={state:'none'|'elsewhere'}|{state:'shown'|'pivot'|'joint';excluded:readonly ExcludedPosition[]}|{state:'failed';reason:string};
+const reportNouns={held:'held contract',parallel:'held curve',custom:'shock',scenarios:'named scenario',derivatives:'selected derivative'} as const;
 /**
  * What the run bar says of a run (blotter-desk.md, Risk report inline): the report and its sizes; how many it shocked, at which close,
  * knowledge and time; and its notes. `knowledge` is the mode of the read on screen, which a run made now was made at; a retained run
@@ -218,7 +218,7 @@ export function runBar(run:RunView,o:{zone:string;knowledge:string|null;results:
   const notes:RunNote[]=[...new Set(reports.flatMap(report=>projectionPolicyLabels(report.projectionPolicies)))].map(text=>({kind:'note',text}));
   const depth=reports[0]?.scenario.depth??0;
   if(depth>0)notes.push({kind:'note',text:`Around ${depth} nested ${depth===1?'stress':'stresses'}: the base, up and down values all include them.`});
-  if((o.results.state==='shown'||o.results.state==='pivot')&&o.results.excluded.length){
+  if((o.results.state==='shown'||o.results.state==='pivot'||o.results.state==='joint')&&o.results.excluded.length){
     const left=o.results.excluded;
     notes.push({kind:'note',text:`Leaves out ${plural(left.length,'position')} this close cannot value: ${left.map(e=>`${e.tradeReference} (${valuationReason(e.reason,e.instrumentType)})`).join('; ')}.`});
   }
@@ -230,6 +230,7 @@ export function runBar(run:RunView,o:{zone:string;knowledge:string|null;results:
     else if(!part.report&&!part.job)notes.push({kind:'missing',text:`${name} has no results: it is not yet queued.`});
   });
   if(o.results.state==='failed')notes.push({kind:'alert',text:o.results.reason});
+  if(o.results.state==='joint')notes.push({kind:'note',text:'Joint scenarios and mixed Greeks are shown in Full risk report and graphics, with exact trade contributions and step agreement.'});
   if(o.results.state==='elsewhere')notes.push({kind:'note',text:'This run was made at another close, context or books than the Blotter read on screen, so its results are not shown in the positions. Export downloads them.'});
   // Changing Display reads the Blotter again, which clears the run: a pivot's note points to the download, and to a run made on trade rows.
   if(o.results.state==='pivot')notes.push({kind:'note',text:"Risk results are by position, which totals do not show. Export downloads them for every factor; a run made with Display set to Individual trades shows each position's shocks in its row and in the Risk tab of its panel."});

@@ -1,13 +1,14 @@
 import type {ChartSpec} from './chart-view.js';
-import type {RiskReport,ExcludedPosition} from './risk-report.js';
+import {sensitivityFactors,type RiskSensitivityReport,type ExcludedPosition} from './risk-report.js';
 import type {RunView,RiskJob} from './risk-view.js';
 import {runExclusions,runGaps,type RunGap} from './risk-lens.js';
 import {sameRiskScope,sameTradeSelection,type RiskScope} from './risk-scope.js';
+import {validateJoint,jointCharts,type JointReport} from './joint-risk.js';
 
 export type RiskMetric='delta'|'gamma'|'upPnl'|'downPnl';
 export const riskMetricLabels:Record<RiskMetric,string>={delta:'Delta',gamma:'Gamma',upPnl:'Up P&L',downPnl:'Down P&L'};
 export type ReportPresentation={state:'complete'|'incomplete'|'running'|'unavailable';excluded:ExcludedPosition[];gaps:RunGap[];
- factors:RiskReport['factors'];charts:{key:string;spec:ChartSpec}[]};
+ factors:RiskSensitivityReport['factors'];charts:{key:string;spec:ChartSpec}[];joint?:JointReport};
 const canonical=(value:unknown):string=>JSON.stringify(value,(_key,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 
 /** Presentation of server values only. Factors overlap; there is deliberately no sum across rows or report parts. */
@@ -21,7 +22,13 @@ export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset
   throw Error('The report parts do not match the run’s selected trades. Their trade scope cannot be displayed together.');
  if(reports.some(r=>r.context.contextId!==run.context?.contextId||r.snapshotId!==first.snapshotId||canonical(r.scenario)!==canonical(first.scenario)))
   throw Error('The report parts do not share one retained context, close and scenario. Their results cannot be displayed together.');
- const excluded=runExclusions(reports),factors=reports.flatMap(r=>r.factors);
+ const excluded=runExclusions(reports);
+ if(reports.some(r=>r.joint)){
+  if(reports.length!==1||run.parts.length!==1)throw Error('A joint report is one complete job and cannot be combined as sensitivity parts.');
+  const joint=validateJoint(first);
+  return {state:gaps.length||excluded.length||!run.scope?'incomplete':'complete',excluded,gaps,factors:[],joint,charts:jointCharts(joint,joint.kind==='scenarios'?'loss':metric==='gamma'?'gamma':'delta')};
+ }
+ const factors=reports.flatMap(sensitivityFactors);
  if(new Set(factors.map(f=>f.factor.id)).size!==factors.length)throw Error('This run states a factor more than once. Its results cannot be displayed together.');
  const groups=new Map<string,{unit:string;measure:string;coordinate:string;books:Map<string,{name:string;values:Map<string,{exact:string;text:string}>}>}>();
  const drawn=window?factors.slice(window.offset,window.offset+window.limit):factors;

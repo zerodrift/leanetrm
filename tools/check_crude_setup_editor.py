@@ -151,6 +151,8 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     assert {p['tradeId'] for factor in selected_report['factors'] for p in factor['positions']} == {booked['tradeId']}
     job = c.call('portfolio/risk/jobs', {'requestId': str(uuid4()), 'request': selected_request})
     run_worker(); completed = c.call('portfolio/risk/jobs/' + job['id'])
+    from check_trade_risk import joint_scope
+    joint_scope(c, selected_request, selected_report, run_worker=run_worker)
     assert completed['state'] == 'completed', completed
     assert completed['result']['factors'] == selected_report['factors']
     # A later setup publication cannot change retained economics or program identity.

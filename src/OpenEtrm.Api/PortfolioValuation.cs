@@ -442,16 +442,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 totalsRisk.Add(new(group.Key.Measure,group.Key.Book,group.Key.Currency,bump.Axis.Id,value.Up,value.Down,value.UpPnl,value.DownPnl,value.Delta,value.Gamma));
             }
         }
-        var work=runs.Select(r=>r.Work).ToArray();
-        var combined=new RiskWork(work.Sum(w=>w.PositionCount),work.Sum(w=>w.UniqueValuations),work.Sum(w=>w.UniqueMarketContracts),1+2*bumps.Length,
-            work.Sum(w=>w.UnitPricerCalls),work.Sum(w=>w.RebuiltCurveNodes)+prepared.MaterializationWork.RebuiltCurveNodes,
-            work.Sum(w=>w.ReusedCurveNodes)+prepared.MaterializationWork.ReusedCurveNodes)
-            {CurveGraphEvaluatedNodes=work.Sum(w=>w.CurveGraphEvaluatedNodes),CurveGraphReusedReads=work.Sum(w=>w.CurveGraphReusedReads),
-             UniqueInstruments=work.Sum(w=>w.UniqueInstruments),VolumeComputations=work.Sum(w=>w.VolumeComputations),
-             UniqueSideCalculations=work.Sum(w=>w.UniqueSideCalculations),ResolvedCurveMonths=work.Sum(w=>w.ResolvedCurveMonths),
-             ReusedCurveMonths=work.Sum(w=>w.ReusedCurveMonths),CalibratedBlocks=work.Sum(w=>w.CalibratedBlocks),ReusedBlocks=work.Sum(w=>w.ReusedBlocks),
-             QuantityApplications=work.Sum(w=>w.QuantityApplications),PreparationScenarioCount=work.Sum(w=>w.PreparationScenarioCount)+prepared.MaterializationScenarioCount,
-             RowEvaluations=work.Sum(w=>w.RowEvaluations),ScheduleGraphEvaluatedNodes=work.Sum(w=>w.ScheduleGraphEvaluatedNodes),ScheduleGraphReusedReads=work.Sum(w=>w.ScheduleGraphReusedReads)};
+        var combined=CombineWork(prepared,runs.Select(r=>r.Work),1+2*bumps.Length);
         ct.ThrowIfCancellationRequested();
         return new(prepared.SnapshotId,prepared.Context,prepared.Policy,ModelContracts(groups.SelectMany(g=>g.Group.Contracts)),prepared.Positions,
             bumps.Select(b=>new PortfolioFactor(runs.Single(r=>r.Market.Snapshot.Definitions==b.Axis.Market).Axes[b.Axis.Id],b.Size)).ToImmutableArray(),totals,totalsRisk.ToImmutable(),combined)
@@ -461,6 +452,19 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             ConnectedScenarios=runs.Select(r=>r.Connected).ToImmutableArray(),
             BasePositions=groups.SelectMany(g=>g.Group.BasePositions.Select(p=>new PortfolioHoldingValue(g.Measure,p))).ToImmutableArray(),HoldingRisk=holdingRisk.ToImmutable()
         };
+    }
+    internal static RiskWork CombineWork(Prepared prepared,IEnumerable<RiskWork> parts,int scenarios)
+    {
+        var work=parts.ToArray();
+        return new RiskWork(work.Sum(w=>w.PositionCount),work.Sum(w=>w.UniqueValuations),work.Sum(w=>w.UniqueMarketContracts),scenarios,
+            work.Sum(w=>w.UnitPricerCalls),work.Sum(w=>w.RebuiltCurveNodes)+prepared.MaterializationWork.RebuiltCurveNodes,
+            work.Sum(w=>w.ReusedCurveNodes)+prepared.MaterializationWork.ReusedCurveNodes)
+            {CurveGraphEvaluatedNodes=work.Sum(w=>w.CurveGraphEvaluatedNodes),CurveGraphReusedReads=work.Sum(w=>w.CurveGraphReusedReads),
+             UniqueInstruments=work.Sum(w=>w.UniqueInstruments),VolumeComputations=work.Sum(w=>w.VolumeComputations),
+             UniqueSideCalculations=work.Sum(w=>w.UniqueSideCalculations),ResolvedCurveMonths=work.Sum(w=>w.ResolvedCurveMonths),
+             ReusedCurveMonths=work.Sum(w=>w.ReusedCurveMonths),CalibratedBlocks=work.Sum(w=>w.CalibratedBlocks),ReusedBlocks=work.Sum(w=>w.ReusedBlocks),
+             QuantityApplications=work.Sum(w=>w.QuantityApplications),PreparationScenarioCount=work.Sum(w=>w.PreparationScenarioCount)+prepared.MaterializationScenarioCount,
+             RowEvaluations=work.Sum(w=>w.RowEvaluations),ScheduleGraphEvaluatedNodes=work.Sum(w=>w.ScheduleGraphEvaluatedNodes),ScheduleGraphReusedReads=work.Sum(w=>w.ScheduleGraphReusedReads)};
     }
     internal static void RequireWork(Prepared prepared,ImmutableArray<PortfolioCurveBump> bumps)
     {
@@ -517,17 +521,18 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             b.Axis.Target,b.Axis.Unit,b.Size,ConnectedRiskBump.Convention)).ToImmutableArray(),policy,ct,detail);
         var groups=run.Groups.Select(g=>new GroupResult(g.Contracts,g.BaseValues,g.BasePositions,
             g.Factors.Select((f,n)=>new FactorResult(selected[n].Axis.Id,f.Totals,f.Positions)).ToImmutableArray(),g.BaseMeasures)).ToImmutableArray();
-        var w=run.Work;
-        // Graph reads and affected nodes have distinct counters from materialized
-        // curve receipts; report the actual graph work in ConnectedScenarios.
-        var work=new RiskWork(w.PositionCount,w.UniqueValuations,w.UniqueMarketContracts,w.ScenarioCount,w.UnitPricerCalls,0,0)
-            {CurveGraphEvaluatedNodes=run.GraphWork.EvaluatedNodes,CurveGraphReusedReads=run.GraphWork.ReusedReads,
+        var work=Work(run.Work,run.GraphWork);
+        return new(market,groups,work,new(market.Snapshot.Definitions,scenario.Plan.ManifestId,scenario.Id,scenario.ParentId,scenario.Depth,run.GraphWork,market.Preparation),axes);
+    }
+    internal static RiskWork Work(ConnectedRiskWork w,GraphWork graph)
+    {
+        return new RiskWork(w.PositionCount,w.UniqueValuations,w.UniqueMarketContracts,w.ScenarioCount,w.UnitPricerCalls,0,0)
+            {CurveGraphEvaluatedNodes=graph.EvaluatedNodes,CurveGraphReusedReads=graph.ReusedReads,
              UniqueInstruments=w.UniqueInstruments,VolumeComputations=w.VolumeComputations,
              UniqueSideCalculations=w.UniqueSideCalculations,ResolvedCurveMonths=w.ResolvedCurveMonths,ReusedCurveMonths=w.ReusedCurveMonths,
              CalibratedBlocks=w.CalibratedBlocks,ReusedBlocks=w.ReusedBlocks,
              QuantityApplications=w.QuantityApplications,PreparationScenarioCount=w.PreparationScenarioCount,
              RowEvaluations=w.RowEvaluations,ScheduleGraphEvaluatedNodes=w.ScheduleGraphEvaluatedNodes,ScheduleGraphReusedReads=w.ScheduleGraphReusedReads};
-        return new(market,groups,work,new(market.Snapshot.Definitions,scenario.Plan.ManifestId,scenario.Id,scenario.ParentId,scenario.Depth,run.GraphWork,market.Preparation),axes);
     }
     private static ExactDealRiskValues Unchanged(ExactMoney value,PortfolioCurveBump bump)
     {

@@ -495,6 +495,8 @@
    <label class="risk-choice"><input type="radio" name="risk-choice" value="held" required><span><strong>Shock every held contract</strong><small id="risk-choice-held-detail"></small></span></label>
    <label class="risk-choice"><input type="radio" name="risk-choice" value="parallel" required><span><strong>Parallel shift</strong><small id="risk-choice-parallel-detail"></small></span></label>
    <label class="risk-choice"><input type="radio" name="risk-choice" value="custom" required><span><strong>Custom scenario</strong><small>Any target the catalog offers, around nested stresses</small></span></label>
+   <label class="risk-choice"><input type="radio" name="risk-choice" value="scenarios" required><span><strong>Named joint scenarios</strong><small>Move several factors together and compare full repricing losses</small></span></label>
+   <label class="risk-choice"><input type="radio" name="risk-choice" value="derivatives" required><span><strong>Greeks and selected cross-gamma</strong><small>Choose axes and mixed pairs, with half / nominal / double step agreement</small></span></label>
   </fieldset>
   <fieldset id="risk-preset" class="risk-preset" hidden disabled>
    <p id="risk-preset-summary" class="field-help"></p>
@@ -508,6 +510,9 @@
    <label for="risk-factor">Scenario target</label><select id="risk-factor" required><option value="">Choose a scenario target…</option></select>
    <div id="risk-bucket" class="risk-bucket-fields" hidden><label>Delivery start<input id="risk-from" type="date"></label><label>Delivery end · exclusive<input id="risk-to" type="date"></label><p class="field-help">The backend selects whole contracts contained in this delivery window.</p></div>
    <label for="risk-bump">Symmetric bump · positive price points</label><input id="risk-bump" type="text" inputmode="decimal" required maxlength="45" placeholder="Enter an explicit bump"><p id="risk-unit" class="field-help"></p></div>
+  </fieldset>
+  <fieldset id="risk-joint" class="risk-joint-editor" hidden disabled></fieldset>
+  <fieldset id="risk-parent" hidden disabled><legend>Parent market scenario</legend><p id="risk-parent-context" class="field-help"></p>
    <details id="risk-stress"><summary>Build a nested stress scenario</summary><p class="field-help">Each child adds an explicit offset to its parent. Quote shifts flow through connected curves; output shifts keep those connections. Return to a parent to remove only the last child.</p>
    <div class="risk-target-filters"><label>Coordinate<select id="risk-stress-coordinate"><option value="all">All coordinates</option><option value="market_quote">Shared market factor</option><option value="computed_output">Computed curve output</option></select></label><label>Target shape<select id="risk-stress-target-kind"><option value="all">All target shapes</option><option value="contract">Exact contract</option><option value="points">Explicit points</option><option value="parallel">Whole curve</option><option value="delivery_bucket">Delivery bucket</option></select></label></div>
    <label for="risk-stress-factor">Scenario target</label><select id="risk-stress-factor"><option value="">Choose a scenario target…</option></select>

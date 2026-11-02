@@ -26,7 +26,10 @@ individual choices remain usable.
 
 The editor is the same component used in the Blotter. It offers the existing
 held-contract, parallel-curve and custom up/down shocks, with explicit sizes and
-optional nested stresses. It retains the backend catalog's conventions, numerical
+optional nested stresses. D295 adds named joint scenarios and selected Greeks
+with explicit mixed pairs and half/nominal/double agreement tolerances. All sizes
+and tolerances require an explicit choice. Parent stresses remain visible for
+custom and joint modes. It retains the backend catalog's conventions, numerical
 policy and complete captured context. The owning source is revalidated before
 every submission. A market/context replacement invalidates the catalog.
 
@@ -61,6 +64,13 @@ refuses display. A missing scope prevents a complete-coverage claim. An absent
 part never becomes a zero result. Work counters and worker configuration notes
 live in expandable diagnostics.
 
+D295 uses the same widget for named scenario loss/P&L ladders and book heatmaps,
+and selected delta/gamma/cross-gamma graphics. Exact tables retain all three step
+estimates, native sensitivity units, requested tolerances and backend agreement.
+Selected scenario/pair detail shows the underlying trade/instrument bindings.
+Each joint run is one complete report; missing sample or binding receipts refuse
+display. Native measures and currencies remain separate.
+
 ## Retention and recovery
 
 **Run now** is an interactive result for the current visit. **Queue as job** uses
@@ -86,9 +96,10 @@ the displayed address. Exports reread every part under current authority.
 
 ## Remaining work
 
-The [managed joint-scenario and selected mixed-derivative boundary](joint-scenario-risk.md)
-is implemented (D291); admission, retained joint runs and their graphical widgets
-remain work. Aligned dated-factor history, parametric and historical VaR/expected
+The [joint-scenario and selected mixed-derivative operation](joint-scenario-risk.md)
+is integrated through admission, retained workers and graphical reports (D291,
+D295). Migration 0172 needs a separately qualified schema release. Aligned
+dated-factor history, parametric and historical VaR/expected
 shortfall, Monte Carlo, PCA/hybrid,
 EVT, distribution diagnostics and backtesting remain separate increments. The
 current graphs describe deterministic sensitivity/scenario results. They do not

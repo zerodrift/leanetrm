@@ -16,22 +16,25 @@ import {valuationReason} from './valuation-status.js';
 import {trackEdits} from './edit-tracking.js';
 import type {SidePanel} from './side-panel.js';
 import {sameRiskScope,sameTradeSelection,type RiskScope} from './risk-scope.js';
+import {setupJointEditor,type JointChoices} from './joint-risk-editor.js';
+import type {JointRequest,JointCapabilities} from './joint-risk.js';
+import {reportPresentation} from './risk-results.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type FinancialContext={contextId:string;effectiveOn:string;knownAt?:string;knownThrough:number};
 type Catalog={pricingPolicy:unknown;scenarioTargets:ScenarioTarget[];heldContractTargets:string[];heldCurveTargets:string[];
   heldContractsWithoutTarget:string[];heldCurvesWithoutTarget:string[];excludedPositions:ExcludedPosition[];bumpConvention:string;stressConvention:string;
-  convention:string;numericalPolicy:string;context:FinancialContext;asOf:string};
+  convention:string;numericalPolicy:string;context:FinancialContext;asOf:string;joint?:JointCapabilities};
 type Scope={context:unknown;bookIds:string[];portfolioIds:string[];tradeIds?:string[]|null};
 type StressLayer={id:string;shift:ScenarioShift;label:string;unit:string};
-type Request=Scope&{pricingPolicy:unknown;bumps:ScenarioShift[];stress:ScenarioShift[];convention:string;numericalPolicy:string};
+type Request=Scope&{pricingPolicy:unknown;bumps:ScenarioShift[];stress:ScenarioShift[];convention:string;numericalPolicy:string;joint?:JointRequest};
 export type JobState='queued'|'running'|'completed'|'failed'|'cancellation_requested'|'cancelled';
 /** The run a queued part belongs to (D222): the run's identity, which part this is and how many parts the run has. */
 type JobRun={id:string;part:number;parts:number};
 /** The books and portfolios a run was asked for, as they were chosen. */
 type RunScope=RiskScope;
 export type RiskJob={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:RiskReport;context?:FinancialContext;asOf?:string;
-  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number};
+  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number;kind?:'scenarios'|'derivatives';scenarioCount?:number;derivativeCount?:number};
 type Job=RiskJob;
 /**
  * A part of a run and what became of it: the report it returned, or the job it was queued as, or why it failed. A queued part's
@@ -39,7 +42,7 @@ type Job=RiskJob;
  * part of a retained run that the history does not list is `unlisted`.
  */
 type Part={request?:Request;report?:RiskReport;job?:Job;failure?:string;recovery?:PendingCommand;unlisted?:boolean};
-type Choice=Preset|'custom';
+type Choice=Preset|'custom'|'scenarios'|'derivatives';
 /**
  * What a run was set up as: its report, its shock size for each price unit, and the held prices or curves the preset did not shock,
  * as no whole target covers them. A custom scenario's sizes are its factors' own.
@@ -67,7 +70,7 @@ export type RunView={key:number;queued:boolean;running:boolean;retained:boolean;
  * fields and its stresses, and each chosen scenario target by the catalog's id, with its label to name it by when it is no longer offered.
  */
 type Choices={choice:Choice|null;sizes:Map<string,{value:string;prefilled:boolean}>;fields:Record<string,string>;stressOpen:boolean;
-  targets:Record<'risk'|'risk-stress',{id:string;label:string}|null>;stress:StressLayer[]};
+  targets:Record<'risk'|'risk-stress',{id:string;label:string}|null>;stress:StressLayer[];joint?:JointChoices};
 
 /** Why an account without the Risk Analyst role cannot run a scenario. */
 export const riskDenied='Scenario execution requires the Risk Analyst role.';
@@ -92,7 +95,7 @@ const customFields=['risk-coordinate','risk-target-kind','risk-from','risk-to','
 /** What a run's results and download say it was set up as, so that a run that left prices out can be told from a complete one. */
 function setupText(setup:RunSetup|undefined):string{
   if(!setup)return 'A retained run: its report and sizes are not recorded with it, and each shock states its size.';
-  if(setup.report==='custom')return setup.label;
+  if(setup.report==='custom'||setup.report==='scenarios'||setup.report==='derivatives')return setup.label;
   const text=presetText[setup.report],sizes=Object.entries(setup.sizes).map(([unit,size])=>`±${size} ${unit}`).join(', ');
   const left=setup.withoutTarget;
   return `${setup.label} · ${sizes} · ${left.length?`${text.left} ${left.length===1?'it':'them'}: ${left.join('; ')}`:text.complete}`;
@@ -113,6 +116,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   const currentScopeText=get('risk-scope').textContent;
   // The person's own choices and entries in the setup, which leaving it would lose. Prefilled sizes are not theirs until they change one.
   const edits=trackEdits(form,[],()=>{options.edited?.();});
+  const jointEditor=setupJointEditor(get<HTMLFieldSetElement>('risk-joint'),event=>{if(event.isTrusted)edits.mark();edit();},options.act);
   let catalog:Catalog|undefined,scope:Scope|undefined,stress:StressLayer[]=[],reading=false,unread:string|undefined;
   // The person's choices carried over from a setup the inputs on screen changed under, until a catalog read at the new inputs takes them.
   let carried:Choices|undefined;
@@ -141,6 +145,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function forgetRun(){stopPolling();run=undefined;reviewing=false;clearWork();clearJob();get('risk-progress').textContent='';}
   function reveal(id:string){if(mounted())get(id).scrollIntoView({block:'start'});}
   function resetControls(){
+    jointEditor.reset();
     select.replaceChildren(new Option('Choose a scenario target…',''));stressFactor.replaceChildren(new Option('Choose a scenario target…',''));
     bump.value='';stressSize.value='';get('risk-unit').textContent='';get('risk-stress-unit').textContent='';
     get<HTMLDetailsElement>('risk-stress').open=false;
@@ -211,6 +216,9 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const choice=chosen(),presetShown=choice==='held'||choice==='parallel';
     const part=get<HTMLFieldSetElement>('risk-preset'),custom=get<HTMLFieldSetElement>('risk-custom');
     part.hidden=part.disabled=!presetShown;custom.hidden=custom.disabled=choice!=='custom';
+    jointEditor.show(choice==='scenarios'||choice==='derivatives'?choice:undefined);
+    const parent=get<HTMLFieldSetElement>('risk-parent');parent.hidden=parent.disabled=choice!=='custom'&&choice!=='scenarios'&&choice!=='derivatives';
+    for(const input of choices().filter(c=>c.value==='scenarios'||c.value==='derivatives'))input.disabled=!catalog?.joint;
     if(presetShown)drawPreset(choice);else get('risk-sizes').replaceChildren();
   }
   function drawPreset(kind:Preset){
@@ -263,10 +271,11 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function choicesNow():Choices{
     const target=(prefix:'risk'|'risk-stress')=>{const found=catalog?.scenarioTargets.find(t=>t.id===get<HTMLSelectElement>(prefix+'-factor').value);return found?{id:found.id,label:found.label}:null;};
     return {choice:chosen(),sizes:new Map(sizes),fields:Object.fromEntries(customFields.map(id=>[id,get<HTMLInputElement|HTMLSelectElement>(id).value])),
-      stressOpen:get<HTMLDetailsElement>('risk-stress').open,targets:{risk:target('risk'),'risk-stress':target('risk-stress')},stress:[...stress]};
+      stressOpen:get<HTMLDetailsElement>('risk-stress').open,targets:{risk:target('risk'),'risk-stress':target('risk-stress')},stress:[...stress],joint:jointEditor.choices()};
   }
   /** Offers the setup what the catalog read for the Blotter on screen holds: its scenario targets, and the sizes last used, prefilled. */
   function offer(){
+    jointEditor.load(catalog?.joint,catalog?.scenarioTargets??[]);
     sizes=new Map([...storedSizes()].map(([unit,value])=>[unit,{value,prefilled:true}]));
     for(const prefix of ['risk','risk-stress'])targetChoices(prefix);
   }
@@ -275,6 +284,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
    * or stress, or a size typed for a price unit no target of the chosen preset is quoted in.
    */
   function put(kept:Choices){
+    if(kept.joint)jointEditor.put(kept.joint);
     const offered=new Set(catalog!.scenarioTargets.map(t=>t.id)),gone:string[]=[];
     for(const input of choices())input.checked=input.value===kept.choice;
     sizes=new Map([...sizes,...kept.sizes]);
@@ -319,6 +329,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function renderStress(){
     get('risk-stress-stack').replaceChildren(...stress.map((layer,index)=>{const item=document.createElement('li'),level=document.createElement('span'),label=document.createElement('strong'),amount=document.createElement('span');level.className='risk-layer-number';level.textContent=String(index+1);label.textContent=publicText(layer.label);amount.textContent=`Add ${layer.shift.size} ${layer.unit} to parent`;item.append(level,label,amount);return item;}));
     get('risk-scenario').textContent=stress.length?`Risk around ${stress.length} nested ${stress.length===1?'stress':'stresses'}. Base, up and down values all include this stress stack.`:'Risk around the selected unchanged market.';
+    get('risk-parent-context').textContent=stress.length?`Parent: ${stress.length} nested stress layers. Every named sample or derivative corner branches from that captured parent.`:'Parent: the selected unchanged market. Each joint sample branches independently from it.';
     sync();
   }
   /** The setup changed: the run on screen no longer answers it. */
@@ -344,6 +355,8 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const base={...scope,pricingPolicy:catalog.pricingPolicy,convention:catalog.convention,numericalPolicy:catalog.numericalPolicy};
     const choice=chosen();
     if(choice===null)throw Error('Choose a report: Shock every held contract, Parallel shift or Custom scenario.');
+    if(choice==='scenarios'||choice==='derivatives')return {parts:[structuredClone({...base,bumps:[],stress:stress.map(layer=>layer.shift),joint:jointEditor.request()})],
+      setup:{report:choice,label:choice==='scenarios'?'Named joint scenarios':'Selected Greeks and cross-gamma',sizes:{},withoutTarget:[]}};
     if(choice==='custom'){
       const target=catalog.scenarioTargets.find(f=>f.id===select.value);
       return {parts:[structuredClone({...base,bumps:[scenarioShift(target,bump.value,catalog.bumpConvention,bucket('risk'))],stress:stress.map(layer=>layer.shift)})],
@@ -613,17 +626,21 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       if(version!==generation)return;
       if(!report)throw Error('The completed job result is unavailable. Refresh its retained outcome.');
       if(!sameTradeSelection(report.tradeIds,current.scope?.tradeIds))throw Error('The exported report must match the run’s selected trades.');
+      if(report.snapshotId!==part.report?.snapshotId||report.context.contextId!==part.report?.context.contextId||JSON.stringify(report.joint?.request)!==JSON.stringify(part.report?.joint?.request))throw Error('The exported report must retain the captured close, context and joint request.');
       projectionPolicyLabels(report.projectionPolicies);
       parts.push(report);
     }
-    const blob=new Blob([JSON.stringify({setup:current.setup??null,parts},null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='leanetrm-risk.json';link.click();URL.revokeObjectURL(url);
+    reportPresentation({key:current.key,queued:current.queued,running:false,retained:reviewing,setupText:setupText(current.setup),context:current.context,scope:current.scope,factors:null,
+      parts:parts.map(report=>({report,unknown:false,unlisted:false}))},'delta');
+    const blob=new Blob([JSON.stringify({setup:current.setup??null,scope:current.scope??null,context:current.context??null,asOf:current.asOf??null,parts},null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='leanetrm-risk.json';link.click();URL.revokeObjectURL(url);
   }
   /** The run on screen as the desk shows it, once one is: a run made now is shown when its parts have ended. */
   function current():RunView|undefined{
     if(!run||run.making)return undefined;
-    const requested=run.parts.every(p=>p.request)?run.parts.reduce((count,p)=>count+p.request!.bumps.length,0):null;
-    return {key:run.key,queued:run.queued,running:running(),retained:reviewing,setup:run.setup,setupText:setupText(run.setup),context:run.context,asOf:run.asOf,finishedAt:run.finishedAt,scope:run.scope,factors:requested,
-      parts:run.parts.map(p=>({report:p.report,job:p.job&&{id:p.job.id,state:p.job.state,finishedAt:p.job.finishedAt??null,shocks:p.job.shocks},failure:p.failure,unknown:!!p.recovery?.command,unlisted:!!p.unlisted}))};
+    const requested=run.parts.every(p=>p.request)?run.parts.reduce((count,p)=>count+(p.request!.joint?.scenarios?.scenarios.length??(p.request!.joint?.derivatives?2*p.request!.joint.derivatives.axes.length+p.request!.joint.derivatives.mixed.length:p.request!.bumps.length)),0):null;
+    const retainedKind=run.parts.find(p=>p.report?.joint)?.report?.joint?.kind;
+    return {key:run.key,queued:run.queued,running:running(),retained:reviewing,setup:run.setup,setupText:!run.setup&&retainedKind?`Retained ${retainedKind==='scenarios'?'named joint scenarios':'selected Greeks and cross-gamma'} under the captured request and policies.`:setupText(run.setup),context:run.context,asOf:run.asOf,finishedAt:run.finishedAt,scope:run.scope,factors:requested,
+      parts:run.parts.map(p=>({report:p.report,job:p.job&&{id:p.job.id,state:p.job.state,finishedAt:p.job.finishedAt??null,shocks:p.job.kind==='scenarios'?p.job.scenarioCount:p.job.kind==='derivatives'?p.job.derivativeCount:p.job.shocks},failure:p.failure,unknown:!!p.recovery?.command,unlisted:!!p.unlisted}))};
   }
 
   function sync(){

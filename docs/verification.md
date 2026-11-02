@@ -1,5 +1,40 @@
 # Local verification and continuous integration
 
+## Joint risk admission and reports
+
+The D295 local qualification on 2 November 2026 passed 656 managed core checks,
+19 focused joint-risk groups, API schedule/contract checks, 1,199 frontend checks,
+the independent worker build with zero warnings, deployment configuration and
+32 release-boundary checks. The integrated baseline includes maintained crude
+setup migrations 0170–0171; joint admission is migration 0172.
+
+Owned stock PostgreSQL checks exercise simultaneous signed moves under a nonzero
+parent, common sample IDs across multiple exact market partitions, explicit
+unchanged partitions, local and cross-market derivatives, exact native aggregate
+agreement, immediate/worker financial parity and idempotent retries. Direct SQL
+checks reject incomplete/forged retained axis unions, ambiguous typed requests,
+missing/negative tolerances, unrepresentable half steps and joint multipart frames.
+Private helpers grant no new runtime/worker authority.
+
+Selected-trade named scenarios and nominal Greek estimates reproduce independent
+legacy up/down PV results for futures, swaps/heat-rate, PPAs, gas, crude and
+options, including the option's separate premium. Composed capacity PPA and
+separately maintained crude source bindings retain their selected identity.
+The complete risk/job suite passes 159 owned browser checks. New browser checks
+exercise explicit editors, loss/Greek graphics, retained named-report reload,
+queued derivative parity, binding detail and phone layout. Tables preserve exact
+backend amounts beside display values; positive losses shade red without changing
+plotted signs. Missing coverage refuses a complete report.
+
+Independent adversarial review identified overlapping targets whose distinct
+source keys resolve to the same compiled node. Admission now rejects those named
+samples and mixed pairs before pricing or queueing; the adapter regression fails
+with the previous key-only comparison. Review covers numerical aggregation,
+retained inputs/current authority, worker replay, report coverage and exports.
+No statistical estimator or production throughput is established by this release.
+Migration 0172 requires separate installation qualification; no production deploy
+was performed.
+
 ## Individual trade risk scope
 
 The D292 local qualification on 2 November 2026 passed the focused API trade-scope

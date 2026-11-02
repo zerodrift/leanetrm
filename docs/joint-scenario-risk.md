@@ -2,9 +2,9 @@
 
 D291 supplies the managed R2 calculation boundary over the existing immutable
 market context and common instrument PV. It accepts explicit named deterministic
-scenario sets and selected mixed derivatives. HTTP admission, durable joint-run
-storage, workers and Risk widgets for these new results remain integration work.
-The existing sensitivity reports and their retained-job contract are unchanged.
+scenario sets and selected mixed derivatives. D295 integrates HTTP admission,
+durable worker runs and shared graphical reports in Risk and Blotter. Legacy
+symmetric sensitivity requests preserve their original wire and job behavior.
 
 ## Independent joint scenarios
 
@@ -55,7 +55,7 @@ signed shifts and observation references. Work includes actual PV calls, quantit
 applications and affected/evaluated/reused graph work. Receipts contain no graph
 sessions. They identify the captured calculation lineage; a standalone persisted
 replay also needs the authorized input manifest, retained definitions and pricing
-bindings. This increment does not add that storage/admission contract.
+bindings. The HTTP/retained integration below captures those inputs.
 
 ## Selected derivatives and step agreement
 
@@ -98,6 +98,47 @@ accuracy. For example, the symmetric delta of `abs(x)` at zero agrees at zero
 while its central gamma changes with the step; the gamma diagnostic is unstable.
 Full-repricing scenario loss remains available independently of Greek stability.
 
+## HTTP and retained runs (D295)
+
+`POST /api/portfolio/risk` and its catalog/job operations accept optional typed
+`joint` under `portfolio_instrument_repricing_v1`. Its discriminator is
+`portfolio_joint_risk_v1`, with exactly one non-null `scenarios` or `derivatives`
+contract and explicit empty `bumps`. Named sets supply identity/version, labels
+and signed shifts. Derivative requests supply selected positive bump axes,
+explicit delta/gamma tolerances and selected mixed pairs with their tolerances.
+No default magnitudes, pairs, tolerances or probability model are introduced.
+
+The HTTP bounds are 32 named scenarios, 16 shifts per scenario, 16 selected axes
+and 16 mixed pairs. Admission checks aggregate base/sample tuple width against
+250,000, PPA row-scenario work against the existing bound, and solved-option
+nonterminal rollback work against a 100 million node bound. The catalog
+exposes these limits. A positive FD bump must support exact half and double
+steps at admission. These bounds do not establish production throughput.
+
+All requested factors resolve before execution. Distinct targets in one named
+sample, or a selected mixed pair, must have disjoint compiled nodes, including
+aliases with different source keys. A parent stress remains a separate layer
+and can reuse the same node. Each exact market partition receives common named
+sample IDs; a partition without a sample's factors explicitly reuses the parent.
+FD partitions calculate applicable axes and local mixed pairs. Across independent
+market partitions a mixed derivative is exactly zero. Book totals aggregate only
+matching measure, book and exact currency identities; half/nominal/double values
+are added before aggregate agreement is assessed.
+
+Migration 0172 extends existing retained axis validation with private invoker
+helpers. The original typed request, exact unique axis/point union, selected scope,
+pricing policy, observations, model receipts and connected input manifests remain
+pinned. Worker reconstruction uses the same preparation and calculation operation.
+Current authority, lease, cancellation and atomic publication fences remain in
+force. A joint run is one complete job; legacy sensitivity multipart frames refuse.
+A retry returns its first outcome.
+
+Joint reports contain typed `joint` results and omit legacy `factors`; older
+sensitivity readers fail closed. The shared Risk/Blotter widget verifies complete
+sample/partition/binding coverage, displays backend loss/P&L or native derivatives,
+and retains exact tables, three-step agreement and binding drill-through. Named
+stresses remain deterministic cases without assigned probabilities.
+
 ## Verification and remaining work
 
 The managed executable `--joint-scenario-risk` checks independent linear,
@@ -109,8 +150,10 @@ or failure without parent mutation. The ancestry regression fails with the old
 risk-wrapper-only walk. Existing connected and quote risk share the same internal
 portfolio evaluation mechanism and work reducer.
 
-Next integration work is versioned joint-run admission/retention and graphical
-named-scenario/mixed-sensitivity reports under current authority. Aligned dated
-factor history, statistical calibration, VaR/ES, Monte Carlo/PCA/hybrid, EVT and
-backtesting remain subsequent work. No migration or production deployment is
-included in this calculation increment.
+Integration checks cover simultaneous moves under a nonzero parent, independent
+siblings, multiple exact market partitions and explicit unaffected partitions;
+selected local/cross-market derivatives, native aggregation, direct/worker parity,
+selected product binding PV oracles, private SQL admission and report reload.
+Aligned dated-factor history, statistical calibration, VaR/ES, Monte Carlo/PCA/hybrid, EVT and
+backtesting remain subsequent work. No production deployment is implied by these
+local checks. Migration 0172 requires separate installation qualification.

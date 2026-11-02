@@ -118,6 +118,8 @@ def run_checks(Client, check, run_worker, query=None):
                           'convention': catalog['bumpConvention']}]}
     result = risk.call('portfolio/risk', request)
     reconcile(result, holdings, check, 'Mixed portfolio risk')
+    from check_joint_risk import run_checks as check_joint
+    check_joint(risk, request, result, run_worker, check)
     check_trade_selection(risk, retained, holdings, request, result, check, run_worker, query)
     rows = {identity(row): row for row in holdings['holdings']}
     check('portfolio risk keeps futures execution P&L separate from swap PV',
@@ -292,6 +294,8 @@ def run_supplemental_scope(Client, check, query, manifest, run_worker):
     completed = client.call('portfolio/risk/jobs/' + job['id'])
     check('supplemental-only immediate and queued results preserve the same complete financial manifest',
           completed['state'] == 'completed' and financial(completed['result']) == financial(report))
+    from check_joint_risk import run_partition_checks
+    run_partition_checks(client, request, manifest['revisionId'], run_worker, check)
 
 
 def check_trade_selection(risk, context, holdings, request, whole, check, run_worker, query):
