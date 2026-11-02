@@ -422,20 +422,22 @@ CREATE TABLE trading.futures_option_trade_revisions (
 );
 -- One lifecycle event of an option trade, at its business time and knowledge (publication) order. Exercise, assignment
 -- and expiry close lots; an exercised or assigned lot books one linked future at the strike. An instruction covers the
--- holding's open lots at expiry. Expiry records the underlying settlement it used and what decided it: the filed
--- instruction or the exact automatic exercise rule. remaining_lots are the open lots after the event.
+-- holding's open lots at expiry. Expiry records the snapshot whose observations it read, the one underlying settlement
+-- it selected and what decided it: the filed instruction or the exact automatic exercise rule. remaining_lots are the
+-- open lots after the event.
 CREATE TABLE trading.futures_option_events (
  catalog_id uuid NOT NULL,id uuid NOT NULL,trade_id uuid NOT NULL,trade_revision integer NOT NULL,request_id uuid NOT NULL,
  kind text NOT NULL CHECK(kind IN('exercise','assignment','exercise_instruction','abandon_instruction','expiry')),
  lots ref_data.exact_number CHECK(lots>0 AND lots=trunc(lots) AND lots<=100000),
  remaining_lots ref_data.exact_number NOT NULL CHECK(remaining_lots>=0 AND remaining_lots=trunc(remaining_lots)),
  business_at ref_data.instant NOT NULL,outcome text CHECK(outcome IN('exercised','abandoned')),instruction_id uuid,
- rule_catalog_id uuid,rule_revision_id uuid,rule_code ref_data.code,settlement_observation_id uuid,settlement_price ref_data.exact_number,
+ rule_catalog_id uuid,rule_revision_id uuid,rule_code ref_data.code,settlement_observation_id uuid,settlement_price ref_data.exact_number,snapshot_id uuid,
  futures_trade_id uuid,actor_id uuid NOT NULL REFERENCES security.principals(id),request jsonb NOT NULL,
  publication_order integer NOT NULL,effective_at ref_data.instant NOT NULL,
  PRIMARY KEY(catalog_id,id),UNIQUE(catalog_id,request_id),UNIQUE(catalog_id,futures_trade_id),
  CHECK((kind IN('exercise_instruction','abandon_instruction'))=(lots IS NULL)),
- CHECK((kind='expiry')=(outcome IS NOT NULL) AND(kind='expiry')=(settlement_observation_id IS NOT NULL) AND(settlement_observation_id IS NULL)=(settlement_price IS NULL)),
+ CHECK((kind='expiry')=(outcome IS NOT NULL) AND(kind='expiry')=(settlement_observation_id IS NOT NULL) AND(settlement_observation_id IS NULL)=(settlement_price IS NULL)
+  AND(kind='expiry')=(snapshot_id IS NOT NULL)),
  CHECK(num_nulls(rule_catalog_id,rule_revision_id,rule_code) IN(0,3) AND num_nonnulls(instruction_id,rule_code)=CASE kind WHEN 'expiry' THEN 1 ELSE 0 END),
  CHECK((kind IN('exercise','assignment') OR outcome='exercised')=(futures_trade_id IS NOT NULL)),
  FOREIGN KEY(catalog_id,trade_id,trade_revision) REFERENCES trading.futures_option_trade_revisions(catalog_id,trade_id,revision),
@@ -660,17 +662,20 @@ CREATE FUNCTION security.futures_option_event_outcome(e trading.futures_option_e
 $$;
 
 -- Records one lifecycle event of an option trade under book_futures_option's authority and request-identity rules (D238).
+-- A retry returns its first outcome once the caller can still see the trade; recording an existing fact again (the same
+-- instruction, or an expiry on the same settlement) returns the existing record, and a different one is a conflict.
 -- Exercise and assignment take whole lots up to the open lots, on a business day of the underlying's trading calendar
--- from the trade's execution to the option's expiry date; instructions also need a product that accepts them, before
--- its series' cutoff. Expiry applies the filed instruction, otherwise the product's automatic exercise rule, against the
--- underlying's final daily settlement on the expiry date among the selected observations. Exercised and assigned lots
--- book the linked future at the strike in the option's book and parties, by the caller, in this transaction.
+-- from the trade's execution to the option's expiry date. Instructions need a product that accepts them, filed and
+-- recorded by the series' cutoff. Expiry is recorded once the option's expiry instant has passed: the filed instruction,
+-- otherwise the product's automatic exercise rule, against the underlying's final daily settlement on the expiry date
+-- among the snapshot's selected observations. Exercised and assigned lots book the linked future at the strike in the
+-- option's book and parties, by the caller, in this transaction.
 CREATE FUNCTION security.apply_futures_option_event(catalog uuid,event_request uuid,trade uuid,event_kind text,event_lots numeric,event_at timestamptz,
- observations uuid[],request_value jsonb) RETURNS jsonb LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+ snapshot uuid,observations uuid[],request_value jsonb) RETURNS jsonb LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 DECLARE c security.request_contexts;prior trading.futures_option_events;r trading.futures_option_trade_revisions;option_contract market_data.contracts;
  series_row ref_data.futures_option_series;product ref_data.futures_option_products;future_contract market_data.contracts;future_product ref_data.futures_products;
- curve text;curves integer;rule ref_data.futures_option_rules;instruction trading.futures_option_events;settlement market_data.observations;settlements integer;
- open_lots numeric;decided text;ordinal integer;future_trade uuid;holder numeric;e trading.futures_option_events;
+ curve text;curves integer;rule ref_data.futures_option_rules;instruction trading.futures_option_events;expiry trading.futures_option_events;
+ settlement market_data.observations;settlements integer;open_lots numeric;decided text;ordinal integer;future_trade uuid;holder numeric;e trading.futures_option_events;
 BEGIN
  IF NOT security.trading_access(catalog,'ReadTrades') OR NOT security.trading_access(catalog,'BookTrade') THEN RAISE EXCEPTION 'No booking access' USING ERRCODE='42501';END IF;
  SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
@@ -679,17 +684,14 @@ BEGIN
  IF NOT security.trading_access(catalog,'BookTrade') THEN RAISE EXCEPTION 'Booking access expired' USING ERRCODE='42501';END IF;
  IF event_request IS NULL OR event_request='00000000-0000-0000-0000-000000000000'::uuid OR trade IS NULL OR
   event_kind IS NULL OR event_kind NOT IN('exercise','assignment','exercise_instruction','abandon_instruction','expiry') OR
-  (event_kind='expiry')<>(observations IS NOT NULL) OR array_position(observations,NULL) IS NOT NULL OR cardinality(observations)>100000 OR
+  (event_kind='expiry')<>(observations IS NOT NULL) OR (event_kind='expiry')<>(snapshot IS NOT NULL) OR
+  array_position(observations,NULL) IS NOT NULL OR cardinality(observations)>100000 OR
   (event_kind<>'expiry' AND(event_at IS NULL OR NOT isfinite(event_at))) OR
   (event_kind IN('exercise','assignment'))<>(event_lots IS NOT NULL) OR event_lots<=0 OR event_lots<>trunc(event_lots) OR event_lots>100000
  THEN RAISE EXCEPTION 'option_event_input' USING ERRCODE='P0001';END IF;
- SELECT * INTO prior FROM trading.futures_option_events WHERE(catalog_id,request_id)=(catalog,event_request);
- IF FOUND THEN
-  IF prior.actor_id<>c.actor_id OR prior.request IS DISTINCT FROM request_value THEN RAISE EXCEPTION 'option_conflict' USING ERRCODE='P0001';END IF;
-  RETURN security.futures_option_event_outcome(prior);
- END IF;
  -- The option trade, its exact series and the underlying future of the same market revision, read under the caller's
- -- own market and reference authority: a trade the caller cannot see is refused exactly as one that does not exist.
+ -- own market and reference authority: a trade the caller cannot see is refused exactly as one that does not exist,
+ -- before any recorded outcome is returned.
  SELECT * INTO r FROM trading.futures_option_trade_revisions WHERE(catalog_id,trade_id)=(catalog,trade);
  SELECT * INTO option_contract FROM market_data.contracts WHERE(catalog_id,revision_id,id)=(catalog,r.definition_revision_id,r.contract_id);
  SELECT * INTO series_row FROM ref_data.futures_option_series
@@ -703,17 +705,23 @@ BEGIN
   NOT security.reference_access(option_contract.reference_catalog_id,'ReadMarketData') OR
   NOT security.reference_version_visible(option_contract.reference_catalog_id,option_contract.reference_revision_id) OR
   series_row.code IS NULL OR product.code IS NULL OR future_product.code IS NULL THEN RAISE EXCEPTION 'option_trade' USING ERRCODE='P0001';END IF;
+ SELECT * INTO prior FROM trading.futures_option_events WHERE(catalog_id,request_id)=(catalog,event_request);
+ IF FOUND THEN
+  IF prior.actor_id<>c.actor_id OR prior.request IS DISTINCT FROM request_value THEN RAISE EXCEPTION 'option_conflict' USING ERRCODE='P0001';END IF;
+  RETURN security.futures_option_event_outcome(prior);
+ END IF;
  -- The linked future is valued, and the option expires, on the underlying's one direct daily-settlement curve.
  SELECT min(m.curve_code),count(*) INTO curve,curves FROM market_data.curve_members m JOIN market_data.curves v ON(v.catalog_id,v.revision_id,v.code)=(m.catalog_id,m.revision_id,m.curve_code)
   WHERE(m.catalog_id,m.revision_id,m.contract_id)=(catalog,r.definition_revision_id,future_contract.id) AND v.rule='direct' AND v.direct_role='daily_settlement';
  IF future_contract.id IS NULL OR curves<>1 THEN RAISE EXCEPTION 'option_underlying_market' USING ERRCODE='P0001';END IF;
- IF EXISTS(SELECT 1 FROM trading.futures_option_events WHERE(catalog_id,trade_id,kind)=(catalog,trade,'expiry')) THEN RAISE EXCEPTION 'option_expired' USING ERRCODE='P0001';END IF;
+ SELECT * INTO expiry FROM trading.futures_option_events WHERE(catalog_id,trade_id,kind)=(catalog,trade,'expiry');
+ IF expiry.id IS NOT NULL AND event_kind<>'expiry' THEN RAISE EXCEPTION 'option_expired' USING ERRCODE='P0001';END IF;
  holder=sign(r.lots);
  SELECT abs(r.lots)-coalesce(sum(lots),0) INTO open_lots FROM trading.futures_option_events WHERE(catalog_id,trade_id)=(catalog,trade) AND kind IN('exercise','assignment');
  SELECT * INTO instruction FROM trading.futures_option_events WHERE(catalog_id,trade_id)=(catalog,trade) AND kind IN('exercise_instruction','abandon_instruction');
  IF event_kind='expiry' THEN
-  IF open_lots=0 THEN RAISE EXCEPTION 'option_holding_closed' USING ERRCODE='P0001';END IF;
-  event_at=series_row.expiry_at;event_lots=open_lots;
+  -- Expiry is known only once the option has expired: the recording time is at or after its expiry instant.
+  IF clock_timestamp()<series_row.expiry_at THEN RAISE EXCEPTION 'option_expiry_not_reached' USING ERRCODE='P0001';END IF;
   -- The underlying's final daily settlement in the curve's quote on the expiry date, among the selected observations.
   SELECT count(*),min(o.id::text)::uuid INTO settlements,settlement.id FROM market_data.observations o
    JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(o.catalog_id,o.definition_revision_id,o.series_id)
@@ -723,25 +731,38 @@ BEGIN
    AND security.futures_option_market_date(future_product,o.observed_at)=series_row.last_trading_date;
   IF settlements=0 THEN RAISE EXCEPTION 'option_expiry_settlement_missing' USING ERRCODE='P0001';END IF;
   IF settlements>1 THEN RAISE EXCEPTION 'option_expiry_settlement_ambiguous' USING ERRCODE='P0001';END IF;
+  -- The holding's expiry on this settlement already exists: the same fact, returned as recorded.
+  IF expiry.id IS NOT NULL THEN
+   IF expiry.settlement_observation_id<>settlement.id THEN RAISE EXCEPTION 'option_expiry_conflict' USING ERRCODE='P0001';END IF;
+   RETURN security.futures_option_event_outcome(expiry);
+  END IF;
+  IF open_lots=0 THEN RAISE EXCEPTION 'option_holding_closed' USING ERRCODE='P0001';END IF;
   SELECT * INTO settlement FROM market_data.observations WHERE(catalog_id,id)=(catalog,settlement.id);
+  event_at=series_row.expiry_at;event_lots=open_lots;
   IF instruction.id IS NOT NULL THEN decided=CASE instruction.kind WHEN 'exercise_instruction' THEN 'exercised' ELSE 'abandoned' END;
   ELSE
    SELECT * INTO rule FROM ref_data.futures_option_rules
     WHERE(catalog_id,revision_id,code,kind)=(product.catalog_id,product.revision_id,product.automatic_exercise_rule_code,product.automatic_exercise_rule_kind);
    decided=security.futures_option_automatic_outcome(rule,series_row.option_right,series_row.strike,settlement.value);
   END IF;
+ ELSIF event_kind IN('exercise_instruction','abandon_instruction') THEN
+  IF holder<0 THEN RAISE EXCEPTION 'option_event_side' USING ERRCODE='P0001';END IF;
+  IF NOT product.contrary_instructions_allowed THEN RAISE EXCEPTION 'option_contrary_instructions_not_accepted' USING ERRCODE='P0001';END IF;
+  -- The holding's instruction already exists: the same one is returned as recorded; a contrary one is a conflict.
+  IF instruction.id IS NOT NULL THEN
+   IF instruction.kind<>event_kind THEN RAISE EXCEPTION 'option_instruction_conflict' USING ERRCODE='P0001';END IF;
+   RETURN security.futures_option_event_outcome(instruction);
+  END IF;
+  IF series_row.instruction_cutoff_at IS NULL THEN RAISE EXCEPTION 'option_instruction_cutoff_unknown' USING ERRCODE='P0001';END IF;
+  -- Both the instruction's business time and its recording time lie at or before the cutoff, so an older frame
+  -- cannot file a late instruction.
+  IF event_at>series_row.instruction_cutoff_at OR clock_timestamp()>series_row.instruction_cutoff_at THEN RAISE EXCEPTION 'option_instruction_closed' USING ERRCODE='P0001';END IF;
  ELSE
   IF event_at<r.execution_at OR security.futures_option_market_date(future_product,event_at)>series_row.last_trading_date
   THEN RAISE EXCEPTION 'option_exercise_window' USING ERRCODE='P0001';END IF;
   IF NOT security.futures_option_business_day(future_product,security.futures_option_market_date(future_product,event_at)) THEN RAISE EXCEPTION 'option_calendar' USING ERRCODE='P0001';END IF;
   IF (event_kind='assignment')=(holder>0) THEN RAISE EXCEPTION 'option_event_side' USING ERRCODE='P0001';END IF;
-  IF event_kind IN('exercise_instruction','abandon_instruction') THEN
-   IF NOT product.contrary_instructions_allowed THEN RAISE EXCEPTION 'option_contrary_instructions_not_accepted' USING ERRCODE='P0001';END IF;
-   IF series_row.instruction_cutoff_at IS NULL THEN RAISE EXCEPTION 'option_instruction_cutoff_unknown' USING ERRCODE='P0001';END IF;
-   IF event_at>series_row.instruction_cutoff_at THEN RAISE EXCEPTION 'option_instruction_closed' USING ERRCODE='P0001';END IF;
-   IF instruction.id IS NOT NULL THEN RAISE EXCEPTION 'option_instruction_exists' USING ERRCODE='P0001';END IF;
-  ELSIF event_lots>open_lots THEN RAISE EXCEPTION 'option_lots_exceeded' USING ERRCODE='P0001';
-  END IF;
+  IF event_lots>open_lots THEN RAISE EXCEPTION 'option_lots_exceeded' USING ERRCODE='P0001';END IF;
  END IF;
  SELECT coalesce(max(publication_order),0)+1 INTO ordinal FROM trading.publications WHERE catalog_id=catalog;
  INSERT INTO trading.publications VALUES(catalog,ordinal,pg_current_xact_id());
@@ -751,14 +772,15 @@ BEGIN
    EXISTS(SELECT 1 FROM trading.trade_revisions WHERE(catalog_id,operation_id)=(catalog,security.futures_option_event_operation(event_request)))
   THEN RAISE EXCEPTION 'option_conflict' USING ERRCODE='P0001';END IF;
   future_trade=security.record_futures_trade(catalog,security.futures_option_event_operation(event_request),c.actor_id,
-   jsonb_build_object('optionEvent',request_value,'optionEventOperation',event_request,'implementation','futures_option_exercise_v1'),
+   jsonb_build_object('optionEvent',request_value,'optionEventOperation',event_request,'settlementObservation',settlement.id,'implementation','futures_option_exercise_v1'),
    r.book_id,r.definition_revision_id,curve,future_contract.id,event_at,event_at,event_lots*holder*CASE series_row.option_right WHEN 'call' THEN 1 ELSE -1 END,
    series_row.strike,'contract_lot_execution_pnl_v2',NULL,NULL,NULL,
    jsonb_build_object('legalEntityId',r.legal_entity_id,'legalEntityRevision',r.legal_entity_revision,'counterpartyId',r.counterparty_id,'counterpartyRevision',r.counterparty_revision),ordinal);
  END IF;
  INSERT INTO trading.futures_option_events VALUES(catalog,gen_random_uuid(),trade,r.revision,event_request,event_kind,event_lots,
   CASE WHEN event_kind IN('exercise_instruction','abandon_instruction') THEN open_lots ELSE open_lots-event_lots END,event_at,decided,
-  CASE WHEN event_kind='expiry' THEN instruction.id END,rule.catalog_id,rule.revision_id,rule.code,settlement.id,settlement.value,future_trade,c.actor_id,request_value,ordinal,event_at)
+  CASE WHEN event_kind='expiry' THEN instruction.id END,rule.catalog_id,rule.revision_id,rule.code,settlement.id,settlement.value,snapshot,future_trade,
+  c.actor_id,request_value,ordinal,event_at)
   RETURNING * INTO e;
  IF NOT security.trading_access(catalog,'ReadTrades') OR NOT security.trading_access(catalog,'BookTrade') OR NOT security.market_access(catalog,'ReadMarketData') OR
   NOT security.reference_access(option_contract.reference_catalog_id,'ReadMarketData') THEN RAISE EXCEPTION 'Booking access expired' USING ERRCODE='42501';END IF;
@@ -768,15 +790,16 @@ END$$;
 -- Exercise, assignment or an instruction at a business time.
 CREATE FUNCTION security.record_futures_option_event(catalog uuid,request uuid,trade uuid,kind text,lots numeric,business_at timestamptz) RETURNS jsonb
  LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
- SELECT security.apply_futures_option_event(catalog,request,trade,kind,lots,business_at,NULL,
+ SELECT security.apply_futures_option_event(catalog,request,trade,kind,lots,business_at,NULL,NULL,
   jsonb_build_object('trade',trade,'kind',kind,'lots',trim_scale(lots),'businessAt',business_at AT TIME ZONE 'UTC'));
 $$;
 
--- Expiry of one open holding against the selected observations, at the option's expiry instant.
-CREATE FUNCTION security.process_futures_option_expiry(catalog uuid,request uuid,trade uuid,observations uuid[]) RETURNS jsonb
+-- Expiry of one open holding at the option's expiry instant, against a snapshot's selected observations. The request
+-- names the snapshot; the event records the one settlement it selected.
+CREATE FUNCTION security.process_futures_option_expiry(catalog uuid,request uuid,trade uuid,snapshot uuid,observations uuid[]) RETURNS jsonb
  LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
- SELECT security.apply_futures_option_event(catalog,request,trade,'expiry',NULL,NULL,observations,
-  jsonb_build_object('trade',trade,'kind','expiry','observations',(SELECT jsonb_agg(o ORDER BY o) FROM unnest(observations) o)));
+ SELECT security.apply_futures_option_event(catalog,request,trade,'expiry',NULL,NULL,snapshot,observations,
+  jsonb_build_object('trade',trade,'kind','expiry','snapshot',snapshot));
 $$;
 DO $$DECLARE f record;BEGIN
  FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace

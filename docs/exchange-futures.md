@@ -123,7 +123,13 @@ because an option and its underlying are calibrated under the same observation r
 ### Option lifecycle
 
 Each lifecycle event is one authorized operation. It needs the booking authority, current
-knowledge and a request identity, and a retry returns its first outcome (D238).
+knowledge and a request identity (D238):
+
+- a retry returns its first outcome, but only while the caller can still see the trade;
+- recording an existing fact again under a new request returns the existing record: the
+  same instruction, or a holding's expiry on the same settlement;
+- a contrary instruction raises `option_instruction_conflict`, and an expiry on a
+  different settlement raises `option_expiry_conflict`.
 
 - **`security.record_futures_option_event`** (`options/exercise`, `options/assignment`,
   `options/instruction`):
@@ -132,13 +138,19 @@ knowledge and a request identity, and a retry returns its first outcome (D238).
   - the date must be a business day of the underlying's trading calendar, from the
     trade's execution through the option's expiry date;
   - instructions are refused with `option_contrary_instructions_not_accepted` unless the
-    product row accepts them; where accepted, they must be filed before the series'
-    configured cutoff.
+    product row accepts them. Where accepted, both the instruction's business time and the
+    time it is recorded must be at or before the series' configured cutoff, so an older
+    frame cannot file a late instruction. Instructions follow the cutoff, not the
+    exercise calendar.
 - **`security.process_futures_option_expiry`** (`options/expiry`) closes a holding's
   open lots at the option's expiry instant:
+  - it can be recorded only once that instant has passed: a recording time before it
+    raises `option_expiry_not_reached` and writes nothing, whatever the frame holds;
   - a filed instruction decides; otherwise the product's automatic exercise rule
     evaluates the underlying's final daily settlement on the expiry date, taken from
     the frame's selected observations;
+  - the event records the frame (snapshot) identity and the one settlement it selected,
+    and the linked future's request names both;
   - with no such settlement it raises `option_expiry_settlement_missing`, writes
     nothing and leaves the holding open.
 - **Linked futures.** Each exercised or assigned lot books one future of the underlying

@@ -90,7 +90,7 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
     }
 
     // Lifecycle events through the two authorized operations, which own every lifecycle rule. Events are recorded at the
-    // frame's time, as bookings are executed at it; expiry reads the frame's selected observations.
+    // frame's time, as bookings are executed at it; expiry names the frame and passes its selected observations.
     public Task<JsonElement> Close(NpgsqlConnection connection,InputFrame frame,FuturesOptionEventRequest body,string kind,CancellationToken ct)
     {
         RequireCurrent(body.Convention,body.KnowledgeMode,body.OperationId);
@@ -108,8 +108,8 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
     public async Task<JsonElement> Expire(NpgsqlConnection connection,InputFrame frame,FuturesOptionExpiryRequest body,CancellationToken ct)
     {
         RequireCurrent(body.Convention,body.KnowledgeMode,body.OperationId);
-        await using var command=ScheduleStore.Command(connection,"SELECT security.process_futures_option_expiry($1,$2,$3,$4)::text",
-            manifest.CatalogId,body.OperationId,body.TradeId,frame.ObservationIds.ToArray());
+        await using var command=ScheduleStore.Command(connection,"SELECT security.process_futures_option_expiry($1,$2,$3,$4,$5)::text",
+            manifest.CatalogId,body.OperationId,body.TradeId,frame.Id,frame.ObservationIds.ToArray());
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
 
@@ -117,7 +117,7 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
     public async Task<object> Holding(NpgsqlConnection connection,Guid trade,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,
-            "SELECT jsonb_build_object('tradeId',r.trade_id,'lots',trim_scale(r.lots)::text,'openLots',trim_scale(abs(r.lots)-coalesce(sum(e.lots) FILTER(WHERE e.kind<>'exercise_instruction' AND e.kind<>'abandon_instruction'),0))::text,"+
+            "SELECT jsonb_build_object('tradeId',r.trade_id,'lots',trim_scale(r.lots)::text,'openLots',trim_scale(abs(r.lots)-coalesce(sum(e.lots),0))::text,"+
             "'events',coalesce(jsonb_agg(security.futures_option_event_outcome(e) ORDER BY e.publication_order) FILTER(WHERE e.id IS NOT NULL),'[]'))::text "+
             "FROM trading.futures_option_trade_revisions r LEFT JOIN trading.futures_option_events e ON(e.catalog_id,e.trade_id)=(r.catalog_id,r.trade_id) "+
             "WHERE(r.catalog_id,r.trade_id)=($1,$2) GROUP BY r.trade_id,r.lots",manifest.CatalogId,trade);
@@ -139,7 +139,9 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
         "option_contrary_instructions_not_accepted"=>"This option product does not accept exercise or abandon instructions; expiry follows its automatic exercise rule.",
         "option_instruction_cutoff_unknown"=>"This series has no configured instruction cutoff.",
         "option_instruction_closed"=>"The series' instruction cutoff has passed.",
-        "option_instruction_exists"=>"This holding already has an instruction.",
+        "option_instruction_conflict"=>"This holding already has the contrary instruction.",
+        "option_expiry_not_reached"=>"The option's expiry instant has not passed; expiry is recorded only after it.",
+        "option_expiry_conflict"=>"This holding already expired on a different underlying settlement.",
         "option_expiry_settlement_missing"=>"The selected inputs hold no final daily settlement of the underlying on the option's expiry date; the holding stays open.",
         "option_expiry_settlement_ambiguous"=>"The selected inputs hold more than one final daily settlement of the underlying on the expiry date.",
         "option_exercise_rule_unknown"=>"The product's automatic exercise rule is not stated in a form the backend evaluates.",
