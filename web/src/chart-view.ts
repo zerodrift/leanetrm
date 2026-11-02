@@ -13,6 +13,7 @@ export type ChartPoint={x:string;y:string|null;label?:string;color?:string;marke
  * dashed line across a vertical chart at an exact value, labeled with its own text, and the value axis always includes it.
  */
 export type ChartSpec={title:string;subtitle?:string;axis:'delivery'|'observation'|'maturity'|'category';categoryTitle?:string;axisName?:string;dense?:boolean;unit:string;exportImage?:(download:()=>void)=>void;kind?:'line'|'bar'|'heatmap';
+  onSelect?:(category:string)=>void;
   orientation?:'vertical'|'horizontal';colorBySign?:boolean;marked?:string[];reference?:{value:string;label:string};series:{id?:string;name:string;points:ChartPoint[]}[]};
 // Validated categorical order. The last two sit under 3:1 contrast on white, so a chart that reaches them keeps its table view.
 export const palette=['#2f8a66','#2a78d6','#eb6834','#6250d6','#e87ba4','#eda100'];
@@ -123,7 +124,14 @@ export function chartOptions(spec:ChartSpec,size?:{width:number}){
     series:[{type:'heatmap',data:cells,itemStyle:{borderWidth:3,borderColor:'#fff',borderRadius:4},emphasis:{itemStyle:{borderColor:'#203d30',borderWidth:2}},label:{show:cells.length<=48,fontSize:11,rich:{light:{color:'#fff'},dark:{color:'#183c2d'}},formatter:(item:{value:number[]})=>{const [x,y,coordinate]=item.value,value=points[y].get(categories[x])?.y??'';return value.length<=12?`{${Math.abs(coordinate)>magnitude*.55?'light':'dark'}|${value}}`:'';}}}],
   };
 }
-const active=new Map<HTMLElement,{chart:Chart;resize:ResizeObserver}>();
+const active=new Map<HTMLElement,{chart:Chart;resize:ResizeObserver;interactive:boolean}>();
+/** Return the exact category identity the rendered bars or heatmap cells refer to. */
+export function selectedChartCategory(spec:ChartSpec,event:{componentType?:string;dataIndex?:number;value?:unknown}):string|undefined{
+ if(event.componentType!=='series')return undefined;
+ const categories=[...new Set(spec.series.flatMap(s=>s.points.map(p=>p.x)))];
+ const index=spec.kind==='heatmap'&&Array.isArray(event.value)?event.value[0]:event.dataIndex;
+ return Number.isInteger(index)?categories[index!]:undefined;
+}
 export function clearChart(host:HTMLElement,message=''){
   const existing=active.get(host);if(existing){existing.resize.disconnect();existing.chart.dispose();active.delete(host);}host.replaceChildren();if(message)host.textContent=message;
 }
@@ -143,8 +151,11 @@ export function renderChart(host:HTMLElement,spec:ChartSpec){
   let option;try{option=chartOptions(spec,horizontal?{width:plot.clientWidth}:undefined);}catch(error){host.replaceChildren();throw error;}
   if(!spec.series.some(s=>s.points.some(p=>p.y!==null))){plot.textContent='No values available for this selection.';return;}
   const chart=init(plot,undefined,{renderer:'canvas'});try{chart.setOption(option);}catch(error){chart.dispose();host.replaceChildren();throw error;}
+  if(spec.onSelect)chart.on('click',event=>{
+    const category=selectedChartCategory(spec,event);if(category!==undefined)spec.onSelect!(category);
+  });
   // A horizontal chart's labels are bounded by its width, so they are bounded again whenever it resizes.
-  const resize=new ResizeObserver(()=>{if(horizontal)boundLabels(chart,plot.clientWidth);chart.resize();});resize.observe(plot);active.set(host,{chart,resize});
+  const resize=new ResizeObserver(()=>{if(horizontal)boundLabels(chart,plot.clientWidth);chart.resize();});resize.observe(plot);active.set(host,{chart,resize,interactive:!!spec.onSelect});
   function action(label:string,callback:()=>void){const button=document.createElement('button');button.type='button';button.className='text-button';button.textContent=label;button.onclick=callback;toolbar.append(button);}
   // Horizontal bars show every category and have no zoom to reset.
   if(!horizontal)action('Reset zoom',()=>chart.dispatchAction({type:'dataZoom',start:0,end:100}));
@@ -155,7 +166,7 @@ export function renderChart(host:HTMLElement,spec:ChartSpec){
 // charts retain the full renderer because their callbacks own the original specification.
 export function updateChart(host:HTMLElement,spec:ChartSpec){
  const existing=active.get(host);
- if(!existing||spec.exportImage){renderChart(host,spec);return;}
+ if(!existing||spec.exportImage||spec.onSelect||existing.interactive){renderChart(host,spec);return;}
  const plot=host.querySelector<HTMLElement>('.standard-chart-plot');
  const option=chartOptions(spec,spec.orientation==='horizontal'&&plot?{width:plot.clientWidth}:undefined);
  // New zoom options omit start/end, so ECharts retains the current window while updating availability.

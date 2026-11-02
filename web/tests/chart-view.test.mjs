@@ -1,8 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {chartOptions,palette,polarity} from '../dist/chart-view.js';
+import {chartOptions,palette,polarity,selectedChartCategory} from '../dist/chart-view.js';
 const css=readFileSync(new URL('../dist/app.css',import.meta.url),'utf8');
+test('bar and heatmap drill-through use the plotted exact factor identity, including sparse series',()=>{
+ const spec={title:'Risk',axis:'category',unit:'USD',kind:'bar',series:[{name:'A',points:[{x:'jan',y:'0'},{x:'feb',y:'1'}]},{name:'B',points:[{x:'mar',y:'2'}]}]};
+ assert.equal(selectedChartCategory(spec,{componentType:'series',dataIndex:1}),'feb');
+ assert.equal(selectedChartCategory({...spec,kind:'heatmap'},{componentType:'series',value:[2,1,2]}),'mar');
+ for(const event of [{componentType:'axis',dataIndex:0},{componentType:'series',dataIndex:99},{componentType:'series',dataIndex:-1},{componentType:'series',dataIndex:1.5}])assert.equal(selectedChartCategory(spec,event),undefined);
+});
 const token=name=>css.match(new RegExp(`${name}:\\s*([^;}]+)`))?.[1].trim();
 // A series without its own color takes the palette entry for its index, as ECharts does.
 const colorOf=(option,index)=>{const s=option.series[index];return s.itemStyle?.color??s.lineStyle?.color??option.color[index%option.color.length];};

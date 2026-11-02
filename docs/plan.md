@@ -4,6 +4,13 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D289 adds the [Risk results workspace](risk-workspace.md): Risk-owned setup,
+shared sensitivity ladders/heatmaps and drill-through, visible incomplete coverage,
+retained report links, and multipart submission recovery. The bounded recent-job
+directory remains separate from a complete archive. Joint statistical scenarios,
+aligned history, VaR/expected shortfall, Monte Carlo/PCA/hybrid, EVT and backtesting
+remain subsequent increments; deterministic graphics do not establish them.
+
 D284 adds [workspace assistant operations and page guidance](assistant-workspace.md):
 discovery, reads/previews and separately human-approved commands, immutable page
 prompts under a delegated permission, and operational turns without financial-data

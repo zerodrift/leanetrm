@@ -2035,3 +2035,35 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
   .delivery-filter-fields{grid-template-columns:minmax(0,1fr)}
   .delivery-filter-source,.delivery-filter-cutoff,.delivery-filter-fields>button{grid-column:auto}
 }
+
+/* Risk graphics keep native measures separate and exact evidence beside each plot. */
+.risk-workspace-heading .card-heading{align-items:flex-start;gap:20px}
+.risk-workspace-heading .actions{flex-wrap:wrap;justify-content:flex-end}
+.risk-workspace-scope{display:grid;grid-template-columns:repeat(2,minmax(180px,1fr));gap:16px;margin-top:16px;max-width:760px}
+.risk-workspace-scope label{display:grid;gap:6px;font-weight:600}
+.risk-workspace-scope select{width:100%;min-height:86px}
+.risk-context-note:empty{display:none}
+.risk-context-note{padding:12px 16px;background:#f4f7f5;border-left:3px solid var(--gas);border-radius:4px}
+.risk-coverage{padding:12px 16px;margin:16px 0;border:1px solid #dbe7df;border-radius:8px;background:#f4f8f5}
+.risk-coverage[data-state=incomplete],.risk-coverage[data-state=unavailable]{background:#fff8ed;border-color:#e4cfaa}
+.risk-result-heading h3{margin:0 0 8px}.risk-result-heading p{margin:6px 0}
+.risk-result-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0}
+.risk-result-controls button[aria-pressed=true]{background:#203d30;color:#fff;border-color:#203d30}
+.risk-result-controls label{display:flex;align-items:center;gap:8px;font-size:13px}
+.risk-result-controls select{max-width:100%}
+.risk-report-charts{min-width:0}.risk-result-chart{width:100%;min-height:340px}
+.risk-result-chart .standard-chart-plot{height:330px}
+.risk-result-table{margin:16px 0}.risk-factor-detail{margin-top:24px;outline:none}
+.risk-report-paging{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0;font-size:12px;color:var(--text-3)}
+.risk-report-library>summary,.risk-full-report>summary,#risk-workspace-editor>summary{font-weight:600;cursor:pointer;padding:4px 0}
+.risk-report-library .card-heading{margin-top:12px}.risk-full-report{margin:10px 0}
+.risk-report-link{display:inline-block;margin:8px 0;font-size:13px}
+@media(max-width:700px){.risk-workspace-scope{grid-template-columns:1fr}.risk-workspace-heading .card-heading{display:block}.risk-workspace-heading .actions{justify-content:flex-start;margin-top:12px}.risk-result-controls label{flex-wrap:wrap;width:100%}.risk-result-controls select{width:100%}.risk-results{padding:14px}}
+.risk-result-chart .chart-toolbar>span{display:grid;gap:4px}
+.risk-result-chart .chart-toolbar strong{font-size:13px;line-height:1.4}
+.risk-result-chart .chart-toolbar small{display:block;font-size:11px;line-height:1.5}
+.risk-results,.risk-full-report,#risk-workspace-editor,.risk-report-library,#risk-page{min-width:0;max-width:100%}
+:is(.risk-results,.risk-full-report,.risk-report-library) .table-wrap{max-width:100%;overflow-x:auto}
+#risk-workspace-editor fieldset{min-width:0}
+#risk-workspace-editor select,#risk-workspace-editor input:not([type=radio]){width:100%;max-width:100%;min-width:0}
+.risk-result-controls select{min-width:0}

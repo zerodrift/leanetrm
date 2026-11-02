@@ -2436,6 +2436,14 @@ Variation-margin processing and full futures settlement PV remain unimplemented.
 
 ## Nested risk and retained execution (D178–183, D186)
 
+The [Risk results workspace](risk-workspace.md) (D289) owns run setup and opens
+retained reports independently of the current header's priceability. Risk and the
+Blotter share the editor and report widget. Financial amounts, measures, native
+units, exclusions and captured context remain backend results; graphical display
+windows do not change calculation scope. Unknown multipart submissions retain
+every original request identity before dispatch and reconcile under current
+authority after reload. Statistical VaR engines remain separate work.
+
 [Risk scenarios and jobs](risk-engine.md) specifies the implemented immutable
 parent-relative quote and computed-output overlays. Children share the resolved header/job
 financial context and preserve their parents. The shared valuation engine also

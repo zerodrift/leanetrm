@@ -1,3 +1,4 @@
+import {riskReportAddress} from './risk-results.js';
 import {streamBlotter} from './blotter-stream.js';
 // The Blotter in a window of its own (docs/blotter-workbench.md, Pop-out Blotter), tied to the main window that opened it. It takes the view
 // the main window hands over and the market selection its header makes, and reads every value itself through the API under the session
@@ -114,7 +115,7 @@ function apply(context:BlotterContext,next:MarketNavigation){applied=context;nav
 // PPA and physical gas trades are entered and inspected in the main window, whose editors this window does not host.
 const mainWindowTickets:ProductTickets={async open(product){throw Error(`${product==='ppa'?'PPA':'Physical gas'} trades are entered and inspected in the main window.`);},
   detach:()=>undefined,active:()=>undefined,unsaved:()=>false,pending:()=>[],sync:()=>undefined};
-const futures=setupFutures({window:{kind:'popout',close:()=>bringBack(),example:tied?.example},api,stream:async(body,handlers,signal)=>{await streamBlotter(responseFor,body,handlers,signal);if(!busy)checkAccount();},act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>scope,knowledge,
+const futures=setupFutures({riskReportUrl:id=>{if(!tied)throw Error('This window has no verified workspace for a report link.');return riskReportAddress(id,{hosted,example:tied.example});},window:{kind:'popout',close:()=>bringBack(),example:tied?.example},api,stream:async(body,handlers,signal)=>{await streamBlotter(responseFor,body,handlers,signal);if(!busy)checkAccount();},act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>scope,knowledge,
   narrow:()=>main.clientWidth<dockedGroupsFrom,canRunRisk:()=>can('RunScenario'),contextDirty:()=>false,bookingUnavailableReason:()=>bookingFallback({contextDirty:false,view:knowledge(),canBook:can('BookTrade')}),
   onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),failed,failureCleared:()=>{$('error').hidden=true;},notice,
   definitionRevision:()=>{if(!navigation)throw Error('The market navigation is still loading.');return navigation.definitionRevision.revisionId;},

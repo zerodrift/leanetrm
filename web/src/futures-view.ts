@@ -17,6 +17,7 @@ import {type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {releasesRetained,retainedText,retryAllowed,isLifecycleCommand,isCrudeOperation,tradeStatusPath} from './trade-requests.js';
 import {setupRisk,riskDenied,type RunView} from './risk-view.js';
+import {setupRiskResults} from './risk-results-view.js';
 import {changeChart,changeScales,gapsText,lensCells,madeHere,noMoveText,positionKey,positionMoves,runBar,runExclusions,runGaps,runSummary,shockCount,shocksText,tileWords,unmovedNote,
   type LensCell,type ReadPlace,type RunGap} from './risk-lens.js';
 import type {ExcludedPosition,RiskReport} from './risk-report.js';
@@ -89,6 +90,7 @@ const numericFields=['tradeCount','lots','quantity','executionPrice','mark','exe
 const curvesPerShapeRead=64;
 
 export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(body:BlotterStreamRequest,handlers:BlotterStreamHandlers,signal:AbortSignal)=>Promise<void>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
+  riskReportUrl?:(id:string)=>string;
   // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused; and
   // takes that away again once the person acts anew.
   failed:(error:unknown)=>void;failureCleared:()=>void;notice:(message:string)=>void;
@@ -249,6 +251,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(!lastReadRequest)throw Error('Load the blotter before running risk.');
     return {context:{...(lastReadRequest as {context:Record<string,unknown>}).context},bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]};
   }});
+  const fullReport=setupRiskResults(get('desk-risk-full-results'),options.zone,options.riskReportUrl),fullReportPanel=get<HTMLDetailsElement>('desk-risk-full');
+  let fullReportKey='';
+  fullReportPanel.ontoggle=()=>{fullReportKey='';if(fullReportPanel.open)showRunBar();else fullReport.reset();};
   get('blotter-risk').onclick=()=>void openRiskReport();
   // The run bar's Edit shocks opens the risk report with the run's choices, Export downloads its results and inputs, and Clear takes it off the desk.
   get('desk-run-edit').onclick=()=>void openRiskReport();
@@ -766,7 +771,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // What the run bar says of the run on screen, or nothing while there is none.
   function showRunBar(){
     const run=risk.current();
-    if(!run||!holdings){renderRunBar(get('desk-run'),null,busy());return;}
+    fullReportPanel.hidden=!run||!holdings;
+    if(!run||!holdings){fullReport.reset();fullReportKey='';renderRunBar(get('desk-run'),null,busy());return;}
+    const fullKey=resultsKey(run)+':'+run.key+':'+run.running+':'+options.zone();
+    if(fullReportPanel.open&&fullReportKey!==fullKey){fullReportKey=fullKey;fullReport.show(run);}
     const results=inline===undefined||inline.key!==resultsKey(run)?{state:'none' as const}:inline.state==='shown'?{state:view.mode==='pivot'?'pivot' as const:'shown' as const,excluded:inline.excluded}
       :inline.state==='failed'?{state:'failed' as const,reason:inline.reason}:{state:'elsewhere' as const};
     renderRunBar(get('desk-run'),{...runBar(run,{zone:options.zone(),knowledge:knowledgeWords[options.knowledge()],results}),setup:run.setupText},busy());

@@ -1,5 +1,28 @@
 # Local verification and continuous integration
 
+## Risk results workspace
+
+The D289 local qualification on 2 November 2026 passed all 1,172 frontend
+checks. The stock PostgreSQL risk suite passed scenario, scope/current-authority,
+durable-job, cancellation, worker/replay and retained-definition checks, plus
+143 full Risk browser checks. A final focused workspace run passed 22 browser
+checks on the integrated futures-options baseline.
+
+The workspace checks cover exact shared report values, delta/gamma units,
+heatmaps and tabular drill-through, direct retained links, display-zone changes,
+automatic matching-report selection, explicit book scope, account-change
+questions, same-window address ownership and phone width. Deferred POST replies
+exercise reload during a later multipart ordinal: completed metadata-only parts
+are reauthorized and reloaded, all remaining original request IDs resume once,
+and missing siblings remain incomplete with complete export unavailable. A
+separate cached-catalog check refuses a changed owning context before valuation.
+
+Independent adversarial review covered context/account fencing, current-authority
+reads, uncertain submission persistence and pop-out workspace identity. These
+checks qualify deterministic presentation and request recovery; no VaR estimator,
+calibration pipeline or production throughput is claimed. This change adds no
+schema migration.
+
 ## Shared market factors and retained gas portfolio risk
 
 The D287 local checks on 1 November 2026 cover canonical factor sharing across

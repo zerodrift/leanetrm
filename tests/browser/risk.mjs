@@ -467,7 +467,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     // The independently imported module has its own metadata map beside the
     // bundled application; initialize it from the actual authorized directory.
     (await import('/market-view.js')).setCurveNames(await(await fetch('/api/curve-names')).json());
-    window.__riskHarness=(await import('/risk-view.js')).setupRisk({api,act:work=>work(),busy:()=>false,zone:()=> 'America/Chicago',canRun:()=>true,profile:()=> 'synthetic-risk-races',scope:()=>window.__riskJobs.at(-1).request,onDenied:()=>{},onChange:()=>{}});
+    window.__riskHarness=(await import('/risk-view.js')).setupRisk({api,act:work=>work().catch(error=>{if(window.__riskScopeChanged){window.__riskScopeRefused=error.message;return;}throw error;}),busy:()=>false,zone:()=> 'America/Chicago',canRun:()=>true,profile:()=> 'synthetic-risk-races',scope:()=>{if(window.__riskScopeChanged)throw Error('Synthetic selected financial context changed.');return window.__riskJobs.at(-1).request;},onDenied:()=>{},onChange:()=>{}});
     await window.__riskHarness.open();
   })()`);
   await choose('custom');await set('#risk-factor',factor);await set('#risk-bump','0.1');await click('#risk-queue');await wait('window.__riskRaceResponses.length===1');
@@ -483,6 +483,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate('window.__beforeLateRiskExport=window.__riskBlob;window.__lateRiskExport=window.__riskHarness.download().catch(()=>undefined);0');await wait('window.__riskRaceResponses.length===1');
   await evaluate("(async()=>{window.__riskHarness.reset();window.__riskRaceResponses.shift()(window.__riskRaceJob);await window.__lateRiskExport;})()");
   await check('late export after a financial-context reset creates no download',"window.__riskBlob===window.__beforeLateRiskExport&&window.__riskHarness.current()===undefined");
+  await evaluate('(async()=>{await window.__riskHarness.open();})()');await choose('custom');await set('#risk-factor',factor);await set('#risk-bump','0.1');await evaluate('window.__riskScopeChanged=true');await click('#risk-run');
+  await check('a changed owning context refuses reuse of a cached catalog before any valuation request',"window.__riskScopeRefused==='Synthetic selected financial context changed.'&&window.__riskRaceResponses.length===0&&window.__riskHarness.current()===undefined");
+  await evaluate('window.__riskScopeChanged=false');
   await evaluate('window.__riskHarness.reset()');
   // After a reload the job history still lists the queued split run as one run, and the run bar shows its parts as one, made at the
   // context it was captured at.
