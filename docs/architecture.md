@@ -199,6 +199,30 @@ Historical requests retain their selected context and remain read-only.
 Business reads follow the definition bundle's declared reference relationships;
 the reference inspector loads its selected table separately in bounded pages
 under the same authorization and temporal rules (D144).
+Reference inspection receives a server-declared source for each category: exact
+reference and definition revisions. The browser checks category pages and product
+reads against that source, profile and context, rather than assuming inspection
+uses the pricing bundle's reference revision (D297).
+
+A tab remembers only its current page identifier per workspace, example and
+account. Reload checks current navigation permissions before restoring it;
+explicit reference and risk addresses take precedence. The page preference stores
+no business data; completed Blotter values are not persisted to browser storage.
+Existing retained-command storage is unchanged.
+
+The browser retains one completed Blotter read in window memory across page
+visits. Before showing it again, a fresh authorized `trading/freshness` read
+validates the exact current or retained selection and returns an opaque equality
+version. Reuse requires identical account, frame/context, scope, report, summary
+and chart inputs. The version identifies the running server instance. Its head
+includes every current temporal publication stream, shared deal formats, currently
+readable workspace reference display versions and the security epoch with current
+permissions/scopes. It excludes contexts and receipts created by
+reads. Sample the head before valuation: a publication during the read then forces
+a new read at reentry. A failed check clears the retained data; a superseded check
+cannot reveal it. This is browser read reuse, not cached authorization or a shared
+calculation cache. Explicit Refresh and input changes perform new reads.
+
 Initial browsing uses a distinct market-navigation response: curve names and
 explicit classifications, frame summaries and exact bundle/context identities.
 A classification is the curve's market type plus, for commodity curves, its

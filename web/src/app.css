@@ -2159,3 +2159,6 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .factor-history-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0;min-width:0}.factor-history-fields label{display:grid;gap:6px;min-width:0}.factor-history-fields input,.factor-history-fields select,#risk-history-results select{width:100%;min-width:0}#risk-history-fields,#risk-history-results{min-width:0}#risk-history-results>label{display:block;margin:14px 0}
 
 #risk-history-panel{min-width:0;max-width:100%}#risk-history-fields{border:0;padding:0;margin:0}#risk-history-results .table-wrap{max-width:100%;overflow-x:auto}
+
+/* Retained Blotter values cannot appear before the server rechecks current access. */
+#futures-page.checking-cache>*{visibility:hidden}

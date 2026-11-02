@@ -1716,3 +1716,23 @@ runtime writes, exact replay/amendment, source/link ordering and display-zone
 changes during authoring. Independent asset normalization sets, partial-month
 capacity, arbitrary REC inventory and composed break-even/monthly settlement
 remain outside this contract. Production activation remains separate.
+
+
+### Page restoration and Blotter reuse (D297)
+
+Reference category sources are declared by the server and validated independently
+of pricing definitions. Reload restores the current permitted page, with explicit
+reference/risk addresses taking precedence. Only a page identifier is persisted.
+
+Completed Blotter values stay in window memory across page visits. Reentry checks
+current authority and an opaque version of the exact server selection and durable
+publication/display heads before showing retained rows. Unchanged reads avoid
+position and valuation requests; changed versions reload. Failed or superseded
+checks cannot reveal retained values. Explicit Refresh remains a new read.
+
+The freshness head includes interval-series and collected-price publications,
+shared deal precision, workspace reference labels and all current context-capture
+source streams. New input streams must extend this head before their values are
+eligible for browser reuse. This increment does not persist values across reload,
+introduce a shared pricing cache or subscribe ordinary working pages to live
+corrections. Migration 0173 requires normal qualified schema release handling.

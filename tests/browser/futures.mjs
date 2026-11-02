@@ -49,7 +49,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await persona('trader');
   await check('Trader has Blotter under Trading',"document.querySelector('#nav-futures').textContent.includes('Blotter')");
   const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
-  await set('#snapshot',frame);await wait(idle);await evaluate('window.__futuresResponses=[]');const firstRead=0;
+  // Exercise the first valuation after an input change, rather than reopening an unchanged cached read.
+  await click('#nav-market');await set('#snapshot',frame);await wait(idle);await evaluate('window.__futuresResponses=[]');const firstRead=0;
   await evaluate("window.__holdWorkspace=true;document.querySelector('#nav-futures').click()");
   // The count of booked positions is read beside the held valuation.
   await wait("typeof window.__releaseWorkspace==='function'&&document.body.getAttribute('aria-busy')==='false'&&window.__futuresResponses.some(r=>r.path==='/api/trading/positions')&&/^Valuing \\d+ positions$/.test(document.querySelector('#blotter-load-text').textContent)");

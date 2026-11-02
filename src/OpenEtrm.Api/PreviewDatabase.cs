@@ -23,7 +23,7 @@ public sealed record ReferencePage(string Table,ImmutableArray<JsonElement> Rows
     ImmutableDictionary<string,ImmutableArray<JsonElement>> References,int Offset,int PageSize,int MaximumOffset,bool HasMore,string Search,
     ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
 public sealed record FuturesProductRead(JsonElement Product,ImmutableArray<JsonElement> Series,ImmutableArray<JsonElement> Milestones,
-    ImmutableArray<JsonElement> ExecutionPolicies,ImmutableDictionary<string,ImmutableArray<JsonElement>> References,ReferenceRevision ReferenceRevision);
+    ImmutableArray<JsonElement> ExecutionPolicies,ImmutableDictionary<string,ImmutableArray<JsonElement>> References,ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
 public sealed record ReferenceSummaryField(string Label,string? Value);
 public sealed record ReferenceHit(string Table,string Code,string Label,string? ProductCode,ImmutableArray<ReferenceSummaryField> Summary);
 public sealed record ReferenceSearch(string Query,ImmutableArray<ReferenceHit> Hits,bool Truncated);
@@ -572,7 +572,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         await ProveScopes();
         // Absence is reported only after current authority is proven again.
         if(product.IsEmpty)throw ReferenceItemMissing();
-        return new(product[0],series,milestones,policies,references.ToImmutable(),revision);
+        return new(product[0],series,milestones,policies,references.ToImmutable(),revision,ReferenceSource(Manifest,"futures_products").Definition);
     }
 
     private static MarketDataException ReferenceItemMissing()=>new("reference_item","The reference item does not exist in this context's exact revision.");

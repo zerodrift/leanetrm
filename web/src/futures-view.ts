@@ -120,6 +120,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // `example` is the example both windows read, which a position's own window reads too; a window that cannot say opens no position window.
   window:({kind:'main';open:(url:string,target:string,features:string)=>Window|null}|{kind:'popout';close:()=>void})&{example:'baseline'|'exchange'|undefined}}){
   const {api,act,busy}=options;
+  // A completed read stays in this window only. Its server version was sampled before the read began.
+  let cachedRead:{key:string;version:string}|undefined;
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
   const text=(id:string,value:string)=>{get(id).textContent=publicText(value);};
@@ -397,8 +399,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // controls show a refusal, and leave a failure to what said it (asked).
   const guarded=(work:()=>Promise<void>,kept?:()=>void)=>guard({busy,leave,act},work,kept);
   const asked=(work:()=>Promise<void>,kept?:()=>void)=>void guarded(work,kept).catch(error=>{if((error as {shown?:boolean}).shown!==true)options.failed(error);});
-  // Leaving the Blotter: no read, form or position of it stays.
-  function leavePage(){cancelRead();dropForms();deskPanel.reset();}
+  // Forms and pending reads are released; completed values remain hidden until current authority is checked again.
+  function leavePage(){cancelRead();dropForms();deskPanel.reset();get('futures-page').classList.add('checking-cache');}
   // A trade request whose outcome is not confirmed is owned by the window that sent it, which keeps its Check status and Retry.
   // A main window's unconfirmed requests stay with it; a pop-out's go back with the Blotter (handOver).
   const retainedStays=(move:string)=>{
@@ -927,6 +929,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // Forgets the read on screen. A new read for the same account keeps what the page draws, its rows marked stale, so the read arriving
   // changes the grid in place and the person keeps their place in it; the panel closes as it does for any new read.
   function clearRead(keepGrid:boolean){
+    cachedRead=undefined;
     kept=keepGrid?{strip:strip??kept?.strip}:undefined;strip=undefined;
     // A read again keeps the position the details show, which the read arriving draws again (deskPanel.sync) or, when it no longer holds it,
     // closes; anything else the details hold closes now.
@@ -936,7 +939,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     // The summary strip kept is drawn stale now: a read for the priced contracts reads no position count, which would draw it.
     if(keepGrid)drawStrip();
     if(!keepGrid){get('blotter-chart').querySelectorAll<HTMLElement>('.chart').forEach(panel=>clearChart(panel));clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');}
-    sync();}
+    get('futures-page').classList.remove('checking-cache');sync();}
   // Starts the Blotter afresh: for another close or context, or for the Blotter opened again, each of which says so of a risk run it
   // clears; or, for another account, saying nothing, as everything the page held goes.
   function reset(cause:ReadCause|null){
@@ -1193,7 +1196,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(kept)markStale(failedStale[read]);
     drawStrip();showCrudeFacts();sync();
   }
-  async function load(bookingCatalog:BookingCatalog='directory',live=false,background=false){
+  async function load(bookingCatalog:BookingCatalog='directory',live=false,background=false,reuse=false){
     // A Blotter in a window of its own is read there; one that keeps only its retained request reads nothing.
     if(tie?.out()||retainedOnly)return;
     // A read awaiting its values has only its book scope to change; its other controls belong to the view.
@@ -1202,13 +1205,32 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before reading holdings.');
     snapshot=source.snapshotId;
     const inputs=JSON.stringify([source.snapshotId,source.context?.contextId??null,view.bookIds,view.portfolioIds]);
+    const request:ReadRequest={snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};
+    const selectedView={mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:view.mode==='pivot'?[...view.groupBy]:[],measures:view.mode==='pivot'?[...view.measures]:[],pivotConvention:view.mode==='pivot'?'trading_blotter_totals_v1':null,priceNumericalPolicy:view.mode==='pivot'&&view.measures.some(m=>isPriceMeasure(m)&&m.endsWith('Mean'))?priceMeanPolicy:null};
+    const summaryViews=deskSummaryViews(view.bookIds,view.portfolioIds);
+    const cacheKey=JSON.stringify([options.profile(),source,selectedView,summaryViews,view.chart,view.splitBy]);
+    let version:string|undefined;
+    if(!live&&bookingCatalog==='directory'){
+      cancelRead();const checking=generation,scope=JSON.stringify([options.profile(),source]);
+      try{
+        const fresh=await api<{version:string}>('trading/freshness',{...request,convention:'trading_workspace_v1'});
+        requireCurrentRead(checking,scope);if(get('futures-page').hidden)return;
+        if(!/^[0-9a-f]{64}$/.test(fresh.version))throw Error('The Blotter update check was inconsistent. Refresh and try again.');
+        version=fresh.version;
+        if(reuse&&holdings&&catalog&&summaries&&cachedRead?.key===cacheKey&&cachedRead.version===version){
+          get('futures-page').classList.remove('checking-cache');
+          if(shapes===undefined)shapesRead=loadShapes(checking,scope,source);
+          options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();return;
+        }
+        // Changed authority or data may make any previously visible name or row unavailable.
+        if(reuse)clear();
+      }catch(error){if(checking!==generation||whereAmI()!==scope)return;clear();throw error;}
+      finally{if(checking===generation&&whereAmI()===scope&&!get('futures-page').hidden)get('futures-page').classList.remove('checking-cache');}
+    }else get('futures-page').classList.remove('checking-cache');
     // A read for the account on screen keeps its grid, stale, and the read arriving changes it in place: also the rows a failed read kept.
     const keep=!live&&(!!holdings||!!kept)&&account===owner;
     if(live)cancelRead();else replaceRead(inputs===readInputs?'read':'inputs',keep);
     const started=generation,scope=JSON.stringify([options.profile(),source]);
-    const request:ReadRequest={snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})};
-    const selectedView={mode:view.mode,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds],groupBy:view.mode==='pivot'?[...view.groupBy]:[],measures:view.mode==='pivot'?[...view.measures]:[],pivotConvention:view.mode==='pivot'?'trading_blotter_totals_v1':null,priceNumericalPolicy:view.mode==='pivot'&&view.measures.some(m=>isPriceMeasure(m)&&m.endsWith('Mean'))?priceMeanPolicy:null};
-    const summaryViews=deskSummaryViews(view.bookIds,view.portfolioIds);
     get('futures-page').dataset.pricingState='pending';if(!live)showLoad({state:'reading'});
     let factsRead:Promise<void>=Promise.resolve(),countFailed:unknown;
     try{
@@ -1287,7 +1309,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         facts=undefined;factsRequest=undefined;readInputs=inputs;showLoad(undefined);
         shapesRead=view.mode==='trades'?loadShapes(started,scope,source):Promise.resolve();
         await loadChart(reportRequest,started,scope);requireCurrentRead(started,scope);if(get('futures-page').hidden)return;
-        get('futures-page').dataset.pricingContext=selected.contextId;get('futures-page').dataset.pricingState='complete';workspace.closeMenus();sync();
+        get('futures-page').dataset.pricingContext=selected.contextId;get('futures-page').dataset.pricingState='complete';
+        cachedRead=version?{key:cacheKey,version}:undefined;workspace.closeMenus();sync();
       }catch(error){
         if(started!==generation||get('futures-page').hidden)return;
         // A detached background read is discarded. An awaited booking read
@@ -1594,7 +1617,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // A main window that reloaded is handed a pop-out's requests once it is back, after its own first read: they are taken, and shown, as
   // soon as they arrive.
   if(options.window.kind==='main')setInterval(()=>{if(!busy()&&owner&&owner===options.profile()&&!tie?.out()&&takeStoredRequest())sync();},1000);
-  return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),reset,sync,show,
+  return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),open:()=>{leavePage();return load('directory',false,true,true);},reset,sync,show,
     /** The values of the read under way, which a read in the background draws after `load` returns: rejects with the read's failure. */
     valued:()=>pricingRead,
     // The person's saved views, read for the sidebar when they are not read yet.

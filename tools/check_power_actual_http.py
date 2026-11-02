@@ -97,8 +97,11 @@ def run_checks(url, query, manifest):
     verify(power, first_prices, first, 1)
     print('PASS actual power HTTP: shaped hourly MW and already-shaped MWh retain exact prices, cash and source lineage', flush=True)
 
+    from blotter_freshness_probe import BlotterFreshnessProbe
+    freshness=BlotterFreshnessProbe(url,query,manifest);prior_version=freshness.read()
     second_prices = [str(2 * n - 9) for n in range(23)]
     second = publish('pjm', '2021-03-14', pjm_start, 23, 60, second_prices, 2)
+    freshness.changed(prior_version,'a collected-price correction invalidates values without market or trade publications')
     assert instant(second['knownAt']) > instant(first['knownAt'])
     verify(body, first_prices, first, 1)
     verify({**body, 'knownAt': second['knownAt']}, second_prices, second, 2)

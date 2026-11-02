@@ -139,7 +139,10 @@ def run_checks(url, query, manifest):
     check('a series without values has no latest window', client.call('interval-series/latest', {'seriesId': series, 'knownAt': catalog['knownAt']})['window'] is None)
     check('read requests refuse unknown coordinates', refused('interval-series/values', {**window(hours[0], hours[3]), 'effectiveOn': '2027-01-01'}, 400, 'request_format'))
     first = revise(0, hours[0], ['0.25', '0.5', '0.75'], 'Initial synthetic forecast')
+    from blotter_freshness_probe import BlotterFreshnessProbe
+    freshness=BlotterFreshnessProbe(url,query,manifest);prior_version=freshness.read()
     receipt = client.call('interval-series/revise', first)
+    freshness.changed(prior_version,'an interval publication invalidates values without market or trade publications')
     values = client.call('interval-series/values', window(hours[0], hours[3]))
     latest = client.call('interval-series/latest', {'seriesId': series, 'knownAt': client.call('interval-series')['knownAt']})
     check('latest window ends at the newest available record', parsed_at(latest['window']['to']) == parsed_at(hours[3]))

@@ -858,7 +858,12 @@ object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalo
     var data=read.Data;
     var context=exact is null?session.MarketContext:exact.Context;
     var prior=exact?.Frame is {} selected&&selected.ContextId!=session.MarketContext?.ContextId?selected:null;
-    return new {unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
+    var referenceSources=PreviewDatabase.ReferenceTables.ToDictionary(table=>table,table=>
+    {
+        var source=PreviewDatabase.ReferenceSource(database.Manifest,table);
+        return new {referenceRevision=source.Revision,definitionRevisionId=source.Definition};
+    });
+    return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
         frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:context is null?session.InitialFrames:session.ContextAliases(context).Select(f=>f.Id).ToArray()};
 }
 Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=>
@@ -906,7 +911,7 @@ api.MapGet("/reference/futures-product",(Func<HttpContext,Task<IResult>>)(c=>Loc
 {
     var read=await marketReads.FuturesProduct(connection,Pin(session),c.Request.Query["code"].ToString(),ct);
     var referenceDisplay=await ReferenceEditors.Display(connection,read.ReferenceRevision,ct);
-    return Results.Ok(new {read.Product,read.Series,read.Milestones,read.ExecutionPolicies,read.References,read.ReferenceRevision,referenceDisplay,context=session.MarketContext,profile=session.Profile});
+    return Results.Ok(new {read.Product,read.Series,read.Milestones,read.ExecutionPolicies,read.References,read.ReferenceRevision,read.DefinitionRevisionId,referenceDisplay,context=session.MarketContext,profile=session.Profile});
 },c.RequestAborted))));
 api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
@@ -1376,6 +1381,22 @@ api.MapPost("/trading/positions",(HttpContext c,TradingPositionsRequest body)=>T
  body.Context??throw new MarketDataException("position_facts","Supply the selected context."),
  (connection,view,ct)=>tradeReads.Positions(connection,view,body.BookIds,body.PortfolioIds,body.Offset,body.Limit,ct),
  expectedConvention:TradingBlotter.Convention));
+// Current access is checked on every reuse; no valuation or position rows are fetched here.
+api.MapPost("/trading/freshness",(HttpContext c,FuturesReadRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+{
+ RequireConvention(body,TradingBlotter.Convention);
+ var selection=Capture(session,body);
+ await RequireReadAccess(connection,ct);
+ if(!selection.Working)
+ {
+  var view=await selection.Resolve(connection,knowledgeStore,body,ct);
+  await view.Bind(connection,database.Manifest.CatalogId,ct);
+ }
+ await MarketBundle.RequireReferenceVisibility(connection,database.Manifest,ct);
+ var version=await BlotterFreshness.Read(connection,database.Manifest,body,selection,ct);
+ await RequireReadAccess(connection,ct);selection.RequireSession(session);
+ return Results.Ok(new{version});
+},c.RequestAborted)));
 api.MapPost("/trading/directory",(HttpContext c,FuturesReadRequest body)=>TradingRead(c,body,
  (connection,view,ct)=>tradeReads.Directory(connection,view,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/trading/gas",(HttpContext c,TradePositionReadRequest body)=>TradingRead(c,body.Context,

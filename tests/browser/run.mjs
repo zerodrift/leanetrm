@@ -50,6 +50,7 @@ import {run as marketNavigationRead} from './market-navigation.mjs';
 import {run as marketsDesk,deliveryDesk} from './markets-desk.mjs';
 import {run as startupAccess} from './startup-access.mjs';
 import {run as reference} from './reference.mjs';
+import {run as navigationCache} from './navigation-cache.mjs';
 import {run as referenceEditor} from './reference-editor.mjs';
 import {run as liveCalculation} from './live-calculation.mjs';
 import {run as customCurves} from './custom-curves.mjs';
@@ -66,7 +67,7 @@ import {run as notices} from './notices.mjs';
 import {run as intervalSeries} from './interval-series.mjs';
 import {run as intervalCurves} from './interval-curves.mjs';
 import {run as valuationStatus} from './valuation-status.mjs';
-async function marketNavigation(browser){await startupRequests(browser);await dateContext(browser);await marketNavigationRead(browser);await marketsDesk(browser);await deliveryDesk(browser);await startupAccess(browser);await reference(browser);await marketContext(browser);await scheduleExamples(browser);await referenceEditor(browser);}
+async function marketNavigation(browser){await startupRequests(browser);await dateContext(browser);await marketNavigationRead(browser);await marketsDesk(browser);await deliveryDesk(browser);await startupAccess(browser);await reference(browser);await marketContext(browser);await scheduleExamples(browser);await referenceEditor(browser);await navigationCache(browser);}
 async function tradingNavigation(browser){await blotterStreaming(browser);await futuresLoading(browser);await futuresAdmission(browser);await futures(browser);}
 // The Dashboard shares the risk suite's browser: each owned browser opens a preview session, and the preview caps them.
 async function ppaEntry(browser){await ppa(browser);await ppaComposed(browser);}
