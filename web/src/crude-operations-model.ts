@@ -1,3 +1,4 @@
+import {resolvedUtcInstant} from './user-time.js';
 import {crudeConvention} from './physical-crude-model.js';
 export const crudeReceiptProfile='physical_crude_receipt_cash_v1';
 export const crudeSaleProfile='physical_crude_sale_cash_v1';
@@ -12,8 +13,8 @@ const required=(value:string,name:string)=>{if(!value.trim())throw Error(`Enter 
 // Bind explicit form selections only; native operations own quantities, allocation and rounding.
 export function crudeOperationBase(context:Record<string,unknown>,head:{tradeId:string;revision:number;version:number},fields:{profile:string;businessKey:string;effectiveAt:string;evidence:string}){
  crudeOperationKinds(fields.profile);
- if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(fields.effectiveAt))throw Error('Enter an explicit UTC effective instant.');
- return{context:{...context,convention:crudeConvention},tradeId:head.tradeId,expectedRevision:head.revision,expectedVersion:head.version,operationId:crypto.randomUUID(),profile:fields.profile,businessKey:required(fields.businessKey,'a business key'),effectiveAt:fields.effectiveAt,evidence:required(fields.evidence,'evidence')};
+
+ return{context:{...context,convention:crudeConvention},tradeId:head.tradeId,expectedRevision:head.revision,expectedVersion:head.version,operationId:crypto.randomUUID(),profile:fields.profile,businessKey:required(fields.businessKey,'a business key'),effectiveAt:resolvedUtcInstant(fields.effectiveAt),evidence:required(fields.evidence,'evidence')};
 }
 export function crudeReceipt(base:Base,fields:{quantity:string;titleTransferred:boolean;disposition:string},sale?:{trade_id:string;revision:number}){
  if(base.profile!==crudeReceiptProfile)throw Error('Receipts require the purchase profile.');

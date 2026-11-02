@@ -180,6 +180,24 @@ internal static class PpaAcceptanceChecks
             var quantity=ValueMeasures.From(inputs.Session(market.Build).Value(instrument,hour,discount)).Scale(D("80")).Rows.Single(r=>r.Kind==ComponentKind.Delivery).Quantity;
             Quantity(quantity,"2401","125");Export("plan_normalization/degraded_mwh",quantity);
         });
+        Check("explicit composed physical REC capacity and fee retains independent native economics",()=>{
+            var energy=f.Physical(volume:true).Memberships[0];
+            var rec=f.WithCertificate(cash:false).Memberships.Single(m=>m.Slot.Role==PpaRole.CertificateDelivery);
+            var capacity=f.CapacityAgreement().Memberships[0];
+            var fee=new FixedSide(Guid.NewGuid(),energy.Side.Terms with {Quantity=new SlotQuantity([energy.Slot]),InputPorts=[new(energy.Slot,f.Energy.Key,energy.Side.Terms.Schedule)]},new FlatPrice(new(D("2"),f.EnergyPrice)));
+            var members=ImmutableArray.Create(energy,rec,capacity,new PpaMembership(new(PpaRole.FixedCharge),fee,D("-1")));
+            Reject("ppa_composition",()=>new PpaInstrument(Guid.NewGuid(),f.Definitions,f.Reference,members,false,"ppa_instrument_v2"));
+            var instrument=new PpaInstrument(Guid.NewGuid(),f.Definitions,f.Reference,members,false,"ppa_composed_instrument_v1");
+            Equal(instrument.Capability,"composed_sides_v1");
+            var inputs=f.Prepare(market,[instrument]);var values=ValueMeasures.From(inputs.Session(market.Build).Value(instrument,new(f.From,f.To),discount));
+            // 721 hourly generation slots at 0.25 MWh/MW; energy42, REC5,
+            // fee-2, and30 operating days at0.8 accredited MW/MW and4/MW-day.
+            Money(values.ValueExcludingOverdue,"32829","4");
+            Reject("ppa_segment_boundary",()=>inputs.Session(market.Build).Value(instrument,hour,discount));
+            var legacy=f.Physical(volume:true);
+            var composed=new PpaInstrument(Guid.NewGuid(),f.Definitions,f.Reference,legacy.Memberships,false,"ppa_composed_instrument_v1");
+            if(DefinitionIdentity.For(legacy)==DefinitionIdentity.For(composed))throw new Exception("Composition versions must have distinct identities.");
+        });
         Check("whole November capacity sums thirty operating dates including the repeated DST hour",()=>{
             var instrument=f.CapacityAgreement();var inputs=f.Prepare(market,[instrument]);
             var measures=ValueMeasures.From(inputs.Session(market.Build).Value(instrument,new(f.From,f.To),discount)).Scale(D("80"));

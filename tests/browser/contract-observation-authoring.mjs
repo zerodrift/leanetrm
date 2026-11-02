@@ -13,7 +13,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const source=catalog.contractObservationSources.find(s=>s.curve==='future');
  if(!source)throw Error('Missing qualified futures observation source');
  await newTrade({click,wait},'swaps');await click('#swap-scheduled-open');await wait(idle);
- await set('#scheduled-kind','fixed_floating');await set('#scheduled-commodity',source.commodity);await set('#scheduled-market',source.definitionRevisionId);
+ await click('[data-scheduled-structure=fixed_floating]');await set('#scheduled-commodity',source.commodity);await set('#scheduled-market',source.definitionRevisionId);
  await set('#scheduled-direction','-1');await set('#scheduled-discounting','none');await set('#scheduled-price-mode','agreed');
  const sides="document.querySelectorAll('#scheduled-swap-editor .scheduled-side-columns>.instrument-side')";
  const period=slot=>`${sides}[${slot}].querySelector('.scheduled-period')`;

@@ -44,6 +44,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
     private static string ContractVersion(object definition,EconomicDefinitionAttribute contract)=>
         definition switch
         {
+            PpaInstrument p=>p.TermImplementation,
             FloatingSidePeriod p when !p.ContractObservations.IsDefaultOrEmpty=>"floating_side_period_v2",
             FloatingProjectionBinding b when !b.ContractObservations.IsDefaultOrEmpty=>"floating_projection_binding_v2",
             _=>contract.Version

@@ -1,6 +1,7 @@
+import {chooseSwapSides} from './swap-sides.mjs';
 import {workspaceProbeScript} from './workspace-probe.mjs';
 /** Observation choices, intervals and weights come from the real authorized backend. */
-import {newTrade} from './new-trade.mjs';
+import {newTrade,closeNewTrade} from './new-trade.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
@@ -9,7 +10,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await persona('trader');await click('#example');await click('#nav-futures');
  const change=async(selector,value)=>{await set(selector,value);await wait(idle);};
  const last=path=>`window.observationCalls.filter(row=>row.path==='/api/${path}').at(-1)`;
- async function start(selectIndex=true,type='financial_fixed_floating'){await newTrade({click,wait},'swaps');await click(`[data-swap-type="${type}"]`);await wait(idle);if(type==='financial_fixed_floating')await change('#swap-price-mode','agreed');
+ async function start(selectIndex=true,type='financial_fixed_floating'){await newTrade({click,wait},'swaps');await chooseSwapSides({click,wait,idle},type);await wait(idle);if(type==='financial_fixed_floating')await change('#swap-price-mode','agreed');
   const index=await evaluate(`${last('swaps/catalog')}.data.indices.find(index=>index.curve==='daily_gas')`);
   await change('#swap-commodity',index.commodity);if(selectIndex)await change('#swap-index',index.index);return index;
  }
@@ -35,7 +36,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('contractual curves are selectable before observation frequency or averaging',`document.querySelector('#swap-reset-frequency').value===''&&document.querySelector('#swap-averaging').value===''&&[...document.querySelector('#swap-projection').options].some(option=>option.value===${JSON.stringify(projection)})`);
  await change('#swap-projection',projection);await change('#swap-settlement-mode','curve_target');await change('#swap-reset-frequency','daily');
  await check('a daily source offers every qualified observation method from the backend',`(()=>{const choices=${last('swaps/observation-options')}.data.samplings.filter(row=>row.resetFrequency==='daily');return choices.length===5&&choices.every(row=>[...document.querySelector('#swap-averaging').options].some(option=>option.value===row.averagingMethod));})()`);
- await click('#position-details:not([hidden]) #details-collapse');index=await start(false);
+ await closeNewTrade({click,evaluate,wait});index=await start(false);
  await change('#swap-reset-frequency','daily');await change('#swap-averaging','quantity_weighted');
  await check('convention-first entry filters indices through the authorized backend matrix',`(()=>{const options=${last('swaps/observation-options')}.data;const expected=[...new Set(options.indices.map(row=>row.index))].sort(),actual=[...document.querySelector('#swap-index').options].map(row=>row.value).filter(Boolean).sort();return document.querySelector('#swap-averaging').value==='quantity_weighted'&&JSON.stringify(expected)===JSON.stringify(actual);})()`);
  await change('#swap-index',index.index);await change('#swap-projection',projection);await change('#swap-settlement-mode','curve_target');
@@ -55,7 +56,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await change('#swap-revision','1');await check('retained weighted revision shows original schedule and read-only authoring',"document.querySelector('#swap-fields').disabled&&document.querySelector('#swap-averaging').value==='quantity_weighted'&&document.querySelector('#swap-quantity').value==='100'&&document.querySelectorAll('#swap-observation-quantities input').length===31");await click('#swap-latest');
  await change('#swap-averaging','observation_arithmetic');
  await check('changing observation policy invalidates prior values and exposes a separate exact calendar',"document.querySelector('#swaps-draft-value').textContent===''&&!document.querySelector('#swap-observation-calendar-field').hidden&&document.querySelector('#swap-observation-calendar').value===''&&document.querySelector('#swap-observation-quantities').hidden");
- await click('#position-details:not([hidden]) #details-collapse');index=await start();await change('#swap-reset-frequency','daily');await change('#swap-averaging','observation_arithmetic');await change('#swap-projection',projection);await change('#swap-settlement-mode','curve_target');await fillTerms(index);
+ await closeNewTrade({click,evaluate,wait});index=await start();await change('#swap-reset-frequency','daily');await change('#swap-averaging','observation_arithmetic');await change('#swap-projection',projection);await change('#swap-settlement-mode','curve_target');await fillTerms(index);
  const calendar=await evaluate(`JSON.stringify(${last('swaps/observation-options')}.data.observationCalendars.find(row=>row.reference.code==='test_business').reference)`);
  await change('#swap-observation-calendar',calendar);await click('#swaps-draft-price');
  await check('calendar sampling transports its exact version and no quantity weights',`(()=>{const request=${last('swaps/price')};return request.status===200&&JSON.stringify(request.body.floating.observationSchedule.calendar)===${JSON.stringify(calendar)}&&request.body.floating.observationSchedule.quantities===null;})()`);
@@ -69,7 +70,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  }
  await change('#swap-averaging','quantity_weighted');
  await check('switching away from calendar sampling clears the calendar before requesting new intervals',`(()=>{const request=${last('swaps/observation-options')};return request.status===200&&!request.body.observationCalendar&&document.querySelector('#swap-observation-calendar-field').hidden&&document.querySelectorAll('#swap-observation-quantities input').length===31&&[...document.querySelectorAll('#swap-observation-quantities input')].every(input=>input.value==='');})()`);
- await click('#position-details:not([hidden]) #details-collapse');
+ await closeNewTrade({click,evaluate,wait});
  index=await start(true,'financial_floating_floating');
  await check('first floating side requires its own commodity before index selection',"document.querySelector('#swap-first-commodity').value===''&&![...document.querySelector('#swap-first-index').options].some(option=>option.value)");
  await change('#swap-first-commodity',index.commodity);
@@ -93,7 +94,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('composed amendment retains both exact plans and independently scaled PV',`${last('swaps/editor')}.data.state.revision===2&&${last('swaps/editor')}.data.valuation.presentValue==='-6.0625'&&${last('swaps/amend')}.body.firstFloating.observationSchedule.quantities[0].quantity.value==='2'&&JSON.stringify(${last('swaps/amend')}.body.floating.observationSchedule.calendar)===${JSON.stringify(calendar)}`);
  await change('#swap-first-averaging','observation_arithmetic');
  await check('editing the first floating convention preserves the second side calendar',`document.querySelector('#swap-first-observation-quantities').hidden&&!document.querySelector('#swap-first-observation-calendar-field').hidden&&document.querySelector('#swap-first-observation-calendar').value===''&&document.querySelector('#swap-observation-calendar').value===${JSON.stringify(calendar)}`);
- await click('#position-details:not([hidden]) #details-collapse');
+ await closeNewTrade({click,evaluate,wait});
  await click('#futures-new');await evaluate("window.holdObservation=true;document.querySelector('#new-trade-swaps').click()");await wait('!!window.releaseObservation');
  await evaluate("document.querySelector('#position-details').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));window.releaseObservation()");await wait(idle);
  await check('late observation options cannot reopen a reset editor or restore cleared side data',"document.querySelector('#swap-editing').hidden&&document.querySelector('#swap-schedules').children.length===0&&document.querySelector('#swap-index').options.length===0");

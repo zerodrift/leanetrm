@@ -144,13 +144,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const bindingOf=()=>evaluate(`window.__tradingReports(window.__editorReplies).at(-1).data.holdings.find(row=>row.tradeId===${JSON.stringify(bookedTrade)}).bindingId`);
   await open(2);
   const bindingBefore=await bindingOf(),contractBefore=await evaluate("document.querySelector('#trade-contract').value");
+  const deliveryBefore=await evaluate(`window.__editorReplies.filter(r=>r.path==='/api/futures/editor').at(-1).data.catalog.contracts.find(c=>JSON.stringify([c.curve,c.id])===${JSON.stringify(contractBefore)}).deliveryFrom`);
   await click('#trade-contract-date');
-  const month=await evaluate(`(()=>{const calendar=document.querySelector('#trade-contract-date').parentElement;for(let n=0;n<24;n++){const cell=[...calendar.querySelectorAll('[data-date]:not(:disabled)')].find(b=>b.getAttribute('aria-pressed')!=='true');if(cell){cell.click();return cell.dataset.date;}const next=calendar.querySelector('[aria-label="Next month with data"]');if(next.disabled)return null;next.click();}return null;})()`);
+  const month=await evaluate(`(()=>{const calendar=document.querySelector('#trade-contract-date').parentElement;for(let n=0;n<24;n++){const cell=[...calendar.querySelectorAll('[data-date]:not(:disabled)')].find(b=>b.dataset.date!==${JSON.stringify(deliveryBefore)});if(cell){cell.click();return cell.dataset.date;}const next=calendar.querySelector('[aria-label="Next month with data"]');if(next.disabled)return null;next.click();}return null;})()`);
   if(month===null)throw Error('The instrument-changing amendment needs a second delivery month.');
-  // What a calendar sets for the person is an edit: this contract-only amendment asks before a row switch, and keeping it changes nothing.
+  // Changing the optional delivery filter is an edit; the dated contract still needs an explicit selection.
   await set('#blotter-filters .table-search','');
   await evaluate(`[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].find(row=>row.querySelector('.desk-reference').textContent!==${JSON.stringify(tradeReference)}).click()`);await asks();
-  await check('a contract-only amendment asks before a row switch: a delivery month chosen in the calendar is an edit',`${prompt}.querySelectorAll('button').length===2&&document.querySelector('#position-details-head .side-panel-reference').textContent===${JSON.stringify(tradeReference)}&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-contract').value!==${JSON.stringify(contractBefore)}`,`[${prompt}.textContent,document.querySelector('#trade-contract').value,${JSON.stringify(contractBefore)}]`);
+  await check('changing only the delivery filter asks before a row switch and leaves the dated contract unselected',`${prompt}.querySelectorAll('button').length===2&&document.querySelector('#position-details-head .side-panel-reference').textContent===${JSON.stringify(tradeReference)}&&!document.querySelector('#trade-editing').hidden&&document.querySelector('#trade-contract').value===''`,`[${prompt}.textContent,document.querySelector('#trade-contract').value,${JSON.stringify(contractBefore)}]`);
   await answer(0);await set('#blotter-filters .table-search',tradeReference);
   // The month chosen offers its contract, which the person then chooses, as a booking does.
   const monthContract=await evaluate("document.querySelector('#trade-contract').options[1]?.value");

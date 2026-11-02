@@ -118,7 +118,7 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
   },
   sync,
   /** The time zone changed: the form's times are written again, and its price, which they were written beside, is cleared. */
-  refresh(){annotations.refresh();priceSource.refresh();draft.reset();},
+  refresh(){annotations.refresh();priceSource.refresh();draft.reset();terms();},
   /** Whether the form is in the panel, and has edits that have not been sent. */
   unsaved:()=>mounted()&&edits.edited(),
   mounted,

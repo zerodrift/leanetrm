@@ -4,7 +4,7 @@ import {crudeRequest,restoreCrudeCommand} from '../dist/physical-crude-model.js'
 import {PendingCommand} from '../dist/pending-command.js';
 const assignment={code:'synthetic_assignment',definitionRevisionId:'exact-definition'};
 const profile={code:'physical_crude_standard_volume_v1',quantityBasis:'standard_volume_total',tolerance:'0',discounting:false};
-const fields={deliveryFrom:'2027-01-04T09:00',deliveryTo:'2027-01-05T09:00:00',quantity:'1000.125',direction:'receive',fixedPrice:'70.25',considerationDirection:'receive',paymentAt:'2027-02-01T12:00',feeMode:'none',handlingFee:'99',handlingFeeDirection:'pay'};
+const fields={deliveryFrom:'2027-01-04T09:00:00Z',deliveryTo:'2027-01-05T09:00:00Z',quantity:'1000.125',direction:'receive',fixedPrice:'70.25',considerationDirection:'receive',paymentAt:'2027-02-01T12:00:00Z',feeMode:'none',handlingFee:'99',handlingFeeDirection:'pay'};
 const header={bookId:'book',legalEntityId:'entity',legalEntityRevision:3,counterpartyId:'party',counterpartyRevision:4};
 test('crude request retains references, decimal strings, independent cash direction and explicit selected profile',()=>{
  const r=crudeRequest({snapshotId:'snapshot'},header,assignment,profile,fields);
@@ -26,3 +26,7 @@ test('uncertain crude request restores original identity and body; denied retry 
  p.command=restored;const previous=p.sending();p.failed('access_denied',previous);assert.equal(p.command.operationId,'original');assert.equal(p.command.body.quantity,'1000');
  assert.equal(restoreCrudeCommand({...restored,path:'swaps/book'}),undefined);
 });
+
+test('wall-clock input cannot be silently interpreted as UTC',()=>{assert.throws(()=>crudeRequest({},header,assignment,profile,{...fields,paymentAt:'2027-02-01T12:00'}),/Resolve/);});
+
+test('managed UTC offset notation retains its exact resolved instant and fractional precision',()=>{const r=crudeRequest({},header,assignment,profile,{...fields,paymentAt:'2027-02-01T12:00:00.1234567+00:00'});assert.equal(r.paymentAt,'2027-02-01T12:00:00.1234567Z');});

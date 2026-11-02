@@ -76,11 +76,16 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
  const pending=new PendingCommand(definite);
  let catalog:Catalog|undefined,pick:OptionPick={...noOptionPick},sending=false;
 
+ function refreshDisplay(){
+  annotations.refresh();
+  const s=catalog?optionChoices(catalog,pick).series:null;
+  expiry.value.textContent=s?o.instant(s.expiryAt):'—';
+ }
  function draw(){
   if(!catalog)return;
   const shown=optionChoices(catalog,pick),s=shown.series;
   for(const level of optionLevels)options(selects[level],shown[level],pick[level]);
-  expiry.value.textContent=s?o.instant(s.expiryAt):'—';code.value.textContent=s?publicText(`${s.name} · ${s.product}`):'—';series.value.textContent=s?publicText(s.series):'—';
+  refreshDisplay();code.value.textContent=s?publicText(`${s.name} · ${s.product}`):'—';series.value.textContent=s?publicText(s.series):'—';
   settlement.value.textContent=s?`${s.settlementPrice} ${s.currency}`:'—';multiplier.value.textContent=s?s.multiplier:'—';tick.value.textContent=s?s.premiumTick:'—';
   range.value.textContent=s?`${s.minimumPremium} to ${s.maximumPremium} ${s.currency}`:'—';exercise.value.textContent=s?publicText(s.exerciseStyle):'—';
   instructions.value.textContent=s?(s.contraryInstructionsAllowed?'Accepted':'Not accepted'):'—';
@@ -156,8 +161,8 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
   inspect:()=>Promise.reject(Error('A booked futures option opens in the Details pane.')),
   unsaved:()=>!!catalog&&(edits.edited()||!!pending.command),
   pending:()=>!!pending.command||restoreTradeRequest(requests.read())?.path==='options/book',
-  // The form keeps itself in step with its own requests; the page's busy state does not change it.
-  sync:()=>{}};
+  // Display changes preserve the selection, edits and the exact pending request.
+  sync:refreshDisplay};
 }
 
 type Outcome={eventId:string;kind:string;lots:string|null;remainingLots:string;futuresTradeId:string|null;businessAt:string;outcome?:string|null};

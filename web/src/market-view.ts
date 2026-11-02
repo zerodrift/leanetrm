@@ -62,15 +62,24 @@ function formatter(options:Intl.DateTimeFormatOptions){
   return built;
 }
 export function displayInstant(value:string,zone:string,seconds=false){return formatter({year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',...(seconds?{second:'2-digit'}:{}),timeZone:zone}).format(new Date(value));}
+// Retain sub-millisecond text while translating the calendar and UTC offset.
+// Only actual instants use this formatter; business/operating dates stay dates.
+export function displayExactInstant(value:string,zone:string){
+ if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)||!Number.isFinite(Date.parse(value)))throw Error('The instant is invalid.');
+ const parts=formatter({year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23',timeZone:zone,timeZoneName:'longOffset'}).formatToParts(new Date(value));
+ const part=(type:string)=>parts.find(p=>p.type===type)!.value;
+ const fraction=value.match(/(\.\d+)(?:Z|[+-]\d{2}:\d{2})$/)?.[1]??'';
+ const offset=part('timeZoneName').replace('GMT','UTC').replace(/^UTC[+-]00:00$/,'UTC');
+ return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}:${part('second')}${fraction} ${offset}${zone==='UTC'?'':' · '+zone}`;
+}
 export function deliveryMonth(value:string){return new Intl.DateTimeFormat('en',{month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(value+'T00:00:00Z'));}
-export function deliveryLabel(from:string,to:string){
+export function deliveryLabel(from:string,to:string,zone='UTC'){
   // Physical windows carry exact exclusive UTC instants, not calendar dates.
   // Display their authoritative text without rounding fractional boundaries.
   if(from.includes('T')||to.includes('T')){
     const utc=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|\+00:00)$/;
     if(!utc.test(from)||!utc.test(to)||!Number.isFinite(Date.parse(from))||!Number.isFinite(Date.parse(to)))throw Error('The delivery period is invalid.');
-    const label=(value:string)=>value.replace('T',' ').replace(/(?:Z|\+00:00)$/,' UTC');
-    return `${label(from)} – ${label(to)} (exclusive)`;
+    return `${displayExactInstant(from,zone)} – ${displayExactInstant(to,zone)} (exclusive)`;
   }
   const next=new Date(from+'T00:00:00Z'),end=new Date(to+'T00:00:00Z');
   if(!Number.isFinite(next.getTime())||!Number.isFinite(end.getTime())||next>=end)throw Error('The delivery period is invalid.');

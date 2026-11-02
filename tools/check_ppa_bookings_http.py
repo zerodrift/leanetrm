@@ -24,6 +24,7 @@ def run_checks(url, query, manifest, benchmark=False, api_pid=None, dotnet=None)
     print('PASS PPA bookings http: explicit capabilities and bounded request admission', flush=True)
     durable_checks(url,query,manifest,client,frame)
     fixture=valuation_checks(url,query,manifest,frame)
+    composed_checks(fixture,query,manifest)
     from check_ppa_revisions_http import run_checks as revision_checks
     revision_checks(url,query,manifest,fixture)
     if benchmark:
@@ -278,3 +279,70 @@ def valuation_checks(url, query, manifest, frame):
         check(name+' compiler, exact durable terms and HTTP valuation round trip',validation['capability']==name and restored['instruments'][0]['terms']==contract and stored['bindings'][0]['identity']==validation['identity'] and value(draft)==value(stored)==expected)
     print(f'{passed} independent PPA HTTP economic checks passed',flush=True)
     return fixture
+
+
+def composed_checks(fixture,query,manifest):
+    """Independent mixed-side and direct-runtime admission checks; synthetic only."""
+    from copy import deepcopy
+    from fractions import Fraction
+    from uuid import uuid4
+    from benchmark_ppa_http import terms
+    from check_booked_side_programs import runtime_query
+    from exact_values import fraction
+    import json
+    fixture.load(60,'2031-11-01','2031-12-01')
+    selected=terms(manifest);selected['implementation']='ppa_composed_instrument_v1'
+    selected['memberships']=[selected['memberships'][0],selected['memberships'][3],selected['memberships'][2]]
+    config=manifest['ppaBookings']['workloads']['60']
+    capacity=deepcopy(selected['memberships'][0]);capacity.update(role='capacity_delivery')
+    capacity['side'].update(kind='capacity',location=None,
+        quantity=dict(kind='accredited',sources=[],stage=None,capacity=None,energy=None,hours=None,slots=[],assets=[config['asset']]),
+        attribute=dict(quantity='test_ppa_capacity_days_quantity',conversion=None,eligibility=None,holding=None,disposition=None,rule='mw_day_per_operating_day_v1'))
+    selected['memberships'].insert(2,capacity)
+    first,last='2031-11-01T04:00:00Z','2031-12-01T05:00:00Z'
+    # 721 hours,320 peak hours,40MWh/hour. Power60/40, REC5, fee-2;
+    # capacity80MW*0.8*30days*4. No production evaluator constructs this oracle.
+    expected=40*(43*721+20*320)+7680
+    assert fraction(fixture.preview(selected,first,last)['valueExcludingOverdue'])==expected
+    book=str(uuid4());query(f"INSERT INTO trading.books VALUES('{manifest['catalogId']}','{book}','d0000000-0000-0000-0000-000000000001','Synthetic composed PPA check',1,'2020-01-01T00:00:00Z');")
+    receipt,body=fixture.book(selected,first,last,book=book)
+    assert fixture.client.call('ppa/book',body)==receipt
+    known=fixture.cutoff()
+    restored=fixture.client.call('ppa/editor',dict(snapshotId=fixture.frame,tradeId=receipt['tradeId'],knownAt=known))
+    assert restored['instruments'][0]['terms']==selected
+    assert fraction(fixture.preview(selected,scope='trades',ids=[receipt['tradeId']],known=known)['valueExcludingOverdue'])==expected
+    wrong=deepcopy(selected);wrong['implementation']='unrecognized_composition_v1'
+    refused=fixture.client.call('ppa/validate',dict(snapshotId=fixture.frame,terms=wrong,quantity='80',coverageFrom=first,coverageTo=last),expected=422)
+    assert refused['code']=='ppa_term_unsupported'
+    partial=fixture.client.call('ppa/validate',dict(snapshotId=fixture.frame,terms=selected,quantity='80',coverageFrom=first,coverageTo='2031-11-15T05:00:00Z'),expected=422)
+    assert partial['code']=='ppa_segment_boundary'
+    print('PASS composed PPA: independent four-side oracle, exact replay, retained terms and capacity boundaries',flush=True)
+
+    context=dict(snapshotId=fixture.frame,convention='trading_workspace_v1',knowledgeMode='current')
+    view=dict(mode='trades',bookIds=[book],portfolioIds=[],groupBy=[],measures=[],pivotConvention=None,priceNumericalPolicy=None)
+    workspace=fixture.client.call('trading/workspace',dict(context=context,view=view,bookingCatalog='directory',summaries=[]))
+    rows=workspace['blotter']['holdings'];assert len(rows)==1 and Fraction(rows[0]['presentValue'])==expected
+    retained={**context,'knowledgeMode':'retained','contextId':workspace['catalog']['context']['contextId']}
+    assert fixture.client.call('trading/workspace',dict(context=retained,view=view,bookingCatalog='directory',summaries=[]))['blotter']['holdings'][0]['presentValue']==rows[0]['presentValue']
+    fixture.client.call('profile',{'profile':'risk'})
+    try:
+        catalog=fixture.client.call('portfolio/risk/catalog',dict(context=retained,bookIds=[book],portfolioIds=[]))
+        factor=next(f for f in catalog['factors'] if manifest['ppaBookings']['capacity'] in f['curves'])
+        request=dict(context=retained,bookIds=[book],portfolioIds=[],bumps=[dict(factor=factor['factor'],size='0.1',convention=catalog['bumpConvention'])],convention=catalog['convention'],numericalPolicy=catalog['numericalPolicy'],pricingPolicy=catalog['pricingPolicy'],stress=[])
+        report=fixture.client.call('portfolio/risk',request)
+        positions=report['factors'][0]['positions'];assert len(positions)==1 and not report['excludedPositions']
+        assert Fraction(positions[0]['values']['base'])==expected and Fraction(positions[0]['values']['upPnl'])==192
+    finally:fixture.client.call('profile',{'profile':'trader'})
+    print('PASS composed PPA: common Blotter, retained context and independent capacity shock',flush=True)
+
+    wrong=deepcopy(selected);wrong['normalizationAssets']=['test_asset_a','test_asset_b'];wrong['memberships']=[]
+    for ordinal,asset in enumerate(wrong['normalizationAssets']):
+        member=deepcopy(capacity);member['ordinal']=ordinal;member['side']['quantity']['assets']=[asset];wrong['memberships'].append(member)
+    assert fixture.client.call('ppa/validate',dict(snapshotId=fixture.frame,terms=wrong,quantity='80',coverageFrom=first,coverageTo=last),expected=422)['code']=='ppa_normalization'
+    frame=next(f for f in fixture.client.call('workspace')['frames'] if f['id']==fixture.frame)
+    command={k:v for k,v in body.items() if k!='operationId'};command.update(action='booked',valuationAt=frame['at'],effectiveAt=frame['at'],terms=wrong)
+    encoded=json.dumps(command).replace("'","''")
+    before=query('SELECT count(*) FROM trading.ppa_trade_revisions;')
+    runtime_query(query,manifest,f"DO $check$ BEGIN BEGIN PERFORM security.save_ppa_booking('{manifest['catalogId']}','{uuid4()}','{encoded}'::jsonb);RAISE EXCEPTION 'subset_capacity_accepted';EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'ppa_normalization' THEN RAISE;END IF;END;END $check$;",commit=False)
+    assert query('SELECT count(*) FROM trading.ppa_trade_revisions;')==before
+    print('PASS composed PPA: managed/direct-runtime capacity-set parity and complete rollback',flush=True)

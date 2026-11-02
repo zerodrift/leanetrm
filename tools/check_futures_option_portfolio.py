@@ -320,4 +320,3 @@ def run_checks(url, query, manifest, *, run_worker):
 
 def booked_premium(query, manifest, trade):
     return query(f"SELECT trim_scale(premium) FROM trading.futures_option_trade_revisions WHERE catalog_id='{manifest['catalogId']}' AND trade_id='{trade}';")
-

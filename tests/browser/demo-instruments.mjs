@@ -43,7 +43,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle,30000);
  await check('Retry values the mixed books again',"!document.querySelector('#desk-positions .standard-data-grid').classList.contains('stale')&&document.querySelector('#blotter-load-status').hidden&&document.querySelector('#error').hidden",diagnostics);
  await set('#blotter-filters .table-search','');await newTrade({click,wait},'swaps');await click('#swap-scheduled-open');await wait(idle);
- await set('#scheduled-kind','factor_floating');await set('#scheduled-commodity','test_power');await set('#scheduled-second-commodity','test_gas');
+ await click('[data-scheduled-structure=factor_floating]');await set('#scheduled-commodity','test_power');await set('#scheduled-second-commodity','test_gas');
  const market=await evaluate(`[...document.querySelector('#scheduled-market').options].find(o=>o.value)?.value`);await set('#scheduled-market',market);
  await check('heat-rate entry exposes independent commodity and explicit dimensional rate controls',`!document.querySelector('#scheduled-second-commodity').parentElement.hidden&&document.querySelector('#scheduled-factor-value')&&document.querySelector('#scheduled-factor-numerator')&&document.querySelector('#scheduled-factor-denominator')&&document.querySelectorAll('.scheduled-side-columns>.instrument-side').length===2`);
  await set('#scheduled-commodity','test_gas');await set('#scheduled-second-commodity','test_power');await set('#scheduled-market',market);

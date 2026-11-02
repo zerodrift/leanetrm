@@ -1,3 +1,4 @@
+import {chooseSwapSides} from './swap-sides.mjs';
 import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -47,11 +48,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);await newTrade({click,wait},'swaps');
  await click('#swap-scheduled-open');await wait(ticket);await wait(idle);
  await check('the scheduled ticket takes the swap ticket\'s place in the panel, under the head New swap',"(()=>{const swap=document.querySelector('#swap-editing');return document.querySelector('#position-details').dataset.mode==='new'&&document.querySelector('#side-panel-title').textContent==='New swap'&&swap.hidden&&document.querySelector('#editor-shelf').contains(swap)&&!document.querySelector('#position-details-form').contains(swap);})()");
- await set('#scheduled-kind','fixed_floating');await set('#scheduled-commodity','test_gas');
+ await click('[data-scheduled-structure=fixed_floating]');await click('#details-collapse');
+ await check('adding a scheduled pair counts as an unsaved edit before any field is typed',"!document.querySelector('#position-details-prompt').hidden");await click('#position-details-prompt button.secondary');
+ await set('#scheduled-commodity','test_gas');
  const market=await evaluate("[...document.querySelector('#scheduled-market').options].find(o=>o.value)?.value");await set('#scheduled-market',market);
- await set('#scheduled-price-mode','par');await set('#scheduled-kind','floating_floating');
+ await set('#scheduled-price-mode','par');await click('[data-scheduled-structure=floating_floating]');
  await check('floating pair has no active par precision control',"document.querySelector('#scheduled-par-precision').disabled&&!document.querySelector('#scheduled-par-precision').required&&document.querySelector('#scheduled-par-precision').parentElement.hidden");
- await set('#scheduled-kind','fixed_floating');
+ await click('[data-scheduled-structure=fixed_floating]');
  await set('#scheduled-direction','-1');await set('#scheduled-discounting','none');await set('#scheduled-price-mode','agreed');
  const fill=`(()=>{const root=document.querySelector('#scheduled-swap-editor');const set=(field,value)=>{field.value=value;field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));};for(const side of root.querySelectorAll('.scheduled-side-columns>.instrument-side')){set(side.querySelector('[data-role=delivery-from]'),'2021-01-01');set(side.querySelector('[data-role=delivery-to]'),'2021-03-01');set(side.querySelector('[data-role=quantity-basis]'),'period_total');const unit=side.querySelector('[data-role=quantity-unit]');set(unit,[...unit.options].find(o=>o.value)?.value??'');}for(const id of ['book','legal-entity','counterparty']){const select=document.querySelector('#scheduled-'+id);set(select,[...select.options].find(o=>o.value)?.value??'');}})()`;
  await evaluate(fill);
@@ -124,14 +127,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
 
  await closePanel(false);await newTrade({click,wait},'swaps');
  // From a new swap's ticket that holds edits, the scheduled ticket opens in its place once the panel has asked about them.
- await click('[data-swap-type="financial_fixed_floating"]');await wait(idle);await typeInto('#swap-memo','Synthetic memo given up');
+ await chooseSwapSides({click,wait,idle});await wait(idle);await typeInto('#swap-memo','Synthetic memo given up');
  await click('#swap-scheduled-open');
  await check('opening the scheduled ticket from a new swap\'s ticket that holds edits asks first',"!document.querySelector('#position-details-prompt').hidden&&document.querySelector('#position-details-prompt').textContent.includes('unsaved changes')","[document.querySelector('#position-details-prompt').textContent,document.querySelector('#scheduled-swap-editor')?.hidden]");
  await click('#position-details-prompt button.secondary');
  await check('keeping them leaves the new swap\'s ticket as it was',"document.querySelector('#position-details-prompt').hidden&&!document.querySelector('#swap-editing').hidden&&document.querySelector('#swap-memo').value==='Synthetic memo given up'");
  await click('#swap-scheduled-open');await click('#position-details-prompt:not([hidden]) button:not(.secondary),#position-details-prompt:not([hidden]) button:not(.secondary)');await wait(ticket);await wait(idle);
  await check('discarding them opens the scheduled ticket in its place',`${ticket}&&document.querySelector('#swap-editing').hidden`);
- await set('#scheduled-kind','fixed_floating');await set('#scheduled-commodity','test_power');
+ await click('[data-scheduled-structure=fixed_floating]');await set('#scheduled-commodity','test_power');
  const powerMarket=await evaluate("[...document.querySelector('#scheduled-market').options].find(o=>o.value)?.value");await set('#scheduled-market',powerMarket);await set('#scheduled-direction','-1');await set('#scheduled-discounting','none');await set('#scheduled-price-mode','agreed');
  await evaluate(`(()=>{const set=(field,value)=>{field.value=value;field.dispatchEvent(new Event('change',{bubbles:true}));};for(const side of document.querySelectorAll('#scheduled-swap-editor .scheduled-side-columns>.instrument-side')){set(side.querySelector('[data-role=delivery-from]'),'2021-10-01');set(side.querySelector('[data-role=delivery-to]'),'2021-12-01');set(side.querySelector('[data-role=quantity-basis]'),'selected_interval_power');const unit=side.querySelector('[data-role=quantity-unit]');set(unit,[...unit.options].find(o=>o.value).value);const clock=[...side.querySelectorAll('select')].find(n=>n.previousElementSibling?.textContent==='Contract time zone / market clock');set(clock,[...clock.options].find(o=>o.textContent==='Europe/London').value);const product=[...side.querySelectorAll('select')].find(n=>n.previousElementSibling?.textContent==='Delivery product');set(product,'all_hours');}for(const id of ['book','legal-entity','counterparty']){const select=document.querySelector('#scheduled-'+id);set(select,[...select.options].find(o=>o.value).value);}})()`);
  for(const slot of [0,1]){await evaluate(`document.querySelectorAll('.scheduled-side-columns>.instrument-side')[${slot}].querySelector('button').click()`);await wait(idle);}

@@ -1,3 +1,4 @@
+import {ppaSideLabel} from './ppa-side-label.js';
 import type {Holding} from './desk-model.js';
 import type {DetailRead,TermSection} from './position-panel.js';
 import {displayInstant} from './market-view.js';
@@ -22,7 +23,7 @@ export async function readPpaView(api:Api,context:Record<string,unknown>,h:Holdi
   const terms:TermSection[]=[{title:'PPA trade',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Quantity',`${h.quantity} ${h.unit}`],
    ['Delivery',`${instrument.terms.delivery.from} to ${instrument.terms.delivery.to}`],['Binding coverage',`${displayInstant(binding.coverage_from,zone)} to ${displayInstant(binding.coverage_to,zone)}`],
    ['Value measure','Value excluding overdue cash'],['Pending meter readings',policy]]}];
-  for(const m of instrument.terms.memberships)terms.push({title:`${m.role.replaceAll('_',' ')} · ${m.coefficient==='1'?'Receive':'Pay'}`,rows:[['Side kind',m.side.kind],['Quantity rule',m.side.quantity.kind],
+  for(const m of instrument.terms.memberships)terms.push({title:ppaSideLabel(m.role),rows:[['Direction',m.coefficient==='1'?'Receive':'Pay'],['Side kind',m.side.kind],['Quantity rule',m.side.quantity.kind],
    ...(m.side.location?[["Location",m.side.location] as const]:[]),...(m.side.indexPrice?[["Price curve",m.side.indexPrice.curve] as const]:[]),
    ...(m.side.fixedPrice?[["Fixed price",`${m.side.fixedPrice.price} / ${m.side.fixedPrice.quantity}`] as const]:[])]});
   return{terms,actions:manage?[{id:'ppa-manage',label:'Manage PPA',run:manage}]:[],history:detail.history.map(r=>({title:`Revision ${r.revision} · ${r.event_kind}`,rows:[['Effective at',displayInstant(r.effective_at,zone)],['Reason',r.reason]]})),

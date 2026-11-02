@@ -1,5 +1,6 @@
 using System.Text.Json;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
@@ -13,7 +14,8 @@ internal static class PpaUiCatalog
         "accepted_settlement", "payment_recording", "runtime_templates", "historical_session_valuation"];
     internal static object References(PreviewData data)=>new {
         currencies=data.References["currencies"],quantitySpecs=data.References["quantity_specifications"],units=data.References["units"],
-        clocks=data.References["clock_rules"],calendars=data.References["calendars"],locations=data.References["locations"],priceIndices=data.References["price_index_definitions"]};
+        clocks=data.References["clock_rules"],calendars=data.References["calendars"],locations=data.References["locations"].Where(l=>data.Definitions["location_valuation_assignments"].Any(a=>a.Text("location_code")==l.Text("code")&&a.Text("attribute")=="energy")),
+        quantityGroups=new{contract=data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt"&&q.Text("dimension_code")=="power"),energy=data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt_hour"&&q.Text("dimension_code")=="energy"),certificate=data.References["quantity_specifications"].Where(q=>q.Text("dimension_code")=="certificate"),capacity=data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt_day"&&q.Text("dimension_code")=="energy")},priceIndices=data.References["price_index_definitions"]};
     internal static object Definitions(PreviewData data)
     {
         var curves=data.Definitions["curves"];
@@ -33,17 +35,22 @@ internal static class PpaUiCatalog
                     var block=data.Definitions["shaped_curve_blocks"].First(b=>b.Text("shaped_curve_code")==s.Text("code") && b.Text("anchor_role")=="period");
                     return Curve(curves.Single(c=>c.Text("code")==block.Text("block_curve_code")),s.Text("code"),s.Text("name"),"shaped");})).ToArray()};
     }
-    private static object Member(string role,int ordinal,string kind,string[] quantities,params PpaSlotInput[] slots)=>new{role,ordinal,sideKind=kind,sideKinds=role is "certificate_payment" or "capacity_payment"?new[]{"fixed","indexed"}:new[]{kind},quantityKinds=quantities,linkedSlots=slots};
+    private static object Member(string role,int ordinal,string kind,string[] quantities,params PpaSlotInput[] slots)=>new{role,ordinal,sideKind=kind,sideKinds=role is "certificate_payment" or "capacity_payment"?new[]{"fixed","indexed"}:new[]{kind},quantityKinds=quantities,linkedSlots=slots,linkRoles=role switch{"certificate_payment"=>new[]{"certificate_delivery"},"capacity_payment"=>new[]{"capacity_delivery"},"fixed_charge"=>new[]{"energy_delivery","certificate_delivery","capacity_delivery"},_=>new[]{"energy_delivery"}}};
     private static object[] CertificateMembers=>[Member("certificate_delivery",0,"certificate",["volume"]),Member("certificate_payment",0,"fixed",["slots"],new PpaSlotInput("certificate_delivery",0))];
     private static object[] PhysicalMembers=>[Member("fixed_charge",0,"fixed",["slots"],new PpaSlotInput("energy_delivery",0)),..CertificateMembers];
+    private static object[] ComposedMembers=>[
+        Member("energy_delivery",0,"energy",["volume","profile"]),Member("certificate_delivery",0,"certificate",["volume"]),Member("capacity_delivery",0,"capacity",["accredited"]),
+        Member("strike_payment",0,"fixed",["volume","profile","slots"]),Member("indexed_payment",0,"indexed",["volume","profile","slots"]),Member("fixed_charge",0,"fixed",["volume","profile","slots"]),
+        Member("certificate_payment",0,"fixed",["slots"]),Member("capacity_payment",0,"fixed",["slots"])];
     internal static object[] Compositions=>[
-        new{id="fixed_physical",label="Fixed physical",optionalMembers=PhysicalMembers,members=new[]{Member("energy_delivery",0,"energy",["volume","profile"]),Member("strike_payment",0,"fixed",["slots"],new PpaSlotInput("energy_delivery",0))}},
-        new{id="indexed_physical",label="Indexed physical",optionalMembers=PhysicalMembers,members=new[]{Member("energy_delivery",0,"energy",["volume","profile"]),Member("indexed_payment",0,"indexed",["slots"],new PpaSlotInput("energy_delivery",0))}},
-        new{id="virtual_fixed_for_floating",label="Virtual fixed for floating",optionalMembers=CertificateMembers,members=new[]{Member("indexed_payment",0,"indexed",["volume","profile"]),Member("strike_payment",0,"fixed",["volume","profile"])}},
-        new{id="basis_cash",label="Basis cash",optionalMembers=Array.Empty<object>(),members=new[]{Member("indexed_payment",0,"indexed",["volume","profile"]),Member("indexed_payment",1,"indexed",["volume","profile"])}},
-        new{id="capacity_agreement",label="Capacity agreement",optionalMembers=Array.Empty<object>(),members=new[]{Member("capacity_delivery",0,"capacity",["accredited"]),Member("capacity_payment",0,"fixed",["slots"],new PpaSlotInput("capacity_delivery",0))}}];
+        new{id="composed_sides_v1",label="Build from sides",implementation=PpaInstrument.ComposedImplementation,optionalMembers=ComposedMembers,members=Array.Empty<object>()},
+        new{id="fixed_physical",implementation=PpaInstrument.Implementation,label="Fixed physical",optionalMembers=PhysicalMembers,members=new[]{Member("energy_delivery",0,"energy",["volume","profile"]),Member("strike_payment",0,"fixed",["slots"],new PpaSlotInput("energy_delivery",0))}},
+        new{id="indexed_physical",implementation=PpaInstrument.Implementation,label="Indexed physical",optionalMembers=PhysicalMembers,members=new[]{Member("energy_delivery",0,"energy",["volume","profile"]),Member("indexed_payment",0,"indexed",["slots"],new PpaSlotInput("energy_delivery",0))}},
+        new{id="virtual_fixed_for_floating",implementation=PpaInstrument.Implementation,label="Virtual fixed for floating",optionalMembers=CertificateMembers,members=new[]{Member("indexed_payment",0,"indexed",["volume","profile"]),Member("strike_payment",0,"fixed",["volume","profile"])}},
+        new{id="basis_cash",implementation=PpaInstrument.Implementation,label="Basis cash",optionalMembers=Array.Empty<object>(),members=new[]{Member("indexed_payment",0,"indexed",["volume","profile"]),Member("indexed_payment",1,"indexed",["volume","profile"])}},
+        new{id="capacity_agreement",implementation=PpaInstrument.Implementation,label="Capacity agreement",optionalMembers=Array.Empty<object>(),members=new[]{Member("capacity_delivery",0,"capacity",["accredited"]),Member("capacity_payment",0,"fixed",["slots"],new PpaSlotInput("capacity_delivery",0))}}];
     internal static object Policies=>new {
-        instrumentImplementations=new[]{"ppa_instrument_v2"},quantityStages=new[]{"generated","delivered"},hourMemberships=new[]{"all","peak","off"},
+        instrumentImplementations=new[]{PpaInstrument.Implementation,PpaInstrument.ComposedImplementation},quantityStages=new[]{"generated","delivered"},hourMemberships=new[]{"all","peak","off"},
         escalationBases=new[]{"anniversary_step_v1"},certificateEligibility=new[]{"asset_generation_at_stage_v1"},certificateHolding=new[]{"held_at_current_vintage_mark_v1"},
         certificateDisposition=new[]{"none_recorded_v1"},capacityRules=new[]{"mw_day_per_operating_day_v1"},discounting=new[]{false,true}};
 }

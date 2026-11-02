@@ -43,11 +43,8 @@ export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?
 export function gridIdentity(key:string,scope:string,headers:readonly string[],numeric:readonly number[],options:GridOptions){
   return JSON.stringify([key,scope,headers,numeric,options.keys,options.visual??[],options.columnGroups??null,!!options.stretch,options.headerGroups??null,!!options.tree,!!options.totals]);
 }
-/** The CSS colour of a side colour token: `--side-<token>` in app.css. */
-export function sideColour(token:string){
-  if(!/^[a-z][a-z0-9_-]*$/.test(token))throw Error(`A side colour must be a colour token name, not '${token}'.`);
-  return `var(--side-${token})`;
-}
+import {sideColour} from './side-colour.js';
+export {sideColour};
 const frame=()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
 export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:string[],rows:Cells,numeric:number[],isBusy:()=>boolean,options:GridOptions){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,value?:string)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=publicText(value);return n;};

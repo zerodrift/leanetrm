@@ -14,7 +14,9 @@ def run_checks(url, query, manifest, **_):
     catalog=client.call('ppa/catalog',{'snapshotId':frame})
     assert catalog.get('knownAt'), 'catalog must supply database known-at for explicit authoring context'
     assert catalog['legalEntities'] and catalog['counterparties'], 'authorized authoring catalog must expose the seeded exact party choices'
-    assert len(catalog['compositionTemplates'])==5
+    assert {t['id'] for t in catalog['compositionTemplates']}=={'composed_sides_v1','fixed_physical','indexed_physical','virtual_fixed_for_floating','basis_cash','capacity_agreement'}
+    composed=next(t for t in catalog['compositionTemplates'] if t['id']=='composed_sides_v1')
+    assert all('accredited' not in m['quantityKinds'] for m in composed['optionalMembers'] if m['sideKind'] in ('fixed','indexed')), 'Cash sides use native volume/profile quantities or explicit typed links, not capacity-only quantities'
     assert all(catalog['references'][key] for key in ('currencies','quantitySpecs','units','clocks','calendars','locations'))
     assert catalog['definitionsMetadata']['priceCurves'] and 'calendar_days' not in catalog['references']
     metadata=catalog['definitionsMetadata']
