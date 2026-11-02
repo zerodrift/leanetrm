@@ -19,6 +19,13 @@ knowledge times. Migration 0161 requires a qualified schema release; native-curv
 editing, automatic consumer migration and primary-revision cutover remain work.
 Private installation seeds are maintained outside the public repository.
 
+The D285 [manual-entry update](deal-ticket.md#manual-entry-across-native-products-d285)
+removes PPA wizard navigation, shares side cards and supported add-side controls
+across native sided products, and offers dated futures contracts with a contextual
+curve price. Native authorized operations and financial contracts remain in use;
+migrating these products to the common description and joint schedule remains work.
+
+
 Gas may use an explicitly configured independent market/reference selection;
 this keeps physical location setup separate from the primary power and financial
 inputs without rebasing their source identities or feeds.
@@ -1639,3 +1646,11 @@ D283 defines saved date lists and symbolic date mappings as inputs to instrument
 and curve authoring. Implementation is local and in progress. Date imports and
 shared context resolution are implemented; full demo provenance and editable
 native curve definitions remain to be completed and qualified.
+
+D286 local increment: separate crude reference selection, user-zone instant
+entry/display, and explicitly versioned independent PPA side composition.
+Local qualification covers mixed native quantities, capacity-set parity in direct
+runtime writes, exact replay/amendment, source/link ordering and display-zone
+changes during authoring. Independent asset normalization sets, partial-month
+capacity, arbitrary REC inventory and composed break-even/monthly settlement
+remain outside this contract. Production activation remains separate.

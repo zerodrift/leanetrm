@@ -11,6 +11,9 @@ namespace OpenEtrm.Api;
 public sealed record PaymentChoice<T>([property:JsonIgnore] T Policy,string Value,string Label) where T:struct,Enum;
 public static class SwapPaymentOptions
 {
+    public static object[] SideStructures=>[
+        new{type="financial_fixed_floating",label="Fixed for floating",sides=new[]{"fixed","floating"}},
+        new{type="financial_floating_floating",label="Floating for floating",sides=new[]{"floating","floating"}}];
     public static readonly ImmutableArray<PaymentChoice<PaymentFrequency>> Frequencies=[new(PaymentFrequency.Monthly,"monthly","Monthly")];
     public static readonly ImmutableArray<PaymentChoice<PaymentDateRule>> Rules=[
         new(PaymentDateRule.DaysAfterPeriodEnd,"days_after_period_end","Days after last delivery day"),

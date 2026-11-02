@@ -22,7 +22,7 @@ internal sealed partial class RetainedScheduleStore
             (object?)context??DBNull.Value,(object?)asOf??DBNull.Value);
         using var document=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(cancellation))!);
         var metadata=document.RootElement;
-        if(metadata.GetProperty("implementation").GetString()!=PpaInstrument.Implementation)
+        if(metadata.GetProperty("implementation").GetString() is not(PpaInstrument.Implementation or PpaInstrument.ComposedImplementation))
             throw new MarketDataException("instrument_program_unsupported","The retained instrument implementation is unsupported.");
         var reference=new ReferenceRevision(metadata.GetProperty("referenceCatalog").GetGuid(),metadata.GetProperty("referenceRevision").GetGuid());
         ReferenceKey Key(string name)=>new(reference,metadata.GetProperty(name).GetString()!);

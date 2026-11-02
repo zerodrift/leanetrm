@@ -11,6 +11,7 @@ def run_checks(url):
     w = c.call('workspace'); frame = next(f for f in w['frames'] if f['at'].startswith('2020-12-18'))
     context = {'snapshotId': frame['id'], 'convention': 'independent_side_financial_swap_v2', 'knowledgeMode': 'current'}
     catalog = c.call('swaps/catalog', context)
+    assert catalog['sideStructures']==[{'type':'financial_fixed_floating','label':'Fixed for floating','sides':['fixed','floating']},{'type':'financial_floating_floating','label':'Floating for floating','sides':['floating','floating']}]
     assert len(catalog['indices']) >= 2
     passed = 0
     def check(name, ok):

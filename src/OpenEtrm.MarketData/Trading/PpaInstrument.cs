@@ -8,6 +8,8 @@ namespace OpenEtrm.MarketData.Trading;
 public sealed record PpaInstrument:SidedInstrument
 {
     public const string Implementation="ppa_instrument_v2";
+    public const string ComposedImplementation="ppa_composed_instrument_v1";
+    public string TermImplementation { get; }
     [IdentityField]public DefinitionRevision Definitions { get; }
     [IdentityField]public ReferenceRevision Reference { get; }
     [IdentityField]public ImmutableArray<PpaMembership> Memberships { get; internal init; }
@@ -28,8 +30,8 @@ public sealed record PpaInstrument:SidedInstrument
     public PpaInstrument(Guid id,DefinitionRevision definitions,ReferenceRevision reference,ImmutableArray<PpaMembership> memberships,
         bool discounting,string implementation):base(id,Members(memberships))
     {
-        if(implementation!=Implementation)throw PpaErrors.Error("ppa_term_unsupported","implementation","Unknown instrument implementation.");
-        Definitions=definitions;Reference=reference;Memberships=memberships;Discounting=discounting;
+        if(implementation is not(Implementation or ComposedImplementation))throw PpaErrors.Error("ppa_term_unsupported","implementation","Unknown instrument implementation.");
+        TermImplementation=implementation;Definitions=definitions;Reference=reference;Memberships=memberships;Discounting=discounting;
         Capability=PpaCapabilities.Validate(this);
     }
     private static ImmutableArray<SideMembership> Members(ImmutableArray<PpaMembership> members)
@@ -59,7 +61,9 @@ public static class PpaCapabilities
     public const int MaximumSlotOrdinal=7;
     internal static string Validate(PpaInstrument instrument)
     {
-        var members=instrument.Memberships;var first=members[0].Side.Terms;
+        var members=instrument.Memberships;var composed=instrument.TermImplementation==PpaInstrument.ComposedImplementation;
+        if(members.Length is <2 or >8)throw PpaErrors.Error("ppa_limit","memberships","Select two to eight explicit sides.");
+        var first=members[0].Side.Terms;
         if(instrument.Definitions.CatalogId==Guid.Empty || instrument.Definitions.RevisionId==Guid.Empty || instrument.Reference.CatalogId==Guid.Empty || instrument.Reference.RevisionId==Guid.Empty)
             throw PpaErrors.Error("ppa_reference_revision","pins","Select exact nonempty definition and reference revisions.");
         if(instrument.Normalization is null || instrument.NormalizationAssets.IsDefault || instrument.NormalizationAssets.Distinct().Count()!=instrument.NormalizationAssets.Length ||
@@ -143,15 +147,16 @@ public static class PpaCapabilities
                     if(DefinitionIdentity.For(t.Schedule)!=DefinitionIdentity.For(bound.Side.Terms.Schedule))
                         throw PpaErrors.Error("ppa_cadence",slot,"A linked payment must retain its delivery slot's exact structural schedule.");
                     if(m.Slot.Role==PpaRole.CertificatePayment && bound.Side is not CertificateDeliverySide || m.Slot.Role==PpaRole.CapacityPayment && bound.Side is not CapacityDeliverySide ||
-                        m.Slot.Role is PpaRole.StrikePayment or PpaRole.IndexedPayment or PpaRole.FixedCharge && bound.Side is not PowerPhysicalSide)
+                        (m.Slot.Role is PpaRole.StrikePayment or PpaRole.IndexedPayment || m.Slot.Role==PpaRole.FixedCharge&&!composed) && bound.Side is not PowerPhysicalSide)
                         throw PpaErrors.Error("ppa_quantity_unit",slot,"Attribute and energy payments bind their matching delivery quantities.");
                 }
             }
-            else if(m.Slot.Role is PpaRole.CertificatePayment or PpaRole.CapacityPayment or PpaRole.FixedCharge)
+            else if(m.Slot.Role is PpaRole.CertificatePayment or PpaRole.CapacityPayment || m.Slot.Role==PpaRole.FixedCharge&&!composed)
                 throw PpaErrors.Error("ppa_quantity_reference",slot,"Attribute payments require an explicit matching delivery slot.");
             if(m.Side is FixedSide fixedSide && fixedSide.Price.Unit.Currency!=t.Currency || m.Side is FloatingSide floating && (floating.Price.Adder.Unit.Currency!=t.Currency || floating.Price.Curve.Revision!=instrument.Definitions))
                 throw PpaErrors.Error("ppa_price_rule",slot,"Prices retain exact currency and curve revision.");
         }
+        if(composed)return "composed_sides_v1";
         int Count(PpaRole role)=>members.Count(m=>m.Slot.Role==role);
         var energy=Count(PpaRole.EnergyDelivery);var strike=Count(PpaRole.StrikePayment);var indexed=Count(PpaRole.IndexedPayment);var cap=Count(PpaRole.CapacityDelivery);
         if(Count(PpaRole.CertificateDelivery)>1 || Count(PpaRole.CertificatePayment)>1 || Count(PpaRole.FixedCharge)>1 || Count(PpaRole.CertificatePayment)>Count(PpaRole.CertificateDelivery))

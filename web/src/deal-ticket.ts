@@ -3,6 +3,7 @@ import {addSide,removeSide,type FieldValue,type TicketSide,type TicketState} fro
 import {numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
 import {emptyGridLayout,renderDataGrid,sideColour,type GridHandle} from './data-grid.js';
 import {reasonOf} from './ticket-preview.js';
+import {sideCardHeader} from './side-card.js';
 
 // Draws a deal ticket from its backend description, the model's state and the latest preview: the trade strip, one card per side whose
 // common band rows line up across the cards, and the schedule panel. Every value, aggregate and refusal is the backend's or the model's;
@@ -100,7 +101,7 @@ function card(o:TicketView,side:TicketSide,rows:string[]){
  const node=el('article','ticket-card');node.dataset.side=side.code;node.dataset.kind=side.kind;node.classList.toggle('selected',selected);node.style.setProperty('--side-colour',sideColour(kind.colour));
  // A click on a card selects its side and that side's tab; a click on one of its controls is the control's.
  node.onclick=event=>{if(selected&&o.tab===side.code||(event.target as HTMLElement).closest('input,select,button'))return;o.on.selectSide(side.code);};
- const head=el('header','ticket-card-head');head.append(el('strong','ticket-side-name',sideName(d,side)),el('span','ticket-pill',kind.pill));
+ const head=sideCardHeader(sideName(d,side),kind.pill);
  if(o.mode==='new'){
   const reason=refusal(()=>removeSide(o.state,side.code)),remove=button('ticket-remove','Remove',()=>o.on.removeSide(side.code));
   remove.disabled=reason!==null;remove.title=reason??`Remove ${sideName(d,side)}`;head.append(remove);

@@ -1,3 +1,4 @@
+import {ppaSideLabel} from './ppa-side-label.js';
 import type {Preview,Terms} from './ppa-contract.js';
 import type {Holding} from './desk-model.js';
 import {publicText} from './market-view.js';
@@ -57,8 +58,8 @@ export function mountPpaPositionSchedule(host:HTMLElement,api:Api,context:Record
    const value=await api<Preview>('ppa/preview',request([]));if(!alive)return;
    if(!Array.isArray(value.bindings))throw Error(refusalText(value as unknown as {code?:string;message?:string}));result=value;
    const held=binding();if(!held||held.instrumentId!==h.contractId)throw Error('The PPA position changed. Refresh the Blotter.');
-   table(totals,`Side totals · ${value.currency.code.toUpperCase()}`,['Side','Coefficient','Value excluding overdue cash','Complete PV'],held.sides.map(s=>[`${s.role.replaceAll('_',' ')} ${s.ordinal+1}`,s.coefficient,exactText(s.measures.valueExcludingOverdue),exactText(s.measures.completePv)]),[1,2,3]);
-   side.replaceChildren(new Option('Choose a side…',''),...held.sides.map(s=>new Option(`${s.role.replaceAll('_',' ')} ${s.ordinal+1}`,s.sideId)));
+   table(totals,`Side totals · ${value.currency.code.toUpperCase()}`,['Side','Coefficient','Value excluding overdue cash','Complete PV'],held.sides.map(s=>[`${ppaSideLabel(s.role)} ${s.ordinal+1}`,s.coefficient,exactText(s.measures.valueExcludingOverdue),exactText(s.measures.completePv)]),[1,2,3]);
+   side.replaceChildren(new Option('Choose a side…',''),...held.sides.map(s=>new Option(`${ppaSideLabel(s.role)} ${s.ordinal+1}`,s.sideId)));
    const months=[...new Set(held.sides.flatMap(s=>s.measures.periods.map(p=>p.month)))].sort();
    month.replaceChildren(new Option('Choose a month…',''),...months.map(m=>new Option(m.slice(0,7),m)));controls.hidden=false;
    note.textContent=`Side values in ${value.currency.code.toUpperCase()}, under this Blotter's close and knowledge cutoff. Choose one side and month for bounded interval detail.`;sync();

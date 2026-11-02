@@ -1,6 +1,6 @@
 import type {Holding} from './desk-model.js';
 import type {DetailRead,TermSection} from './position-panel.js';
-import {displayInstant,deliveryLabel} from './market-view.js';
+import {displayExactInstant} from './market-view.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Row=Record<string,string|number|null>;
 type Terms={assignmentCode:string;direction:string;considerationDirection:string;quantity:string;fixedPrice:string;handlingFee:string|null;handlingFeeDirection:string|null;paymentAt:string;deliveryFrom:string;deliveryTo:string;profile:string;tolerance:string};
@@ -12,9 +12,9 @@ export async function readCrudeView(api:Api,context:Record<string,unknown>,h:Hol
  const t=detail.head.request,p=detail.physical;
  return{amend:{allowed:false,reason:'Crude amendments and custody measurement conversion are not supported. Accepted certified receipts and invoice cash are separate operational facts.'},view:zone=>{
   const terms:TermSection[]=[{title:'Physical crude trade',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Value measure','Contractual PV']]},
-   {title:'Physical delivery side',rows:[['Assignment',t.assignmentCode],['Commodity',String(p.commodity_name)],['Grade',String(p.grade_name)],['Facility',String(p.facility_name)],['Custody point',String(p.custody_point_name)],['Physical direction',direction(t.direction)],['Contract volume',`${t.quantity} ${p.unit}`],['Standard temperature',`${p.standard_temperature} ${p.temperature_scale}`],['Delivery',deliveryLabel(t.deliveryFrom,t.deliveryTo)],['Pricing curve',String(p.curve_name)],['Profile',t.profile],['Tolerance',t.tolerance]]},
-   {title:'Cash consideration side',rows:[['Consideration direction',direction(t.considerationDirection)],['Fixed price',t.fixedPrice],['Price unit',`${p.currency} / ${p.multiplier} ${p.unit}`],['Payment',displayInstant(t.paymentAt,zone)]]},
-   {title:'Handling fee side',rows:t.handlingFee===null?[['Handling fee','None']]:[['Handling fee',t.handlingFee],['Price unit',`${p.currency} / ${p.multiplier} ${p.unit}`],['Handling fee direction',direction(t.handlingFeeDirection!)],['Payment',displayInstant(t.paymentAt,zone)]]}];
-  return{terms,actions:operations?[{id:'crude-operations',label:'Delivery and cash',run:operations}]:undefined,history:[{title:`Revision ${h.revision}`,rows:[['Booked',displayInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]}]};
+   {title:'Crude',rows:[['Assignment',t.assignmentCode],['Commodity',String(p.commodity_name)],['Grade',String(p.grade_name)],['Facility',String(p.facility_name)],['Custody point',String(p.custody_point_name)],['Physical direction',direction(t.direction)],['Contract volume',`${t.quantity} ${p.unit}`],['Standard temperature',`${p.standard_temperature} ${p.temperature_scale}`],['Delivery',`${displayExactInstant(t.deliveryFrom,zone)} to ${displayExactInstant(t.deliveryTo,zone)} · exclusive`],['Pricing curve',String(p.curve_name)],['Profile',t.profile],['Tolerance',t.tolerance]]},
+   {title:'Fixed price',rows:[['Consideration direction',direction(t.considerationDirection)],['Fixed price',t.fixedPrice],['Price unit',`${p.currency} / ${p.multiplier} ${p.unit}`],['Payment',displayExactInstant(t.paymentAt,zone)]]},
+   {title:'Handling fee',rows:t.handlingFee===null?[['Handling fee','None']]:[['Handling fee',t.handlingFee],['Price unit',`${p.currency} / ${p.multiplier} ${p.unit}`],['Handling fee direction',direction(t.handlingFeeDirection!)],['Payment',displayExactInstant(t.paymentAt,zone)]]}];
+  return{terms,actions:operations?[{id:'crude-operations',label:'Delivery and cash',run:operations}]:undefined,history:[{title:`Revision ${h.revision}`,rows:[['Booked',displayExactInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]}]};
  }};
 }

@@ -10,8 +10,15 @@ const rows=[
 test('futures choices cascade only through available catalog rows',()=>{
  const all=futuresSelection(rows,{});assert.deepEqual(all.commodities.map(c=>c.value),['gas','power']);assert.deepEqual(all.contracts,[]);
  const gas=futuresSelection(rows,{commodity:'gas'});assert.deepEqual(gas.exchanges.map(c=>c.value),['a','b']);assert.deepEqual(gas.products,[]);
- const product=futuresSelection(rows,{commodity:'gas',exchange:'a',product:'g'});assert.deepEqual(product.dates,['2026-11-01','2026-12-01']);assert.deepEqual(product.contracts,[]);
+ const product=futuresSelection(rows,{commodity:'gas',exchange:'a',product:'g'});assert.deepEqual(product.dates,['2026-11-01','2026-12-01']);assert.deepEqual(product.contracts.map(c=>c.id),['one','two']);
  const date=futuresSelection(rows,{commodity:'gas',exchange:'a',product:'g',date:'2026-12-01'});assert.deepEqual(date.contracts.map(c=>c.id),['two']);
+});
+test('the exact contract can be chosen directly, with delivery date as an optional filter',()=>{
+ const product={commodity:'gas',exchange:'a',product:'g'};
+ assert.deepEqual(futuresSelection(rows,product).contracts.map(c=>c.id),['one','two']);
+ assert.deepEqual(futuresSelection(rows,{...product,date:'2026-12-01'}).contracts.map(c=>c.id),['two']);
+ assert.deepEqual(futuresSelection(rows,{...product,date:'2027-01-01'}).contracts,[]);
+ assert.deepEqual(futuresSelection(rows,{commodity:'power',exchange:'a',product:'g'}).contracts,[]);
 });
 test('stale downstream futures filters expose no unrelated contracts',()=>{
  const changed=futuresSelection(rows,{commodity:'power',exchange:'b',product:'g2',date:'2026-11-03'});assert.deepEqual(changed.exchanges.map(c=>c.value),['a']);assert.deepEqual(changed.products,[]);assert.deepEqual(changed.contracts,[]);

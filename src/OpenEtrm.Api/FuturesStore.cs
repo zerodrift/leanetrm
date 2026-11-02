@@ -100,7 +100,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
                 clearingIncrement=s.Quote.ClearingIncrement.ToString(),minimumPrice=s.Quote.Minimum.ToString(),maximumPrice=s.Quote.Maximum.ToString(),
                 contract=s.Contract.Key,series=s.Series.Key,quote=s.Quote.Key,lotQuantity=s.Series.LotQuantity,
                 priceUnit=new {s.Quote.Currency,s.Quote.Quantity,multiplier=s.Quote.Multiplier.ToString()},
-                lotBasis=product.Text("lot_basis"),settlementMethod=s.SettlementMethod,mark=prices![s.Market].Single().Price.Value.ToString()};
+                lotBasis=product.Text("lot_basis"),settlementMethod=s.SettlementMethod,mark=prices![s.Market].Single().Price.Value.ToString(),priceAsOf=Instant(frame.At)};
         }).ToArray(),convention=manifest.FuturesConvention};
     }
     public async Task<object> Holdings(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)

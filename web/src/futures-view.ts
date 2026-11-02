@@ -276,7 +276,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
     queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
-  const crudeOperations=setupCrudeOperations({api,act,busy,context:readContext,actor:options.profile,onDenied:clear,pending:()=>pending.command,host:()=>panel.element('form'),unsavedChanged:options.unsavedChanged,
+  const crudeOperations=setupCrudeOperations({api,act,busy,context:readContext,actor:options.profile,zone:options.zone,onDenied:clear,pending:()=>pending.command,host:()=>panel.element('form'),unsavedChanged:options.unsavedChanged,
     queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
     ask:question=>detailsPane.ask(question),
@@ -832,7 +832,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       moves:shown.summary.largest.map(largest=>{
         const h=held[at.get(largest.positionKey)!];
         return {currency:largest.currency,text:signedText(largest.change,holdingFormats(h).money),exact:largest.change,sign:signOf(largest.change),
-          hint:`${words.lead}: ${largest.tradeReference} · ${positionRows([h])[0].market}, if ${largest.shock.label} moves ${largest.direction}`};
+          hint:`${words.lead}: ${largest.tradeReference} · ${positionRows([h],options.zone())[0].market}, if ${largest.shock.label} moves ${largest.direction}`};
       })};
   }
   // What the Risk lens shows of a position: the shocks that move it; that nothing moves it, or, while a part has no results, that it is
@@ -925,7 +925,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
     const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,coverage,...fields}=h;
-    return {...fields,priceUnit:h.instrumentType==='ppa'?null:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
+    return {...fields,priceUnit:h.instrumentType==='ppa'?null:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo,options.zone()),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
   // What a trade row's value cell says when the close cannot value it, on screen and in exports (D220).
   function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}
@@ -969,7 +969,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // What the trade rows' desk shows, selected from the read: its rows, their trade fields, its group headers and its two charts.
   function planDesk(colors:ReadonlyMap<string,string>){
     const held=holdings!.holdings;
-    return {rows:positionRows(held),fields:held.map(tradeFields),groups:deskGroups(view.rowGroup,summaries!,held),
+    return {rows:positionRows(held,options.zone()),fields:held.map(tradeFields),groups:deskGroups(view.rowGroup,summaries!,held),
       pvPanels:pvChartPanels(summaries!,colors,money),positionPanels:positionChartPanels(summaries!,held,colors,quantity)};
   }
   function renderDesk(scope:string,colors:ReadonlyMap<string,string>,plan:ReturnType<typeof planDesk>){
@@ -1105,12 +1105,12 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     tableColumns=columns.map(c=>c[0]);
     // Every pivot subtotal says how many positions it leaves out whenever any group leaves one out (D220).
     const counted=read.groups.some(g=>excludedPositions(g.unvaluedPositions)>0);
-    const rows:Record<string,string|null>[]=read.groups.map(g=>({...Object.fromEntries(columns.map(([key])=>[key,groupLabel(g,key)])),unvaluedPositions:String(excludedPositions(g.unvaluedPositions))}));
+    const rows:Record<string,string|null>[]=read.groups.map(g=>({...Object.fromEntries(columns.map(([key])=>[key,groupLabel(g,key,options.zone())])),unvaluedPositions:String(excludedPositions(g.unvaluedPositions))}));
     const required=['instrumentType','unit','currency','priceUnit'];
     const visible=columns.map(([key])=>view.columns.includes(key)||required.includes(key));
     if(!visible.some(Boolean))visible[0]=true;
     const numeric=tableColumns.flatMap((key,i)=>numericFields.includes(key)||isPriceMeasure(key)?[i]:[]);
-    const matrix=view.splitBy.length?pivotMatrix(read.groups,view.groupBy,view.splitBy,counted?[...view.measures,'unvaluedPositions']:view.measures):undefined;
+    const matrix=view.splitBy.length?pivotMatrix(read.groups,view.groupBy,view.splitBy,counted?[...view.measures,'unvaluedPositions']:view.measures,options.zone()):undefined;
     const gridColumns:{key:string;title:string;numeric:boolean;measure?:string}[]=matrix?.columns??[...columns.map(([key,title],i)=>({key,title,numeric:numeric.includes(i)})),...(counted?[{key:'unvaluedPositions',title:'Not valued',numeric:true}]:[])];
     tableColumns=gridColumns.map(c=>c.key);
     transientKeys=new Set(gridColumns.filter(c=>(c.measure??c.key)==='unvaluedPositions').map(c=>c.key));
@@ -1314,7 +1314,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     // A chart of a valuation measure leaves unvalued positions out and says so; booked quantities count every position.
     const excluded=valuationMeasure(view.chart.measure)?valuationNote(report.unvaluedPositions):null;
     text('blotter-chart-scope','Follows the pivot rows and columns · selected books and portfolios, before table row filters.'+(excluded?' '+excluded:''));
-    chartState={panels:pivotChartPanels(report.groups,dimensions,splitBy,view.chart.measure),request:chartRequest};renderChartPanels();
+    chartState={panels:pivotChartPanels(report.groups,dimensions,splitBy,view.chart.measure,options.zone()),request:chartRequest};renderChartPanels();
   }
   function renderChartPanels(){
     if(!chartState)return;const {panels,request}=chartState,host=get('blotter-chart');
@@ -1599,6 +1599,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         else options.notice('Trade saved. Select its position binding in the Blotter to inspect it.');
       }catch(error){options.notice('The trade was saved. Refresh the Blotter to inspect its position.');options.failed(error);}
     },
+    refreshDisplay(){chartState=undefined;drawn=undefined;clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();crudeOperations.sync();captureFilters();render();},
     refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();crudeOperations.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
     async openTrade(tradeId:string,instrumentType:TradeShown['instrumentType'],revision:number|null){

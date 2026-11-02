@@ -2,6 +2,7 @@
 from preview_fixture import trade_booking
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
+from datetime import datetime
 
 
 def run_checks(Client, check):
@@ -14,6 +15,7 @@ def run_checks(Client, check):
     catalog = trader.call('futures/catalog', view)
     check('futures catalog resolves actual curve members and two scoped books', len(catalog['books']) == 2 and len(catalog['contracts']) == 6)
     contract = next(c for c in catalog['contracts'] if c['deliveryFrom'] == '2021-01-01')
+    check('the displayed curve-price context is the explicitly selected pricing instant', all(datetime.fromisoformat(c['priceAsOf'])==datetime.fromisoformat(frame['at']) for c in catalog['contracts']))
     check('booking terms include explicit fixed lot size, units, quote and trading interval', contract['contractSize'] == '40' and contract['lotBasis'] == 'fixed_total' and contract['settlementMethod'] == 'cash')
     check('booking exposes exact contract series quote and independently specified price rules',
           contract['contract']['id'] == contract['id'] and contract['series']['code'] and contract['quote']['code']

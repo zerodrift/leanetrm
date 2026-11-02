@@ -278,7 +278,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    scheduledOptions=new{implementation=ScheduledFinancialSwap.Implementation,priceApplication=ScheduledPriceApplication,maximumPeriods=120,
     powerQuantities=markets.SelectMany(m=>m.Data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt"&&q.Text("dimension_code")=="power").Select(q=>new{definitionRevisionId=m.Data.DefinitionRevision.RevisionId,specification=new ReferenceKey(m.Data.ReferenceRevision,q.Text("code")),unit="MW",commodity=q.Text("commodity_code")})),
     clocks=markets.SelectMany(m=>m.Data.References["clock_rules"].Select(c=>new{definitionRevisionId=m.Data.DefinitionRevision.RevisionId,reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),label=c.OptionalText("iana_zone")??c.Text("code")}))},
-   parRateOptions=new{implementation=FinancialSwapValuation.ParRatePolicy,initialDecimalPlaces=6,tieRule="to_even"},entryTemplate=SwapPaymentOptions.EntryTemplate,paymentOptions=SwapPaymentOptions.Catalog,convention=Convention};
+   sideStructures=SwapPaymentOptions.SideStructures,parRateOptions=new{implementation=FinancialSwapValuation.ParRatePolicy,initialDecimalPlaces=6,tieRule="to_even"},entryTemplate=SwapPaymentOptions.EntryTemplate,paymentOptions=SwapPaymentOptions.Catalog,convention=Convention};
  }
  private static SwapPaymentInput? StoredPayment(JsonElement row,string key)
  {

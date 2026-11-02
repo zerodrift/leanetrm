@@ -14,7 +14,7 @@ test('common crude details read exact retained selection, preserve independent d
  assert.ok(rows.some(([label,value])=>label==='Handling fee direction'&&value==='Receive'));
  assert.ok(rows.some(([label,value])=>label==='Contract volume'&&value==='1000 bbl'));
  assert.ok(rows.some(([label,value])=>label==='Price unit'&&value==='USD / 1 bbl'));
- assert.equal(view.actions,undefined);
+ assert.deepEqual(view.terms.map(s=>s.title),['Physical crude trade','Crude','Fixed price','Handling fee']);assert.equal(view.actions,undefined);
 });
 test('common crude details reject another retained instrument or revision',async()=>{
  for(const head of [{...detail.head,revision:2},{...detail.head,instrument_id:'other'}])await assert.rejects(readCrudeView(async()=>({...detail,head}),{},h),/changed/);
@@ -23,5 +23,5 @@ test('retained crude details preserve exact intraday and fractional exclusive de
  const exact={...request,deliveryFrom:'2030-02-04T12:00:01.1234567Z',deliveryTo:'2030-02-04T12:00:02.7654321Z'};
  const read=await readCrudeView(async()=>({...detail,head:{...detail.head,request:exact}}),{},h);
  const delivery=read.view('America/Chicago').terms.flatMap(t=>t.rows).find(([name])=>name==='Delivery')[1];
- assert.ok(delivery.includes('12:00:01.1234567 UTC'));assert.ok(delivery.includes('12:00:02.7654321 UTC'));assert.ok(delivery.includes('exclusive'));
+ assert.ok(delivery.includes('06:00:01.1234567 UTC-06:00'));assert.ok(delivery.includes('06:00:02.7654321 UTC-06:00'));assert.ok(delivery.includes('exclusive'));
 });
