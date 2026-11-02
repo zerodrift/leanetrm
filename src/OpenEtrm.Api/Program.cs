@@ -140,7 +140,7 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "option_instruction_conflict" or "option_expiry_conflict" => (409,p.MessageText,FuturesOptionStore.EventRefusal(p.MessageText)!),
     PostgresException p when p.SqlState=="P0001" && FuturesOptionStore.EventRefusal(p.MessageText) is not null => (422,p.MessageText,FuturesOptionStore.EventRefusal(p.MessageText)!),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("option_",StringComparison.Ordinal)
-        => (422,p.MessageText,"The option booking needs a listed series, signed whole lots, a premium on its tick, an explicit payment date and premium paid up front before expiry."),
+        => (422,p.MessageText,"The option booking needs a listed series, a side and a whole number of lots, a premium on its tick, an explicit payment date on or after the execution date and premium paid up front before expiry."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_revision_conflict" => (409,"futures_revision_conflict","The trade changed. Reload its latest revision before amending."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("futures_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit book, contract or execution terms."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "trade_booking_read_only" or "booking_human_required" => (422,p.MessageText,"Booking facts are server-owned and require the authenticated human workspace user."),

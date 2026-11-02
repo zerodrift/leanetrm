@@ -165,15 +165,15 @@ CREATE TABLE ref_data.futures_option_series (
 );
 
 -- The underlying is a series of the product's own futures product; the strike lies on both the futures tick and
--- the strike interval; the option expires at its configured time, before its future. A missing underlying is left to
--- the foreign key.
+-- the strike interval; the option expires at its configured time, before its future. A product, underlying or underlying
+-- product this insert cannot read, whether missing or hidden by row security, is refused before any foreign key check.
 CREATE FUNCTION ref_data.require_futures_option_series() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 DECLARE p ref_data.futures_option_products;f ref_data.futures_products;s ref_data.futures_series;m ref_data.futures_milestones;
 BEGIN
  SELECT * INTO p FROM ref_data.futures_option_products WHERE(catalog_id,revision_id,code)=(NEW.catalog_id,NEW.revision_id,NEW.product_code);
  SELECT * INTO s FROM ref_data.futures_series WHERE(catalog_id,revision_id,code)=(NEW.catalog_id,NEW.revision_id,NEW.underlying_series_code);
- IF p.code IS NULL OR s.code IS NULL THEN RETURN NEW;END IF;
  SELECT * INTO f FROM ref_data.futures_products WHERE(catalog_id,revision_id,code)=(s.catalog_id,s.revision_id,s.product_code);
+ IF p.code IS NULL OR s.code IS NULL OR f.code IS NULL THEN RAISE EXCEPTION 'option_reference_unreadable';END IF;
  IF f.code<>p.underlying_product_code THEN RAISE EXCEPTION 'option_underlying';END IF;
  IF f.outright_tick_size IS NULL OR NEW.strike%f.outright_tick_size<>0 OR NEW.strike%p.strike_interval<>0 THEN RAISE EXCEPTION 'option_strike';END IF;
  IF NEW.expiry_at<>ref_data.close_instant(NEW.catalog_id,NEW.revision_id,'option_expiry',p.code,NEW.last_trading_date) THEN RAISE EXCEPTION 'close_time_mismatch';END IF;
@@ -493,8 +493,8 @@ BEGIN
 END$$;
 
 -- Books one option trade under book_futures' authority, attribution and request-identity rules (D238): only premium
--- paid up front, signed whole lots, a premium on the product's premium tick within its quote, an explicit payment date,
--- and execution before the option's expiry instant.
+-- paid up front, signed whole lots, a premium on the product's premium tick within its quote, an explicit payment date
+-- on or after the UTC date of the trade's execution, and execution before the option's expiry instant.
 CREATE FUNCTION security.book_futures_option(catalog uuid,operation uuid,book uuid,revision uuid,series text,lots numeric,premium numeric,
  premium_payment_date date,premium_style text,valuation timestamptz,executed timestamptz,implementation text,trader uuid,trader_revision integer,memo text,booking jsonb)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -512,12 +512,6 @@ BEGIN
  THEN RAISE EXCEPTION 'option_booking_input' USING ERRCODE='P0001';END IF;
  request_value=jsonb_build_object('book',book,'revision',revision,'series',series,'lots',lots,'premium',premium,'premiumPaymentDate',premium_payment_date,
   'premiumStyle',premium_style,'valuation',valuation AT TIME ZONE 'UTC','implementation',implementation,'memo',memo,'booking',booking,'bookingFactsPolicy','server_booking_utc_v1');
- SELECT * INTO prior FROM trading.trades WHERE(catalog_id,operation_id)=(catalog,operation);
- IF FOUND THEN
-  IF prior.actor_id<>c.actor_id OR prior.request IS DISTINCT FROM request_value OR NOT EXISTS(SELECT 1 FROM trading.futures_option_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation))
-  THEN RAISE EXCEPTION 'option_conflict' USING ERRCODE='P0001';END IF;
-  RETURN security.futures_option_operation_status(catalog,operation);
- END IF;
  IF EXISTS(SELECT 1 FROM trading.trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR EXISTS(SELECT 1 FROM trading.swap_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR
  EXISTS(SELECT 1 FROM trading.ppa_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR EXISTS(SELECT 1 FROM trading.gas_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR
  EXISTS(SELECT 1 FROM trading.crude_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) THEN RAISE EXCEPTION 'option_conflict' USING ERRCODE='P0001';END IF;
@@ -537,10 +531,18 @@ BEGIN
  IF contract_row.id IS NULL OR NOT security.market_access(catalog,'ReadMarketData') OR NOT security.market_fact_visible(catalog,revision,NULL) OR
   NOT security.reference_access(contract_row.reference_catalog_id,'ReadMarketData') OR
   NOT security.reference_version_visible(contract_row.reference_catalog_id,contract_row.reference_revision_id) THEN RAISE EXCEPTION 'option_definition' USING ERRCODE='P0001';END IF;
+ -- A retry returns its first outcome only once the caller can still see the series it booked, as an event retry does.
+ SELECT * INTO prior FROM trading.trades WHERE(catalog_id,operation_id)=(catalog,operation);
+ IF FOUND THEN
+  IF prior.actor_id<>c.actor_id OR prior.request IS DISTINCT FROM request_value OR NOT EXISTS(SELECT 1 FROM trading.futures_option_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation))
+  THEN RAISE EXCEPTION 'option_conflict' USING ERRCODE='P0001';END IF;
+  RETURN security.futures_option_operation_status(catalog,operation);
+ END IF;
  IF series_row.code IS NULL OR product.code IS NULL OR q.code IS NULL OR contract_row.expiry_at<>series_row.expiry_at
  THEN RAISE EXCEPTION 'option_definition' USING ERRCODE='P0001';END IF;
  IF product.premium_style='futures_style_margin' THEN RAISE EXCEPTION 'option_product_margined' USING ERRCODE='P0001';END IF;
- IF product.premium_style<>premium_style OR valuation>=series_row.expiry_at OR premium<q.minimum OR premium>q.maximum OR mod(premium,q.trading_tick)<>0
+ IF product.premium_style<>premium_style OR valuation>=series_row.expiry_at OR premium_payment_date<(valuation AT TIME ZONE 'UTC')::date OR
+  premium<q.minimum OR premium>q.maximum OR mod(premium,q.trading_tick)<>0
  THEN RAISE EXCEPTION 'option_booking_input' USING ERRCODE='P0001';END IF;
  SELECT(effective_from::timestamp AT TIME ZONE 'UTC') INTO definition_from FROM market_data.revision_periods
   WHERE(catalog_id,revision_id)=(catalog,revision) AND effective_from<=(valuation AT TIME ZONE 'UTC')::date AND(valuation AT TIME ZONE 'UTC')::date<effective_to;
@@ -680,8 +682,8 @@ $$;
 -- A retry returns its first outcome once the caller can still see the trade; recording an existing fact again (the same
 -- instruction, or an expiry on the same settlement) returns the existing record, and a different one is a conflict.
 -- Exercise and assignment take whole lots up to the open lots, on a business day of the underlying's trading calendar
--- from the trade's execution to the option's expiry date. Instructions need a product that accepts them, filed and
--- recorded by the series' cutoff. Expiry is recorded once the option's expiry instant has passed: the filed instruction,
+-- from the trade's execution to the option's expiry date. Instructions need a product that accepts them and an open
+-- holding, timed at or after the trade's execution, filed and recorded by the series' cutoff. Expiry is recorded once the option's expiry instant has passed: the filed instruction,
 -- otherwise the product's automatic exercise rule, against the underlying's final daily settlement on the expiry date
 -- among the snapshot's selected observations. Exercised and assigned lots book the linked future at the strike in the
 -- option's book and parties, by the caller, in this transaction.
@@ -768,6 +770,9 @@ BEGIN
    IF instruction.kind<>event_kind THEN RAISE EXCEPTION 'option_instruction_conflict' USING ERRCODE='P0001';END IF;
    RETURN security.futures_option_event_outcome(instruction);
   END IF;
+  -- A new instruction is filed on an open holding, timed from the trade's execution.
+  IF open_lots=0 THEN RAISE EXCEPTION 'option_holding_closed' USING ERRCODE='P0001';END IF;
+  IF event_at<r.execution_at THEN RAISE EXCEPTION 'option_instruction_window' USING ERRCODE='P0001';END IF;
   IF series_row.instruction_cutoff_at IS NULL THEN RAISE EXCEPTION 'option_instruction_cutoff_unknown' USING ERRCODE='P0001';END IF;
   -- Both the instruction's business time and its recording time lie at or before the cutoff, so an older frame
   -- cannot file a late instruction.

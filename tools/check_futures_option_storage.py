@@ -83,9 +83,9 @@ ROLLBACK;""") is not None
     copy = draft_copy(chain)
     underlying = query(f"SELECT underlying_series_code FROM ref_data.futures_option_series WHERE {in_revision} ORDER BY code LIMIT 1;")
     option = query(f"SELECT row_to_json(o) FROM ref_data.futures_option_series o WHERE {in_revision} AND underlying_series_code='{underlying}' ORDER BY code LIMIT 1;")
-    check('a series whose underlying belongs to another revision fails on the exact-version foreign key',
+    check('a series whose underlying is not readable in its own revision is refused before it is stored, never stored unchecked',
           rejected(copy + f"INSERT INTO ref_data.futures_option_series SELECT (jsonb_populate_record(NULL::ref_data.futures_option_series,'{option}'::jsonb||jsonb_build_object('revision_id','{draft}'))).*;",
-                   '23503', 'futures_option_series_underlying_fkey'))
+                   'P0001', message='option_reference_unreadable'))
     product = query(f"SELECT row_to_json(p) FROM ref_data.futures_option_products p WHERE {in_revision} AND code='nymex_on';")
     check('a european exercise style is rejected by the check constraint',
           rejected(copy + f"INSERT INTO ref_data.futures_option_products SELECT (jsonb_populate_record(NULL::ref_data.futures_option_products,'{product}'::jsonb||jsonb_build_object('revision_id','{draft}','code','european_on','exercise_style','european'))).*;",
@@ -99,6 +99,8 @@ ROLLBACK;""") is not None
         return f"INSERT INTO ref_data.futures_option_series SELECT (jsonb_populate_record(NULL::ref_data.futures_option_series,'{on_option}'::jsonb||jsonb_build_object('revision_id','{draft}','code','changed'{changes}))).*;"
     check('a strike on the futures tick but off the strike grid is rejected', rejected(
         draft_copy(listed) + option_insert(f",'strike',(('{on_option}'::jsonb->>'strike')::numeric+{tick})"), 'P0001', message='option_strike'))
+    check('a series whose option product is not readable in its own revision is refused', rejected(
+        draft_copy(listed) + option_insert(",'product_code','unlisted_option_product'"), 'P0001', message='option_reference_unreadable'))
     check('a series whose underlying is another product\'s future is rejected', rejected(
         draft_copy(listed) + option_insert(",'underlying_series_code','nymex_cl_20261201'"), 'P0001', message='option_underlying'))
     check('a series that does not expire before its underlying future is rejected', rejected(

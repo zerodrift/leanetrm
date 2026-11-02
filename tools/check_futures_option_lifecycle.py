@@ -108,6 +108,10 @@ def run_checks(url, query, manifest):
     check('a missing or unknown side is refused', refused({'side': None}, 'option_booking_input') and refused({'side': 'short'}, 'option_booking_input'))
     check('a negative premium is refused', refused({'premium': '-0.125'}, 'option_booking_input'))
     check('a premium off the product premium tick is refused', refused({'premium': '0.1255'}, 'option_booking_input'))
+    early = c.call('options/book', {**body(on, '1', '0.125'), 'premiumPaymentDate': '2026-10-15'}, expected=422)
+    check('a premium payment date before the UTC date of the trade\'s execution is refused, and the refusal states the side, '
+          'unsigned whole lots and payment date the booking needs', early['code'] == 'option_booking_input' and
+          'a side and a whole number of lots' in early['message'] and 'on or after the execution date' in early['message'] and 'signed' not in early['message'], early)
     check('server-owned execution time cannot be supplied', refused({'executedAt': frame['at']}, 'trade_booking_read_only'))
     check('unmapped request members are refused', c.call('options/book', body(on, '1', '0.125', strike='3.25'), expected=400)['code'] == 'request_format')
     check('nothing is recorded for refused bookings', rows() == before)
@@ -145,10 +149,13 @@ def run_checks(url, query, manifest):
             return work()
         finally:
             query(f"INSERT INTO security.{table} SELECT * FROM json_populate_recordset(NULL::security.{table},'" + held.replace("'", "''") + "'::json);")
-    seen, missing = withdrawn('reference_catalog_scopes', 'catalog_id', reference[0], lambda: (
-        c.call('options/book', body(lo, '1', '1.25'), expected=422), c.call('options/book', body(lo, '1', '1.25', series='nymex_lo_29991201_p1.00'), expected=422)))
+    seen, missing, replayed = withdrawn('reference_catalog_scopes', 'catalog_id', reference[0], lambda: (
+        c.call('options/book', body(lo, '1', '1.25'), expected=422), c.call('options/book', body(lo, '1', '1.25', series='nymex_lo_29991201_p1.00'), expected=422),
+        c.call('options/book', long_call, expected=422)))
     check('a trader whose reference scope is withdrawn cannot book, and an unseen series is refused exactly as a nonexistent one',
           seen == missing and seen['code'] == 'option_definition' and rows() == before, (seen, missing))
+    check('a retried booking whose series the trader can no longer see is refused as unseen, not replayed', replayed == seen, replayed)
+    check('once the scope is restored the same retry returns its first outcome', c.call('options/book', long_call) == booked and rows() == before)
     check('a nonexistent series is refused with the same code', c.call('options/book', body(lo, '1', '1.25', series='nymex_lo_29991201_p1.00'), expected=422) == seen)
     withdrawn('market_catalog_scopes', 'catalog_id', manifest['catalogId'], lambda: c.call('options/book', body(lo, '1', '1.25'), expected=403))
     check('a trader without market read access cannot book', rows() == before)
@@ -441,7 +448,11 @@ def run_lifecycle_checks(url, query, manifest):
                      refused(instruct('abandon_instruction'), 'option_instruction_conflict'), open_until)
     check('the same instruction recorded again returns the existing record; a contrary instruction is a conflict',
           len(repeated) >= 3 and repeated[-3] == repeated[-2] and repeated[-1] == 'refused', repeated)
+    check('an instruction timed before the trade was executed is refused',
+          sql(refused(instruct('exercise_instruction', at='2026-10-15T16:00:00Z'), 'option_instruction_window'), open_until) == ['refused'])
     close_all = f"SELECT security.record_futures_option_event('{catalog_id}','{uuid4()}','{long_call}','exercise',2,'{frame['at']}')->>'remainingLots';"
+    check('a holding whose lots are all exercised files no instruction',
+          lines(close_all + refused(instruct('exercise_instruction'), 'option_holding_closed'), open_until)[-2:] == ['0', 'refused'], output)
     check('a holding whose lots are all exercised has nothing to expire',
           lines(close_all + refused(expire(long_call), 'option_holding_closed'), expired() + settle(itm))[-2:] == ['0', 'refused'], output)
 
