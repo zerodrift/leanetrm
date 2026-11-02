@@ -402,7 +402,7 @@ overlap and identifier collisions, wrong commodity units, inconsistent group
 linkage, isolation refusal and display-clone identity preservation; additional
 permissive policies cannot bypass current authority. Add `--browser-check --browser`
 to exercise the deal ticket's gas entry: one gas entry in New trade, side-level
-direction, points filtered by zone and only valued points offered, and a fee's
+direction, reference points filtered by zone including unpriced masters, and a fee's
 proposed tariff. Add `--gas-setup-check` to qualify economic authoring, configured
 point/clock changes, historical setup visibility, tariff pricing and pre-publication
 booked price/meter preservation. These are bounded local checks, not production or

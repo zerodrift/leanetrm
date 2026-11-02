@@ -42,7 +42,10 @@ public sealed class GasTicketStore(PreviewDatabase database)
  async Task<JsonElement> Catalog(NpgsqlConnection c,PreviewData data,InputFrame frame,CancellationToken ct)=>JsonSerializer.SerializeToElement(await gas.CatalogRead(c,data,frame,ct),Json);
 
  public async Task<object> Choices(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketFieldRequest body,CancellationToken ct)=>
-  new{choices=GasTicket.Choices(body.Draft,body.Side,body.Field,await Catalog(c,data,frame,ct))};
+  new{choices=GasTicket.Choices(body.Draft,body.Side,body.Field,
+   GasTicket.PhysicalReferenceField(body.Draft,body.Side,body.Field)
+    ?JsonSerializer.SerializeToElement(await gas.PhysicalReferences(c,data,ct),Json)
+    :await Catalog(c,data,frame,ct))};
 
  public async Task<object> Lookup(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketFieldRequest body,CancellationToken ct)
  {

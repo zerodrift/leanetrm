@@ -10,7 +10,8 @@ FROM, SWITCH, TO='2020-01-01T05:00:00Z','2031-11-15T05:00:00Z','2032-01-01T05:00
 
 def prepare(reference, market, security, manifest):
     manifest=deepcopy(manifest)
-    refs=[f"INSERT INTO ref_data.value_specifications VALUES({R},'test_ppa_capacity_factor','dimensionless',NULL,NULL,0,1);",
+    refs=[f"INSERT INTO ref_data.locations(catalog_id,revision_id,code,name,type_code,clock_code) VALUES({R},'synthetic_unmapped_power_location','Synthetic unpriced power location','test_physical_site','test_utc');",
+          f"INSERT INTO ref_data.value_specifications VALUES({R},'test_ppa_capacity_factor','dimensionless',NULL,NULL,0,1);",
           f"INSERT INTO ref_data.dimensions(catalog_id,revision_id,code,mass_power,length_power,time_power,temperature_power,amount_power,current_power,luminous_power) VALUES({R},'certificate',0,0,0,0,0,0,0);",
           f"INSERT INTO ref_data.units(catalog_id,revision_id,code,symbol,dimension_code) VALUES({R},'test_rec','REC','certificate');",
           f"INSERT INTO ref_data.commodity_units VALUES({R},'test_power','test_rec','certificate');",

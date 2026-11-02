@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0172_joint_risk_runs.sql`. It includes reference/market data, certified
+`0173_physical_crude_reference_resolution.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts and bounded physical gas/crude operations.
 The migration notes below include historical foundation checkpoints; statements
@@ -36,6 +36,8 @@ Recent schema groups and their contracts:
   exact original pricing bindings, versioned native booking and leased worker reads.
 - 0172: typed complete joint-scenario/selected-derivative jobs and private exact-axis
   retention validation ([joint risk](../docs/joint-scenario-risk.md)).
+- 0173: physical crude reference resolution and final booking source-pin checks
+  ([physical reference entry](../docs/crude-delivery-setups.md#physical-reference-entry)).
 
 Apply migrations in order. Some deliberately refuse incompatible retained data;
 existing installations require the separately qualified schema/rebooking procedure.

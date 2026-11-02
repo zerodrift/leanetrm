@@ -342,9 +342,10 @@ def main():
             if args.crude_setup_check:
                 from crude_fixture import prepare_delivery
                 market,manifest=prepare_delivery(market,manifest)
-                from crude_fixture import DELIVERY_CATALOG
+                from crude_fixture import DELIVERY_CATALOG,UNRELATED_CATALOG
                 from preview_fixture import TENANT, WORKSPACE
                 security+=f"\nINSERT INTO security.reference_catalog_scopes VALUES('{DELIVERY_CATALOG}','{TENANT}','{WORKSPACE}','owner');"
+                security+=f"\nINSERT INTO security.reference_catalog_scopes VALUES('{UNRELATED_CATALOG}','{TENANT}','{WORKSPACE}','owner');"
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
             reference,market,manifest=prepare_execution(reference,market,manifest)
@@ -621,8 +622,12 @@ def main():
             elif args.physical_crude_check:
                 from check_physical_crude_preview import run_checks as check_crude,run_shape_checks as check_crude_shapes
                 if args.crude_setup_check:
-                    from check_crude_setup_editor import run_checks as check_crude_setup
+                    from check_crude_setup_editor import run_checks as check_crude_setup,run_resolution_authority_check
                     check_crude_setup(url,query,manifest)
+                    run_resolution_authority_check(query,manifest,psql,env)
+                    from check_crude_setup_editor import run_gas_reference_bootstrap,run_reference_publication_checks
+                    run_reference_publication_checks(url,query,manifest,psql,env)
+                    run_gas_reference_bootstrap(manifest,temporary,dotnet,frozen_dll,app_env,args.browser.resolve() if args.browser_check else None)
                 crude_receipt=check_crude(url,query,manifest)
                 check_crude_shapes(query,manifest,crude_receipt)
                 from check_crude_portfolio import run_checks as check_crude_portfolio
@@ -668,7 +673,7 @@ def main():
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_setup_check:
                     from check_gas_setup_editor import run_checks as check_gas_setup
-                    check_gas_setup(url)
+                    check_gas_setup(url,query,manifest)
             elif args.retained_schedule_check:
                 from check_retained_side_schedules import run_stage_checks,run_temporal_checks
                 run_stage_checks(query,manifest)

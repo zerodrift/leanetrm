@@ -47,6 +47,17 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     }
     internal async Task<PreviewData> Definitions(NpgsqlConnection connection,InputFrame frame,bool observations,CancellationToken ct)=>
         await database.Read(connection,ct,observationIds:observations?frame.ObservationIds:[],includeCalendarDays:true,observationScope:ObservationReadScope.ExactPins,ppaBundle:frame.PpaBundle);
+    private async Task<PreviewData> PhysicalReferences(NpgsqlConnection connection,InputFrame frame,PreviewData data,PpaTermsInput terms,CancellationToken ct)
+    {
+        var codes=terms.Memberships.Where(m=>m.Side.Kind=="energy"&&m.Side.Location is not null).Select(m=>m.Side.Location!).Distinct().ToArray();
+        if(codes.Length==0)return data;
+        var locations=await PreviewDatabase.Rows(connection,"""
+            SELECT row_to_json(l)::text FROM ref_data.locations l
+            WHERE(catalog_id,revision_id)=($1,$2) AND code=ANY($3)
+            """,[data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId,codes],ct);
+        var references=data.References.SetItem("locations",[..data.References["locations"].Concat(locations).DistinctBy(l=>l.Text("code"))]);
+        return new PreviewData(SelectedManifest(frame),data.Definitions,references,data.Observations,database.Calculations){CalendarDaysRead=data.CalendarDaysRead};
+    }
     internal async Task<ImmutableArray<InputFrame>> FramesRead(NpgsqlConnection connection,IEnumerable<InputFrame> frames,CancellationToken ct)
     {
         await Authority(connection,[],ct);var result=ImmutableArray.CreateBuilder<InputFrame>();
@@ -62,6 +73,9 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     {
         var data=await Definitions(connection,frame,false,ct);
         await Authority(connection,[data.ReferenceRevision.CatalogId],ct);
+        var physicalLocations=await PreviewDatabase.Rows(connection,
+            "SELECT row_to_json(l)::text FROM ref_data.locations l WHERE(catalog_id,revision_id)=($1,$2) ORDER BY name,code",
+            [data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId],ct);
         await using var now=ScheduleStore.Command(connection,"SELECT clock_timestamp()");
         var knownAt=new DateTimeOffset((DateTime)(await now.ExecuteScalarAsync(ct))!,TimeSpan.Zero);
         var knowledge=await Bind(connection,frame,knownAt.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'",System.Globalization.CultureInfo.InvariantCulture),ct);
@@ -69,7 +83,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         var directory=JsonSerializer.Deserialize<JsonElement>((string)(await choices.ExecuteScalarAsync(ct))!);
         return new{implementation=PpaCapabilities.Version,definitions=data.DefinitionRevision,reference=data.ReferenceRevision,knownAt,
             authoringContext=new{knowledgeContext=knowledge,knownAt,effectiveAt=frame.At},
-            references=PpaUiCatalog.References(data),definitionsMetadata=PpaUiCatalog.Definitions(data),compositionTemplates=PpaUiCatalog.Compositions,authoringPolicies=PpaUiCatalog.Policies,
+            references=PpaUiCatalog.References(data,physicalLocations),definitionsMetadata=PpaUiCatalog.Definitions(data),compositionTemplates=PpaUiCatalog.Compositions,authoringPolicies=PpaUiCatalog.Policies,
             unsupportedFeatures=PpaUiCatalog.UnsupportedFeatures,settlementPreview=SettlementPreview.Capabilities,breakEven=PpaBreakEvenStore.Capabilities,
             touVersions=(await products.Read(connection,ct)).Where(v=>v.State=="published" && v.Clock.CatalogId==data.ReferenceRevision.CatalogId && v.Clock.RevisionId==data.ReferenceRevision.RevisionId).ToArray(),
             limits=new{members=PpaCompiler.MaximumMembers,slotOrdinalMax=PpaCapabilities.MaximumSlotOrdinal,assets=PpaCompiler.MaximumAssets,bindings=PpaCompiler.MaximumBindings,requestRows=PpaCompiler.MaximumRequestRows,preparationCells=PpaCompiler.MaximumPreparationCells,detailRows=PpaCompiler.MaximumDetailRows,responseBytes=PpaCompiler.MaximumResponseBytes,retainedScheduleEntities=RetainedScheduleLimits.MaximumEntities,hourlyMonths=360,quarterHourMonths=120,deadlineSeconds=20},
@@ -83,6 +97,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     internal async Task<object> Validate(NpgsqlConnection connection,InputFrame frame,PpaValidateRequest request,CancellationToken ct)
     {
         PpaCompiler.PreflightWork([(request.Terms,request.CoverageFrom,request.CoverageTo,"draft")]);var data=await Definitions(connection,frame,false,ct);
+        data=await PhysicalReferences(connection,frame,data,request.Terms,ct);
         var i=PpaCompiler.Compile(data,request.Terms,await products.Read(connection,ct),await PpaCompiler.ReadQuantityTypes(connection,data,request.Terms,ct));var mw=PpaCompiler.Mw(request.Quantity);await PpaCompiler.ValidateDefinitions(connection,data,i,ct);
         var coverage=PpaCompiler.Coverage(i,PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code),request.CoverageFrom,request.CoverageTo);
         PpaCompiler.Work([(i,coverage)],[],i=>PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code));await Authority(connection,[i.Reference.CatalogId],ct);
@@ -96,6 +111,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         PpaCompiler.PreflightWork([(input,request.CoverageFrom??throw PpaCompiler.Error("ppa_coverage","Supply explicit booking coverage."),
             request.CoverageTo??throw PpaCompiler.Error("ppa_coverage","Supply explicit booking coverage."),"booking")]);
         var data=await Definitions(connection,frame,false,ct);
+        data=await PhysicalReferences(connection,frame,data,input,ct);
         RetainedScheduleLimits.RequireFullPreparation(input,PpaQuantitiesStore.Clock(data,input.Delivery.Clock));
         var instrument=PpaCompiler.Compile(data,input,await products.Read(connection,ct),await PpaCompiler.ReadQuantityTypes(connection,data,input,ct));
         await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);
@@ -278,6 +294,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         var tou=await PpaReads.Tou(connection,data,frame,knowledge,request.Scope=="draft"?[request.Terms!]:envelopes.Values.Select(e=>e.GetProperty("terms").Deserialize<PpaTermsInput>(Json)!),ct);var bindings=ImmutableArray.CreateBuilder<PpaBinding>();
         if(request.Scope=="draft")
         {
+            data=await PhysicalReferences(connection,frame,data,request.Terms!,ct);
             var i=PpaCompiler.Compile(data,request.Terms!,tou,await PpaCompiler.ReadQuantityTypes(connection,data,request.Terms!,ct));var coverage=PpaCompiler.Coverage(i,PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code),request.CoverageFrom,request.CoverageTo);
             bindings.Add(new(null,null,Guid.NewGuid(),i,coverage,PpaCompiler.Mw(request.Quantity)));
         }

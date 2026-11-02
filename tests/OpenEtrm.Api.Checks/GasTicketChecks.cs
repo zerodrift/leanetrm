@@ -199,6 +199,9 @@ internal static class GasTicketChecks
              "legalEntities":[{"id":"{{{Entity}}}","revision":4,"code":"E","name":"Synthetic entity"}],
              "counterparties":[{"id":"{{{Counterparty}}}","revision":7,"code":"C","name":"Synthetic counterparty"}]}
             """).RootElement;
+        var referenceCatalog=System.Text.Json.Nodes.JsonNode.Parse(catalog.GetRawText())!;
+        referenceCatalog["physicalReferences"]=referenceCatalog["locations"]!.DeepClone();
+        catalog=JsonSerializer.SerializeToElement(referenceCatalog);
         TicketSideDraft A(TicketSideDraft side) => With(With(With(side, "pipeline", "PA"), "zone", "ZA1"), "delivery_point", "P1");
         TicketDraft Open(params TicketSideDraft[] sides) => Draft(sides);
         string Listed(TicketDraft draft, string? side, string field) => string.Join(",", GasTicket.Choices(draft, side, field, catalog).Select(c => c.Value));
@@ -210,12 +213,12 @@ internal static class GasTicketChecks
         var fee = With(With(Fee, "fee_source", "RCT"), "fee_tariff", null);
         Check("zones list only the chosen pipeline's zones", () => Equal("ZA1,ZA2", Listed(Open(A(Receipt)), "RCT", "zone"), "zones"));
         Check("points list only the chosen zone's points", () => Equal("P1,P2", Listed(Open(A(Receipt)), "RCT", "delivery_point"), "points"));
-        Check("pipelines and products list only valued paths", () => { Equal("PA,PB", Listed(Open(A(Receipt)), "RCT", "pipeline"), "pipelines"); Equal("firm", Listed(Open(A(Receipt)), "RCT", "product"), "products"); });
+        Check("physical choices retain unpriced reference paths", () => { Equal("PA,PB,PC", Listed(Open(A(Receipt)), "RCT", "pipeline"), "pipelines"); Equal("firm,interruptible", Listed(Open(A(Receipt)), "RCT", "product"), "products"); });
         Refuses("ticket_input", "zones without a pipeline refuse", () => GasTicket.Choices(Open(With(Receipt, "pipeline", null)), "RCT", "zone", catalog));
         Refuses("ticket_input", "choices for an unknown side refuse", () => GasTicket.Choices(Open(A(Receipt)), "NOPE", "zone", catalog));
         Refuses("ticket_input", "choices for a field of another kind refuse", () => GasTicket.Choices(Open(A(Receipt), Cash), "PAY", "zone", catalog));
-        Refuses("ticket_input", "choices under another gas setup refuse", () => GasTicket.Choices(Open(A(Receipt)) with { Trade = Trade.SetItem("gas_setup", Guid.Empty.ToString()) }, "RCT", "zone", catalog));
-        Refuses("ticket_input", "side choices without the context's gas setup refuse", () => GasTicket.Choices(Open(A(Receipt)) with { Trade = Trade.Remove("gas_setup") }, "RCT", "zone", catalog));
+        Check("physical reference choices do not select a pricing setup", () => Equal("ZA1,ZA2", string.Join(",",GasTicket.Choices(Open(A(Receipt)) with { Trade = Trade.SetItem("gas_setup", Guid.Empty.ToString()) }, "RCT", "zone", catalog).Select(c=>c.Value)), "reference zones"));
+        Check("physical references are available before pricing setup is chosen", () => Equal("ZA1,ZA2", string.Join(",",GasTicket.Choices(Open(A(Receipt)) with { Trade = Trade.Remove("gas_setup") }, "RCT", "zone", catalog).Select(c=>c.Value)), "reference zones"));
         Check("side choices without a gas setup read the reference conventions of a context that resolves none", () =>
         {
             var reference = JsonDocument.Parse(catalog.GetRawText().Replace($"\"gasSetupId\":\"{Setup}\",\"gasSetupPublication\":3", "\"gasSetupId\":null,\"gasSetupPublication\":null")).RootElement;

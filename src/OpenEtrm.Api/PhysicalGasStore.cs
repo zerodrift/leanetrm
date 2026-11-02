@@ -86,22 +86,30 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   await using var selected=await active.ExecuteReaderAsync(ct);
   return await selected.ReadAsync(ct)?(selected.GetGuid(0),selected.GetInt32(1)):(null,null);
  }
- public async Task<object> CatalogRead(NpgsqlConnection c,PreviewData data,InputFrame frame,CancellationToken ct)
- {
-  var (setup,publication)=await CurrentSetup(c,data,ct);
-  var mappings=await Assignments(c,data,setup,ct);
-  var paths=setup is null?await PreviewDatabase.Rows(c,"""
+ private static async Task<ImmutableArray<JsonElement>> ReferencePaths(NpgsqlConnection c,PreviewData data,CancellationToken ct)=>
+  await PreviewDatabase.Rows(c,"""
    SELECT row_to_json(x)::text FROM(SELECT a.*,e.clock_code,e.day_start_minute,c.commodity_code product_code,p.name pipeline_name,z.name zone_name,l.name point_name,k.name product_name
    FROM ref_data.pipeline_delivery_points a
    JOIN ref_data.commodity_locations c ON(c.catalog_id,c.revision_id,c.location_code)=(a.catalog_id,a.revision_id,a.point_code)
    JOIN ref_data.commodity_locations pc ON(pc.catalog_id,pc.revision_id,pc.location_code,pc.commodity_code)=(a.catalog_id,a.revision_id,a.pipeline_code,c.commodity_code)
-   JOIN ref_data.gas_delivery_conventions e ON(e.catalog_id,e.revision_id,e.pipeline_code,e.zone_code,e.point_code,e.product_code)=(a.catalog_id,a.revision_id,a.pipeline_code,a.zone_code,a.point_code,c.commodity_code)
+   LEFT JOIN ref_data.gas_delivery_conventions e ON(e.catalog_id,e.revision_id,e.pipeline_code,e.zone_code,e.point_code,e.product_code)=(a.catalog_id,a.revision_id,a.pipeline_code,a.zone_code,a.point_code,c.commodity_code)
    JOIN ref_data.locations p ON(p.catalog_id,p.revision_id,p.code)=(a.catalog_id,a.revision_id,a.pipeline_code)
    JOIN ref_data.locations z ON(z.catalog_id,z.revision_id,z.code)=(a.catalog_id,a.revision_id,a.zone_code)
    JOIN ref_data.locations l ON(l.catalog_id,l.revision_id,l.code)=(a.catalog_id,a.revision_id,a.point_code)
    JOIN ref_data.commodities k ON(k.catalog_id,k.revision_id,k.code)=(a.catalog_id,a.revision_id,c.commodity_code)
    WHERE a.catalog_id=$1 AND a.revision_id=$2 ORDER BY p.name,z.name,l.name)x
-   """,[data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId],ct):
+   """,[data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId],ct);
+ private static object ReferencePath(JsonElement path)=>new{
+  pipeline=path.Text("pipeline_code"),pipelineName=path.Text("pipeline_name"),zone=path.Text("zone_code"),zoneName=path.Text("zone_name"),
+  deliveryPoint=path.Text("point_code"),deliveryPointName=path.Text("point_name"),product=path.Text("product_code"),productName=path.Text("product_name")};
+ internal async Task<object> PhysicalReferences(NpgsqlConnection c,PreviewData data,CancellationToken ct)=>
+  new{physicalReferences=(await ReferencePaths(c,data,ct)).Select(ReferencePath).ToArray()};
+ public async Task<object> CatalogRead(NpgsqlConnection c,PreviewData data,InputFrame frame,CancellationToken ct)
+ {
+  var (setup,publication)=await CurrentSetup(c,data,ct);
+  var mappings=await Assignments(c,data,setup,ct);
+  var referencePaths=await ReferencePaths(c,data,ct);
+  var paths=setup is null?referencePaths.Where(p=>p.OptionalText("clock_code") is not null).ToImmutableArray():
   await PreviewDatabase.Rows(c,"""
    SELECT row_to_json(x)::text FROM(SELECT a.*,p.name pipeline_name,z.name zone_name,l.name point_name,k.name product_name
    FROM market_data.gas_setup_points a
@@ -119,7 +127,7 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
     valuation=matched.Length==1?ValuationDetails(data,matched[0]):null};
   }).ToArray();
   var books=await PreviewDatabase.Rows(c,"SELECT row_to_json(b)::text FROM trading.books b WHERE catalog_id=$1 ORDER BY name",[Catalog],ct);
-  return new{gasSetupId=setup,gasSetupPublication=publication,locations,tariffs=(await Tariffs(c,data,setup,ct)).Select(t=>new{code=t.Text("code"),name=t.OptionalText("logical_code")??t.Text("code"),pipeline=t.Text("pipeline_code"),product=t.Text("product_code"),quote=t.Text("quote_code"),rate=t.Text("rate"),validFrom=t.Text("valid_from"),validTo=t.Text("valid_to"),basis="contractual_delivery_quantity"}),books,legalEntities=await TradeParties.Catalog(c,Catalog,true,ct),counterparties=await TradeParties.Catalog(c,Catalog,false,ct),
+  return new{gasSetupId=setup,gasSetupPublication=publication,physicalReferences=referencePaths.Select(ReferencePath).ToArray(),locations,tariffs=(await Tariffs(c,data,setup,ct)).Select(t=>new{code=t.Text("code"),name=t.OptionalText("logical_code")??t.Text("code"),pipeline=t.Text("pipeline_code"),product=t.Text("product_code"),quote=t.Text("quote_code"),rate=t.Text("rate"),validFrom=t.Text("valid_from"),validTo=t.Text("valid_to"),basis="contractual_delivery_quantity"}),books,legalEntities=await TradeParties.Catalog(c,Catalog,true,ct),counterparties=await TradeParties.Catalog(c,Catalog,false,ct),
    scope="Future physical gas delivery with fixed contractual quantities, separate fixed consideration and optional usage fee. This profile admits up to 31 days within one forward month, fixed-offset gas days and no discounting. Actuals and settlement remain unavailable."};
  }
  internal async Task<(GasValuationAssignment Assignment,GasDayClock Clock,JsonElement Mapping)> Metadata(NpgsqlConnection c,PreviewData data,PhysicalGasTerms body,CancellationToken ct)

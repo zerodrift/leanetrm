@@ -12,9 +12,9 @@ internal static class PpaUiCatalog
         "resampling", "percentage_of_output_normalization", "cross_revision_valuation",
         "partial_month_capacity_pricing", "delivery_services", "fx", "payment_grouping",
         "accepted_settlement", "payment_recording", "runtime_templates", "historical_session_valuation"];
-    internal static object References(PreviewData data)=>new {
+    internal static object References(PreviewData data,IEnumerable<JsonElement> physicalLocations)=>new {
         currencies=data.References["currencies"],quantitySpecs=data.References["quantity_specifications"],units=data.References["units"],
-        clocks=data.References["clock_rules"],calendars=data.References["calendars"],locations=data.References["locations"].Where(l=>data.Definitions["location_valuation_assignments"].Any(a=>a.Text("location_code")==l.Text("code")&&a.Text("attribute")=="energy")),
+        clocks=data.References["clock_rules"],calendars=data.References["calendars"],locations=physicalLocations,
         quantityGroups=new{contract=data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt"&&q.Text("dimension_code")=="power"),energy=data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt_hour"&&q.Text("dimension_code")=="energy"),certificate=data.References["quantity_specifications"].Where(q=>q.Text("dimension_code")=="certificate"),capacity=data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt_day"&&q.Text("dimension_code")=="energy")},priceIndices=data.References["price_index_definitions"]};
     internal static object Definitions(PreviewData data)
     {

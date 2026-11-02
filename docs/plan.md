@@ -4,6 +4,14 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D297 separates physical reference choices from pricing coverage in crude, gas
+and the existing physical PPA consumer. Crude entry has individual master fields
+and derives its unique pricing mapping in the backend. Missing or overlapping
+mappings refuse; retained trades keep their admitted source. Migration 0173 adds
+the final booking guard and needs a separately qualified release. Standalone
+physical power dimensions, LNG/cargo, saved Incoterms and fee catalogs remain
+subsequent work. See [the entry contract](crude-delivery-setups.md#physical-reference-entry).
+
 D289 adds the [Risk results workspace](risk-workspace.md): Risk-owned setup,
 shared sensitivity ladders/heatmaps and drill-through, visible incomplete coverage,
 retained report links, and multipart submission recovery. The bounded recent-job

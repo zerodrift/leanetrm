@@ -6,7 +6,7 @@ from preview_client import PreviewClient, initial_frame
 from preview_fixture import gas_purchase
 
 
-def run_checks(url):
+def run_checks(url,query,manifest):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'editor'})
     setup=c.call('gas-setup/catalog')
     assert setup['canSave'] and not setup['canPublish']
@@ -24,6 +24,13 @@ def run_checks(url):
     context={'snapshotId':frame['id'],'convention':'physical_gas_fixed_quantity_v4','knowledgeMode':'current'}
     catalog=c.call('gas/catalog',context)
     body=gas_purchase(context,catalog)
+    # A genuine master path can exist without an imported convention or mark.
+    reference,revision=manifest['referenceCatalogId'],manifest['referenceRevisionId']
+    unconfigured='synthetic_gas_point_reference_only'
+    assert query(f"SELECT NOT EXISTS(SELECT 1 FROM ref_data.gas_delivery_conventions WHERE(catalog_id,revision_id,point_code)=('{reference}','{revision}','{unconfigured}'));")=='t'
+    draft_terms={'product':'physical_gas','version':1,'trade':{},'sides':[{'kind':'physical','code':'physical','values':{'pipeline':'test_pipeline_a','zone':'synthetic_gas_zone_a','product':'test_gas'}}]}
+    points=c.call('tickets/choices',{'context':context,'draft':draft_terms,'side':'physical','field':'delivery_point'})['choices']
+    assert unconfigured in {p['value'] for p in points}
     # A booking pins the setup it was priced under, and a reopened booking keeps it after a later publication.
     preview=lambda b:c.call('gas/composition/preview',b)
     reopened=lambda trade:c.call('gas/composition/editor',{'context':context,'tradeId':trade})['valuation']
@@ -65,6 +72,16 @@ def run_checks(url):
     assert not c.call('gas-setup/validate',{'setupId':invalid['setupId'],'from':'2021-01-01','to':'2021-02-01'})['valid']
     c.call('profile',{'profile':'approver'})
     c.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':invalid['setupId']},expected=422)
+    c.call('profile',{'profile':'editor'})
+    maintained=deepcopy(changed)
+    maintained['paths'].append({**next(p for p in maintained['paths'] if p['point']=='synthetic_gas_point_a'),'point':unconfigured})
+    linked=c.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':new['setupId'],'configuration':maintained})
+    c.call('profile',{'profile':'approver'});c.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':linked['setupId']})
+    c.call('profile',{'profile':'trader'})
+    assert Decimal(preview(with_setup(body,linked['setupId'],deliveryPoint=unconfigured))['presentValue'])==0
+    points=c.call('tickets/choices',{'context':context,'draft':draft_terms,'side':'physical','field':'delivery_point'})['choices']
+    assert unconfigured in {p['value'] for p in points}
+    print('PASS gas physical choices: unpriced and maintained valued reference paths need no imported convention',flush=True)
     c.call('profile',{'profile':'viewer'})
     c.call('gas-setup/save',save,expected=403)
     print('PASS gas setup editor: immutable drafts, validation, role separation, idempotent publish, conflict refusal and old/new booked price pins',flush=True)

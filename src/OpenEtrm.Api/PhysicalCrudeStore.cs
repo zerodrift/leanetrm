@@ -15,8 +15,16 @@ public sealed record PhysicalCrudeWriteRequest(Guid SnapshotId,string? Conventio
  string? Quantity,string? QuantityBasis,string? Tolerance,string? Direction,string? ConsiderationDirection,string? FixedPrice,string? PaymentAt,bool? Discounting,
  [property:System.Text.Json.Serialization.JsonRequired]string? HandlingFee,[property:System.Text.Json.Serialization.JsonRequired]string? HandlingFeeDirection,
  Guid? LegalEntityId,int? LegalEntityRevision,Guid? CounterpartyId,int? CounterpartyRevision,
- [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]Guid? CrudeSetupId=null);
+ [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]Guid? CrudeSetupId=null,
+ [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]CrudePhysicalSelection? Physical=null);
 public sealed record PhysicalCrudeEditorRequest(FuturesReadRequest Context,Guid TradeId);
+
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record CrudePhysicalSelection(Guid ReferenceCatalogId,Guid ReferenceRevisionId,string Commodity,string Grade,
+ string Facility,string CustodyPoint,string QuantityCode,string Clock);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record CrudeResolveRequest(Guid SnapshotId,string? Convention,string? KnowledgeMode,
+ CrudePhysicalSelection Physical,string DeliveryFrom,string DeliveryTo);
 
 public sealed class PhysicalCrudeStore(PreviewDatabase database)
 {
@@ -30,6 +38,60 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
  private static ExactDecimal Sign(string? value,bool physical=false)=>value switch
  {"receive"=>ExactDecimal.Parse("1"),"pay" when !physical=>ExactDecimal.Parse("-1"),"deliver" when physical=>ExactDecimal.Parse("-1"),_=>throw Invalid("Choose each side direction explicitly.")};
  private static DateTimeOffset Instant(string? value)=>TradingInstant.Parse(Required(value),"crude_input");
+ public async Task<object> References(NpgsqlConnection c,CancellationToken ct)
+ {
+  var revision=await new CrudeSetupEditor(database).DeliveryRevision(c,ct);
+  return new{deliveryReferences=await CrudeDeliveryReferences.Read(c,revision,ct),
+   books=await PreviewDatabase.Rows(c,"SELECT row_to_json(b)::text FROM trading.books b WHERE catalog_id=$1 ORDER BY name",[Catalog],ct),
+   legalEntities=await TradeParties.Catalog(c,Catalog,true,ct),counterparties=await TradeParties.Catalog(c,Catalog,false,ct),
+   canBook=await PreviewDatabase.HasPermission(c,"BookTrade",ct),
+   profiles=new[]{new{code=Profile,quantityBasis="standard_volume_total",tolerance="0",discounting=false,label="Fixed standard volume at 60°F · zero tolerance · undiscounted"}},
+   scope="Select the physical commodity, grade, facility, custody point, volume specification and clock separately. Pricing is resolved from their maintained mapping and complete delivery interval. Separate-master delivery-to-cash remains unsupported."};
+ }
+ internal async Task RecheckReferences(NpgsqlConnection c,CancellationToken ct)
+ {
+  var definition=database.Manifest.ReferenceCatalog?.DefinitionRevisionId??database.Manifest.RevisionId;
+  var revision=database.Manifest.ReferenceCatalog?.ReferenceRevisionId??database.Manifest.ReferenceRevisionId;
+  await using var authority=ScheduleStore.Command(c,"""
+   SELECT security.market_access($1,'ReadMarketData') AND EXISTS(
+    SELECT 1 FROM market_data.revisions r WHERE(r.catalog_id,r.id,r.reference_revision_id)=($1,$2,$3) AND r.state='sealed'
+    AND security.market_fact_visible(r.catalog_id,r.id,NULL) AND security.reference_access(r.reference_catalog_id,'ReadMarketData')
+    AND security.reference_version_visible(r.reference_catalog_id,r.reference_revision_id))
+   """,Catalog,definition,revision);
+  if(!Equals(await authority.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+ }
+
+ private async Task<JsonElement> ResolveMapping(NpgsqlConnection c,CrudePhysicalSelection physical,DateTimeOffset from,DateTimeOffset to,DateTimeOffset valuation,CancellationToken ct)
+ {
+  await using var query=ScheduleStore.Command(c,"SELECT security.resolve_crude_delivery($1,$2::jsonb,$3,$4,$5)::text",
+   Catalog,JsonSerializer.Serialize(physical,Json),from,to,valuation);
+  return JsonSerializer.Deserialize<JsonElement>((string)(await query.ExecuteScalarAsync(ct))!);
+ }
+
+ public async Task<object> ResolveReference(NpgsqlConnection c,InputFrame frame,CrudeResolveRequest body,CancellationToken ct)
+ {
+  if(body.Convention!=Convention||body.KnowledgeMode!="current")throw Invalid("Resolve physical terms under the explicit current crude contract.");
+  var revision=await new CrudeSetupEditor(database).DeliveryRevision(c,ct);
+  if(body.Physical is null||body.Physical.ReferenceCatalogId!=revision.CatalogId||body.Physical.ReferenceRevisionId!=revision.RevisionId)
+   throw Invalid("Use the exact declared delivery reference revision.");
+  var selected=await ResolveMapping(c,body.Physical,Instant(body.DeliveryFrom),Instant(body.DeliveryTo),frame.At,ct);
+  var sourceRevision=selected.Id("definitionRevisionId");
+  _=CrudeSetupEditor.SourceFrame(database.Manifest,frame,sourceRevision);
+  var data=await database.Read(c,ct,selectedRevision:sourceRevision,observationIds:[],observationScope:ObservationReadScope.ExactPins);
+  var row=One((await Assignments(c,data,ct)).Where(a=>a.Text("code")==selected.Text("assignmentCode")));
+  // This validates physical quantity equivalence and monthly coverage without reading a mark.
+  var request=new PhysicalCrudeWriteRequest(frame.Id,Convention,"current",Profile,Guid.Empty,Guid.Empty,sourceRevision,
+   row.Text("code"),body.DeliveryFrom,body.DeliveryTo,"1","standard_volume_total","0","receive","pay","0",body.DeliveryTo,false,
+   null,null,null,null,null,null,row.OptionalId("setup_id"),body.Physical);
+  _=await Metadata(c,data,request,ct,frame.At);
+  var curve=One(data.Definitions["curves"].Where(r=>r.Text("code")==row.Text("curve_code")));
+  var quote=One(data.Quotes.Where(q=>q.Key.Code==curve.Text("quote_code")));
+  var unit=Unit(data,quote.Quantity);
+  var currency=One(data.References["currencies"].Where(r=>r.Text("code")==quote.Currency.Code)).Text("display_code");
+  return new{code=row.Text("code"),definitionRevisionId=sourceRevision,crudeSetupId=row.OptionalId("setup_id"),
+   bindingName=row.OptionalText("setup_code")??row.Text("code"),physical=body.Physical,curve=curve.Text("code"),curveName=curve.Text("name"),
+   quantityUnit=unit,priceUnit=quote.Multiplier==ExactDecimal.Parse("1")?currency+" / 1 "+unit:currency+" × "+quote.Multiplier+" / "+unit};
+ }
  private async Task<ImmutableArray<JsonElement>> Assignments(NpgsqlConnection c,PreviewData data,CancellationToken ct,bool currentOnly=false)
  {
   var heads=currentOnly?await CrudeSetupEditor.CurrentSetups(c,Catalog,ct):null;
@@ -65,11 +127,20 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
    profiles=new[]{new{code=Profile,quantityBasis="standard_volume_total",tolerance="0",discounting=false,label="Fixed standard volume at 60°F · zero tolerance · undiscounted"}},
    scope="Future fixed total standard volume at 60°F, one exact grade and custody point within one forward month. Independently directed physical delivery, fixed consideration and optional handling fee. Imported assignments retain their supported Delivery and cash workflow. Separately maintained delivery setups currently support contractual booking and pre-delivery valuation; their receipt/inventory/cash workflow is not yet qualified."};
  }
- internal async Task<CrudeValuationAssignment> Metadata(NpgsqlConnection c,PreviewData data,PhysicalCrudeWriteRequest body,CancellationToken ct)
+ internal async Task<CrudeValuationAssignment> Metadata(NpgsqlConnection c,PreviewData data,PhysicalCrudeWriteRequest body,CancellationToken ct,DateTimeOffset? resolveAt=null)
  {
   if(body.Convention!=Convention||body.KnowledgeMode!="current"||body.Profile!=Profile||body.QuantityBasis!="standard_volume_total"||body.Tolerance is null||ExactDecimal.Parse(body.Tolerance)!=default||body.Discounting!=false||body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
    throw Invalid("Choose the explicit fixed-total 60°F standard-volume, zero-tolerance, undiscounted profile and exact current source revision.");
   var row=One((await Assignments(c,data,ct)).Where(x=>x.Text("code")==body.AssignmentCode));
+  var physical=new CrudePhysicalSelection(row.Id("delivery_catalog_id"),row.Id("delivery_revision_id"),row.Text("commodity_code"),row.Text("grade_code"),
+   row.Text("facility_code"),row.Text("custody_point_code"),row.Text("quantity_code"),row.Text("clock_code"));
+  if(body.Physical is not null&&body.Physical!=physical)throw Invalid("The resolved pricing pins do not match the selected physical parameters.");
+  if(resolveAt is {} valuation)
+  {
+   var resolved=await ResolveMapping(c,physical,Instant(body.DeliveryFrom),Instant(body.DeliveryTo),valuation,ct);
+   if(resolved.Id("definitionRevisionId")!=body.DefinitionRevisionId||resolved.Text("assignmentCode")!=body.AssignmentCode||resolved.OptionalId("crudeSetupId")!=body.CrudeSetupId)
+    throw new MarketDataException("crude_setup_conflict","The physical parameters resolve to a different current pricing mapping. Resolve and preview the current terms again.");
+  }
   var setup=row.OptionalText("setup_id") is {} setupText?Guid.Parse(setupText):(Guid?)null;
   if(setup!=body.CrudeSetupId)throw Invalid("Select the exact published delivery setup associated with this assignment.");
   if(setup is {} id)
@@ -93,9 +164,9 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   var selection=PriceSettlementSelection.CurveTarget(R(target.Text("index_a_code")));
   return new(R(row.Text("code")),R(row.Text("commodity_code")),R(row.Text("grade_code")),new(R(row.Text("facility_code")),R(row.Text("custody_point_code"))),quantity,R(clock),ExactDecimal.Parse(row.Text("standard_temperature")),row.Text("temperature_scale"),selection,quote,new(new(new(data.DefinitionRevision,row.Text("curve_code")),contract.Key),contract),One(PriceSettlementInputs.Fixings(data,selection,quote,[contract])));
  }
- private async Task<(PhysicalCrudeInstrument Instrument,CrudeValuationAssignment Assignment,ExactDecimal Quantity)> Resolve(NpgsqlConnection c,PreviewData data,PhysicalCrudeWriteRequest body,CancellationToken ct)
+ private async Task<(PhysicalCrudeInstrument Instrument,CrudeValuationAssignment Assignment,ExactDecimal Quantity)> Resolve(NpgsqlConnection c,PreviewData data,PhysicalCrudeWriteRequest body,DateTimeOffset valuation,CancellationToken ct)
  {
-  var assignment=await Metadata(c,data,body,ct);var quantity=ExactDecimal.Parse(Required(body.Quantity));
+  var assignment=await Metadata(c,data,body,ct,valuation);var quantity=ExactDecimal.Parse(Required(body.Quantity));
   if(quantity.CompareTo(default)<=0)throw Invalid("The standard-volume quantity must be positive and below 10^24.");
   var physical=new PhysicalCrudeSide(Guid.NewGuid(),assignment,Instant(body.DeliveryFrom),Instant(body.DeliveryTo),ExactDecimal.Parse(Required(body.Tolerance)));
   var payment=Instant(body.PaymentAt);
@@ -135,9 +206,9 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   return new{presentValue=total!.ToExactString(),currency=One(data.References["currencies"].Where(x=>x.Text("code")==assignment.Quote.Currency.Code)).Text("display_code"),sides,body.DeliveryFrom,body.DeliveryTo,quantity=quantity.ToString(),quantityUnit=Unit(data,assignment.Quantity.Key)};
  }
  public async Task<object> Preview(NpgsqlConnection c,PreviewData data,InputFrame frame,PhysicalCrudeWriteRequest body,CancellationToken ct)
- {var r=await Resolve(c,data,body,ct);return await Value(c,data,frame,body,r.Instrument,r.Assignment,r.Quantity,null,ct);}
+ {var r=await Resolve(c,data,body,frame.At,ct);return await Value(c,data,frame,body,r.Instrument,r.Assignment,r.Quantity,null,ct);}
  internal async Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,PhysicalCrudeWriteRequest body,CancellationToken ct)=>await TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{
-  var r=await Resolve(c,data,body,ct);_=await Value(c,data,pinned,body,r.Instrument,r.Assignment,r.Quantity,null,ct);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,r.Instrument);
+  var r=await Resolve(c,data,body,pinned.At,ct);_=await Value(c,data,pinned,body,r.Instrument,r.Assignment,r.Quantity,null,ct);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,r.Instrument);
  },ct,crudeMarket:true,crudeSetup:body.CrudeSetupId);
  public async Task<JsonElement> Status(NpgsqlConnection c,Guid operation,CancellationToken ct)
  {await using var q=ScheduleStore.Command(c,"SELECT security.crude_operation_status($1,$2)::text",Catalog,operation);return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);}
