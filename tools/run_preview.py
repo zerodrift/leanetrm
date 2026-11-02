@@ -936,6 +936,9 @@ def main():
                 check_agent_catalog(url,query,exchange_manifest,fake_provider)
                 from check_futures_option_portfolio import run_checks as check_option_portfolio
                 check_option_portfolio(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_risk_worker'))
+                # The volatility surface fit of each option product, in the managed calculation against the example's settlements.
+                from check_vol_surface_fit import run_checks as check_vol_surface_fit
+                check_vol_surface_fit(url,query,exchange_manifest,dotnet,temporary,app_env)
                 if args.browser_check:
                     # The option ticket and position window, beside the options the checks above booked.
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--futures-options'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
