@@ -191,6 +191,7 @@ public static class RiskWorker
         if(payload["convention"]?.GetValue<string>()!=PortfolioRiskPreview.Convention)
             throw new MarketDataException("risk_job_convention","The retained request requires the supported portfolio risk operation.");
         var request=payload.Deserialize<PortfolioRiskRequest>(RiskJobs.Json)??throw new JsonException("Missing risk request.");
+        RiskJobs.RequireTradeScope(request.TradeIds,job["frame"]?["scope"]);
         var requestContext=request.Context??throw new JsonException("Missing risk context.");
         var frame=RiskJobs.ReadFrame(job["frame"]??throw new JsonException("Missing risk frame."));
         var catalog=job["catalogId"]!.GetValue<Guid>();var revision=job["revisionId"]!.GetValue<Guid>();

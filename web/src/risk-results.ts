@@ -2,6 +2,7 @@ import type {ChartSpec} from './chart-view.js';
 import type {RiskReport,ExcludedPosition} from './risk-report.js';
 import type {RunView,RiskJob} from './risk-view.js';
 import {runExclusions,runGaps,type RunGap} from './risk-lens.js';
+import {sameRiskScope,sameTradeSelection,type RiskScope} from './risk-scope.js';
 
 export type RiskMetric='delta'|'gamma'|'upPnl'|'downPnl';
 export const riskMetricLabels:Record<RiskMetric,string>={delta:'Delta',gamma:'Gamma',upPnl:'Up P&L',downPnl:'Down P&L'};
@@ -16,6 +17,8 @@ export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset
  const reports=run.parts.flatMap(p=>p.report?[p.report]:[]);
  if(!reports.length)return {state:'unavailable',...empty};
  const first=reports[0];
+ if(reports.some(r=>!sameTradeSelection(r.tradeIds,first.tradeIds))||run.scope&&reports.some(r=>!sameTradeSelection(r.tradeIds,run.scope!.tradeIds)))
+  throw Error('The report parts do not match the run’s selected trades. Their trade scope cannot be displayed together.');
  if(reports.some(r=>r.context.contextId!==run.context?.contextId||r.snapshotId!==first.snapshotId||canonical(r.scenario)!==canonical(first.scenario)))
   throw Error('The report parts do not share one retained context, close and scenario. Their results cannot be displayed together.');
  const excluded=runExclusions(reports),factors=reports.flatMap(r=>r.factors);
@@ -42,11 +45,10 @@ export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset
  return {state:gaps.length||excluded.length||!run.scope?'incomplete':'complete',excluded,gaps,factors,charts};
 }
 
-type Scope={bookIds:readonly string[];portfolioIds:readonly string[]};
-const sameIds=(a:readonly string[],b:readonly string[])=>canonical([...a].sort())===canonical([...b].sort());
+type Scope=RiskScope;
 /** Only complete, consistently identified recent runs are candidates; a bounded list is never proof that an absent part completed. */
 export function recentCompletedRuns(jobs:readonly RiskJob[],scope:Scope,asOf:string):RiskJob[]{
- const matching=(j:RiskJob)=>j.state==='completed'&&j.asOf===asOf&&!!j.scope&&sameIds(j.scope.bookIds,scope.bookIds)&&sameIds(j.scope.portfolioIds,scope.portfolioIds);
+ const matching=(j:RiskJob)=>j.state==='completed'&&j.asOf===asOf&&!!j.scope&&sameRiskScope(j.scope,scope);
  const grouped=new Map<string,RiskJob[]>();
  for(const job of jobs){const key=job.run?'run:'+job.run.id:job.id;const group=grouped.get(key)??[];group.push(job);grouped.set(key,group);}
  return [...grouped.values()].flatMap(parts=>{

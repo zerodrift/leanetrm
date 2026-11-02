@@ -706,7 +706,7 @@ def main():
                 from check_curve_scenarios import run_checks as check_curve_scenarios
                 check_curve_scenarios(url,run_worker)
                 check_portfolio_risk_authority(Client,query,check,manifest,temporary)
-                check_portfolio_risk(Client,check,run_worker)
+                check_portfolio_risk(Client,check,run_worker,query)
                 check_risk(Client,check)
                 check_risk_jobs(Client,check,run_worker)
                 check_risk_jobs_db(query,manifest,psql,env)

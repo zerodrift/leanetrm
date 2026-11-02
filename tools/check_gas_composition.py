@@ -136,6 +136,8 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
         request={'context':{**shared,'knowledgeMode':'retained','contextId':mixed['context']['contextId']},'bookIds':[],'portfolioIds':[],'bumps':[{'factor':factor['factor'],'size':'0.1','convention':risk['bumpConvention']}],
                  'convention':risk['convention'],'numericalPolicy':risk['numericalPolicy'],'pricingPolicy':risk['pricingPolicy'],'stress':[]}
         interactive=c.call('portfolio/risk',request)
+        from check_trade_risk import selected_scope
+        selected_scope(c,request,booked['tradeId'],interactive,run_worker=run_worker)
         composed=next(p for p in interactive['factors'][0]['positions'] if p['tradeId']==booked['tradeId'])
         assert {k:Fraction(composed['values'][k]) for k in ('base','up','down','delta','gamma')}=={'base':64,'up':66,'down':62,'delta':20,'gamma':0}
         job=c.call('portfolio/risk/jobs',{'requestId':str(uuid4()),'request':request});run_worker()

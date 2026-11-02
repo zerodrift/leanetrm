@@ -22,11 +22,11 @@ public sealed partial class SwapStore
     // Resolves every held swap in scope except exactly the excluded ones (D220).
     internal async Task<ImmutableArray<ResolvedSwapHolding>> ReadRiskHoldings(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ImmutableArray<Guid> bookIds,ImmutableArray<ExcludedPosition> excluded,CancellationToken ct,MarketSnapshot? snapshot=null,
-        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default)
+        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,ImmutableHashSet<Guid>? trades=null)
     {
         var books=await BookScope.Read(connection,manifest.CatalogId,ct);
         BookScope.Validate(books,bookIds,[]);
-        var rows=ExcludedPosition.Keep(await Rows(connection,null,ct,bookIds),excluded);
+        var rows=ExcludedPosition.Keep(await Rows(connection,null,ct,bookIds,trades),excluded);
         snapshot??=data.Snapshot(frame);
         if(snapshot.Id!=frame.Id||snapshot.Definitions!=data.DefinitionRevision||snapshot.ValuationAt!=frame.At)
             throw Error("swap_context","Swap risk requires the exact selected model and snapshot context.");

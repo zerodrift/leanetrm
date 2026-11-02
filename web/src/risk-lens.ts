@@ -1,4 +1,5 @@
 import {projectionPolicyLabels} from './projection-policy.js';
+import {sameTradeSelection} from './risk-scope.js';
 // The risk lens of the Blotter desk (blotter-desk.md, Risk report inline; D222): what a run's results say of each position, of the run
 // as a whole and of its change chart, as the desk shows them beside the positions. Each factor's results are its own, so this picks and
 // labels the backend's exact strings and never adds, nets or scales them across factors, parts or positions.
@@ -79,7 +80,7 @@ export function runExclusions(reports:readonly RiskReport[]):ExcludedPosition[]{
 }
 
 /** Where a Blotter read was made: its market context, its close's time and frame, and the books and portfolios it was asked for. */
-export type ReadPlace={contextId:string;asOf:string;snapshotId:string;bookIds:readonly string[];portfolioIds:readonly string[]};
+export type ReadPlace={contextId:string;asOf:string;snapshotId:string;bookIds:readonly string[];portfolioIds:readonly string[];tradeIds?:readonly string[]|null};
 const sameIds=(a:readonly string[],b:readonly string[])=>{const x=[...a].sort(byText),y=[...b].sort(byText);return x.length===y.length&&x.every((id,i)=>id===y[i]);};
 /**
  * Whether a run's results belong to the read on screen (D222): made at its market context and close, each part's report at its close's
@@ -88,7 +89,7 @@ const sameIds=(a:readonly string[],b:readonly string[])=>{const x=[...a].sort(by
  */
 export function madeHere(run:RunView,read:ReadPlace):boolean{
   return run.context?.contextId===read.contextId&&run.asOf===read.asOf&&run.scope!==undefined&&sameIds(run.scope.bookIds,read.bookIds)
-    &&sameIds(run.scope.portfolioIds,read.portfolioIds)&&run.parts.every(p=>!p.report||p.report.snapshotId===read.snapshotId);
+    &&sameIds(run.scope.portfolioIds,read.portfolioIds)&&sameTradeSelection(run.scope.tradeIds,read.tradeIds)&&run.parts.every(p=>!p.report||p.report.snapshotId===read.snapshotId);
 }
 
 /** A part of a run that returned no results, once none of its parts is under way, and why, in the words the desk states it with. */

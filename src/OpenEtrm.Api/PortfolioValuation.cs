@@ -125,14 +125,14 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         await guard.ExecuteNonQueryAsync(ct);
     }
     private sealed class PreparationScope(DefinitionRevision definitions,InputFrame frame,MarketSnapshot snapshot,
-        ScheduleContext context,ImmutableArray<Guid> books)
+        ScheduleContext context,ImmutableArray<Guid> books,RiskTradeSelection? selection)
     {
         internal ImmutableArray<SwapStore.ResolvedSwapHolding>? Swaps;
         internal FuturesOptionMarket? Options;
         internal ContractObservationSamples.History Histories{get;}=new();
-        internal void Require(PreviewData data,InputFrame selected,MarketSnapshot inputs,ScheduleContext exact,ImmutableArray<Guid> selectedBooks)
+        internal void Require(PreviewData data,InputFrame selected,MarketSnapshot inputs,ScheduleContext exact,ImmutableArray<Guid> selectedBooks,RiskTradeSelection? selectedTrades)
         {
-            if(data.DefinitionRevision!=definitions||selected!=frame||!snapshot.HasSameInputs(inputs)||exact!=context||!books.SequenceEqual(selectedBooks))
+            if(data.DefinitionRevision!=definitions||selected!=frame||!snapshot.HasSameInputs(inputs)||exact!=context||!books.SequenceEqual(selectedBooks)||!ReferenceEquals(selection,selectedTrades))
                 throw new MarketDataException("portfolio_context","Resolved holdings belong to one exact operation, market frame, certified context and book scope.");
         }
     }
@@ -143,22 +143,22 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     // a failure that remains fails the run.
     public async Task<Prepared> PrepareValued(NpgsqlConnection connection,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
         ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,
-        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental,CancellationToken ct)
+        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental,CancellationToken ct,RiskTradeSelection? selection=null)
     {
-        var operation=new PreparationScope(data.DefinitionRevision,frame,snapshot,context,bookIds);
-        try{return await PrepareCore(connection,data,frame,snapshot,context,bookIds,policy,supplemental,[],ct,operation:operation);}
+        var operation=new PreparationScope(data.DefinitionRevision,frame,snapshot,context,bookIds,selection);
+        try{return await PrepareCore(connection,data,frame,snapshot,context,bookIds,policy,supplemental,[],ct,operation:operation,selection:selection);}
         catch(MarketDataException error) when(FuturesOptionMarket.Excludable(error.Code)){}
-        var excluded=await Unvalued(connection,data,frame,snapshot,context,bookIds,policy,operation,ct);
-        return await PrepareCore(connection,data,frame,snapshot,context,bookIds,policy,supplemental,excluded,ct,operation:operation);
+        var excluded=await Unvalued(connection,data,frame,snapshot,context,bookIds,policy,operation,ct,selection);
+        return await PrepareCore(connection,data,frame,snapshot,context,bookIds,policy,supplemental,excluded,ct,operation:operation,selection:selection);
     }
     // The held futures, swaps and options the Blotter reports unvalued at the selected close, by trade reference, each in its book.
     private async Task<ImmutableArray<ExcludedPosition>> Unvalued(NpgsqlConnection connection,PreviewData data,InputFrame frame,
-        MarketSnapshot snapshot,ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,PreparationScope operation,CancellationToken ct)
+        MarketSnapshot snapshot,ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,PreparationScope operation,CancellationToken ct,RiskTradeSelection? selection)
     {
         var exact=PinnedContext.Exact(context);
         snapshot=MarketSnapshotBinding.Bind(snapshot,exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt));
         var futuresStore=new FuturesStore(database.Manifest);
-        var futures=await futuresStore.ReadTrades(connection,data,await futuresStore.Books(connection,ct),bookIds,[],ct);
+        var futures=await futuresStore.ReadTrades(connection,data,await futuresStore.Books(connection,ct),bookIds,[],ct,trades:selection?.Ids);
         var markets=ValuationStatus.BuildValued(held=>data.Model.Build(snapshot,held),[..futures.Trades.SelectMany(t=>t.Instruments.Select(p=>FuturesExecution.Require(p).MarketBinding.Market)).Distinct()]).Unvalued;
         var rows=futures.Rows.ToDictionary(r=>(r.Id("trade_id"),r.Id("binding_id")));
         var unvalued=ImmutableArray.CreateBuilder<(JsonElement Row,string Reason)>();
@@ -167,7 +167,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             // A discount input can fail while holdings are being resolved,
             // before the connected portfolio exists. Keep the scalar admission
             // path for that case, including its established reason precedence.
-            var scalar=await new SwapStore(database).Holdings(connection,data,frame,bookIds,[],ct);
+            var scalar=await new SwapStore(database).Holdings(connection,data,frame,bookIds,[],ct,trades:selection?.Ids);
             unvalued.AddRange(scalar.Unvalued);
         }
         else foreach(var group in swaps.GroupBy(holding=>holding.Snapshot.Definitions).OrderBy(group=>group.Key.RevisionId))
@@ -184,7 +184,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             unvalued.AddRange((await ValuationStatus.Qualify(group.ToImmutableArray(),Value,ct))
                 .Select(item=>(item.Position.Row,item.Reason)));
         }
-        var options=await FuturesOptionPositions.Read(connection,database.Manifest,bookIds,[],ct);
+        var options=await FuturesOptionPositions.Read(connection,database.Manifest,bookIds,[],ct,trades:selection?.Ids);
         var optionExclusions=options.IsEmpty?[]:(await OptionMarket(connection,data,frame,snapshot,options,policy,operation,ct)).Unvalued(options);
         ExcludedPosition Listed(JsonElement row,string instrumentType,string reason)=>
             new(row.Id("trade_id"),row.Id("binding_id"),row.Id("book_id"),TradingReference.Trade(row),instrumentType,reason);
@@ -197,16 +197,16 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     public async Task<Prepared> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
         ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental,ImmutableArray<ExcludedPosition> excluded,CancellationToken ct,
-        ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null,CloseBookRiskDefinition? closePolicy=null)
-        =>await PrepareCore(connection,data,frame,snapshot,context,bookIds,policy,supplemental,excluded,ct,retainedGraphs,closePolicy);
+        ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null,CloseBookRiskDefinition? closePolicy=null,RiskTradeSelection? selection=null)
+        =>await PrepareCore(connection,data,frame,snapshot,context,bookIds,policy,supplemental,excluded,ct,retainedGraphs,closePolicy,selection:selection);
 
     private async Task<Prepared> PrepareCore(NpgsqlConnection connection,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
         ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental,ImmutableArray<ExcludedPosition> excluded,CancellationToken ct,
-        ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null,CloseBookRiskDefinition? closePolicy=null,PreparationScope? operation=null)
+        ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null,CloseBookRiskDefinition? closePolicy=null,PreparationScope? operation=null,RiskTradeSelection? selection=null)
     {
         ValidatePolicy(policy);ct.ThrowIfCancellationRequested();
-        operation?.Require(data,frame,snapshot,context,bookIds);
+        operation?.Require(data,frame,snapshot,context,bookIds,selection);
         if(excluded.IsDefault||excluded.Any(e=>e is null||(e.InstrumentType==FuturesOptionPositions.Type?!FuturesOptionMarket.Excludable(e.Reason):
             !ValuationStatus.PositionSpecific(e.Reason))))
             throw new MarketDataException("risk_contract","A risk run leaves out only held positions, each with a position-specific valuation reason.");
@@ -225,19 +225,19 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         snapshot=MarketSnapshotBinding.Bind(snapshot,exact.ContextId!.Value,known);
         if(!MarketSnapshotBinding.Bind(data.Snapshot(frame),exact.ContextId.Value,known).HasSameInputs(snapshot))
             throw new MarketDataException("portfolio_context","Every selected observation and use must match the exact authorized snapshot inputs.");
-        if(closePolicy is not null&&(!excluded.IsEmpty||!supplemental.IsEmpty||closePolicy.ValuationPolicy!=policy||!closePolicy.BookIds.SequenceEqual(bookIds)))
+        if(closePolicy is not null&&(selection is not null||!excluded.IsEmpty||!supplemental.IsEmpty||closePolicy.ValuationPolicy!=policy||!closePolicy.BookIds.SequenceEqual(bookIds)))
             throw new MarketDataException("pilot_close_inputs","A close calculation requires its complete exact scope without excluded positions or supplemental markets.");
-        var ppa=closePolicy is null?await PpaPortfolio.Prepare(connection,data,frame,context,bookIds,policy.PpaPendingActuals,SchedulePreview.ParseAt(exact.KnownAt),ct):
+        var ppa=closePolicy is null?await PpaPortfolio.Prepare(connection,data,frame,context,bookIds,policy.PpaPendingActuals,SchedulePreview.ParseAt(exact.KnownAt),ct,selection?.For("ppa")):
             await PpaPortfolio.Prepare(connection,data,frame,context,bookIds,closePolicy,ct);
         var futuresStore=new FuturesStore(database.Manifest);
         var books=await futuresStore.Books(connection,ct);
-        var futures=await futuresStore.ReadTrades(connection,data,books,bookIds,[],ct);
+        var futures=await futuresStore.ReadTrades(connection,data,books,bookIds,[],ct,trades:selection?.Ids);
         var swapExclusions=excluded.Where(e=>e.InstrumentType is SwapType or HeatRateType).ToImmutableArray();
         var futureExclusions=excluded.Where(e=>e.InstrumentType==FutureType).ToImmutableArray();
         var optionExclusions=excluded.Where(e=>e.InstrumentType==FuturesOptionPositions.Type).ToImmutableArray();
         var swaps=operation?.Swaps is {} resolved
             ?await ReuseSwapHoldings(connection,resolved,bookIds,swapExclusions,exact,frame.At,ct)
-            :await new SwapStore(database).ReadRiskHoldings(connection,data,frame,bookIds,swapExclusions,ct,snapshot,supplemental);
+            :await new SwapStore(database).ReadRiskHoldings(connection,data,frame,bookIds,swapExclusions,ct,snapshot,supplemental,selection?.Ids);
         // Reuse only within this exact operation. Current book and retained
         // source authority are rechecked before cached holdings can return.
         if(operation is not null&&excluded.IsEmpty)operation.Swaps=swaps;
@@ -248,7 +248,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var materializationWork=new ScenarioWork(0,0,0,0);var materializationScenarios=0;
         var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
         var gas=await GasPortfolio.Prepare(connection,database,frame,
-            await GasPositions.ReadRisk(connection,database.Manifest,bookIds,ct),
+            await GasPositions.ReadRisk(connection,database.Manifest,bookIds,ct,selection?.Ids),
             [(data,frame),..supplemental.IsDefault?[]:supplemental],retainedGraphs is not null,ct);
         foreach(var market in gas)
         {
@@ -256,7 +256,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             evidence.AddRange(market.Evidence);
         }
         var crude=await CrudePortfolio.Prepare(connection,database,frame,
-            await CrudePositions.Read(connection,database.Manifest,bookIds,[],ct),
+            await CrudePositions.Read(connection,database.Manifest,bookIds,[],ct,trades:selection?.Ids),
             [(data,frame),..supplemental.IsDefault?[]:supplemental],retainedGraphs is not null,ct);
         foreach(var market in crude)
         {
@@ -287,7 +287,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         {
             materialized.Add((data,frame,snapshot,ppa.Portfolio,PpaMeasure));evidence.AddRange(ppa.Evidence);
         }
-        var optionPositions=await FuturesOptionPositions.Read(connection,database.Manifest,bookIds,[],ct);
+        var optionPositions=await FuturesOptionPositions.Read(connection,database.Manifest,bookIds,[],ct,trades:selection?.Ids);
         var options=optionPositions.IsEmpty?null:await OptionMarket(connection,data,frame,snapshot,optionPositions,policy,operation,ct);
         var optionModes=ImmutableDictionary<(Guid,Guid),string>.Empty;
         if(options is not null)
@@ -312,6 +312,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 }
             }
         }
+        if(selection is not null&&!selection.Ids.IsSubsetOf(evidence.Select(p=>p.TradeId).Concat(excluded.Select(p=>p.TradeId)).ToImmutableHashSet()))
+            throw new MarketDataException("risk_trade_scope","Every selected trade must have its held bindings or explicit valuation exclusions in this retained context.");
         if(materialized.Count==0)throw new MarketDataException("risk_position",excluded.IsEmpty?"The selected books have no visible holdings.":
             "No held position in the selected scope is qualified for this risk calculation.");
         if(evidence.Select(p=>(p.TradeId,p.BindingId)).Distinct().Count()!=evidence.Count||

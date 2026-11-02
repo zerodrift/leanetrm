@@ -44,6 +44,19 @@ test('reports without exclusion evidence or with conflicting context, snapshot, 
 });
 
 const job=(id,o={})=>({id,state:'completed',asOf:'2026-11-02T00:00:00Z',finishedAt:'2026-11-02T01:00:00Z',context:{contextId:'c1'},scope:{bookIds:['A','B'],portfolioIds:[]},run:null,...o});
+test('a trade subset never matches a whole-book report or a different selected subset',()=>{
+ const whole=job('whole'),subset=job('subset',{scope:{bookIds:['A','B'],portfolioIds:[],tradeIds:['t2','t1']}});
+ assert.deepEqual(recentCompletedRuns([whole,subset],{bookIds:['A','B'],portfolioIds:[],tradeIds:['t1','t2']},whole.asOf).map(j=>j.id),['subset']);
+ assert.deepEqual(recentCompletedRuns([whole,subset],{bookIds:['A','B'],portfolioIds:[],tradeIds:null},whole.asOf).map(j=>j.id),['whole']);
+ assert.deepEqual(recentCompletedRuns([whole,subset],{bookIds:['A','B'],portfolioIds:[],tradeIds:['t3']},whole.asOf),[]);
+});
+test('report parts must match the run’s exact selected trades',()=>{
+ const r=run([report([factor('jan',[total()])],{tradeIds:['t1']})]);r.scope.tradeIds=['t2'];
+ assert.throws(()=>reportPresentation(r,'delta'),/trade.*scope|selected trades/i);
+ r.scope.tradeIds=['t1'];assert.equal(reportPresentation(r,'delta').state,'complete');
+ r.parts.push({report:report([factor('feb',[total()])],{tradeIds:['t2']}),unknown:false,unlisted:false});
+ assert.throws(()=>reportPresentation(r,'delta'),/trade.*scope|selected trades/i);
+});
 test('automatic report selection matches the explicit scope and close and requires all unique completed parts',()=>{
  const jobs=[job('wrong-scope',{scope:{bookIds:['A'],portfolioIds:[]}}),job('wrong-close',{asOf:'2026-11-01T00:00:00Z'}),job('running',{state:'running'}),job('missing',{run:{id:'missing',part:1,parts:2}}),
   job('part1',{run:{id:'complete',part:1,parts:2},finishedAt:'2026-11-02T02:00:00Z'}),job('part2',{run:{id:'complete',part:2,parts:2},scope:{bookIds:['B','A'],portfolioIds:[]}}),job('older')];

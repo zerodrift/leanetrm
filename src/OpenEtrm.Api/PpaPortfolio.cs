@@ -33,17 +33,18 @@ internal static class PpaPortfolio
         ScheduleContext context,ImmutableArray<Guid> books,CloseBookRiskDefinition policy,CancellationToken ct)
         =>await Prepare(connection,data,frame,context,await Scope(connection,data,frame,context,books,ct),policy.PendingActuals,frame.At,IntervalKnowledgePolicy.ValuationInstant,ct);
     internal static async Task<PpaPortfolioInput?> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,
-        ScheduleContext context,ImmutableArray<Guid> books,string? pending,DateTimeOffset known,CancellationToken ct)
-        =>await Prepare(connection,data,frame,context,await Scope(connection,data,frame,context,books,ct),pending,known,IntervalKnowledgePolicy.ResolvedCutoff,ct);
+        ScheduleContext context,ImmutableArray<Guid> books,string? pending,DateTimeOffset known,CancellationToken ct,ImmutableArray<Guid>? trades=null)
+        =>await Prepare(connection,data,frame,context,await Scope(connection,data.DefinitionRevision.CatalogId,frame,context,books,ct,trades),pending,known,IntervalKnowledgePolicy.ResolvedCutoff,ct);
     // The head revision and bindings of every PPA trade in the books, as the selected context sees them.
     internal static async Task<PpaScope> Scope(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ScheduleContext context,ImmutableArray<Guid> books,CancellationToken ct)
         =>await Scope(connection,data.DefinitionRevision.CatalogId,frame,context,books,ct);
     internal static async Task<PpaScope> Scope(NpgsqlConnection connection,Guid catalog,InputFrame frame,
-        ScheduleContext context,ImmutableArray<Guid> books,CancellationToken ct)
+        ScheduleContext context,ImmutableArray<Guid> books,CancellationToken ct,ImmutableArray<Guid>? trades=null)
     {
-        await using var command=ScheduleStore.Command(connection,"SELECT security.ppa_read_scope($1,'books',$2::uuid[],$3,$4,false)::text",
-            catalog,books.ToArray(),context.ContextId!.Value,frame.At);
+        if(trades is {} ids&&ids.IsEmpty)return new(ImmutableDictionary<Guid,JsonElement>.Empty,[]);
+        await using var command=ScheduleStore.Command(connection,"SELECT security.ppa_read_scope($1,$2,$3::uuid[],$4,$5,false)::text",
+            catalog,trades is null?"books":"trades",(trades??books).ToArray(),context.ContextId!.Value,frame.At);
         var scope=JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
         return new(scope.GetProperty("heads").EnumerateArray().ToImmutableDictionary(r=>r.Id("trade_id"),r=>r.Clone()),
             [..scope.GetProperty("bindings").EnumerateArray().Select(r=>r.Clone())]);

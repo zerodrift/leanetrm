@@ -135,6 +135,7 @@ The portfolio risk API supports immediate calculations and durable runs:
 
 | Operation | Purpose |
 | --- | --- |
+| `POST /api/portfolio/risk/scope` | List authorized books and paged trade identities at the selected context, without pricing |
 | `POST /api/portfolio/risk/catalog` | Discover factors under the selected books and financial context |
 | `POST /api/portfolio/risk` | Calculate the explicit bumps around the selected stress |
 | `POST /api/portfolio/risk/jobs` | Admit `{requestId, request}` with an exact retained context |
@@ -276,6 +277,34 @@ calculation runs outside them. Current authority and retained authorization
 generation govern execution and publication, including revoke/restore changes.
 Neither a job identifier nor a cached result grants access. Calculation failures
 remain failures and cannot become zero exposure or complete portfolio totals.
+
+### Individual trade scope (D292)
+
+Catalog and calculation requests accept optional `tradeIds`. Absent or null
+preserves whole-book behavior and the legacy retained JSON shape. A nonempty
+array selects at most 256 distinct, nonzero trade IDs within the selected
+portfolio/book intersection and exact retained context. Empty, duplicate,
+unknown or out-of-scope IDs refuse with `risk_trade_scope`; nothing widens to
+all trades. Scope discovery accepts `{context, bookIds, portfolioIds, tradeIds,
+offset, limit}` with pages of 1–100 rows. It returns parent books, trade choices,
+selected choices even outside the page, availability, total and next offset.
+Availability describes readable booking identity, not successful valuation.
+
+Selection occurs before terms, required-source checks, market preparation and
+PV, including unvalued-position retries. Every selected trade contributes all
+its held bindings or explicit valuation exclusions; a missing trade cannot
+silently disappear. Futures, swaps/heat-rate, PPAs, physical gas/crude and futures
+options share this selection contract. Factors still come from the selected
+instruments' declared shared dependencies, with no browser financial logic.
+
+The request, retained frame scope and completed report capture the same trade
+IDs. Worker replay verifies their agreement; existing multipart scope equality
+prevents parts from mixing subsets. Legacy all-trade parts retain their original
+shape and can continue without rewriting historical frames. Migration 0169 adds
+selected complete-source reads and a minimal PPA identity projection fenced by
+current authority, bound history and an active worker claim. It grants no direct
+worker access to PPA booking rows. Existing installations require a separately
+qualified schema release; local checks do not establish production deployment.
 
 ## Workers and horizontal execution
 

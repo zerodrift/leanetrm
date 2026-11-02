@@ -93,7 +93,7 @@ def reconcile(report, holdings, check, label):
         check(label + ' base/up/down and derivative values remain exact while display uses declared precision')
 
 
-def run_checks(Client, check, run_worker):
+def run_checks(Client, check, run_worker, query=None):
     risk = Client(); risk.bootstrap(); risk.call('profile', {'profile': 'risk'})
     frame = initial_frame(risk.call('workspace'), '2020-12-18')
     context = {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'}
@@ -118,6 +118,7 @@ def run_checks(Client, check, run_worker):
                           'convention': catalog['bumpConvention']}]}
     result = risk.call('portfolio/risk', request)
     reconcile(result, holdings, check, 'Mixed portfolio risk')
+    check_trade_selection(risk, retained, holdings, request, result, check, run_worker, query)
     rows = {identity(row): row for row in holdings['holdings']}
     check('portfolio risk keeps futures execution P&L separate from swap PV',
           {row['measure'] for row in result['factors'][0]['totals']}
@@ -291,3 +292,67 @@ def run_supplemental_scope(Client, check, query, manifest, run_worker):
     completed = client.call('portfolio/risk/jobs/' + job['id'])
     check('supplemental-only immediate and queued results preserve the same complete financial manifest',
           completed['state'] == 'completed' and financial(completed['result']) == financial(report))
+
+
+def check_trade_selection(risk, context, holdings, request, whole, check, run_worker, query):
+    """Exact selected trades, before pricing, with the same bindings and retained scope."""
+    choices = risk.call('portfolio/risk/scope', {'context': context, 'bookIds': [], 'portfolioIds': [],
+                                               'tradeIds': None, 'offset': 0, 'limit': 2})
+    held = {row['tradeId']: row for row in holdings['holdings']}
+    check('Risk trade directory pages trade identities under the same retained context without pricing',
+          choices['contextId'] == context['contextId'] and choices['snapshotId'] == context['snapshotId']
+          and choices['total'] == len(held) and len(choices['trades']) == 2 and choices['nextOffset'] == 2)
+    positions = whole['factors'][0]['positions']
+    future = next(row for row in positions if held[row['tradeId']]['instrumentType'] == 'future'
+                  and Fraction(row['values']['delta']) != 0)
+    swap = next(row for row in positions if held[row['tradeId']]['instrumentType'] == 'financial_swap')
+    chosen = [future['tradeId'], swap['tradeId']]
+    selected = {**request, 'tradeIds': chosen}
+    catalog = risk.call('portfolio/risk/catalog', {k: selected[k] for k in ('context', 'bookIds', 'portfolioIds', 'tradeIds')})
+    assert catalog['context'] == whole['context']
+    subset = risk.call('portfolio/risk', selected)
+    check('individual trade risk retains exactly the selected trades and every instrument binding',
+          subset['tradeIds'] == chosen and {p['tradeId'] for p in subset['inputs']['positions']} == set(chosen)
+          and sorted(subset['factors'][0]['positions'], key=identity)
+              == sorted((p for p in positions if p['tradeId'] in chosen), key=identity))
+    page = risk.call('portfolio/risk/scope', {'context': context, 'bookIds': [], 'portfolioIds': [],
+                                           'tradeIds': chosen, 'offset': 0, 'limit': 1})
+    check('selected trades remain identified independently of the current directory page',
+          len(page['trades']) == 1 and {t['tradeId'] for t in page['selectedTrades']} == set(chosen))
+    for ids in ([], [chosen[0], chosen[0]], [str(uuid4())]):
+        failure = risk.call('portfolio/risk/catalog', {k: selected[k] for k in ('context', 'bookIds', 'portfolioIds')} | {'tradeIds': ids}, expected=422)
+        assert failure['code'] == 'risk_trade_scope', failure
+    other_book = next(row['bookId'] for row in holdings['holdings'] if row['bookId'] != future['bookId'])
+    failure = risk.call('portfolio/risk/catalog', {'context': context, 'bookIds': [other_book], 'portfolioIds': [], 'tradeIds': [chosen[0]]}, expected=422)
+    check('empty, duplicate, unknown and out-of-book selections refuse instead of becoming whole-book risk', failure['code'] == 'risk_trade_scope')
+    operation = str(uuid4())
+    job = risk.call('portfolio/risk/jobs', {'requestId': operation, 'request': selected})
+    check('queued subset jobs retain the exact requested trade scope', job['scope']['tradeIds'] == chosen)
+    assert risk.call('portfolio/risk/jobs', {'requestId': operation, 'request': selected})['id'] == job['id']
+    run_worker()
+    done = risk.call('portfolio/risk/jobs/' + job['id'])
+    check('selected trade risk replays through the worker with identical financial results',
+          done['state'] == 'completed' and done['scope']['tradeIds'] == chosen and financial(done['result']) == financial(subset))
+    run = str(uuid4())
+    first = risk.call('portfolio/risk/jobs', {'requestId': str(uuid4()), 'request': request, 'run': {'id': run, 'part': 1, 'parts': 2}})
+    later = risk.call('portfolio/risk/jobs', {'requestId': str(uuid4()), 'request': {**request, 'tradeIds': None}, 'run': {'id': run, 'part': 2, 'parts': 2}})
+    check('a legacy whole-book run prefix admits a later ordinal without changing its retained scope shape',
+          'tradeIds' not in first['scope'] and later['scope'] == first['scope'])
+    risk.call('portfolio/risk/jobs/' + first['id'] + '/cancel', {})
+    risk.call('portfolio/risk/jobs/' + later['id'] + '/cancel', {})
+    if query is not None:
+        hidden = next(trade for trade in held if trade not in chosen)
+        query(f"CREATE POLICY synthetic_risk_trade_reference ON trading.trade_references AS RESTRICTIVE FOR SELECT TO openetrm_runtime,openetrm_risk_worker USING(trade_id<>'{hidden}'::uuid);")
+        try:
+            narrowed = risk.call('portfolio/risk', selected)
+            check('an unselected unreadable trade reference cannot block or enter selected trade risk',
+                  narrowed['factors'][0]['positions'] == subset['factors'][0]['positions'])
+            unavailable = risk.call('portfolio/risk/scope', {'context': context, 'bookIds': [], 'portfolioIds': [], 'tradeIds': None, 'offset': 0, 'limit': 100})
+            check('an unavailable directory identity is visible as unavailable, not erased or assigned zero exposure',
+                  not unavailable['allAvailable'] and any(t['tradeId'] == hidden and not t['available'] for t in unavailable['trades']))
+            rejected = risk.call('portfolio/risk/catalog', {'context': context, 'bookIds': [], 'portfolioIds': [], 'tradeIds': [hidden]}, expected=422)
+            assert rejected['code'] == 'risk_trade_scope'
+            rejected = risk.call('portfolio/risk/catalog', {'context': context, 'bookIds': [], 'portfolioIds': []}, expected=422)
+            check('an unreadable selected identity or whole-book scope refuses rather than losing that trade', rejected['code'] == 'risk_trade_scope')
+        finally:
+            query('DROP POLICY synthetic_risk_trade_reference ON trading.trade_references;')

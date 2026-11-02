@@ -4,9 +4,12 @@ import {copyRiskEditor,setupRiskResults} from './risk-results-view.js';
 import {recentCompletedRuns,riskAddress} from './risk-results.js';
 import {askInPanel} from './side-panel.js';
 import {publicText} from './market-view.js';
+import {sameRiskScope} from './risk-scope.js';
 
 type Source={snapshotId:string;context?:{contextId?:string}};
-type Scope={bookIds:string[];portfolioIds:string[]};
+type Scope={bookIds:string[];portfolioIds:string[];tradeIds:string[]|null};
+type Trade={tradeId:string;bookId:string;tradeReference:string;product:string;available:boolean};
+type TradePage={trades:Trade[];selectedTrades:Trade[];total:number;allAvailable:boolean;nextOffset:number|null;contextId:string;snapshotId:string;maxSelectedTrades:number};
 type Directory={kind:string;asOf:string;context:{contextId:string;knownAt:string};books:{id:string;name:string;portfolio_id:string;portfolio:string}[]};
 type Options={api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;
  identity:()=>string;canRun:()=>boolean;instant:(value:string)=>string;source:()=>Source;changed:()=>void};
@@ -17,9 +20,11 @@ export function setupRiskWorkspace(o:Options){
  copyRiskEditor(get('risk-workspace-editor-body'),prefix);
  const results=setupRiskResults(get('risk-workspace-results'),o.zone);
  let epoch=0,directory:Directory|undefined,selection:Source|undefined,selectedJob:string|undefined,owner='',engine:ReturnType<typeof setupRisk>|undefined;
- let shown:RunView|undefined,question:AbortController|undefined,scope:Scope={bookIds:[],portfolioIds:[]},unreadRecovery=false;
+ let shown:RunView|undefined,question:AbortController|undefined,scope:Scope={bookIds:[],portfolioIds:[],tradeIds:null},unreadRecovery=false;
+ let tradeChoices=new Map<string,Trade>(),tradesReady=false,allTradesAvailable=false,totalTrades=0,nextTradeOffset:number|null=null,maxTrades=256;
  const storedKey=()=>`openetrm.risk.workspace.submission.${o.identity()}`;
- const scopeValid=()=>!!directory&&scope.bookIds.every(id=>directory!.books.some(b=>b.id===id))&&scope.portfolioIds.every(id=>directory!.books.some(b=>b.portfolio_id===id));
+ const parentsValid=()=>!!directory&&directory.books.length>0&&scope.bookIds.every(id=>directory!.books.some(b=>b.id===id&&(!scope.portfolioIds.length||scope.portfolioIds.includes(b.portfolio_id))))&&scope.portfolioIds.every(id=>directory!.books.some(b=>b.portfolio_id===id));
+ const scopeValid=()=>parentsValid()&&tradesReady&&(scope.tradeIds===null?allTradesAvailable:scope.tradeIds.length>0&&scope.tradeIds.length<=maxTrades&&scope.tradeIds.every(id=>tradeChoices.get(id)?.available));
  function retain(){
   if(!engine||owner!==o.identity()||unreadRecovery)return;
   const command=engine.handOff();
@@ -36,9 +41,8 @@ export function setupRiskWorkspace(o:Options){
   });
   if(different){shown=run;results.show(run);}
   const first=run?.parts.find(p=>p.report)?.report;
-  const ids=(values:readonly string[])=>JSON.stringify([...values].sort());
-  const differentScope=run?.scope&&(ids(run.scope.bookIds)!==ids(scope.bookIds)||ids(run.scope.portfolioIds)!==ids(scope.portfolioIds));
-  get('risk-workspace-context-note').textContent=first&&selection&&first.snapshotId!==selection.snapshotId?'Retained report from a different close than the header. Its captured inputs are shown below. Run a new calculation to use the header selection.':differentScope?'Retained report from a different book or portfolio selection. Its captured scope is shown in the report; the filters above apply to a new run.':run?.retained?'Retained report: values use the captured context below, independently of the current header.':'';
+  const differentScope=run?.scope&&!sameRiskScope(run.scope,scope);
+  get('risk-workspace-context-note').textContent=first&&selection&&first.snapshotId!==selection.snapshotId?'Retained report from a different close than the header. Its captured inputs are shown below. Run a new calculation to use the header selection.':differentScope?'Retained report from a different portfolio, book or trade selection. Its captured scope is shown in the report; the filters above apply to a new run.':run?.retained?'Retained report: values use the captured context below, independently of the current header.':'';
   get<HTMLButtonElement>('risk-workspace-export').disabled=o.busy()||!run||!run.parts.every(p=>p.report);o.changed();
  }
  engine=setupRisk({api:o.api,act:o.act,busy:o.busy,zone:o.zone,profile:o.identity,canRun:o.canRun,prefix,onDenied:reset,onChange:changed,edited:o.changed,scope:()=>{
@@ -50,8 +54,9 @@ export function setupRiskWorkspace(o:Options){
   epoch++;question?.abort();question=undefined;directory=undefined;selection=undefined;selectedJob=undefined;shown=undefined;
   results.reset();engine?.reset();jobs.reset();editor.open=false;get('risk-workspace-note').textContent='';get('risk-workspace-context-note').textContent='';
   for(const id of ['risk-workspace-books','risk-workspace-portfolios'])get(id).replaceChildren();
+  tradesReady=false;tradeChoices=new Map();totalTrades=0;nextTradeOffset=null;drawTrades();
  }
- function reset(){clear();scope={bookIds:[],portfolioIds:[]};owner='';unreadRecovery=false;}
+ function reset(){clear();scope={bookIds:[],portfolioIds:[],tradeIds:null};drawTrades();owner='';unreadRecovery=false;}
  async function leave(){
   if(!engine!.edited())return true;if(question)return false;
   const asking=question=new AbortController();host.tabIndex=-1;
@@ -75,14 +80,41 @@ export function setupRiskWorkspace(o:Options){
  }
  function drawScope(){
   if(!directory)return;
-  const books=directory.books.map(b=>({id:b.id,name:`${b.portfolio} · ${b.name}`})),portfolios=[...new Map(directory.books.map(b=>[b.portfolio_id,b.portfolio]))].map(([id,name])=>({id,name}));
+  const books=directory.books.filter(b=>!scope.portfolioIds.length||scope.portfolioIds.includes(b.portfolio_id)).map(b=>({id:b.id,name:`${b.portfolio} · ${b.name}`})),portfolios=[...new Map(directory.books.map(b=>[b.portfolio_id,b.portfolio]))].map(([id,name])=>({id,name}));
   for(const [id,rows,selected] of [['risk-workspace-books',books,scope.bookIds],['risk-workspace-portfolios',portfolios,scope.portfolioIds]] as const){
    const control=get<HTMLSelectElement>(id);control.replaceChildren(...rows.map(row=>new Option(row.name,row.id)),...selected.filter(value=>!rows.some(row=>row.id===value)).map(value=>new Option('Selected scope no longer readable',value)));
    control.selectedIndex=-1;for(const option of control.options)option.selected=selected.includes(option.value);
   }
  }
+ function drawTrades(){
+  get<HTMLSelectElement>('risk-workspace-trade-mode').value=scope.tradeIds===null?'all':'selected';
+  const groups=new Map<string,HTMLOptGroupElement>();
+  const products:Record<string,string>={future:'Futures',financial_swap:'Swap',ppa:'PPA',physical_gas:'Gas',physical_crude:'Crude',futures_option:'Futures option'};
+  for(const trade of tradeChoices.values()){
+   let group=groups.get(trade.bookId);
+   if(!group){group=document.createElement('optgroup');const book=directory?.books.find(b=>b.id===trade.bookId);group.label=book?`${book.portfolio} · ${book.name}`:'Selected book';groups.set(trade.bookId,group);}
+   const option=new Option(`${trade.tradeReference} · ${products[trade.product]??trade.product}`,trade.tradeId);option.selected=scope.tradeIds?.includes(trade.tradeId)??false;option.disabled=!trade.available;group.append(option);
+  }
+  get<HTMLSelectElement>('risk-workspace-trades').replaceChildren(...groups.values());
+  get('risk-workspace-trade-help').textContent=!tradesReady?'Choose an available portfolio/book scope to read its trades.':scope.tradeIds===null&&!allTradesAvailable?'Some trade identities are unavailable. Restore access or choose available individual trades before running risk.':scope.tradeIds===null?
+   `All ${totalTrades} trades in these books are included. Select trades below to switch to an individual selection.`:
+   scope.tradeIds.length?`${scope.tradeIds.length} selected ${scope.tradeIds.length===1?'trade':'trades'} · choose at most ${maxTrades}. Every instrument binding of each selected trade is included.`:'Select at least one trade before running risk. An empty selection does not mean the whole book.';
+  get('risk-workspace-trades-more').hidden=nextTradeOffset===null;
+ }
+ async function readTrades(resetPage:boolean){
+  if(!directory||!selection||!parentsValid()){tradesReady=false;tradeChoices.clear();nextTradeOffset=null;drawTrades();return;}
+  const version=epoch,offset=resetPage?0:nextTradeOffset;if(offset===null)return;
+  tradesReady=false;get('risk-workspace-trade-help').textContent='Reading trades in these books…';
+  try{
+   const page=await o.api<TradePage>('portfolio/risk/scope',{context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId},
+    ...scope,offset,limit:100});if(version!==epoch)return;
+   if(page.contextId!==directory.context.contextId||page.snapshotId!==selection.snapshotId||!Array.isArray(page.trades)||!Array.isArray(page.selectedTrades))throw Error('The trade directory does not match the selected context.');
+   if(resetPage)tradeChoices.clear();for(const trade of [...page.trades,...page.selectedTrades])tradeChoices.set(trade.tradeId,trade);
+   totalTrades=page.total;nextTradeOffset=page.nextOffset;maxTrades=page.maxSelectedTrades;allTradesAvailable=page.allAvailable;tradesReady=true;drawTrades();
+  }catch(error){if(version!==epoch)return;tradesReady=false;tradeChoices.clear();nextTradeOffset=null;drawTrades();get('risk-workspace-trade-help').textContent='The trade selection could not be read. Choose all trades or adjust the books, then refresh. Your selection has not been widened.';if((error as {code?:string}).code==='access_denied')throw error;}
+ }
  async function load(selectedAddress?:string){
-  if(owner!==o.identity())scope={bookIds:[],portfolioIds:[]};
+  if(owner!==o.identity())scope={bookIds:[],portfolioIds:[],tradeIds:null};
   clear();owner=o.identity();const version=epoch;unreadRecovery=false;
   results.show(undefined);get('risk-workspace-note').textContent='Reading the selected scope and recent reports…';
   // A retained report does not depend on the current header being priceable.
@@ -92,7 +124,8 @@ export function setupRiskWorkspace(o:Options){
    const read=await o.api<Directory>('trading/directory',{snapshotId:source.snapshotId,convention:'trading_workspace_v1',knowledgeMode:source.context?'retained':'current',...(source.context?{contextId:source.context.contextId}:{})});
    if(version!==epoch)return;
    if(read.kind!=='directory'||!read.context?.contextId||!Array.isArray(read.books))throw Error('The selected scope directory is inconsistent.');
-   directory=read;drawScope();get('risk-workspace-note').textContent=scopeValid()?'No book or portfolio selection means all readable books. Reports retain their own exact context.':'The selected scope is no longer readable. Choose an available scope before running risk.';
+   directory=read;drawScope();await readTrades(true);if(version!==epoch)return;
+   get('risk-workspace-note').textContent=scopeValid()?'Select portfolios, their books, and either all trades or individual trades. Reports retain their own exact context.':'Choose an available scope and at least one trade when using an individual selection.';
   }catch(error){
    if(version!==epoch)return;if((error as {code?:string}).code==='access_denied')throw error;
    directory=undefined;get('risk-workspace-note').textContent=publicText(`Run setup unavailable: ${error instanceof Error?error.message:'Choose a market close.'} Retained reports can still be opened.`);
@@ -110,18 +143,24 @@ export function setupRiskWorkspace(o:Options){
    get('risk-workspace-note').textContent='No completed recent report matches these books and this close. Run risk here, or open a retained report from Reports and runs.';
   }
  }
- for(const id of ['risk-workspace-books','risk-workspace-portfolios'])get(id).onchange=()=>void o.act(async()=>{
-  const next={bookIds:Array.from(get<HTMLSelectElement>('risk-workspace-books').selectedOptions).map(o=>o.value),portfolioIds:Array.from(get<HTMLSelectElement>('risk-workspace-portfolios').selectedOptions).map(o=>o.value)};
-  if(!await leave()){drawScope();return;}scope=next;engine!.inputsChanged(false);results.show(undefined);shown=undefined;selectedJob=undefined;
+ async function changeScope(next:Scope){
+  if(!await leave()){drawScope();drawTrades();return;}const version=++epoch;scope=next;engine!.inputsChanged(false);results.show(undefined);shown=undefined;selectedJob=undefined;
   window.history.replaceState(null,'',location.pathname+location.search);get('risk-workspace-note').textContent='Scope changed. Run risk for this selection or open a retained report.';
-  if(editor.open)await engine!.open();
- });
+  drawScope();await readTrades(true);if(version!==epoch)return;if(editor.open&&scopeValid())await engine!.open();o.changed();
+ }
+ for(const id of ['risk-workspace-books','risk-workspace-portfolios'])get(id).onchange=()=>void o.act(()=>changeScope({
+  bookIds:Array.from(get<HTMLSelectElement>('risk-workspace-books').selectedOptions).map(o=>o.value),portfolioIds:Array.from(get<HTMLSelectElement>('risk-workspace-portfolios').selectedOptions).map(o=>o.value),tradeIds:scope.tradeIds===null?null:[]}));
+ get('risk-workspace-trade-mode').onchange=()=>void o.act(()=>changeScope({...scope,tradeIds:get<HTMLSelectElement>('risk-workspace-trade-mode').value==='all'?null:[]}));
+ get('risk-workspace-trades').onchange=()=>void o.act(()=>changeScope({...scope,tradeIds:Array.from(get<HTMLSelectElement>('risk-workspace-trades').selectedOptions).map(o=>o.value)}));
+ get('risk-workspace-trades-more').onclick=()=>void o.act(()=>readTrades(false));
  get('risk-jobs-new').onclick=()=>void o.act(newRun);
  get('risk-workspace-refresh').onclick=()=>void (async()=>{if(!o.busy()&&await leave())await o.act(load);})();
  get('risk-workspace-export').onclick=()=>void o.act(()=>engine!.download());
  return {load,reset,leave,openJob,refresh:()=>{if(!host.hidden)results.refresh();engine!.refresh();},
-  sync(){engine!.sync();get<HTMLButtonElement>('risk-jobs-new').disabled=o.busy()||!o.canRun()||!scopeValid()||unreadRecovery;},
-  contextChanged(){epoch++;engine!.inputsChanged(engine!.edited());results.reset();shown=undefined;directory=undefined;selection=undefined;get('risk-workspace-note').textContent='The selected market context changed. Refresh Risk to read the new scope.';},
+  sync(){engine!.sync();get<HTMLButtonElement>('risk-jobs-new').disabled=o.busy()||!o.canRun()||!scopeValid()||unreadRecovery;
+   for(const id of ['risk-workspace-portfolios','risk-workspace-books','risk-workspace-trade-mode','risk-workspace-trades'])get<HTMLSelectElement>(id).disabled=o.busy()||!directory;
+   get<HTMLButtonElement>('risk-workspace-trades-more').disabled=o.busy()||!tradesReady;},
+  contextChanged(){epoch++;engine!.inputsChanged(engine!.edited());results.reset();shown=undefined;directory=undefined;selection=undefined;tradesReady=false;tradeChoices.clear();drawTrades();get('risk-workspace-note').textContent='The selected market context changed. Refresh Risk to read the new scope.';},
   edited:()=>engine!.edited(),unconfirmed:()=>engine!.unconfirmed(),
   address:()=>selectedJob?'#risk/job/'+encodeURIComponent(selectedJob):'',
   assistant:()=>selectedJob&&engine!.current()?.retained&&engine!.current()?.parts.some(p=>p.job?.id===selectedJob)?{operation:'portfolio.risk.jobs.id_v1',inputJson:JSON.stringify({body:null,parameters:{id:selectedJob}})}:undefined};

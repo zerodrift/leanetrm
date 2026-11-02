@@ -239,7 +239,8 @@ public sealed class IntervalCurvesStore(MarketReads reads,TouProductStore produc
         return(metadata,cells.Build());
     }
 
-    internal static async Task<object> ReadShapeInto(NpgsqlConnection connection,Guid series,int minutes,
+    internal sealed record ShapeRead(Guid Id,string? Code,DateTimeOffset KnownAt,int? Head,ImmutableArray<Guid> KnowledgeContextIds);
+    internal static async Task<ShapeRead> ReadShapeInto(NpgsqlConnection connection,Guid series,int minutes,
         DateTimeOffset first,DateTimeOffset last,DateTimeOffset knownAt,IntervalData.Builder cells,CancellationToken ct)
     {
         var contexts=new HashSet<Guid>();string? code=null;int? head=null;
@@ -250,7 +251,7 @@ public sealed class IntervalCurvesStore(MarketReads reads,TouProductStore produc
             foreach(var row in read.GetProperty("rows").EnumerateArray())
                 cells.Add(row.Instant("start"),row.Instant("end"),ExactDecimal.Parse(row.Text("value")),row.GetProperty("revision").GetInt32());
         }
-        return new {id=series,code,knownAt,head,knowledgeContextIds=contexts.ToArray()};
+        return new(series,code,knownAt,head,[..contexts.Order()]);
     }
 
     // The curve's interval contracts covering the window. The frame must select each one still live at its valuation

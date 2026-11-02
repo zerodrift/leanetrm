@@ -15,7 +15,7 @@ public sealed record FuturesAmendRequest(Guid OperationId,Guid SnapshotId,Guid T
 public sealed partial class FuturesStore
 {
     public const string AmendmentConvention="unprocessed_futures_booking_amendment_v1";
-    private async Task<ImmutableArray<JsonElement>> RevisionRows(NpgsqlConnection connection,Guid? trade,bool history,CancellationToken ct)
+    private async Task<ImmutableArray<JsonElement>> RevisionRows(NpgsqlConnection connection,Guid? trade,bool history,CancellationToken ct,ImmutableHashSet<Guid>? trades=null)
     {
         var rows=await PreviewDatabase.Rows(connection,"""
             WITH selected AS(
@@ -37,9 +37,9 @@ public sealed partial class FuturesStore
               JOIN trading.instruments i ON(i.catalog_id,i.id)=(p.catalog_id,p.instrument_id)
               LEFT JOIN trading.futures_revision_markets s ON(s.catalog_id,s.trade_id,s.revision,s.instrument_id)=(p.catalog_id,p.trade_id,p.revision,p.instrument_id)
               JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(p.catalog_id,p.publication_order)
-              WHERE($3 OR p.position=1) ORDER BY p.execution_at,p.trade_id,p.revision
+              WHERE($3 OR p.position=1) AND($4::uuid[] IS NULL OR p.trade_id=ANY($4::uuid[])) ORDER BY p.execution_at,p.trade_id,p.revision
             )value
-            """,[manifest.CatalogId,trade is {} id?id:DBNull.Value,history],ct);
+            """,[manifest.CatalogId,trade is {} id?id:DBNull.Value,history,(object?)trades?.ToArray()??DBNull.Value],ct);
         TradeAnnotations.RequireFacts(rows);
         if(rows.Any(r=>r.GetProperty("side_id").ValueKind==JsonValueKind.Null))
             throw Error("futures_definition","A retained revision is missing its exact pricing binding.");

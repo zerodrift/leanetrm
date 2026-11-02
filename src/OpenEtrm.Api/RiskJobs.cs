@@ -66,7 +66,7 @@ public static class RiskJobs
         pinnedFrame["optionCalibrations"]=JsonSerializer.SerializeToNode(prepared.Portfolio.OptionCalibrations,Json);
         pinnedFrame["ppaReadContexts"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Ppa?.ReadContexts??[],Json);
         // The books and portfolios the run was asked for, as chosen: its results are shown only against a read of the same (D222).
-        pinnedFrame["scope"]=ScopeFrame(body.Request.BookIds,body.Request.PortfolioIds);
+        pinnedFrame["scope"]=ScopeFrame(body.Request.BookIds,body.Request.PortfolioIds,body.Request.TradeIds);
         if(run is not null)pinnedFrame["run"]=run;
         await using var command=ScheduleStore.Command(connection,
             "SELECT risk.submit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",manifest.CatalogId,body.RequestId,contextId,
@@ -86,6 +86,14 @@ public static class RiskJobs
     /// <summary>The books and portfolios a run was asked for, in the order they were chosen, as its retained frame keeps them.</summary>
     internal static JsonObject ScopeFrame(ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds)=>
         JsonSerializer.SerializeToNode(new{bookIds,portfolioIds},Json)!.AsObject();
+    internal static JsonObject ScopeFrame(ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,ImmutableArray<Guid>? tradeIds)=>
+        tradeIds is null?ScopeFrame(bookIds,portfolioIds):JsonSerializer.SerializeToNode(new{bookIds,portfolioIds,tradeIds},Json)!.AsObject();
+    internal static void RequireTradeScope(ImmutableArray<Guid>? requested,JsonNode? scope)
+    {
+        var stated=scope?["tradeIds"]?.Deserialize<ImmutableArray<Guid>>(Json);
+        if(!Equals(requested is {} a?string.Join(',',a.Order()):null,stated is {} b?string.Join(',',b.Order()):null))
+            throw new MarketDataException("risk_trade_scope","The retained request and scope must identify the same selected trades.");
+    }
 
     internal static JsonObject PinFrame(InputFrame frame)
     {

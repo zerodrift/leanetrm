@@ -14,6 +14,7 @@ if(args is ["--preview-failure-diagnostics"]){OpenEtrm.Api.Checks.PreviewFailure
 if(args is ["--position-qualification"]){await PositionQualificationChecks.Run();return;}
 
 if(args is ["--book-scope"]){BookScopeChecks.Run();return;}
+if(args is ["--risk-trade-scope"]){RiskTradeScopeChecks.Run();return;}
 if(args is ["--database-login-boundaries",var boundaryConnectionFile,var boundaryTracking]){await DatabaseLoginBoundaryChecks.Run(boundaryConnectionFile,bool.Parse(boundaryTracking));return;}
 if(args is ["--date-lists"]){SchedulePublicationChecks.Run();return;}
 if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
@@ -105,6 +106,7 @@ if (args is ["--schedules"])
     CrudeInstantChecks.Run();
     TradePositionFactsChecks.Run();
     BookScopeChecks.Run();
+    RiskTradeScopeChecks.Run();
     BookedScheduleLookupChecks.Run();
     SideObservationCompatibilityChecks.Run();
     ContractObservationAuthoringChecks.Run();

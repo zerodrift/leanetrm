@@ -102,7 +102,7 @@ internal static class FuturesOptionPositions
     internal static MarketDataException Missing()=>new("position_facts","Every retained option position requires its exact visible series, premium, booking and lifecycle metadata.");
 
     internal static async Task<ImmutableArray<FuturesOptionPosition>> Read(NpgsqlConnection connection,PreviewManifest manifest,
-        ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null)
+        ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null,ImmutableHashSet<Guid>? trades=null)
     {
         var books=await BookScope.Read(connection,manifest.CatalogId,ct);
         var selected=BookScope.Select(books,bookIds,portfolioIds).ToImmutableDictionary(b=>b.Id("id"));
@@ -130,8 +130,8 @@ internal static class FuturesOptionPositions
              LEFT JOIN LATERAL(SELECT sum(lots) FILTER(WHERE kind IN('exercise','assignment','expiry')) closed,bool_or(kind='expiry') expired,
                jsonb_agg(futures_trade_id ORDER BY publication_order) FILTER(WHERE futures_trade_id IS NOT NULL) linked
               FROM trading.futures_option_events v WHERE(v.catalog_id,v.trade_id)=(r.catalog_id,r.trade_id))v ON true
-             WHERE r.catalog_id=$1 AND r.book_id=ANY($2::uuid[]) AND($3::uuid IS NULL OR r.trade_id=$3) ORDER BY tr.reference_number,r.trade_id)x
-            """,[manifest.CatalogId,selected.Keys.ToArray(),(object?)position?.TradeId??DBNull.Value],ct);
+             WHERE r.catalog_id=$1 AND r.book_id=ANY($2::uuid[]) AND($3::uuid IS NULL OR r.trade_id=$3) AND($4::uuid[] IS NULL OR r.trade_id=ANY($4::uuid[])) ORDER BY tr.reference_number,r.trade_id)x
+            """,[manifest.CatalogId,selected.Keys.ToArray(),(object?)position?.TradeId??DBNull.Value,(object?)trades?.ToArray()??DBNull.Value],ct);
         if(position is not null)position.Require(heads.SelectMany(h=>new[]{Binding(h,"option_instrument_id"),Binding(h,"premium_instrument_id")}));
         if(heads.IsEmpty)return [];
         var required=new[]{"series_code","premium_payment_date","trade_reference","option_instrument_reference","premium_instrument_reference","trade_date","booker_login","legal_entity","counterparty"};

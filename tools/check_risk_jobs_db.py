@@ -376,6 +376,9 @@ def run_checks(query, manifest, psql=None, environment=None):
         assert query(f"SELECT count(*)=1 FROM pg_policies WHERE schemaname='market_data' AND tablename='{table}' AND policyname='risk_worker_service' AND permissive='RESTRICTIVE' AND roles=ARRAY['openetrm_risk_worker']::name[] AND cmd='SELECT' AND qual='risk.worker_read()';") == 't'
     assert query("SELECT has_function_privilege('synthetic_risk_worker','security.ppa_scope_heads(uuid,text,uuid[])','EXECUTE');") == 'f'
     assert query("SELECT has_table_privilege('synthetic_risk_worker','trading.ppa_trade_revisions','SELECT');") == 'f'
+    metadata = f"security.risk_ppa_trade_heads('{catalog}',ARRAY[{','.join(repr(b)+'::uuid' for b in books)}],NULL::uuid[])"
+    reject(lambda: worker(f"SELECT * FROM {metadata}"), 'risk_job_denied')
+    assert worker(f"BEGIN;SELECT risk.bind('{job['jobId']}','{claim['leaseToken']}');SELECT count(*) FROM {metadata};COMMIT").splitlines()[-1] == '0'
     # Roll back a deliberately injected row: this tests nonempty RLS visibility,
     # not eligibility of this legacy fixture curve as an executable frozen anchor.
     expiry_setup = f"""BEGIN;ALTER TABLE market_data.curve_expiry_rules DISABLE TRIGGER guard_definition;

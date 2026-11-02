@@ -50,6 +50,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('the Blotter renders the same exact financial values through the shared full-report widget',
   `(()=>{const report=window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk').data,base=${JSON.stringify(baseline)};return JSON.stringify(report.factors.map(f=>f.totals))===JSON.stringify(base.factors.map(f=>f.totals))&&document.querySelector('#desk-risk-full-results').textContent.includes(base.factors[0].totals[0].values.display.delta);})()`);
 
+ await tradeSelection({command,evaluate,wait,click,set,check,shot,idle,url,frame});
  await click('#nav-risk');await wait(idle);await click('#risk-jobs-new');await wait("!document.querySelector('#workspace-risk-fields').disabled&&"+idle);
  await click('#workspace-risk-form input[value=custom]');await set('#workspace-risk-factor',target);await set('#workspace-risk-bump','0.05');
  await evaluate('window.__hideWorkspaceHistory=false;window.__holdWorkspaceReply=true;document.querySelector("#workspace-risk-queue").click();true');
@@ -122,4 +123,42 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
  await shot('risk-workspace-phone');
  await check('Risk controls and graphical widgets fit a phone viewport',fitsWidth,"({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,wide:[...document.querySelectorAll('#risk-page *')].filter(n=>n.getClientRects().length&&n.getBoundingClientRect().right>document.documentElement.clientWidth+1&&!n.closest('.table-wrap')).slice(0,12).map(n=>({id:n.id,class:n.className,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width}))})");
+}
+
+async function tradeSelection({command,evaluate,wait,click,set,check,shot,idle,url,frame}){
+ await click('#nav-risk');await wait(idle);
+ const scopePage="window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk/scope').data";
+ const book=await evaluate(`${scopePage}.trades.find(t=>t.available).bookId`);
+ const portfolio=await evaluate(`${scopePage}.books.find(b=>b.id===${JSON.stringify(book)}).portfolio_id`);
+ await set('#risk-workspace-portfolios',portfolio);await wait(idle);
+ await set('#risk-workspace-books',book);await wait(idle);
+ await check('selecting a portfolio and book lists that book’s trades',
+  `(()=>{const page=${scopePage};return page.trades.length>0&&page.trades.every(t=>t.bookId===${JSON.stringify(book)})&&document.querySelector('#risk-workspace-trades').options.length>0&&[...document.querySelector('#risk-workspace-books').options].every(o=>page.books.find(b=>b.id===o.value)?.portfolio_id===${JSON.stringify(portfolio)});})()`);
+ await set('#risk-workspace-trade-mode','selected');await wait(idle);
+ await check('an empty individual selection cannot run whole-book risk',"document.querySelector('#risk-jobs-new').disabled&&document.querySelector('#risk-workspace-trade-help').textContent.includes('Select at least one trade')");
+ const trade=await evaluate("[...document.querySelector('#risk-workspace-trades').options].find(o=>!o.disabled).value");
+ await set('#risk-workspace-trades',trade);await wait(idle);
+ await click('#risk-jobs-new');await wait("!document.querySelector('#workspace-risk-fields').disabled&&"+idle);
+ const target=await evaluate("window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk/catalog').data.scenarioTargets.find(t=>t.kind==='contract').id");
+ await click('#workspace-risk-form input[value=custom]');await set('#workspace-risk-factor',target);await set('#workspace-risk-bump','0.05');await click('#workspace-risk-run');
+ await wait("document.querySelector('#risk-workspace-results canvas')&&"+idle,60000);
+ await check('an individual trade report includes only that trade and labels its captured subset',
+  `(()=>{const r=window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk').data;return JSON.stringify(r.tradeIds)===${JSON.stringify(JSON.stringify([trade]))}&&r.inputs.positions.length>0&&r.inputs.positions.every(p=>p.tradeId===${JSON.stringify(trade)})&&document.querySelector('#risk-workspace-results').textContent.includes('1 selected trade');})()`);
+ await shot('risk-workspace-selected-trade');
+ await evaluate('window.__hideWorkspaceHistory=false;true');await click('#workspace-risk-queue');
+ await wait("window.__workspaceRiskReads.some(r=>r.path==='/api/portfolio/risk/jobs'&&r.data?.id)&&"+idle,60000);
+ const job=await evaluate("window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk/jobs'&&r.data?.id).data.id");
+ await wait(`window.__workspaceRiskReads.some(r=>r.data?.id===${JSON.stringify(job)}&&r.data?.state==='completed'&&r.data?.result)&&${idle}`,60000);
+ await command('Page.navigate',{url:url.replace(/#.*$/,'')+'#risk/job/'+job});await wait("document.querySelector('#risk-workspace-results canvas')&&"+idle,60000);
+ const origin=await evaluate('performance.timeOrigin');await command('Page.reload');
+ await wait(`performance.timeOrigin!==${origin}&&document.querySelector('#risk-workspace-results canvas')&&${idle}`,60000);
+ await check('a queued trade subset survives a retained link and reload without widening its captured selection',
+  `(()=>{const j=window.__workspaceRiskReads.findLast(r=>r.data?.id===${JSON.stringify(job)}&&r.data?.result).data;return JSON.stringify(j.scope.tradeIds)===${JSON.stringify(JSON.stringify([trade]))}&&j.result.inputs.positions.every(p=>p.tradeId===${JSON.stringify(trade)})&&document.querySelector('#risk-workspace-results').textContent.includes('1 selected trade');})()`);
+ await set('#snapshot',frame);await wait(idle);
+ await set('#risk-workspace-portfolios',portfolio);await wait(idle);await set('#risk-workspace-books',book);await wait(idle);
+ await click('#risk-workspace-refresh');await wait(idle);
+ await check('a retained subset is never automatically opened as the whole-book report at the same close',
+  "document.querySelector('#risk-workspace-trade-mode').value==='all'&&document.querySelector('#risk-workspace-note').textContent.includes('No completed recent report')&&document.querySelector('#risk-workspace-results').textContent.includes('No report selected')",
+  "({mode:document.querySelector('#risk-workspace-trade-mode').value,note:document.querySelector('#risk-workspace-note').textContent,results:document.querySelector('#risk-workspace-results').textContent,hash:location.hash,scope:window.__workspaceRiskReads.filter(r=>r.path==='/api/portfolio/risk/scope').map(r=>({count:r.data.total,ctx:r.data.contextId}))})");
+ await set('#risk-workspace-books','');await wait(idle);await set('#risk-workspace-portfolios','');await wait(idle);
 }

@@ -16,7 +16,8 @@ namespace OpenEtrm.Api;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PortfolioRiskRequest(FuturesReadRequest Context,ImmutableArray<Guid> BookIds,ImmutableArray<Guid> PortfolioIds,
     ImmutableArray<CurveBumpRequest> Bumps,string? Convention,string? NumericalPolicy,PortfolioValuationPolicy PricingPolicy,
-    string? Detail=null,ImmutableArray<CurveShiftRequest> Stress=default);
+    string? Detail=null,ImmutableArray<CurveShiftRequest> Stress=default,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] ImmutableArray<Guid>? TradeIds=null);
 
 // Transport and presentation over the shared instrument valuation operation.
 // Instrument materialization and pricing remain outside this report adapter.
@@ -36,7 +37,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
 
     public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioRiskCatalogRequest body,CancellationToken ct)
     {
-        var (portfolio,_,_)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,PricingPolicy,ct);
+        var (portfolio,_,_)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,PricingPolicy,ct,tradeIds:body.TradeIds);
         var markets=portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
         var available=portfolio.Markets.SelectMany(m=>m.Data.Model.QuoteFactors(m.Snapshot)).ToImmutableArray();
         var axes=CurveRiskAxes.Catalog(portfolio,ct);
@@ -78,7 +79,8 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
     internal readonly record struct RetainedRun(ImmutableArray<ConnectedMarketEvidence> Graphs,ImmutableArray<ExcludedPosition> Excluded);
     private async Task<(PortfolioValuation.Prepared Portfolio,ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books)> PreparePortfolio(
         NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,
-        PortfolioValuationPolicy policy,CancellationToken ct,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,RetainedRun? retained=null)
+        PortfolioValuationPolicy policy,CancellationToken ct,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,RetainedRun? retained=null,
+        ImmutableArray<Guid>? tradeIds=null)
     {
         PortfolioValuation.ValidatePolicy(policy);
         if(frame.ContextId is not {} contextId||bookIds.IsDefault||portfolioIds.IsDefault)
@@ -87,10 +89,11 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         var books=await BookScope.Read(connection,database.Manifest.CatalogId,ct);
         var selected=BookScope.Select(books,bookIds,portfolioIds).Select(b=>b.Id("id")).Order().ToImmutableArray();
         if(selected.IsEmpty)throw new MarketDataException("risk_position","Select visible books before running risk.");
+        var trades=await RiskTradeScope.Resolve(connection,database.Manifest.CatalogId,selected,tradeIds,ct);
         var valuation=new PortfolioValuation(database);var snapshot=data.Snapshot(frame);
         var portfolio=retained is {} run?
-            await valuation.Prepare(connection,data,frame,snapshot,context,selected,policy,supplemental,run.Excluded,ct,run.Graphs):
-            await valuation.PrepareValued(connection,data,frame,snapshot,context,selected,policy,supplemental,ct);
+            await valuation.Prepare(connection,data,frame,snapshot,context,selected,policy,supplemental,run.Excluded,ct,run.Graphs,selection:trades):
+            await valuation.PrepareValued(connection,data,frame,snapshot,context,selected,policy,supplemental,ct,trades);
         return (portfolio,selected,books);
     }
 
@@ -107,7 +110,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             throw new MarketDataException("risk_convention","Select the supported portfolio convention, exact numerical policy and bounded explicit curve-coordinate bumps.");
         if(!body.Stress.IsDefault&&(body.Stress.Length>16||body.Stress.Any(s=>s is null)))
             throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative curve shifts.");
-        var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental,retained);
+        var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental,retained,body.TradeIds);
         var bumps=body.Bumps.Select(b=>
         {
             var axis=CurveRiskAxes.Resolve(portfolio,b.Factor,ct);var size=ExactDecimal.Parse(b.Size??"");
@@ -149,7 +152,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             currency=Currency(markets,v.Base.Currency),currencyReference=v.Base.Currency,
             deltaUnit=$"{Currency(markets,v.Base.Currency)} / ({Unit(markets,v.Delta.Unit.Factor)})",
             gammaUnit=$"{Currency(markets,v.Base.Currency)} / ({Unit(markets,v.Gamma.Unit.Factor)})²"};
-        return new{detail=run.Detail.ToString(),convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,
+        return new{detail=run.Detail.ToString(),tradeIds=prepared.Request.TradeIds,convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,
             engineVersion=RiskJobs.EngineVersion,displayPolicy=new{implementation="risk_decimal_display_v1",decimalPlaces=12,tieRule="to_even"},
             run.Work,run.SnapshotId,run.ConnectedScenarios,scenario=Scenario(prepared),heldInstruments=run.Positions.Select(p=>p.InstrumentId).Distinct().Count(),
             excludedPositions=prepared.Portfolio.Excluded,

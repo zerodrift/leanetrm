@@ -1,5 +1,29 @@
 # Local verification and continuous integration
 
+## Individual trade risk scope
+
+The D292 local qualification on 2 November 2026 passed the focused API trade-scope
+and schedule checks, 1,192 frontend checks, deployment configuration and 32 release
+boundary checks. Disposable stock PostgreSQL runs passed unified trading, physical
+crude, exchange futures/options, composed PPA bookings and the complete risk/job
+suite with 151 browser checks, integrated with the compact shared date header.
+
+Selected futures, swaps, heat-rate, PPAs, gas, crude and option trades reproduce
+their whole-book binding base values and immediate/retained-worker financial
+results. An option selection explicitly includes both option and premium bindings.
+Checks cover empty/duplicate/unknown/out-of-book refusals, off-page selected IDs,
+unreadable identity handling, legacy whole-book multipart continuation, reload
+recovery and exact subset matching in reports. Runtime PPA identities withhold
+unreadable reference sources without blocking an unrelated selected trade. Revoked
+reference authority, stale lease tokens and cancellation fence bound worker reads.
+
+Selected-only PPA replay also qualifies retention of the native price shape's
+knowledge contexts independently of other trades' quantity inputs. Pricing values
+remain in the shared managed PV operation. Independent adversarial review covered
+authorization, temporal selection, replay, report scope and the migration boundary.
+Migration 0169 needs a separately qualified schema release; these checks used only
+owned synthetic resources and did not deploy to production.
+
 ## Joint scenario calculation boundary
 
 The D291 qualification on 2 November 2026 passed 18 focused managed groups,

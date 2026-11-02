@@ -60,12 +60,14 @@ def run_checks(url, manifest, query, *, run_worker, owned_root, run_id, psql, en
     assert all(Fraction(p['values']['upPnl']) == 0 for p in positions if p['instrumentType'] == 'ppa')
     assert report['ppaMeasures'] and report['inputs']['ppaReceipt']['pending'] == 'estimate_until_actual_v1'
     print('PASS shared risk values every binding, preserves PPA measures and reprices the explicit heat rate', flush=True)
+    from check_ppa_risk_custody import run_checks as custody
+    custody(c, query, manifest, request, ppas[0]['tradeId'])
+    from check_trade_risk import selected_scope
+    selected_scope(c,request,ppas[0]['tradeId'],report,run_worker=run_worker)
+    selected_scope(c,request,heat[0]['tradeId'],report,run_worker=run_worker)
     job = c.call('portfolio/risk/jobs', dict(requestId=str(uuid4()), request=request))
     run_worker()
     completed = c.call('portfolio/risk/jobs/' + job['id'])
     assert completed['state'] == 'completed', completed
     assert completed['result']['factors'] == report['factors']
     print('PASS retained worker reproduces the mixed report with identical factors and exact values', flush=True)
-
-    from check_ppa_risk_custody import run_checks as custody
-    custody(c, query, manifest, request, ppas[0]['tradeId'])

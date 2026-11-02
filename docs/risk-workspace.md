@@ -11,6 +11,19 @@ An unavailable scope cannot silently become an all-books run. Missing market
 selection prevents new calculations while retained reports remain independently
 readable under current authority.
 
+D292 adds **Portfolio → Book → Trades** selection. A portfolio groups books;
+a book holds trades. The trade list follows the chosen parents and retained
+context, grouped by book with trade reference and product labels. Choose
+**All trades in these books** or **Choose individual trades** (up to 256).
+The list pages at 100; selected trades remain visible across pages. An individual
+selection includes every held instrument binding of each trade, including an
+option's separate premium. Empty individual selection disables Run; it never
+means all trades. Changing a parent clears the individual choices and requires
+a new choice. Unreadable identities are shown unavailable, rather than omitted
+or replaced with invented trade references. Where identity itself is unauthorized,
+the directory withholds it and marks the whole-book scope unavailable; authorized
+individual choices remain usable.
+
 The editor is the same component used in the Blotter. It offers the existing
 held-contract, parallel-curve and custom up/down shocks, with explicit sizes and
 optional nested stresses. It retains the backend catalog's conventions, numerical
@@ -24,6 +37,9 @@ when one is available. Candidate selection requires every unique part, matching
 scope/context and completed state. The retained report's exact snapshot is checked
 before automatic selection. An older or unrelated report is never substituted
 as a current calculation. The directory is bounded; it is not a complete archive.
+Matching includes the exact trade subset. A retained subset never becomes a
+whole-book report; its caption states its captured selection independently of
+the current filters. Multipart display and export also require matching subsets.
 
 The shared report widget appears in Risk and in the Blotter's **Full risk report
 and graphics** section. It presents backend delta, diagonal gamma and up/down

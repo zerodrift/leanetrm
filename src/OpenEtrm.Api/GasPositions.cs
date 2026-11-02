@@ -46,17 +46,21 @@ internal static class GasPositions
  internal const string Type="physical_gas";
  internal const string Measure="gas_contractual_present_value";
  internal static async Task<ImmutableArray<GasPosition>> ReadRisk(NpgsqlConnection connection,PreviewManifest manifest,
-  ImmutableArray<Guid> books,CancellationToken ct)
+  ImmutableArray<Guid> books,CancellationToken ct,ImmutableHashSet<Guid>? trades=null)
  {
-  var scope=await PreviewDatabase.Rows(connection,"SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[]))",[manifest.CatalogId,books.ToArray(),Array.Empty<Guid>()],ct);
-  var positions=await Read(connection,manifest,books,[],ct);
+  var args=new object[]{manifest.CatalogId,books.ToArray(),Array.Empty<Guid>()};
+  var scope=await PreviewDatabase.Rows(connection,trades is null?
+   "SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[]))":
+   "SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[],$4::uuid[]))",
+   trades is null?args:[..args,trades.ToArray()],ct);
+  var positions=await Read(connection,manifest,books,[],ct,trades:trades);
   if(scope.Length!=positions.Length||!scope.Select(p=>(p.Id("trade_id"),p.Id("binding_id"),p.Id("book_id"))).ToHashSet()
    .SetEquals(positions.Select(p=>(p.Trade,p.Binding,p.Book.Id("id")))))
    throw new MarketDataException("risk_contract","Every held gas position must have its exact visible retained valuation inputs.");
   return positions;
  }
  internal static async Task<ImmutableArray<GasPosition>> Read(NpgsqlConnection connection,PreviewManifest manifest,
-  ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null,Guid? trade=null)
+  ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null,Guid? trade=null,ImmutableHashSet<Guid>? trades=null)
  {
   var books=await BookScope.Read(connection,manifest.CatalogId,ct);
   var selected=BookScope.Select(books,bookIds,portfolioIds)
@@ -75,8 +79,8 @@ internal static class GasPositions
     JOIN trading.booking_facts f ON(f.catalog_id,f.trade_id)=(r.catalog_id,r.trade_id)
     JOIN trading.legal_entities e ON(e.catalog_id,e.id,e.revision)=(r.catalog_id,r.legal_entity_id,r.legal_entity_revision)
     JOIN trading.counterparties p ON(p.catalog_id,p.id,p.revision)=(r.catalog_id,r.counterparty_id,r.counterparty_revision)
-    WHERE r.book_id=ANY($2::uuid[]) AND($3::uuid IS NULL OR r.trade_id=$3) ORDER BY tr.reference_number,r.instrument_id)x
-   """,[manifest.CatalogId,selected.Keys.ToArray(),(position?.TradeId??trade) is {} tradeId?(object)tradeId:DBNull.Value],ct);
+    WHERE r.book_id=ANY($2::uuid[]) AND($3::uuid IS NULL OR r.trade_id=$3) AND($4::uuid[] IS NULL OR r.trade_id=ANY($4::uuid[])) ORDER BY tr.reference_number,r.instrument_id)x
+   """,[manifest.CatalogId,selected.Keys.ToArray(),(position?.TradeId??trade) is {} tradeId?(object)tradeId:DBNull.Value,(object?)trades?.ToArray()??DBNull.Value],ct);
   if(position is not null)position.Require(heads);
   if(heads.IsEmpty)return [];
   var physical=await PreviewDatabase.Rows(connection,"""

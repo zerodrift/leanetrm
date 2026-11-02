@@ -59,11 +59,15 @@ internal static class CrudePositions
    !expected.Select(Key).ToHashSet().SetEquals(actual.Select(Key)))throw Missing();
  }
  internal static async Task<ImmutableArray<CrudePosition>> Read(NpgsqlConnection connection,PreviewManifest manifest,
-  ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null,Guid? trade=null)
+  ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null,Guid? trade=null,ImmutableHashSet<Guid>? trades=null)
  {
   var books=await BookScope.Read(connection,manifest.CatalogId,ct);
   // Recheck authority before interpreting a directory that row security may have filtered.
-  var inventory=await PreviewDatabase.Rows(connection,"SELECT value::text FROM jsonb_array_elements(security.crude_position_scope($1,$2::uuid[],$3::uuid[]))",[manifest.CatalogId,bookIds.ToArray(),portfolioIds.ToArray()],ct);
+  var args=new object[]{manifest.CatalogId,bookIds.ToArray(),portfolioIds.ToArray()};
+  var inventory=await PreviewDatabase.Rows(connection,trades is null?
+   "SELECT value::text FROM jsonb_array_elements(security.crude_position_scope($1,$2::uuid[],$3::uuid[]))":
+   "SELECT value::text FROM jsonb_array_elements(security.crude_position_scope($1,$2::uuid[],$3::uuid[],$4::uuid[]))",
+   trades is null?args:[..args,trades.ToArray()],ct);
   var selected=BookScope.Select(books,bookIds,portfolioIds).ToImmutableDictionary(b=>b.Id("id"));
   if(selected.IsEmpty)return [];
   var selectedTrade=position?.TradeId??trade;
@@ -83,8 +87,8 @@ internal static class CrudePositions
     JOIN trading.booking_facts f ON(f.catalog_id,f.trade_id)=(r.catalog_id,r.trade_id)
     JOIN trading.legal_entities e ON(e.catalog_id,e.id,e.revision)=(r.catalog_id,r.legal_entity_id,r.legal_entity_revision)
     JOIN trading.counterparties p ON(p.catalog_id,p.id,p.revision)=(r.catalog_id,r.counterparty_id,r.counterparty_revision)
-    WHERE r.book_id=ANY($2::uuid[]) AND($3::uuid IS NULL OR r.trade_id=$3) ORDER BY tr.reference_number,r.instrument_id)x
-   """,[manifest.CatalogId,selected.Keys.ToArray(),(object?)selectedTrade??DBNull.Value],ct);
+    WHERE r.book_id=ANY($2::uuid[]) AND($3::uuid IS NULL OR r.trade_id=$3) AND($4::uuid[] IS NULL OR r.trade_id=ANY($4::uuid[])) ORDER BY tr.reference_number,r.instrument_id)x
+   """,[manifest.CatalogId,selected.Keys.ToArray(),(object?)selectedTrade??DBNull.Value,(object?)trades?.ToArray()??DBNull.Value],ct);
   RequireInventory(inventory,heads);
   if(position is not null)position.Require(heads);
   if(heads.IsEmpty)return [];

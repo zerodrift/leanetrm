@@ -291,9 +291,13 @@ public sealed partial class SwapStore(PreviewDatabase database)
  // Position and risk reads select RLS-visible heads before book scope and term
  // hydration, so an older book cannot resurrect a moved trade.
  // History callers retain every visible revision and the same exact projections.
- internal async Task<ImmutableArray<JsonElement>> Rows(NpgsqlConnection connection,Guid? trade,CancellationToken ct,ImmutableArray<Guid>? latestBooks=null)
+ internal async Task<ImmutableArray<JsonElement>> Rows(NpgsqlConnection connection,Guid? trade,CancellationToken ct,ImmutableArray<Guid>? latestBooks=null,ImmutableHashSet<Guid>? trades=null)
  {
-  var rows=await PreviewDatabase.Rows(connection,"SELECT x::text FROM trading.read_swap_revisions($1,$2,$3,$4) x ORDER BY (x->>'trade_id')::uuid,(x->>'revision')::integer",[manifest.CatalogId,trade is {} id?id:DBNull.Value,latestBooks.HasValue,latestBooks.GetValueOrDefault().IsDefault?Array.Empty<Guid>():latestBooks.GetValueOrDefault().ToArray()],ct);
+  var args=new object[]{manifest.CatalogId,trade is {} id?id:DBNull.Value,latestBooks.HasValue,latestBooks.GetValueOrDefault().IsDefault?Array.Empty<Guid>():latestBooks.GetValueOrDefault().ToArray()};
+  var rows=await PreviewDatabase.Rows(connection,trades is null?
+   "SELECT x::text FROM trading.read_swap_revisions($1,$2,$3,$4) x ORDER BY (x->>'trade_id')::uuid,(x->>'revision')::integer":
+   "SELECT x::text FROM trading.read_swap_revisions($1,$2,$3,$4,$5::uuid[]) x ORDER BY (x->>'trade_id')::uuid,(x->>'revision')::integer",
+   trades is null?args:[..args,trades.ToArray()],ct);
   // A visible selected parent cannot disappear through a separately authorized
   // required child join. Compare exact keys in the same statement/snapshot.
   if(rows.Any(row=>row.TryGetProperty("__missing_swap_revision",out _)))throw new PreviewDeniedException();
@@ -480,19 +484,19 @@ public sealed partial class SwapStore(PreviewDatabase database)
   return JsonSerializer.Deserialize<JsonElement>(await command.ExecuteScalarAsync(ct) is string text?text:"{\"found\":false}");
  }
  internal sealed record HoldingsResult(ImmutableArray<JsonObject> Rows,int Valuations,int SupplementalMarketLoads,ImmutableArray<(JsonElement Row,string Reason)> Unvalued);
- internal async Task<HoldingsResult> Holdings(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
+ internal async Task<HoldingsResult> Holdings(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null,ImmutableHashSet<Guid>? trades=null)
  {
-  var run=await BlotterRun(connection,data,frame,bookIds,portfolioIds,ct,selected);
+  var run=await BlotterRun(connection,data,frame,bookIds,portfolioIds,ct,selected,trades);
   var rows=ImmutableArray.CreateBuilder<JsonObject>();
   await foreach(var unit in run.Units(ct))rows.AddRange(unit);
   return new(rows.ToImmutable(),run.Valuations,run.SupplementalMarketLoads,run.Unvalued);
  }
  // The Blotter's swaps and heat-rate swaps: each held trade's head revision in scope, read before any is valued.
- internal async Task<SwapBlotterRun> BlotterRun(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
+ internal async Task<SwapBlotterRun> BlotterRun(NpgsqlConnection connection,PreviewData data,InputFrame frame,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null,ImmutableHashSet<Guid>? trades=null)
  {
   var books=await BookScope.Read(connection,manifest.CatalogId,ct);
   var scope=BookScope.Select(books,bookIds,portfolioIds).Select(book=>book.Id("id")).ToImmutableArray();
-  JsonElement[] rows=scope.IsEmpty?[]:(await Rows(connection,selected?.TradeId,ct,scope)).ToArray();
+  JsonElement[] rows=scope.IsEmpty?[]:(await Rows(connection,selected?.TradeId,ct,scope,trades)).ToArray();
   selected?.Require(rows);
   if(selected is not null&&rows.Any(r=>(r.Text("implementation")==CrossCommodityScheduledSwap.Implementation?"heat_rate":"financial_swap")!=selected.InstrumentType))
    throw TradePositionSelection.Unavailable();

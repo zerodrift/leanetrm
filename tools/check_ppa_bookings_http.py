@@ -330,6 +330,8 @@ def composed_checks(fixture,query,manifest):
         factor=next(f for f in catalog['factors'] if manifest['ppaBookings']['capacity'] in f['curves'])
         request=dict(context=retained,bookIds=[book],portfolioIds=[],bumps=[dict(factor=factor['factor'],size='0.1',convention=catalog['bumpConvention'])],convention=catalog['convention'],numericalPolicy=catalog['numericalPolicy'],pricingPolicy=catalog['pricingPolicy'],stress=[])
         report=fixture.client.call('portfolio/risk',request)
+        from check_trade_risk import selected_scope
+        selected_scope(fixture.client,request,receipt['tradeId'],report)
         positions=report['factors'][0]['positions'];assert len(positions)==1 and not report['excludedPositions']
         assert Fraction(positions[0]['values']['base'])==expected and Fraction(positions[0]['values']['upPnl'])==192
     finally:fixture.client.call('profile',{'profile':'trader'})

@@ -241,7 +241,10 @@ internal sealed class PpaReads
             var cells=new IntervalData.Builder(minutes);
             var windows=spans.Select(s=>BlockShaping.ShapeWindow(shaped.Definition,s.From,s.To)).Select(w=>new DeliveryCoverage(w.Item1,w.Item2));
             foreach(var window in Union(windows))
-            await IntervalCurvesStore.ReadShapeInto(connection,shaped.Definition.ShapeSeries,minutes,window.From,window.To,known,cells,ct);
+            {
+                var read=await IntervalCurvesStore.ReadShapeInto(connection,shaped.Definition.ShapeSeries,minutes,window.From,window.To,known,cells,ct);
+                contexts.UnionWith(read.KnowledgeContextIds);
+            }
             shape=cells.Build();
         }
         else

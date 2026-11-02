@@ -15,20 +15,21 @@ import {presetGaps,presetRequest,presetTargets,runParts,sizesByUnit,splitBumps,t
 import {valuationReason} from './valuation-status.js';
 import {trackEdits} from './edit-tracking.js';
 import type {SidePanel} from './side-panel.js';
+import {sameRiskScope,sameTradeSelection,type RiskScope} from './risk-scope.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type FinancialContext={contextId:string;effectiveOn:string;knownAt?:string;knownThrough:number};
 type Catalog={pricingPolicy:unknown;scenarioTargets:ScenarioTarget[];heldContractTargets:string[];heldCurveTargets:string[];
   heldContractsWithoutTarget:string[];heldCurvesWithoutTarget:string[];excludedPositions:ExcludedPosition[];bumpConvention:string;stressConvention:string;
   convention:string;numericalPolicy:string;context:FinancialContext;asOf:string};
-type Scope={context:unknown;bookIds:string[];portfolioIds:string[]};
+type Scope={context:unknown;bookIds:string[];portfolioIds:string[];tradeIds?:string[]|null};
 type StressLayer={id:string;shift:ScenarioShift;label:string;unit:string};
 type Request=Scope&{pricingPolicy:unknown;bumps:ScenarioShift[];stress:ScenarioShift[];convention:string;numericalPolicy:string};
 export type JobState='queued'|'running'|'completed'|'failed'|'cancellation_requested'|'cancelled';
 /** The run a queued part belongs to (D222): the run's identity, which part this is and how many parts the run has. */
 type JobRun={id:string;part:number;parts:number};
 /** The books and portfolios a run was asked for, as they were chosen. */
-type RunScope={bookIds:readonly string[];portfolioIds:readonly string[]};
+type RunScope=RiskScope;
 export type RiskJob={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:RiskReport;context?:FinancialContext;asOf?:string;
   finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number};
 type Job=RiskJob;
@@ -429,7 +430,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     // What was run is no longer an edit: the run answers it, and the setup it was carried over in is the run's.
     edits.clear();get('risk-carried').hidden=true;
     const current:Run={key:++runs,queued,making:!queued,parts:plan.parts.map(request=>({request})),context:catalog!.context,asOf:catalog!.asOf,setup:plan.setup,choices:choicesNow(),
-      scope:{bookIds:[...scope!.bookIds],portfolioIds:[...scope!.portfolioIds]},
+      scope:{bookIds:[...scope!.bookIds],portfolioIds:[...scope!.portfolioIds],...(scope!.tradeIds===undefined?{}:{tradeIds:scope!.tradeIds===null?null:[...scope!.tradeIds]})},
       ...(queued&&plan.parts.length>1?{id:crypto.randomUUID()}:{})};
     run=current;
     sync();
@@ -583,7 +584,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     });
     // The books and portfolios the run was asked for, which every part states alike, or none when a part does not say.
     const jobs=[...read.values()],first=jobs[0],stated=first.scope??undefined;
-    const runScope=stated&&jobs.every(j=>JSON.stringify(j.scope)===JSON.stringify(stated))?stated:undefined;
+    const runScope=stated&&jobs.every(j=>j.scope&&sameRiskScope(j.scope,stated))?stated:undefined;
     run={key:++runs,queued:true,parts,context:first.context,asOf:first.asOf,...(runScope?{scope:runScope}:{}),...(runId===undefined?{}:{id:runId})};showRun();
   }
   get('risk-job-history').onchange=()=>void options.act(()=>review(get<HTMLSelectElement>('risk-job-history').value));
@@ -611,6 +612,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       const report=part.job?(await call<Job>(`portfolio/risk/jobs/${part.job.id}`)).result:await call<RiskReport>('portfolio/risk',part.request);
       if(version!==generation)return;
       if(!report)throw Error('The completed job result is unavailable. Refresh its retained outcome.');
+      if(!sameTradeSelection(report.tradeIds,current.scope?.tradeIds))throw Error('The exported report must match the run’s selected trades.');
       projectionPolicyLabels(report.projectionPolicies);
       parts.push(report);
     }

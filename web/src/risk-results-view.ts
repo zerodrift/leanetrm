@@ -40,7 +40,7 @@ export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:
   const status=node('div');status.className='risk-coverage';status.dataset.state=view.state;status.setAttribute('role','status');
   status.append(node('strong',view.state==='running'?'Waiting for every running part':`${view.factors.length} reported factors · ${view.excluded.length} excluded positions · ${view.gaps.length} unavailable parts`));
   if(!current.scope)status.append(node('p','The original book and portfolio scope is not recorded. Complete scope coverage cannot be confirmed.'));
-  else head.append(node('p',`Captured scope · ${current.scope.bookIds.length?`${current.scope.bookIds.length} selected book filters`:'all readable books at submission'} · ${current.scope.portfolioIds.length?`${current.scope.portfolioIds.length} selected portfolio filters`:'no portfolio filter'}. Book totals below keep their retained names.`));
+  else head.append(node('p',`Captured scope · ${current.scope.portfolioIds.length?`${current.scope.portfolioIds.length} selected portfolio filters`:'no portfolio filter'} · ${current.scope.bookIds.length?`${current.scope.bookIds.length} selected book filters`:'all readable books at submission'} · ${current.scope.tradeIds==null?'all trades in those books':`${current.scope.tradeIds.length} selected trade${current.scope.tradeIds.length===1?'':'s'}`}. Book totals below keep their retained names.`));
   if(view.excluded.length){const list=node('ul');for(const p of view.excluded)list.append(node('li',`${p.tradeReference} · ${valuationReason(p.reason,p.instrumentType)}`));status.append(list);}
   for(const gap of view.gaps)status.append(node('p',gap.text));host.append(status);
   if(!view.factors.length)return;

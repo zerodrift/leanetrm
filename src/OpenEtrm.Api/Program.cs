@@ -1520,6 +1520,10 @@ Task<IResult> PortfolioRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlCon
         data=>read(connection,data,view.CalculationFrame,ct),ct,
         referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins),
         scenario:true,expectedConvention:TradingBlotter.Convention);
+api.MapPost("/portfolio/risk/scope",(HttpContext c,RiskScopeRequest body)=>TradingRead(c,
+    body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>RiskTradeScope.Directory(connection,database.Manifest.CatalogId,view.CalculationFrame,body,ct),ct),
+    scenario:true,expectedConvention:TradingBlotter.Convention));
 api.MapPost("/portfolio/risk/catalog",(HttpContext c,PortfolioRiskCatalogRequest body)=>PortfolioRead(c,
     body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
     (connection,data,frame,ct)=>portfolioRisk.Catalog(connection,data,frame,body,ct)));

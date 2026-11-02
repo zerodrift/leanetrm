@@ -208,10 +208,10 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
     }
     internal sealed record ResolvedTrades(ImmutableArray<JsonElement> Rows,Dictionary<Guid,FuturesMarketBinding> MarketBindings,ImmutableArray<Trade> Trades);
     internal async Task<ResolvedTrades> ReadTrades(NpgsqlConnection connection,PreviewData data,ImmutableArray<JsonElement> books,
-        ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null)
+        ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? selected=null,ImmutableHashSet<Guid>? trades=null)
     {
         var scope=BookScope.Select(books,bookIds,portfolioIds).Select(book=>book.Id("id")).ToHashSet();
-        var rows=await RevisionRows(connection,selected?.TradeId,false,ct);
+        var rows=await RevisionRows(connection,selected?.TradeId,false,ct,trades);
         rows=rows.Where(row=>scope.Contains(row.Id("book_id"))).ToImmutableArray();
         selected?.Require(rows);
         var sides=new Dictionary<Guid,FuturesMarketBinding>();
@@ -222,14 +222,14 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
             var sideId=row.Id("side_id");
             if(!sides.ContainsKey(sideId))sides.Add(sideId,Binding(data,row.Text("curve_code"),row.Id("contract_id"),sideId,row.Text("implementation")));
         }
-        var trades=rows.GroupBy(r=>r.Id("trade_id")).Select(group=>new Trade(group.Key,group.First().Id("book_id"),group.Select(row=>
+        var resolvedTrades=rows.GroupBy(r=>r.Id("trade_id")).Select(group=>new Trade(group.Key,group.First().Id("book_id"),group.Select(row=>
         {
             var binding=sides[row.Id("side_id")];
             if(row.Text("settlement_state")!="unprocessed")throw Error("futures_settlement","This holding requires a separately supported settlement model.");
             return FuturesExecution.Bind(row.Id("binding_id"),binding,row.Number("lots"),new UnitPrice(row.Number("execution_price"),binding.Quote),
                 row.Instant("effective_at"),FuturesSettlementState.Unprocessed,row.Id("instrument_id"));
         }).ToImmutableArray(),TradeParties.Read(manifest.CatalogId,group.First()))).ToImmutableArray();
-        return new(rows,sides,trades);
+        return new(rows,sides,resolvedTrades);
     }
     public async Task<JsonElement> Book(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBookRequest body,CancellationToken ct)
     {

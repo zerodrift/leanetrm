@@ -417,6 +417,9 @@ Instrument
 These are distinct concepts:
 
 - A portfolio contains books; a book contains trades.
+  Risk follows this hierarchy and can select whole books or individual trades
+  before valuation. A selected trade includes all its instrument bindings;
+  retained and queued reports preserve that exact subset (D292).
 - A trade directly owns its instrument-to-quantity bindings and lifecycle state.
   It may contain more than one instrument, each with its own quantity/unit/basis.
   No separate quantity-bearing domain class sits between trade and instrument.

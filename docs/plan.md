@@ -17,6 +17,12 @@ half/nominal/double step diagnostics. Joint-run HTTP admission, durable retentio
 and graphical widgets remain the next integration gate. Aligned history and
 statistical engines remain subsequent increments.
 
+D292 adds [individual trade selection in Risk](risk-workspace.md), following
+portfolio → book → trades. Backend filtering precedes valuation, and retained
+reports, worker replay and graphics preserve the exact subset, including all
+bindings of each selected trade. Migration 0169 requires a separately qualified
+schema release. This increment does not add a statistical engine.
+
 D284 adds [workspace assistant operations and page guidance](assistant-workspace.md):
 discovery, reads/previews and separately human-approved commands, immutable page
 prompts under a delegated permission, and operational turns without financial-data

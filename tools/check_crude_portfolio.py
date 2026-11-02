@@ -59,6 +59,8 @@ def run_checks(url, receipt, *, run_worker):
         dict(factor=gas_factor['factor'], size='0.1', convention=catalog['bumpConvention'])],
         convention=catalog['convention'], numericalPolicy=catalog['numericalPolicy'], pricingPolicy=catalog['pricingPolicy'], stress=[])
     report = c.call('portfolio/risk', request)
+    from check_trade_risk import selected_scope
+    selected_scope(c, request, receipt['tradeId'], report, run_worker=run_worker)
     crude_risk = next(p for p in report['factors'][0]['positions'] if p['tradeId'] == receipt['tradeId'])
     assert crude_risk['measure'] == 'crude_contractual_present_value'
     assert {key: Fraction(crude_risk['values'][key]) for key in ('base', 'up', 'down', 'delta', 'gamma')} == {

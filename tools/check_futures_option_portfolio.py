@@ -168,6 +168,9 @@ def run_checks(url, query, manifest, *, run_worker):
     started = time.monotonic()
     report = c.call('portfolio/risk', request, timeout=TIMEOUT)
     report_seconds = time.monotonic() - started
+    from check_trade_risk import selected_scope
+    selected_scope(c, request, held['on'][0]['tradeId'], report, run_worker=run_worker,
+                   bindings=[held['on'][0]['optionInstrumentId'], held['on'][0]['premiumInstrumentId']], timeout=TIMEOUT)
 
     def position(key, component='optionInstrumentId'):
         booked = held[key][0]
