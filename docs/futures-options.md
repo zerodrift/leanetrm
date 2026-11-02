@@ -71,10 +71,17 @@ Exchange specifics are reference data, never code:
   held at the signed premium amount: −premium × multiplier × lots, so a long pays and
   a short receives. Equal cash on the same date is one shared instrument.
 
+The premium payment date is explicit and may not precede the execution date, the UTC
+date of the trade's execution; an earlier date is refused with `option_booking_input`.
+A premium dated on the execution date is settled cash from the start of that UTC day,
+so it adds no value at or after the execution.
+
 Premium style is a booked term. Only premium paid up front is accepted. A request for
 margined premium is refused with `option_unsupported`, and a product whose own
 premium is margined with `option_product_margined`. Booking is idempotent under its
-request identity (D238) and needs a human booker with booking authority.
+request identity (D238) and needs a human booker with booking authority. A retry
+returns its first outcome only while the booker can still see the series, as an event
+retry does; otherwise it is refused as an unseen series.
 
 ## Valuation
 
@@ -109,7 +116,10 @@ while futures factors are shocked, so delta and gamma come from the shared
 base/up/down revaluations rather than from recalibration. The volatility is
 recomputed from the pinned base inputs on every run, never stored as an observation;
 a retained risk job recomputes it and refuses a different result with
-`risk_option_calibration`.
+`risk_option_calibration`. The option's declared pricing dependency is its underlying
+only. Its settlement curve is a calibration input read from the base market, not a
+risk factor, so no scenario shocks it; this is intentional. A new settlement revision
+changes the snapshot, and every run recalibrates from its pinned inputs.
 
 **Intrinsic fallback.** When a settlement lies at or below the tree's price at the
 bracket's lowest volatility, and no more than one clearing increment below intrinsic,
@@ -144,7 +154,9 @@ record. Every write needs booking authority at current knowledge.
   the strike, in the option's book, through the futures booking path and in the same
   transaction: a call exercise or put assignment books a long future, a put exercise
   or call assignment a short one.
-- **`options/instruction`.** Refused for ON and LO, as above.
+- **`options/instruction`.** Refused for ON and LO, as above. Where a product accepts
+  instructions, a new one needs open lots and a business time from the trade's
+  execution through the series' cutoff.
 - **`options/expiry`.** Recorded only once the recording time is at or after the
   expiry instant (`option_expiry_not_reached`). The automatic rule evaluates the one
   final daily settlement selected from the frame; the event records the snapshot and
@@ -190,6 +202,9 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   example rows; no ingestion exists.
 - **Agent booking authority.** Agent booking or lifecycle writes need their own
   design and review.
+- **Recording expiry.** Expiry is recorded only through the `options/expiry` HTTP
+  operation. No UI action or scheduled job records it yet, so a held series past
+  expiry stays visibly unprocessed (`option_expired`) until someone calls it.
 - **Discount coverage scope.** A premium whose payment date lies outside the rate
   curve's pillars fails the whole read with `discount_coverage`, as swaps do today.
   Whether to exclude only that position is an open owner decision.

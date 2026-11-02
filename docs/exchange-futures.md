@@ -116,8 +116,8 @@ facts only and no document text or prices.
   November 2026 options have expired and are no longer published, so they are omitted.
 
 Every series is an executable `future_option` market contract on its product's direct
-`daily_settlement` curve. The market curve directory lists price curves; option settlement
-curves are reached through their options. NG and CL futures are priced at `daily_settlement` as well,
+`daily_settlement` curve. The market curve directory lists price curves only; an option's
+settlement curve is named by the `curve` field of its `options/catalog` entry. NG and CL futures are priced at `daily_settlement` as well,
 because an option and its underlying are calibrated under the same observation role.
 
 ### Option lifecycle
@@ -138,10 +138,11 @@ knowledge and a request identity (D238):
   - the date must be a business day of the underlying's trading calendar, from the
     trade's execution through the option's expiry date;
   - instructions are refused with `option_contrary_instructions_not_accepted` unless the
-    product row accepts them. Where accepted, both the instruction's business time and the
-    time it is recorded must be at or before the series' configured cutoff, so an older
-    frame cannot file a late instruction. Instructions follow the cutoff, not the
-    exercise calendar.
+    product row accepts them. Where accepted, a new instruction needs open lots
+    (`option_holding_closed`) and a business time at or after the trade's execution
+    (`option_instruction_window`); both its business time and the time it is recorded
+    must be at or before the series' configured cutoff, so an older frame cannot file a
+    late instruction. Instructions follow the cutoff, not the exercise calendar.
 - **`security.process_futures_option_expiry`** (`options/expiry`) closes a holding's
   open lots at the option's expiry instant:
   - it can be recorded only once that instant has passed: a recording time before it

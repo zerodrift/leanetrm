@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0159_swap_projection_read_work.sql`. It includes reference/market data, certified
+`0166_futures_options.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts and bounded physical gas/crude operations.
 The migration notes below include historical foundation checkpoints; statements
@@ -24,6 +24,10 @@ Recent schema groups and their contracts:
   [composition deal ticket](../docs/deal-ticket.md).
 - 0158–0159: statement-scoped read visibility and bounded swap projection work;
   see [Blotter verification](../docs/verification.md#blotter-read-preparation-2026-11-01-local).
+- 0160–0161: saved date lists and [contract date admissions](../docs/schedules-and-contract-sequences.md).
+- 0162–0164: [page assistant](../docs/ai-assistant.md) prompts, workspace operations and operational context.
+- 0165: gas in shared portfolio risk ([risk scenarios](../docs/risk-engine.md#shared-market-factors)).
+- 0166: [listed American futures options](../docs/futures-options.md).
 
 Apply migrations in order. Some deliberately refuse incompatible retained data;
 existing installations require the separately qualified schema/rebooking procedure.
