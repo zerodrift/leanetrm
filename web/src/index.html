@@ -180,7 +180,8 @@
     </div></div>
   </section>
   <section id="power-page" hidden>
-    <div class="card"><div class="card-heading"><div><h2>TOU products</h2><p>Peak definitions used by the hours check. The seeded ISO products follow common conventions; verify them against the product specification before any settlement use. Off-peak is always the exact complement; holidays come from each curve's settlement index calendar.</p></div></div>
+    <p id="power-historical" class="profile-note" role="status" hidden>Power TOUs requires working data. Choose Working data above to view TOU products and check hours.</p>
+    <div id="power-products-card" class="card"><div class="card-heading"><div><h2>TOU products</h2><p>Peak definitions used by the hours check. The seeded ISO products follow common conventions; verify them against the product specification before any settlement use. Off-peak is always the exact complement; holidays come from each curve's settlement index calendar.</p></div></div>
       <div id="tou-list" class="table-wrap"></div>
       <section id="tou-editor" hidden><div class="card-heading"><div><h3>Edit a TOU product</h3><p id="tou-version">New product</p></div><button id="tou-new" type="button" class="secondary">New product</button></div>
         <form id="tou-form">
@@ -191,7 +192,7 @@
           <p class="field-help">Published versions never change; saving an edit to one creates the next draft. Calculations use published versions only.</p>
         </form></section>
     </div>
-    <div class="card"><div class="card-heading"><div><h2>Hours &amp; settlement check</h2><p id="power-context"></p></div><span class="unit-pill">Unsaved example</span></div>
+    <div id="power-check-card" class="card"><div class="card-heading"><div><h2>Hours &amp; settlement check</h2><p id="power-context"></p></div><span class="unit-pill">Unsaved example</span></div>
       <p id="power-guidance" class="field-help">Choose a market date above to load power curves.</p>
       <form id="power-form" hidden>
         <h3 class="form-section">Contract</h3>

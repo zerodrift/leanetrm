@@ -914,7 +914,7 @@ function closeChanged(){
 }
 async function loadSelectedClose(){
   if(!select('snapshot').value)return;
-  if(page==='risk')await riskJobs.load();else if(page==='crude')await crude.load();else if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power'){power.reset();await power.load();}else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'){if(curve)await build();await loadBoard();}else if(page==='dashboard')await dashboard.load();
+  if(page==='risk')await riskJobs.load();else if(page==='crude')await crude.load();else if(page==='parties')await parties.load();else if(page==='futures')await futures.load();else if(page==='power')await loadPowerPage({refreshProducts:false});else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='market'){if(curve)await build();await loadBoard();}else if(page==='dashboard')await dashboard.load();
 }
 // A close the person chooses waits for them to agree to what choosing it gives up. The hidden select that every read and command takes its close from
 // stays on the close the page shows until they do, so that nothing made while the question is open uses a close they have not confirmed, and keeping
@@ -953,14 +953,15 @@ async function viewContext(snapshot:{context:Context}){
   if(page==='schedules'){await dateEditor.load();}
   text('environment-context-note','Historical view · working snapshots use the latest known corrections; stored closes retain their original inputs. Changes are disabled.');
 }
-$('apply-view-context').onclick=()=>leaving(async()=>{await applyContext();if(page==='dashboard')await dashboard.load();else if(page==='reference')await loadReference();else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
+$('apply-view-context').onclick=()=>leaving(async()=>{await applyContext();if(page==='dashboard')await dashboard.load();else if(page==='reference')await loadReference();else if(page==='power')await loadPowerPage({refreshProducts:false});else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();});
 async function currentInputs(){scheduleWorkspace?.calendar.reset();dateEditor.invalidatePreview();jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();parties.reset();unitConverter.reset();futures.reset('inputs');power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');$<HTMLDetailsElement>('knowledge-context').open=false;text('environment-context-note','Working data uses current knowledge. These controls select a historical context when applied.');}
 // Returning to working data opens it on its newest close, as opening the workspace does (D217, D219), and the page that is
 // showing reads it. A latest instant with several closes opens the calendar on its date and selects nothing.
 async function returnToWorking(){
+  const wasHistorical=!!historicalContext();
   await currentInputs();
   const choice=await selectNewestClose();await initializeContext();
-  if(page==='reference')await loadReference();else if(page==='interval-series')await intervalSeries.load();
+  if(page==='power')await loadPowerPage({refreshProducts:wasHistorical});else if(page==='reference')await loadReference();else if(page==='interval-series')await intervalSeries.load();
   else if(choice.kind==='single')await loadSelectedClose();
   else if(page==='custom-curves')await customCurves.load();else if(page==='interval-curves')await intervalCurves.load();
   if(page==='schedules'){await dateEditor.load();}
@@ -1070,6 +1071,16 @@ for(const id of ['source-contract','pricing-contract'])select(id).onchange=()=>v
 for(const id of ['source-all','pricing-all'])$(id).onclick=()=>void act(async()=>{showAllContracts=!showAllContracts;renderDependencies();renderInputs();});
 $('curve-all-markets').onclick=()=>chooseCurve('');
 $('correction-form').onsubmit=event=>{event.preventDefault();void act(async()=>{const current=frame(),next=await api<{frame:Frame;observationId:string}>('corrections',{snapshotId:current.id,observationId:input,value:$<HTMLInputElement>('correction-value').value});closeCheckDue=true;clearPrices();await reload(next.frame.id);input=next.observationId;await build();notice('Your change was saved. The market date now shows the corrected prices. Earlier versions are still available.');});};
+// Power's current-only operations stay unavailable under a retained historical context.
+async function loadPowerPage({refreshProducts}:{refreshProducts:boolean}){
+  power.reset();
+  const historical=!!historicalContext();
+  $('power-historical').hidden=!historical;
+  for(const id of ['power-products-card','power-check-card'])$(id).hidden=historical;
+  if(historical){touProducts.reset();return;}
+  if(refreshProducts)await touProducts.load();
+  if(select('snapshot').value)await power.load();
+}
 // Opens a page as its navigation does. The assistant's moves and Back open pages the same way.
 async function showPage(next:string){
   switch(next){
@@ -1086,7 +1097,7 @@ async function showPage(next:string){
     case 'dashboard':await setPage('dashboard');await dashboard.load();return;
     case 'risk':await setPage('risk');await riskJobs.load();return;
     case 'jobs':await setPage('jobs');await jobs.load();return;
-    case 'power':await setPage('power');power.reset();await touProducts.load();if(select('snapshot').value)await power.load();return;
+    case 'power':await setPage('power');await loadPowerPage({refreshProducts:true});return;
     case 'reference':await setPage('reference');$<HTMLInputElement>('reference-search').value='';await loadReference();return;
     case 'schedules':await setPage('schedules');await schedules.load();await dateEditor.load();scheduleWorkspace?.show();return;
     case 'configuration':await showPage('schedules');scheduleWorkspace?.show('contracts');return;

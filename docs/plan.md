@@ -1723,6 +1723,9 @@ remain outside this contract. Production activation remains separate.
 Reference category sources are declared by the server and validated independently
 of pricing definitions. Reload restores the current permitted page, with explicit
 reference/risk addresses taking precedence. Only a page identifier is persisted.
+Power TOUs keeps its historical context and shows a working-data requirement
+instead of loading current-only definitions; returning to working data restores
+the page. Working-close changes preserve the independent TOU editor.
 
 Completed Blotter values stay in window memory across page visits. Reentry checks
 current authority and an opaque version of the exact server selection and durable
