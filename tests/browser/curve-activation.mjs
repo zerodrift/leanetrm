@@ -41,7 +41,7 @@ export async function run({command,evaluate,wait,click,persona,set,check,idle,ur
  await click('#custom-curves-effective');await activate(3,null);
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
  await check('inactive latest timeline makes an effective live preview visibly stale',"!document.querySelector('#custom-curves-result').hidden&&document.querySelector('#live-status').textContent.includes('last refreshed')&&!document.querySelector('#live-retry').hidden");
- await click('#return-working');await openCurve(`#custom-curves-library [data-recipe="${a.id}|1"]`);await click('#curve-activation-load');
+ await click('#current-view-context');await openCurve(`#custom-curves-library [data-recipe="${a.id}|1"]`);await click('#curve-activation-load');
  const origin=await evaluate('performance.timeOrigin');await set('#curve-activation-reason','Synthetic empty timeline reason');await evaluate("document.querySelector('#curve-activation-reason').focus()");
  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
  await check('an empty activation form cannot implicitly navigate on Enter',`performance.timeOrigin===${origin}`);

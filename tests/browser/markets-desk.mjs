@@ -76,7 +76,7 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
   await evaluate("document.querySelector('#date-context-on').value='2020-12-17';document.querySelector('#date-context-on').dispatchEvent(new Event('input',{bubbles:true}))");
   await check('an unapplied context change shows no figures or lines of the applied context, and says to apply it',
    "!document.querySelector('#market-board-empty').hidden&&document.querySelector('#market-board-empty-title').textContent==='Apply the changed context'&&document.querySelector('#market-board-groups').hidden&&!document.querySelector('.market-card')&&!document.querySelector('.curve-button .sparkline')");
-  await click('#return-working');
+  await click('#current-view-context');
   await check('returning to working data reads the newest close for the board again',
    `document.querySelector('#snapshot').value===${JSON.stringify(newest)}&&window.__shapeReads.at(-1).snapshotId===${JSON.stringify(newest)}&&document.querySelectorAll('.market-card[data-state=priced]').length>0&&document.querySelector('#error').hidden`);
   // A read that fails says so on each card it was for, draws nothing, and is read again by the next load of the board.
@@ -150,8 +150,8 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "(()=>{const panel=document.querySelector('#contract-panel'),box=panel.getBoundingClientRect();return [panel.dataset.placement,box.left,box.width,innerWidth,document.querySelectorAll('[inert]').length];})()");
   await check('the sheet fits a 390px screen without page-wide horizontal scrolling',fitsWidth);
   await evaluate("document.querySelector('#contract-panel-body').scrollTop=0");await shot('markets-contract-panel-mobile');
-  await check('the sheet lies over the floating As of and Context docks, so its foot is in view',
-   "(()=>{const panel=document.querySelector('#contract-panel'),dock=document.querySelector('.context-dock'),r=dock.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return Number(getComputedStyle(panel).zIndex)>Number(getComputedStyle(dock).zIndex)&&panel.contains(hit)&&panel.getBoundingClientRect().bottom===innerHeight;})()");
+  await check('the sheet keeps its foot visible and holds the header controls out of reach',
+   "document.querySelector('#contract-panel').getBoundingClientRect().bottom===innerHeight&&document.querySelector('header').inert");
   await click('#contract-panel-close');
   await check('closing the sheet gives the page back, with focus on the contract\'s row',"document.querySelector('#contract-panel').hidden&&document.querySelectorAll('[inert]').length===0&&document.activeElement===document.querySelector('#contracts tbody tr:nth-child(2)')&&!document.querySelector('#contracts tbody tr[aria-current]')");
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});

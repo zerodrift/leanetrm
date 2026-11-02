@@ -16,7 +16,7 @@ export function validatePilotReport(result:Report,runId:string){
  return result;
 }
 
-export function setupPilotCloseReport(options:{api:<T>(path:string,body?:unknown)=>Promise<T>;identity:()=>string;instant:(at:string)=>string;busy:()=>boolean}){
+export function setupPilotCloseReport(options:{api:<T>(path:string,body?:unknown)=>Promise<T>;identity:()=>string;instant:(at:string)=>string;busy:()=>boolean;contextReady:()=>boolean}){
  const get=(id:string)=>document.getElementById(id)!;
  let current:Report|undefined,generation=0;
  function render(){
@@ -32,6 +32,7 @@ export function setupPilotCloseReport(options:{api:<T>(path:string,body?:unknown
  }
  async function load(runId:string){
   const request=++generation,identity=options.identity();current=undefined;get('pilot-report').hidden=true;
+  if(!options.contextReady())throw Error('Apply the changed date context before opening a valuation report.');
   const result=await options.api<Report>('jobs/pilot-close/results?runId='+encodeURIComponent(runId));
   if(request!==generation||identity!==options.identity())return;
   validatePilotReport(result,runId);

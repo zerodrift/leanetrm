@@ -10,7 +10,7 @@ type Node={clusterId:string;id:string;version:number;name:string;role:string;sta
 type CollectionJob={id:string;generation:string;name:string;provider:string;operation:string;serviceName:string;state:string;enabled:boolean;scheduleEnabled:boolean;cron:string;scheduleZone:string;cadence:string;fromDay:number;throughDay:number;sourceCount:number;canEdit:boolean;editReason:string|null;lastAttempt:{state:string;startedAt:string;finishedAt:string|null;errorCode:string|null}|null};
 type CollectionDirectory={page:number;total:number;jobs:CollectionJob[];settings:{minimumDayOffset:number;maximumDayOffset:number;maximumNameLength:number}};
 type Directory={page:number;total:number;jobs:Job[];collectionJobs:CollectionDirectory;profiles:{id:string;version:number;name:string}[];canCreate:boolean;manageAll:boolean;observedAt:string;infrastructure:{state:string;observedAt:string|null;nodes:Node[];commands:{id:string;nodeId:string;availability:string;state:string;errorCode:string|null;createdAt:string;canResolve:boolean}[]}};
-export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;instant:(at:string)=>string;zone:()=>string}){
+export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;instant:(at:string)=>string;zone:()=>string;contextReady:()=>boolean}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
   const dueInput=zonedInput(get<HTMLInputElement>('job-due'),options.zone,options.api),expiryInput=zonedInput(get<HTMLInputElement>('job-expires'),options.zone,options.api);
@@ -75,7 +75,7 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
     get('job-editor').hidden=!selected&&!directory.canCreate;
     get('jobs-page-count').textContent=`Showing ${directory.jobs.length} of ${directory.total} jobs — page ${directory.page+1}.`;
     get<HTMLButtonElement>('jobs-previous').disabled=directory.page===0;get<HTMLButtonElement>('jobs-next').disabled=(directory.page+1)*directoryPage>=directory.total;
-    get('jobs-scope').textContent=directory.manageAll?'You can manage all jobs in your authorized scope.':'Your jobs and schedules.';
+    get('jobs-scope').textContent=(directory.manageAll?'You can manage all jobs in your authorized scope.':'Your jobs and schedules.')+' Jobs and infrastructure show current status; header dates apply to saved valuation reports.';
     get('jobs-infrastructure').textContent=directory.infrastructure.state==='not_configured'?'Swarm is not configured for this workspace.':directory.infrastructure.observedAt?`Latest node snapshot ${options.instant(directory.infrastructure.observedAt)}.`:'No node observation is available.';
     renderRegularTable(get('jobs-nodes'),'jobs-nodes',options.identity(),['Node','Role','Health','Availability','CPUs','Memory (MiB)','Observed','Actions'],directory.infrastructure.nodes.map(n=>{
       const actions=document.createElement('div');const labels:Record<string,string>={pause:'Pause scheduling',active:'Resume scheduling',drain:'Drain idle node'};
@@ -87,7 +87,7 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
     renderRegularTable(get('jobs-table'),'jobs',options.identity(),['Job','Owner','Operation','State','Next due','Expires','Actions'],directory.jobs.map(j=>{
       const actions=document.createElement('div');
       const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent=j.canEdit?'Edit schedule':'View details';edit.setAttribute('aria-label',`${edit.textContent} for ${j.name}`);edit.onclick=()=>openEditor(j);actions.append(edit);
-      if(j.pilotReport?.state==='report_published'){const report=document.createElement('button');report.type='button';report.className='secondary';report.textContent='View close report';report.onclick=()=>void options.act(()=>pilotReport.load(j.pilotReport!.runId));actions.append(report);}
+      if(j.pilotReport?.state==='report_published'){const report=document.createElement('button');report.type='button';report.className='secondary';report.textContent='View close report';report.setAttribute('aria-label',`View close report for ${j.name}`);report.onclick=()=>void options.act(()=>pilotReport.load(j.pilotReport!.runId));actions.append(report);}
       for(const a of j.actions){const labels:Record<string,string>={pause:'Pause',resume:'Resume',cancel:'Cancel',run_again:'Run again'};if(labels[a])actions.append(button(labels[a],j,a));}
       if(!j.canEdit&&j.editReason){const reason=document.createElement('p');reason.className='field-help';reason.textContent=j.editReason;actions.append(reason);}
       const name=document.createElement('button');name.type='button';name.className='text-button';name.textContent=j.name;name.onclick=()=>openEditor(j);

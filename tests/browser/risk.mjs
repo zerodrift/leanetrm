@@ -519,7 +519,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `${noRun}&&(${notice}).includes(${JSON.stringify(cleared)})&&${typedDate}==='2099-01-01'&&${knowledgeRead('2099-01-01')}`,
     `[${notice},${typedDate},${noRun},document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent,window.__riskReads.slice(-4).map(r=>[r.path,JSON.stringify(r.data).slice(0,160)])]`);
   // Working data again, read at the date's own close as the rest of the scenario is; a question about the newest close is closed unanswered.
-  await click('#return-working');await wait(idle);
+  await click('#current-view-context');await wait(idle);
   if(await evaluate("document.querySelector('#market-date-dialog').open"))await click('#market-date-close');
   await set('#snapshot',frame);await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled&&"+idle);
   // Giving the setup's edits up starts the setup again and never clears the run on the desk: only a change of close, context or books, a
@@ -547,7 +547,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('Discard changes keeps the run until the date it lets through clears it, and the note says so',
     `${noRun}&&(${notice}).includes(${JSON.stringify(cleared)})&&${typedDate}==='2099-01-03'&&${knowledgeRead('2099-01-03')}`,
     `[${notice},${typedDate},${noRun},document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent]`);
-  await click('#return-working');await wait(idle);
+  await click('#current-view-context');await wait(idle);
   // An account that may amend trades and run risk, so that the change waits for the amendment its panel holds.
   await persona('admin');
   await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();const r=await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'context_risk_browser',name:'Synthetic context and risk account',kind:'human',roles:['trader','risk_analyst']})});if(!r.ok)throw Error(await r.text());})()`);

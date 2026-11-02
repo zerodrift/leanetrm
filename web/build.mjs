@@ -1,5 +1,6 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import {bundleApplication} from './bundle-app.mjs';
+import {createHash} from 'node:crypto';
 mkdirSync('dist', { recursive: true });
 for (const file of ['app.css','position.html','position-window.css']) copyFileSync(`src/${file}`, `dist/${file}`);
 // The pop-out Blotter (blotter.html) draws the main page's own Blotter markup: the regions index.html marks, each once, in its includes.
@@ -35,6 +36,7 @@ for(const [source,target] of [
 const library=readFileSync('node_modules/klinecharts/dist/index.esm.js','utf8');
 if(library.split('process.env.NODE_ENV').length!==2)throw Error('The chart library no longer reads process.env.NODE_ENV exactly once.');
 writeFileSync('dist/vendor/klinecharts.js',library.replace('process.env.NODE_ENV',"'production'"));
+const assetUrl=path=>path+'?v='+createHash('sha256').update(readFileSync('dist'+path)).digest('hex').slice(0,16);
 for(const [name,page] of [['app.js','index.html'],['position-window.js','position.html'],['blotter-window.js','blotter.html']]){
  const metafile=await bundleApplication('dist',name);
  const imported=Object.values(metafile.outputs)[0].imports.map(item=>item.path);
@@ -42,5 +44,7 @@ for(const [name,page] of [['app.js','index.html'],['position-window.js','positio
  const preloads=imported.map(file=>`<link rel="modulepreload" href="${file.slice(1)}">`).join('');
  const html=readFileSync('dist/'+page,'utf8'),entry=`<script type="module" src="/${name}"></script>`;
  if(html.split(entry).length!==2)throw Error('The built page must name one application module.');
- writeFileSync('dist/'+page,html.replace(entry,preloads+entry));
+ const versioned=html.replace(entry,preloads+`<script type="module" src="${assetUrl('/'+name)}"></script>`)
+  .replace(/(<link rel="stylesheet" href=")(\/[^"]+)(">)/g,(_,before,path,after)=>before+assetUrl(path)+after);
+ writeFileSync('dist/'+page,versioned);
 }

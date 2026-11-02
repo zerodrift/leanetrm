@@ -299,7 +299,8 @@ Logical modules:
 
 Presentation uses familiar business names. Market data provides futures and
 forward curves with commodity-first or market-type-first browsing. A compact
-market-close calendar floats with the shared Context panel (D162, D217); user
+market-close calendar sits in the shared page header (D162, D217), beside a
+collapsed knowledge-cutoff control with an explanation; user
 profiles hold time zone and other remembered display preferences. Minutes are
 enough for ordinary display; exact retained instants and selected versions remain
 unchanged underneath. Repeated local clock times must remain distinguishable, for
@@ -329,12 +330,13 @@ Trading opens a **Blotter** of individual trade bindings. Named views select
 columns, portfolio/book filters, row filters and an explicit pivot layout. Pivots
 use the managed backend, preserving exact quantity and currency partitions; they
 do not merge obligations. Saving a view does not save or choose market inputs,
-knowledge coordinates or authority. Effective/knowledge controls share a floating
-Context panel (D217). Native interval, delivery-price and PPA cutoffs use the same
-presentation while retaining their distinct backend read contracts. The market
-date, with the Blotter's close badge (D219), floats beside that panel, whose summary
-names the knowledge in use and whose panel holds live corrections; the header keeps
-the page title and profile. The active user and current permissions are visible
+knowledge coordinates or authority. Shared financial date controls stay in the
+page header (D217). As of, with the Blotter's close badge (D219), remains visible;
+As known on and its explanation open in document flow under a summary naming the
+knowledge in use. Jobs exposes the same controls for saved valuation reports;
+unapplied edits block report reads, while job and node operations stay current.
+Native interval, delivery-price and PPA controls retain their separate presentation
+and backend read contracts. The active user and current permissions are visible
 in the profile, independently of the layout.
 
 Amount display precision belongs to a deal's shared current presentation, with

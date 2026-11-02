@@ -7,12 +7,25 @@ import {dirname,join,relative,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {bundleApplication} from '../bundle-app.mjs';
+import {createHash} from 'node:crypto';
+
+test('page entry and stylesheet URLs identify their emitted content so a warm browser cannot reuse an older asset',()=>{
+ for(const page of ['index.html','position.html','blotter.html']){
+  const html=readFileSync(new URL('../dist/'+page,import.meta.url),'utf8');
+  const assets=[...html.matchAll(/<(?:script type="module" src|link rel="stylesheet" href)="([^"]+)"/g)].map(match=>new URL(match[1],'http://synthetic.invalid'));
+  assert.ok(assets.length>=3);
+  for(const asset of assets){
+   const content=readFileSync(new URL('../dist'+asset.pathname,import.meta.url));
+   assert.equal(asset.searchParams.get('v'),createHash('sha256').update(content).digest('hex').slice(0,16),asset.pathname);
+  }
+ }
+});
 
 test('initial HTML loads one application bundle and only the vendor modules it imports, the time chart\'s among them',()=>{
   const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
   const preloads=[...html.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map(match=>match[1]);
   assert.deepEqual(preloads.sort(),['/vendor/echarts.js','/vendor/klinecharts.js','/vendor/tabulator.js']);
-  assert.equal((html.match(/<script type="module" src="\/app.js"><\/script>/g)??[]).length,1);
+  assert.equal((html.match(/<script type="module" src="\/app.js\?v=[0-9a-f]{16}"><\/script>/g)??[]).length,1);
 });
 
 test('the emitted application has no remaining project-module imports',async()=>{
@@ -28,7 +41,7 @@ test('a separate trade window also loads one bundle with only its declared vendo
   assert.ok(imports.every(path=>['./vendor/echarts.js','./vendor/klinecharts.js','./vendor/tabulator.js'].includes(path)),'The trade window must not fetch project modules separately.');
   const html=readFileSync(new URL('../dist/position.html',import.meta.url),'utf8');
   assert.deepEqual([...html.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map(match=>match[1]).sort(),imports.map(path=>path.slice(1)).sort());
-  assert.equal((html.match(/<script type="module" src="\/position-window.js"><\/script>/g)??[]).length,1);
+  assert.equal((html.match(/<script type="module" src="\/position-window.js\?v=[0-9a-f]{16}"><\/script>/g)??[]).length,1);
 });
 
 test('the pop-out Blotter window loads one bundle with its declared vendor imports preloaded',async()=>{
@@ -38,7 +51,7 @@ test('the pop-out Blotter window loads one bundle with its declared vendor impor
   assert.ok(imports.length>0&&imports.every(path=>['./vendor/echarts.js','./vendor/klinecharts.js','./vendor/tabulator.js'].includes(path)),'The Blotter window must not fetch project modules separately.');
   const html=readFileSync(new URL('../dist/blotter.html',import.meta.url),'utf8');
   assert.deepEqual([...html.matchAll(/<link rel="modulepreload" href="([^"]+)">/g)].map(match=>match[1]).sort(),imports.map(path=>path.slice(1)).sort());
-  assert.equal((html.match(/<script type="module" src="\/blotter-window.js"><\/script>/g)??[]).length,1);
+  assert.equal((html.match(/<script type="module" src="\/blotter-window.js\?v=[0-9a-f]{16}"><\/script>/g)??[]).length,1);
 });
 test('the pop-out Blotter window draws the main page\'s own Blotter markup, once, with nothing else of that page',()=>{
   const main=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8'),popout=readFileSync(new URL('../dist/blotter.html',import.meta.url),'utf8');

@@ -51,7 +51,7 @@ async function fixture(work){
     for(const section of document.querySelectorAll('main>section'))section.hidden=section.id!==id;
     const temporal=!['jobs-page','delivery-page'].includes(id);
     document.querySelector('#snapshot').closest('.date-control').hidden=!temporal;
-    document.getElementById('date-context').hidden=!temporal;
+    document.getElementById('date-context').hidden=!temporal;document.getElementById('context-toolbar').hidden=!temporal;
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
    };
    window.layoutBox=selector=>{const element=document.querySelector(selector),box=element.getBoundingClientRect();return {left:box.left,right:box.right,top:box.top,bottom:box.bottom,width:box.width,client:element.clientWidth,scroll:element.scrollWidth};};
@@ -111,13 +111,14 @@ test('curve-builder libraries leave usable editor widths beside the assistant',{
  });
 });
 
-test('sticky schedule actions stay clear of the floating date and context controls',{skip:!browserAvailable,timeout:30000},async()=>{
+test('sticky schedule actions stay clear of the shared header date controls',{skip:!browserAvailable,timeout:30000},async()=>{
  await fixture(async({evaluate,size})=>{
   await size(1440,576); // The widest dock preserves a 640-pixel main area.
   await evaluate("showLayoutPage('schedules-page')");
   const overlaps=await evaluate(`(()=>{
    const actions=[...document.querySelectorAll('#dates-form>.schedule-actions button')];
-   const dock=[...document.querySelectorAll('#context-dock button,#context-dock summary')].filter(layoutVisible);
+   const dock=[...document.querySelectorAll('#context-toolbar button,#context-toolbar summary')].filter(layoutVisible);
+   if(!dock.length)throw Error('The header controls must be visible for the overlap check.');
    return actions.flatMap(action=>dock.flatMap(control=>{
     const a=action.getBoundingClientRect(),d=control.getBoundingClientRect(),width=Math.min(a.right,d.right)-Math.max(a.left,d.left),height=Math.min(a.bottom,d.bottom)-Math.max(a.top,d.top);
     return width>0&&height>0?[{action:action.id||action.textContent,control:control.id||control.tagName,width,height}]:[];

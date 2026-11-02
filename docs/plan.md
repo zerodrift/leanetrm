@@ -1527,8 +1527,16 @@ settlement-phase completion.
 
 Temporal browsing usability (D217) selects the latest unambiguous offered market
 instant initially and resolves effective-date changes to explicit same-day
-knowledge through the managed time-zone resolver. Shared floating Context panels
-retain native cutoff contracts. Interval data opens the latest trailing day;
+knowledge through the managed time-zone resolver. Temporal controls retain their
+native cutoff contracts. Shared financial controls sit directly in the
+page header: one As of selector (or the reference/date library's native business
+date), a collapsed As known on cutoff with a short explanation, and explicit
+Apply/Working data actions when needed. They scroll with the page and have no
+floating, dragging or minimized state. Jobs & Infrastructure exposes this context
+for saved reports; operational status and job controls remain current.
+Market and business dates remain coupled in historical reads. Application entry
+and stylesheet URLs carry emitted-content fingerprints.
+Interval data opens the latest trailing day;
 delivery prices open the latest available source/day, with explicit empty states.
 The Assistant launcher floats at the lower right and its visibility is a browser
 profile preference. Historical-session support is unchanged.
@@ -1545,8 +1553,8 @@ The Blotter desk's newest close (D219) takes the same latest instant: one
 mechanism, the workspace's availability calendar, chooses the close when working
 data opens or is returned to and states it with a **Latest close** badge; several
 closes at that instant still ask (D162), and a historical view selects none by
-itself. The As of control and its badge float with the Context panel, which names
-the knowledge in use and holds live corrections.
+itself. The As of control, its badge and knowledge controls sit in the page header,
+which names the knowledge in use and offers live corrections.
 
 
 D228 makes saved-value availability and amendment changes explicit in the swap

@@ -6,10 +6,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('initial market date is the latest offered instant',`(()=>{const s=document.querySelector('#snapshot'),dates=[...s.options].filter(o=>o.value).map(o=>o.textContent);return !!s.value&&dates.length>0&&document.querySelector('#date-context-on').value!=='';})()`);
  await set('#snapshot','');await wait(idle);await click('#profile-open');await submit('#preferences-form');
  await check('an explicit empty market selection is retained when saving display preferences',"document.querySelector('#snapshot').value===''");
- await click('#date-context>summary');await set('#date-context-on','2099-01-01');await wait(idle);
+ await set('#date-context-on','2099-01-01');await wait(idle);
  await check('effective-date edits populate a capped cutoff and remain unapplied',"document.querySelector('#date-context-on').value==='2099-01-01'&&document.querySelector('#date-context-view').value!==''&&document.querySelector('#workspace-mode-label').textContent.includes('Unapplied')&&document.querySelector('#error').hidden");
  await click('#current-view-context');
- await check('returning current retains populated controls and identifies current knowledge',"document.querySelector('#date-context-on').value!==''&&document.querySelector('#date-context-view').value!==''&&document.querySelector('#date-context>summary').textContent.includes('current knowledge')");
+ await check('returning current retains populated controls and identifies current knowledge',"document.querySelector('#date-context-on').value!==''&&document.querySelector('#date-context-view').value!==''&&document.querySelector('#workspace-mode-label').textContent.includes('current knowledge')");
  await click('#nav-delivery');
  await evaluate(`window.deliveryOriginal=window.fetch;window.deliveryReads=[];window.fetch=async(...args)=>{
   const path=String(args[0]);

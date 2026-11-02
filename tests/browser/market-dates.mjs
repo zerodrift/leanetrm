@@ -154,7 +154,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#market-date-close');
  await set('#date-context-on','2020-12-17');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
  await wait("document.querySelector('#workspace-mode-label').textContent==='Historical view · read only'&&"+idle);
- await click('#return-working');await wait(settled);
+ await click('#current-view-context');await wait(settled);
  await check('returning to working data on a page whose calendar has no scope yet still asks which close at the latest instant',
   `document.querySelector('#market-date-dialog').open&&document.querySelectorAll('.market-close-choice').length>=2&&document.querySelector('#market-date-closes h3')?.textContent.includes(window.newestLabel)&&document.querySelector('#snapshot').value===''&&${badge}.textContent==='Choose a close'&&document.querySelector('#error').hidden`,
   `JSON.stringify({open:document.querySelector('#market-date-dialog').open,choices:document.querySelectorAll('.market-close-choice').length,scope:document.querySelector('#market-date-scope').textContent,snapshot:document.querySelector('#snapshot').value,badge:${badge}.hidden?'(hidden)':${badge}.textContent,error:document.querySelector('#error').hidden?'(hidden)':document.querySelector('#error').textContent})`);

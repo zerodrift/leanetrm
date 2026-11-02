@@ -31,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await check('the profile dialog alert reaches assistive technology',JSON.stringify(await announced()));
   await check('focus returns to Save preferences so Enter retries',`document.activeElement===${save}`);await shot('profile-error');
   await set('#zone','America/Chicago');await evaluate('window.__profileRequests=[]');await press('Enter',13);await wait(idle);
-  await check('successful retry saves preferences, closes the dialog and clears its alert',`!${dialog}.open&&${cleared}&&${banner}.hidden&&document.querySelector('#workspace-today').textContent.includes('America/Chicago')`);
+  await check('successful retry saves preferences, closes the dialog and clears its alert',`!${dialog}.open&&${cleared}&&${banner}.hidden&&document.querySelector('label[for=date-context-view] [data-user-time-zone]').textContent.includes('America/Chicago')`);
   await check('saving display preferences preserves the selected frame without reloading the Blotter',`document.querySelector('#snapshot').value===${JSON.stringify(frame)}&&!window.__profileRequests.some(p=>p==='/api/trading/workspace'||p==='/api/trading/workspace/stream')`);
   await click('#profile-open');if(!await evaluate("document.querySelector('#preview-access').open"))await click('#preview-access>summary');
   await set('#profile','viewer');await evaluate(`${change}.focus()`);

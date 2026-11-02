@@ -363,73 +363,62 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await click('#side-panel-open-curve');await asks();await answer(1);await wait(`${title}==='Curves & prices'&&${idle}`);
   await check('and discarding them opens the curve',`${title}==='Curves & prices'`);
   await back();
-  // The header's time controls.
+  // Revealing the knowledge controls does not change context; editing them still uses the amendment guard.
+  const openTimeControls=async()=>{if(!await evaluate("document.querySelector('#knowledge-context').open"))await click('#knowledge-context>summary');};
+  await openTimeControls();
   await amend(refB);
-  await click('#date-context>summary');
-  await check('the time controls open without a question when the form holds no edits, and the form stays',`${prompt}.hidden&&document.querySelector('#date-context').open&&${editing}`);
-  await click('#date-context>summary');
+  await evaluate("document.querySelector('#date-context-view').focus()");
+  await check('inline time controls can receive focus without changing or discarding the form',`${prompt}.hidden&&${editing}&&document.activeElement===document.querySelector('#date-context-view')`);
   await typeInto('#trade-lots','5');
-  await click('#date-context>summary');await asks();
-  await check('opening the time controls, which change the context the Blotter is read in, asks first, and keeping the edits leaves them closed',`${prompt}.querySelectorAll('button').length===2&&!document.querySelector('#date-context').open&&${editing}`);
-  await answer(0);
-  await check('the form is as it was',`${editing}&&document.querySelector('#trade-lots').value==='5'&&!document.querySelector('#date-context').open`);
-  await click('#date-context>summary');await asks();await answer(1);
-  await check('and agreeing opens them and gives the form up',`document.querySelector('#date-context').open&&document.querySelector('#trade-editing').hidden&&${prompt}.hidden`);
-  // Open already, the controls ask before each change of theirs, and put what they held back when the amendment is kept.
+  await evaluate("document.querySelector('#date-context-view').focus()");
+  await check('focusing inline time controls retains an edited amendment without a question',`${prompt}.hidden&&${editing}&&document.querySelector('#trade-lots').value==='5'`);
+  await click('#side-panel-amend');await asks();await answer(1);
   const contextInputs="[document.querySelector('#date-context-on').value,document.querySelector('#date-context-view').value]",contextNote="document.querySelector('#environment-context-note').textContent";
-  const inputsBefore=await evaluate(contextInputs),noteBefore=await evaluate(contextNote),otherDate=inputsBefore[0]==='2020-12-16'?'2020-12-15':'2020-12-16';
+  const inputsBefore=await evaluate(contextInputs),noteBefore=await evaluate(contextNote),otherKnowledge='2020-12-16T12:00:01';
   const positionsShown="document.querySelectorAll('#desk-positions .tabulator-row').length";
-  // A change of context clears the Blotter and its As of choice: this reads the working context again and chooses the close it showed.
-  const restoreBlotter=async()=>{await click('#current-view-context');await set('#snapshot',closeNow);await wait(redrawn(idle));};
+  const restoreBlotter=async()=>{await click('#current-view-context');await set('#snapshot',closeNow);await wait(redrawn(idle));await openTimeControls();};
   await amend(refB);await typeInto('#trade-lots','5');
-  await evaluate("document.querySelector('#date-context-on').focus()");
-  await set('#date-context-on',otherDate);await asks();
-  await check('a date typed in the open time controls asks before it clears the Blotter, and nothing has changed while it does',`${prompt}.querySelectorAll('button').length===2&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${contextNote}===${JSON.stringify(noteBefore)}&&${positionsShown}>0`,`[${prompt}.textContent,${contextNote},${positionsShown}]`);
+  await set('#date-context-view',otherKnowledge);await asks();
+  await check('a cutoff edit asks before clearing the Blotter or its amendment',`${prompt}.querySelectorAll('button').length===2&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${contextNote}===${JSON.stringify(noteBefore)}&&${positionsShown}>0`);
   await answer(0);
-  await check('keeping the edits puts the controls back exactly as they were, and leaves the Blotter and the form',`JSON.stringify(${contextInputs})===${JSON.stringify(JSON.stringify(inputsBefore))}&&${contextNote}===${JSON.stringify(noteBefore)}&&document.querySelector('#date-context').open&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${positionsShown}>0`,`[${contextInputs},${contextNote},${positionsShown}]`);
-  // The change asks for that date's end-of-day knowledge (D217), which the page reads before anything else is done.
-  await set('#date-context-on',otherDate);await asks();await answer(1);await wait(idle);
-  await check('agreeing lets the change through: the context is changed, the Blotter is cleared and the form is given up',`document.querySelector('#date-context-on').value===${JSON.stringify(otherDate)}&&${contextNote}.includes('Context changed')&&document.querySelector('#trade-editing').hidden&&${positionsShown}===0`,`[${contextInputs},${contextNote},${positionsShown}]`);
+  await check('keeping edits restores the exact inline coordinates and retains the amendment',`JSON.stringify(${contextInputs})===${JSON.stringify(JSON.stringify(inputsBefore))}&&${contextNote}===${JSON.stringify(noteBefore)}&&${editing}&&document.querySelector('#trade-lots').value==='5'&&${positionsShown}>0`);
+  await set('#date-context-view',otherKnowledge);await asks();await answer(1);await wait(idle);
+  await check('agreeing to a cutoff edit clears the old context and gives the form up',`document.querySelector('#date-context-view').value===${JSON.stringify(otherKnowledge)}&&${contextNote}.includes('Context changed')&&document.querySelector('#trade-editing').hidden&&${positionsShown}===0`);
   await restoreBlotter();
-  // Use current knowledge changes the context as well. A date entered without an event, as a browser's autofill enters one, lets it run here.
+  // The explicit current-knowledge action asks before reading or discarding an amendment.
   const knowledgeReads="window.__futuresResponses.filter(r=>r.path==='/api/date-schedules/context').length";
   await amend(refB);await typeInto('#trade-lots','5');
-  await evaluate("document.querySelector('#date-context-on').value='2020-12-16'");
+  await evaluate("document.querySelector('#date-context-view').value='2020-12-16T12:00:01'");
   const knowledgeBefore=await evaluate(knowledgeReads);
   await click('#date-context-latest');await asks();
-  await check('Use current knowledge asks before it changes the context, and has read nothing while it does',`${prompt}.querySelectorAll('button').length===2&&${editing}&&${knowledgeReads}===${knowledgeBefore}`,`[${prompt}.textContent,${knowledgeReads},${knowledgeBefore}]`);
+  await check('Use current knowledge asks before it reads or changes the context',`${prompt}.querySelectorAll('button').length===2&&${editing}&&${knowledgeReads}===${knowledgeBefore}`);
   await answer(0);
-  await check('keeping the edits leaves the form, the date and the context as they were',`${editing}&&document.querySelector('#trade-lots').value==='5'&&document.querySelector('#date-context-on').value==='2020-12-16'&&${knowledgeReads}===${knowledgeBefore}&&${contextNote}===${JSON.stringify(noteBefore)}`);
+  await check('keeping edits retains the form and does not read knowledge',`${editing}&&document.querySelector('#trade-lots').value==='5'&&document.querySelector('#date-context-view').value==='2020-12-16T12:00:01'&&${knowledgeReads}===${knowledgeBefore}&&${contextNote}===${JSON.stringify(noteBefore)}`);
   await click('#date-context-latest');await asks();await answer(1);await wait(idle);
-  await check('and agreeing runs it: the context is read, and the form is given up',`${knowledgeReads}>${knowledgeBefore}&&document.querySelector('#trade-editing').hidden`,`[${knowledgeReads},${knowledgeBefore},${contextNote}]`);
+  await check('agreeing reads current knowledge and gives the form up',`${knowledgeReads}>${knowledgeBefore}&&document.querySelector('#trade-editing').hidden`);
   await restoreBlotter();
-  // Return to current inputs reads the working context again.
   const currentReads="window.__futuresResponses.filter(r=>r.path==='/api/market/current').length";
   await amend(refB);await typeInto('#trade-lots','5');
   const currentBefore=await evaluate(currentReads);
   await click('#current-view-context');await asks();
-  await check('Return to current inputs asks before it reads the working context again, and has read nothing while it does',`${prompt}.querySelectorAll('button').length===2&&${editing}&&${currentReads}===${currentBefore}`,`[${prompt}.textContent,${currentReads},${currentBefore}]`);
+  await check('Working data asks before reading the current workspace again',`${prompt}.querySelectorAll('button').length===2&&${editing}&&${currentReads}===${currentBefore}`);
   await answer(0);
-  await check('keeping the edits leaves the form and reads nothing',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${currentReads}===${currentBefore}`);
+  await check('keeping edits retains the form without reading current inputs',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${currentReads}===${currentBefore}`);
   await click('#current-view-context');await asks();await answer(1);await wait(idle);
-  await check('and agreeing reads the working context again, opens it on its newest close, and gives the form up',`${currentReads}>${currentBefore}&&document.querySelector('#trade-editing').hidden&&document.querySelector('#snapshot').value!==''&&document.querySelector('#market-date-badge').textContent==='Latest close'`,`[${currentReads},${currentBefore},document.querySelector('#snapshot').value,document.querySelector('#market-date-badge').textContent]`);
+  await check('agreeing reads working data at its newest close and gives the form up',`${currentReads}>${currentBefore}&&document.querySelector('#trade-editing').hidden&&document.querySelector('#snapshot').value!==''&&document.querySelector('#market-date-badge').textContent==='Latest close'`);
   await set('#snapshot',closeNow);await wait(redrawn(idle));
-  // While the page is busy a question cannot be answered, so the controls stay closed and nothing is asked.
-  await click('#close-view-context');
-  await amend(refB);await typeInto('#trade-lots','5');await typeInto('#trade-reason','Synthetic busy check');
-  await evaluate("document.querySelector('#trade-amend-form').requestSubmit();document.querySelector('#date-context>summary').click()");await wait(idle);
-  await check('opening the time controls while the page is busy asks nothing and leaves them closed',`${prompt}.hidden&&!document.querySelector('#date-context').open&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,document.querySelector('#date-context').open]`);
-  // A change made while the page is busy cannot be asked about either, so it is not made: the control goes back as it was.
-  const [dateWhileBusy,noteWhileBusy]=await evaluate(`[document.querySelector('#date-context-on').value,${contextNote}]`);
-  await evaluate("document.querySelector('#trade-amend-form').requestSubmit();const date=document.querySelector('#date-context-on');date.value='2020-12-16';date.dispatchEvent(new Event('input',{bubbles:true}));date.dispatchEvent(new Event('change',{bubbles:true}))");await wait(idle);
-  await check('a change in the time controls while the page is busy is not made: nothing can be asked, so the control goes back and the form stays',`${prompt}.hidden&&document.querySelector('#date-context-on').value===${JSON.stringify(dateWhileBusy)}&&${contextNote}===${JSON.stringify(noteWhileBusy)}&&${editing}&&document.querySelector('#trade-lots').value==='5'`,`[${prompt}.textContent,document.querySelector('#date-context-on').value,${contextNote}]`);
+  await openTimeControls();await amend(refB);await typeInto('#trade-lots','5');await typeInto('#trade-reason','Synthetic busy check');
+  await evaluate("document.querySelector('#trade-amend-form').requestSubmit();window.contextDisabledWhileBusy=document.querySelector('#date-context-view').disabled");await wait(idle);
+  await check('inline cutoff controls are disabled while a request is busy',`window.contextDisabledWhileBusy&&${prompt}.hidden&&${editing}&&document.querySelector('#trade-lots').value==='5'`);
+  const [knownWhileBusy,noteWhileBusy]=await evaluate(`[document.querySelector('#date-context-view').value,${contextNote}]`);
+  await evaluate("document.querySelector('#trade-amend-form').requestSubmit();const known=document.querySelector('#date-context-view');known.value='2020-12-16T12:00:01';known.dispatchEvent(new Event('input',{bubbles:true}));known.dispatchEvent(new Event('change',{bubbles:true}))");await wait(idle);
+  await check('a cutoff edit dispatched while busy is restored without discarding the amendment',`${prompt}.hidden&&document.querySelector('#date-context-view').value===${JSON.stringify(knownWhileBusy)}&&${contextNote}===${JSON.stringify(noteWhileBusy)}&&${editing}&&document.querySelector('#trade-lots').value==='5'`);
   await click('#side-panel-amend');await asks();await answer(1);
-  // A form with no edits is given up by a change of context without a question.
   await amend(refB);
-  await click('#date-context>summary');
-  await set('#date-context-on',otherDate);await wait(idle);
+  await openTimeControls();
+  await set('#date-context-view',otherKnowledge);await wait(idle);
   await check('a change in the open time controls is made without a question when the form holds no edits',`${prompt}.hidden&&${contextNote}.includes('Context changed')&&document.querySelector('#trade-editing').hidden`,`[${prompt}.textContent,${contextNote}]`);
-  await restoreBlotter();await click('#close-view-context');
+  await restoreBlotter();await click('#knowledge-context>summary');
   // PPA entry shares the product panel and its unsaved-edit guard.
   await amend(refB);
   await startNewTrade({click,wait});await click('#new-trade-ppa');

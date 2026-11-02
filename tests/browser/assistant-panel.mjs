@@ -101,8 +101,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "({window:innerWidth,viewport:document.documentElement.clientWidth,workspace:document.querySelector('main').getBoundingClientRect().width,panel:document.getElementById('assistant-panel').getBoundingClientRect().width,columns:getComputedStyle(document.querySelector('.market-layout')).gridTemplateColumns})");
   const widest=await evaluate(`${q('#assistant-panel')}.getBoundingClientRect().width`);
   await command('Emulation.setDeviceMetricsOverride',{width:900,height:1050,deviceScaleFactor:1,mobile:false});await wait("document.body.classList.contains('assistant-overlay')");
-  await check('a narrower desktop overlays the assistant and keeps floating page controls below it',
-    `getComputedStyle(document.querySelector('main')).marginRight==='0px'&&getComputedStyle(${q('#context-dock')}).display==='none'&&document.querySelector('main').getBoundingClientRect().width>=640`
+  await check('a narrower desktop overlays the assistant while shared dates remain in the header',
+    `getComputedStyle(document.querySelector('main')).marginRight==='0px'&&getComputedStyle(${q('#context-toolbar')}).position==='static'&&document.querySelector('main').getBoundingClientRect().width>=640`
     +`&&Number(localStorage.getItem('openetrm.assistant.width'))===${widest}`);
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});await wait("!document.body.classList.contains('assistant-overlay')");
   await check('a wider window restores the docked preference',`${q('#assistant-panel')}.getBoundingClientRect().width===${widest}&&!document.body.classList.contains('assistant-overlay')`);
@@ -447,7 +447,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await script({hold:'retained',text:'From history. ',tools:[['toolu_panel_12','navigate',{page:'schedules',target:null}]]},{text:'There it is.'});
   await ask('Take me to the schedules as they were.');await wait(`${answer}==='From history. '`);
   const pinned=await evaluate(`${asks}.at(-1).body.knowledge`);
-  await click('#return-working');await wait(`${q('#workspace-mode-label')}.textContent.startsWith('Working data')&&${idle}`);
+  await click('#current-view-context');await wait(`${q('#workspace-mode-label')}.textContent.startsWith('Working data')&&${idle}`);
   await release('retained');await wait(finished);
   await check('a target pinned to a historical view waits in working data, saying Go changes the knowledge the page shows',
     `${q('#page-title')}.textContent==='Curves & prices'&&${buttons}==='Go'&&${notice}.textContent.includes('Go changes the knowledge or As of date the page shows.')`
@@ -517,7 +517,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
    ['toolu_curve_panel_02','prepare_custom_curve',{code:definition.code,name:definition.name,engine:'custom_curve_recipe_v2',formula}]]},
    {tools:[['toolu_curve_panel_03','navigate',{page:null,target:'n2'}]]},{text:'Review it in the editor.'});
   await click('#assistant-allow');await wait(`${answer}==='Preparing an explicit draft. '`);
-  await click('#return-working');await wait(`${q('#workspace-mode-label')}.textContent.startsWith('Working data')&&${idle}`);
+  await click('#current-view-context');await wait(`${q('#workspace-mode-label')}.textContent.startsWith('Working data')&&${idle}`);
   await click('#example');await click('#nav-custom-curves');const workingFrame=await evaluate(`${q('#snapshot')}.value`);
   await release('curve-proposal');await wait(`${finished}&&${buttons}==='Review proposed curve'`);
   await check('a historical proposal waits for explicit review and does not claim it will change the working header',

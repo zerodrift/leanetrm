@@ -795,14 +795,15 @@ under its name replaces it, and Delete view removes it. A stored view that fails
 other reason still fails the Blotter's load with that reason. A pivot that groups by instrument
 type lists the column once (`pivotColumns`), so it also saves as a view.
 
-The floating context distinguishes working knowledge, retained history, the selected
-close and actual today in the user's time zone: the As of control and its close
-badge float beside the Context panel, whose summary names the knowledge in use and
-whose panel holds the time controls, actual today, the Blotter's read context and
-Follow live corrections. Return to working data floats beside them when a historical
-view is shown, and opens working data on its newest close (D217, D219). Panels that
-slide over the page keep that band clear, and the Assistant launcher steps aside from
-a docked side panel. Disabled booking has an explanation and an explicit return to
+The shared header distinguishes working knowledge, retained history and the selected
+close. As of and its close badge stay visible; As known on, its cutoff explanation,
+the Blotter's read context and Follow live corrections open under a compact knowledge
+summary. Apply and Working data appear when needed. Returning to working data opens
+its newest close (D217, D219). The controls scroll with the page and have no floating
+or draggable state. Jobs exposes the same context for saved valuation reports, with
+Apply required after edits; operational job and node status remains current.
+The Assistant launcher steps aside from a docked side panel.
+Disabled booking has an explanation and an explicit return to
 working inputs. Power TOUs and Reference data are under
 Settings. Visible branding is LeanETRM. These presentation choices do not alter
 financial contexts or authorization.

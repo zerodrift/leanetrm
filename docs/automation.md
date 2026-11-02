@@ -50,6 +50,14 @@ selection. Entry and editing display the user's time zone and use the managed
 resolver for repeated or missing wall clocks; persisted instants and elapsed
 recurrence remain UTC. Editing does not create a historical market-data workflow.
 
+Market-data readers can select the saved valuation reports' business date and
+knowledge cutoff directly in the header. The cutoff is collapsed by default and
+explains its correction-history meaning when opened. These controls retain the
+existing report visibility contract. Changed dates require Apply before opening a
+saved report; current Jobs navigation remains available with unapplied edits.
+The controls do not filter the operational directory,
+backdate node observations or change job execution terms.
+
 The supported schedule is explicitly UTC, once or a fixed interval of 60 through
 31,536,000 seconds. Its selected policies are `run_once` for misfires and `forbid`
 for overlap. Recurrences advance to the first future instant on their original

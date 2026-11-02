@@ -164,20 +164,21 @@ returns `422 source_expired` from `CurveModel.Connected.cs`. Instead:
 The workbench in [blotter-workbench.md](blotter-workbench.md) replaces the page layout below (panes that fill the window, no page scroll).
 
 ```
-┌ sidebar ┐┌ header: Blotter · profile ───────────────────────────────────────────────┐
+┌ sidebar ┐┌ header: Blotter · As of [Latest close ▾] · Current knowledge ▾ · profile ┐
 │ Trading ││ toolbar: book scope · view · Risk report · Scenario · New trade          │
 │ Markets ││ [run bar, after a risk run]                                              │
 │ ...     ││ ┌ Swap PV ┐┌ Futures P&L ┐┌ Positions ┐┌ Risk ┐                         │
 │         ││ ┌ chart: Swap PV by market ┐┌ chart: long/short by market ┐┌ side     ┐ │
 │         ││ Positions · grouped by book  Group by [Book]  [search]  24 of 24 rows    │
 │         ││ ┌ positions, grouped, Values | Risk lens ───────────────────┐│ panel    │ │
-│         ││ floating: As of [Latest close ▾] · Context ▴ · Assistant     │          │ │
+│         ││                                                Assistant     │          │ │
 └─────────┘└───────────────────────────────────────────────────────────────┘└──────────┘
 ```
 
-The As of control, its badge, the knowledge in use and live corrections float
-with the shared Context panel at the foot of the page (D217), beside the
-Assistant launcher; the header keeps the page title and the profile.
+The As of control and its badge sit in the header (D217), beside a compact summary
+of the knowledge in use. Opening the summary reveals As known on, an explanation
+of the cutoff, and live corrections. The controls expand in document flow and
+scroll with the page. The Assistant launcher remains at the foot of the page.
 
 **Summary tiles**, one row per currency inside a tile, never added across
 currencies:

@@ -12,6 +12,7 @@ async function fixture(work){
   const viewport=async width=>{await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});await evaluate(settle);};
   await viewport(1440);
   await evaluate(`(async()=>{
+   document.getElementById('context-toolbar').hidden=false;document.getElementById('date-context').hidden=false;
    const {setupAssistant}=await import('/assistant-panel.js');
    window.assistant=setupAssistant({api:async()=>({agents:[],vendors:[]}),root:'/api',identity:()=> 'synthetic-layout',zone:()=> 'UTC',
     available:()=>true,pageBusy:()=>false,act:async work=>work(),place:()=>({report:{page:'curves',selection:{view:'curves',curve:null}},context:{mode:'current',frameId:null,frameLabel:null}}),
@@ -67,7 +68,8 @@ test('a narrow window overlays the assistant and restores the chosen dock width 
   assert.equal(narrow.margin,0,'the assistant overlays instead of squeezing the workspace');
   assert.ok(narrow.main>=640);
   assert.equal(narrow.saved,original.saved,'temporary window constraints do not replace the preference');
-  assert.equal(await evaluate("getComputedStyle(document.getElementById('context-dock')).display"),'none');
+  assert.equal(await evaluate("getComputedStyle(document.getElementById('context-toolbar')).position"),'static');
+  assert.equal(await evaluate("document.querySelector('header').contains(document.getElementById('context-toolbar'))"),true);
   assert.equal(await evaluate("getComputedStyle(document.getElementById('assistant-launcher')).display"),'none');
   assert.equal(await evaluate("document.elementFromPoint(innerWidth-40,innerHeight-40).closest('#assistant-panel')!==null"),true,'the overlay stays above page controls');
   await viewport(1440);

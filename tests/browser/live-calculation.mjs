@@ -28,7 +28,7 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  await click('#nav-custom-curves');await click('#nav-market');
  await wait("document.querySelector('#live-status').dataset.state==='live'&&document.querySelector('#contracts').textContent.includes('31.2')&&"+idle);
  await check('returning to a live market screen refreshes its displayed generation',"document.querySelector('#error').hidden&&document.querySelector('#contracts').textContent.includes('31.2')");
- await click('#return-working');await persona('editor');await click('#example');await click('#nav-custom-curves');await set('#custom-curves-template','ng_prompt');await click('#custom-curves-preview');
+ await click('#current-view-context');await persona('editor');await click('#example');await click('#nav-custom-curves');await set('#custom-curves-template','ng_prompt');await click('#custom-curves-preview');
  const nodes=await evaluate("document.querySelectorAll('.custom-curve-node').length");
  await click('#follow-live');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
  await check('entering live preserves the selected unsaved custom graph and its preview',`document.querySelectorAll('.custom-curve-node').length===${nodes}&&!document.querySelector('#custom-curves-result').hidden&&document.querySelector('#error').hidden`);

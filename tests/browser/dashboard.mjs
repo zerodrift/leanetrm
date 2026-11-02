@@ -160,7 +160,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('selecting the newer close reads every widget at it, and the run valued there is the latest again',
     `/· Latest · Intraday not configured$/.test(document.querySelector('.level-tiles-footer').textContent)&&/Risk run · .+ · Latest$/m.test(${positions}.innerText)`,`${positions}.innerText`);
   // A past effective date, applied, is a historical context with no close chosen yet: every widget says so rather than reading another close.
-  await click('#date-context>summary');await set('#date-context-on','2020-12-17');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
+  await click('#market-date-open');await click('#market-date-grid button[data-date="2020-12-17"]');await click('#knowledge-context>summary');await click('#date-context-latest');await click('#apply-view-context');
   await wait("document.querySelector('#environment-context-note').textContent.startsWith('Historical view')&&"+idle);
   await check('a historical context with no close chosen refuses each widget and asks for a market date',
     "[...document.querySelectorAll('#dashboard-widgets .dashboard-widget')].every(w=>w.querySelector('.dashboard-refusal')?.textContent==='Choose a market date above.')&&document.querySelectorAll('#dashboard-widgets .dashboard-widget').length===3&&document.querySelector('#error').hidden",
