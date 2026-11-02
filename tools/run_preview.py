@@ -959,7 +959,7 @@ def main():
                 check_vol_surface_fit(url,query,exchange_manifest,dotnet,temporary,app_env)
                 # Surfaces fitted as jobs on the risk queue, recorded and read back over HTTP.
                 from check_vol_surface_api import run_checks as check_vol_surface_api
-                check_vol_surface_api(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_fit_worker'))
+                check_vol_surface_api(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_fit_worker'),worker_login='exchange_fit_worker')
                 if args.browser_check:
                     # The option ticket and position window, beside the options the checks above booked.
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--futures-options'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)

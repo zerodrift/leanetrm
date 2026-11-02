@@ -17,7 +17,7 @@ TIMEOUT = 120
 DAY = '2026-10-16'
 
 
-def run_checks(url, query, manifest, *, run_worker):
+def run_checks(url, query, manifest, *, run_worker, worker_login):
     base = PreviewClient(url); base.bootstrap()
     c = PreviewClient(url, 'exchange'); c.opener = base.opener; c.bootstrap()
     catalog, tenant, workspace = (manifest[key] for key in ('catalogId', 'tenantId', 'workspaceId'))
@@ -143,6 +143,30 @@ def run_checks(url, query, manifest, *, run_worker):
     failed = read(product=UNFITTED)
     check('a failing fit finishes failed with its code', job(failing['jobId'])['state'] == 'failed' and failed['state'] == 'notFitted'
           and failed['job'] == {'id': failing['jobId'], 'state': 'failed', 'errorCode': 'vol_surface_no_settlements'} and revisions(UNFITTED) == 0, failed)
+
+    # The completion of a claimed attempt, called as the worker login. Its digest is one a recording would refuse with
+    # vol_surface_input, so a refusal other than the fence's or the authority recheck's means the recording was reached first.
+    fenced = fit()
+    engine = query(f"SELECT request->>'engineVersion' FROM risk.jobs WHERE id='{fenced['jobId']}';")
+    claim = json.loads(query(f"SET SESSION AUTHORIZATION {worker_login};SELECT risk.claim(30,'{engine}')::text;"))
+    pinned = query(f"SELECT observation_id FROM risk.job_observations WHERE job_id='{fenced['jobId']}' ORDER BY observation_id LIMIT 1;")
+
+    def finish(token):
+        try:
+            query(f"SET SESSION AUTHORIZATION {worker_login};SELECT risk.finish_vol_surface_fit('{fenced['jobId']}','{token}','{{{pinned}}}',"
+                  "'{\"synthetic\":\"surface\"}','not_a_digest','{\"elapsedMs\":1,\"series\":1,\"solves\":1}');")
+        except RuntimeError as error:
+            return str(error)
+        return 'completed'
+    wrong = finish(uuid4())
+    check('a completion with another lease token is fenced and records nothing', claim['jobId'] == fenced['jobId']
+          and 'risk_job_fence' in wrong and revisions(PRODUCT) == 2 and job(fenced['jobId'])['state'] == 'running', wrong)
+    query(f"UPDATE security.role_grants SET revoked=true WHERE id='{grant}';")
+    lost = finish(claim['leaseToken'])
+    check('a completion after the fitter lost PublishMarketData is refused and records nothing',
+          'risk_job_authority_changed' in lost and revisions(PRODUCT) == 2 and job(fenced['jobId'])['state'] == 'running', lost)
+    grant = str(uuid4())
+    query(f"INSERT INTO security.role_grants VALUES('{grant}','{trader}','{role}','{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false);")
 
     # The fitter loses PublishMarketData after submitting and before the worker runs; this also restores the trader's own roles.
     revoked = fit(product=UNFITTED)

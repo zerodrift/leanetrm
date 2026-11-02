@@ -9,30 +9,15 @@ SELECT pg_advisory_xact_lock(730849102);
 
 -- A fit job's actor needs the authority the fit uses: market data and trades to read its inputs and the discount default,
 -- and PublishMarketData to record the surface. Every other job keeps the portfolio risk set.
-CREATE OR REPLACE FUNCTION risk.authorized(job risk.jobs) RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
- SELECT EXISTS(SELECT 1 FROM security.market_catalog_scopes s WHERE(s.catalog_id,s.tenant_id,s.workspace_id)=(job.catalog_id,job.tenant_id,job.workspace_id))
- AND EXISTS(SELECT 1 FROM market_data.revisions r JOIN security.reference_catalog_scopes s ON s.catalog_id=r.reference_catalog_id
-  WHERE(r.catalog_id,r.id,s.tenant_id,s.workspace_id)=(job.catalog_id,job.revision_id,job.tenant_id,job.workspace_id))
- AND NOT EXISTS(SELECT 1 FROM risk.job_markets m JOIN market_data.revisions r ON(r.catalog_id,r.id)=(m.catalog_id,m.revision_id)
-  WHERE m.job_id=job.id AND NOT EXISTS(SELECT 1 FROM security.reference_catalog_scopes s
-   WHERE(s.catalog_id,s.tenant_id,s.workspace_id)=(r.reference_catalog_id,job.tenant_id,job.workspace_id)))
- AND NOT EXISTS(SELECT 1 FROM risk.job_custom_curves jc JOIN market_data.custom_curve_node_calendars cc
-  ON(cc.catalog_id,cc.curve_id,cc.version)=(jc.catalog_id,jc.curve_id,jc.version)
-  WHERE jc.job_id=job.id AND NOT EXISTS(SELECT 1 FROM security.reference_catalog_scopes s
-   WHERE(s.catalog_id,s.tenant_id,s.workspace_id)=(cc.reference_catalog_id,job.tenant_id,job.workspace_id)))
- AND NOT EXISTS(SELECT 1 FROM risk.job_custom_curves jc JOIN market_data.custom_curve_node_schedules cs
-  ON(cs.catalog_id,cs.curve_id,cs.version)=(jc.catalog_id,jc.curve_id,jc.version)
-  WHERE jc.job_id=job.id AND NOT EXISTS(SELECT 1 FROM security.market_catalog_scopes s
-   WHERE(s.catalog_id,s.tenant_id,s.workspace_id)=(cs.schedule_catalog_id,job.tenant_id,job.workspace_id)))
- AND NOT EXISTS(SELECT 1 FROM risk.job_custom_curves jc JOIN market_data.custom_curve_node_schedules cs
-  ON(cs.catalog_id,cs.curve_id,cs.version)=(jc.catalog_id,jc.curve_id,jc.version)
-  JOIN market_data.date_schedule_versions v ON(v.catalog_id,v.schedule_id,v.version)=(cs.schedule_catalog_id,cs.schedule_id,cs.schedule_version)
-  WHERE jc.job_id=job.id AND v.calendar_catalog_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM security.reference_catalog_scopes s
-   WHERE(s.catalog_id,s.tenant_id,s.workspace_id)=(v.calendar_catalog_id,job.tenant_id,job.workspace_id)))
- AND NOT EXISTS(SELECT 1 FROM unnest(CASE WHEN job.request->>'convention'='vol_surface_fit_v1'
-  THEN ARRAY['ReadMarketData','ReadTrades','PublishMarketData'] ELSE ARRAY['ReadMarketData','ReadTrades','RunScenario'] END) permission
-  WHERE NOT risk.actor_permission(job.actor_id,job.tenant_id,job.workspace_id,job.delegation_id,permission));
-$$;
+-- Only the permission set changes: the installed definition (0077, with 0082's transitive custom-curve scopes) is otherwise kept.
+DO $upgrade$
+DECLARE definition text=pg_get_functiondef('risk.authorized(risk.jobs)'::regprocedure);
+ before text='unnest(ARRAY[''ReadMarketData'',''ReadTrades'',''RunScenario'']) permission';
+ after text='unnest(CASE WHEN job.request->>''convention''=''vol_surface_fit_v1'' THEN ARRAY[''ReadMarketData'',''ReadTrades'',''PublishMarketData''] ELSE ARRAY[''ReadMarketData'',''ReadTrades'',''RunScenario''] END) permission';
+BEGIN
+ IF(length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'vol_surface_jobs: unexpected risk.authorized definition';END IF;
+ EXECUTE replace(definition,before,after);
+END $upgrade$;
 
 -- A fit request answered with another queued or running job for the same key and pinned frame: a retry of the request
 -- identity returns that job, its first outcome (D238).
@@ -196,7 +181,7 @@ BEGIN
 END$$;
 
 DO $$DECLARE f text;BEGIN
- FOREACH f IN ARRAY ARRAY['risk.authorized(risk.jobs)','risk.submit_vol_surface_fit(uuid,uuid,uuid,uuid,timestamptz,jsonb,jsonb)',
+ FOREACH f IN ARRAY ARRAY['risk.submit_vol_surface_fit(uuid,uuid,uuid,uuid,timestamptz,jsonb,jsonb)',
   'risk.finish_vol_surface_fit(uuid,uuid,uuid[],jsonb,text,jsonb)','security.vol_surface_inputs_revised(uuid,uuid)','risk.vol_surface_fit_job(uuid,jsonb,date,text)'] LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f);EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f);
  END LOOP;
