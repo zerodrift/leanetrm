@@ -16,7 +16,7 @@ the latter checks also cover the ordinary inspector. A worker without a live
 claim reads no gas trade rows, and an altered graph manifest fails reconstruction.
 The omitted-member regression failed before its fix and passed afterward.
 
-Migration 0166 preserves runtime history/current-authority predicates and adds a
+Migration 0165 preserves runtime history/current-authority predicates and adds a
 worker lease fence. Independent adversarial review found no remaining blocker
 after the member/program completeness fix. These are synthetic correctness and
 authority checks, not a throughput benchmark or an installed schema upgrade.

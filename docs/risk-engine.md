@@ -117,7 +117,7 @@ does not remove a declared factor or its nonlinear consumers.
 The fixed contractual gas profiles enter this same path through retained
 programs, including independent side directions and exact quantity ratios. They
 report `gas_contractual_present_value`; gas-only scopes and mixed portfolios can
-run immediate and retained risk without a gas product exclusion. Migration 0166
+run immediate and retained risk without a gas product exclusion. Migration 0165
 adds the read-only worker policies needed to load those programs under the same
 history, current-authority and lease checks. Started delivery and missing inputs
 still fail explicitly. Operational gas valuation and automated-close source
