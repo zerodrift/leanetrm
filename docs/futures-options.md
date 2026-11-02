@@ -186,7 +186,12 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   call or put, then strike; each list comes from the backend catalog and resets
   those below it. Lifecycle actions in the Blotter and the position window are
   offered only on working data with booking authority.
-- **Agents.** Agents have the read-only `futures_option_catalog` tool. They cannot
+- **Agents.** Agents have the read-only `futures_option_catalog` tool
+  (`trades.futures_option_catalog_v2`). It takes a required option product code and
+  expiry date and returns that product's listed series of that expiry; there is no
+  default to every product or expiry, and an unknown product or unlisted expiry is
+  refused `option_definition`. The `futures_option_series` reference table, searched
+  by product, lists each series' expiry date as `last_trading_date`. Agents cannot
   book options or record lifecycle events: booking facts need a human booker.
   Migration `0166_futures_options.sql` adds the tool only when the agent tool list
   is exactly the expected one, and fails if any agent tool or the agent reader role

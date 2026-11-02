@@ -1001,23 +1001,22 @@ def check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settle
 
 
 def check_option_catalog_reads(check, query, fake, trader, agent, grant, ask, settled, steps, requests, answers, model_name, frame, trades):
-    """Futures option catalog (R27): the tool returns the catalog options/catalog returns at the turn's frame, under the
-    Blotter's accesses, and records nothing; no agent tool books an option. The baseline example lists no option series, so
-    the catalogs compared here are empty; the exchange example's option check covers the listed series over HTTP."""
+    """Futures option catalog (R27, R16, R17): the tool reads one required option product and expiry under the Blotter's accesses and
+    records nothing; no agent tool books an option. The baseline example lists no option product, so a product code is
+    refused here as an unknown one; the exchange example's option check covers each listed product's series over HTTP."""
     catalog_agent = agent('options', tools=('futures_option_catalog',))
     grant(trader, catalog_agent)
-    fake.respond(stream(tool_use(model_name, [('toolu_options_1', 'futures_option_catalog', {})])),
+    fake.respond(stream(tool_use(model_name, [('toolu_options_1', 'futures_option_catalog', {'product': 'nymex_on', 'expiry': '2026-11-24'})])),
                  stream(recording(model_name, text='No futures options are listed here.')))
     since = len(fake.received)
     written = query('SELECT count(*) FROM trading.trades;')
     turn, _ = settled(ask(agent_state=catalog_agent)['turn'])
     recorded, results = steps(turn), answers(requests(since)[-1])
     read, _ = results['toolu_options_1']
-    page = trader.call('options/catalog', {'snapshotId': frame['id'], 'convention': 'futures_option_premium_v1', 'knowledgeMode': 'current'})
-    check('the futures option catalog tool returns the catalog options/catalog returns at the turn\'s frame, without its booking directory, '
-          'under the Blotter\'s accesses',
-          turn['state'] == 'completed' and read['operation'] == 'trades.futures_option_catalog_v1' and read['context']['frame']['id'] == frame['id']
-          and read['result'] == {'convention': page['convention'], 'options': page['options']} and recorded[0]['access'] == trades, (read, page))
+    check('the futures option catalog tool refuses an option product the pinned market data does not list, under the Blotter\'s accesses',
+          turn['state'] == 'completed' and read['code'] == 'option_definition'
+          and (recorded[0]['operation'], recorded[0]['code']) == ('trades.futures_option_catalog_v2', 'option_definition')
+          and recorded[0]['access'] == trades, (read, recorded))
     check('the catalog read records no trade, and no agent tool books: none is named for booking or needs BookTrade',
           len(recorded) == 1 and query('SELECT count(*) FROM trading.trades;') == written
           and query("SELECT count(*) FROM assistant.agent_tools() WHERE code LIKE '%book%' OR 'BookTrade'=ANY(permissions);") == '0', recorded)

@@ -124,6 +124,27 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         c.call('market/current', {})
     check('historical context cannot fit', historical['code'] == 'historical_read_only', historical)
 
+    # The close that leaves one option underlying unsettled, fitted for both products at its own business date.
+    gap = manifest['missingSettlement']
+    unpinned = next(f for f in c.call('workspace')['frames'] if f['at'].replace('+00:00', 'Z') == gap['at'])
+    examples = {}
+    for product in (PRODUCT, UNFITTED):
+        submitted = fit(product=product, snapshot=unpinned['id'])
+        run_worker()
+        examples[product] = (job(submitted['jobId']), read(product=product, snapshot=unpinned['id'])['surface'])
+
+    def shows_smile(completed, example):
+        if completed['state'] != 'completed' or not example:
+            return False
+        gaps = [e['status'] for e in example['expiries'] if e['underlyingCode'] == gap['underlying']]
+        moves = [Decimal(s['richCheap']) for s in example['series'] if s['richCheap'] is not None]
+        return (all(e['status'] == 'fitted' for e in example['expiries'] if e['underlyingCode'] != gap['underlying'])
+                and gaps in ([], ['vol_fit_insufficient_strikes'])
+                and any(m > Decimal('0.005') for m in moves) and any(m < Decimal('-0.005') for m in moves))
+    check('example surface shows rich and cheap', all(shows_smile(*examples[p]) for p in examples)
+          and any(e['underlyingCode'] == gap['underlying'] for _, s in examples.values() if s for e in s['expiries']),
+          {p: (j['state'], j['errorCode'], s and [(e['underlyingCode'], e['status']) for e in s['expiries']]) for p, (j, s) in examples.items()})
+
     # Every listed series of the other product moved past its expiry: the frame then settles none of them.
     terms = query(f"SELECT coalesce(json_agg(json_build_object('code',s.code,'day',s.last_trading_date,'at',s.expiry_at,'contract',k.expiry_at)),'[]')::text "
                   f"FROM ref_data.futures_option_series s JOIN market_data.contracts k ON(k.reference_catalog_id,k.reference_revision_id,k.futures_option_series_code)=(s.catalog_id,s.revision_id,s.code) "

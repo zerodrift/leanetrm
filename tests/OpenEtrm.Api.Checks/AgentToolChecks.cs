@@ -31,17 +31,22 @@ static class AgentToolChecks
         Display();
         Navigation();
     }
-    // Futures option catalog (R27): the read options/catalog runs, at the pinned frame under the Blotter's accesses, with no input;
-    // its result keeps the series and convention without the booking directory, and its target opens the Blotter. No tool books.
+    // Futures option catalog (R27, R16, R17): one option product's series of one expiry date among those options/catalog lists,
+    // at the pinned frame under the Blotter's accesses, for a required product and expiry; its result keeps the series and convention without the booking
+    // directory, and its target opens the Blotter. No tool books.
     static void OptionCatalogReads()
     {
-        var call=AgentTools.Parse("futures_option_catalog",Json("{}"));
-        Require(call.Operation.Id=="trades.futures_option_catalog_v1"&&call.Arguments is NoArguments&&call.Operation.Needs==ToolNeeds.Frame
+        var call=AgentTools.Parse("futures_option_catalog",Json("{\"product\":\"nymex_on\",\"expiry\":\"2026-11-24\"}"));
+        Require(call.Operation.Id=="trades.futures_option_catalog_v2"&&call.Arguments==new OptionCatalogArguments("nymex_on",new DateOnly(2026,11,24))&&call.Operation.Needs==ToolNeeds.Frame
             &&call.Operation.Access(Manifest).SequenceEqual(AgentTools.Operation("trades.blotter_v1").Access(Manifest))
             &&AgentTools.Tools.Single(t=>t.Name=="futures_option_catalog").Permissions.SequenceEqual(["ReadMarketData","ReadTrades"]),
             "the option catalog is a frame read under the Blotter's trading, market and reference accesses and the agent reader's read permissions");
-        Require(Code(()=>AgentTools.Parse("futures_option_catalog",Json("{\"series\":\"nymex_on_20261201_c3.25\"}")))=="tool_arguments_invalid",
-            "the option catalog takes no input");
+        Require(new[]{"{}","{\"product\":\"nymex_on\"}","{\"expiry\":\"2026-11-24\"}","{\"product\":null,\"expiry\":\"2026-11-24\"}",
+                "{\"product\":\"\",\"expiry\":\"2026-11-24\"}","{\"product\":\"NYMEX_ON\",\"expiry\":\"2026-11-24\"}","{\"product\":\"nymex_on\",\"expiry\":null}",
+                "{\"product\":\"nymex_on\",\"expiry\":\"2026-02-30\"}","{\"product\":\"nymex_on\",\"expiry\":\"20261124\"}","{\"product\":\"nymex_on\",\"expiry\":\"2026-11-24T00:00:00Z\"}",
+                "{\"series\":\"nymex_on_20261201_c3.25\"}","{\"product\":\"nymex_on\",\"expiry\":\"2026-11-24\",\"series\":\"nymex_on_20261201_c3.25\"}"}.All(input=>Code(()=>AgentTools.Parse("futures_option_catalog",Json(input)))=="tool_arguments_invalid")
+            &&PageReports.Operations("blotter").Contains("trades.futures_option_catalog_v2")&&!PageReports.Operations("blotter").Any(o=>o.StartsWith("trades.futures_option_catalog_v1",StringComparison.Ordinal)),
+            "the option catalog requires exactly one option product code and one real yyyy-mm-dd expiry date, with no default to every product or expiry, and its first version is gone");
         Require(new[]{"futures_option_book","book_futures_option","futures_book"}.All(t=>Code(()=>AgentTools.Parse(t,Json("{}")))=="tool_arguments_invalid")
             &&AgentTools.Tools.All(t=>!t.Permissions.Contains("BookTrade")&&!t.Permissions.Contains("AmendTrade")&&!t.Name.Contains("book",StringComparison.Ordinal)),
             "no agent tool books or amends a trade: no tool needs BookTrade or AmendTrade, and booking tool names are not tools");
@@ -52,12 +57,12 @@ static class AgentToolChecks
             "its result is the catalog's series under its convention");
         // The tool reads only the series: the store's series read takes the trading read's market data and frame and no
         // connection, so it cannot read the booking directory (books, booking actor, parties) that only options/catalog adds.
-        var series=typeof(FuturesOptionStore).GetMethod(nameof(FuturesOptionStore.Series))!;
-        Require(series.GetParameters().Select(p=>p.ParameterType).SequenceEqual([typeof(PreviewData),typeof(InputFrame)]),
-            "the option catalog's series read takes only the market data and frame, never a connection for the booking directory");
+        var series=typeof(FuturesOptionStore).GetMethod(nameof(FuturesOptionStore.ExpirySeries))!;
+        Require(series.GetParameters().Select(p=>p.ParameterType).SequenceEqual([typeof(PreviewData),typeof(InputFrame),typeof(string),typeof(DateOnly)]),
+            "the option catalog's series read takes only the market data, frame, product and expiry, never a connection for the booking directory");
         Require(NavigationTargets.Issue(call,result.Value,1) is [{Handle:"n1",Target:{Page:"blotter",Selection:null,Kind:"page"}}],
             "its own target is the Blotter as it opens, and it lists no record targets");
-        Console.WriteLine("PASS futures option catalog: a read-only frame read under the Blotter's accesses, with no input, the catalog's series, "+
+        Console.WriteLine("PASS futures option catalog: a read-only frame read under the Blotter's accesses, of one required product and expiry, the catalog's series, "+
             "a Blotter target, and no agent tool that books");
     }
 

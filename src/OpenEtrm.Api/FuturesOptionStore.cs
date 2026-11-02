@@ -49,10 +49,24 @@ public sealed partial class FuturesOptionStore(PreviewManifest manifest)
     internal static IEnumerable<FuturesOptionSeriesSpecification> Listed(PreviewData data,InputFrame frame)=>data.FuturesOptionSeries.Where(s=>frame.At<s.Terms.ExpiryAt);
 
     // Every listed option series whose expiry is after the frame, with its exchange, commodity and daily settlement at the
-    // frame: read from the trading read's market data alone, which is all the page assistant's catalog tool reads.
-    public static ImmutableArray<object> Series(PreviewData data,InputFrame frame)
+    // frame: read from the trading read's market data alone.
+    public static ImmutableArray<object> Series(PreviewData data,InputFrame frame)=>Describe(data,frame,Listed(data,frame));
+
+    // The listed series of one option product and expiry date, as Series describes them: what the page assistant's catalog
+    // tool reads. A product that is not in the market data read, whether unknown or unseen, and an expiry date the product
+    // lists no unexpired series on, are refused as an unknown series is.
+    public static ImmutableArray<object> ExpirySeries(PreviewData data,InputFrame frame,string product,DateOnly expiry)
     {
-        var listed=Listed(data,frame).Select(series=>
+        _=Single(data.ReferenceRows("futures_option_products","code",product));
+        var selected=Listed(data,frame).Where(s=>s.Product.Code==product&&
+            DateOnly.ParseExact(Single(data.ReferenceRows("futures_option_series","code",s.Key.Code)).Text("last_trading_date"),"yyyy-MM-dd",CultureInfo.InvariantCulture)==expiry).ToArray();
+        if(selected.Length==0)throw new MarketDataException("option_definition",$"Option product {product} lists no unexpired series expiring on {expiry:yyyy-MM-dd}.");
+        return Describe(data,frame,selected);
+    }
+
+    private static ImmutableArray<object> Describe(PreviewData data,InputFrame frame,IEnumerable<FuturesOptionSeriesSpecification> selected)
+    {
+        var listed=selected.Select(series=>
         {
             var contract=Single(data.Contracts.Where(c=>c.Kind==ContractKind.FutureOption&&c.FuturesSeries==series.Key));
             var curve=Single(data.Definitions["curve_members"].Where(m=>m.Id("contract_id")==contract.Key.Id)).Text("curve_code");

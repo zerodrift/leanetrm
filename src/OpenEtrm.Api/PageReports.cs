@@ -29,7 +29,7 @@ static class PageReports
         ["power_tous"]=new("read_schedules",["schedules.tou_products_v1","schedules.power_hours_v1"],"Power TOUs"),
         ["reference_data"]=new("read_reference_data",["reference_data.table_v1"],"Reference data"),
         ["parties"]=new("read_trade_parties",["trade_parties.versions_v1"],"Entities & counterparties"),
-        ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1","trades.futures_option_catalog_v1"],"Blotter"),
+        ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1","trades.futures_option_catalog_v2"],"Blotter"),
         ["custom_curves"]=new("read_custom_curves",["custom_curves.catalog_v1","custom_curves.prepare_v1","custom_curves.save_draft_v1"],"Curve builder"),
         ["jobs"]=new("read_jobs",["jobs.list_v1","jobs.history_v1"],"Jobs & Infrastructure"),
         // The inspected PPA is the Blotter's trade view of it; its target opens it in the Blotter.
