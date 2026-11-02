@@ -40,12 +40,12 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
             {
                 var product=Single(data.ReferenceRows("futures_option_products","code",s.Series.Product.Code));
                 var quote=Single(data.QuoteRows(product.Text("quote_code")));
-                return new {series=s.Series.Key.Code,seriesKey=s.Series.Key,instrumentId=ContractIdentity.FuturesOption(s.Series.Key),contractId=s.Contract.Key.Id,
+                return new {series=s.Series.Key.Code,instrumentId=ContractIdentity.FuturesOption(s.Series.Key),contractId=s.Contract.Key.Id,
                     product=product.Text("code"),name=product.Text("name"),exchange=product.Text("exchange_code"),underlyingSeries=s.Series.UnderlyingSeries.Code,
                     right=s.Series.Terms.Right.ToString().ToLowerInvariant(),strike=s.Series.Terms.Strike.ToString(),expiryAt=s.Series.Terms.ExpiryAt.ToString("O",CultureInfo.InvariantCulture),
                     exerciseStyle=s.Series.Terms.ExerciseStyle,premiumStyle=s.Series.PremiumStyle,contraryInstructionsAllowed=s.Series.ContraryInstructionsAllowed,
                     multiplier=s.Series.Multiplier.ToString(),currency=Single(data.ReferenceRows("currencies","code",s.Series.Currency.Code)).Text("display_code"),
-                    premiumTick=quote.TradingTick.ToString(),minimumPremium=quote.Minimum.ToString(),maximumPremium=quote.Maximum.ToString(),lotQuantity=s.Series.LotQuantity,
+                    premiumTick=quote.TradingTick.ToString(),minimumPremium=quote.Minimum.ToString(),maximumPremium=quote.Maximum.ToString(),
                     curve=s.Request.Curve.Code,settlementPrice=prices![s.Request].Single().Price.Value.ToString()};
             }).ToArray()};
     }

@@ -522,4 +522,27 @@ DO $$DECLARE f record;BEGIN
   IF f.proname<>'futures_option_contract_id' THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;
  END LOOP;
 END$$;
+
+-- The page assistant reads the option catalog under the agent reader's market and trading read authority. It books
+-- nothing: booking facts need a human booker, as for futures, and no agent tool needs BookTrade.
+DO $$BEGIN
+ IF(SELECT array_agg(code||':'||array_to_string(permissions,',') ORDER BY code) FROM assistant.agent_tools())IS DISTINCT FROM
+  ARRAY['navigate:','prepare_custom_curve:ReadMarketData','read_current_page:','read_custom_curves:ReadMarketData','read_jobs:ReadJobs',
+   'read_market_data:ReadMarketData','read_reference_data:ReadMarketData','read_schedules:ReadMarketData','read_trade_parties:ReadMarketData,ReadTradeParties',
+   'read_trades:ReadMarketData,ReadTrades','save_custom_curve_draft:ReadMarketData,WriteMarketDefinitions']
+ THEN RAISE EXCEPTION 'futures_options: unexpected agent tools' USING ERRCODE='55000';END IF;
+END$$;
+CREATE OR REPLACE FUNCTION assistant.agent_tools() RETURNS TABLE(code text,permissions text[]) LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ VALUES('navigate',ARRAY[]::text[]),('read_current_page',ARRAY[]::text[]),('read_market_data',ARRAY['ReadMarketData']),
+  ('read_reference_data',ARRAY['ReadMarketData']),('read_schedules',ARRAY['ReadMarketData']),
+  ('read_trade_parties',ARRAY['ReadMarketData','ReadTradeParties']),('read_trades',ARRAY['ReadMarketData','ReadTrades']),
+  ('futures_option_catalog',ARRAY['ReadMarketData','ReadTrades']),
+  ('read_custom_curves',ARRAY['ReadMarketData']),('prepare_custom_curve',ARRAY['ReadMarketData']),('read_jobs',ARRAY['ReadJobs']),
+  ('save_custom_curve_draft',ARRAY['ReadMarketData','WriteMarketDefinitions'])
+$$;
+DO $$BEGIN
+ IF EXISTS(SELECT 1 FROM assistant.agent_tools() WHERE 'BookTrade'=ANY(permissions) OR 'AmendTrade'=ANY(permissions))
+  OR EXISTS(SELECT 1 FROM security.role_permissions r JOIN security.roles o ON o.id=r.role_id WHERE o.code='agent_reader' AND r.permission IN('BookTrade','AmendTrade'))
+ THEN RAISE EXCEPTION 'futures_options: agents cannot book' USING ERRCODE='55000';END IF;
+END$$;
 COMMIT;

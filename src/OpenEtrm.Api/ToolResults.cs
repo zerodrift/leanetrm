@@ -81,6 +81,13 @@ static class ToolResults
             +result["curves"]!.AsArray().Sum(c=>c!["contracts"]!.AsArray().Count),false);
     }
 
+    // The option catalog's series and convention, without the booking directory only the page's booking uses.
+    public static ToolResult FuturesOptions(object catalog)
+    {
+        var read=Node(catalog).AsObject();
+        return new(new(){["convention"]=read["convention"]!.DeepClone(),["options"]=read["options"]!.DeepClone()},read["options"]!.AsArray().Count,false);
+    }
+
     public static ToolResult Parties(PartyRead read,string kind)=>new(new(){["kind"]=kind,["versions"]=Node(read.Versions)},read.Versions.GetArrayLength(),false);
 
     // Trade rows, each shown by its deal's formats, or the totals of a pivot, with the page's display.

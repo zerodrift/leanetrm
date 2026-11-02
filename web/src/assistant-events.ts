@@ -13,7 +13,7 @@ export type StreamItem=TurnEvent|{kind:'replaced'}|{kind:'refused';code:string;m
 
 const stored:readonly string[]=['accepted','step','navigation','text','usage','completed','failed','cancelled','interrupted'];
 const terminal:readonly string[]=['completed','failed','cancelled','interrupted'];
-export const tools:readonly string[]=['read_current_page','read_market_data','read_trades','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate'];
+export const tools:readonly string[]=['read_current_page','read_market_data','read_trades','futures_option_catalog','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate'];
 export const readPages:readonly string[]=['curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter','custom_curves','jobs'];
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,codePattern=/^[a-z][a-z0-9_]{0,63}$/,decimal=/^-?[0-9]+(\.[0-9]+)?$/;
 
