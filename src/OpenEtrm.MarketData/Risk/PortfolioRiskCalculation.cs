@@ -47,22 +47,31 @@ public static partial class RiskEngine
         internal PortfolioRiskMeasurement[] Measure(PreparedValuationMarket upMarket,PreparedValuationMarket downMarket,
             ExactDecimal size,PriceUnit unit,CancellationToken cancellation)
         {
+            var upValues=Evaluate(upMarket,cancellation);var downValues=Evaluate(downMarket,cancellation);
             var measured=new PortfolioRiskMeasurement[portfolios.Length];
             for(var group=0;group<portfolios.Length;group++)
             {
                 cancellation.ThrowIfCancellationRequested();
                 var portfolio=portfolios[group];var basis=Bases[group];
-                var up=portfolio.PV(upMarket,contracts[group],market,basis,cancellation,detail);
-                var down=portfolio.PV(downMarket,contracts[group],market,basis,cancellation,detail);
+                var up=upValues[group];var down=downValues[group];
                 var values=MeasurePortfolio(portfolio,basis,up,down,size,unit,detail,cancellation);
                 measured[group]=new(values.Totals,values.Positions,up.UnitValuations,down.UnitValuations);
-                IntervalWork[group].Add(up.IntervalSession);IntervalWork[group].Add(down.IntervalSession);
-                IntervalWork[group].Sides+=up.SideCalculations+down.SideCalculations;
-                Calls[group]+=up.UnitValuations+down.UnitValuations;
-                Applications[group]+=up.QuantityApplications+down.QuantityApplications;
             }
             cancellation.ThrowIfCancellationRequested();
             return measured;
+        }
+        internal PortfolioValue[] Evaluate(PreparedValuationMarket scenario,CancellationToken cancellation)
+        {
+            var values=new PortfolioValue[portfolios.Length];
+            for(var group=0;group<portfolios.Length;group++)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                var value=portfolios[group].PV(scenario,contracts[group],market,Bases[group],cancellation,detail);
+                values[group]=value;
+                IntervalWork[group].Add(value.IntervalSession);IntervalWork[group].Sides+=value.SideCalculations;
+                Calls[group]+=value.UnitValuations;Applications[group]+=value.QuantityApplications;
+            }
+            cancellation.ThrowIfCancellationRequested();return values;
         }
     }
     private static ImmutableArray<ExactRiskPositionValue> BasePositions(ValuationPortfolio portfolio,PortfolioValue value,RiskDetail detail)=>

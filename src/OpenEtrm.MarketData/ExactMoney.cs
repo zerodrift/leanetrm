@@ -50,6 +50,12 @@ public sealed record ExactMoney
         return new(value * new SignedRatio(ExactDecimal.WorkingScale, divisor.ScaledValue), Currency);
     }
     public ExactMoney Subtract(ExactMoney other)=>Add(other.Scale(ExactDecimal.Parse("-1")));
+    public int CompareTo(ExactMoney other)
+    {
+        if(other is null||Currency!=other.Currency)
+            throw new MarketDataException("currency_mismatch","Exact cash comparison requires the same currency reference.");
+        return value.CompareTo(other.value);
+    }
     public Money ToMoney()
     {
         if (!value.TryScaleToInteger(ExactDecimal.WorkingScale, out var scaled))

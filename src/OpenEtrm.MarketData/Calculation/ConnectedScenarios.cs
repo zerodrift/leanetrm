@@ -33,6 +33,7 @@ public sealed class ConnectedScenario
     public ConnectedCurvePlan Plan{get;}
     public string Id{get;}
     public string? ParentId{get;}
+    internal ConnectedScenario? Parent{get;}
     public int Depth=>session.Depth;
     public GraphWork Work=>session.Work;
     public ImmutableArray<ResolvedCurveShift> Shifts{get;}
@@ -40,8 +41,8 @@ public sealed class ConnectedScenario
     internal TargetIndex Targets=>targets;
 
     private ConnectedScenario(ConnectedCurvePlan plan,GraphSession<ExactUnitPrice> session,TargetIndex targets,
-        string id,string? parent,ImmutableArray<ResolvedCurveShift> shifts,ImmutableArray<ImmutableArray<ResolvedCurveShift>> layers)
-    {Plan=plan;this.session=session;this.targets=targets;Id=id;ParentId=parent;Shifts=shifts;Layers=layers;}
+        string id,ConnectedScenario? parent,ImmutableArray<ResolvedCurveShift> shifts,ImmutableArray<ImmutableArray<ResolvedCurveShift>> layers)
+    {Plan=plan;this.session=session;this.targets=targets;Id=id;Parent=parent;ParentId=parent?.Id;Shifts=shifts;Layers=layers;}
 
     public static ConnectedScenario Base(ConnectedCurvePlan plan,ConnectedCalculationCache? cache=null,CancellationToken cancellation=default)
     {
@@ -94,7 +95,7 @@ public sealed class ConnectedScenario
                 size=shift.Size.ToString(),currency=shift.Unit.Currency,quantity=shift.Unit.Quantity,
                 multiplier=shift.Unit.Multiplier.ToString(),input=shift.Input,observation=shift.Observation}));
         }
-        return new(Plan,child,targets,Convert.ToHexStringLower(hash.GetHashAndReset()),Id,ordered,Layers.Add(ordered));
+        return new(Plan,child,targets,Convert.ToHexStringLower(hash.GetHashAndReset()),this,ordered,Layers.Add(ordered));
     }
 
     internal ImmutableArray<ResolvedCurveShift> ResolveShifts(ImmutableArray<CurveShift> shifts,Func<CurvePointKey,ExactUnitPrice> price,CancellationToken cancellation)

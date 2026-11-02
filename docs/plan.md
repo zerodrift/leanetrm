@@ -11,6 +11,12 @@ directory remains separate from a complete archive. Joint statistical scenarios,
 aligned history, VaR/expected shortfall, Monte Carlo/PCA/hybrid, EVT and backtesting
 remain subsequent increments; deterministic graphics do not establish them.
 
+D291 adds the [managed joint-scenario and mixed-derivative boundary](joint-scenario-risk.md):
+bounded named sibling shocks, exact full-PV loss, selected cross-gammas and explicit
+half/nominal/double step diagnostics. Joint-run HTTP admission, durable retention
+and graphical widgets remain the next integration gate. Aligned history and
+statistical engines remain subsequent increments.
+
 D284 adds [workspace assistant operations and page guidance](assistant-workspace.md):
 discovery, reads/previews and separately human-approved commands, immutable page
 prompts under a delegated permission, and operational turns without financial-data

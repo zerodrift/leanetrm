@@ -1561,6 +1561,13 @@ pass the booked holding quantity into an instrument's unit calculation.
 
 ### 5.3 Sensitivities, scenario P&L and explain
 
+The managed [joint-scenario boundary](joint-scenario-risk.md) (D291) evaluates
+bounded named sibling scenarios with exact loss/P&L, common PV/quantity handling,
+selected mixed differences and explicit half/nominal/double step diagnostics.
+Temporary child layers leave the parent context unchanged even on failure.
+Completed results retain receipts and actual work, without child graph sessions.
+HTTP/durable joint-run admission and the new report widgets remain integration work.
+
 Finite differences and full repricing are the generic black-box mechanism. For
 an absolute bump `h` in factor `f`:
 

@@ -70,8 +70,10 @@ the displayed address. Exports reread every part under current authority.
 
 ## Remaining work
 
-Joint scenario streaming and selected mixed derivatives, aligned dated-factor
-history, parametric and historical VaR/expected shortfall, Monte Carlo, PCA/hybrid,
+The [managed joint-scenario and selected mixed-derivative boundary](joint-scenario-risk.md)
+is implemented (D291); admission, retained joint runs and their graphical widgets
+remain work. Aligned dated-factor history, parametric and historical VaR/expected
+shortfall, Monte Carlo, PCA/hybrid,
 EVT, distribution diagnostics and backtesting remain separate increments. The
 current graphs describe deterministic sensitivity/scenario results. They do not
 claim statistical loss distributions or validated production throughput.
