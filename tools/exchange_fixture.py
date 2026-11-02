@@ -103,6 +103,8 @@ OPTION_RULES=[
  ('nymex_itm_settlement_v1','automatic_exercise','On the last exercise day an option in the money by any amount against the underlying futures daily settlement price on its last trading day is exercised; exactly at the money calls are exercised and puts abandoned; otherwise abandoned','not_applicable','nymex_option_rulebook'),
  ('nymex_exercise_notice_v1','exercise_notice','Exercise notice by 4:15 p.m. from customer to clearing member and by 4:30 p.m. or 45 minutes after settlement posting to the clearing house; time zone not stated','unknown','nymex_option_rulebook'),
 ]
+# The automatic exercise rule's stated parameters: any in-the-money amount exercises; at the money, calls exercise and puts abandon.
+AUTOMATIC_EXERCISE={'nymex_itm_settlement_v1':"'settlement_moneyness_v1',0,'exercise','abandon'"}
 
 def source_row(R,code,kind,locator,note,retrieved='2026-11-01'):
     review='redistributable' if kind=='manual_entry' else 'not_reviewed'
@@ -135,7 +137,8 @@ def crude_reference(R):
 
 def option_reference(R):
     """Option rules, products and series; each series expires at its product's configured time on its confirmed date."""
-    refs=[f"INSERT INTO ref_data.futures_option_rules VALUES({R},'{code}','{kind}',1,'{text}','{clock}',NULL,'{src}');" for code,kind,text,clock,src in OPTION_RULES]
+    refs=[f"INSERT INTO ref_data.futures_option_rules VALUES({R},'{code}','{kind}',1,'{text}','{clock}',NULL,'{src}',{AUTOMATIC_EXERCISE.get(code,'NULL,NULL,NULL,NULL')});"
+          for code,kind,text,clock,src in OPTION_RULES]
     series=[]
     for code,name,underlying,multiplier,increment,interval,centre,step,expiries,_ in OPTION_PRODUCTS:
         commodity='test_gas' if underlying=='nymex_ng' else 'test_crude'

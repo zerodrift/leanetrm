@@ -129,6 +129,7 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("swap_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit side, reference, date or lifecycle terms."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_conflict" => (409,"futures_conflict","This trade request identity already has different economics or ownership."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="option_conflict" => (409,p.MessageText,"This trade request identity already has different economics or ownership."),
+    PostgresException p when p.SqlState=="P0001" && FuturesOptionStore.EventRefusal(p.MessageText) is not null => (422,p.MessageText,FuturesOptionStore.EventRefusal(p.MessageText)!),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("option_",StringComparison.Ordinal)
         => (422,p.MessageText,"The option booking needs a listed series, signed whole lots, a premium on its tick, an explicit payment date and premium paid up front before expiry."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_revision_conflict" => (409,"futures_revision_conflict","The trade changed. Reload its latest revision before amending."),
@@ -1547,18 +1548,26 @@ api.MapPost("/futures/status",(HttpContext c,FuturesStatusRequest body)=>Locked(
 // Listed futures options: the bookable series at a frame, and booking with premium paid up front under the futures booking authority.
 var optionStore=new FuturesOptionStore(database.Manifest);
 api.MapPost("/options/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,optionStore.Catalog,expectedConvention:FuturesOptionStore.Convention));
-api.MapPost("/options/book",(HttpContext c,FuturesOptionBookRequest body)=>Locked(c,async session=>
+// Option bookings and lifecycle events, written by a human under the booking authority; no agent tool writes them.
+Task<IResult> OptionWrite(HttpContext c,Guid snapshot,Func<NpgsqlConnection,InputFrame,CancellationToken,Task<JsonElement>> write)=>Locked(c,async session=>
 {
-    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking.");
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before booking or recording option events.");
     c.Items["futures_attempted"]=true;
     return await database.WithIdentity(Profile(session),"BookTrade",async(connection,ct)=>
     {
         if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct))throw new PreviewDeniedException();
-        return Results.Ok(await optionStore.Book(connection,Frame(session,body.SnapshotId),body,ct));
+        return Results.Ok(await write(connection,Frame(session,snapshot),ct));
     },c.RequestAborted);
-}));
+});
+api.MapPost("/options/book",(HttpContext c,FuturesOptionBookRequest body)=>OptionWrite(c,body.SnapshotId,(connection,frame,ct)=>optionStore.Book(connection,frame,body,ct)));
 api.MapPost("/options/status",(HttpContext c,FuturesOptionStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
     Results.Ok(await optionStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
+api.MapPost("/options/exercise",(HttpContext c,FuturesOptionEventRequest body)=>OptionWrite(c,body.SnapshotId,(connection,frame,ct)=>optionStore.Close(connection,frame,body,"exercise",ct)));
+api.MapPost("/options/assignment",(HttpContext c,FuturesOptionEventRequest body)=>OptionWrite(c,body.SnapshotId,(connection,frame,ct)=>optionStore.Close(connection,frame,body,"assignment",ct)));
+api.MapPost("/options/instruction",(HttpContext c,FuturesOptionInstructionRequest body)=>OptionWrite(c,body.SnapshotId,(connection,frame,ct)=>optionStore.Instruct(connection,frame,body,ct)));
+api.MapPost("/options/expiry",(HttpContext c,FuturesOptionExpiryRequest body)=>OptionWrite(c,body.SnapshotId,(connection,frame,ct)=>optionStore.Expire(connection,frame,body,ct)));
+api.MapPost("/options/holding",(HttpContext c,FuturesOptionHoldingRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("option_trade","Supply the selected context."),
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>optionStore.Holding(connection,body.TradeId,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 api.MapGet("/jobs",(HttpContext c,int? page,int? collectionPage)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
     async(connection,ct)=>Results.Ok(await CollectionJobs.Directory(connection,ct,page??0,collectionPage??0)),c.RequestAborted)));
 api.MapPost("/jobs/collection/update",(HttpContext c,CollectionJobUpdate body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,

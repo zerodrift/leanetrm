@@ -100,7 +100,9 @@ facts only and no document text or prices.
     before.
   - Automatic exercise, `nymex_itm_settlement_v1`: an option in the money by any amount
     against the underlying's daily settlement on its last trading day is exercised. At
-    exactly the money, calls are exercised and puts abandoned.
+    exactly the money, calls are exercised and puts abandoned. The row stores these as
+    parameters of the `settlement_moneyness_v1` evaluation: in-the-money threshold 0,
+    at-the-money call `exercise`, at-the-money put `abandon`.
   - Exercise-notice cutoffs: 4:15 p.m. and 4:30 p.m. The rule states no time zone, so no
     instruction-cutoff instant is derived.
 - **Option series (`ref_data.futures_option_series`):** explicit rows for the December
@@ -117,6 +119,41 @@ Every series is an executable `future_option` market contract on its product's d
 `daily_settlement` curve. The market curve directory lists price curves; option settlement
 curves are reached through their options. NG and CL futures are priced at `daily_settlement` as well,
 because an option and its underlying are calibrated under the same observation role.
+
+### Option lifecycle
+
+Each lifecycle event is one authorized operation. It needs the booking authority, current
+knowledge and a request identity, and a retry returns its first outcome (D238).
+
+- **`security.record_futures_option_event`** (`options/exercise`, `options/assignment`,
+  `options/instruction`):
+  - exercise closes lots of a long holding, assignment lots of a short holding, at the
+    frame's time;
+  - the date must be a business day of the underlying's trading calendar, from the
+    trade's execution through the option's expiry date;
+  - instructions are refused with `option_contrary_instructions_not_accepted` unless the
+    product row accepts them; where accepted, they must be filed before the series'
+    configured cutoff.
+- **`security.process_futures_option_expiry`** (`options/expiry`) closes a holding's
+  open lots at the option's expiry instant:
+  - a filed instruction decides; otherwise the product's automatic exercise rule
+    evaluates the underlying's final daily settlement on the expiry date, taken from
+    the frame's selected observations;
+  - with no such settlement it raises `option_expiry_settlement_missing`, writes
+    nothing and leaves the holding open.
+- **Linked futures.** Each exercised or assigned lot books one future of the underlying
+  at the strike. It goes in the option's book with its legal entity and counterparty,
+  booked by the caller, in the same transaction and through the futures booking path.
+  - A call exercise or put assignment books a long future; a put exercise or call
+    assignment books a short future.
+  - The future's operation identity is derived from the event's request identity.
+  - The future is valued on the underlying's single direct daily-settlement curve.
+- **Reads.** Open lots are never negative. `options/holding` reads a holding's open lots
+  and events at the read's knowledge, so a read before an event shows the holding as it
+  was.
+
+The exercise-notice times of day are not enforced, because the rule states no time zone.
+No agent tool records lifecycle events.
 
 ### Synthetic option settlements
 

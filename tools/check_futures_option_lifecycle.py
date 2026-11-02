@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 import uuid
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import uuid4
 from preview_client import PreviewClient
@@ -180,3 +181,201 @@ def check_agent_catalog(url, query, manifest, fake):
     print(f"PASS the agent's futures option catalog equals options/catalog for all 61 listed series at the turn's frame", flush=True)
     assert size <= TOOL_RESULT_BYTES * MARGIN, size
     print(f'PASS the 61-series catalog result is {size} bytes, within {MARGIN:%} of the {TOOL_RESULT_BYTES}-byte tool-result bound', flush=True)
+
+
+def run_lifecycle_checks(url, query, manifest):
+    """Exercise, assignment, instructions and expiry of booked ON options. Futures booked from an event are read back
+    from the futures booking tables; expiry outcomes on the expiry day's settlement run in rolled-back transactions."""
+    base = PreviewClient(url); base.bootstrap()
+    c = PreviewClient(url, 'exchange'); c.opener = base.opener; c.bootstrap(); c.call('profile', {'profile': 'trader'})
+    frame = next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2026-10-16'))
+    context = {'snapshotId': frame['id'], 'convention': CONVENTION, 'knowledgeMode': 'current'}
+    catalog = c.call('options/catalog', context)
+    catalog_id, reference = manifest['catalogId'], (manifest['referenceCatalogId'], manifest['referenceRevisionId'])
+    call = next(o for o in catalog['options'] if o['product'] == 'nymex_on' and o['right'] == 'call')
+    put = next(o for o in catalog['options'] if o['product'] == 'nymex_on' and o['right'] == 'put' and o['underlyingSeries'] == call['underlyingSeries'])
+    parties = {'legalEntityId': catalog['legalEntities'][0]['id'], 'legalEntityRevision': catalog['legalEntities'][0]['revision'],
+               'counterpartyId': catalog['counterparties'][-1]['id'], 'counterpartyRevision': catalog['counterparties'][-1]['revision']}
+    book = catalog['books'][-1]['id']
+
+    output = []
+
+    def check(name, condition, actual=None):
+        assert condition, f'{name}: {actual if actual is not None else output}'
+        print('PASS ' + name, flush=True)
+
+    def booked(option, lots):
+        return c.call('options/book', {'operationId': str(uuid4()), **context, 'bookId': book, 'series': option['series'], 'lots': lots,
+                                       'premium': '0.125', 'premiumPaymentDate': '2026-10-19', 'premiumStyle': 'premium_paid_up_front', **parties})['tradeId']
+
+    def event(path, trade, expected=200, **fields):
+        return c.call('options/' + path, {'operationId': str(uuid4()), **context, 'tradeId': trade, **fields}, expected=expected)
+
+    def future(trade):
+        """The linked futures trade as booked: lots, execution price, book, parties, series, booker and execution time."""
+        return query(f"""SELECT concat_ws('|',trim_scale(r.lots),trim_scale(r.execution_price),r.book_id,r.legal_entity_id,r.counterparty_id,
+            f.series_code,b.booker_login,r.execution_at=e.business_at)
+            FROM trading.trade_revisions r JOIN trading.futures_contract_references f ON(f.catalog_id,f.instrument_id)=(r.catalog_id,r.instrument_id)
+            JOIN trading.booking_facts b ON(b.catalog_id,b.trade_id)=(r.catalog_id,r.trade_id)
+            JOIN trading.futures_option_events e ON(e.catalog_id,e.futures_trade_id)=(r.catalog_id,r.trade_id)
+            WHERE r.catalog_id='{catalog_id}' AND r.trade_id='{trade}';""")
+
+    def counts():
+        return query(f"SELECT concat_ws('|',(SELECT count(*) FROM trading.trades WHERE catalog_id='{catalog_id}'),"
+                     f"(SELECT count(*) FROM trading.futures_option_events WHERE catalog_id='{catalog_id}'));")
+
+    def expected_future(lots, option):
+        return '|'.join([lots, option['strike'], book, parties['legalEntityId'], parties['counterpartyId'], option['underlyingSeries'], 'trader', 't'])
+
+    def holding(trade, knowledge):
+        return c.call('options/holding', {'context': {**context, **knowledge}, 'tradeId': trade})
+
+    # Early exercise and its retry.
+    long_call = booked(call, '5')
+    before_event = c.call('options/catalog', context)['context']['contextId']
+    exercise = {'operationId': str(uuid4()), **context, 'tradeId': long_call, 'lots': '3'}
+    exercised = c.call('options/exercise', exercise)
+    check('a partial early exercise of 3 of 5 lots books 3 long NG futures at the strike in the option\'s book and parties and leaves 2 open',
+          future(exercised['futuresTradeId']) == expected_future('3', call) and exercised['remainingLots'] == '2' and
+          holding(long_call, {})['openLots'] == '2', (future(exercised['futuresTradeId']), exercised))
+    before = counts()
+    check('retrying an exercise request returns its first outcome and the same futures trade, recording nothing',
+          c.call('options/exercise', exercise) == exercised and counts() == before)
+    check('an exercise request retried with different lots is refused',
+          c.call('options/exercise', {**exercise, 'lots': '2'}, expected=409)['code'] == 'option_conflict' and counts() == before)
+    check('exercising more than the open lots is refused', event('exercise', long_call, 422, lots='3')['code'] == 'option_lots_exceeded' and counts() == before)
+    for lots in ['0', '-1', '1.5']:
+        assert event('exercise', long_call, 422, lots=lots)['code'] == 'option_event_input', lots
+    check('zero, negative and fractional event lots are refused', counts() == before)
+    retained = holding(long_call, {'knowledgeMode': 'retained', 'contextId': before_event})
+    check('a historical read before the exercise shows the holding\'s five open lots and no events',
+          retained['openLots'] == '5' and retained['events'] == [] and len(holding(long_call, {})['events']) == 1, retained)
+
+    # Assignment of a short call books a short future; a holding's side decides which event applies.
+    short_call = booked(call, '-2')
+    assigned = event('assignment', short_call, lots='1')
+    check('assignment of a short call books a short future at the strike', future(assigned['futuresTradeId']) == expected_future('-1', call), future(assigned['futuresTradeId']))
+    before = counts()
+    check('a short holding cannot be exercised and a long holding cannot be assigned',
+          event('exercise', short_call, 422, lots='1')['code'] == 'option_event_side' and
+          event('assignment', long_call, 422, lots='1')['code'] == 'option_event_side' and counts() == before)
+    check('ON does not accept contrary instructions, as its product reference row states',
+          event('instruction', long_call, 422, instruction='abandon')['code'] == 'option_contrary_instructions_not_accepted' and
+          event('instruction', long_call, 422, instruction='exercise')['code'] == 'option_contrary_instructions_not_accepted' and counts() == before)
+    check('an unknown instruction is refused', event('instruction', long_call, 422, instruction='hold')['code'] == 'option_event_input' and counts() == before)
+    check('expiry without the underlying\'s settlement on the expiry date is refused, writes nothing and leaves the holding open',
+          event('expiry', long_call, 422)['code'] == 'option_expiry_settlement_missing' and counts() == before and holding(long_call, {})['openLots'] == '2')
+    missing = event('exercise', str(uuid4()), 422, lots='1')
+    check('a nonexistent trade is refused', missing['code'] == 'option_trade', missing)
+
+    # Authority mirrors booking.
+    c.call('profile', {'profile': 'risk'})
+    c.call('options/exercise', {'operationId': str(uuid4()), **context, 'tradeId': long_call, 'lots': '1'}, expected=403)
+    c.call('profile', {'profile': 'trader'})
+    check('a user without booking permission cannot exercise and nothing is recorded', counts() == before)
+
+    def withdrawn(table, column, catalog, work):
+        held = query(f"SELECT coalesce(json_agg(s),'[]')::text FROM security.{table} s WHERE {column}='{catalog}';")
+        query(f"DELETE FROM security.{table} WHERE {column}='{catalog}';")
+        try:
+            return work()
+        finally:
+            query(f"INSERT INTO security.{table} SELECT * FROM json_populate_recordset(NULL::security.{table},'" + held.replace("'", "''") + "'::json);")
+    unseen = withdrawn('reference_catalog_scopes', 'catalog_id', reference[0], lambda: event('exercise', long_call, 422, lots='1'))
+    check('a trader whose reference scope is withdrawn cannot exercise, and the trade is refused exactly as a nonexistent one',
+          unseen == missing and counts() == before, unseen)
+    withdrawn('market_catalog_scopes', 'catalog_id', catalog_id, lambda: event('exercise', long_call, 403, lots='1'))
+    check('a trader without market read access cannot exercise', counts() == before)
+
+    # The authorized SQL operations under the trader's own request context, in transactions that roll back.
+    long_put = booked(put, '1')
+    settled = counts()
+    token = lambda: query("SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context("
+                          f"'https://exchange-preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
+    R = f"'{reference[0]}','{reference[1]}'"
+    underlying = query(f"""SELECT s.id FROM market_data.series s JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(s.catalog_id,s.revision_id,s.contract_id)
+        WHERE (s.catalog_id,s.revision_id)=('{catalog_id}','{manifest['revisionId']}') AND k.kind='future' AND k.futures_series_code='{call['underlyingSeries']}';""")
+    expiry_day = query(f"SELECT last_trading_date FROM ref_data.futures_option_series WHERE (catalog_id,revision_id,code)=({R},'{call['series']}');")
+    settlement_id = '7a000000-0000-0000-0000-00000000f008'
+
+    def settle(price, day=expiry_day):
+        """A synthetic final daily settlement of the underlying, observed and received at 18:00 UTC on a date."""
+        return (f"INSERT INTO market_data.observations VALUES('{catalog_id}','{settlement_id}','{manifest['revisionId']}','{underlying}',{R},'fixture',"
+                f"'synthetic_expiry_{uuid4().hex}','1','daily_settlement','final','{day}T18:00:00Z','{day}T18:00:00Z',{price},NULL);")
+
+    def lines(statements, setup=''):
+        """Runs statements as the trader in one transaction that rolls back, after a setup run as the owner; returns their output."""
+        output[:] = [line for line in query(f"BEGIN;{setup}SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token()}');{statements}ROLLBACK;").splitlines() if line]
+        return list(output)
+
+    def sql(statements, setup=''):
+        return lines(statements, setup)[-1:]
+
+    def expire(trade, request='7b000000-0000-0000-0000-00000000f008', observations=f"ARRAY['{settlement_id}']::uuid[]"):
+        return f"SELECT security.process_futures_option_expiry('{catalog_id}','{request}','{trade}',{observations})->>'outcome';"
+
+    def refused(statement, code):
+        return (f"DO $$ BEGIN PERFORM {statement.removeprefix('SELECT ').rstrip(';')};RAISE EXCEPTION 'Expected rejection';"
+                f"EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'{code}' THEN RAISE;END IF;END $$;SELECT 'refused';")
+
+    def linked(trade):
+        """The outcome of a trade's expiry, the lots of the future it booked and its remaining lots, read back as the owner."""
+        return (f"RESET SESSION AUTHORIZATION;SELECT concat_ws('|',e.outcome,coalesce((SELECT trim_scale(r.lots)::text FROM trading.trade_revisions r WHERE(r.catalog_id,r.trade_id)=(e.catalog_id,e.futures_trade_id)),'none'),"
+                f"trim_scale(e.remaining_lots)) FROM trading.futures_option_events e WHERE e.catalog_id='{catalog_id}' AND e.trade_id='{trade}' AND e.kind='expiry';")
+    strike = Decimal(call['strike'])
+    itm, otm = strike + Decimal('0.5'), strike - Decimal('0.5')
+    check('at expiry an in-the-money long call is exercised automatically into long futures for its open lots',
+          sql(expire(long_call) + linked(long_call), settle(itm)) == ['exercised|2|0'])
+    check('exactly at the money a call is exercised and a put abandoned, as the stored rule states',
+          sql(expire(long_call) + linked(long_call), settle(strike)) == ['exercised|2|0'] and
+          sql(expire(long_put) + linked(long_put), settle(Decimal(put['strike']))) == ['abandoned|none|0'])
+    check('an out-of-the-money call is abandoned and books nothing', sql(expire(long_call) + linked(long_call), settle(otm)) == ['abandoned|none|0'])
+    check('at expiry an in-the-money short call is assigned into a short future for its open lot',
+          sql(expire(short_call) + linked(short_call), settle(itm)) == ['exercised|-1|0'])
+    call_expiry = expire(long_call).removeprefix('SELECT ').replace("->>'outcome';", '')
+    retried = lines(f"DO $$DECLARE first jsonb={call_expiry};BEGIN IF {call_expiry} IS DISTINCT FROM first THEN RAISE EXCEPTION 'retry differs';END IF;END $$;SELECT 't';" +
+                    refused(expire(long_call, str(uuid4())), 'option_expired'), settle(itm))
+    check('retrying an expiry returns its first outcome; a second expiry of the holding is refused', retried[-2:] == ['t', 'refused'], retried)
+    check('with the settlement removed from the selected inputs, expiry is refused and writes nothing',
+          sql(refused(expire(long_call, observations="ARRAY[]::uuid[]"), 'option_expiry_settlement_missing') +
+              f"RESET SESSION AUTHORIZATION;SELECT count(*) FROM trading.futures_option_events WHERE catalog_id='{catalog_id}' AND kind='expiry';", settle(itm)) == ['0'])
+    check('a settlement on another date is not the expiry settlement',
+          sql(refused(expire(long_call), 'option_expiry_settlement_missing'), settle(itm, '2026-10-16')) == ['refused'])
+    unknown = ("ALTER TABLE ref_data.futures_option_rules DISABLE TRIGGER USER;"
+               f"UPDATE ref_data.futures_option_rules SET evaluation='unlisted_rule_v1' WHERE (catalog_id,revision_id,kind)=({R},'automatic_exercise');"
+               "ALTER TABLE ref_data.futures_option_rules ENABLE TRIGGER USER;")
+    check('an automatic exercise rule with an unknown evaluation is a structured error',
+          sql(refused(expire(long_call), 'option_exercise_rule_unknown'), unknown + settle(itm)) == ['refused'])
+
+    # A product that accepts contrary instructions, with its configured cutoff: a synthetic change to the ON rows.
+    def instructions(cutoff):
+        return ("ALTER TABLE ref_data.futures_option_products DISABLE TRIGGER USER;ALTER TABLE ref_data.futures_option_series DISABLE TRIGGER USER;"
+                f"UPDATE ref_data.futures_option_products SET contrary_instructions_allowed=true WHERE (catalog_id,revision_id,code)=({R},'nymex_on');"
+                f"UPDATE ref_data.futures_option_series SET instruction_cutoff_at={cutoff} WHERE (catalog_id,revision_id,product_code)=({R},'nymex_on');"
+                "ALTER TABLE ref_data.futures_option_products ENABLE TRIGGER USER;ALTER TABLE ref_data.futures_option_series ENABLE TRIGGER USER;")
+
+    def instruct(kind, trade=long_call, at=frame['at']):
+        return f"SELECT security.record_futures_option_event('{catalog_id}','{uuid4()}','{trade}','{kind}',NULL,'{at}')->>'kind';"
+    open_until = instructions('expiry_at')
+    check('where a product accepts instructions, an abandon instruction on an in-the-money option means expiry books nothing',
+          sql(instruct('abandon_instruction') + expire(long_call) + linked(long_call), open_until + settle(itm)) == ['abandoned|none|0'])
+    check('an exercise instruction on an out-of-the-money option means expiry books futures',
+          sql(instruct('exercise_instruction') + expire(long_call) + linked(long_call), open_until + settle(otm)) == ['exercised|2|0'])
+    check('an instruction after the configured cutoff is refused',
+          sql(refused(instruct('exercise_instruction'), 'option_instruction_closed'), instructions("TIMESTAMPTZ '2026-10-16T15:00:00Z'")) == ['refused'])
+    check('a product that accepts instructions but has no configured cutoff refuses them',
+          sql(refused(instruct('exercise_instruction'), 'option_instruction_cutoff_unknown'), instructions('NULL')) == ['refused'])
+    check('a short holding files no instructions', sql(refused(instruct('abandon_instruction', short_call), 'option_event_side'), open_until) == ['refused'])
+    check('a holding files one instruction', sql(instruct('exercise_instruction') + refused(instruct('abandon_instruction'), 'option_instruction_exists'), open_until) == ['refused'])
+    close_all = f"SELECT security.record_futures_option_event('{catalog_id}','{uuid4()}','{long_call}','exercise',2,'{frame['at']}')->>'remainingLots';"
+    check('a holding whose lots are all exercised has nothing to expire',
+          lines(close_all + refused(expire(long_call), 'option_holding_closed'), settle(itm))[-2:] == ['0', 'refused'], output)
+
+    # Early exercise dates follow the underlying's trading calendar and end on the option's expiry date.
+    def exercise_at(at, code):
+        return sql(refused(f"SELECT security.record_futures_option_event('{catalog_id}','{uuid4()}','{long_call}','exercise',1,'{at}');", code))
+    check('exercise after the option\'s expiry date is refused',
+          exercise_at(f'{date.fromisoformat(expiry_day) + timedelta(days=1)}T16:00:00Z', 'option_exercise_window') == ['refused'])
+    check('exercise before the option trade was executed is refused', exercise_at('2026-10-15T16:00:00Z', 'option_exercise_window') == ['refused'])
+    check('exercise on a date outside the trading calendar is refused', exercise_at('2026-10-20T16:00:00Z', 'option_calendar') == ['refused'])
+    check('nothing was recorded by the rolled-back checks', counts() == settled, counts())
