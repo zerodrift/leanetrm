@@ -62,6 +62,8 @@ public static class RiskJobs
         pinnedFrame["scenarioAxes"]=JsonSerializer.SerializeToNode(CurveRiskAxes.Retained(prepared),Json);
         // The worker leaves out exactly the positions this submission left out (D220).
         pinnedFrame["excludedPositions"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Excluded,Json);
+        // Option calibrations are recomputed from the pinned inputs on replay, which must reproduce these receipts exactly.
+        pinnedFrame["optionCalibrations"]=JsonSerializer.SerializeToNode(prepared.Portfolio.OptionCalibrations,Json);
         pinnedFrame["ppaReadContexts"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Ppa?.ReadContexts??[],Json);
         // The books and portfolios the run was asked for, as chosen: its results are shown only against a read of the same (D222).
         pinnedFrame["scope"]=ScopeFrame(body.Request.BookIds,body.Request.PortfolioIds);

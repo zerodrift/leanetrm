@@ -12,7 +12,7 @@ public readonly record struct CurveKey(DefinitionRevision Revision, string Code)
 public readonly record struct SeriesKey(DefinitionRevision Revision, Guid Id);
 public readonly record struct ObservationKey(Guid CatalogId, Guid Id);
 
-public enum ContractKind { Future = 1, Forward }
+public enum ContractKind { Future = 1, Forward, FutureOption }
 public enum QuoteKind { Outright = 1, Basis }
 public enum CurveRule { Direct = 1, Add, ScaleAdd }
 public enum InputSlot { Base = 1, Spread }
@@ -42,6 +42,8 @@ public sealed record SettlementTarget(
 public sealed record DeliveryInterval(DateTimeOffset Start, DateTimeOffset End, DateOnly OperatingDate,
     int HourBeginning, int Minute, int Occurrence);
 
+// FuturesSeries is the contract's exact listed series: a futures series for a
+// future, the option series for a futures option.
 public sealed record MarketContract(
     ContractKey Key, ContractKind Kind, DateOnly DeliveryFrom, DateOnly DeliveryTo,
     DateTimeOffset Expiry, ReferenceKey? FuturesSeries, DeliveryInterval? Interval = null);
@@ -56,6 +58,16 @@ public sealed record FuturesSeriesSpecification(
     ReferenceKey DeliveryProfile, DateOnly DeliveryFrom, DateOnly DeliveryTo,
     DateTimeOffset LastTradingAt, ReferenceKey LotQuantity,
     ExactDecimal ContractSize, LotBasis LotBasis, DateTimeOffset? FirstTradingAt, string SettlementMethod,FuturesLotResolution? LotResolution=null,FuturesBasisSettlement? BasisSettlement=null);
+
+// A listed option on an exact futures series; the series key is its identity.
+// Multiplier converts one unit of the option price into currency per contract,
+// and LotQuantity is the quantity specification of one option contract. Whether
+// contrary instructions are accepted is the product's; an instruction cutoff is
+// present only where a source states its instant.
+public sealed record FuturesOptionSeriesSpecification(
+    ReferenceKey Key, ReferenceKey Product, ReferenceKey UnderlyingSeries, Options.FuturesOptionTerms Terms,
+    ExactDecimal Multiplier, ReferenceKey Currency, ReferenceKey LotQuantity, ExactDecimal ClearingIncrement,
+    string AutomaticExerciseRule, bool ContraryInstructionsAllowed, DateTimeOffset? InstructionCutoffAt, string PremiumStyle);
 
 // Identity mapping is the first supported delivery mapping. Explicitly named
 // pairs are required even where source and target delivery periods are equal.

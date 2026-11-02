@@ -27,7 +27,8 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
     public const int MaxHoldingsBumps=16,MaxBooksBumps=4096;
     private static readonly AmountFormat Display=new(12,CashTieRule.ToEven,false,true);
     private static PortfolioValuationPolicy PricingPolicy=>new(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,
-        FuturesRisk.Implementation,SwapStore.Convention,RateConventions.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1");
+        FuturesRisk.Implementation,SwapStore.Convention,RateConventions.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1",
+        FuturesOptionValuationPolicy.Release1);
     internal sealed record Prepared(PortfolioRiskRequest Request,RiskDetail Detail,
         ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books,PortfolioValuation.Prepared Portfolio,
         ImmutableArray<PortfolioCurveBump> Bumps,ImmutableArray<PortfolioCurveShift> Stress,
@@ -133,7 +134,9 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
 
     internal static object Calculate(Prepared prepared,CancellationToken ct)
     {
+        var trees=prepared.Portfolio.Options?.TreePrices??0;
         var run=PortfolioValuation.Calculate(prepared.Portfolio,prepared.Bumps,prepared.Stress,prepared.Detail,ct);
+        var optionWork=prepared.Portfolio.OptionWork is {} work?work with{ScenarioTreePrices=prepared.Portfolio.Options!.TreePrices-trees}:null;
         var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
         var positions=run.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
         string Book(Guid id)=>prepared.Books.Single(b=>b.Id("id")==id).Text("name");
@@ -150,6 +153,10 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             engineVersion=RiskJobs.EngineVersion,displayPolicy=new{implementation="risk_decimal_display_v1",decimalPlaces=12,tieRule="to_even"},
             run.Work,run.SnapshotId,run.ConnectedScenarios,scenario=Scenario(prepared),heldInstruments=run.Positions.Select(p=>p.InstrumentId).Distinct().Count(),
             excludedPositions=prepared.Portfolio.Excluded,
+            // Options: each series' calibration receipt, the policy that holds it in every scenario, and how many held positions are in the intrinsic mode.
+            scenarioPolicy=prepared.Portfolio.Options is null?null:prepared.Portfolio.Policy.FuturesOptions!.ScenarioPolicy,
+            optionCalibrations=prepared.Portfolio.OptionCalibrations,optionWork,
+            fallbackPositions=prepared.Portfolio.OptionModes.Values.Count(mode=>mode==OpenEtrm.MarketData.Options.ImpliedVolatility.FallbackMode),
             projectionPolicies=ProjectionPolicyReceipts.For(run.ModelContracts),
             ppaMeasures=run.PpaMeasures,inputs=new{pricingPolicy=run.Policy,ppaReceipt=run.PpaReceipt is {} receipt?PpaPortfolio.Receipt(receipt):null,markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,
                 snapshotId=m.Snapshot.Id,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff,curveNumericalPolicy=CurveModel.NumericalPolicy,
@@ -166,15 +173,18 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
                 positions=run.HoldingRisk.Where(r=>r.Factor==b.Axis.Id).Select(r=>
                 {
                     var p=r.Position;var evidence=positions[(p.TradeId,p.BindingId)];
-                    return new{p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,evidence.InstrumentReference,
-                        evidence.InstrumentType,r.Measure,measureLabel=MeasureLabel(r.Measure),values=Values(p.Values)};
+                    var position=JsonSerializer.SerializeToNode(new{p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
+                        evidence.InstrumentReference,evidence.InstrumentType,r.Measure,measureLabel=MeasureLabel(r.Measure),values=Values(p.Values)},RiskJobs.Json)!.AsObject();
+                    // An option position states the calibration mode it was valued in; no other position has one.
+                    if(prepared.Portfolio.OptionModes.TryGetValue((p.TradeId,p.BindingId),out var mode))position["calibrationMode"]=mode;
+                    return position;
                 })})};
     }
 
     private static string Displayed(ExactMoney value)=>Display.FormatFraction(BigInteger.Parse(value.Numerator,CultureInfo.InvariantCulture),BigInteger.Parse(value.Denominator,CultureInfo.InvariantCulture));
     private static string MeasureLabel(string measure)=>measure switch{
         PortfolioValuation.FuturesMeasure=>"Futures execution P&L",PortfolioValuation.SwapMeasure=>"Present value",PortfolioValuation.PpaMeasure=>"Value excluding overdue cash",
-        CrudePositions.Measure=>"Crude contractual PV",
+        CrudePositions.Measure=>"Crude contractual PV",FuturesOptionPositions.Measure=>FuturesOptionPositions.MeasureLabel,
         GasPositions.Measure=>"Gas contractual PV",
         _=>throw new MarketDataException("valuation_measure","The report requires an explicit valuation measure label.")};
     private static string Currency(ImmutableArray<PreviewData> markets,ReferenceKey key)=>Reference(markets,"currencies",key).Text("display_code");

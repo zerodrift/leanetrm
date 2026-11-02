@@ -74,6 +74,8 @@ static class NavigationTargets
             {Arguments:PpaBookArguments book}=>Filter(new(){["view"]="ppa_book",["mode"]=null,["bookIds"]=Strings([book.Book.ToString()]),
                 ["portfolioIds"]=null,["groupBy"]=null,["measures"]=null,["tradeId"]=null,["instrumentType"]=null,["revision"]=null},"book"),
             // The page's own list also shows jobs others own to a job manager, so no page of it is the reader's list.
+            // The option catalog is the Blotter's booking catalog; its target opens the Blotter.
+            {Operation.Id:"trades.futures_option_catalog_v1"}=>Page("blotter"),
             {Arguments:JobListArguments}=>Page("jobs"),
             {Arguments:JobHistoryArguments job}=>Job(job.Job),
             _=>throw new InvalidOperationException("An operation issues no target.")

@@ -22,7 +22,7 @@ def seed_positions(url,run_id,owned_root):
     selected={}
     for contract in sorted(catalog['contracts'],key=lambda v:v['deliveryFrom']):
         selected.setdefault(contract['curve'],contract)
-    if len(selected)!=12:raise ValueError('The bounded exchange example requires twelve source-listed monthly families.')
+    if len(selected)!=13:raise ValueError('The bounded exchange example requires thirteen source-listed monthly families.')
     results=[]
     for n,(curve,contract) in enumerate(sorted(selected.items())):
         operation=str(uuid5(UUID('ed032a31-883e-447a-809a-66a4d583a124'),manifest['catalogId']+':'+curve))

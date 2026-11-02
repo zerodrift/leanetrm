@@ -35,6 +35,11 @@ public sealed partial class TradingBlotter
     var crudeRows=new List<JsonObject>();await foreach(var unit in crude.Units(ct))crudeRows.AddRange(unit);
     rows=[..crudeRows];
     break;
+   case FuturesOptionPositions.Type:
+    var options=await FuturesOptionBlotter.Run(connection,database,data,frame,[],[],ct,selected);
+    var optionRows=new List<JsonObject>();await foreach(var unit in options.Units(ct))optionRows.AddRange(unit);
+    rows=[..optionRows];
+    break;
    default:throw TradePositionSelection.Unavailable();
   }
   var matching=rows.Where(r=>Guid.Parse(r["tradeId"]!.GetValue<string>())==selected.TradeId&&

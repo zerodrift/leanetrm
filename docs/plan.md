@@ -4,6 +4,13 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D289 adds the [Risk results workspace](risk-workspace.md): Risk-owned setup,
+shared sensitivity ladders/heatmaps and drill-through, visible incomplete coverage,
+retained report links, and multipart submission recovery. The bounded recent-job
+directory remains separate from a complete archive. Joint statistical scenarios,
+aligned history, VaR/expected shortfall, Monte Carlo/PCA/hybrid, EVT and backtesting
+remain subsequent increments; deterministic graphics do not establish them.
+
 D284 adds [workspace assistant operations and page guidance](assistant-workspace.md):
 discovery, reads/previews and separately human-approved commands, immutable page
 prompts under a delegated permission, and operational turns without financial-data
@@ -367,7 +374,8 @@ participate in keys, and floating sides separate contractual curve/observation
 configuration from resolved pricing bindings. Swap discounting remains marked.
 Lookup and uniqueness use typed primary/candidate keys; managed digests remain
 calculation aids rather than database authority. Observable/factor identity is
-separate from full contract equivalence. Options, general standalone physical power
+separate from full contract equivalence. Options other than the listed American
+futures options added on 1 November 2026 (D288), general standalone physical power
 booking, VaR/covariance and cross-revision forward-observable normalization remain
 explicit later work.
 
@@ -447,7 +455,9 @@ scheduled contract. The browser inspector exposes valued payment and reset rows;
 enrolled trades also use the D215–D216 settlement and P&L operations. Options
 retain explicit sibling references
 and distinct base/final valuation modes; the exercise-control accounting choice
-in O13 is still open and no option model is enabled.
+in O13 is still open for options embedded in an instrument. Listed American options
+on NYMEX futures are standalone instruments with their own model and lifecycle
+(D288, [futures options](futures-options.md)).
 The D210 entry refinement places visual instrument cards between trade details
 and side forms. A selected versioned template populates empty side terms;
 commodity and market selections remain explicit. Each floating side owns its
@@ -1351,7 +1361,8 @@ settlement document.
 Extend only after the baseline contracts are demonstrated:
 
 - Broader calendars, delivery shapes and schedule authoring.
-- Options and exercise rules, volatility inputs and nonlinear model diagnostics.
+- Options beyond listed American futures options (D288): other exercise and
+  settlement styles, volatility inputs and shocks, and nonlinear model diagnostics.
 - Option-side sibling dependencies, shared exercise groups and an explicit
   contribution/allocation convention that does not double-count the underlying.
 - Physical/financial composite sides with typed gas/power delivery metadata and

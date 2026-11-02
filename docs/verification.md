@@ -1,5 +1,28 @@
 # Local verification and continuous integration
 
+## Risk results workspace
+
+The D289 local qualification on 2 November 2026 passed all 1,172 frontend
+checks. The stock PostgreSQL risk suite passed scenario, scope/current-authority,
+durable-job, cancellation, worker/replay and retained-definition checks, plus
+143 full Risk browser checks. A final focused workspace run passed 22 browser
+checks on the integrated futures-options baseline.
+
+The workspace checks cover exact shared report values, delta/gamma units,
+heatmaps and tabular drill-through, direct retained links, display-zone changes,
+automatic matching-report selection, explicit book scope, account-change
+questions, same-window address ownership and phone width. Deferred POST replies
+exercise reload during a later multipart ordinal: completed metadata-only parts
+are reauthorized and reloaded, all remaining original request IDs resume once,
+and missing siblings remain incomplete with complete export unavailable. A
+separate cached-catalog check refuses a changed owning context before valuation.
+
+Independent adversarial review covered context/account fencing, current-authority
+reads, uncertain submission persistence and pop-out workspace identity. These
+checks qualify deterministic presentation and request recovery; no VaR estimator,
+calibration pipeline or production throughput is claimed. This change adds no
+schema migration.
+
 ## Shared market factors and retained gas portfolio risk
 
 The D287 local checks on 1 November 2026 cover canonical factor sharing across
@@ -1934,8 +1957,9 @@ standalone fixed valuation, reversed memberships and delayed trade scaling.
 
 This qualifies the managed bounded fixed/floating valuation path only. Recurring
 payments, actual fixings, persistent swap/default-mapping operations, swap booking,
-blotter/editor inspector and risk integration remain work. Options are not
-implemented; the exercise-control accounting choice remains open in O13.
+blotter/editor inspector and risk integration remained work at this checkpoint. Options
+were not implemented then; listed American futures options followed on 1 November 2026
+(D288), and the exercise-control accounting choice for embedded options remains open in O13.
 
 
 ## Vertical instrument-side editor checkpoint
@@ -1986,8 +2010,8 @@ This checkpoint supersedes earlier statements that swap booking/default storage
 and side inspection were pending. The booking model is one whole delivery month
 with monthly-index or daily-calendar arithmetic projection and one payment per
 side before the first fixing. Actual fixings, recurring payment strips, additional
-persisted averaging rules, swap risk, fees, physical products and options remain
-unimplemented. Independent review found no remaining source blocker in this
+persisted averaging rules, swap risk, fees, physical products and options remained
+unimplemented at this checkpoint (listed American futures options followed on 1 November 2026, D288). Independent review found no remaining source blocker in this
 bounded path; local activation and publication remain distinct operations.
 
 
@@ -2100,7 +2124,8 @@ Independent adversarial review found no remaining blocker in this supported path
 Futures retain explicit execution-P&L and outstanding-exposure behavior; full
 variation-margin lifecycle/PV remains unfinished. Supported swaps retain
 discounted/undiscounted choice in their instrument identity. Standalone physical
-forward booking, executable options and VaR/covariance remain planned work.
+forward booking, executable options and VaR/covariance remained planned work at this
+checkpoint; listed American futures options followed on 1 November 2026 (D288).
 
 ## Amount formatting and common unit conversion checkpoint
 
@@ -3241,3 +3266,66 @@ same 29 rows. The prior quote join is retained. Ordered projection sharing
 alone reduces the measured worker read from approximately 2.6 to 1.5 seconds
 relative to that rejected replacement, with identical results. All live service,
 lease, permission and temporal checks and the five-second command bound remain.
+
+## Listed American futures options (D288)
+
+Local runs on 2026-11-01 against the branch head after the master merge (migrations
+0161 to 0165) and the final fixes, each in its own disposable PostgreSQL cluster with
+synthetic data. The capability is described in [futures options](futures-options.md).
+
+| Run | Result |
+| --- | --- |
+| MarketData checks `--futures-options` | 33 PASS |
+| MarketData checks, default | 655 managed core checks passed |
+| API checks, default and `--schedules` | pass |
+| `npm test --prefix web` | 1,165 pass |
+| `python3 -m unittest discover -s tests -p 'test_*.py'` | 81 OK |
+| `run_preview.py --check --exchange-check --browser-check` | exit 0, 202 PASS, including 24 futures-option browser checks |
+| `run_preview.py --check --browser-check` (standard) | exit 0, 2,564 PASS, 1,108 owned browser checks |
+| `run_preview.py --check --assistant-check --browser-check` | exit 0, 1,104 PASS, 288 owned browser checks |
+
+The pinned risk digest of `--futures-options` passed on macOS arm64; its Linux run is
+to be confirmed by CI.
+
+The managed checks test the model against independent references, not against its
+own algorithm. A standard-library `decimal` oracle at 60 digits supplies `exp`,
+`ln`, `sqrt` and Black-76 values for 17 cases, including high-corner cases with
+F·σ·√T up to 400. At a unit discount every call and put lies within
+0.125·F·σ·√T/400 of Black-76; the largest observed ratio is 0.0996, CRR's leading
+at-the-money error term. Further checks cover bounds (at least intrinsic and the
+European value, calls at most the futures price, puts at most the strike),
+monotonicity, step stability against 1,600 steps, a two-step hand tree that
+exercises at an interior node, calibration round trips to half the clearing
+increment, the fallback for each right and direction, the zero floor on shocked
+fallback values, named errors outside the bounds, held-volatility delta signs,
+replay and a pinned risk digest. Temporary mutations confirmed that the hand-tree
+and accuracy checks fail when early exercise is offered only at the root or when
+volatility is inflated by 5%.
+
+The exchange preview check books one book holding a CL future, a long ON call (3
+lots, 1 exercised), a short LO put (2 lots, 1 assigned), a deep in-the-money ON call
+in fallback mode and their premiums. It verifies that each option's value equals
+settlement × multiplier × open lots within half an increment per lot; pending
+premium values against an independent simple ACT/365F discount; settled premium
+cash; linked futures from exercise and assignment; delta and gamma signs; queued-job
+replay equal to the immediate report; and the exclusions for a missing settlement,
+a missing underlying and an unprocessed expiry. The browser checks book through
+the option ticket, read the Blotter, retry idempotently and show backend refusals.
+
+Workload, measured on the branch before the master merge (the merge added retained gas
+to the shared risk path; these timings were not re-measured after it), one full risk
+run of the example's first book: 6 option positions across 5
+unique series (4 solved, 1 intrinsic fallback), with futures, premiums and seeded
+futures in the same run; 3 bumps and 7 scenarios (base plus up and down per bump);
+50 calibration tree prices, 8 scenario tree prices and 30 unit-pricer calls. The
+immediate report took 3.22 s, the Blotter read 2.83 s and the queued worker 4.66 s
+from process start to exit, with a sampled worker peak of 286 MiB (sampled every 50
+ms, not a guaranteed high-water mark). A later run of the same workload gave 3.11 s,
+2.71 s, 4.49 s and 292 MiB. One 400-step price takes about 71 ms and allocates about
+101 MB in a Release build (113 ms in Debug); one calibration takes 0.65 to 1.0 s per
+series in Release, and the run calibrates distinct series in parallel.
+
+Environment: macOS 26.6.2 arm64, Apple M4 Pro, 14 logical processors, PostgreSQL 16,
+.NET 10.0.402 Debug build for the preview runs, Node 24.22.0, Chrome, all components
+on one machine. These are local workload observations, not a performance
+qualification. The digest check has not yet been observed on Linux for this change; CI is to confirm it.

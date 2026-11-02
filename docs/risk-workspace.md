@@ -1,0 +1,77 @@
+# Risk results workspace
+
+D289 delivers the first report-workspace increment over the existing shared
+market-factor and instrument-PV calculation path. It adds no statistical engine,
+financial policy, permission, storage table or migration.
+
+Risk owns its book/portfolio selection and run editor. The header selects the
+market close and financial context. Empty book and portfolio selections explicitly
+mean all readable books; selecting both uses the same intersection as the Blotter.
+An unavailable scope cannot silently become an all-books run. Missing market
+selection prevents new calculations while retained reports remain independently
+readable under current authority.
+
+The editor is the same component used in the Blotter. It offers the existing
+held-contract, parallel-curve and custom up/down shocks, with explicit sizes and
+optional nested stresses. It retains the backend catalog's conventions, numerical
+policy and complete captured context. The owning source is revalidated before
+every submission. A market/context replacement invalidates the catalog.
+
+## Reports and graphics
+
+Risk opens a recent completed run matching the chosen scope and market close
+when one is available. Candidate selection requires every unique part, matching
+scope/context and completed state. The retained report's exact snapshot is checked
+before automatic selection. An older or unrelated report is never substituted
+as a current calculation. The directory is bounded; it is not a complete archive.
+
+The shared report widget appears in Risk and in the Blotter's **Full risk report
+and graphics** section. It presents backend delta, diagonal gamma and up/down
+P&L as sensitivity ladders or heatmaps, with accessible exact report data and
+factor-to-position/side-binding drill-through. Units, valuation measures,
+currencies and market-factor/computed-output coordinates remain separate.
+Independent shocks overlap and have no browser-computed portfolio total.
+
+Graphics show at most 64 factors and 16 book series at once. Tables page at
+100 rows. These are labeled display windows over the retained report, not changes
+to its financial scope or coverage. Selecting a metric, native unit or window
+does not run a new financial calculation. Plot coordinates are approximate;
+tooltips and tables preserve backend exact and display strings.
+
+Coverage appears beside the report: excluded positions and reasons, missing or
+failed parts, running/cancellation states, and unavailable results. Missing
+exclusion evidence or inconsistent context, snapshot, scenario or factor identity
+refuses display. A missing scope prevents a complete-coverage claim. An absent
+part never becomes a zero result. Work counters and worker configuration notes
+live in expandable diagnostics.
+
+## Retention and recovery
+
+**Run now** is an interactive result for the current visit. **Queue as job** uses
+the existing durable, idempotent operation and worker. Queuing does not provision
+a worker. Every part's request identity is allocated and retained before the first
+POST. Unknown submissions survive a reload in actor/workspace-scoped session
+storage; only pending requests and job metadata are kept there, not report bodies.
+Storage failures keep the in-memory request and show an explicit warning to keep
+the page open and reconcile it. They do not claim successful reload recovery.
+
+Recovery reauthorizes and rereads known jobs, reconciles unknown request IDs, and
+can resume unsent parts through the same original run/ordinal identities. A retry
+does not create a second run or replace an unconfirmed identity. Explicitly giving
+up setup edits does not discard unconfirmed writes. Account/context generation
+checks prevent delayed responses from populating a different view.
+
+Retained links use `#risk/job/<exact job ID>`, including the exchange selector in
+links from a popped-out Blotter. They open that job and its listed run siblings
+under their captured context. Missing siblings remain visible. A link grants no
+authority and does not share another actor's private report. Header/scope
+differences are labeled, and changing the embedded retained-job selection updates
+the displayed address. Exports reread every part under current authority.
+
+## Remaining work
+
+Joint scenario streaming and selected mixed derivatives, aligned dated-factor
+history, parametric and historical VaR/expected shortfall, Monte Carlo, PCA/hybrid,
+EVT, distribution diagnostics and backtesting remain separate increments. The
+current graphs describe deterministic sensitivity/scenario results. They do not
+claim statistical loss distributions or validated production throughput.

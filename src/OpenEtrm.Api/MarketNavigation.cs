@@ -20,7 +20,8 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
     public FrameCatalogInfo? FrameCatalog{get;init;}
     public object? Live{get;init;}
 
-    // Interval curves are listed by the interval-curve screen, not here.
+    // Interval curves are listed by the interval-curve screen, and futures-option settlement curves by their options,
+    // not here. A curve that mixes option contracts with others has no classification and fails the read.
     internal static async Task<ImmutableArray<NavigationCurve>> ReadCurves(NpgsqlConnection connection,PreviewManifest manifest,CancellationToken ct)
     {
         var curves=ImmutableArray.CreateBuilder<NavigationCurve>();
@@ -33,7 +34,8 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
                 SELECT contract_id FROM market_data.contract_intervals WHERE catalog_id=$1 AND revision_id=$2),
             members AS(
                 SELECT m.curve_code,count(*) total,count(k.id) matched,
-                    count(*) FILTER(WHERE k.kind='future') futures,count(*) FILTER(WHERE k.kind='forward') forwards,count(i.contract_id) intervals
+                    count(*) FILTER(WHERE k.kind='future') futures,count(*) FILTER(WHERE k.kind='forward') forwards,
+                    count(*) FILTER(WHERE k.kind='future_option') options,count(i.contract_id) intervals
                 FROM market_data.curve_members m LEFT JOIN visible_contracts k ON k.id=m.contract_id
                 LEFT JOIN visible_intervals i ON i.contract_id=m.contract_id
                 WHERE m.catalog_id=$1 AND m.revision_id=$2 GROUP BY m.curve_code)
@@ -41,7 +43,7 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
                 coalesce(m.futures,0),coalesce(m.forwards,0),c.rule,c.direct_role
             FROM market_data.curves c LEFT JOIN members m ON m.curve_code=c.code
                 LEFT JOIN ref_data.commodities r ON(r.catalog_id,r.revision_id,r.code)=($3,$4,c.commodity_code)
-            WHERE c.catalog_id=$1 AND c.revision_id=$2 AND coalesce(m.intervals,0)=0 ORDER BY c.code
+            WHERE c.catalog_id=$1 AND c.revision_id=$2 AND coalesce(m.intervals,0)=0 AND(coalesce(m.options,0)=0 OR m.options<>m.total) ORDER BY c.code
             """,manifest.CatalogId,manifest.RevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId))
         await using(var reader=await command.ExecuteReaderAsync(ct))
         {

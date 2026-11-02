@@ -110,6 +110,28 @@ public sealed partial class CurveModel
             Fail("futures_definition", "Held futures terms must equal the exact definitions used to build the market scenario.");
     }
     internal QuoteSpecification QuoteFor(CurveRequest request)=>Quote(curves[request.Curve]);
+    internal MarketContract ContractDefinition(ContractKey key)=>contracts.TryGetValue(key,out var contract)?contract:
+        throw new MarketDataException("missing_contract","The exact contract is absent from the resolved model.");
+    // The option and its underlying must agree with this model's exact definitions:
+    // listed contracts and curves, daily settlements, one price unit and currency,
+    // option expiry and clearing increment, and an expiry before the future's.
+    internal void RequireFuturesOptionDefinition(FuturesOptionSeriesSpecification option,CurveRequest underlying,CurveRequest settlement)
+    {
+        if(!contracts.TryGetValue(underlying.Contract,out var future)||future.Kind!=ContractKind.Future||future.FuturesSeries!=option.UnderlyingSeries||
+            !futures.TryGetValue(option.UnderlyingSeries,out var spec)||
+            !contracts.TryGetValue(settlement.Contract,out var listed)||listed.Kind!=ContractKind.FutureOption||listed.FuturesSeries!=option.Key||
+            listed.Expiry!=option.Terms.ExpiryAt||
+            !curves.TryGetValue(underlying.Curve,out var futuresCurve)||!curveMembers[futuresCurve.Key].Contains(underlying.Contract)||
+            !curves.TryGetValue(settlement.Curve,out var optionCurve)||!curveMembers[optionCurve.Key].Contains(settlement.Contract)||
+            futuresCurve.DirectRole!=ObservationRole.DailySettlement||optionCurve.DirectRole!=ObservationRole.DailySettlement||
+            PriceUnit.FromQuote(Quote(futuresCurve))!=PriceUnit.FromQuote(Quote(optionCurve))||spec.Currency!=option.Currency||
+            option.Terms.ExpiryAt>=spec.LastTradingAt||Quote(optionCurve).ClearingIncrement!=option.ClearingIncrement)
+            Fail("option_definition",$"Option series {option.Key.Code}: the option and its underlying must equal this market's exact definitions.");
+    }
+    // Every curve member that is the contract of one exact listed series, in curve order.
+    internal ImmutableArray<CurveRequest> ListedRequests(ContractKind kind,ReferenceKey series)=>
+        [..curves.Values.OrderBy(c=>c.Key.Code,StringComparer.Ordinal).SelectMany(c=>c.Constituents
+            .Where(k=>contracts[k].Kind==kind&&contracts[k].FuturesSeries==series).Select(k=>new CurveRequest(c.Key,k)))];
     private QuoteSpecification Quote(Curve c) => quotes.TryGetValue(c.Quote, out var q)
         ? q : throw new MarketDataException("missing_reference", "Quote definition is absent.");
     internal void RequireIndexProjection(CurveRequest request, MarketContract contract,
@@ -190,13 +212,14 @@ public sealed partial class CurveModel
                 Fail("definition_pin", "Contract must belong to the selected definition revision.");
             if (contract.DeliveryFrom >= contract.DeliveryTo || contract.DeliveryTo >= EndDate || contract.Expiry.Offset != TimeSpan.Zero ||
                 contract.Expiry >= End) Fail("contract_dates", "Invalid delivery interval or UTC expiry.");
-            if ((contract.Kind == ContractKind.Future) != (contract.FuturesSeries is not null))
-                Fail("contract_kind", "Exactly futures contracts require a dated series reference.");
+            if ((contract.Kind is ContractKind.Future or ContractKind.FutureOption) != (contract.FuturesSeries is not null))
+                Fail("contract_kind", "Exactly futures and futures-option contracts require a dated series reference.");
             if (contract.Interval is { } interval && (contract.Kind != ContractKind.Forward || interval.Start.Offset != TimeSpan.Zero ||
                 interval.End.Offset != TimeSpan.Zero || interval.End <= interval.Start || contract.DeliveryFrom != interval.OperatingDate ||
                 contract.DeliveryTo != interval.OperatingDate.AddDays(1) || contract.Expiry != interval.End))
                 Fail("contract_dates", "An interval contract is a forward on its operating date that expires at its interval end.");
-            if (contract.FuturesSeries is { } series)
+            if (contract.Kind == ContractKind.FutureOption) Ref(contract.FuturesSeries!.Value);
+            else if (contract.FuturesSeries is { } series)
             {
                 Ref(series);
                 if (!futures.TryGetValue(series, out var spec)) Fail("missing_reference", "Resolved dated futures specification is required.");
@@ -239,7 +262,11 @@ public sealed partial class CurveModel
             foreach (var member in curve.Constituents)
             {
                 if (!contracts.ContainsKey(member)) Fail("missing_contract", "Curve constituent is absent.");
-                if (contracts[member].FuturesSeries is { } series)
+                if (contracts[member].Kind == ContractKind.FutureOption &&
+                    (curve.Rule != CurveRule.Direct || curve.DirectRole != ObservationRole.DailySettlement ||
+                     curve.Settlement.Kind != SettlementKind.FutureSeries || output.Kind != QuoteKind.Outright))
+                    Fail("futures_option_specification", "A futures-option curve is a direct outright curve on listed daily settlements.");
+                if (contracts[member].Kind == ContractKind.Future && contracts[member].FuturesSeries is { } series)
                 {
                     var spec = futures[series];
                     if (curve.Rule != CurveRule.Direct || curve.DirectRole is not (ObservationRole.DailySettlement or ObservationRole.TraderMark) ||
@@ -254,7 +281,8 @@ public sealed partial class CurveModel
             if (settlement.IndexB is { } b) Ref(b);
             if (settlement.Kind == SettlementKind.FutureSeries &&
                 (settlement.IndexA is not null || settlement.IndexB is not null ||
-                 curve.Constituents.Any(k => contracts[k].Kind != ContractKind.Future)) ||
+                 curve.Constituents.Select(k => contracts[k].Kind).Distinct().Count() != 1 ||
+                 contracts[curve.Constituents[0]].Kind is not (ContractKind.Future or ContractKind.FutureOption)) ||
                 settlement.Kind == SettlementKind.Index && (settlement.IndexA is null || settlement.IndexB is not null) ||
                 settlement.Kind == SettlementKind.IndexDifference && (settlement.IndexA is null || settlement.IndexB is null || settlement.IndexA == settlement.IndexB))
                 Fail("settlement_target", "Settlement target does not match its declared kind.");

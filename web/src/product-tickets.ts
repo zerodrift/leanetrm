@@ -1,11 +1,12 @@
 // Product editors share the desk's panel without duplicating their forms,
 // native requests or recovery state. Each editor owns its product rules.
-export type TicketProduct='ppa'|'gas'|'crude';
+export type TicketProduct='ppa'|'gas'|'crude'|'options';
+const products=['ppa','gas','crude','options'] as const;
 export type ProductEditor={root:HTMLElement;begin:()=>Promise<void>;inspect:(trade:string)=>Promise<void>;reset:()=>void;
  unsaved:()=>boolean;pending:()=>boolean;sync:()=>void};
 export function productTickets(editors:Record<TicketProduct,ProductEditor>){
  const homes=new Map<TicketProduct,Comment>();
- for(const product of ['ppa','gas','crude'] as const){const home=document.createComment(`${product} editor home`);editors[product].root.before(home);homes.set(product,home);}
+ for(const product of products){const home=document.createComment(`${product} editor home`);editors[product].root.before(home);homes.set(product,home);}
  let active:TicketProduct|undefined;
  function detach(){
   if(!active)return;const product=active;active=undefined;const editor=editors[product];
@@ -20,7 +21,7 @@ export function productTickets(editors:Record<TicketProduct,ProductEditor>){
   },
   detach,active:()=>active,
   unsaved:()=>active!==undefined&&editors[active].unsaved(),
-  pending:()=>(['ppa','gas','crude'] as const).filter(p=>editors[p].pending()),
+  pending:()=>products.filter(p=>editors[p].pending()),
   sync:()=>{if(active)editors[active].sync();},
  };
 }

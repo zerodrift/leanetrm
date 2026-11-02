@@ -2,9 +2,11 @@ import type {FactsContext} from './position-facts.js';
 import {validTimeZone} from './preferences.js';
 
 export type PositionWindowSelection={snapshotId:string;context:FactsContext;asOf:string;tradeId:string;bindingId:string;revision:number;
- instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas'|'physical_crude';zone:string;example:'baseline'|'exchange'};
+ instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas'|'physical_crude'|'futures_option';zone:string;example:'baseline'|'exchange';
+ /** Whether the opener was working data at current knowledge, from which option lifecycle events may be recorded. */
+ lifecycle:'working'|'read_only'};
 const invalid='This trade window needs its exact position and retained market context. Open it again from the Blotter.';
-const fields=['snapshot','context','effective','known','asOf','trade','binding','revision','type','zone','example'];
+const fields=['snapshot','context','effective','known','asOf','trade','binding','revision','type','zone','example','lifecycle'];
 export function positionWindowNames(value:unknown):{code:string;name:string}[]{
  if(!Array.isArray(value)||value.some(row=>!row||typeof row.code!=='string'||!row.code||typeof row.name!=='string'||!row.name))
   throw Error('The retained trade read did not return its authorized market names.');
@@ -16,7 +18,7 @@ export function requirePositionWindowSelection(selection:PositionWindowSelection
  if(!selection||!selection.context||![selection.snapshotId,selection.context.contextId,selection.tradeId,selection.bindingId].every(v=>typeof v==='string'&&guid(v))||
    !/^\d{4}-\d{2}-\d{2}$/.test(selection.context.effectiveOn)||!instant(selection.context.knownAt)||!instant(selection.asOf)||
    selection.asOf.slice(0,10)!==selection.context.effectiveOn||!Number.isInteger(selection.revision)||selection.revision<1||selection.revision>256||
-   !['future','financial_swap','heat_rate','ppa','physical_gas','physical_crude'].includes(selection.instrumentType)||!validTimeZone(selection.zone)||!['baseline','exchange'].includes(selection.example))throw Error(invalid);
+   !['future','financial_swap','heat_rate','ppa','physical_gas','physical_crude','futures_option'].includes(selection.instrumentType)||!validTimeZone(selection.zone)||!['baseline','exchange'].includes(selection.example)||!['working','read_only'].includes(selection.lifecycle))throw Error(invalid);
  return selection;
 }
 
@@ -25,7 +27,7 @@ export function positionWindowUrl(source:string,selection:PositionWindowSelectio
  requirePositionWindowSelection(selection);const url=new URL('/position.html',source);
  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error(invalid);
  url.hash=new URLSearchParams({snapshot:selection.snapshotId,context:selection.context.contextId,effective:selection.context.effectiveOn,known:selection.context.knownAt,
-  asOf:selection.asOf,trade:selection.tradeId,binding:selection.bindingId,revision:String(selection.revision),type:selection.instrumentType,zone:selection.zone,example:selection.example}).toString();
+  asOf:selection.asOf,trade:selection.tradeId,binding:selection.bindingId,revision:String(selection.revision),type:selection.instrumentType,zone:selection.zone,example:selection.example,lifecycle:selection.lifecycle}).toString();
  return url.href;
 }
 
@@ -36,7 +38,7 @@ export function readPositionWindowUrl(source:string):PositionWindowSelection{
  if(!/^[1-9]\d{0,2}$/.test(value('revision')))throw Error(invalid);
  return requirePositionWindowSelection({snapshotId:value('snapshot'),context:{contextId:value('context'),effectiveOn:value('effective'),knownAt:value('known')},
   asOf:value('asOf'),tradeId:value('trade'),bindingId:value('binding'),revision:Number(value('revision')),instrumentType:value('type') as PositionWindowSelection['instrumentType'],
-  zone:value('zone'),example:value('example') as PositionWindowSelection['example']});
+  zone:value('zone'),example:value('example') as PositionWindowSelection['example'],lifecycle:value('lifecycle') as PositionWindowSelection['lifecycle']});
 }
 
 export function positionWindowRequest(selection:PositionWindowSelection){

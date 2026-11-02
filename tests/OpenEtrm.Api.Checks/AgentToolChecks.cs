@@ -20,6 +20,7 @@ static class AgentToolChecks
         CurveDrafts();
         JobReads();
         PpaBookReads();
+        OptionCatalogReads();
         TurnPins();
         Definitions();
         Inputs();
@@ -30,6 +31,36 @@ static class AgentToolChecks
         Display();
         Navigation();
     }
+    // Futures option catalog (R27): the read options/catalog runs, at the pinned frame under the Blotter's accesses, with no input;
+    // its result keeps the series and convention without the booking directory, and its target opens the Blotter. No tool books.
+    static void OptionCatalogReads()
+    {
+        var call=AgentTools.Parse("futures_option_catalog",Json("{}"));
+        Require(call.Operation.Id=="trades.futures_option_catalog_v1"&&call.Arguments is NoArguments&&call.Operation.Needs==ToolNeeds.Frame
+            &&call.Operation.Access(Manifest).SequenceEqual(AgentTools.Operation("trades.blotter_v1").Access(Manifest))
+            &&AgentTools.Tools.Single(t=>t.Name=="futures_option_catalog").Permissions.SequenceEqual(["ReadMarketData","ReadTrades"]),
+            "the option catalog is a frame read under the Blotter's trading, market and reference accesses and the agent reader's read permissions");
+        Require(Code(()=>AgentTools.Parse("futures_option_catalog",Json("{\"series\":\"nymex_on_20261201_c3.25\"}")))=="tool_arguments_invalid",
+            "the option catalog takes no input");
+        Require(new[]{"futures_option_book","book_futures_option","futures_book"}.All(t=>Code(()=>AgentTools.Parse(t,Json("{}")))=="tool_arguments_invalid")
+            &&AgentTools.Tools.All(t=>!t.Permissions.Contains("BookTrade")&&!t.Permissions.Contains("AmendTrade")&&!t.Name.Contains("book",StringComparison.Ordinal)),
+            "no agent tool books or amends a trade: no tool needs BookTrade or AmendTrade, and booking tool names are not tools");
+        var option=new{series="nymex_on_20261201_c3.25",strike="3.25",premiumTick="0.001"};
+        var result=ToolResults.FuturesOptions(ImmutableArray.Create<object>(option));
+        Require(result.Rows==1&&!result.Displayed&&result.Value.Select(m=>m.Key).Order(StringComparer.Ordinal).SequenceEqual(["convention","options"])
+            &&JsonNode.DeepEquals(result.Value["options"],JsonSerializer.SerializeToNode(new[]{option},JsonSerializerOptions.Web)),
+            "its result is the catalog's series under its convention");
+        // The tool reads only the series: the store's series read takes the trading read's market data and frame and no
+        // connection, so it cannot read the booking directory (books, booking actor, parties) that only options/catalog adds.
+        var series=typeof(FuturesOptionStore).GetMethod(nameof(FuturesOptionStore.Series))!;
+        Require(series.GetParameters().Select(p=>p.ParameterType).SequenceEqual([typeof(PreviewData),typeof(InputFrame)]),
+            "the option catalog's series read takes only the market data and frame, never a connection for the booking directory");
+        Require(NavigationTargets.Issue(call,result.Value,1) is [{Handle:"n1",Target:{Page:"blotter",Selection:null,Kind:"page"}}],
+            "its own target is the Blotter as it opens, and it lists no record targets");
+        Console.WriteLine("PASS futures option catalog: a read-only frame read under the Blotter's accesses, with no input, the catalog's series, "+
+            "a Blotter target, and no agent tool that books");
+    }
+
     static void CurvePreparation()
     {
         var offered=AgentTools.Offered(["read_custom_curves","prepare_custom_curve"]);
@@ -187,7 +218,7 @@ static class AgentToolChecks
             "a version's switched-on tools are offered in the fixed order, Navigate after the read tools, a version without tools offers none, "+
             "and Show card is not offered");
         var permissions=AgentTools.Tools.ToDictionary(t=>t.Name,t=>string.Join(",",t.Permissions));
-        Require(permissions.Count==15&&permissions["save_custom_curve_draft"]=="ReadMarketData,WriteMarketDefinitions"&&permissions["read_jobs"]=="ReadJobs"&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
+        Require(permissions.Count==16&&permissions["futures_option_catalog"]=="ReadMarketData,ReadTrades"&&permissions["save_custom_curve_draft"]=="ReadMarketData,WriteMarketDefinitions"&&permissions["read_jobs"]=="ReadJobs"&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
             &&permissions["read_trades"]=="ReadMarketData,ReadTrades"&&permissions["read_trade_parties"]=="ReadMarketData,ReadTradeParties"
             &&permissions["read_schedules"]=="ReadMarketData"&&permissions["read_reference_data"]=="ReadMarketData"&&permissions["navigate"]=="",
             "each tool reads under exactly the permissions the database lists for it (assistant.agent_tools), and Navigate needs none of its own");
@@ -444,7 +475,7 @@ static class AgentToolChecks
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"blotter_new_ppa","blotter_new_gas","blotter_new_crude","gas_setup","physical_gas","physical_crude"};
+        var unsupported=new[]{"blotter_new_ppa","blotter_new_gas","blotter_new_crude","blotter_new_option","gas_setup","physical_gas","physical_crude"};
         var workspace=new[]{"risk_jobs","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
                 .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs","ppa"}.Concat(workspace).Order()),
@@ -505,7 +536,7 @@ static class AgentToolChecks
         string Laid(string page,string selection,string layout=Layout)=>$$"""{"page":"{{page}}","selection":{{selection}},{{layout}}}""";
         var trade=$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"future","revision":3}""";
         foreach(var (page,selection) in new[]{("blotter",Blotter),("blotter",trade),("blotter_risk","{}"),("blotter_risk_lens","{}"),("blotter_new_trade","{}"),
-            ("blotter_new_future","{}"),("blotter_new_swap","{}"),("blotter_new_ppa","{}"),("blotter_new_gas","{}")})
+            ("blotter_new_future","{}"),("blotter_new_swap","{}"),("blotter_new_ppa","{}"),("blotter_new_gas","{}"),("blotter_new_option","{}")})
             PageReports.Require(Json(Laid(page,selection)));
         Require(PageReports.Dispatch(Json(Laid("blotter",Blotter))) is {Page:"blotter",Call.Operation.Id:"trades.blotter_v1",Layout:{Details:true,Charts:false,PoppedOut:true}}
             &&PageReports.Dispatch(Json(Laid("blotter",trade,""" "layout":{"pane":{"details":false,"charts":true},"poppedOut":false}"""))) is {Layout:{Details:false,Charts:true,PoppedOut:false}}

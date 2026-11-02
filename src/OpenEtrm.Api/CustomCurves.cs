@@ -218,6 +218,14 @@ public static partial class CustomCurves
         var manifest=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{revision,frame.Id,frame.At,context,frame.ObservationIds,FrozenObservationIds=frame.FrozenObservationIds.IsDefault?ImmutableArray<Guid>.Empty:frame.FrozenObservationIds,policy=ConnectedCurves.NumericalPolicy,engine=RecipeEngine.Version},RiskJobs.Json)));
         return new(context.ContextId!.Value,manifest,frame.At,SchedulePreview.ParseAt(context.KnownAt),frame.At,frame.At);
     }
+    // A source contract is eligible from its futures execution policy, or for a forward from the definition's period.
+    // A futures option's settlement is no custom-curve source.
+    internal static DateTimeOffset SourceEligibleFrom(PreviewData data,string curve,MarketContract contract)=>contract.Kind switch
+    {
+        ContractKind.Future=>FuturesStore.Binding(data,curve,contract.Key.Id,contract.Key.Id,data.FuturesConvention).EligibleFrom,
+        ContractKind.Forward=>new DateTimeOffset(DateWorkspace.Date(data.Definitions["revision_periods"].Single().Text("effective_from")).ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc)),
+        _=>throw new MarketDataException("custom_curve_source",$"Curve {curve} observes futures-option settlements, which are not a custom-curve source."),
+    };
     private sealed record RecipeMaterialization(RecipeInputs Values,ImmutableArray<ConnectedRecipeSample> Samples,ConnectedRecipeReferencePins References,
         RecipeOutputDemand? Demand);
     static async Task<RecipeMaterialization> Inputs(NpgsqlConnection connection,PreviewDatabase database,RecipeDefinition definition,
@@ -308,9 +316,7 @@ public static partial class CustomCurves
             var curve=data.DefinitionRows("curves","code",reference.Code).Single();
             var quote=data.QuoteRows(curve.Text("quote_code")).Single();
             var members=data.DefinitionRows("curve_members","curve_code",reference.Code).OrderBy(r=>r.GetProperty("ordinal").GetInt32()).Select(r=>data.ContractRows(r.Id("contract_id")).Single()).ToArray();
-            var contracts=members.Select(contract=>new RecipeContract(contract,contract.Kind==ContractKind.Future
-                ?FuturesStore.Binding(data,reference.Code,contract.Key.Id,contract.Key.Id,data.FuturesConvention).EligibleFrom
-                :new DateTimeOffset(DateWorkspace.Date(data.Definitions["revision_periods"].Single().Text("effective_from")).ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc)))).ToImmutableArray();
+            var contracts=members.Select(contract=>new RecipeContract(contract,SourceEligibleFrom(data,reference.Code,contract))).ToImmutableArray();
             sources.Add(sourceNode.Id,new(new(data.DefinitionRevision,reference.Code),PriceUnit.FromQuote(quote),contracts));
             if(topologyOnly)continue;
             var selectors=definition.Nodes.Where(n=>n.Kind is "select" or "weighted_contracts"&&n.Inputs.Values.Contains(sourceNode.Id)).ToArray();

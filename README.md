@@ -141,6 +141,7 @@ existing database.
 - [Market-data contracts](docs/market-data.md)
 - [Reference data and futures](docs/reference-data.md)
 - [CME/ICE futures example](docs/exchange-futures.md)
+- [Listed American options on futures](docs/futures-options.md)
 - [Time, delivery calendars and TOU](docs/time-and-schedules.md)
 - [Schedules and contract sequences](docs/schedules-and-contract-sequences.md)
 - [Power example and its limits](docs/power-preview.md)

@@ -48,6 +48,16 @@ class CheckAllTests(unittest.TestCase):
         self.assertIn('--browser-check',crude[0])
         self.assertIn('--browser',crude[0])
 
+    def test_futures_option_checks_run_in_the_gate(self):
+        commands = []
+        run_checks(Path('/stock postgres/bin'), Path('/managed sdk/dotnet'), Path('/browser executable'),
+                   run=lambda command, **options: commands.append(command))
+        market = 'tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj'
+        runs = [c for c in commands if '--project' in c and c[c.index('--project') + 1] == market]
+        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options']])
+        restores = [c for c in commands if 'restore' in c and c[c.index('restore') + 1] == market]
+        self.assertEqual(len(restores), 1)
+
     def test_every_executable_check_project_is_restored_and_run(self):
         expected = {
             str(project.relative_to(ROOT))

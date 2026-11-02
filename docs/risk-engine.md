@@ -419,18 +419,14 @@ exact admitted pins; failed reads are not retained.
 
 ## Risk navigation
 
-The Risk sidebar page reads the existing authorized portfolio-risk job directory,
-independently of the Blotter catalog and market date. It lists retained queued
-jobs with shared run identities and part numbers, states and completion times.
-An explicit detail read loads a part's retained report, showing backend book
-values with their measures and units; downloading retains the full job receipt.
-Missing exclusion evidence prevents report display. Refresh is manual; the
-bounded directory is not a complete archive, and an unlisted part is not evidence
-of completion. Interactive runs remain on the Blotter and are not durable jobs.
-Setup opens the Blotter risk panel in the main window. When the Blotter is
-popped out, it brings that window forward and directs the user to its Risk
-report. Node management opens the existing Jobs & Infrastructure page. The page does not change calculation or worker
-admission contracts.
+The [Risk results workspace](risk-workspace.md) owns run setup and opens existing
+reports with the same editor and graphical report widget as the Blotter. Delta,
+gamma and up/down P&L retain backend native units, separate measures/currencies,
+exclusions and captured contexts. Its recent authorized job directory is bounded;
+missing parts remain incomplete, and links grant no authority. Unknown multipart
+submissions retain every original request identity before dispatch and reconcile
+after reload. Worker and calculation diagnostics are expandable. Statistical VaR,
+aligned calibration history and a complete report archive remain future work.
 
 Queueing writes to PostgreSQL. A separately configured managed risk worker claims
 compatible work; submitting a request does not provision a worker. The Swarm

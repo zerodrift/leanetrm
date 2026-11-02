@@ -13,7 +13,7 @@ export type StreamItem=TurnEvent|{kind:'replaced'}|{kind:'refused';code:string;m
 
 const stored:readonly string[]=['accepted','step','navigation','text','usage','completed','failed','cancelled','interrupted'];
 const terminal:readonly string[]=['completed','failed','cancelled','interrupted'];
-export const tools:readonly string[]=['read_current_page','read_market_data','read_trades','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate','read_workspace_page','discover_page_operations','read_page_operation','propose_page_action'];
+export const tools:readonly string[]=['read_current_page','read_market_data','read_trades','futures_option_catalog','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate','read_workspace_page','discover_page_operations','read_page_operation','propose_page_action'];
 export const readPages:readonly string[]=['curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter','custom_curves','jobs','risk_jobs','delivery_prices','interval_series','interval_curves','users_access','settings_ai','blotter_risk','blotter_risk_lens','blotter_new_trade','blotter_new_future','blotter_new_swap'];
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,codePattern=/^[a-z][a-z0-9_]{0,63}$/,decimal=/^-?[0-9]+(\.[0-9]+)?$/;
 

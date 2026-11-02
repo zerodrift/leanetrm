@@ -222,7 +222,8 @@ Instrument interning rejects a conflicting binding rather than substituting it.
 Swap definitions mark Discounting, and common/specialized PV reject conflicting
 policies. Existing market series, observations, explicit derived dependencies and
 immutable scenario risk already separate market inputs from contractual cashflows.
-Standalone physical forward booking, option products and VaR/covariance remain
+Standalone physical forward booking, option products other than listed American
+futures options ([D288](futures-options.md)) and VaR/covariance remain
 unimplemented; their agreed design is recorded in architecture/plan.
 
 Trading opens a shared Blotter with individual futures trade bindings, managed

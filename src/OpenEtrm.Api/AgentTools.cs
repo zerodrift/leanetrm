@@ -153,6 +153,12 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
               "description":"Trade: a revision, or null for its latest under the pinned knowledge. Null for the blotter."}},
              "required":["view","mode","bookIds","portfolioIds","groupBy","measures","tradeId","instrumentType","revision"],"additionalProperties":false}
             """,["ReadMarketData","ReadTrades"]),
+        Tool("futures_option_catalog","Reads the listed futures options bookable at the pinned knowledge and As of frame: each unexpired option "+
+            "series with its exact instrument identity, right, strike, expiry, underlying, multiplier, premium tick and style, and its daily "+
+            "settlement at the frame. It reads only; options are booked by the user. Takes no input.",
+            """
+            {"type":"object","properties":{},"additionalProperties":false}
+            """,["ReadMarketData","ReadTrades"]),
         Tool("read_trade_parties","Reads the legal entity or counterparty versions in force at the pinned As of frame, as known at the pinned knowledge.",
             """
             {"type":"object","properties":{"kind":{"type":"string","enum":["legal_entity","counterparty"]}},"required":["kind"],"additionalProperties":false}
@@ -213,6 +219,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new("trades.blotter_v1","read_trades",ToolNeeds.Frame,TradeAccess,["blotter_view"]),
         new("trades.trade_v1","read_trades",ToolNeeds.Frame,TradeAccess,["futures_trade","swap_trade","ppa_trade","ppa_revision"]),
         new("trades.ppa_book_v1","read_trades",ToolNeeds.Frame,TradeAccess,["ppa_scope"]),
+        new("trades.futures_option_catalog_v1","futures_option_catalog",ToolNeeds.Frame,TradeAccess,[]),
         new("trade_parties.versions_v1","read_trade_parties",ToolNeeds.Frame,PartyAccess,[]),
         new("schedules.library_v1","read_schedules",ToolNeeds.View,MarketAccess,[]),
         new("schedules.tou_products_v1","read_schedules",ToolNeeds.CurrentOnly,MarketAccess,[]),
@@ -281,6 +288,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 if(mode=="trades"?!groupBy.IsEmpty||!measures.IsEmpty:groupBy.IsEmpty||measures.IsEmpty)throw ToolInput.Invalid();
                 return new(Operations["trades.blotter_v1"],new BlotterArguments(new(mode,members.Ids("bookIds"),members.Ids("portfolioIds"),groupBy,measures,
                     mode=="pivot"?TradingBlotter.PivotConvention:null)));
+            case "futures_option_catalog":members.Exactly();return new(Operations["trades.futures_option_catalog_v1"],new NoArguments());
             case "read_trade_parties":
                 members.Exactly("kind");
                 return new(Operations["trade_parties.versions_v1"],new PartyArguments(members.Choice("kind","legal_entity","counterparty")));
@@ -591,11 +599,16 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             {Operation.Id:"trades.blotter_v1",Arguments:BlotterArguments blotter}=>ToolResults.Blotter(await trades.Blotter(connection,pin.Trading(await Context()),blotter.View,ct)),
             {Operation.Id:"trades.trade_v1",Arguments:TradeArguments trade}=>await Trade(connection,pin.Trading(await Context()),trade,ct),
             {Operation.Id:"trades.ppa_book_v1",Arguments:PpaBookArguments book}=>ToolResults.PpaBook(await trades.PpaBook(connection,pin.Trading(await Context()),book.Book,ct)),
+            {Operation.Id:"trades.futures_option_catalog_v1"}=>await OptionCatalog(connection,pin.Trading(await Context()),ct),
             {Arguments:JobListArguments list}=>await Jobs(connection,list,ct),
             {Arguments:JobHistoryArguments job}=>await JobHistory(connection,job,ct),
             _=>throw new InvalidOperationException("An operation has no read.")
         };
     }
+
+    // The series options/catalog lists, on the shared trading read path at the view's frame, without its booking directory.
+    async Task<ToolResult> OptionCatalog(NpgsqlConnection connection,TradingView view,CancellationToken ct)=>ToolResults.FuturesOptions(
+        await trades.Read(connection,view,data=>Task.FromResult<object>(FuturesOptionStore.Series(data,view.CalculationFrame)),ct));
 
     // A trade's editor read, then the deal's saved display formats it is shown by, in the same transaction under the
     // trading context it bound. Formats are current shared presentation, which the page reads the same way.

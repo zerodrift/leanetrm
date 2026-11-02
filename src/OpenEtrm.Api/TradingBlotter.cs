@@ -64,6 +64,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
        OR EXISTS(SELECT 1 FROM trading.ppa_trade_revisions WHERE catalog_id=$1)
        OR EXISTS(SELECT 1 FROM trading.gas_trade_revisions WHERE catalog_id=$1)
        OR EXISTS(SELECT 1 FROM trading.crude_trade_revisions WHERE catalog_id=$1)
+       OR EXISTS(SELECT 1 FROM trading.futures_option_trade_revisions WHERE catalog_id=$1)
    """,manifest.CatalogId);
   var hasRevisions=(bool)(await command.ExecuteScalarAsync(ct)??throw new PreviewDeniedException());
   if(hasRevisions)return null;
@@ -85,8 +86,9 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   var ppaRun=await PpaBlotter.Run(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct);
   var gasRun=await GasBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var crudeRun=await CrudeBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
+  var optionRun=await FuturesOptionBlotter.Run(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct);
   var formats=await DealAmountFormats.All(connection,manifest.CatalogId,ct);
-  return new(view,summaries,futuresRun,swapRun,ppaRun,row=>FutureTerms(row,data),formats,gasRun,crudeRun);
+  return new(view,summaries,futuresRun,swapRun,ppaRun,row=>FutureTerms(row,data),formats,gasRun,crudeRun,optionRun);
  }
  // The report of a view and, grouped from the same valuation, each requested summary in request order.
  public sealed record BlotterRead(object Blotter,ImmutableArray<Summary> Summaries);

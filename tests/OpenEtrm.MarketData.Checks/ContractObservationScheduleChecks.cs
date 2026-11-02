@@ -58,5 +58,9 @@ internal static class ContractObservationScheduleChecks
         var reloaded=((SidePaymentSchedule)retained.Floating.GenerateSchedule()).Payments.SelectMany(p=>p.Prices).Select(p=>p.ContractObservation).ToArray();
         if(!reloaded.SequenceEqual(observations))throw new Exception("The retained valuation adapter changed a stored dated-contract observation.");
         Console.WriteLine("PASS contract observation schedules: distinct observation/delivery windows, anchors, roles and concrete futures survive executable bytes and retained loading");
+        var option=contracts[0] with{Kind=ContractKind.FutureOption,FuturesSeries=R("june_call")};
+        try{(observations[0] with{Market=observations[0].Market with{Contract=option.Key},Contract=option}).Validate();throw new Exception("A futures-option settlement was accepted as a contract observation source.");}
+        catch(MarketDataException error)when(error.Code=="contract_observation_source"){}
+        Console.WriteLine("PASS contract observation schedules: a futures-option settlement is no contract observation source, not a forward");
     }
 }

@@ -164,12 +164,21 @@ public static class ContractIdentity
 {
     // Canonical UTF-8 ASCII encoding, shared with the database; UUID is an alias.
     // The complete exact-series key is always retained and checked on lookup.
-    public static Guid Futures(ReferenceKey series)
+    public static Guid Futures(ReferenceKey series) => Listed("futures_contract_v1", series);
+    public static Guid FuturesOption(ReferenceKey series) => Listed("futures_option_v1", series);
+    public static Guid CashPayment(ReferenceKey currency, DateOnly paymentDate)
+    {
+        Money.RequireKey(currency);
+        return FromCanonical($"cash_payment_v1:{currency.Revision.CatalogId:D}:{currency.Revision.RevisionId:D}:{currency.Code}:" +
+            paymentDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+    }
+    private static Guid Listed(string version, ReferenceKey series)
     {
         Money.RequireKey(series);
-        var bytes = System.Text.Encoding.UTF8.GetBytes($"futures_contract_v1:{series.Revision.CatalogId:D}:{series.Revision.RevisionId:D}:{series.Code}");
-        return Guid.ParseExact(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes))[..32], "N");
+        return FromCanonical($"{version}:{series.Revision.CatalogId:D}:{series.Revision.RevisionId:D}:{series.Code}");
     }
+    internal static Guid FromCanonical(string canonical) => Guid.ParseExact(Convert.ToHexStringLower(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical)))[..32], "N");
 }
 
 // Product-specific execution facts are owned by a generic trade binding. They

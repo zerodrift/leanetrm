@@ -129,7 +129,7 @@ internal static class BookedScheduleLookupChecks
             Dictionary<string,ImmutableArray<JsonElement>> rows=new()
             {
                 ["revisions"]=[Row(new{catalog_id=definitions.CatalogId,id=definitions.RevisionId,reference_catalog_id=reference.CatalogId,reference_revision_id=reference.RevisionId,state="sealed"})],
-                ["contracts"]=[..Contracts.Append(OtherContract).Select(c=>Row(new{id=c.Key.Id,kind="forward",delivery_from=c.DeliveryFrom.ToString("yyyy-MM-dd"),delivery_to=c.DeliveryTo.ToString("yyyy-MM-dd"),expiry_at=c.Expiry,futures_series_code=(string?)null}))],
+                ["contracts"]=[..Contracts.Append(OtherContract).Select(c=>Row(new{id=c.Key.Id,kind="forward",delivery_from=c.DeliveryFrom.ToString("yyyy-MM-dd"),delivery_to=c.DeliveryTo.ToString("yyyy-MM-dd"),expiry_at=c.Expiry,futures_series_code=(string?)null,futures_option_series_code=(string?)null}))],
                 ["curves"]=[Row(new{code="projection",quote_code="price",location_code="hub",profile_code="uniform",settlement_target_code="target",rule="direct",direct_role="trader_mark",direct_source_code="marks"})],
                 ["curve_members"]=[..Contracts.Select((c,n)=>Row(new{curve_code="projection",contract_id=c.Key.Id,ordinal=n}))],
                 ["series"]=[..Fixings.Select((f,n)=>Row(new{id=f.Series.Id,contract_id=Contracts[n].Key.Id,quote_code="price",value_specification_code=(string?)null}))],
@@ -141,7 +141,7 @@ internal static class BookedScheduleLookupChecks
                 ["quantity_specifications"]=[Row(new{code="quantity",commodity_code="gas",basis_code="energy",unit_code="mwh",dimension_code="energy"})],
                 ["quote_specifications"]=[..new[]{quote,OtherQuote}.Select(q=>Row(new{code=q.Key.Code,kind="outright",currency_code="usd",quantity_code="quantity",multiplier="1",trading_tick="0.01",clearing_increment="0.01",minimum="-1000",maximum="1000"}))],
                 ["settlement_targets"]=[Row(new{code="target",kind="index",index_a_code="projection_index",index_b_code=(string?)null})],
-                ["sources"]=[Row(new{code="publication"}),Row(new{code="marks"})],["value_specifications"]=[]
+                ["sources"]=[Row(new{code="publication"}),Row(new{code="marks"})],["value_specifications"]=[],["trading_close_times"]=[],["clock_rules"]=[]
             };
             Data=new(new("local-synthetic-preview",definitions.CatalogId,definitions.RevisionId,reference.CatalogId,reference.RevisionId,Guid.NewGuid(),Guid.NewGuid(),[],null),rows,references,[]);
         }

@@ -150,9 +150,13 @@ public sealed partial class SwapStore(PreviewDatabase database)
   if(quantity.Amount.CompareTo(default)<=0)throw Error("swap_quantity","Trade quantity must be positive; each membership specifies pay/receive direction.");
   return(instrument,quantity);
  }
- private async Task<CurrencyDiscountCurve?> Discount(NpgsqlConnection connection,PreviewData data,InputFrame frame,ReferenceKey currency,CancellationToken ct)
+ private Task<CurrencyDiscountCurve?> Discount(NpgsqlConnection connection,PreviewData data,InputFrame frame,ReferenceKey currency,CancellationToken ct)=>
+  CurrencyDefault(connection,manifest.CatalogId,data,frame,currency,ct);
+ // The context's payment-discount selection for a currency: its configured default curve in this exact market at the frame,
+ // or none. Swaps and futures-option values and premiums select discounting through it.
+ internal static async Task<CurrencyDiscountCurve?> CurrencyDefault(NpgsqlConnection connection,Guid catalog,PreviewData data,InputFrame frame,ReferenceKey currency,CancellationToken ct)
  {
-  await using var command=ScheduleStore.Command(connection,"SELECT security.swap_discount_default($1,$2,$3,$4,$5,$6)::text",manifest.CatalogId,currency.Revision.CatalogId,currency.Revision.RevisionId,currency.Code,data.DefinitionRevision.RevisionId,frame.At);
+  await using var command=ScheduleStore.Command(connection,"SELECT security.swap_discount_default($1,$2,$3,$4,$5,$6)::text",catalog,currency.Revision.CatalogId,currency.Revision.RevisionId,currency.Code,data.DefinitionRevision.RevisionId,frame.At);
   if(await command.ExecuteScalarAsync(ct) is not string text)return null;
   var row=JsonSerializer.Deserialize<JsonElement>(text);
   if(row.Id("definition_revision_id")!=data.DefinitionRevision.RevisionId)throw Error("discount_curve","The configured currency default has a different exact definition revision.");

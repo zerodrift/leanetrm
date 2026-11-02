@@ -22,7 +22,7 @@ const grouped=(count:number)=>count.toLocaleString('en-US');
 const changes:Record<string,string>={create_agent:'Agent created',save_agent:'Version saved',publish_agent:'Version published',retire_agent:'Agent retired'};
 const states:Record<string,string>={active:'Active',retired:'Retired'};
 const toolNames:Record<string,string>={navigate:'Navigate',read_current_page:'Read current page',read_market_data:'Read market data',read_reference_data:'Read reference data',
-  read_schedules:'Read schedules',read_trade_parties:'Read trade parties',read_trades:'Read trades',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',
+  read_schedules:'Read schedules',read_trade_parties:'Read trade parties',read_trades:'Read trades',futures_option_catalog:'Read futures option catalog',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',
   read_jobs:'Read jobs',save_custom_curve_draft:'Legacy curve save (requires approval)',read_workspace_page:'Read workspace page',
   discover_page_operations:'Discover page operations',read_page_operation:'Read and preview page operations',propose_page_action:'Propose changes for authorization'};
 const limitNames:[keyof Limits,string][]=[['toolSteps','tool steps per turn'],['inputTokens','input tokens per turn'],['outputTokens','output tokens per call'],

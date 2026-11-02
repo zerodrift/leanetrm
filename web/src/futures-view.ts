@@ -2,6 +2,8 @@ import type {BlotterStreamRequest,BlotterStreamHandlers,BlotterStreamStart} from
 import {refreshAcceptedCrudeOperation,openCrudeOperationPanel} from './crude-operations-model.js';
 import {setupCrudeOperations} from './crude-operations.js';
 import {readCrudeView} from './crude-trade-view.js';
+import {readOptionView} from './futures-option-view.js';
+import {lifecycleWrites} from './futures-option-model.js';
 import {readGasView} from './gas-trade-view.js';
 import type {ProductTickets,TicketProduct} from './product-tickets.js';
 import {readPpaView} from './ppa-trade-view.js';
@@ -15,6 +17,7 @@ import {type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {releasesRetained,retainedText,retryAllowed,isLifecycleCommand,isCrudeOperation,tradeStatusPath} from './trade-requests.js';
 import {setupRisk,riskDenied,type RunView} from './risk-view.js';
+import {setupRiskResults} from './risk-results-view.js';
 import {changeChart,changeScales,gapsText,lensCells,madeHere,noMoveText,positionKey,positionMoves,runBar,runExclusions,runGaps,runSummary,shockCount,shocksText,tileWords,unmovedNote,
   type LensCell,type ReadPlace,type RunGap} from './risk-lens.js';
 import type {ExcludedPosition,RiskReport} from './risk-report.js';
@@ -87,6 +90,7 @@ const numericFields=['tradeCount','lots','quantity','executionPrice','mark','exe
 const curvesPerShapeRead=64;
 
 export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(body:BlotterStreamRequest,handlers:BlotterStreamHandlers,signal:AbortSignal)=>Promise<void>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
+  riskReportUrl?:(id:string)=>string;
   // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused; and
   // takes that away again once the person acts anew.
   failed:(error:unknown)=>void;failureCleared:()=>void;notice:(message:string)=>void;
@@ -100,6 +104,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   reported:()=>void;
   // The knowledge the Blotter is read at: working data at current knowledge, a historical view, or live corrections.
   knowledge:()=>keyof typeof knowledgeWords;
+  // Whether a changed historical context is selected but not yet applied: nothing is written until it is.
+  contextDirty:()=>boolean;
   // The panel's form started or stopped holding unsaved edits.
   unsavedChanged:()=>void;
   // Whether the page is too narrow to show the panes side by side or above one another.
@@ -245,6 +251,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(!lastReadRequest)throw Error('Load the blotter before running risk.');
     return {context:{...(lastReadRequest as {context:Record<string,unknown>}).context},bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]};
   }});
+  const fullReport=setupRiskResults(get('desk-risk-full-results'),options.zone,options.riskReportUrl),fullReportPanel=get<HTMLDetailsElement>('desk-risk-full');
+  let fullReportKey='';
+  fullReportPanel.ontoggle=()=>{fullReportKey='';if(fullReportPanel.open)showRunBar();else fullReport.reset();};
   get('blotter-risk').onclick=()=>void openRiskReport();
   // The run bar's Edit shocks opens the risk report with the run's choices, Export downloads its results and inputs, and Clear takes it off the desk.
   get('desk-run-edit').onclick=()=>void openRiskReport();
@@ -330,7 +339,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,context:()=>JSON.stringify(readContext()),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
-      const read=await(h.instrumentType==='physical_crude'?readCrudeView(api,context,h,()=>void operateCrude(h.tradeId)):h.instrumentType==='physical_gas'?readGasView(api,context,h,{actor:options.profile}):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
+      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:options.profile,recorded:()=>void act(load)}):h.instrumentType==='physical_crude'?readCrudeView(api,context,h,()=>void operateCrude(h.tradeId)):h.instrumentType==='physical_gas'?readGasView(api,context,h,{actor:options.profile}):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
       return stale?{...read,view:zone=>({...read.view(zone),actions:undefined})}:read;
     },
@@ -448,6 +457,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // A position opens, in the details or a window of its own, only from the read on screen: rows kept from the previous read, or drawn
   // while the read is under way, say so.
   const notOpened=()=>options.notice('Positions open once the Blotter has valued them.');
+  // Option lifecycle events are recorded from the Blotter of working data at current knowledge, by a person the backend lets book.
+  const optionWrites=()=>lifecycleWrites({view:holdings?options.knowledge():'read_only',canBook:!!catalog?.canBook,reason:catalog?.bookingUnavailableReason,contextDirty:options.contextDirty(),recorded:false});
   function popout(selected:Holding){
     if(busy())return;
     if(!holdings){notOpened();return;}
@@ -456,7 +467,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const example=options.window.example;if(!example){options.failed(refuse('this window does not know which example it reads, so it opens no trade window'));return;}
     const selection:PositionWindowSelection={snapshotId:snapshot,context:holdings.context,asOf:holdings.asOf,
       tradeId:selected.tradeId,bindingId:selected.bindingId,revision:Number(selected.revision),instrumentType:selected.instrumentType as PositionWindowSelection['instrumentType'],zone:options.zone(),
-      example};
+      example,lifecycle:optionWrites().enabled?'working':'read_only'};
     openPositionWindow(location.href,selection,(url,target,features)=>window.open(url,target,features));
   }
   // A swap position's settlement and P&L view (D215) opens from its Terms in the panel's form part, as the form of its amendment does.
@@ -760,7 +771,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // What the run bar says of the run on screen, or nothing while there is none.
   function showRunBar(){
     const run=risk.current();
-    if(!run||!holdings){renderRunBar(get('desk-run'),null,busy());return;}
+    fullReportPanel.hidden=!run||!holdings;
+    if(!run||!holdings){fullReport.reset();fullReportKey='';renderRunBar(get('desk-run'),null,busy());return;}
+    const fullKey=resultsKey(run)+':'+run.key+':'+run.running+':'+options.zone();
+    if(fullReportPanel.open&&fullReportKey!==fullKey){fullReportKey=fullKey;fullReport.show(run);}
     const results=inline===undefined||inline.key!==resultsKey(run)?{state:'none' as const}:inline.state==='shown'?{state:view.mode==='pivot'?'pivot' as const:'shown' as const,excluded:inline.excluded}
       :inline.state==='failed'?{state:'failed' as const,reason:inline.reason}:{state:'elsewhere' as const};
     renderRunBar(get('desk-run'),{...runBar(run,{zone:options.zone(),knowledge:knowledgeWords[options.knowledge()],results}),setup:run.setupText},busy());
@@ -924,8 +938,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function choose(id:string,rows:{id:string;name:string}[],selected:string,placeholder='Choose…'){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option(placeholder,''),...rows.map(r=>new Option(publicText(r.name),r.id)));select.value=rows.some(r=>r.id===selected)?selected:'';}
   // A trade row's fields as the trade columns and exports state them: exact amounts, readable names.
   function tradeFields(h:Holding):Record<string,string|null>{
-    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,coverage,...fields}=h;
-    return {...fields,priceUnit:h.instrumentType==='ppa'?null:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo,options.zone()),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
+    const {booking,amountFormat,fixedAmountFormat,commodity,quantitySpecification,currencyReference,projectionCurves,coverage,exchange,linkedFuturesTradeIds,actions,...fields}=h;
+    return {...fields,exchange:exchange?.name??null,linkedFuturesTradeIds:linkedFuturesTradeIds?.join(', ')??null,priceUnit:h.instrumentType==='ppa'?null:priceUnit(h),tradeDate:booking.tradeDate,legalEntity:booking.legalEntity??null,counterparty:booking.counterparty??null,instrumentType:friendly(h.instrumentType),commodity:commodity.name,market:h.marketLabel??curveName(h.curve),contract:deliveryLabel(h.deliveryFrom,h.deliveryTo,options.zone()),executed:displayInstant(h.executedAt,options.zone()),settlement:publicText(h.settlement==='unprocessed'?'Unprocessed':h.settlement)};
   }
   // What a trade row's value cell says when the close cannot value it, on screen and in exports (D220).
   function notValued(h:Holding,key:string){return h.unavailableReason&&valueFields(h.instrumentType).includes(key)?`Not valued · ${valuationReason(h.unavailableReason,h.instrumentType)}`:undefined;}

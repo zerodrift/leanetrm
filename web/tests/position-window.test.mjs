@@ -4,7 +4,7 @@ import {positionWindowRequest,positionWindowUrl,readPositionWindowUrl,openPositi
 import {readSelectedPosition} from '../dist/position-facts.js';
 
 const selection={snapshotId:'10000000-0000-0000-0000-000000000001',context:{contextId:'20000000-0000-0000-0000-000000000002',effectiveOn:'2031-03-12',knownAt:'2031-03-12T18:45:00.1234560Z'},
- asOf:'2031-03-12T16:00:00+00:00',tradeId:'30000000-0000-0000-0000-000000000003',bindingId:'40000000-0000-0000-0000-000000000004',revision:2,instrumentType:'ppa',zone:'America/Chicago',example:'baseline'};
+ asOf:'2031-03-12T16:00:00+00:00',tradeId:'30000000-0000-0000-0000-000000000003',bindingId:'40000000-0000-0000-0000-000000000004',revision:2,instrumentType:'ppa',zone:'America/Chicago',example:'baseline',lifecycle:'read_only'};
 
 test('a separate trade window always reads the exact retained selection, without recapturing current knowledge',()=>{
  assert.deepEqual(positionWindowRequest(selection),{context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:selection.context.contextId},
@@ -53,4 +53,13 @@ test('physical crude popouts retain exact common position references',()=>{
  const crude={...selection,instrumentType:'physical_crude'};
  assert.deepEqual(readPositionWindowUrl(positionWindowUrl('https://example.invalid/',crude)),crude);
  assert.equal(positionWindowRequest(crude).instrumentType,'physical_crude');
+});
+
+test('a window states whether its opener was working data that may record option lifecycle events, and nothing else is read as that',()=>{
+ const working={...selection,instrumentType:'futures_option',lifecycle:'working'};
+ assert.deepEqual(readPositionWindowUrl(positionWindowUrl('https://example.invalid/',working)),working);
+ const base=new URL(positionWindowUrl('https://example.invalid/',working));
+ for(const change of [u=>u.hash=u.hash.replace('lifecycle=working','lifecycle=current'),u=>u.hash=u.hash.replace('&lifecycle=working','')]){
+  const url=new URL(base);change(url);assert.throws(()=>readPositionWindowUrl(url.href),/exact position and retained market context/);
+ }
 });

@@ -29,12 +29,12 @@ static class PageReports
         ["power_tous"]=new("read_schedules",["schedules.tou_products_v1","schedules.power_hours_v1"],"Power TOUs"),
         ["reference_data"]=new("read_reference_data",["reference_data.table_v1"],"Reference data"),
         ["parties"]=new("read_trade_parties",["trade_parties.versions_v1"],"Entities & counterparties"),
-        ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1"],"Blotter"),
+        ["blotter"]=new("read_trades",["trades.blotter_v1","trades.trade_v1","trades.futures_option_catalog_v1"],"Blotter"),
         ["custom_curves"]=new("read_custom_curves",["custom_curves.catalog_v1","custom_curves.prepare_v1","custom_curves.save_draft_v1"],"Curve builder"),
         ["jobs"]=new("read_jobs",["jobs.list_v1","jobs.history_v1"],"Jobs & Infrastructure"),
         // The inspected PPA is the Blotter's trade view of it; its target opens it in the Blotter.
         ["ppa"]=new("read_trades",["trades.trade_v1","trades.ppa_book_v1"],"PPA bookings",false),
-        ["blotter_risk"]=Workspace("Blotter risk"),["blotter_risk_lens"]=Workspace("Blotter risk lens"),["blotter_new_trade"]=Workspace("New trade"),["blotter_new_future"]=Workspace("New futures trade"),["blotter_new_swap"]=Workspace("New swap"),["blotter_new_ppa"]=Unsupported("New PPA"),["blotter_new_gas"]=Unsupported("New physical gas trade"),["blotter_new_crude"]=Unsupported("New physical crude trade"),
+        ["blotter_risk"]=Workspace("Blotter risk"),["blotter_risk_lens"]=Workspace("Blotter risk lens"),["blotter_new_trade"]=Workspace("New trade"),["blotter_new_future"]=Workspace("New futures trade"),["blotter_new_swap"]=Workspace("New swap"),["blotter_new_ppa"]=Unsupported("New PPA"),["blotter_new_gas"]=Unsupported("New physical gas trade"),["blotter_new_crude"]=Unsupported("New physical crude trade"),["blotter_new_option"]=Unsupported("New futures option trade"),
         ["gas_setup"]=Unsupported("Gas delivery setup"),["physical_gas"]=Unsupported("Physical gas bookings"),["physical_crude"]=Unsupported("Physical crude bookings"),["risk_jobs"]=Workspace("Risk"),["delivery_prices"]=Workspace("Delivery prices"),["interval_series"]=Workspace("Interval data"),
         ["interval_curves"]=Workspace("Hourly / sub-hourly curves"),["users_access"]=Workspace("Users & access"),["settings_ai"]=Workspace("AI settings")
     }.ToImmutableDictionary(StringComparer.Ordinal);
@@ -45,7 +45,7 @@ static class PageReports
     internal static bool Operational(string page)=>page is "users_access" or "settings_ai" or "jobs" or "risk_jobs" or "delivery_prices" or "interval_series";
 
     // The pages the Blotter reports, which alone may state its layout.
-    static readonly ImmutableHashSet<string> BlotterPages=["blotter","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","blotter_new_ppa","blotter_new_gas"];
+    static readonly ImmutableHashSet<string> BlotterPages=["blotter","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","blotter_new_ppa","blotter_new_gas","blotter_new_option"];
 
     // The pages the assistant reads, those Navigate opens, and those it does not read.
     internal static IEnumerable<string> Supported=>Pages.Where(p=>p.Value.Tool is not null).Select(p=>p.Key);

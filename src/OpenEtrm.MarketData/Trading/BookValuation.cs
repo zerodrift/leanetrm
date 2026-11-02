@@ -16,6 +16,7 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
     public IntervalValuationInputs? Interval{get;init;}
     public ImmutableDictionary<Guid,ISideDiscounting> InstrumentDiscounting{get;init;}=ImmutableDictionary<Guid,ISideDiscounting>.Empty;
     public ImmutableDictionary<MeasureBinding,SwapBindingValuation> Settlements{get;init;}=ImmutableDictionary<MeasureBinding,SwapBindingValuation>.Empty;
+    public ImmutableDictionary<Guid,FuturesOptionMarketBinding> OptionBindings{get;init;}=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty;
 }
 
 // Operation/scenario-local reuse. Reference identity of the resolved discount
@@ -99,6 +100,14 @@ public sealed class UnitValuationContext
             throw new MarketDataException("valuation_binding","An exact futures pricing binding is required for this instrument.");
         if(pricing is not null&&pricing.Authority is null)
             throw new MarketDataException("valuation_binding","Futures pricing requires its exact qualified market definition authority.");
+        return binding;
+    }
+    internal FuturesOptionMarketBinding FuturesOption(Guid instrument)
+    {
+        if(Setup.OptionBindings is null||!Setup.OptionBindings.TryGetValue(instrument,out var binding)||binding.Instrument.Id!=instrument)
+            throw new MarketDataException("valuation_binding","An exact futures-option pricing binding is required for this instrument.");
+        if(pricing is not null&&pricing.Authority is null)
+            throw new MarketDataException("valuation_binding","Futures-option pricing requires its exact qualified market definition authority.");
         return binding;
     }
     internal SideValuationContext SideContext(ISideDiscounting? selected=null)

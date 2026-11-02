@@ -17,8 +17,8 @@ def run_checks(url,query=None,manifest=None):
     c.call('futures/catalog',{**context,'snapshotId':baseline_frame['id']},expected=422)
     base.call('futures/catalog',{'snapshotId':frame['id'],'convention':'contract_lot_execution_pnl_v2','knowledgeMode':'current'},expected=422)
     catalog=c.call('futures/catalog',context);contracts=catalog['contracts']
-    assert len(contracts)==61
-    expected_sizes={'ice_dgd':'2500','ice_hxs':'2500','ice_wah':'2500','nymex_ng':'10000','ice_pmi':'320','ice_pjc':'320','ice_ern':'320','ice_spm':'384','ice_npm':'384',
+    assert len(contracts)==67
+    expected_sizes={'ice_dgd':'2500','ice_hxs':'2500','ice_wah':'2500','nymex_ng':'10000','nymex_cl':'1000','ice_pmi':'320','ice_pjc':'320','ice_ern':'320','ice_spm':'384','ice_npm':'384',
                     'ice_cfb':'2500','ice_fqh':'2500','ice_fqw':'2500'}
     assert len({v['curve'] for v in contracts})==len(expected_sizes)
     assert all(v['firstTrading'] is None for v in contracts), 'Unknown source facts must not contain invented first-trading times'
@@ -56,13 +56,13 @@ def run_checks(url,query=None,manifest=None):
               'counterpartyId':catalog['counterparties'][0]['id'],'counterpartyRevision':catalog['counterparties'][0]['revision']}
         saved=c.call('futures/book',body);assert saved==c.call('futures/book',body)
         expected[saved['tradeId']]={'quantity':lots*Decimal(size),'pnl':lots*Decimal(size)*tick,'body':body,'contract':contract}
-    holdings=c.call('futures/holdings',context)['holdings'];assert len(holdings)==12
+    holdings=c.call('futures/holdings',context)['holdings'];assert len(holdings)==13
     for h in holdings:
         oracle=expected[h['tradeId']]
         assert Decimal(h['quantity'])==oracle['quantity'],h
         assert Decimal(h['executionPnl'])==oracle['pnl'],h
         assert h['settlement']=='unprocessed'
-    print('PASS exchange futures: 61 executable source-listed monthly maturities,12 exchange product families, physical/cash, source-listed monthly maturities, signed lots and exact published power lot totals.',flush=True)
+    print('PASS exchange futures: 67 executable source-listed monthly maturities, 13 exchange product families, physical/cash, source-listed monthly maturities, signed lots and exact published power lot totals.',flush=True)
     future=holdings[0];trade=future['tradeId']
     formats=c.call('trade-formats/read',{'context':context,'tradeId':trade})
     selected=next(r for r in formats['roles'] if r['role']=='trade');assert selected['revision']==0
@@ -108,7 +108,7 @@ def run_checks(url,query=None,manifest=None):
             assert Decimal(moved[0]['values']['upPnl'])==oracle['quantity']*Decimal('0.01')
             assert Decimal(moved[0]['values']['downPnl'])==-oracle['quantity']*Decimal('0.01')
             assert all(Decimal(p['values']['upPnl'])==0 for p in result['positions'] if expected[p['tradeId']]['contract']['id']!=cid)
-    assert len(checked)==12
+    assert len(checked)==13
     c.call('profile',{'profile':'trader'})
     oracle=next(v for v in expected.values() if v['body']['curve']=='ice_wah')
     initial_id=next(key for key,value in expected.items() if value is oracle)
@@ -149,8 +149,8 @@ def run_checks(url,query=None,manifest=None):
     if query is not None:
         import json
         assert query(f"SELECT count(*) FROM ref_data.futures_products WHERE catalog_id='{manifest['referenceCatalogId']}' AND definition_state='synthetic';")=='0'
-        assert query(f"SELECT count(*) FROM ref_data.futures_products WHERE catalog_id='{manifest['referenceCatalogId']}';")=='19'
-        assert query(f"SELECT count(*) FROM ref_data.futures_series WHERE catalog_id='{manifest['referenceCatalogId']}';")=='72'
+        assert query(f"SELECT count(*) FROM ref_data.futures_products WHERE catalog_id='{manifest['referenceCatalogId']}';")=='20'
+        assert query(f"SELECT count(*) FROM ref_data.futures_series WHERE catalog_id='{manifest['referenceCatalogId']}';")=='78'
         assert query(f"SELECT count(*) FROM ref_data.futures_milestones WHERE catalog_id='{manifest['referenceCatalogId']}' AND milestone='last_trading' AND value_state='known' AND event_at IS NULL;")=='11'
         assert query(f"SELECT count(*) FROM ref_data.exchanges WHERE catalog_id='{manifest['referenceCatalogId']}';")=='2'
         assert query("SELECT bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE oid IN('ref_data.futures_product_terms'::regclass,'ref_data.futures_basis_settlements'::regclass,'ref_data.futures_lot_resolutions'::regclass);")=='t'

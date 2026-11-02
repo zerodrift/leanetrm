@@ -425,6 +425,9 @@ def main():
             er,em,es,et,exchange_manifest=exchange_fixture(ROOT)
             query(er);query(em);query(es);query(et)
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
+            if args.exchange_check:
+                from check_futures_option_storage import run_checks as check_futures_option_storage
+                check_futures_option_storage(query,exchange_manifest)
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
         if args.ppa_bookings_check or args.blotter_stream_benchmark:
@@ -506,7 +509,7 @@ def main():
         frozen_dll=temporary/'api'/dll.name
         log=(temporary/'app.log').open('w')
         api_env=app_env
-        if args.assistant_check or args.provider_adapters_check or args.assistant_workspace_check or args.assistant_runtime_check or args.assistant_browser_check:
+        if args.assistant_check or args.provider_adapters_check or args.assistant_workspace_check or args.assistant_runtime_check or args.assistant_browser_check or args.exchange_check:
             # Provider tests reach a loopback fake provider through the check endpoint, and every proxy
             # setting names a trap that no request may reach (docs/ai-assistant.md §5.2, §13).
             from fake_model_provider import FakeProvider,Trap
@@ -528,20 +531,31 @@ def main():
                 time.sleep(.1)
         else:
             raise RuntimeError('Preview did not become ready:\n'+(temporary/'app.log').read_text())
-        def prepare_risk_worker():
+        def prepare_risk_worker(selected=None,login='preview_risk_worker'):
             from check_risk_jobs_db import provision_worker
-            provision_worker(query,manifest)
-            connection=temporary/'risk-worker-connection'
-            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username=preview_risk_worker;SSL Mode=Disable')
+            provision_worker(query,selected or manifest,login)
+            connection=temporary/f'{login}-connection'
+            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username={login};SSL Mode=Disable')
             connection.chmod(0o600)
-            config=temporary/'risk-worker.json'
+            config=temporary/f'{login}.json'
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':60}))
             config.chmod(0o600)
             return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
-        def risk_worker_runner():
-            worker_env=prepare_risk_worker()
-            def run():
-                subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+        def risk_worker_runner(selected=None,login='preview_risk_worker'):
+            worker_env=prepare_risk_worker(selected,login)
+            def run(measure=False):
+                command=[str(dotnet),str(frozen_dll),'--risk-worker','once']
+                if not measure:
+                    subprocess.run(command,cwd=ROOT,env=worker_env,check=True,timeout=90);return None
+                # One claimed job, with the worker process's resident memory sampled every 50 ms; returns the sampled peak in KiB.
+                process=subprocess.Popen(command,cwd=ROOT,env=worker_env);peak=0;deadline=time.monotonic()+90
+                while process.poll() is None:
+                    sample=subprocess.run(['ps','-o','rss=','-p',str(process.pid)],capture_output=True,text=True).stdout.strip()
+                    peak=max(peak,int(sample)) if sample else peak
+                    if time.monotonic()>deadline:process.kill();raise RuntimeError('The risk worker did not finish within 90 seconds.')
+                    time.sleep(.05)
+                if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
+                return peak
             return run
         if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
             if not args.check and date_plan is not None:
@@ -908,13 +922,24 @@ def main():
                 check_exchange(url,query,exchange_manifest)
                 from seed_exchange_positions import seed_positions as seed_exchange
                 seeded=seed_exchange(url,run_id,temporary)
-                assert len(seeded)==12 and seeded==seed_exchange(url,run_id,temporary)
-                print('PASS exchange examples populate twelve source-listed monthly product families through idempotent authorized bookings.',flush=True)
+                assert len(seeded)==13 and seeded==seed_exchange(url,run_id,temporary)
+                print('PASS exchange examples populate thirteen source-listed monthly product families through idempotent authorized bookings.',flush=True)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--exchange'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=120):raise RuntimeError('Owned exchange browser checks failed')
+                # Option bookings, lifecycle and portfolio risk, after the Blotter reads above that count the seeded futures.
+                from check_futures_option_lifecycle import run_checks as check_option_booking,run_lifecycle_checks as check_option_lifecycle,check_agent_catalog
+                check_option_booking(url,query,exchange_manifest)
+                check_option_lifecycle(url,query,exchange_manifest)
+                check_agent_catalog(url,query,exchange_manifest,fake_provider)
+                from check_futures_option_portfolio import run_checks as check_option_portfolio
+                check_option_portfolio(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_risk_worker'))
+                if args.browser_check:
+                    # The option ticket and position window, beside the options the checks above booked.
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--futures-options'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
+                    if browser_process.wait(timeout=300):raise RuntimeError('Owned futures option browser checks failed')
             elif args.party_check:
                 from check_party_editors import run_checks as check_parties
                 check_parties(url)

@@ -849,6 +849,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     check_curve_drafts(check, query, fake, admin, trader, agent, grant, ask, settled, steps, requests, answers, model_name, definition, formula)
     check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settled, steps, requests, answers, model_name)
     check_ppa_reads(check, query, fake, trader, agent, grant, ask, settled, steps, requests, answers, model_name, booking['books'][0]['id'], trades)
+    check_option_catalog_reads(check, query, fake, trader, agent, grant, ask, settled, steps, requests, answers, model_name, frame, trades)
     for release in stalled:
         release.set()
     check('no log line or request body carries the key, and no request goes through a proxy',
@@ -997,6 +998,29 @@ def check_job_reads(check, query, fake, trader, admin, agent, grant, ask, settle
     replayed = trader.call(f"assistant/conversations/{turn['conversationId']}?after=0")
     check('the owner still replays a completed jobs answer while they hold ReadJobs, after revoking the grant',
           next(t for t in replayed['turns'] if t['id'] == turn['id'])['hidden'] is None, replayed)
+
+
+def check_option_catalog_reads(check, query, fake, trader, agent, grant, ask, settled, steps, requests, answers, model_name, frame, trades):
+    """Futures option catalog (R27): the tool returns the catalog options/catalog returns at the turn's frame, under the
+    Blotter's accesses, and records nothing; no agent tool books an option. The baseline example lists no option series, so
+    the catalogs compared here are empty; the exchange example's option check covers the listed series over HTTP."""
+    catalog_agent = agent('options', tools=('futures_option_catalog',))
+    grant(trader, catalog_agent)
+    fake.respond(stream(tool_use(model_name, [('toolu_options_1', 'futures_option_catalog', {})])),
+                 stream(recording(model_name, text='No futures options are listed here.')))
+    since = len(fake.received)
+    written = query('SELECT count(*) FROM trading.trades;')
+    turn, _ = settled(ask(agent_state=catalog_agent)['turn'])
+    recorded, results = steps(turn), answers(requests(since)[-1])
+    read, _ = results['toolu_options_1']
+    page = trader.call('options/catalog', {'snapshotId': frame['id'], 'convention': 'futures_option_premium_v1', 'knowledgeMode': 'current'})
+    check('the futures option catalog tool returns the catalog options/catalog returns at the turn\'s frame, without its booking directory, '
+          'under the Blotter\'s accesses',
+          turn['state'] == 'completed' and read['operation'] == 'trades.futures_option_catalog_v1' and read['context']['frame']['id'] == frame['id']
+          and read['result'] == {'convention': page['convention'], 'options': page['options']} and recorded[0]['access'] == trades, (read, page))
+    check('the catalog read records no trade, and no agent tool books: none is named for booking or needs BookTrade',
+          len(recorded) == 1 and query('SELECT count(*) FROM trading.trades;') == written
+          and query("SELECT count(*) FROM assistant.agent_tools() WHERE code LIKE '%book%' OR 'BookTrade'=ANY(permissions);") == '0', recorded)
 
 
 def ppa_book(book_ids):

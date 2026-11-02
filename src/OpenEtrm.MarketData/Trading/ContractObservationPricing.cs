@@ -26,7 +26,7 @@ public sealed record ContractObservationLookup(
             Quote.Kind!=QuoteKind.Outright||Source.Revision!=Quote.Key.Revision||string.IsNullOrWhiteSpace(Source.Code)||
             Observation.Ordinal<0||Observation.From>=Observation.To||Observation.To.DayNumber-Observation.From.DayNumber!=1||!TradingInstant.IsSupported(FixingAt)||SelectionAt!=FixingAt||
             Role is not(ObservationRole.DailySettlement or ObservationRole.TraderMark)||!Enum.IsDefined(ExpiryPolicy)||
-            Contract.Kind==ContractKind.Future&&Role!=ObservationRole.DailySettlement||Contract.Interval is not null)
+            Contract.Kind==ContractKind.Future&&Role!=ObservationRole.DailySettlement||Contract.Kind==ContractKind.FutureOption||Contract.Interval is not null)
             throw Invalid();
         _=PriceUnit.FromQuote(Quote);
         if(FixingAt>=Contract.Expiry&&ExpiryPolicy==ContractObservationExpiry.RequireLive)throw Invalid();
