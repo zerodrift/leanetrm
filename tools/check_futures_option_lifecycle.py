@@ -44,7 +44,7 @@ def run_checks(url, query, manifest):
                 'premiumPaymentDate': '2026-10-19', 'premiumStyle': 'premium_paid_up_front', 'memo': 'Synthetic option booking', **parties, **changes}
 
     def stored(trade):
-        return query(f"""SELECT concat_ws('|',trim_scale(r.lots),trim_scale(r.premium),r.premium_style,o.series_code,p.direction,trim_scale(p.amount),p.payment_date,
+        return query(f"""SELECT concat_ws('|',trim_scale(r.lots),trim_scale(r.premium),r.premium_style,o.series_code,trim_scale(r.premium_quantity),p.payment_date,
             cur.display_code,r.option_instrument_id,r.premium_instrument_id,b.booker_login,b.trade_date=(now() AT TIME ZONE 'UTC')::date,r.memo,
             r.legal_entity_id,r.counterparty_id)
             FROM trading.futures_option_trade_revisions r JOIN trading.futures_option_references o ON(o.catalog_id,o.instrument_id)=(r.catalog_id,r.option_instrument_id)
@@ -58,22 +58,27 @@ def run_checks(url, query, manifest):
                      f"(SELECT count(*) FROM trading.instruments WHERE catalog_id='{manifest['catalogId']}'),"
                      f"(SELECT count(*) FROM trading.futures_option_trade_revisions WHERE catalog_id='{manifest['catalogId']}'));")
 
-    def amount(premium, product, lots):
-        return format((Decimal(premium) * SPECIFICATION[product][0] * abs(lots)).normalize(), 'f')
+    def cash(premium, product, lots):
+        """The premium cash the trade holds, in currency units: premium × multiplier × lots, negative (paid) for a long holding."""
+        return format((-Decimal(premium) * SPECIFICATION[product][0] * lots).normalize(), 'f')
+
+    def cash_instrument(currency, day):
+        return str(uuid.UUID(hashlib.sha256(f"cash_payment_v1:{reference[0]}:{reference[1]}:{currency}:{day}".encode()).hexdigest()[:32]))
 
     long_call = body(on, '2', '0.125')
     booked = c.call('options/book', long_call)
     held = stored(booked['tradeId'])
-    check('a long ON call books its exact option instrument and a premium of premium × multiplier × lots paid on the booked date',
-          booked['optionInstrumentId'] == on['instrumentId'] and booked['premiumInstrumentId'] != on['instrumentId'] and
-          held == '|'.join(['2', '0.125', 'premium_paid_up_front', on['series'], 'pay', amount('0.125', 'nymex_on', 2),
+    check('a long ON call books its exact option instrument and pays premium × multiplier × lots in the unit USD cash instrument of the booked date',
+          booked['optionInstrumentId'] == on['instrumentId'] and booked['premiumInstrumentId'] == cash_instrument('usd', '2026-10-19') and
+          held == '|'.join(['2', '0.125', 'premium_paid_up_front', on['series'], cash('0.125', 'nymex_on', 2),
                             '2026-10-19', 'USD', booked['optionInstrumentId'], booked['premiumInstrumentId'], 'trader', 't',
                             'Synthetic option booking', parties['legalEntityId'], parties['counterpartyId']]), held)
     short_put = body(lo, '-3', '1.25')
     sold = c.call('options/book', short_put)
     held = stored(sold['tradeId'])
-    check('a short LO put books the premium received for its absolute lots',
-          held.split('|')[:8] == ['-3', '1.25', 'premium_paid_up_front', lo['series'], 'receive', amount('1.25', 'nymex_lo', -3), '2026-10-19', 'USD'], held)
+    check('a short LO put receives its premium in the same unit cash instrument, at a positive quantity',
+          held.split('|')[:7] == ['-3', '1.25', 'premium_paid_up_front', lo['series'], cash('1.25', 'nymex_lo', -3), '2026-10-19', 'USD']
+          and sold['premiumInstrumentId'] == booked['premiumInstrumentId'], held)
 
     before = rows()
     check('retrying an operation returns its first outcome and records nothing new',

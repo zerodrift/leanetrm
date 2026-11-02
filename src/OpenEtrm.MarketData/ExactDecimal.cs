@@ -45,6 +45,7 @@ public readonly partial record struct ExactDecimal : IComparable<ExactDecimal>
 
     public static ExactDecimal operator +(ExactDecimal a, ExactDecimal b) => new(a.scaled + b.scaled);
     public static ExactDecimal operator -(ExactDecimal a, ExactDecimal b) => new(a.scaled - b.scaled);
+    public static ExactDecimal operator -(ExactDecimal a) => new(-a.scaled);
     public static ExactDecimal operator *(ExactDecimal a, ExactDecimal b)
     {
         var result = BigInteger.DivRem(a.scaled * b.scaled, Scale, out var remainder);

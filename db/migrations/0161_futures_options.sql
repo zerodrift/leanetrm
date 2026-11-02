@@ -388,13 +388,19 @@ CREATE TABLE trading.futures_option_references (
  FOREIGN KEY(reference_catalog_id,reference_revision_id,series_code) REFERENCES ref_data.futures_option_series(catalog_id,revision_id,code),
  FOREIGN KEY(catalog_id,publication_order) REFERENCES trading.publications(catalog_id,publication_order)
 );
+-- A unit cash instrument: one unit of an exact currency paid on a date. Its identity is its terms, so every trade holding
+-- cash of that currency on that date holds the same instrument, at a signed quantity in that currency (negative pays).
+CREATE FUNCTION security.cash_payment_instrument_id(ref_catalog uuid,ref_revision uuid,currency text,payment_date date) RETURNS uuid
+ LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+ SELECT substr(encode(sha256(convert_to('cash_payment_v1:'||ref_catalog::text||':'||ref_revision::text||':'||currency||':'||to_char(payment_date,'YYYY-MM-DD'),'UTF8')),'hex'),1,32)::uuid;
+$$;
 CREATE TABLE trading.cash_payment_instruments (
  catalog_id uuid NOT NULL,instrument_id uuid NOT NULL,
  reference_catalog_id uuid NOT NULL,reference_revision_id uuid NOT NULL,currency_code ref_data.code NOT NULL,
- direction text NOT NULL CHECK(direction IN('pay','receive')),amount ref_data.exact_number NOT NULL CHECK(amount>=0),
  payment_date date NOT NULL CHECK(payment_date BETWEEN DATE '1901-01-01' AND DATE '2199-12-31'),
  publication_order integer NOT NULL,effective_at ref_data.instant NOT NULL,
  PRIMARY KEY(catalog_id,instrument_id),
+ CHECK(instrument_id=security.cash_payment_instrument_id(reference_catalog_id,reference_revision_id,currency_code,payment_date)),
  FOREIGN KEY(catalog_id,instrument_id,publication_order,effective_at) REFERENCES trading.instruments(catalog_id,id,publication_order,effective_at),
  FOREIGN KEY(reference_catalog_id,reference_revision_id,currency_code) REFERENCES ref_data.currencies(catalog_id,revision_id,code),
  FOREIGN KEY(catalog_id,publication_order) REFERENCES trading.publications(catalog_id,publication_order)
@@ -404,13 +410,17 @@ CREATE TABLE trading.futures_option_trade_revisions (
  definition_revision_id uuid NOT NULL,contract_id uuid NOT NULL,
  option_instrument_id uuid NOT NULL,premium_instrument_id uuid NOT NULL CHECK(premium_instrument_id<>option_instrument_id),
  lots ref_data.exact_number NOT NULL CHECK(lots<>0 AND lots=trunc(lots) AND abs(lots)<=100000),
- premium ref_data.exact_number NOT NULL CHECK(premium>=0),premium_style text NOT NULL CHECK(premium_style='premium_paid_up_front'),
+ premium ref_data.exact_number NOT NULL CHECK(premium>=0),
+ -- The premium cash the trade holds: premium x multiplier x |lots| units of its currency, paid (negative) for a long holding
+ -- and received for a short one.
+ premium_quantity ref_data.exact_number NOT NULL CHECK(premium_quantity=0 OR sign(premium_quantity)=-sign(lots)),
+ premium_style text NOT NULL CHECK(premium_style='premium_paid_up_front'),
  implementation text NOT NULL CHECK(implementation='futures_option_premium_v1'),execution_at ref_data.instant NOT NULL,
  operation_id uuid NOT NULL,actor_id uuid NOT NULL REFERENCES security.principals(id),
  trader_id uuid,trader_revision integer,memo text CHECK(length(memo)<=4000),trade_date date NOT NULL,
  legal_entity_id uuid NOT NULL,legal_entity_revision integer NOT NULL,counterparty_id uuid NOT NULL,counterparty_revision integer NOT NULL,
  publication_order integer NOT NULL,effective_at ref_data.instant NOT NULL,
- PRIMARY KEY(catalog_id,trade_id,revision),UNIQUE(catalog_id,operation_id),UNIQUE(catalog_id,premium_instrument_id),
+ PRIMARY KEY(catalog_id,trade_id,revision),UNIQUE(catalog_id,operation_id),
  CHECK((trader_id IS NULL)=(trader_revision IS NULL)),
  FOREIGN KEY(catalog_id,trade_id) REFERENCES trading.trades(catalog_id,id),
  FOREIGN KEY(catalog_id,book_id) REFERENCES trading.books(catalog_id,id),
@@ -548,13 +558,16 @@ BEGIN
   INSERT INTO trading.instruments VALUES(catalog,option_instrument,ordinal,definition_from);
   INSERT INTO trading.futures_option_references VALUES(catalog,option_instrument,series_row.catalog_id,series_row.revision_id,series_row.code,ordinal,definition_from);
  END IF;
- premium_instrument=gen_random_uuid();trade=gen_random_uuid();
- INSERT INTO trading.instruments VALUES(catalog,premium_instrument,ordinal,executed);
- INSERT INTO trading.cash_payment_instruments VALUES(catalog,premium_instrument,q.catalog_id,q.revision_id,q.currency_code,
-  CASE WHEN lots>0 THEN 'pay' ELSE 'receive' END,premium*product.multiplier*abs(lots),premium_payment_date,ordinal,executed);
+ -- The premium's unit cash instrument, shared by every premium of its currency on its date, as an option series is.
+ premium_instrument=security.cash_payment_instrument_id(q.catalog_id,q.revision_id,q.currency_code,premium_payment_date);trade=gen_random_uuid();
+ IF NOT EXISTS(SELECT 1 FROM trading.cash_payment_instruments WHERE(catalog_id,instrument_id)=(catalog,premium_instrument)) THEN
+  INSERT INTO trading.instruments VALUES(catalog,premium_instrument,ordinal,definition_from);
+  INSERT INTO trading.cash_payment_instruments(catalog_id,instrument_id,reference_catalog_id,reference_revision_id,currency_code,payment_date,publication_order,effective_at)
+   VALUES(catalog,premium_instrument,q.catalog_id,q.revision_id,q.currency_code,premium_payment_date,ordinal,definition_from);
+ END IF;
  booking=booking||jsonb_build_object('tradeDate',(security.stamp_trade_booking(catalog) AT TIME ZONE 'UTC')::date);
  INSERT INTO trading.trades VALUES(catalog,trade,book,operation,c.actor_id,request_value,ordinal,executed);
- INSERT INTO trading.futures_option_trade_revisions VALUES(catalog,trade,1,book,revision,contract_row.id,option_instrument,premium_instrument,lots,premium,premium_style,
+ INSERT INTO trading.futures_option_trade_revisions VALUES(catalog,trade,1,book,revision,contract_row.id,option_instrument,premium_instrument,lots,premium,-premium*product.multiplier*lots,premium_style,
   implementation,executed,operation,c.actor_id,trader,trader_revision,memo,(booking->>'tradeDate')::date,(booking->>'legalEntityId')::uuid,(booking->>'legalEntityRevision')::integer,
   (booking->>'counterpartyId')::uuid,(booking->>'counterpartyRevision')::integer,ordinal,executed);
  IF NOT security.trading_access(catalog,'ReadTrades') OR NOT security.trading_access(catalog,'BookTrade') OR NOT security.market_access(catalog,'ReadMarketData') OR
@@ -563,10 +576,10 @@ BEGIN
 END$$;
 DO $$DECLARE f record;BEGIN
  FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-  WHERE n.nspname='security' AND p.proname IN('futures_option_contract_id','futures_option_operation_status','book_futures_option') LOOP
+  WHERE n.nspname='security' AND p.proname IN('futures_option_contract_id','cash_payment_instrument_id','futures_option_operation_status','book_futures_option') LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f.signature);
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.signature);
-  IF f.proname<>'futures_option_contract_id' THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;
+  IF f.proname NOT IN('futures_option_contract_id','cash_payment_instrument_id') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;
  END LOOP;
 END$$;
 

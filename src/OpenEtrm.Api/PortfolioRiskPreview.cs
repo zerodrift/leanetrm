@@ -134,7 +134,9 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
 
     internal static object Calculate(Prepared prepared,CancellationToken ct)
     {
+        var trees=prepared.Portfolio.Options?.TreePrices??0;
         var run=PortfolioValuation.Calculate(prepared.Portfolio,prepared.Bumps,prepared.Stress,prepared.Detail,ct);
+        var optionWork=prepared.Portfolio.OptionWork is {} work?work with{ScenarioTreePrices=prepared.Portfolio.Options!.TreePrices-trees}:null;
         var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
         var positions=run.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
         string Book(Guid id)=>prepared.Books.Single(b=>b.Id("id")==id).Text("name");
@@ -153,7 +155,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             excludedPositions=prepared.Portfolio.Excluded,
             // Options: each series' calibration receipt, the policy that holds it in every scenario, and how many held positions are in the intrinsic mode.
             scenarioPolicy=prepared.Portfolio.Options is null?null:prepared.Portfolio.Policy.FuturesOptions!.ScenarioPolicy,
-            optionCalibrations=prepared.Portfolio.OptionCalibrations,optionWork=prepared.Portfolio.OptionWork,
+            optionCalibrations=prepared.Portfolio.OptionCalibrations,optionWork,
             fallbackPositions=prepared.Portfolio.OptionModes.Values.Count(mode=>mode==OpenEtrm.MarketData.Options.ImpliedVolatility.FallbackMode),
             projectionPolicies=ProjectionPolicyReceipts.For(run.ModelContracts),
             ppaMeasures=run.PpaMeasures,inputs=new{pricingPolicy=run.Policy,ppaReceipt=run.PpaReceipt is {} receipt?PpaPortfolio.Receipt(receipt):null,markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,
@@ -171,9 +173,11 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
                 positions=run.HoldingRisk.Where(r=>r.Factor==b.Axis.Id).Select(r=>
                 {
                     var p=r.Position;var evidence=positions[(p.TradeId,p.BindingId)];
-                    return new{p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,evidence.InstrumentReference,
-                        evidence.InstrumentType,r.Measure,measureLabel=MeasureLabel(r.Measure),
-                        calibrationMode=prepared.Portfolio.OptionModes.GetValueOrDefault((p.TradeId,p.BindingId)),values=Values(p.Values)};
+                    var position=JsonSerializer.SerializeToNode(new{p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
+                        evidence.InstrumentReference,evidence.InstrumentType,r.Measure,measureLabel=MeasureLabel(r.Measure),values=Values(p.Values)},RiskJobs.Json)!.AsObject();
+                    // An option position states the calibration mode it was valued in; no other position has one.
+                    if(prepared.Portfolio.OptionModes.TryGetValue((p.TradeId,p.BindingId),out var mode))position["calibrationMode"]=mode;
+                    return position;
                 })})};
     }
 

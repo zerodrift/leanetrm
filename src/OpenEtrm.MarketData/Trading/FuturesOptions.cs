@@ -104,13 +104,24 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
 
     // Solved: the tree at the held volatility. Fallback: treated as exercised, so
     // intrinsic at the scenario price plus the base residual, floored at zero.
-    public LatticeDecimal UnitPrice(LatticeDecimal futures, DateTimeOffset valuationAt, CancellationToken ct) => Calibration switch
+    public LatticeDecimal UnitPrice(LatticeDecimal futures, DateTimeOffset valuationAt, CancellationToken ct)
     {
-        SolvedVolatility solved => AmericanFuturesOptionModel.UnitPrice(Instrument.Series.Terms, futures, solved.Volatility,
-            DiscountToExpiry, valuationAt, Policy, ct),
-        IntrinsicFallback fallback => LatticeDecimal.Max(Intrinsic(futures) + fallback.Residual, LatticeDecimal.Parse("0")),
-        _ => throw FuturesOptionInstrument.Error("valuation_binding", "Unsupported calibration mode."),
-    };
+        switch (Calibration)
+        {
+            case SolvedVolatility solved:
+                Interlocked.Increment(ref trees.Count);
+                return AmericanFuturesOptionModel.UnitPrice(Instrument.Series.Terms, futures, solved.Volatility, DiscountToExpiry, valuationAt, Policy, ct);
+            case IntrinsicFallback fallback:
+                return LatticeDecimal.Max(Intrinsic(futures) + fallback.Residual, LatticeDecimal.Parse("0"));
+            default:
+                throw FuturesOptionInstrument.Error("valuation_binding", "Unsupported calibration mode.");
+        }
+    }
+
+    // Work only: how many tree prices this binding's valuations have evaluated since it was prepared.
+    public int TreePrices => Volatile.Read(ref trees.Count);
+    private readonly TreeCount trees = new();
+    private sealed class TreeCount { public int Count; }
 
     private LatticeDecimal Intrinsic(LatticeDecimal futures)
     {

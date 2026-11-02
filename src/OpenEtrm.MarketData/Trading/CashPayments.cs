@@ -1,54 +1,54 @@
-using System.Collections.Immutable;
 using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.Risk;
 
 namespace OpenEtrm.MarketData.Trading;
 
-// A fixed cash amount per unit of an explicit quantity, paid (negative) or received (positive) on one date. Its value is
-// the amount discounted from that date by the instrument's own selected discount inputs; it reads no market price, so a
-// price shock leaves it unchanged. An option premium paid up front is one, per option contract.
-[EconomicDefinition("FixedCashPayment_v1")]
-public sealed record FixedCashPayment : Instrument
+// A unit cash instrument: one unit of an exact currency paid on a date. A trade holds it at a signed quantity in that
+// currency, negative for cash it pays. Its identity is its terms, so equal cash on the same date is one instrument.
+// Its value excludes settled cash: before the payment date a unit is worth the discount factor its own selected
+// discounting supplies; from the payment date on the cash is settled and the instrument contributes nothing further.
+// It reads no market price, so a price shock leaves it unchanged. An option premium paid up front is one.
+[EconomicDefinition("CashPayment_v1")]
+public sealed record CashPayment : Instrument
 {
-    public const string ModelVersion = "fixed_cash_payment_discounted_v1";
+    public const string ModelVersion = "cash_payment_excluding_settled_v1";
     [IdentityField]
     public ReferenceKey PaymentCurrency { get; }
     [IdentityField]
     public DateOnly PaymentDate { get; }
-    [IdentityField]
-    public ExactDecimal UnitAmount { get; }
-    [IdentityField]
-    public ReferenceKey Quantity { get; }
     public override ReferenceKey Currency => PaymentCurrency;
-    public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), Quantity);
+    // The quantity unit is the currency itself.
+    public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), PaymentCurrency);
     public override bool SupportsQuantityScaling => true;
-    // The payment is due from the start of its UTC date.
+    // The cash is due, and from then settled, from the start of its UTC payment date.
     public SidePaymentKey Payment => new(Id, 0, new(PaymentDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero), Currency);
+    public bool Settled(DateTimeOffset at) => at >= Payment.PaymentAt;
 
-    public FixedCashPayment(Guid id, ReferenceKey currency, DateOnly paymentDate, ExactDecimal unitAmount, ReferenceKey quantity) : base(id)
+    public CashPayment(ReferenceKey currency, DateOnly paymentDate) : base(ContractIdentity.CashPayment(currency, paymentDate))
     {
-        if (paymentDate.Year is < 1901 or > 2199 || new[] { currency, quantity }.Any(k => k.Revision.CatalogId == Guid.Empty ||
-                k.Revision.RevisionId == Guid.Empty || string.IsNullOrWhiteSpace(k.Code)))
-            throw new MarketDataException("cash_payment_definition", "A fixed cash payment needs an exact currency, quantity and supported payment date.");
-        PaymentCurrency = currency; PaymentDate = paymentDate; UnitAmount = unitAmount; Quantity = quantity;
+        if (paymentDate.Year is < 1901 or > 2199)
+            throw new MarketDataException("cash_payment_definition", "A unit cash instrument needs a supported payment date.");
+        PaymentCurrency = currency; PaymentDate = paymentDate;
     }
 
     public override void ValidateBinding(Quantity quantity, DeliveryCoverage? coverage)
     {
         base.ValidateBinding(quantity, coverage);
-        if (quantity.Specification != Quantity || quantity.Amount.CompareTo(default) <= 0)
-            throw new MarketDataException("cash_payment_quantity", "Hold a positive quantity in the payment's own unit.");
+        if (quantity.Specification != PaymentCurrency)
+            throw new MarketDataException("cash_payment_quantity", "Hold cash as a quantity of its own currency.");
     }
 
-    public override UnitPricingContract Declare(UnitValuationContext context) => new(Id, ModelVersion, [], Quantity, Currency);
+    public override UnitPricingContract Declare(UnitValuationContext context) => new(Id, ModelVersion, [], PaymentCurrency, Currency);
 
     public override UnitValuation PV(UnitValuationContext context)
     {
         if (context.Measure != ValuationMeasure.PresentValue)
-            throw new MarketDataException("valuation_measure", "A fixed cash payment implements present value only.");
+            throw new MarketDataException("valuation_measure", "A unit cash instrument implements present value only.");
+        var zero = ExactMoney.FromMoney(new Money(default, Currency));
+        if (Settled(context.Snapshot.ValuationAt)) return new(context, zero, PaymentCurrency);
         var factors = context.DiscountProvider.Resolve([Payment], context.Snapshot);
         if (factors.IsDefault || factors.Length != 1 || factors[0] is null || factors[0].Payment != Payment)
             throw new MarketDataException("cash_payment_discount", "The selected discounting supplies no factor for this payment.");
-        return new(context, ExactMoney.FromMoney(new Money(UnitAmount, Currency)).Scale(factors[0].DiscountFactor), Quantity);
+        return new(context, ExactMoney.FromMoney(new Money(ExactDecimal.Parse("1"), Currency)).Scale(factors[0].DiscountFactor), PaymentCurrency);
     }
 }

@@ -166,6 +166,12 @@ public static class ContractIdentity
     // The complete exact-series key is always retained and checked on lookup.
     public static Guid Futures(ReferenceKey series) => Listed("futures_contract_v1", series);
     public static Guid FuturesOption(ReferenceKey series) => Listed("futures_option_v1", series);
+    public static Guid CashPayment(ReferenceKey currency, DateOnly paymentDate)
+    {
+        Money.RequireKey(currency);
+        return FromCanonical($"cash_payment_v1:{currency.Revision.CatalogId:D}:{currency.Revision.RevisionId:D}:{currency.Code}:" +
+            paymentDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+    }
     private static Guid Listed(string version, ReferenceKey series)
     {
         Money.RequireKey(series);

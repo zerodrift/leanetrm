@@ -6,8 +6,8 @@ using OpenEtrm.MarketData;
 
 namespace OpenEtrm.Api;
 
-// Each option trade's option and premium rows, valued together as one unit. A position the close cannot value keeps its
-// structured reason and no value; its other binding is still valued.
+// Each option trade's option and premium cash rows, valued together as one unit. An option the close cannot value keeps
+// its structured reason and no value; its premium cash is still valued.
 internal static class FuturesOptionBlotter
 {
     internal static async Task<OptionRun> Run(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,InputFrame frame,
@@ -31,8 +31,10 @@ internal static class FuturesOptionBlotter
                     option["settlement"]=market.Settlements[position.OptionBinding].ToString();option["impliedVolatility"]=receipt.Volatility;
                     option["calibrationMode"]=receipt.Mode;option["numericalPolicy"]=receipt.NumericalPolicy;
                 }
-                Value(option,market.Reason(position,true),position.OptionBinding);
-                Value(premium,market.Reason(position,false),position.PremiumBinding);
+                Value(option,market.Reason(position),position.OptionBinding);
+                // Premium cash is pending until its payment date and settled from then on, when it adds no further value.
+                premium["cashState"]=market.Premiums[position.PremiumBinding].Settled(frame.At)?"settled":"pending";
+                Value(premium,null,position.PremiumBinding);
                 yield return [option,premium];
             }
             void Value(JsonObject row,string? reason,Guid binding)
