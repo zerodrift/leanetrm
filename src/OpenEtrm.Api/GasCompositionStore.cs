@@ -25,6 +25,32 @@ internal sealed record GasCompositionDraft(GasCompositionInstrument Instrument,I
 internal sealed record GasCompositionValue(string PresentValue,string Currency,string QuantityUnit,List<object> Sides,object[] Links,ScheduleView? Schedule,object[]? Summaries,GasScheduleRefusal? ScheduleRefusal);
 internal sealed record GasScheduleRefusal(string Code,string Message);
 internal sealed record GasCompositionRead(GasCompositionRequest Terms,GasCompositionValue Valuation);
+internal sealed record GasCompositionExecution
+{
+ internal GasCompositionRequest Terms{get;}
+ internal Guid InstrumentId{get;}
+ internal ImmutableArray<GasCompositionRow> Members{get;}
+ internal ExactDecimal Quantity{get;}
+ internal ImmutableArray<RetainedSideProgram> Programs{get;}
+ internal GasCompositionExecution(GasCompositionRequest terms,Guid instrumentId,ImmutableArray<GasCompositionRow> members,
+  ExactDecimal quantity,ImmutableArray<RetainedSideProgram> programs)
+ {
+  RequireSlots(members.IsDefault?[]:members.Select(m=>m.Slot),programs);
+  if(members.Any(m=>programs.Single(p=>p.Slot==m.Slot).Program.Document.Family!=(m.Role=="physical"?"gas":"fixed")))
+   throw new MarketDataException("gas_program_membership","Every retained gas program requires its exact visible member slot and side family.");
+  Terms=terms;InstrumentId=instrumentId;Members=members;Quantity=quantity;Programs=programs;
+ }
+ internal static void RequireSlots(IEnumerable<int> members,ImmutableArray<RetainedSideProgram> programs)
+ {
+  if(programs.IsDefaultOrEmpty||!members.Order().SequenceEqual(Enumerable.Range(0,programs.Length))||
+   !programs.Select(p=>p.Slot).Order().SequenceEqual(Enumerable.Range(0,programs.Length)))
+   throw new MarketDataException("gas_program_membership","Every retained gas program requires its exact visible member slot and side family.");
+ }
+ internal RetainedGasInstrument Instrument()=>new(InstrumentId,[..Members.OrderBy(m=>m.Slot).Select(m=>{
+  var p=Programs.Single(p=>p.Slot==m.Slot);
+  return new RetainedGasMember(p.SideId,ExactDecimal.Parse(m.Direction.ToString(CultureInfo.InvariantCulture)),m.Ratio,p.Program);
+ })],[..Members.Select(m=>m.Assignment).Distinct()]);
+}
 
 public sealed class GasCompositionStore(PreviewDatabase database)
 {
@@ -157,20 +183,34 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  // one physical side's path, valued from the trade's own retained programs, whose slots are the composition's: gas, payment, then fee.
  internal async Task<GasCompositionRead> ReadSinglePoint(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
  {
+  var execution=await LoadSinglePoint(c,data,frame,trade,ct);
+  return new(execution.Terms,await Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct));
+ }
+ internal async Task<GasCompositionExecution> LoadSinglePoint(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
+ {
   var(terms,instrument)=await gas.Retained(c,frame,trade,ct);var body=GasTicket.SinglePoint(terms);
   var m=await gas.Metadata(c,data,terms,ct);var whole=new ExactRatio(1,1);var physical=body.PhysicalSides.Single();
   ImmutableArray<GasCompositionRow> members=[new(0,physical.Code,"physical",Sign(physical.Direction,true),whole,whole,null,null,null,null,null,null,m.Assignment,m.Clock),
    ..body.CashSides.Select((s,n)=>new GasCompositionRow(n+1,s.Code,s.Role,Sign(s.Direction,false),whole,whole,s.Source,s.Stage,null,null,null,null,m.Assignment,m.Clock))];
   var programs=await new RetainedScheduleStore(database).LoadPrograms(c,instrument,frame.ContextId,frame.ContextId is null?null:frame.At,ct);
-  return new(body,await Value(c,data,frame,members,Number(physical.Quantity!),null,body.GasSetupId,programs,true,ct));
+  return new(body,instrument,members,Number(physical.Quantity!),programs);
  }
  // programs, when the caller already loaded the trade's retained programs under this frame, are used in place of loading them again.
  internal async Task<GasCompositionRead> Read(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
   IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,ImmutableArray<RetainedSideProgram>? programs=null)
  {
+  var execution=await Load(c,data,frame,trade,ct,programs);
+  var value=await Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,recorded);
+  return new(execution.Terms,value);
+ }
+ internal async Task<GasCompositionExecution> Load(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
+  ImmutableArray<RetainedSideProgram>? programs=null)
+ {
   var header=(await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT r.*,i.definition_revision_id,i.gas_setup_id,t.request FROM trading.gas_trade_revisions r JOIN trading.gas_instruments i USING(catalog_id,instrument_id) JOIN trading.trades t ON(t.catalog_id,t.id)=(r.catalog_id,r.trade_id) WHERE(r.catalog_id,r.trade_id)=($1,$2) AND i.composition)x",[database.Manifest.CatalogId,trade],ct)).SingleOrDefault();
   if(header.ValueKind!=JsonValueKind.Object)throw Invalid("The composed gas trade is unavailable.");
   var rows=await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM trading.gas_component_terms x WHERE(catalog_id,instrument_id)=($1,$2) ORDER BY slot",[database.Manifest.CatalogId,header.Id("instrument_id")],ct);
+  programs??=await new RetainedScheduleStore(database).LoadPrograms(c,header.Id("instrument_id"),frame.ContextId,frame.ContextId is null?null:frame.At,ct);
+  GasCompositionExecution.RequireSlots(rows.Select(r=>int.Parse(r.Text("slot"),CultureInfo.InvariantCulture)),programs.Value);
   // The original request is returned for inspection, not used to generate a Side
   // or executable program. Typed terms resolve exact market metadata only.
   var body=JsonSerializer.Deserialize<GasCompositionRequest>(header.GetProperty("request").GetRawText(),Json)!;
@@ -186,8 +226,6 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    var slot=int.Parse(r.Text("slot"));var source=r.OptionalText("source_slot") is {} s?int.Parse(s):(int?)null;var a=phys[r.Text("role")=="physical"?slot:source!.Value];
    members.Add(new(slot,r.Text("code"),r.Text("role"),int.Parse(r.Text("direction")),new(BigInteger.Parse(r.Text("ratio_n")),BigInteger.Parse(r.Text("ratio_d"))),new(BigInteger.Parse(r.Text("receipt_n")),BigInteger.Parse(r.Text("receipt_d"))),source is {} si?rows.Single(x=>x.Text("slot")==si.ToString(CultureInfo.InvariantCulture)).Text("code"):null,r.OptionalText("stage"),r.OptionalText("formula"),r.OptionalText("fraction"),null,null,a.Assignment,a.Clock));
   }
-  programs??=await new RetainedScheduleStore(database).LoadPrograms(c,header.Id("instrument_id"),frame.ContextId,frame.ContextId is null?null:frame.At,ct);
-  var value=await Value(c,data,frame,members.ToImmutable(),Number(header.Text("quantity")),null,valuationBody.GasSetupId,programs,true,ct,recorded);
-  return new(body,value);
+  return new(body,header.Id("instrument_id"),members.ToImmutable(),Number(header.Text("quantity")),programs.Value);
  }
 }

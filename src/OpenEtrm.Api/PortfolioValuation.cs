@@ -27,7 +27,7 @@ public sealed record PortfolioPositionEvidence(Guid TradeId,int Revision,Guid Bi
     public string InstrumentReference{get;init;}="";
     public string InstrumentType{get;init;}="";
 }
-// A risk exclusion records a position-specific price failure or an explicit unsupported risk source.
+// A risk exclusion records a position-specific price failure.
 // The risk report lists the exact held binding; ordinary valuation remains independent.
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record ExcludedPosition(Guid TradeId,Guid BindingId,Guid BookId,string TradeReference,string InstrumentType,string Reason)
@@ -130,7 +130,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     }
 
     // D220: a portfolio risk run values every held position the selected close can value. One preparation
-    // normally values them all. Position-specific price failures and explicit unsupported risk sources
+    // normally values them all. Position-specific price failures
     // are listed and left out, with the reasons the Blotter reports, and the rest prepared;
     // a failure that remains fails the run.
     public async Task<Prepared> PrepareValued(NpgsqlConnection connection,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
@@ -197,7 +197,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     {
         ValidatePolicy(policy);ct.ThrowIfCancellationRequested();
         operation?.Require(data,frame,snapshot,context,bookIds);
-        if(excluded.IsDefault||excluded.Any(e=>e is null||(e.InstrumentType==GasPositions.Type?e.Reason!=GasPositions.RiskUnavailable:e.InstrumentType is not(FutureType or SwapType or HeatRateType)||!ValuationStatus.PositionSpecific(e.Reason))))
+        if(excluded.IsDefault||excluded.Any(e=>e is null||!ValuationStatus.PositionSpecific(e.Reason)))
             throw new MarketDataException("risk_contract","A risk run leaves out only held positions, each with a position-specific valuation reason.");
         var exact=PinnedContext.Exact(context);
         await new KnowledgeStore(database.Manifest.CatalogId).Retained(connection,exact,ct);
@@ -210,11 +210,6 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             await PhysicalCrudeStore.RequireCloseScope(connection,database.Manifest.CatalogId,bookIds,[],ct);
             await PhysicalGasStore.RequirePortfolioScope(connection,database.Manifest.CatalogId,bookIds,[],ct);
         }
-        var gasExclusions=await GasPositions.RiskExclusions(connection,database.Manifest.CatalogId,bookIds,ct);
-        var retainedGas=excluded.Where(e=>e.InstrumentType==GasPositions.Type).ToImmutableArray();
-        if((retainedGraphs is not null||!retainedGas.IsEmpty)&&(retainedGas.Length!=gasExclusions.Length||!retainedGas.ToHashSet().SetEquals(gasExclusions)))
-            throw new MarketDataException("risk_contract","Retained gas risk exclusions must identify every exact visible gas position in scope.");
-        excluded=[..excluded.Where(e=>e.InstrumentType!=GasPositions.Type),..gasExclusions];
         var known=SchedulePreview.ParseAt(exact.KnownAt);
         snapshot=MarketSnapshotBinding.Bind(snapshot,exact.ContextId!.Value,known);
         if(!MarketSnapshotBinding.Bind(data.Snapshot(frame),exact.ContextId.Value,known).HasSameInputs(snapshot))
@@ -227,18 +222,27 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var books=await futuresStore.Books(connection,ct);
         var futures=await futuresStore.ReadTrades(connection,data,books,bookIds,[],ct);
         var swapExclusions=excluded.Where(e=>e.InstrumentType is SwapType or HeatRateType).ToImmutableArray();
+        var futureExclusions=excluded.Where(e=>e.InstrumentType==FutureType).ToImmutableArray();
         var swaps=operation?.Swaps is {} resolved
             ?await ReuseSwapHoldings(connection,resolved,bookIds,swapExclusions,exact,frame.At,ct)
             :await new SwapStore(database).ReadRiskHoldings(connection,data,frame,bookIds,swapExclusions,ct,snapshot,supplemental);
         // Reuse only within this exact operation. Current book and retained
         // source authority are rechecked before cached holdings can return.
         if(operation is not null&&excluded.IsEmpty)operation.Swaps=swaps;
-        var kept=ExcludedPosition.Keep(futures.Rows,[..excluded.Where(e=>e.InstrumentType==FutureType)]).Select(r=>(r.Id("trade_id"),r.Id("binding_id"))).ToHashSet();
+        var kept=ExcludedPosition.Keep(futures.Rows,futureExclusions).Select(r=>(r.Id("trade_id"),r.Id("binding_id"))).ToHashSet();
         var futuresTrades=futures.Trades.Where(t=>t.Instruments.Any(p=>kept.Contains((t.Id,p.Id)))).Select(t=>t.Instruments.All(p=>kept.Contains((t.Id,p.Id)))?t:
             new Trade(t.Id,t.BookId,[..t.Instruments.Where(p=>kept.Contains((t.Id,p.Id)))],t.Booking)).ToImmutableArray();
         var materialized=new List<(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,ValuationPortfolio Portfolio,string Measure)>();
         var materializationWork=new ScenarioWork(0,0,0,0);var materializationScenarios=0;
         var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
+        var gas=await GasPortfolio.Prepare(connection,database,frame,
+            await GasPositions.ReadRisk(connection,database.Manifest,bookIds,ct),
+            [(data,frame),..supplemental.IsDefault?[]:supplemental],retainedGraphs is not null,ct);
+        foreach(var market in gas)
+        {
+            materialized.Add((market.Data,market.Frame,market.Snapshot,market.Portfolio,GasPositions.Measure));
+            evidence.AddRange(market.Evidence);
+        }
         var crude=await CrudePortfolio.Prepare(connection,database,frame,
             await CrudePositions.Read(connection,database.Manifest,bookIds,[],ct),
             [(data,frame),..supplemental.IsDefault?[]:supplemental],retainedGraphs is not null,ct);
@@ -271,7 +275,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         {
             materialized.Add((data,frame,snapshot,ppa.Portfolio,PpaMeasure));evidence.AddRange(ppa.Evidence);
         }
-        if(materialized.Count==0)throw new MarketDataException("risk_position",excluded.IsEmpty?"The selected books have no visible supported holdings.":
+        if(materialized.Count==0)throw new MarketDataException("risk_position",excluded.IsEmpty?"The selected books have no visible holdings.":
             "No held position in the selected scope is qualified for this risk calculation.");
         if(evidence.Select(p=>(p.TradeId,p.BindingId)).Distinct().Count()!=evidence.Count||
             materialized.SelectMany(p=>p.Portfolio.Instruments).Select(i=>i.Id).Distinct().Count()!=materialized.Sum(p=>p.Portfolio.Instruments.Length))
@@ -288,6 +292,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             // Demand belongs to each trade binding: a paid clone cannot remove
             // the observations still needed by another holder of the same side.
             var activePrices=SwapPrices(swaps.Where(holding=>holding.Snapshot.Definitions==first.Snapshot.Definitions))
+                .AddRange(gas.Where(market=>market.Snapshot.Definitions==first.Snapshot.Definitions).SelectMany(market=>market.ActivePrices))
                 .AddRange(crude.Where(market=>market.Snapshot.Definitions==first.Snapshot.Definitions).SelectMany(market=>market.ActivePrices))
                 .Distinct().ToImmutableArray();
             var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,CustomCurves.MarketPreparation.ScenarioUniverse,ct,retained,activePrices,operation?.Histories);
@@ -298,6 +303,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         if(retainedGraphs is not null&&retainedGraphs.Value.Length!=markets.Count)
             throw new MarketDataException("risk_graph_manifest","The admitted graph set differs from the held projection set.");
         var discountInputs=SwapStore.DiscountEvidence(swaps);
+        if(excluded.Length!=futureExclusions.Length+swapExclusions.Length)
+            throw new MarketDataException("risk_contract","Every retained exclusion must be consumed by its held-position loader.");
         return new(snapshot.Id,exact,policy,markets.ToImmutable(),evidence.ToImmutable(),discountInputs,excluded)
             {MaterializationWork=materializationWork,MaterializationScenarioCount=materializationScenarios,Ppa=ppa};
     }

@@ -37,6 +37,23 @@ internal static class ConnectedPortfolioChecks
             new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
         var prepared=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(scenario,snapshot),bindings,[portfolio]);
         var bump=new ConnectedRiskBump(CurveShockCoordinate.MarketQuote,new ContractCurveTarget(raw.Curve,raw.Contract),unit,ExactDecimal.Parse("1"),ConnectedRiskBump.Convention);
+        Check("distinct instruments and repeated holdings share one reported contract factor",()=>
+        {
+            var reads=0;
+            CurvePv Consumer()=>new(Guid.NewGuid(),unit,[raw],context=>
+                context.ExactPrice(raw).ExactTimes(new(ExactDecimal.Parse("1"),unit.Quantity)),()=>reads++);
+            var a=Consumer();var b=Consumer();
+            var shared=new ValuationPortfolio([a,b],[Holding(a,firstBook,"2"),Holding(a,secondBook,"3"),Holding(b,firstBook,"5")],
+                new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+            var risk=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(scenario,snapshot),bindings,[shared]);
+            if(reads!=2||risk.Factors.Length!=1||risk.Factors[0].Input!=((ConnectedSource)f.RawPoints[0].Expression).Input)
+                throw new Exception("The factor union must use each instrument's shared identity once, without unrelated market factors.");
+            var run=RiskEngine.CalculateExact(risk,[bump],RiskEngine.ExactNumericalPolicy);
+            if(run.Work.ScenarioCount!=3||run.Work.UniqueValuations!=2||run.Work.UnitPricerCalls!=6)
+                throw new Exception("One shared factor must produce one scenario pair across all consumers.");
+            Equal(run.Groups.Single().Factors.Single().Totals.Single(t=>t.BookId==firstBook).Values.Delta.Value,"7");
+            Equal(run.Groups.Single().Factors.Single().Totals.Single(t=>t.BookId==secondBook).Values.Delta.Value,"3");
+        });
         Check("partial source builds share one coherent exact frame",()=>
         {
             var partial=snapshot with{Selections=[snapshot.Selections[0]]};

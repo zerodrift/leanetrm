@@ -175,6 +175,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
     private static string MeasureLabel(string measure)=>measure switch{
         PortfolioValuation.FuturesMeasure=>"Futures execution P&L",PortfolioValuation.SwapMeasure=>"Present value",PortfolioValuation.PpaMeasure=>"Value excluding overdue cash",
         CrudePositions.Measure=>"Crude contractual PV",
+        GasPositions.Measure=>"Gas contractual PV",
         _=>throw new MarketDataException("valuation_measure","The report requires an explicit valuation measure label.")};
     private static string Currency(ImmutableArray<PreviewData> markets,ReferenceKey key)=>Reference(markets,"currencies",key).Text("display_code");
     private static JsonElement Reference(ImmutableArray<PreviewData> markets,string table,ReferenceKey key)=>
