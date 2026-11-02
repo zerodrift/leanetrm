@@ -502,7 +502,7 @@ def main():
         frozen_dll=temporary/'api'/dll.name
         log=(temporary/'app.log').open('w')
         api_env=app_env
-        if args.assistant_check or args.provider_adapters_check:
+        if args.assistant_check or args.provider_adapters_check or args.exchange_check:
             # Provider tests reach a loopback fake provider through the check endpoint, and every proxy
             # setting names a trap that no request may reach (docs/ai-assistant.md §5.2, §13).
             from fake_model_provider import FakeProvider,Trap
@@ -910,8 +910,9 @@ def main():
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--exchange'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=120):raise RuntimeError('Owned exchange browser checks failed')
                 # Option trades are not yet Blotter positions, so they are booked after every Blotter read above.
-                from check_futures_option_lifecycle import run_checks as check_option_lifecycle
+                from check_futures_option_lifecycle import run_checks as check_option_lifecycle,check_agent_catalog
                 check_option_lifecycle(url,query,exchange_manifest)
+                check_agent_catalog(url,query,exchange_manifest,fake_provider)
             elif args.party_check:
                 from check_party_editors import run_checks as check_parties
                 check_parties(url)

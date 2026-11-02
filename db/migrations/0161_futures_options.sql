@@ -435,7 +435,8 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE r trading.futures_option_trade_revisions;actor uuid;
 BEGIN
  IF NOT security.trading_access(catalog,'ReadTrades') THEN RAISE EXCEPTION 'No option read access' USING ERRCODE='42501';END IF;
- SELECT actor_id INTO STRICT actor FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ SELECT actor_id INTO actor FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ IF actor IS NULL THEN RAISE EXCEPTION 'No option request context' USING ERRCODE='42501';END IF;
  SELECT * INTO r FROM trading.futures_option_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation) AND actor_id=actor;
  IF NOT FOUND THEN RETURN jsonb_build_object('found',false);END IF;
  IF NOT security.trading_access(catalog,'ReadTrades') THEN RAISE EXCEPTION 'Option read authority expired' USING ERRCODE='42501';END IF;
@@ -457,6 +458,7 @@ BEGIN
  SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
  IF c.market_context_id IS NOT NULL THEN RAISE EXCEPTION 'historical_read_only' USING ERRCODE='P0001';END IF;
  PERFORM pg_advisory_xact_lock(730849102);
+ IF NOT security.trading_access(catalog,'BookTrade') THEN RAISE EXCEPTION 'Booking access expired' USING ERRCODE='42501';END IF;
  IF executed IS NOT NULL OR trader IS NOT NULL OR trader_revision IS NOT NULL OR booking->>'tradeDate' IS NOT NULL THEN RAISE EXCEPTION 'trade_booking_read_only' USING ERRCODE='P0001';END IF;
  IF operation IS NULL OR operation='00000000-0000-0000-0000-000000000000'::uuid OR valuation IS NULL OR NOT isfinite(valuation) OR implementation IS DISTINCT FROM 'futures_option_premium_v1'
  THEN RAISE EXCEPTION 'option_booking_input' USING ERRCODE='P0001';END IF;
@@ -471,7 +473,7 @@ BEGIN
  IF EXISTS(SELECT 1 FROM trading.trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR EXISTS(SELECT 1 FROM trading.swap_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR
  EXISTS(SELECT 1 FROM trading.ppa_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR EXISTS(SELECT 1 FROM trading.gas_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) OR
  EXISTS(SELECT 1 FROM trading.crude_trade_revisions WHERE(catalog_id,operation_id)=(catalog,operation)) THEN RAISE EXCEPTION 'option_conflict' USING ERRCODE='P0001';END IF;
- IF premium_style='futures_style_margin' THEN RAISE EXCEPTION 'unsupported' USING ERRCODE='P0001';END IF;
+ IF premium_style='futures_style_margin' THEN RAISE EXCEPTION 'option_unsupported' USING ERRCODE='P0001';END IF;
  IF premium_style IS DISTINCT FROM 'premium_paid_up_front' OR lots IS NULL OR lots=0 OR lots<>trunc(lots) OR abs(lots)>100000 OR
   premium IS NULL OR premium<0 OR premium_payment_date IS NULL OR premium_payment_date NOT BETWEEN DATE '1901-01-01' AND DATE '2199-12-31'
  THEN RAISE EXCEPTION 'option_booking_input' USING ERRCODE='P0001';END IF;
@@ -482,8 +484,14 @@ BEGIN
  SELECT * INTO series_row FROM ref_data.futures_option_series WHERE(catalog_id,revision_id,code)=(contract_row.reference_catalog_id,contract_row.reference_revision_id,series);
  SELECT * INTO product FROM ref_data.futures_option_products WHERE(catalog_id,revision_id,code)=(series_row.catalog_id,series_row.revision_id,series_row.product_code);
  SELECT * INTO q FROM ref_data.quote_specifications WHERE(catalog_id,revision_id,code)=(product.catalog_id,product.revision_id,product.quote_code);
- IF contract_row.id IS NULL OR series_row.code IS NULL OR product.code IS NULL OR q.code IS NULL OR contract_row.expiry_at<>series_row.expiry_at
+ -- Read under the booker's own market and reference authority, as crude bookings are: a series the booker cannot see is
+ -- refused exactly as one that does not exist.
+ IF contract_row.id IS NULL OR NOT security.market_access(catalog,'ReadMarketData') OR NOT security.market_fact_visible(catalog,revision,NULL) OR
+  NOT security.reference_access(contract_row.reference_catalog_id,'ReadMarketData') OR
+  NOT security.reference_version_visible(contract_row.reference_catalog_id,contract_row.reference_revision_id) THEN RAISE EXCEPTION 'option_definition' USING ERRCODE='P0001';END IF;
+ IF series_row.code IS NULL OR product.code IS NULL OR q.code IS NULL OR contract_row.expiry_at<>series_row.expiry_at
  THEN RAISE EXCEPTION 'option_definition' USING ERRCODE='P0001';END IF;
+ IF product.premium_style='futures_style_margin' THEN RAISE EXCEPTION 'option_unsupported' USING ERRCODE='P0001';END IF;
  IF product.premium_style<>premium_style OR valuation>=series_row.expiry_at OR premium<q.minimum OR premium>q.maximum OR mod(premium,q.trading_tick)<>0
  THEN RAISE EXCEPTION 'option_booking_input' USING ERRCODE='P0001';END IF;
  SELECT(effective_from::timestamp AT TIME ZONE 'UTC') INTO definition_from FROM market_data.revision_periods
@@ -511,7 +519,8 @@ BEGIN
  INSERT INTO trading.futures_option_trade_revisions VALUES(catalog,trade,1,book,revision,contract_row.id,option_instrument,premium_instrument,lots,premium,premium_style,
   implementation,executed,operation,c.actor_id,trader,trader_revision,memo,(booking->>'tradeDate')::date,(booking->>'legalEntityId')::uuid,(booking->>'legalEntityRevision')::integer,
   (booking->>'counterpartyId')::uuid,(booking->>'counterpartyRevision')::integer,ordinal,executed);
- IF NOT security.trading_access(catalog,'ReadTrades') OR NOT security.trading_access(catalog,'BookTrade') THEN RAISE EXCEPTION 'Booking access expired' USING ERRCODE='42501';END IF;
+ IF NOT security.trading_access(catalog,'ReadTrades') OR NOT security.trading_access(catalog,'BookTrade') OR NOT security.market_access(catalog,'ReadMarketData') OR
+  NOT security.reference_access(contract_row.reference_catalog_id,'ReadMarketData') THEN RAISE EXCEPTION 'Booking access expired' USING ERRCODE='42501';END IF;
  RETURN security.futures_option_operation_status(catalog,operation);
 END$$;
 DO $$DECLARE f record;BEGIN

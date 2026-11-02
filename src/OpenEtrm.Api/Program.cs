@@ -129,7 +129,7 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("swap_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit side, reference, date or lifecycle terms."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_conflict" => (409,"futures_conflict","This trade request identity already has different economics or ownership."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="option_conflict" => (409,p.MessageText,"This trade request identity already has different economics or ownership."),
-    PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("option_",StringComparison.Ordinal) || p.MessageText=="unsupported")
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("option_",StringComparison.Ordinal)
         => (422,p.MessageText,"The option booking needs a listed series, signed whole lots, a premium on its tick, an explicit payment date and premium paid up front before expiry."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="futures_revision_conflict" => (409,"futures_revision_conflict","The trade changed. Reload its latest revision before amending."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("futures_",StringComparison.Ordinal) => (422,p.MessageText,"The trade request does not meet its explicit book, contract or execution terms."),

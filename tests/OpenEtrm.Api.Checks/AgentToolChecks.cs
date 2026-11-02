@@ -46,11 +46,15 @@ static class AgentToolChecks
             &&AgentTools.Tools.All(t=>!t.Permissions.Contains("BookTrade")&&!t.Permissions.Contains("AmendTrade")&&!t.Name.Contains("book",StringComparison.Ordinal)),
             "no agent tool books or amends a trade: no tool needs BookTrade or AmendTrade, and booking tool names are not tools");
         var option=new{series="nymex_on_20261201_c3.25",strike="3.25",premiumTick="0.001"};
-        var result=ToolResults.FuturesOptions(new{kind="futures_options",books=new[]{new{id=Book}},bookingActor=new{code="trader"},legalEntities=Array.Empty<object>(),
-            counterparties=Array.Empty<object>(),convention=FuturesOptionStore.Convention,options=new[]{option}});
+        var result=ToolResults.FuturesOptions(ImmutableArray.Create<object>(option));
         Require(result.Rows==1&&!result.Displayed&&result.Value.Select(m=>m.Key).Order(StringComparer.Ordinal).SequenceEqual(["convention","options"])
             &&JsonNode.DeepEquals(result.Value["options"],JsonSerializer.SerializeToNode(new[]{option},JsonSerializerOptions.Web)),
-            "its result is the catalog's series and convention, without the booking directory");
+            "its result is the catalog's series under its convention");
+        // The tool reads only the series: the store's series read takes the trading read's market data and frame and no
+        // connection, so it cannot read the booking directory (books, booking actor, parties) that only options/catalog adds.
+        var series=typeof(FuturesOptionStore).GetMethod(nameof(FuturesOptionStore.Series))!;
+        Require(series.GetParameters().Select(p=>p.ParameterType).SequenceEqual([typeof(PreviewData),typeof(InputFrame)]),
+            "the option catalog's series read takes only the market data and frame, never a connection for the booking directory");
         Require(NavigationTargets.Issue(call,result.Value,1) is [{Handle:"n1",Target:{Page:"blotter",Selection:null,Kind:"page"}}],
             "its own target is the Blotter as it opens, and it lists no record targets");
         Console.WriteLine("PASS futures option catalog: a read-only frame read under the Blotter's accesses, with no input, the catalog's series, "+

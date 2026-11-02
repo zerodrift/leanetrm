@@ -24,8 +24,17 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
     public static void RequireConvention(string? value)
     { if(value!=Convention)throw new MarketDataException("option_convention",$"Select the explicit {Convention} convention."); }
 
-    // Every listed option series whose expiry is after the frame, with its daily settlement at the frame.
+    // The options/catalog page read: the listed series and the booking directory a booking chooses from.
     public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)
+    {
+        var options=Series(data,frame);
+        var directory=await FuturesStore.ReadBookingDirectory(connection,manifest.CatalogId,ct);
+        return new {kind="futures_options",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,convention=Convention,options};
+    }
+
+    // Every listed option series whose expiry is after the frame, with its daily settlement at the frame: read from the
+    // trading read's market data alone, which is all the page assistant's catalog tool reads.
+    public static ImmutableArray<object> Series(PreviewData data,InputFrame frame)
     {
         var listed=data.FuturesOptionSeries.Where(s=>frame.At<s.Terms.ExpiryAt).Select(series=>
         {
@@ -34,9 +43,7 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
             return (Series:series,Contract:contract,Request:new CurveRequest(new(contract.Key.Revision,curve),contract.Key));
         }).OrderBy(s=>s.Series.Terms.ExpiryAt).ThenBy(s=>s.Series.Key.Code,StringComparer.Ordinal).ToArray();
         var prices=listed.Length==0?null:data.Model.Build(data.Snapshot(frame),[..listed.Select(s=>s.Request)]).Values.ToLookup(v=>v.Request);
-        var directory=await FuturesStore.ReadBookingDirectory(connection,manifest.CatalogId,ct);
-        return new {kind="futures_options",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,convention=Convention,
-            options=listed.Select(s=>
+        return [..listed.Select(object (s)=>
             {
                 var product=Single(data.ReferenceRows("futures_option_products","code",s.Series.Product.Code));
                 var quote=Single(data.QuoteRows(product.Text("quote_code")));
@@ -47,7 +54,7 @@ public sealed class FuturesOptionStore(PreviewManifest manifest)
                     multiplier=s.Series.Multiplier.ToString(),currency=Single(data.ReferenceRows("currencies","code",s.Series.Currency.Code)).Text("display_code"),
                     premiumTick=quote.TradingTick.ToString(),minimumPremium=quote.Minimum.ToString(),maximumPremium=quote.Maximum.ToString(),
                     curve=s.Request.Curve.Code,settlementPrice=prices![s.Request].Single().Price.Value.ToString()};
-            }).ToArray()};
+            })];
     }
 
     public async Task<JsonElement> Book(NpgsqlConnection connection,InputFrame frame,FuturesOptionBookRequest body,CancellationToken ct)

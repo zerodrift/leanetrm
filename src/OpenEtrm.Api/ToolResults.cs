@@ -81,11 +81,11 @@ static class ToolResults
             +result["curves"]!.AsArray().Sum(c=>c!["contracts"]!.AsArray().Count),false);
     }
 
-    // The option catalog's series and convention, without the booking directory only the page's booking uses.
-    public static ToolResult FuturesOptions(object catalog)
+    // The option catalog's series under its convention; the booking directory only the page's booking uses is never read.
+    public static ToolResult FuturesOptions(object series)
     {
-        var read=Node(catalog).AsObject();
-        return new(new(){["convention"]=read["convention"]!.DeepClone(),["options"]=read["options"]!.DeepClone()},read["options"]!.AsArray().Count,false);
+        var options=Node(series).AsArray();
+        return new(new(){["convention"]=FuturesOptionStore.Convention,["options"]=options},options.Count,false);
     }
 
     public static ToolResult Parties(PartyRead read,string kind)=>new(new(){["kind"]=kind,["versions"]=Node(read.Versions)},read.Versions.GetArrayLength(),false);

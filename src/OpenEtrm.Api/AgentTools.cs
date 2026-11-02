@@ -110,7 +110,6 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
 {
     const string Uuid="^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
     static readonly ImmutableArray<string> MarketData=["ReadMarketData"];
-    readonly FuturesOptionStore options=new(database.Manifest);
 
     // The fixed tools, in the order every request offers them. Show card comes later.
     internal static readonly ImmutableArray<AgentTool> Tools=
@@ -580,9 +579,9 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         };
     }
 
-    // The option catalog read options/catalog runs, on the shared trading read path at the view's frame.
-    async Task<ToolResult> OptionCatalog(NpgsqlConnection connection,TradingView view,CancellationToken ct)=>
-        ToolResults.FuturesOptions(await trades.Read(connection,view,data=>options.Catalog(connection,data,view.CalculationFrame,ct),ct));
+    // The series options/catalog lists, on the shared trading read path at the view's frame, without its booking directory.
+    async Task<ToolResult> OptionCatalog(NpgsqlConnection connection,TradingView view,CancellationToken ct)=>ToolResults.FuturesOptions(
+        await trades.Read(connection,view,data=>Task.FromResult<object>(FuturesOptionStore.Series(data,view.CalculationFrame)),ct));
 
     // A trade's editor read, then the deal's saved display formats it is shown by, in the same transaction under the
     // trading context it bound. Formats are current shared presentation, which the page reads the same way.
