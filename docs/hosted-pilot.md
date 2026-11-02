@@ -253,6 +253,30 @@ current public readiness, so restart the timer only once the current application
 serving again; its next poll then admits that head. A head quarantined before its
 schema upgrade can deploy only through a newer head with the same migrations.
 
+### Retained gas risk schema release
+
+Migration 0165 enrolls the fixed contractual gas profiles in the common portfolio
+risk path. It adds read-only worker policies with the runtime history and current
+authority predicates plus an active-lease fence, and makes the held-position
+inventory refuse incomplete source metadata. It changes no booked economics or
+financial records.
+
+Qualify this migration against an isolated restored backup before the schema
+window, checking the complete original row sets and the resulting schema
+fingerprint. Keep the updater stopped while the release inventory differs from
+the installed baseline. During cutover, fence public mutations, drain and stop
+the API and background writers, and retain a verified final backup before applying
+the exact qualified migration. Promote the migration inventory and schema
+fingerprint together only after the installed result matches the rehearsal.
+
+The API, retained-risk worker and scheduled calculation workers must use the
+same attested release image. Validate the candidate before switching, verify
+worker replacement and public readiness, then reopen writes and restore the
+updater. Preserve the quarantine list; a head already quarantined for the missing
+migration requires a newer verified release rather than an edited deployment
+receipt. Existing retained jobs keep their admitted engine fingerprints and
+must not be rewritten to match a new binary.
+
 Before promotion, a disposable candidate uses the same private configuration and
 database with a separate explicit loopback proxy admission. Anonymous sign-in and
 protected-API checks perform no booking or account claim. A failed candidate leaves
