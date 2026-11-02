@@ -2,6 +2,8 @@
 the owned exchange example. A synthetic role gives the trader PublishMarketData, so the trader may fit; the risk analyst
 reads market data and trades but may not. Fit jobs run in the risk worker exactly as portfolio risk jobs do."""
 import json
+import time
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 from preview_client import PreviewClient
@@ -148,7 +150,8 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     # vol_surface_input, so a refusal other than the fence's or the authority recheck's means the recording was reached first.
     fenced = fit()
     engine = query(f"SELECT request->>'engineVersion' FROM risk.jobs WHERE id='{fenced['jobId']}';")
-    claim = json.loads(query(f"SET SESSION AUTHORIZATION {worker_login};SELECT risk.claim(30,'{engine}')::text;"))
+    # A short lease, so that the attempt left fenced below expires and is failed within this check.
+    claim = json.loads(query(f"SET SESSION AUTHORIZATION {worker_login};SELECT risk.claim(10,'{engine}')::text;"))
     pinned = query(f"SELECT observation_id FROM risk.job_observations WHERE job_id='{fenced['jobId']}' ORDER BY observation_id LIMIT 1;")
 
     def finish(token):
@@ -165,6 +168,11 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     lost = finish(claim['leaseToken'])
     check('a completion after the fitter lost PublishMarketData is refused and records nothing',
           'risk_job_authority_changed' in lost and revisions(PRODUCT) == 2 and job(fenced['jobId'])['state'] == 'running', lost)
+    # Once its lease expires, the next claim fails the fenced attempt through the queue's own authority-changed path.
+    time.sleep(max(0, (datetime.fromisoformat(claim['leaseExpiresAt']) - datetime.now(timezone.utc)).total_seconds()) + 0.5)
+    query(f"SET SESSION AUTHORIZATION {worker_login};SELECT risk.claim(10,'{engine}');")
+    check('the fenced attempt is failed once its lease expires', (job(fenced['jobId'])['state'], job(fenced['jobId'])['errorCode'])
+          == ('failed', 'risk_job_authority_changed') and revisions(PRODUCT) == 2, job(fenced['jobId']))
     grant = str(uuid4())
     query(f"INSERT INTO security.role_grants VALUES('{grant}','{trader}','{role}','{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false);")
 
