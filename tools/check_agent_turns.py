@@ -625,8 +625,9 @@ def literal(value):
 
 def lapsed_in(failure, function):
     """Whether a verbose error output is a lapsed authority that `function`'s own recheck refused."""
+    entry = '(?:pin_turn|pin_market_turn)' if function == 'pin_turn' else re.escape(function)
     return bool(failure and '42501' in failure and re.search(
-        rf'function assistant\.grant_actor\(boolean\) line \d+ at RAISE\n(?:(?!PL/pgSQL function).*\n)*PL/pgSQL function assistant\.{function}\(', failure))
+        rf'function assistant\.grant_actor\(boolean\) line \d+ at RAISE\n(?:(?!PL/pgSQL function).*\n)*PL/pgSQL function assistant\.{entry}\(', failure))
 
 
 class Turn:
@@ -1753,41 +1754,8 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
                                           and payloads(read, 'step') == payloads(readable, 'step') for read in unreadable)
           and state(navigating) == 'completed:-', (readable, unreadable))
     check_curve_drafts(query, check, catalog, first.id, follow.id, navigating.id)
-    drafter = agent('drafter', tools=('read_custom_curves', 'prepare_custom_curve', 'save_custom_curve_draft'), roles=('market_data_editor',))
-    grant(curator, drafter)
-    drafting = Turn()
-    ran(drafting, login('curator'), agent_id=drafter['id'])
-    opened = open_call(drafting)['opened']
-    check_agent_curve_writes(query, psql, environment, check, contexts, catalog, drafting.id, drafting.token, opened['call'], first.id)
-    check_assistant_curve_saves(query, check, dotnet, environment, catalog, drafting.id, drafting.token, opened['call'])
-    close_call(drafting, opened)
-    end(drafting)
-
-    class CurveEditor(Person):
-        def frame(self):
-            people.call('profile', {'profile': self.profile})
-            return initial_frame(people.call('workspace/navigation'), '2020-12-18')['id']
-    tool_frame = str(uuid4())
-    tool_pins = {'at': '2020-12-18T16:00:00Z', 'curveContracts': {}, 'frameId': tool_frame, 'frozenObservationIds': [], 'name': 'Synthetic working inputs',
-                 'observationIds': [], 'resolvesLatestCorrection': False, 'swapMarketSelections': None}
-
-    def tool_turn():
-        """A turn of the drafting agent asked from Curve builder with no curve open, pinned to a working frame, whose first call stopped for tools."""
-        turn = Turn()
-        asked = ask(turn, login('curator'), agent_id=drafter['id'], frame=tool_frame,
-                    report={'page': 'custom_curves', 'selection': {'curve': None, 'unsaved': False}})
-        assert 'turn' in asked, asked
-        pin(turn, login('curator'), pins=tool_pins)
-        started = start(turn)
-        assert 'started' in started, started
-        close_call(turn, open_call(turn)['opened'], stop='tool_use', requests=8)
-        return turn, started
-
-    def end_turn(turn):
-        end(turn, 'failed', 'request_cancelled')
-    check_curve_draft_tool(query, check, dotnet, environment, catalog, stamp, tool_turn, CurveEditor('editor'), Person('approver'), worker, end_turn)
-    # A market data editor may use no agent once these checks are done, as the browser checks expect.
-    admin.call(f'{AGENTS}/retire', {'operationId': str(uuid4()), 'agentId': drafter['id'], 'expectedVersion': drafter['version']})
+    check('the former direct curve-save capability is withdrawn from every runtime role',
+          query("SELECT count(*) FROM security.role_permissions WHERE permission='DraftCustomCurves';") == '0')
 
     # A close names how a call that completed stopped, and only such a call (§7.4); one stopped at its output limit
     # neither completes its turn nor is followed.

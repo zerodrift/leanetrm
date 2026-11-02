@@ -1115,7 +1115,11 @@ function pageState():PageState{
     case 'gas-setup':case 'gas':case 'crude':return {page};
     case 'ppa':return {page,...ppa.shown()};
     case 'custom-curves':return {page,...customCurves.report()};
-    case 'risk':case 'dashboard':case 'configuration':case 'schedules':case 'delivery':case 'interval-series':case 'interval-curves':case 'admin':case 'ai':return {page};
+    case 'risk':return {page,assistant:riskJobs.assistant()};
+    case 'delivery':return {page,assistant:deliveryPrices.assistant()};
+    case 'interval-series':return {page,assistant:intervalSeries.assistant()};
+    case 'interval-curves':return {page,assistant:intervalCurves.assistant()};
+    case 'dashboard':case 'configuration':case 'schedules':case 'admin':case 'ai':return {page};
     default:throw Error('This page could not load. Please refresh.');
   }
 }
@@ -1246,13 +1250,19 @@ function tableName(code:string){
   return section?.name??friendly(code);
 }
 // The assistant panel, for a person who uses agents (docs/ai-assistant.md §10.1).
-$('assistant-hide').onclick=()=>{prefs.assistantHidden=true;persist();assistant.sync();};
-const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,api,root:apiRoot,identity:()=>administrationScope+':'+currentProfile,zone:()=>prefs.timeZone,
+$('assistant-hide').onclick=()=>{prefs.assistantMinimized=true;persist();assistant.sync();};
+const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launcherMinimized:()=>prefs.assistantMinimized,restoreLauncher:()=>{prefs.assistantMinimized=false;persist();},api,root:apiRoot,identity:()=>administrationScope+':'+currentProfile,zone:()=>prefs.timeZone,
+  changed:async()=>{if(!unsaved())await showPage(page);},
   available:()=>can('UseAgents'),pageBusy:()=>busy,act,place,names:()=>({curve:curveName,table:tableName}),
   // The Blotter popped out of this window may hold edits a move gives up, whichever page this window shows.
   trade:()=>futures.report().trade?.reference,unsaved:()=>unsaved()||futures.windowEdits(),open:target=>showTarget(target.page,target.selection,target.kind),
   // A proposed curve or a saved draft opens under the header the page shows (D260).
-  go:async target=>{if(target.kind!=='proposal'&&target.kind!=='draft')await selectContext(target.context);await showTarget(target.page,target.selection,target.kind);},restore:restorePlace});
+  go:async target=>{
+    if(target.context.mode==='operational'){
+      if(historicalContext())throw Error('Return to working data before opening this operational page.');
+    }else if(target.kind!=='proposal'&&target.kind!=='draft')await selectContext(target.context);
+    await showTarget(target.page,target.selection,target.kind);
+  },restore:restorePlace});
 // Coming back to the window asks whether a newer close arrived while it was away.
 window.addEventListener('focus',()=>void recheckNewestClose());
 // A main window that closes or goes elsewhere tells the Blotter it popped out, which then shows why it stops.

@@ -90,6 +90,9 @@ def main():
     parser.add_argument('--party-check', action='store_true', help='Run party-editor integration checks in an owned fixture')
     parser.add_argument('--identity-check', action='store_true', help='Run economic-key integration checks in the owned standard fixture, then clean up')
     parser.add_argument('--provider-adapters-check',action='store_true',help='Qualify additional provider routing and billing through HTTP Test in an owned fixture')
+    parser.add_argument('--assistant-browser-check',action='store_true',help='Run assistant settings and panel browser regressions with an owned provider fixture; requires --browser')
+    parser.add_argument('--assistant-runtime-check',action='store_true',help='Run assistant turn, tool, stream and usage regressions without provider-administration scenarios')
+    parser.add_argument('--assistant-workspace-check',action='store_true',help='Qualify page operations, user-approved proposals and delegated page prompts in an owned fixture')
     parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider, model and price administration in an owned fixture')
     parser.add_argument('--blotter-loading-check',action='store_true',help='Run owned Blotter progress, cancellation and admission browser checks')
     parser.add_argument('--markets-desk-check',action='store_true',help='Run market and delivery desk browser checks in the owned standard fixture')
@@ -97,6 +100,10 @@ def main():
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.assistant_browser_check:args.browser_check=True
+    if args.assistant_workspace_check or args.assistant_runtime_check or args.assistant_browser_check:
+        args.check=True
+        if args.example!='standard':parser.error('Assistant checks require the standard fixture')
     if args.blotter_loading_check:
         args.check=True
         args.browser_check=True
@@ -499,7 +506,7 @@ def main():
         frozen_dll=temporary/'api'/dll.name
         log=(temporary/'app.log').open('w')
         api_env=app_env
-        if args.assistant_check or args.provider_adapters_check:
+        if args.assistant_check or args.provider_adapters_check or args.assistant_workspace_check or args.assistant_runtime_check or args.assistant_browser_check:
             # Provider tests reach a loopback fake provider through the check endpoint, and every proxy
             # setting names a trap that no request may reach (docs/ai-assistant.md §5.2, §13).
             from fake_model_provider import FakeProvider,Trap
@@ -957,39 +964,52 @@ def main():
                                           'kind':'human','roles':['access_administrator','viewer']})
                 admin.call('profile',{'profile':'provider_adapters_admin'})
                 check_additional_providers(query,manifest,fake_provider,proxy_trap,admin)
-            elif args.assistant_check:
-                # First, while nothing else can be writing to the application log.
-                from check_request_refusals import run_checks as check_request_refusals
-                # The preview holds at most 64 sessions, so the modules reuse the administrator's, a second of the
-                # administrator's and the viewer's sessions instead of each opening its own.
-                admin=check_request_refusals(url,temporary/'app.log')
-                from check_model_providers import run_checks as check_model_providers
-                viewer,again=check_model_providers(url,query,psql,manifest,temporary,app_env,dotnet,admin)
-                from check_model_catalog import run_checks as check_model_catalog
-                check_model_catalog(url,query,psql,manifest,app_env,admin,viewer,again)
-                from check_model_qualification import run_checks as check_model_qualification
-                check_model_qualification(query,psql,manifest,app_env,admin,viewer,again)
-                from check_model_versions import run_checks as check_model_versions
-                check_model_versions(query,psql,manifest,app_env,admin,viewer,again)
-                from check_provider_test_http import run_checks as check_provider_test_http
-                check_provider_test_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap,admin,viewer,again)
-                from check_provider_tests import run_checks as check_provider_tests
-                check_provider_tests(query,psql,manifest,app_env,admin)
-                from check_agent_administration import run_checks as check_agent_administration
-                check_agent_administration(query,psql,manifest,app_env,admin,viewer,again)
-                from check_agent_grants import run_checks as check_agent_grants
-                check_agent_grants(url,query,psql,manifest,app_env,admin,viewer)
-                from check_agent_turns import run_checks as check_agent_turns
-                check_agent_turns(url,query,psql,manifest,app_env,dotnet)
-                from check_agent_turn_http import run_checks as check_agent_turn_http
-                sessions=check_agent_turn_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
-                from check_agent_tool_http import run_checks as check_agent_tool_http
-                check_agent_tool_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap,*sessions,api_pid=child.pid)
-                from check_turn_stream_http import run_checks as check_turn_stream_http
-                check_turn_stream_http(url,query,psql,manifest,app_env,fake_provider,proxy_trap,*sessions)
-                from check_model_usage import run_checks as check_model_usage
-                check_model_usage(url,query,psql,manifest,app_env)
+            elif args.assistant_workspace_check:
+                from check_assistant_workspace import run_checks as check_assistant_workspace
+                check_assistant_workspace(url,query,manifest,fake_provider,proxy_trap,psql,app_env)
+            elif args.assistant_check or args.assistant_runtime_check or args.assistant_browser_check:
+                if args.assistant_check:
+                    # First, while nothing else can be writing to the application log.
+                    from check_request_refusals import run_checks as check_request_refusals
+                    # The preview holds at most 64 sessions, so the modules reuse the administrator's, a second of the
+                    # administrator's and the viewer's sessions instead of each opening its own.
+                    admin=check_request_refusals(url,temporary/'app.log')
+                    from check_model_providers import run_checks as check_model_providers
+                    viewer,again=check_model_providers(url,query,psql,manifest,temporary,app_env,dotnet,admin)
+                    from check_model_catalog import run_checks as check_model_catalog
+                    check_model_catalog(url,query,psql,manifest,app_env,admin,viewer,again)
+                    from check_model_qualification import run_checks as check_model_qualification
+                    check_model_qualification(query,psql,manifest,app_env,admin,viewer,again)
+                    from check_model_versions import run_checks as check_model_versions
+                    check_model_versions(query,psql,manifest,app_env,admin,viewer,again)
+                    from check_provider_test_http import run_checks as check_provider_test_http
+                    check_provider_test_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap,admin,viewer,again)
+                    from check_provider_tests import run_checks as check_provider_tests
+                    check_provider_tests(query,psql,manifest,app_env,admin)
+                    from check_agent_administration import run_checks as check_agent_administration
+                    check_agent_administration(query,psql,manifest,app_env,admin,viewer,again)
+                    from check_agent_grants import run_checks as check_agent_grants
+                    check_agent_grants(url,query,psql,manifest,app_env,admin,viewer)
+                else:
+                    from preview_client import PreviewClient
+                    admin=PreviewClient(url);admin.bootstrap();admin.call('profile',{'profile':'admin'})
+                if not args.assistant_browser_check:
+                    from check_agent_turns import run_checks as check_agent_turns
+                    check_agent_turns(url,query,psql,manifest,app_env,dotnet)
+                    from check_agent_turn_http import run_checks as check_agent_turn_http
+                    sessions=check_agent_turn_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap)
+                    from check_agent_tool_http import run_checks as check_agent_tool_http
+                    check_agent_tool_http(url,query,psql,manifest,app_env,temporary/'app.log',fake_provider,proxy_trap,*sessions,api_pid=child.pid)
+                    from check_turn_stream_http import run_checks as check_turn_stream_http
+                    check_turn_stream_http(url,query,psql,manifest,app_env,fake_provider,proxy_trap,*sessions)
+                    from check_model_usage import run_checks as check_model_usage
+                    check_model_usage(url,query,psql,manifest,app_env)
                 from check_additional_providers import run_checks as check_additional_providers
+                if args.assistant_runtime_check or args.assistant_browser_check:
+                    provider_admin='synthetic_runtime_provider_'+uuid4().hex[:8]
+                    admin.call('admin/create',{'operationId':str(uuid4()),'login':provider_admin,'name':'Synthetic runtime provider administrator',
+                                              'kind':'human','roles':['access_administrator','viewer']})
+                    admin.call('profile',{'profile':provider_admin})
                 check_additional_providers(query,manifest,fake_provider,proxy_trap,admin)
                 # A scope keeps at most 64 sessions for their 30 minutes (Program.cs). The browser checks below open their
                 # own, as will later page-assistant suites, so the sessions this process has opened so far, in every suite
@@ -1002,6 +1022,12 @@ def main():
                     target=temporary/'browser-target.json'
                     # The panel's scenario scripts the fake provider's answers, and releases the ones it holds, through its control listener.
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'provider':fake_provider.control()}))
+                    if args.assistant_browser_check:
+                        # The standalone browser fixture owns a second readable USD reference for the currency-choice check.
+                        alternate=str(uuid4())
+                        query(f"INSERT INTO ref_data.revisions(catalog_id,id,revision_key) VALUES('{manifest['referenceCatalogId']}','{alternate}','browser_model_price_alternate');"
+                              f"INSERT INTO ref_data.currencies VALUES('{manifest['referenceCatalogId']}','{alternate}','usd','USD','US Dollar',2);"
+                              f"UPDATE ref_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{manifest['referenceCatalogId']}','{alternate}');")
                     # Roles holding one of Settings › AI's permissions each, so the browser sees every tab offered by its own.
                     query("INSERT INTO security.roles(id,code,name) VALUES(gen_random_uuid(),'synthetic_agents_admin','Synthetic agents administrator'),"
                           "(gen_random_uuid(),'synthetic_models_admin','Synthetic models administrator'),(gen_random_uuid(),'synthetic_usage_reader','Synthetic usage reader');"

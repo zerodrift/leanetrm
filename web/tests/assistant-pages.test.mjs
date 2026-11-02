@@ -80,7 +80,7 @@ test('Looking at names the page, what it shows and the context the next question
   assert.deepEqual(lookingAt(pageReport({page:'futures',...open,risk:false,trade:{tradeId:trade,instrumentType:'future',revision:2,reference:'TR-000009'},entry:null,view:blotter}),working,names,
     {trade:'TR-000009'}).shows,'Trade TR-000009, revision 2');
   assert.deepEqual(lookingAt(pageReport({page:'admin'}),working,names),
-    {page:'Users & access',shows:'The assistant does not read this page.',context:'Working data · As of 18 Dec 2020 16:00',supported:false,askable:true});
+    {page:'Users & access',shows:'Authorized page operations, reads and previews. Changes require your authorization.',context:'Working data · As of 18 Dec 2020 16:00',supported:true,askable:true});
   assert.deepEqual(lookingAt(pageReport({page:'schedules'}),{mode:'current',frameId:null,frameLabel:null},names),
     {page:'Schedules',shows:'Schedule library',context:'Working data · choose an As of date to ask about it',supported:true,askable:false});
   assert.equal(lookingAt(pageReport({page:'reference',table:'units',search:'mega'}),
@@ -110,7 +110,7 @@ test('Looking at says what each read page shows in words, never with an identifi
   assert.equal(shows({page:'futures',...open,risk:false,trade:null,view:{...blotter,mode:'pivot',bookIds:[],groupBy:['commodity','instrumentType'],measures:['tradeCount']}}),
     'Totals by commodity and instrument type · every book you can read');
   assert.deepEqual(lookingAt(pageReport({page:'futures',...open,risk:true,trade:null,entry:null,view:blotter}),working,names),
-    {page:'Blotter',shows:'The assistant does not read risk results.',layout:'Details open · Charts open · Main window',context:'Working data · As of 18 Dec 2020 16:00',supported:false,askable:true});
+    {page:'Blotter',shows:'Risk operations and calculations under the pinned context.',layout:'Details open · Charts open · Main window',context:'Working data · As of 18 Dec 2020 16:00',supported:true,askable:true});
   // A historical selection that is not yet applied pins nothing the page shows, so nothing can be asked.
   assert.deepEqual(lookingAt(pageReport({page:'schedules'}),{mode:'unapplied'},names),
     {page:'Schedules',shows:'Schedule library',context:'Historical selection not applied · apply it to ask about it',supported:true,askable:false});
@@ -151,7 +151,8 @@ test("Back restores the place a move left, for that move's notice only, and noth
 test('a target opens the web page its report names',()=>{
   assert.deepEqual(['curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter'].map(webPage),
     ['market','configuration','schedules','power','reference','parties','futures']);
-  assert.throws(()=>webPage('settings_ai'),/page is inconsistent/);
+  assert.equal(webPage('settings_ai'),'ai');
+  assert.throws(()=>webPage('unknown_page'),/page is inconsistent/);
 });
 
 test('step lines name the tool and, for a refusal or failure, say why in plain words, never with an identifier',()=>{
@@ -209,7 +210,7 @@ test('consent names the agent, provider, model, reads and the date its grant wou
   assert.throws(()=>consentText({...agent,model:{...agent.model,vendor:'unknown'}},vendors,'2026-11-17'),/page is inconsistent/);
   assert.equal(consentText({...agent,permissions:['ReadMarketData','WriteMarketDefinitions']},vendors,'2026-11-17'),'Allow Page guide, which sends your '
     +'questions and the data it reads to Anthropic (Model one) through the vendor account your administrators configured, whose owner may be able to see '
-    +'them, to read market data and save curve drafts you could save yourself on your behalf until 2026-11-17?');
+    +'them, to read market data and prepare curve drafts for approval on your behalf until 2026-11-17?');
   // A grant runs its days from the instant it is given, so the date is that instant's in the zone, not today's date plus days:
   // from 23:30 the evening before the spring change, 28 days later is already the next local day.
   assert.equal(grantExpiry(new Date('2026-10-20T12:00:00Z'),28,'UTC'),'2026-11-17');
@@ -285,8 +286,9 @@ test('a new trade in the Blotter\'s panel is reported by its product, and no uns
   const names={curve:String,table:String},current={mode:'current',frameId:frame,frameLabel:'18 Dec 2020'};
   for(const [id,shown] of [['blotter_new_trade','A new trade is being started: no product is chosen yet. The assistant does not read a trade being entered.'],
     ['blotter_new_future','A new future is being entered. The assistant does not read a trade being entered.'],['blotter_new_swap','A new swap is being entered. The assistant does not read a trade being entered.'],['blotter_new_ppa','A new PPA is being entered. The assistant does not read a trade being entered.'],['blotter_new_gas','A new physical gas trade is being entered. The assistant does not read a trade being entered.'],['blotter_new_crude','A new physical crude trade is being entered. The assistant does not read a trade being entered.']]){
+    const expected=shown.replace('The assistant does not read a trade being entered.', ['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(id)?'The assistant can inspect available terms, preview explicit drafts and prepare changes for your authorization.':'The assistant does not read a trade being entered.');
     const view=lookingAt({page:id,selection:{}},current,names);
-    assert.deepEqual([view.page,view.shows,view.supported],['Blotter',shown,false],id);
+    assert.deepEqual([view.page,view.shows,view.supported],['Blotter',expected,['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(id)],id);
   }
 });
 
@@ -301,7 +303,7 @@ test('the trade rows in the Risk lens are reported as the Blotter\'s risk result
   assert.deepEqual(pageReport({page:'futures',...open,risk:false,trade:null,entry:null,lens:'values',view:blotter}),pageReport({page:'futures',...open,risk:false,trade:null,entry:null,view:blotter}));
   const names={curve:String,table:String},current={mode:'current',frameId:frame,frameLabel:'18 Dec 2020'};
   assert.deepEqual(lookingAt({page:'blotter_risk_lens',selection:{}},current,names),
-    {page:'Blotter',shows:'Risk results on the trade rows. The assistant does not read risk results.',context:'Working data · As of 18 Dec 2020',supported:false,askable:true});
+    {page:'Blotter',shows:'Risk operations for the trade rows under the pinned context.',context:'Working data · As of 18 Dec 2020',supported:true,askable:true});
 });
 
 test('what the panel holds is reported ahead of the lens: its risk report, a trade being entered, or the position it shows',()=>{
@@ -311,12 +313,16 @@ test('what the panel holds is reported ahead of the lens: its risk report, a tra
   assert.deepEqual(pageReport({page:'futures',...open,risk:false,trade:shown,entry:null,lens:'risk',view:blotter}),pageReport({page:'futures',...open,risk:false,trade:shown,entry:null,lens:'values',view:blotter}));
 });
 
-test('Save curve draft is named in plain words, with each of its refusals',()=>{
-  assert.equal(stepLine({ordinal:2,tool:'save_custom_curve_draft',code:null}),'Save curve draft');
+test('Prepare curve draft is named in plain words, with each of its refusals',()=>{
+  assert.equal(stepLine({ordinal:2,tool:'save_custom_curve_draft',code:null}),'Prepare curve draft');
   for(const [code,reason] of [['custom_curve_open_unsaved','the curve is open with unsaved edits'],['historical_read_only','a historical view is read-only'],
     ['custom_curve_agent_scope','the assistant saves only new curves and its own drafts'],['custom_curve_conflict','the curve, its code or its inputs changed'],
     ['delegation_denied','your authoring or the agent’s grant does not allow it']])
-    assert.equal(stepLine({ordinal:2,tool:'save_custom_curve_draft',code}),`Save curve draft · ${reason}`);
+    assert.equal(stepLine({ordinal:2,tool:'save_custom_curve_draft',code}),`Prepare curve draft · ${reason}`);
+});
+
+test('the dedicated risk directory is explicitly outside assistant reads',()=>{
+ assert.deepEqual(pageReport({page:'risk'}),{page:'risk_jobs',selection:{}});
 });
 
 test('the Blotter report carries its pane state and whether it is popped out, and names no identifier for them',()=>{

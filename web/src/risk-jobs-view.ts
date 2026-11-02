@@ -4,12 +4,13 @@ type Job={id:string;state:string;asOf?:string;finishedAt?:string;run?:{id:string
 /** Current authorized job metadata; results are fetched explicitly from their retained context. */
 export function setupRiskJobs(options:{api:<T>(path:string)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;instant:(at:string)=>string}){
  const get=(id:string)=>document.getElementById(id)!;
- let generation=0;
+ let generation=0,selected:string|undefined;
  const cell=(tag:string,text:string)=>{const node=document.createElement(tag);node.textContent=text;return node;};
- function reset(){generation++;get('risk-jobs-list').replaceChildren();get('risk-jobs-report').replaceChildren();}
+ function reset(){generation++;selected=undefined;get('risk-jobs-list').replaceChildren();get('risk-jobs-report').replaceChildren();}
  async function report(id:string){
   const version=++generation;get('risk-jobs-report').replaceChildren();
   const job=await options.api<Job>(`portfolio/risk/jobs/${encodeURIComponent(id)}`);if(version!==generation)return;
+  selected=id;
   const root=get('risk-jobs-report');root.append(cell('h3',`Job ${job.id} · ${job.state}`));
   if(!job.result){root.append(cell('p',job.error?.message??'No retained report is available for this job.'));return;}
   const result=job.result;
@@ -44,5 +45,5 @@ export function setupRiskJobs(options:{api:<T>(path:string)=>Promise<T>;act:(wor
   }catch(error){if(version===generation)get('risk-jobs-list').textContent='Risk jobs could not be loaded. Refresh to try again.';throw error;}
  }
  get('risk-jobs-refresh').onclick=()=>void options.act(load);
- return {load,reset};
+ return {load,reset,assistant:()=>selected?{operation:'portfolio.risk.jobs.id_v1',inputJson:JSON.stringify({body:null,parameters:{id:selected}})}:undefined};
 }

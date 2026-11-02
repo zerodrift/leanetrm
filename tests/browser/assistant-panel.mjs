@@ -79,7 +79,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('and from a person who uses agents but may use none of them',`${q('#assistant-launcher')}.hidden&&${q('#assistant-agent')}.options.length===1`);
   await persona('trader');await wait(shown('#assistant-launcher'));await click('#nav-market');
   await check('Assistant launcher floats at the lower right',"(()=>{const n=document.querySelector('#assistant-launcher'),r=n.getBoundingClientRect();return getComputedStyle(n).position==='fixed'&&innerWidth-r.right<50&&innerHeight-r.bottom<50;})()");
-  await click('#assistant-hide');await check('the floating launcher can be hidden',q('#assistant-launcher')+'.hidden&&'+q('#assistant-hide')+'.hidden');
+  await click('#assistant-hide');await check('the floating launcher minimizes to an available icon',`!${q('#assistant-launcher')}.hidden&&${q('#assistant-launcher')}.classList.contains('is-minimized')&&${q('#assistant-launcher')}.getBoundingClientRect().width<=48&&${q('#assistant-hide')}.hidden`);
   await click('#profile-open');await evaluate("document.querySelector('#show-assistant').checked=true");await submit('#preferences-form');
   await check('Profile restores the floating launcher',shown('#assistant-launcher'));
 
@@ -172,7 +172,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     +`&&(()=>{const r=${asks}.at(-1).body.pageReport;return r.page==='blotter_new_future'&&JSON.stringify(r.selection)==='{}'&&r.layout.pane.details&&JSON.stringify(r.layout)===${drawnLayout};})()`,
     `[${notice}?.textContent,JSON.stringify(${asks}.at(-1).body.pageReport),${drawnLayout}]`);
   // The page report names the new trade in the panel, and its product: the assistant is told what the page shows, and reads no unsent entry.
-  await check('Looking at names the new future being entered, and says the assistant does not read it',`JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter','A new future is being entered. The assistant does not read a trade being entered.']))}`,looking);
+  await check('Looking at names the new future being entered, and says the assistant does not read it',`JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter','A new future is being entered. The assistant can inspect available terms, preview explicit drafts and prepare changes for your authorization.']))}`,looking);
   await press('Go anyway');await wait(`${q('#page-title')}.textContent==='Schedules & date mappings'&&${idle}`);
   await check('Go anyway leaves the unsaved booking for the target, with Back',`${notice}.textContent.startsWith('Took you to Schedules')&&${buttons}==='Back'`);
   await press('Back');await wait(`${q('#page-title')}.textContent==='Blotter'&&${idle}`);
@@ -310,14 +310,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `${q('#error')}.hidden&&${q('#position-details')}?.hidden===false&&${q('#position-details-head .side-panel-reference')}.textContent===${JSON.stringify(trade)}`,`[${q('#error')}.textContent,(${q('#position-details')}?.hidden!==false),${q('#position-details-head .side-panel-reference')}?.textContent]`);
   await click('#details-collapse');await set('#blotter-mode','trades');
 
-  // A page the assistant does not read (§7.3).
+  // Broader page support does not silently widen a legacy agent version's tools.
   await click('#nav-delivery');
-  await check('Looking at says the assistant does not read Delivery prices',
-    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Delivery prices','The assistant does not read this page.']))}`,looking);
+  await check('Looking at describes authorized assistance on Delivery prices',
+    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Delivery prices','Authorized page operations, reads and previews. Changes require your authorization.']))}`,looking);
   await script({tools:[['toolu_panel_06','read_current_page',{}]]},{text:'I do not read this page.'});
   await ask('What is on this page?');await wait(finished);
-  await check('Read current page on it is refused page_not_supported, which its step line says in plain words',
-    `[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
+  await check('the legacy agent needs the explicit workspace tool set to read this page',
+    `[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · this agent does not read the page you asked from'`
     +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'delivery_prices',selection:{}})`);
   // Entry stays in the Blotter; the assistant never reads unsaved PPA terms.
   await openPpaBookings({click,wait,evaluate});
@@ -532,29 +532,32 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
    `${shown('#custom-curves-result')}&&window.__requests.some(r=>r.path==='/api/custom-curves/preview'&&r.body.snapshotId===${JSON.stringify(workingFrame)})`);
   await click('#custom-curves-save');await check('saving the reviewed draft uses the person’s ordinary authoring operation',`${q('#custom-curves-state')}.textContent.includes('Draft')&&${q('#error')}.hidden`);
 
-  // Save curve draft (D260): asked from Curve builder, the assistant prepares and saves a draft; its target waits for Open saved
-  // draft, which opens the draft marked as the assistant's, and the person's own Save makes it theirs.
-  const drafter=await publish(await create('Browser curve drafter '+stamp),['read_custom_curves','prepare_custom_curve','save_custom_curve_draft','navigate'],['market_data_editor']);
-  // Opening the panel again reads the agents this person may use, the new one among them.
+  // D263: a prepared command saves only through the human's separate review and authorization.
+  const drafter=await publish(await create('Browser curve proposer '+stamp),['read_custom_curves','prepare_custom_curve','propose_page_action'],['market_data_editor']);
   await click('#assistant-close');await click('#assistant-launcher');
   await wait(`[...${q('#assistant-agent')}.options].some(o=>o.value===${JSON.stringify(drafter.id+':1')})`);await set('#assistant-agent',drafter.id+':1');
-  const drafted={...definition,code:'browser_agent_draft',name:'Synthetic agent draft'},draftFormula=(await side.call('custom-curves/format',{definition:drafted})).formula;
+  const drafted={...definition,code:'browser_approved_draft',name:'Synthetic authorized draft'},draftFormula=(await side.call('custom-curves/format',{definition:drafted})).formula;
   const curveInput={code:drafted.code,name:drafted.name,engine:'custom_curve_recipe_v2',formula:draftFormula};
-  await ask('Set up the synthetic agent draft.');await wait(shown('#assistant-consent'));
-  await script({text:'Preparing and saving. ',tools:[['toolu_draft_panel_01','prepare_custom_curve',curveInput],['toolu_draft_panel_02','save_custom_curve_draft',{...curveInput,curveId:null}]]},
-   {tools:[['toolu_draft_panel_03','navigate',{page:null,target:'n2'}]]},{text:'The draft is saved. Open it to review.'});
-  await click('#assistant-allow');await wait(`${finished}&&${buttons}==='Open saved draft'`);
-  await check('asking from Curve builder reports the saved curve it has open and that it holds no unsaved edits, and the saved draft waits to be opened',
-   `(()=>{const r=${asks}.at(-1).body.pageReport;return r.page==='custom_curves'&&Object.keys(r.selection).join()==='curve,unsaved'&&typeof r.selection.curve==='string'&&r.selection.unsaved===false;})()`
-   +`&&${q('#custom-curves-code')}.value==='browser_agent_proposal'&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join('|')==='Prepare proposed curve|Save curve draft|Navigate'`,
-   `${asks}.at(-1).body.pageReport`);
-  await press('Open saved draft');await wait(`${q('#custom-curves-code')}.value==='browser_agent_draft'&&${idle}`);
-  await check('Open saved draft opens the assistant’s saved draft, marked as saved by the assistant',
-   `${q('#custom-curves-state')}.textContent.includes('Saved by assistant')&&${q('#custom-curves-state')}.textContent.includes('Draft')&&${q('#error')}.hidden`,`${q('#custom-curves-state')}.textContent`);
-  await set('#custom-curves-name','Synthetic agent draft, reviewed');await click('#custom-curves-save');
-  await wait(`!${q('#custom-curves-state')}.textContent.includes('Unsaved changes')&&${idle}`);
-  await check('the person’s own Save of the draft makes it theirs and clears the mark',
-   `!${q('#custom-curves-state')}.textContent.includes('Saved by assistant')&&${q('#custom-curves-state')}.textContent.includes('Draft')&&${q('#error')}.hidden`,`${q('#custom-curves-state')}.textContent`);
+  const proposed={operation:'custom-curves.save_v1',inputJson:JSON.stringify({body:{requestId:crypto.randomUUID(),definition:drafted,layout:{},snapshotId:workingFrame,
+    id:null,version:null,generation:null,expectedState:null},parameters:{}})};
+  await ask('Prepare the synthetic draft for my authorization.');await wait(shown('#assistant-consent'));
+  await script({text:'Preparing for review. ',tools:[['toolu_draft_panel_01','prepare_custom_curve',curveInput],['toolu_draft_panel_02','propose_page_action',proposed]]},
+    {text:'The draft is awaiting your authorization.'});
+  await click('#assistant-allow');await wait(`${finished}&&[...${latest}.querySelectorAll('button')].some(b=>b.textContent==='Review proposed change')`);
+  await check('a proposed save reports the current selection and offers a separate review',
+    `(()=>{const r=${asks}.at(-1).body.pageReport;return r.page==='custom_curves'&&Object.keys(r.selection).join()==='curve,unsaved'&&typeof r.selection.curve==='string'&&r.selection.unsaved===false;})()`
+    +`&&${q('#custom-curves-code')}.value==='browser_agent_proposal'&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join('|')==='Prepare proposed curve|Prepare change for authorization'`);
+  if((await evaluate("fetch('/api/custom-curves').then(r=>r.json())")).recipes.some(r=>r.definition.code===drafted.code))throw Error('A proposal saved before authorization.');
+  await evaluate(`[...${latest}.querySelectorAll('button')].find(b=>b.textContent==='Review proposed change').click()`);
+  await wait('!!document.querySelector("dialog.assistant-action-review[open]")');
+  await check('review shows the exact proposed definition with authorization disabled',
+    `document.querySelector('dialog.assistant-action-review pre').textContent.includes('browser_approved_draft')&&document.querySelector('dialog.assistant-action-review button').disabled`);
+  if((await evaluate("fetch('/api/custom-curves').then(r=>r.json())")).recipes.some(r=>r.definition.code===drafted.code))throw Error('Review saved before authorization.');
+  await evaluate(`(()=>{const d=document.querySelector('dialog.assistant-action-review'),c=d.querySelector('input');c.checked=true;c.dispatchEvent(new Event('change'));d.querySelector('button').click();})()`);
+  await wait("document.querySelector('dialog.assistant-action-review [role=status]').textContent.startsWith('The backend confirmed')");
+  const authorized=(await evaluate("fetch('/api/custom-curves').then(r=>r.json())")).recipes.filter(r=>r.definition.code===drafted.code);
+  await check('only the explicit authorization saves one ordinary human-owned draft',JSON.stringify(authorized.length===1&&authorized[0].state==='draft'&&authorized[0].saver?.savedBy==='person'),JSON.stringify(authorized));
+  await evaluate("[...document.querySelector('dialog.assistant-action-review').querySelectorAll('button')].find(b=>b.textContent==='Close').click()");
 
   // A job's history target, arriving live, opens that job's details on Jobs & Infrastructure (docs/devops-assistant.md §3).
   const jobsAgent=await publish(await create('Browser jobs guide '+stamp),['read_jobs','navigate']);

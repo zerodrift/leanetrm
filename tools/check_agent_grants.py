@@ -126,8 +126,8 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
                                         'displayName': model_name},
                               'permissions': ['ReadMarketData', 'ReadTrades'], 'grantDays': 28, 'grant': None}])
     check('a user whose roles the published version does not allow is not offered it', offers(editor) == [])
-    for session in (viewer, admin):
-        refusal(session, USABLE, None, 403, 'access_denied')
+    refusal(viewer, USABLE, None, 403, 'access_denied')
+    check('an administrator can use agents but is not offered a financial agent without its allowed role', offers(admin) == [])
     check('the agents a user may use are offered only to users who use agents')
     draft = save(guide)
     check('a draft is offered, beside the published version, only to a user who manages agents',
@@ -163,11 +163,11 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
     contexts.runtime('trader', refused(f"PERFORM assistant.grant_agent('{uuid4()}','{guide['id']}',1,27);", 'grant_duration_exceeded'))
     check("a version whose grant would outlast the runtime set's bound is refused", query(RECORDS) == records)
     check('no refusal changes the epoch', query(EPOCH) == generation)
-    # The database refuses on its own, whatever the API checks first: without UseAgents (the viewer lacks it and
-    # CreateDelegations, the administrator only UseAgents), without CreateDelegations, and in any context but a person's own.
+    # The database refuses on its own without UseAgents, without CreateDelegations,
+    # and in any context but a person's own. Administrator access grants no financial role.
     grant_sql = f"PERFORM assistant.grant_agent('{uuid4()}','{guide['id']}',1,90);"
-    for profile in ('viewer', 'admin'):
-        contexts.runtime(profile, expect(grant_sql, '42501') + expect('PERFORM assistant.usable_agents();', '42501'))
+    contexts.runtime('viewer', expect(grant_sql, '42501') + expect('PERFORM assistant.usable_agents();', '42501'))
+    contexts.runtime('admin', refused(grant_sql, 'agent_not_allowed'))
     contexts.rolled_back("DELETE FROM security.role_permissions WHERE permission='CreateDelegations' "
                          "AND role_id=(SELECT id FROM security.roles WHERE code='trader');",
                          'trader', 'human_interactive', contexts.workspace, 'NULL', expect(grant_sql, '42501'))

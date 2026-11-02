@@ -34,12 +34,15 @@ static class PageReports
         ["jobs"]=new("read_jobs",["jobs.list_v1","jobs.history_v1"],"Jobs & Infrastructure"),
         // The inspected PPA is the Blotter's trade view of it; its target opens it in the Blotter.
         ["ppa"]=new("read_trades",["trades.trade_v1","trades.ppa_book_v1"],"PPA bookings",false),
-        ["blotter_risk"]=Unsupported(),["blotter_risk_lens"]=Unsupported(),["blotter_new_trade"]=Unsupported(),["blotter_new_future"]=Unsupported(),["blotter_new_swap"]=Unsupported(),["blotter_new_ppa"]=Unsupported(),["blotter_new_gas"]=Unsupported(),["blotter_new_crude"]=Unsupported(),
-        ["gas_setup"]=Unsupported(),["physical_gas"]=Unsupported(),["physical_crude"]=Unsupported(),["risk_jobs"]=Unsupported(),["delivery_prices"]=Unsupported(),["interval_series"]=Unsupported(),
-        ["interval_curves"]=Unsupported(),["users_access"]=Unsupported(),["settings_ai"]=Unsupported()
+        ["blotter_risk"]=Workspace("Blotter risk"),["blotter_risk_lens"]=Workspace("Blotter risk lens"),["blotter_new_trade"]=Workspace("New trade"),["blotter_new_future"]=Workspace("New futures trade"),["blotter_new_swap"]=Workspace("New swap"),["blotter_new_ppa"]=Unsupported("New PPA"),["blotter_new_gas"]=Unsupported("New physical gas trade"),["blotter_new_crude"]=Unsupported("New physical crude trade"),
+        ["gas_setup"]=Unsupported("Gas delivery setup"),["physical_gas"]=Unsupported("Physical gas bookings"),["physical_crude"]=Unsupported("Physical crude bookings"),["risk_jobs"]=Workspace("Risk"),["delivery_prices"]=Workspace("Delivery prices"),["interval_series"]=Workspace("Interval data"),
+        ["interval_curves"]=Workspace("Hourly / sub-hourly curves"),["users_access"]=Workspace("Users & access"),["settings_ai"]=Workspace("AI settings")
     }.ToImmutableDictionary(StringComparer.Ordinal);
 
-    static Page Unsupported()=>new(null,[],null);
+    static Page Unsupported(string name)=>new(null,[],name);
+    static Page Workspace(string name)=>new("read_workspace_page",["workspace.page_v1"],name);
+    internal static IEnumerable<string> All=>Pages.Keys.Order(StringComparer.Ordinal);
+    internal static bool Operational(string page)=>page is "users_access" or "settings_ai" or "jobs" or "risk_jobs" or "delivery_prices" or "interval_series";
 
     // The pages the Blotter reports, which alone may state its layout.
     static readonly ImmutableHashSet<string> BlotterPages=["blotter","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","blotter_new_ppa","blotter_new_gas"];
@@ -87,6 +90,17 @@ static class PageReports
         if(page.Tool is null)return selection.ValueKind==JsonValueKind.Object&&!selection.EnumerateObject().Any()?new(id,null,layout):null;
         try
         {
+            if(page.Tool=="read_workspace_page")
+            {
+                _=new ToolInput(selection);
+                if(selection.EnumerateObject().Any())
+                {
+                    var selected=AgentTools.Parse("read_page_operation",selection).Arguments as WorkspaceArguments;
+                    var operation=selected?.Operation is {} code?AssistantOperations.Find(code):null;
+                    if(operation is null||operation.RequiresApproval||operation.Page!=(id=="blotter_risk_lens"?"blotter_risk":id))throw ToolInput.Invalid();
+                }
+                return new(id,AgentTools.Parse(page.Tool,JsonSerializer.SerializeToElement(new{page=id})),layout);
+            }
             // Curve builder reports the curve it has open, if any, and whether it holds unsaved edits, and reads its catalog (D260).
             if(id=="custom_curves"){_=OpenCurve(selection);return new(id,AgentTools.Parse(page.Tool,NoInput),layout);}
             var call=AgentTools.Parse(page.Tool,selection);

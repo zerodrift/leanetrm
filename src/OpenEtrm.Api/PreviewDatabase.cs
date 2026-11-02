@@ -77,6 +77,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
     private readonly string runtimeLogin;
     private readonly Func<string>? hostedSession;
     public PreviewManifest Manifest { get; }
+    internal Func<AssistantInvocation?>? AssistantRequest {get;set;}
     public OpenEtrm.MarketData.Calculation.ConnectedCalculationCache Calculations {get;}=new(16,250_000);
     internal NpgsqlConnection CalculationListener()=>calculationRuntime?.CreateConnection()
         ??throw new InvalidOperationException("This database adapter has no calculation listener.");
@@ -181,19 +182,26 @@ public sealed class PreviewDatabase : IAsyncDisposable
     {
         if(authenticator is null)throw new InvalidOperationException("This direct reader has no identity-issuing capability.");
         if (string.IsNullOrWhiteSpace(profile) || profile.Length>48) throw new PreviewDeniedException();
-        await using var issue = authenticator.CreateCommand(hostedSession is null?"SELECT security.issue_context($1,$2,$3,$4,$5,NULL,$6::name,60)":"SELECT security.issue_hosted_context($1,$2::name)");
+        var invocation=AssistantRequest?.Invoke();
+        var issuer=invocation?.ReadLimit is not null?agentAuthenticator??authenticator:authenticator;
+        var source=invocation?.ReadLimit is not null?agentRuntime??runtime:runtime;
+        await using var issue = issuer.CreateCommand(hostedSession is null?"SELECT security.issue_context($1,$2,$3,$4,$5,NULL,$6::name,60)":"SELECT security.issue_hosted_context($1,$2::name)");
         foreach (var value in hostedSession is null?new object[] { Manifest.IdentityIssuer, profile, "human_interactive", Manifest.TenantId, Manifest.WorkspaceId, runtimeLogin }:new object[]{hostedSession(),runtimeLogin})
             issue.Parameters.Add(new NpgsqlParameter { Value = value });
         Guid token;
         // A hosted request whose sign-in session was revoked or ended since it was authenticated (docs/ai-assistant.md §11).
         try { token = (Guid)(await issue.ExecuteScalarAsync(ct) ?? throw new PreviewDeniedException()); }
         catch (PostgresException e) when (hostedSession is not null && e.SqlState == "42501") { throw new PreviewSessionEnded(); }
-        return await Bound(runtime, token, hostedSession is not null, null, admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
+        return await Bound(source, token, hostedSession is not null, invocation?.ReadLimit, admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
             Admission.Agents=>"SELECT assistant.use_agent_admission($1)",Admission.Grants=>"SELECT assistant.use_grant_admission($1)",
             _=>"SELECT security.use_context($1)"}, async(connection,ct)=>
         {
             await Hold(connection,permission,ct);
-            var result = await operation(connection, ct);
+            if(invocation is not null)await invocation.Capture(connection,ct);
+            var replay=invocation is null?(false,default(T)):(await invocation.Replay<T>(connection,ct));
+            var result = replay.Item1?replay.Item2!:await operation(connection, ct);
+            if(invocation is not null&&!replay.Item1)await invocation.Keep(connection,result,ct);
+            if(invocation is not null)await invocation.Capture(connection,ct);
             await Hold(connection,permission,ct);
             return result;
         }, ct);

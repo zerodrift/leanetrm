@@ -1935,4 +1935,25 @@ current authority checks. It is independent of the Blotter catalog read. Setup
 continues to use the Blotter risk panel; the existing shared infrastructure view
 remains the node-management entry point. This changes presentation only, not
 pricing, queue admission, deployment or worker placement. The assistant identifies
-the Risk page explicitly but has no read tool for its directory or reports.
+the Risk page explicitly and reads its retained directory/reports through the workspace tools; commands require separate human authorization (D284).
+
+## D284 — Workspace assistant operations require human-approved business writes
+
+Status: accepted for local implementation; deployment/publication remains separate.
+
+Agents discover and invoke the same authorized reads/previews as the pages and
+prepare exact immutable command proposals. Only a separate human review and
+authorization executes a business command; instructions, chat text and tool
+results cannot approve it. D260's direct curve-draft write is withdrawn.
+
+Generic tools use explicit `UseAssistantWorkspace` consent and the intersection
+with the human's current operation/resource authority. Operational turns require
+no financial data or invented snapshot. Financial reads retain exact context,
+frame and numerical inputs. Revocation/expiry checks cover both operation and
+publication boundaries; commands retain first-outcome replay, including older
+writers without native request IDs.
+
+Workspace/page guidance is immutable versioned configuration under separately
+delegable `ManageAssistantPrompts`, pinned to each ask. It cannot expand business
+authority or replace mandatory financial choices and approval rules. See
+[the implementation contract and limits](assistant-workspace.md).

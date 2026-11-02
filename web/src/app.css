@@ -186,6 +186,8 @@ footer{font-size:12px;color:var(--text-3);margin-top:24px}
 .tab,.ai-tab{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--text-3);font-weight:500;padding:10px 0 10px;margin-bottom:-1px}
 .tab:hover,.ai-tab:hover{background:none;color:var(--text)}
 .tab.active,.ai-tab.active{color:var(--accent-text);border-bottom-color:var(--accent)}
+#ai-page>.tabs{max-width:100%;overflow-x:auto}
+#ai-page>.tabs>.ai-tab{flex-shrink:0}
 .filter-tabs{display:flex;flex-wrap:wrap;gap:4px}
 .library-filters .filter-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
 .library-filters .filter-tabs button{padding:5px 4px}
@@ -1949,6 +1951,12 @@ header[inert] .context-dock,.assistant-launcher[inert],.assistant-hide[inert]{op
 .schedule-calendar.card{position:sticky;top:20px;padding:22px;margin:0;min-width:0}.schedule-calendar-heading>span{font-size:10px;color:var(--text-3);letter-spacing:.14em;font-weight:700}.schedule-calendar-heading h2{font-size:18px;margin:7px 0 22px;overflow-wrap:anywhere}.calendar-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:18px}.calendar-toolbar button{padding:4px 12px;font-size:24px;background:transparent;color:var(--text-2);border-color:var(--border)}.calendar-toolbar input{min-width:0;flex:1;text-align:center;border:0;background:transparent;font-weight:600;font-size:14px}.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}.calendar-weekday{text-align:center;font-size:10px;color:var(--text-3);padding:7px 0}.calendar-day{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-width:0;height:43px;padding:4px 0;background:transparent;border:1px solid transparent;color:var(--text-2);font-size:12px;border-radius:7px}.calendar-day.has-events{background:#eff5f1;font-weight:700}.calendar-day:hover{border-color:#9db9a8;background:#e6f0ea}.calendar-day[aria-pressed=true]{background:#22583f;color:white}.calendar-dots{display:flex;gap:3px;min-height:5px}.calendar-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:#657c91;flex-shrink:0}.calendar-dot.start{background:#2c8a60}.calendar-dot.end{background:#7889a5}.calendar-dot.expiry{background:#cc7a38}.calendar-dot.date{background:#8370ad}.calendar-legend{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:22px 0;font-size:10px;color:var(--text-3)}.calendar-legend>span{display:flex;gap:6px;align-items:center}.calendar-agenda{border-top:1px solid var(--border);padding-top:16px;max-height:360px;overflow:auto}.calendar-agenda h3{font-size:12px;margin:0 0 14px}.calendar-agenda>p{font-size:12px;color:var(--text-3)}.calendar-event{border-left:3px solid #8370ad;padding:5px 0 5px 11px;margin:12px 0;display:flex;flex-direction:column;gap:4px}.calendar-event.start{border-color:#2c8a60}.calendar-event.end{border-color:#7889a5}.calendar-event.expiry{border-color:#cc7a38}.calendar-event small,.calendar-event>span{font-size:10px;color:var(--text-3)}.calendar-event strong{font-size:12px;font-weight:500;overflow-wrap:anywhere}.calendar-empty{padding:30px 8px 50px;text-align:center;color:var(--text-3)}.calendar-empty>span{font-size:45px;color:#9ab9a7}.calendar-empty h3{font-size:15px;color:var(--text-2)}.calendar-empty p{font-size:12px;line-height:1.6}
 @media(max-width:1250px){.schedule-workspace-content{grid-template-columns:minmax(0,1fr) 300px;gap:16px}.schedule-workspace-editor{padding:18px}}
 @media(max-width:900px){.schedule-workspace-content{grid-template-columns:1fr}.schedule-calendar.card{position:static}.schedule-path{gap:12px;flex-wrap:wrap}.schedule-tabs button{padding:11px 10px;font-size:12px}.schedule-workspace-intro h2{font-size:25px}}
+
+.assistant-action-review {max-width:min(850px,92vw);max-height:85vh;overflow:auto;padding:24px;}
+.assistant-action-review pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:45vh;overflow:auto;}
+.assistant-action-review button {margin:12px 8px 0 0;}
+.assistant-launcher.is-minimized{width:44px;height:44px;padding:12px;justify-content:center}
+.assistant-launcher.is-minimized .assistant-launcher-text{display:none}
 
 /* Page layouts follow the space left by navigation and the assistant, including on wide displays. */
 body.assistant-open.assistant-overlay .assistant-panel{z-index:42}
