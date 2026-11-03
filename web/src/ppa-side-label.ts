@@ -4,10 +4,11 @@ const names:Record<string,string>={energy_delivery:'Power',certificate_delivery:
 export const ppaSideLabel=(role:string)=>names[role]??friendly(role);
 // A side as the ticket and its tables name it, numbered from one.
 export const ppaSideName=(role:string,ordinal:number)=>`${ppaSideLabel(role)} ${ordinal+1}`;
-// The break-even measures and quote rounding the catalog offers, by name; a code the ticket does not know is refused, never shown.
+// The break-even measures, quote rounding and pending-actuals policies the catalog offers, by name; a code the ticket does not know is refused, never shown.
 const measures:Record<string,string>={ValueExcludingOverdue:'Value excluding overdue cash',CompletePv:'Complete PV'},roundings:Record<string,string>={half_even_v1:'Round half to even'};
 const named=(names:Record<string,string>,kind:string)=>(code:string)=>{const name=names[code];if(!name)throw Error(`The PPA catalog offers an unknown ${kind}: ${code}.`);return name;};
-export const ppaMeasureLabel=named(measures,'measure'),ppaRoundingLabel=named(roundings,'rounding');
+const pendingActuals:Record<string,string>={require_actuals_v1:'Require delivered actuals',estimate_until_actual_v1:'Estimate until actuals arrive'};
+export const ppaMeasureLabel=named(measures,'measure'),ppaRoundingLabel=named(roundings,'rounding'),ppaPendingActualsLabel=named(pendingActuals,'pending-actuals policy');
 // Quantity specifications offered by their unit's symbol.
 type Row={[key:string]:unknown};
 export function quantityChoices(rows:readonly Row[],units:readonly Row[]){

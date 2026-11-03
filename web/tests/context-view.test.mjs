@@ -15,7 +15,7 @@ function render(...panels){globalThis.document={querySelectorAll:()=>panels};ref
 test('the shared context keeps the knowledge it names and shows only its values beside it',()=>{
  const retained=panel({mode:'retained',named:true,coordinates:[input('Effective','2020-12-17'),input('Knowledge cutoff','2020-12-17T23:59:59')]});
  render(retained);
- assert.equal(retained.values.textContent,'Effective 2020-12-17 · Knowledge cutoff 2020-12-17 23:59:59');
+ assert.equal(retained.values.textContent,'Effective Dec 17, 2020 · Knowledge cutoff Dec 17, 2020, 11:59:59 PM');
  assert.equal(retained.summary.textContent,'Context Historical view · read only stale');
 });
 test('working data adds no values beside the knowledge the shared context names',()=>{
@@ -26,5 +26,5 @@ test('working data adds no values beside the knowledge the shared context names'
 test('a page\'s own context still states its values in its summary',()=>{
  const own=panel({coordinates:[input('Knowledge cutoff','2026-10-25T11:00:00')]});
  render(own);
- assert.equal(own.summary.textContent,'Context · Knowledge cutoff 2026-10-25 11:00:00');
+ assert.equal(own.summary.textContent,'Context · Knowledge cutoff Oct 25, 2026, 11:00 AM');
 });
