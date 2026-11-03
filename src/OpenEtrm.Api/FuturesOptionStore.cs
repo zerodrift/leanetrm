@@ -35,12 +35,15 @@ public sealed partial class FuturesOptionStore(PreviewManifest manifest)
     { if(value!=Convention)throw new MarketDataException("option_convention",$"Select the explicit {Convention} convention."); }
 
     // The options/catalog page read: the listed series and the booking directory a booking chooses from.
-    // Each underlying future is described once, with its delivery period, for the page's choice of the contract its options exercise into.
+    // Each underlying future is described once, with its product's name and delivery period, for the page's choice of the contract its
+    // options exercise into.
     public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)
     {
         var options=Series(data,frame);
+        string ProductName(FuturesSeriesSpecification f)=>
+            Single(data.ReferenceRows("futures_products","code",Single(data.ReferenceRows("futures_series","code",f.Key.Code)).Text("product_code"))).Text("name");
         var underlyings=Listed(data,frame).Select(s=>s.UnderlyingSeries).Distinct().Select(key=>Single(data.FuturesSeries.Where(f=>f.Key==key)))
-            .Select(f=>new{series=f.Key.Code,deliveryFrom=f.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),deliveryTo=f.DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)}).ToArray();
+            .Select(f=>new{series=f.Key.Code,name=ProductName(f),deliveryFrom=f.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),deliveryTo=f.DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)}).ToArray();
         var directory=await FuturesStore.ReadBookingDirectory(connection,manifest.CatalogId,ct);
         return new {kind="futures_options",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,convention=Convention,options,underlyings};
     }

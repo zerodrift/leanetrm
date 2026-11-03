@@ -3,7 +3,7 @@
 // backend string shown in the backend's display format.
 import {compareDecimalStrings} from './analytics-model.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
-import {curvePoints,minus,noteMeaning,quantityText,signOf,signedText,tileLabels,type CurveShape,type DeskRow,type Format,type GroupHeader,type PositionsTile,type Sparkline,type StripItem,type Tile} from './desk-model.js';
+import {curvePoints,markCaption,minus,noteMeaning,quantityText,signOf,signedText,tileLabels,type CurveShape,type DeskRow,type Format,type GroupHeader,type PositionsTile,type Sparkline,type StripItem,type Tile} from './desk-model.js';
 import {publicText} from './market-view.js';
 import {node,space} from './tiles.js';
 import {divergingBar} from './mini-charts.js';
@@ -201,7 +201,7 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
       case 'mark':{
         // A position the close cannot value leaves its mark blank; its reason is in its Value cell.
         if(row.mark===null){if(row.markNote!==null){cell.title=noteMeaning(row.markNote);cell.append(node('span','desk-muted',row.markNote));}return cell;}
-        cell.append(exact(node('span','desk-figure',minus(formats.mark(index,row.mark))),row.mark),node('small','desk-sub',`Mark · ${row.priceUnit}`));return cell;}
+        cell.append(exact(node('span','desk-figure',minus(formats.mark(index,row.mark))),row.mark),node('small','desk-sub',markCaption(row)));return cell;}
       case 'presentValue':{
         if(row.unavailable!==null){cell.classList.add('desk-unvalued');cell.append(node('span','desk-chip','Not valued'),node('small','desk-sub',row.unavailable));return cell;}
         const figure=exact(node('span','desk-figure desk-value',signedText(row.value,v=>formats.money(index,v))),row.value);figure.dataset.sign=signOf(row.value);

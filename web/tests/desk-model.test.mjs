@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,curveChart,commodityColors,signOf,valueFields,priceUnit,holdingFormats,quantityText,noteMeaning} from '../dist/desk-model.js';
+import {summaryTiles,positionsTile,positionRows,deskSummaryViews,deskGroups,pvChartPanels,positionChartPanels,curvePoints,curveChart,commodityColors,signOf,valueFields,priceUnit,holdingFormats,quantityText,noteMeaning,markCaption} from '../dist/desk-model.js';
 import {prepareAmountDisplay,selectDisplayPrecision,initialDisplayPrecision} from '../dist/amount-display.js';
 import {setCurveNames} from '../dist/market-view.js';
 import {valuationReason} from '../dist/valuation-status.js';
@@ -601,4 +601,9 @@ test('an option row the close cannot value says why in the backend\'s words, and
  for(const broken of [{measure:'presentValue'},{component:'cash'},{contractIdentityKind:'cash_payment'},{openLots:'1.5'},{strike:null}])
   assert.throws(()=>positionRows([optionRow(broken)]),/option position must retain/,JSON.stringify(broken));
  assert.throws(()=>positionRows([premiumRow({cashState:null})]),/option position must retain/);
+});
+
+test('a mark caption names its price unit where the row states one, and an option says settlement without a unit',()=>{
+ assert.equal(markCaption({pill:'FUT',priceUnit:'USD/MMBtu'}),'Mark · USD/MMBtu');
+ assert.equal(markCaption({pill:'OPT',priceUnit:null}),'Settlement');
 });

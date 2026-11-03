@@ -391,6 +391,8 @@ export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'
   /** The words its cells draw beside their exact amounts, which the grid's row search reads. */
   words:string}&Valuation;
 /** The unit of a position's price and mark: its currency per quantity unit, with the quote multiplier when it is not one. */
+// The line under a mark: an option's is its settlement price, whose unit its row does not state.
+export const markCaption=(row:{pill:string;priceUnit:string|null})=>[row.pill==='OPT'?'Settlement':'Mark',row.priceUnit].filter(Boolean).join(' · ');
 export const priceUnit=(h:{currency:string;unit:string;quoteMultiplier?:string})=>`${h.currency}/${h.unit}${h.quoteMultiplier&&h.quoteMultiplier!=='1'?' × '+h.quoteMultiplier:''}`;
 const sides:Readonly<Record<string,string>>={pay_fixed:'Pay fixed',receive_fixed:'Receive fixed',multi_side:'Multi-side'};
 // The kinds of swap instrument and the valuation states of a swap the Blotter states; any other is refused, never shown as one of them.

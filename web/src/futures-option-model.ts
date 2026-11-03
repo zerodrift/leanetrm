@@ -10,8 +10,8 @@ type Named={code:string;name:string};
 export type OptionSeries={series:string;instrumentId:string;contractId:string;product:string;name:string;exchange:Named;commodity:Named;underlyingSeries:string;
  right:string;strike:string;expiryAt:string;exerciseStyle:string;premiumStyle:string;contraryInstructionsAllowed:boolean;multiplier:string;currency:string;
  premiumTick:string;minimumPremium:string;maximumPremium:string;curve:string;settlementPrice:string};
-/** An underlying future the catalog's series exercise into, with its delivery period. */
-export type OptionUnderlying={series:string;deliveryFrom:string;deliveryTo:string};
+/** An underlying future the catalog's series exercise into, with its product's name and delivery period. */
+export type OptionUnderlying={series:string;name:string;deliveryFrom:string;deliveryTo:string};
 export type OptionCatalog={options:readonly OptionSeries[];underlyings:readonly OptionUnderlying[]};
 export const optionLevels=['exchange','commodity','underlying','right','strike'] as const;
 export type OptionLevel=typeof optionLevels[number];
@@ -32,7 +32,7 @@ function labelOf(catalog:OptionCatalog,level:OptionLevel,s:OptionSeries):string{
   case 'underlying':{
    const found=catalog.underlyings.filter(u=>u.series===s.underlyingSeries);
    if(found.length!==1)throw Error(`The option catalog does not describe the underlying future ${s.underlyingSeries} exactly once.`);
-   return `${deliveryLabel(found[0].deliveryFrom,found[0].deliveryTo)} · ${s.underlyingSeries}`;
+   return `${deliveryLabel(found[0].deliveryFrom,found[0].deliveryTo)} · ${found[0].name}`;
   }
  }
 }

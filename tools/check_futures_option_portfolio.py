@@ -51,10 +51,10 @@ def run_checks(url, query, manifest, *, run_worker):
           all(o['exchange'] == {'code': 'nymex', 'name': 'NYMEX'} and o['commodity']['code'] == ('test_gas' if o['product'] == 'nymex_on' else 'test_crude')
               and o['commodity']['name'] for o in options.values()), catalog['options'][0])
     described = {u['series']: u for u in catalog['underlyings']}
-    check('the option catalog describes each underlying future its series exercise into once, with its delivery period',
+    check('the option catalog describes each underlying future its series exercise into once, with its delivery period and product name',
           len(described) == len(catalog['underlyings']) == len({o['underlyingSeries'] for o in options.values()})
           and all(described[o['underlyingSeries']]['deliveryFrom'] < described[o['underlyingSeries']]['deliveryTo'] for o in options.values())
-          and described['nymex_ng_20261201'] == {'series': 'nymex_ng_20261201', 'deliveryFrom': '2026-12-01', 'deliveryTo': '2027-01-01'}, catalog['underlyings'])
+          and described['nymex_ng_20261201'] == {'series': 'nymex_ng_20261201', 'name': 'NYMEX Henry Hub Natural Gas · NG', 'deliveryFrom': '2026-12-01', 'deliveryTo': '2027-01-01'}, catalog['underlyings'])
     # The long ON call is the series the later close leaves without a settlement; no earlier check books it.
     on = options[manifest['missingSettlement']['series']]
     lo = next(o for o in catalog['options'] if o['product'] == 'nymex_lo' and o['right'] == 'put' and o['underlyingSeries'] == 'nymex_cl_20270101')
