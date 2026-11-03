@@ -1,0 +1,207 @@
+// Vol surfaces (Markets): the stored volatility surface of one option product at the selected context, drawn as a rich/cheap heat
+// map and one smile per expiry that highlight the same series together, and a fit submitted as a risk-queue job that the page
+// checks back on until it finishes. Runs after the HTTP checks of the exchange example, which leave the trader's own failed fit of
+// nymex_lo at the latest close and fitted surfaces of nymex_on there and of both products at the close that leaves one option
+// underlying unsettled. The preview grants the trader PublishMarketData and serves a risk worker for this suite.
+import {mkdtemp,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
+const q=JSON.stringify;
+const model='smile_quadratic_log_moneyness_v1';
+// The close of the first day that pins every input but one option series' settlement and one option underlying's.
+const unsettledAt='2026-10-13T17:00:00Z';
+const page='#vol-surfaces-page';
+const ready=`document.querySelector(${q(page)}).dataset.state`;
+// Whether shown text is the exact decimal fraction `value` as volatility points to two decimals: written with two decimals and
+// within half a hundredth of a point of the value times one hundred.
+const asPoints=(text,value)=>/^[+-]?\d+\.\d{2}$/.test(text)&&Math.abs(Number(text)-Number(value)*100)<=0.005+1e-9;
+// The same test in the page, over the readout's value for a term ("40.27 vol pts").
+const inPage=`const asPoints=${asPoints.toString()};const term=label=>[...document.querySelectorAll('#vol-readout dt')].find(t=>t.textContent===label)?.nextElementSibling.textContent.replace(/ vol pts$/,'');`;
+
+export async function run({command,evaluate,wait,click,set,persona,check,idle,fitsWidth,url}){
+ const artifacts=await mkdtemp(join(tmpdir(),'openetrm-vol-surfaces-'));console.log('VOL_SURFACE_VISUAL_ARTIFACTS='+artifacts);
+ const picture=async name=>{const shot=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});await writeFile(join(artifacts,name+'.png'),Buffer.from(shot.data,'base64'));};
+ await command('Runtime.enable');await command('Page.enable');
+ await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
+ // Every vol-surface request with its answer and when it was sent; and a switch that marks the next read's stored revision as
+ // having revised inputs.
+ const {identifier}=await command('Page.addScriptToEvaluateOnNewDocument',{source:`
+  window.surfaceCalls=[];window.reviseNextRead=false;const send=window.fetch;
+  window.fetch=async(input,init)=>{
+   const path=String(typeof input==='string'?input:input.url),call=/[/](vol-surfaces[/][a-z]+)$/.exec(path);
+   if(!call)return send(input,init);
+   const record={path:call[1],body:init?.body?JSON.parse(init.body):null,sent:performance.now()};window.surfaceCalls.push(record);
+   let response=await send(input,init);
+   record.status=response.status;record.answer=await response.clone().json().catch(()=>null);
+   if(call[1]==='vol-surfaces/read'&&response.ok&&window.reviseNextRead&&record.answer.revision){
+    window.reviseNextRead=false;const revised={...record.answer,revision:{...record.answer.revision,inputsRevised:true}};
+    response=new Response(JSON.stringify(revised),{status:200,headers:{'Content-Type':'application/json'}});
+   }
+   return response;
+  };`});
+ const calls=path=>`window.surfaceCalls.filter(c=>c.path===${q(path)})`;
+ const lastRead=()=>evaluate(`${calls('vol-surfaces/read')}.at(-1)`);
+ // A wait that, should it time out, says what the page showed and what the surface reads answered.
+ const settled=(expression,ms)=>wait(expression,ms).catch(async error=>{throw Error(error.message+' · observed '+q(await evaluate(
+  `({state:${ready},status:document.querySelector('#vol-fit-status')?.textContent,error:document.querySelector('#vol-surface-error')?.textContent,calls:window.surfaceCalls.slice(-3).map(c=>[c.path,c.status,c.answer?.state??c.answer?.code,c.answer?.job])})`)));});
+ // Choosing a product reads its surface afresh; the read answered and drawn is the newest.
+ async function choose(product){
+  const reads=await evaluate(`${calls('vol-surfaces/read')}.length`);await set('#vol-product',product);
+  await settled(`${calls('vol-surfaces/read')}.length>${reads}&&${calls('vol-surfaces/read')}.at(-1).status!==undefined&&${calls('vol-surfaces/read')}.at(-1).body.product===${q(product)}&&${ready}!=='loading'`,30000);
+ }
+ try{
+  await command('Page.navigate',{url:url+'/?example=exchange'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle,60000);
+  const listed="(()=>{const n=document.querySelector('#nav-vol-surfaces');return !!n&&!n.hidden&&!!n.closest('#nav-group-markets');})()";
+  await persona('admin');
+  await check('the page is not listed without Read market data',"document.querySelector('#nav-vol-surfaces')?.hidden===true");
+  await persona('viewer');
+  await check('the page is not listed for a market reader without Read trades',"document.querySelector('#nav-vol-surfaces')?.hidden===true");
+
+  // A reader who may not fit sees the surface's state and no fit action.
+  await persona('risk');
+  await check('the page is listed in Markets for a reader of market data and trades',listed);
+  await click('#example');await click('#nav-vol-surfaces');
+  await settled(`document.querySelector('#vol-product').options.length>1&&${idle}`,30000);
+  await check('the page is titled Vol surfaces under Markets, with a product picker that chooses nothing and the read-only model',
+   `document.querySelector('#page-title').textContent==='Vol surfaces'&&document.querySelector('#page-section').textContent==='MARKETS'&&
+    [...document.querySelector('#vol-product').options].map(o=>o.value).filter(Boolean).sort().join()==='nymex_lo,nymex_on'&&document.querySelector('#vol-product').value===''&&
+    document.querySelector('#vol-model').textContent===${q(model)}&&!document.querySelector('#vol-model').matches('input,select')`,
+   "[document.querySelector('#page-title').textContent,[...document.querySelector('#vol-product').options].map(o=>o.value),document.querySelector('#vol-model')?.textContent]");
+  await check('a short legend says what rich and cheap mean',"/rich/i.test(document.querySelector('#vol-legend').textContent)&&/cheap/i.test(document.querySelector('#vol-legend').textContent)");
+  await choose('nymex_lo');
+  const unfitted=await lastRead();
+  await check('the read names the product, the model and the selected context, and its snapshot is top-level',
+   q(unfitted.status===200&&unfitted.body.product==='nymex_lo'&&unfitted.body.model===model&&unfitted.body.context.convention==='futures_option_premium_v1'&&
+    unfitted.body.context.knowledgeMode==='current'&&!('snapshotId' in unfitted.body)&&unfitted.answer.state==='notFitted'&&unfitted.answer.canFit===false));
+  await check('a reader who may not fit sees Not fitted for this date and no Fit now',
+   `document.querySelector('#vol-fit-status').textContent.includes('Not fitted for this date')&&!document.querySelector('#vol-fit')?.offsetParent`);
+
+  // The trader may fit; the trader's own last fit of this key failed, and its code is shown next to the button.
+  await persona('trader');await click('#example');await click('#nav-vol-surfaces');
+  await settled(`document.querySelector('#vol-product').options.length>1&&${idle}`,30000);
+  await choose('nymex_lo');
+  const failed=await lastRead();
+  await check('a fitter sees Not fitted for this date, Fit now, and the failed job\'s code beside it',
+   `${q(failed.answer.canFit===true&&failed.answer.job?.state==='failed')}&&document.querySelector('#vol-fit-status').textContent.includes('Not fitted for this date')&&
+    document.querySelector('#vol-fit')?.textContent==='Fit now'&&document.querySelector('#vol-fit-failure').textContent.includes(${q(failed.answer.job?.errorCode??'')})&&
+    document.querySelector('#vol-fit-failure').parentElement===document.querySelector('#vol-fit').parentElement`,
+   "[document.querySelector('#vol-fit-status')?.textContent,document.querySelector('#vol-fit')?.textContent,document.querySelector('#vol-fit-failure')?.textContent]");
+
+  // Fit now submits a job; the page shows its state and checks back until it finishes.
+  await click('#vol-fit');
+  await settled(`${calls('vol-surfaces/fit')}.some(c=>c.status===200)`,30000);
+  const submitted=await evaluate(`${calls('vol-surfaces/fit')}.at(-1)`);
+  await check('Fit now submits the product and model at the selected close under a fresh request id',
+   q(Object.keys(submitted.body).sort().join()==='model,product,requestId,snapshotId'&&submitted.body.product==='nymex_lo'&&submitted.body.model===model&&
+    submitted.body.snapshotId===unfitted.body.context.snapshotId&&/^[0-9a-f-]{36}$/.test(submitted.body.requestId)&&['queued','running'].includes(submitted.answer.state)));
+  await settled(`/queued|running/i.test(document.querySelector('#vol-fit-status').textContent)&&!document.querySelector('#vol-fit')?.offsetParent`,30000);
+  await check('the queued or running job is shown with its state, and nothing offers a second fit meanwhile',
+   `/Fit (queued|running)/.test(document.querySelector('#vol-fit-status').textContent)&&!document.querySelector('#vol-fit')?.offsetParent`,
+   "document.querySelector('#vol-fit-status').textContent");
+  await settled(`${ready}==='fitted'&&${calls('vol-surfaces/read')}.at(-1).answer.state==='fitted'`,60000).catch(()=>settled(`${ready}==='fitted'`,60000));
+  const polls=await evaluate(`${calls('vol-surfaces/read')}.filter(c=>c.sent>${q(submitted.sent)})`);
+  const gaps=polls.slice(1).map((c,i)=>c.sent-polls[i].sent);
+  await check('the page checked back on the running job at a fixed interval of at most 2 s, one read at a time, until it finished',
+   q(polls.length>=3&&gaps.every(g=>g>=900&&g<=2600)&&polls.slice(0,-1).every(c=>['queued','running'].includes(c.answer.job?.state))&&polls.at(-1).answer.job?.state==='completed'),q(gaps));
+  const before=await evaluate(`${calls('vol-surfaces/read')}.length`);
+  await new Promise(resolve=>setTimeout(resolve,3500));
+  await check('once the job finished the page stops checking back',`${calls('vol-surfaces/read')}.length===${before}`);
+  const fitted=(await lastRead()).answer;
+  await check('the fitted surface offers Refit and states when it became known',
+   `document.querySelector('#vol-fit')?.textContent==='Refit'&&document.querySelector('#vol-fit-status').textContent.startsWith('Fitted')&&!document.querySelector('#vol-fit-failure')?.textContent`);
+
+  // The heat map: one row per expiry and one column per strike of the backend's axis, each split into a call and a put half.
+  const chart=selector=>`(await import('/vendor/echarts.js')).getInstanceByDom(document.querySelector(${q(selector)}))`;
+  const heat=chart('#vol-heatmap .vol-chart');
+  await check('the heat map has one row per expiry and one column per strike axis value',
+   `(async()=>{const o=${heat}.getOption(),strikes=o.xAxis.find(a=>a.id==='strikes').data,rows=o.yAxis[0].data;
+    return rows.length===${fitted.surface.expiries.length}&&strikes.join()===${q(fitted.surface.strikeAxis.join())}&&o.series.some(s=>s.type==='heatmap');})()`,
+   `(async()=>{const o=${heat}.getOption();return [o.yAxis[0].data,o.xAxis.map(a=>a.data)];})()`);
+  await check('the call and put halves of each strike are labelled',
+   `(async()=>{const halves=${heat}.getOption().xAxis.find(a=>a.id==='halves').data;
+    return halves.length===${fitted.surface.strikeAxis.length*2}&&halves.every((h,i)=>h.endsWith(i%2?'|put':'|call'))&&/Call/.test(document.querySelector('#vol-heatmap .vol-halves').textContent)&&/Put/.test(document.querySelector('#vol-heatmap .vol-halves').textContent);})()`);
+  // A cell of the heat map, by its series or by its expiry, strike and right, hovered with the mouse; the tooltip and readout it fills.
+  async function hover(surface,expiry,strike,right){
+   const row=surface.expiries.map(e=>e.expiryAt).indexOf(expiry);
+   const point=await evaluate(`(async()=>{const host=document.querySelector('#vol-heatmap .vol-chart');host.scrollIntoView({block:'center'});
+    const c=${heat},o=c.getOption(),x=o.xAxis.find(a=>a.id==='halves').data.indexOf(${q(strike)}+'|'+${q(right)});
+    const [px,py]=c.convertToPixel({xAxisId:'halves',yAxisIndex:0},[x,${row}]),r=host.getBoundingClientRect();return {x:r.left+px,y:r.top+py,found:x>=0&&${row}>=0};})()`);
+   if(!point.found)throw Error('The heat map has no cell for '+[expiry,strike,right].join(' '));
+   await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:point.x,y:point.y});
+   await wait(`!!document.querySelector('.vol-tooltip')?.offsetParent&&document.querySelector('.vol-tooltip').textContent.includes(${q(strike)})`,5000);
+   return evaluate("document.querySelector('.vol-tooltip').textContent");
+  }
+  const solved=fitted.surface.series.find(s=>s.fitPoint&&s.richCheap!==null);
+  const tip=await hover(fitted.surface,solved.series.expiryAt,solved.series.strike,solved.series.right);
+  await check('hovering a heat-map cell names its right and strike and shows its rich/cheap as volatility points to two decimals',
+   q(tip.includes(solved.series.right==='call'?'Call':'Put')&&tip.includes(solved.series.strike)&&asPoints(/(?:Rich|Cheap) ([+-]?[\d.]+) vol pts/.exec(tip)?.[1],solved.richCheap)),q(tip));
+  const expiryIndex=fitted.surface.expiries.findIndex(e=>e.expiryAt===solved.series.expiryAt);
+  await check('the hovered series is highlighted in its expiry\'s smile and fills the shared readout',
+   `(()=>{${inPage}const smile=document.querySelectorAll('#vol-smiles .vol-smile')[${expiryIndex}];
+    return smile.dataset.linked===${q(solved.series.code)}&&term('Series')===${q(solved.series.code)}&&term('Strike')===${q(solved.series.strike)}&&/^-?\\d+\\.\\d{4}$/.test(term('k'))&&
+     asPoints(term('Market'),${q(solved.series.marketVolatility)})&&asPoints(term('Fitted'),${q(solved.fitted)})&&asPoints(term('Rich / cheap'),${q(solved.richCheap)});})()`,
+   "[document.querySelector('#vol-readout').innerText,[...document.querySelectorAll('#vol-smiles .vol-smile')].map(s=>s.dataset.linked)]");
+  await check('each smile header shows its RMS and maximum residual as volatility points',
+   `(()=>{${inPage}const expiries=${q(fitted.surface.expiries.map(e=>e.status==='fitted'?[e.rmsResidual,e.maxAbsResidual]:null))};
+    const smiles=[...document.querySelectorAll('#vol-smiles .vol-smile')];
+    return smiles.length===expiries.length&&smiles.every((s,i)=>{if(!expiries[i])return true;const head=s.querySelector('.vol-smile-head').textContent;
+     return asPoints(/RMS ([\\d.]+)/.exec(head)?.[1],expiries[i][0])&&asPoints(/Max ([\\d.]+)/.exec(head)?.[1],expiries[i][1]);});})()`,
+   "[...document.querySelectorAll('#vol-smiles .vol-smile-head')].map(h=>h.textContent)");
+  await check('each fitted smile draws the fitted line, market points shaped by right and rich/cheap bars',
+   `(async()=>{const hosts=[...document.querySelectorAll('#vol-smiles .vol-smile .vol-chart')];if(!hosts.length)return false;const e=await import('/vendor/echarts.js');
+    return hosts.every(h=>{const s=e.getInstanceByDom(h).getOption().series;const call=s.find(x=>x.id==='calls'),put=s.find(x=>x.id==='puts');
+     return s.some(x=>x.type==='line'&&x.id==='fitted')&&call?.type==='scatter'&&put?.type==='scatter'&&call.symbol!==put.symbol&&s.some(x=>x.type==='bar');});})()`);
+
+  await picture('vol-surface-fitted');
+  // A refit's job is checked on only while its product is shown; the next product's stored revision is flagged as having revised inputs.
+  await click('#vol-fit');
+  await settled(`/Fit (queued|running)/.test(document.querySelector('#vol-fit-status').textContent)`,30000);
+  await evaluate('window.reviseNextRead=true');await choose('nymex_on');
+  const switched=await evaluate('performance.now()');
+  await new Promise(resolve=>setTimeout(resolve,3500));
+  await check('choosing another product while a refit runs stops checking on the first',`!${calls('vol-surfaces/read')}.some(c=>c.sent>${switched}&&c.body.product==='nymex_lo')`);
+  await check('a surface whose inputs were revised after its fit says so and offers Refit',
+   "document.querySelector('#vol-fit-status').textContent.includes('Inputs revised after this fit')&&document.querySelector('#vol-fit')?.textContent==='Refit'");
+  const on=(await lastRead()).answer;
+  // The deep in-the-money series settles at intrinsic: a gap with its reason; a strike an expiry does not list is not a gap.
+  const intrinsic=on.surface.series.find(s=>s.series.outcome==='at_intrinsic');
+  const listedKeys=new Set(on.surface.series.map(s=>[s.series.expiryAt,s.series.strike,s.series.right].join()));
+  const unlisted=on.surface.expiries.flatMap(e=>on.surface.strikeAxis.map(k=>[e.expiryAt,k,'call'])).find(key=>!listedKeys.has(key.join()));
+  if(!intrinsic||!unlisted)throw Error('The nymex_on surface lacks its at-intrinsic series or an unlisted strike.');
+  const gapTip=await hover(on.surface,intrinsic.series.expiryAt,intrinsic.series.strike,intrinsic.series.right);
+  const unlistedTip=await hover(on.surface,...unlisted);
+  await check('a gap cell gives its reason and a not-listed cell says it is not listed, drawn differently',
+   `${q(/intrinsic/i.test(gapTip)&&/not listed/i.test(unlistedTip)&&!/intrinsic/i.test(unlistedTip))}&&(async()=>{const s=${heat}.getOption().series;
+    const gap=s.find(x=>x.id==='gaps'),none=s.find(x=>x.id==='unlisted');return !!gap&&!!none&&gap.itemStyle.color!==none.itemStyle.color;})()`,q([gapTip,unlistedTip]));
+
+  // The close that leaves one underlying unsettled: that expiry of nymex_lo has no fit, and says why in both views.
+  const frames=await evaluate("fetch('/examples/exchange/api/workspace/navigation').then(r=>r.json()).then(d=>d.frames)");
+  const unsettled=frames.find(f=>new Date(f.at).getTime()===Date.parse(unsettledAt));
+  await set('#snapshot',unsettled.id);
+  await settled(`${calls('vol-surfaces/read')}.at(-1)?.body.context.snapshotId===${q(unsettled.id)}&&${ready}!=='loading'&&${idle}`,30000);
+  await choose('nymex_lo');
+  const gapped=(await lastRead()).answer;
+  const gap=gapped.surface.expiries.findIndex(e=>e.status!=='fitted');
+  if(gap<0)throw Error('The unsettled close fitted every nymex_lo expiry.');
+  const reason=gapped.surface.expiries[gap].status;
+  const gapSeries=gapped.surface.series.find(s=>s.series.expiryAt===gapped.surface.expiries[gap].expiryAt);
+  const rowTip=await hover(gapped.surface,gapSeries.series.expiryAt,gapSeries.series.strike,gapSeries.series.right);
+  await check('the expiry without a fit shows its reason in the heat map and in its smile',
+   `${q(rowTip.includes(reason))}&&(async()=>{const label=${heat}.getOption().yAxis[0].data[${gap}];const smile=document.querySelectorAll('#vol-smiles .vol-smile')[${gap}];
+    return /not fitted/i.test(typeof label==='string'?label:label.value)&&smile.textContent.includes(${q(reason)})&&!smile.querySelector('.vol-chart');})()`,
+   `[${q(rowTip)},document.querySelectorAll('#vol-smiles .vol-smile')[${gap}]?.textContent]`);
+
+  await picture('vol-surface-gap');
+  // At phone width nothing scrolls sideways and the views stack.
+  await command('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:2,mobile:true});
+  await wait(idle,10000);await new Promise(resolve=>setTimeout(resolve,500));
+  await check('at 375 px the page has no horizontal scroll and its views fit the width',
+   `${fitsWidth}&&[...document.querySelectorAll('${page} .vol-chart')].every(c=>c.getBoundingClientRect().right<=document.documentElement.clientWidth+1)`,
+   `[document.documentElement.scrollWidth,document.documentElement.clientWidth,[...document.querySelectorAll('${page} *')].filter(n=>n.getBoundingClientRect().right>document.documentElement.clientWidth+1).slice(0,5).map(n=>n.className||n.tagName)]`);
+  await picture('vol-surface-phone');
+ }finally{
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
+  await command('Page.removeScriptToEvaluateOnNewDocument',{identifier});
+ }
+}

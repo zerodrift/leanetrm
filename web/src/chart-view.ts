@@ -1,4 +1,6 @@
 import {init,type Chart} from './vendor/echarts.js';
+// The application bundle imports the chart library once, here; views that compose their own chart options draw with it from here.
+export {init,type Chart};
 import {publicText} from './market-view.js';
 import {plotNumber} from './plot-number.js';
 /**

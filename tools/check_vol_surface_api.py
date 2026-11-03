@@ -204,3 +204,12 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     after = read(product=UNFITTED)
     check('revoked fitter\'s job records nothing', after['state'] == 'notFitted' and after['canFit'] is False and revisions(UNFITTED) == 0
           and after['job'] == {'id': revoked['jobId'], 'state': 'failed', 'errorCode': 'risk_job_authority_changed'}, after)
+
+
+def grant_browser_fitter(query, manifest):
+    """Gives the trader PublishMarketData again, through the synthetic fitter role run_checks created, for the Vol surfaces
+    browser checks, which fit as the trader in a risk worker the preview serves for them."""
+    tenant, workspace = manifest['tenantId'], manifest['workspaceId']
+    query(f"""INSERT INTO security.role_grants SELECT gen_random_uuid(),m.principal_id,r.id,'{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false
+    FROM security.workspace_memberships m,security.roles r
+    WHERE (m.tenant_id,m.workspace_id,m.login_handle)=('{tenant}','{workspace}','trader') AND r.code='synthetic_surface_fitter';""")
