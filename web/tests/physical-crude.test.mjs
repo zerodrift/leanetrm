@@ -41,14 +41,14 @@ test('a selected maintained delivery setup is sent exactly and imported requests
 test('a crude preview names its pricing source, profile, directions and sides, and shows amounts at the display precision',async()=>{
  selectDisplayPrecision(initialDisplayPrecision());
  const value={presentValue:'292500',currency:'USD',quantity:'50000',quantityUnit:'bbl',deliveryFrom:'2026-12-01T00:00:00Z',deliveryTo:'2027-01-01T00:00:00Z',
-  pricingSource:'Cushing crude monthly assessment',priceUnit:'USD / bbl',profileName:'Fixed standard volume at 60°F · zero tolerance · undiscounted',
+  pricingSource:'Synthetic crude monthly curve',priceUnit:'USD / bbl',profileName:'Fixed standard volume at 60°F · zero tolerance · undiscounted',
   sides:[{role:'delivery',direction:'receive',presentValue:'3505000'},{role:'consideration',direction:'pay',presentValue:'-3212500'}]};
  await prepareAmountDisplay(value,async body=>body.map(r=>({'292500':'292,500.000','50000':'50,000','3505000':'3,505,000.000','-3212500':'-3,212,500.000'})[r.value]));
  const terms={assignmentCode:'cs_07e77acf',direction:'receive',considerationDirection:'pay',fixedPrice:'64.25',paymentAt:'2027-01-20T18:00:00Z',handlingFee:null,profile:'physical_crude_standard_volume_v1',tolerance:'0'};
  const shown=crudePreview(value,terms,'America/Chicago');
  assert.equal(shown.total,'Contractual present value: 292,500.000 USD');
  assert.deepEqual(shown.terms,[['Delivery window','Nov 30, 2026, 6:00 PM CST to Dec 31, 2026, 6:00 PM CST · exclusive'],['Contract volume','50,000 bbl'],
-  ['Pricing source','Cushing crude monthly assessment'],['Physical direction','Receive crude'],['Consideration direction','Pay consideration'],['Fixed price','64.25 USD / bbl'],
+  ['Pricing source','Synthetic crude monthly curve'],['Physical direction','Receive crude'],['Consideration direction','Pay consideration'],['Fixed price','64.25 USD / bbl'],
   ['Payment · America/Chicago','Jan 20, 2027, 12:00 PM CST'],['Handling fee','None'],['Profile','Fixed standard volume at 60°F · zero tolerance · undiscounted']]);
  assert.deepEqual(shown.columns,['Side','Direction','Signed PV · USD']);
  assert.deepEqual(crudePreview(value,{...terms,handlingFee:'0.15',handlingFeeDirection:'receive'},'UTC').terms.find(([name])=>name==='Handling fee'),['Handling fee','0.15 USD / bbl · Receive fee']);
