@@ -2101,3 +2101,23 @@ operating assessments. The Facilities UI and own-trade physical Side tracks use
 these same facts. Reported breaches remain recordable; a missing or withdrawn
 limit is unassessed. Final billing adoption, broader facilities, other commodity
 adapters and external notifications remain unimplemented.
+
+## D305 — full-PV historical simulation and matched statistical studies
+
+Implemented 2026-11-03. R5 consumes complete captured common-history vectors through
+ordinary immutable sibling scenarios and current instrument PV, without product
+filters or Greek pruning. Freeze time, holdings, state, fixings, rates and current
+option calibration. Version exact inverse-CDF VaR, fractional upper-tail ES and
+uniform quantile-tie allocation; preserve signed tails and duplicate/zero rows.
+Native measure/currency books net before quantiles. Book/trade allocations share
+portfolio weights and are not marginal/Euler quantities.
+
+One exclusive complete historical job shares trusted clock/source retention and
+current-authority/lease publication fences. Retain all factor declarations even
+when changes are zero. Admit source identities and combined work before scenario
+PV. Optional sample-mean delta-normal comparison binds to the same study; narrow
+comparison-only domain failures have explicit unavailable receipts while shared
+custody/coverage/cancellation failures abort. Graphical consumers validate native
+coverage and captured business dates. Migration 0189 changes no historical rows or
+raw table grants. See [contract, limits and qualification](historical-risk.md).
+Monte Carlo/PCA/EVT and an operating rolling-backtest service remain separate work.

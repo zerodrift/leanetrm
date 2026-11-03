@@ -261,7 +261,7 @@ internal static class CurveRiskAxes
         return Resolve(market,CurveShockCoordinate.MarketQuote,index.PointTarget(point,CurveShockCoordinate.MarketQuote),ct);
     }
     public static ImmutableArray<RetainedRiskAxis> Retained(PortfolioRiskPreview.Prepared prepared)=>prepared.Bumps.Select(b=>b.Axis)
-        .Concat(prepared.Stress.Select(s=>s.Axis)).Concat(prepared.Joint?.Factors??[]).DistinctBy(a=>a.Id).OrderBy(a=>a.Id,StringComparer.Ordinal)
+        .Concat(prepared.Stress.Select(s=>s.Axis)).Concat(prepared.Joint?.Factors??[]).Concat(prepared.HistoricalAxes).DistinctBy(a=>a.Id).OrderBy(a=>a.Id,StringComparer.Ordinal)
         .Select(a=>new RetainedRiskAxis(a.Id,a.Market.RevisionId,a.Request,a.Points.OrderBy(p=>p.Curve.Revision.RevisionId)
             .ThenBy(p=>p.Curve.Code,StringComparer.Ordinal).ThenBy(p=>p.PointId).ToImmutableArray())).ToImmutableArray();
     private static MarketDataException Invalid(string code,string message)=>new(code,message);

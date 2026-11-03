@@ -6,6 +6,12 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D305 adds [full-PV historical VaR/ES](historical-risk.md): complete joint history
+rows reprice the same frozen current portfolio; exact empirical tail mass and
+portfolio quantile/tail allocations preserve native currencies and measures.
+Historical and optional delta-normal comparison share captured inputs and one
+fenced retained job. No product allowlist or factor pruning is introduced.
+
 D301 makes [VaR setup](risk-factor-history.md#guided-var-setup-d301) a guided
 calculation with visible editable starting settings, automatic aligned-history
 preparation and singleton calendar selection. Captured local-day windows and

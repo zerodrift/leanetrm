@@ -53,6 +53,11 @@ Recent schema groups and their contracts:
   admission](../docs/operational-limits.md#implemented-consumers-d302), with immutable
   revisions, exact policy pins and retained command receipts.
 
+- 0189: complete historical statistical jobs, exact factor declarations, shared
+  retained history custody and authorized method/combined archives (D305,
+  [historical risk](../docs/historical-risk.md)). Expected helper body/owner/ACL/
+  search-path guards refuse unknown upgrade states; no new tables or raw grants.
+
 
 Apply migrations in order. Some deliberately refuse incompatible retained data;
 existing installations require the separately qualified schema/rebooking procedure.

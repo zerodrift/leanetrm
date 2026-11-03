@@ -81,6 +81,7 @@ if(args is ["--custom-projection"]){CustomProjectionChecks.Run();return;}
 if(args is ["--connected-portfolios"]){ConnectedPortfolioChecks.Run();return;}
 if(args is ["--aligned-factor-history"]){AlignedFactorHistoryChecks.Run();return;}
 if(args is ["--parametric-risk"]){ParametricRiskChecks.Run();return;}
+if(args is ["--historical-risk"]){HistoricalRiskChecks.Run();return;}
 if(args is ["--joint-scenario-risk"]){JointScenarioRiskChecks.Run();return;}
 if(args is ["--temporal-bindings"]){TemporalBindingChecks.Run();return;}
 if(args is ["--connected-graph-benchmark",var graphOutput]){ConnectedGraphBenchmark.Run(graphOutput);return;}
@@ -538,6 +539,7 @@ ConnectedPortfolioChecks.Run();
 JointScenarioRiskChecks.Run();
 AlignedFactorHistoryChecks.Run();
 ParametricRiskChecks.Run();
+HistoricalRiskChecks.Run();
 passed += TemporalBindingChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");

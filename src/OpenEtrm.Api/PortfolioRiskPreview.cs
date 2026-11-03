@@ -19,7 +19,8 @@ public sealed record PortfolioRiskRequest(FuturesReadRequest Context,ImmutableAr
     string? Detail=null,ImmutableArray<CurveShiftRequest> Stress=default,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] ImmutableArray<Guid>? TradeIds=null,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioJointRiskRequest? Joint=null,
-    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioParametricRequest? Parametric=null);
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioParametricRequest? Parametric=null,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioHistoricalRequest? Historical=null);
 
 // Transport and presentation over the shared instrument valuation operation.
 // Instrument materialization and pricing remain outside this report adapter.
@@ -37,7 +38,9 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books,PortfolioValuation.Prepared Portfolio,
         ImmutableArray<PortfolioCurveBump> Bumps,ImmutableArray<PortfolioCurveShift> Stress,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> SupplementalMarkets)
-    {internal PortfolioJointRisk.Resolved? Joint{get;init;} internal AlignedFactorHistory? History{get;init;}}
+    {internal PortfolioJointRisk.Resolved? Joint{get;init;} internal AlignedFactorHistory? History{get;init;}
+        internal ImmutableArray<PortfolioRiskAxis> HistoricalAxes{get;init;}=[];
+        internal ImmutableArray<PortfolioCurveBump> HistoricalComparisonBumps{get;init;}=[];}
 
     public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioRiskCatalogRequest body,CancellationToken ct)
     {
@@ -61,7 +64,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             bumpConvention=ConnectedRiskBump.Convention,stressConvention=CurveShift.ParentAdditive,convention=Convention,
             numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=PricingPolicy,
             history=HistoryCapabilities(portfolio),limits=Limits,
-            parametric=ParametricCapabilities(),
+            parametric=ParametricCapabilities(),historical=HistoricalCapabilities(),
             joint=new{convention=PortfolioJointRiskRequest.Version1,scenarioConvention=ConnectedRiskScenarioSet.Independent,bumpConvention=ConnectedRiskBump.Convention,shiftConvention=CurveShift.ParentAdditive,
                 derivativeConvention=ConnectedFiniteDifferenceRequest.HalfNominalDouble,maxScenarios=PortfolioJointRisk.MaxScenarios,
                 maxShifts=PortfolioJointRisk.MaxShifts,maxAxes=RiskEngine.MaxSensitivityAxes,maxMixed=RiskEngine.MaxMixedSensitivities,
@@ -116,10 +119,11 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     {
         var detail=body.Detail switch{null or "holdings"=>RiskDetail.Holdings,"books"=>RiskDetail.Books,
             _=>throw new MarketDataException("risk_detail","Choose holdings or books for the result detail.")};
+        if(body.Historical is {} historicalRequest)ValidateHistorical(body,historicalRequest);
         if(body.Joint is {} jointRequest)PortfolioJointRisk.Validate(jointRequest);
         if(body.Parametric is {} statistical)ValidateParametric(body,statistical);
         if(body.Convention!=Convention||body.NumericalPolicy!=RiskEngine.ExactNumericalPolicy||body.Bumps.IsDefault||
-            (body.Joint is null?body.Parametric is null&&body.Bumps.IsEmpty||body.Bumps.Length>(detail==RiskDetail.Books?MaxBooksBumps:MaxHoldingsBumps):!body.Bumps.IsEmpty)||body.Bumps.Any(b=>b is null))
+            (body.Joint is null?body.Parametric is null&&body.Historical is null&&body.Bumps.IsEmpty||body.Bumps.Length>(detail==RiskDetail.Books?MaxBooksBumps:MaxHoldingsBumps):!body.Bumps.IsEmpty)||body.Bumps.Any(b=>b is null))
             throw new MarketDataException("risk_convention","Select the supported portfolio convention, exact numerical policy and bounded explicit curve-coordinate bumps.");
         if(!body.Stress.IsDefault&&(body.Stress.Length>MaxStress||body.Stress.Any(s=>s is null)))
             throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative curve shifts.");
@@ -135,6 +139,14 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             if(!body.Bumps.IsEmpty&&JsonSerializer.Serialize(body.Bumps,RiskJobs.Json)!=JsonSerializer.Serialize(selected,RiskJobs.Json))
                 throw new MarketDataException("risk_parametric_delta","A parametric request must shock its complete captured dated-factor universe in native coordinates.");
             body=body with{Bumps=selected};
+        }
+        else if(body.Historical is {} historical)
+        {
+            if(!BookScope.Select(books,historical.History.Scope.BookIds,historical.History.Scope.PortfolioIds).Select(b=>b.Id("id")).Order().SequenceEqual(bookIds))
+                throw new MarketDataException("risk_historical_scope","Historical samples and current holdings must have exactly the same book scope.");
+            HistoricalRisk.Admit(portfolio.Factors.Length,0);
+            history=historyPlan is null?await BuildHistory(connection,portfolio,frame,historical.History,ct):
+                await ReplayHistory(connection,portfolio,frame,historical.History,historyPlan,historyEvidence,ct,historical:true);
         }
         else if(historyPlan is not null)throw new MarketDataException("risk_parametric_history","Only a statistical job may carry a retained calibration history.");
         var bumps=body.Bumps.Select(b=>
@@ -153,19 +165,38 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                 throw new MarketDataException("risk_stress","Choose the explicit additive convention and a nonzero signed shift.");
             return new PortfolioCurveShift(axis,size);
         }).ToImmutableArray();
-        var joint=body.Joint is null?null:PortfolioJointRisk.Resolve(portfolio,body.Joint,ct);
-        if(body.Parametric is not null)RequireParametricWork(portfolio,bumps);
+        var historicalAxes=body.Historical is null?ImmutableArray<PortfolioRiskAxis>.Empty:
+            history!.Columns.Select(c=>CurveRiskAxes.Quote(portfolio,c.Mapping.Factor,ct)).ToImmutableArray();
+        if(body.Historical is {} historicalSpec)
+        {
+            var factors=historicalAxes.Select(axis=>axis.Request).ToImmutableArray();
+            if(!historicalSpec.Factors.IsDefault&&JsonSerializer.Serialize(historicalSpec.Factors,RiskJobs.Json)!=JsonSerializer.Serialize(factors,RiskJobs.Json))
+                throw new MarketDataException("risk_historical_scope","Historical repricing must retain every captured native factor exactly once in history-column order.");
+            body=body with{Historical=historicalSpec with{Factors=factors}};
+        }
+        var joint=body.Historical is not null?ResolveHistorical(portfolio,history!,historicalAxes,ct):body.Joint is null?null:PortfolioJointRisk.Resolve(portfolio,body.Joint,ct);
+        var comparisonBumps=ImmutableArray<PortfolioCurveBump>.Empty;
+        if(body.Historical is {} completeHistorical)
+        {
+            RequireHistoricalWork(portfolio,history!,completeHistorical);
+            if(completeHistorical.Comparison is {} comparison)
+                comparisonBumps=ParametricBumps(portfolio,history!,comparison.FiniteDifference,ct).Select(b=>
+                    new PortfolioCurveBump(CurveRiskAxes.Resolve(portfolio,b.Factor,ct),ExactDecimal.Parse(b.Size))).ToImmutableArray();
+        }
+        else if(body.Parametric is not null)RequireParametricWork(portfolio,bumps);
         else if(joint is null)PortfolioValuation.RequireWork(portfolio,bumps.Length);
         else PortfolioJointCalculation.RequireWork(portfolio,joint,detail);
         var canonical=body with{
             Bumps=bumps.Select(b=>new CurveBumpRequest(b.Axis.Request,b.Size.ToString(),ConnectedRiskBump.Convention)).ToImmutableArray(),
-            Stress=stress.Select(s=>new CurveShiftRequest(s.Axis.Request,s.Size.ToString(),CurveShift.ParentAdditive)).ToImmutableArray(),Joint=joint?.Request};
+            Stress=stress.Select(s=>new CurveShiftRequest(s.Axis.Request,s.Size.ToString(),CurveShift.ParentAdditive)).ToImmutableArray(),Joint=body.Historical is null?joint?.Request:null};
         return new(canonical,detail,bookIds,books,portfolio,bumps,stress,
-            portfolio.Markets.Where(m=>m.Data.DefinitionRevision!=data.DefinitionRevision).Select(m=>(m.Data,m.Frame)).ToImmutableArray()){Joint=joint,History=history};
+            portfolio.Markets.Where(m=>m.Data.DefinitionRevision!=data.DefinitionRevision).Select(m=>(m.Data,m.Frame)).ToImmutableArray())
+            {Joint=joint,History=history,HistoricalAxes=historicalAxes,HistoricalComparisonBumps=comparisonBumps};
     }
 
     internal static object Calculate(Prepared prepared,CancellationToken ct)
     {
+        if(prepared.Request.Historical is not null)return CalculateHistorical(prepared,ct);
         if(prepared.Request.Parametric is not null)return CalculateParametric(prepared,ct);
         if(prepared.Joint is not null)return CalculateJoint(prepared,ct);
         var trees=prepared.Portfolio.Options?.TreePrices??0;

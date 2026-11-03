@@ -143,7 +143,9 @@ cancellation. Owned HTTP/SQL/browser qualification covers direct/worker replay,
 receipt provenance, active-attempt custody, archive pagination/current authority,
 explicit setup, report graphics, reauthorized export and uncertain-write recovery.
 
-Historical full repricing, empirical quantile/tail-mass conventions, rolling
-hypothetical-P&L backtests, full Monte Carlo, PCA/hybrid acceleration and EVT remain
-subsequent increments. Production activation requires a separately qualified
-schema release.
+[Full-PV historical simulation](historical-risk.md) now supplies the separate
+empirical quantile/tail-mass estimator and an optional same-study sample-mean
+normal comparison. Its losses are distinct from this method's in-sample linearized
+diagnostics. An operating rolling-backtest workflow, full Monte Carlo, PCA/hybrid
+acceleration and EVT remain subsequent increments. Production activation requires
+a separately qualified schema release.

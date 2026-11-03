@@ -1,5 +1,6 @@
 import {node,table} from './risk-report-elements.js';
 import {renderJointResults,newJointView} from './joint-risk-results-view.js';
+import {renderHistorical,newHistoricalView} from './historical-risk-view.js';
 import {renderParametric,newParametricView} from './parametric-risk-view.js';
 import {renderChart,clearChart} from './chart-view.js';
 import {signOf} from './desk-model.js';
@@ -19,7 +20,7 @@ export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:
  let metric:RiskMetric='delta',kind:'bar'|'heatmap'='bar',current:RunView|undefined,selected:string|undefined,factorPage=0,bookPage=0,groupKey:string|undefined;
  const plots:HTMLElement[]=[];
  let jointState=newJointView();
- let parametricState=newParametricView();
+ let parametricState=newParametricView(),historicalState=newHistoricalView();
  function clear(){for(const plot of plots)clearChart(plot);plots.length=0;host.replaceChildren();}
  function detail(target:HTMLElement,factor:RiskFactorResult){
   target.replaceChildren(node('h3',factor.factor.label),node('p',`Independent ±${factor.bump} ${factor.factor.unit} shock · ${factor.factor.coordinate==='market_quote'?'Shared market factor':'Computed output'}`));
@@ -34,18 +35,19 @@ export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:
   clear();if(!current){host.append(node('p','No report selected. Run risk here or open a retained report from Reports and runs.'));return;}
   let view:ReturnType<typeof reportPresentation>;try{view=reportPresentation(current,metric,{offset:factorPage*64,limit:64});}catch(error){const errorNode=node('p',error instanceof Error?error.message:'This report cannot be displayed.');errorNode.setAttribute('role','alert');host.append(errorNode);return;}
   const head=node('div');head.className='risk-result-heading';
-  const title=view.parametric?'Parametric VaR / ES':view.joint?.kind==='scenarios'?'Joint scenario report':view.joint?'Selected Greeks and cross-gamma':'Sensitivity report';
+  const title=view.historical?'Historical simulation VaR / ES':view.parametric?'Parametric VaR / ES':view.joint?.kind==='scenarios'?'Joint scenario report':view.joint?'Selected Greeks and cross-gamma':'Sensitivity report';
   head.append(node('h3',view.state==='complete'?title:view.state==='incomplete'?title+' · incomplete coverage':view.state==='running'?'Risk run in progress':'Risk results unavailable'));
   const context=node('p');context.className='field-help';context.textContent=publicText(`${current.asOf?displayInstant(current.asOf,zone()):'Market time not recorded'}${current.context?.knownAt?` · known at ${displayInstant(current.context.knownAt,zone())}`:''} · ${current.parts.length} part${current.parts.length===1?'':'s'}`);head.append(context,node('p',current.setupText));host.append(head);
   const retained=current.parts.find(p=>p.job?.id)?.job?.id;
   if(retained){const link=node('a','Open retained report in Risk');link.href=reportUrl(retained);link.className='risk-report-link';head.append(link);}
   const status=node('div');status.className='risk-coverage';status.dataset.state=view.state;status.setAttribute('role','status');
-  const counted=view.parametric?`${view.parametric.result.calibration.columns.length} factors · ${view.parametric.result.calibration.samples} common changes`:view.joint?(view.joint.kind==='scenarios'?`${view.joint.samples.length} named scenarios`:`${view.joint.derivatives.length} selected derivatives`):`${view.factors.length} reported factors`;
+  const counted=view.historical?`${view.historical.factors.length} factor${view.historical.factors.length===1?'':'s'} · ${view.historical.result.samples} full-PV samples`:view.parametric?`${view.parametric.result.calibration.columns.length} factors · ${view.parametric.result.calibration.samples} common changes`:view.joint?(view.joint.kind==='scenarios'?`${view.joint.samples.length} named scenarios`:`${view.joint.derivatives.length} selected derivatives`):`${view.factors.length} reported factors`;
   status.append(node('strong',view.state==='running'?'Waiting for every running part':`${counted} · ${view.excluded.length} excluded positions · ${view.gaps.length} unavailable parts`));
   if(!current.scope)status.append(node('p','The original book and portfolio scope is not recorded. Complete scope coverage cannot be confirmed.'));
   else head.append(node('p',`Captured scope · ${current.scope.portfolioIds.length?`${current.scope.portfolioIds.length} selected portfolio filters`:'no portfolio filter'} · ${current.scope.bookIds.length?`${current.scope.bookIds.length} selected book filters`:'all readable books at submission'} · ${current.scope.tradeIds==null?'all trades in those books':`${current.scope.tradeIds.length} selected trade${current.scope.tradeIds.length===1?'':'s'}`}. Book totals below keep their retained names.`));
   if(view.excluded.length){const list=node('ul');for(const p of view.excluded)list.append(node('li',`${p.tradeReference} · ${valuationReason(p.reason,p.instrumentType)}`));status.append(list);}
   for(const gap of view.gaps)status.append(node('p',gap.text));host.append(status);
+  if(view.historical){renderHistorical(host,view.historical,historicalState,draw,plots);return;}
   if(view.parametric){renderParametric(host,view.parametric,parametricState,draw,plots);return;}
   if(view.joint){renderJointResults(host,view.joint,jointState,draw,plots);return;}
   if(!view.factors.length)return;
@@ -69,7 +71,7 @@ export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:
   function selectFactor(id:string){const factor=view.factors.find(f=>f.factor.id===id);if(!factor)return;selected=id;detail(selectedHost,factor);selectedHost.focus({preventScroll:true});selectedHost.scrollIntoView({block:'nearest'});}
   const chosen=view.factors.find(f=>f.factor.id===selected)??view.factors[0];selected=chosen.factor.id;detail(selectedHost,chosen);
  }
- return {show(run:RunView|undefined){if(current?.key!==run?.key){factorPage=0;bookPage=0;jointState=newJointView();parametricState=newParametricView();}current=run;draw();},reset(){current=undefined;selected=undefined;factorPage=0;bookPage=0;jointState=newJointView();parametricState=newParametricView();clear();},refresh:draw};
+ return {show(run:RunView|undefined){if(current?.key!==run?.key){factorPage=0;bookPage=0;jointState=newJointView();parametricState=newParametricView();historicalState=newHistoricalView();}current=run;draw();},reset(){current=undefined;selected=undefined;factorPage=0;bookPage=0;jointState=newJointView();parametricState=newParametricView();historicalState=newHistoricalView();clear();},refresh:draw};
 }
 
 /** Namespace a second instance of the existing run editor; labels and status references continue to point to their own controls. */

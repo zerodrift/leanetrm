@@ -8,6 +8,44 @@ expires naturally, then refuse without recording a reuse alias. Valid creation,
 replay and reuse retain the same job. The regression failed against migration
 0187 and passes with 0188; it is included in the synthetic verification runner.
 
+## Historical full-PV risk (D305)
+
+The [historical contract](historical-risk.md) has independent exact empirical
+quantile/fractional-tail and tie-allocation checks, signed/offset/point-mass cases,
+complete exposure/sample refusal and 513 nonlinear sibling-PV samples. The API
+checks cover exclusive method envelopes, same-study comparison, narrow
+comparison-only failure isolation, cancellation and an actual option-tree domain
+case with frozen time/volatility. The new groups run through the normal managed
+verification runner.
+
+Owned integration runs use stock PostgreSQL, synthetic observations and the real
+fenced worker. Independent Fraction oracles check all 249 scenario PV losses,
+empirical risk and mixed native partitions; an independently requested joint
+scenario agrees with the historical mapping. Two initial forecast/HPL fixtures
+exclude next-session moves from calibration and retain forecast holdings.
+Qualification includes immutable raw source pins, missing-evidence refusal,
+clock-receipt tampering, current grants and active-lease/cancellation fences,
+method/combined archive pagination and unchanged original request replay.
+Migration 0189 refuses changed privileged helper bodies, owners, ACLs or search
+paths atomically. No operating backtest service or production throughput is claimed.
+
+Frontend checks refuse incomplete PV matrices, omitted/substituted comparison
+exposures, wrong capture/method and multipart composition. New York EOD/DST dates
+come from captured business sessions. Definite SQL refusals release only a first
+rejected command; a previously uncertain command keeps its identity. Graphical
+consumers carry backend loss/probability/allocation values without calculating
+risk in TypeScript. Desktop/phone browser qualification covers guided automatic
+history, native samples/trades, export, comparison, retained archives and reports.
+The full frontend suite has 1,295 checks and the Python runner suite has 85 checks
+at this increment. The existing parametric numerical/custody/16-browser suite
+remains a regression gate.
+
+Run with explicit local tool paths:
+
+```sh
+python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/dotnet --historical-risk-check --browser-check --browser /path/to/chrome
+```
+
 ## Volatility surfaces (D304)
 
 Local runs on 2 November 2026 against the branch head after the final review's fixes

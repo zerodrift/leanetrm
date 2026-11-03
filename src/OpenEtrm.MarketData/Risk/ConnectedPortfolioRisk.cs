@@ -43,6 +43,7 @@ public sealed record ConnectedBookRiskRun(Guid SnapshotId,string NumericalPolicy
     public ImmutableArray<ExactRiskPositionValue> BasePositions{get;init;}=[];
 }
 public sealed record ConnectedGroupedRiskRun(Guid SnapshotId,ImmutableArray<ConnectedBookRiskRun> Groups,ConnectedRiskWork Work,GraphWork GraphWork);
+public sealed record ConnectedHoldingIdentity(int Group,Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ReferenceKey Currency);
 public sealed class PreparedConnectedPortfolioRisk
 {
     public ConnectedValuation Valuation{get;}
@@ -50,6 +51,9 @@ public sealed class PreparedConnectedPortfolioRisk
     private readonly ImmutableArray<QuoteFactor> baseFactors;
     private readonly Lazy<ImmutableArray<QuoteFactor>> factors;
     public ImmutableArray<QuoteFactor> Factors=>factors.Value;
+    // Immutable source coverage, available before pricing any historical scenario.
+    public ImmutableArray<ConnectedHoldingIdentity> Holdings=>[..Portfolios.SelectMany((p,n)=>p.Positions.Select(v=>
+        new ConnectedHoldingIdentity(n,v.TradeId,v.BindingId,v.BookId,v.ValuationId,v.FixedBasis.Currency)))];
     internal PreparedValuationMarket Market{get;}
     internal CurveBuild? IntervalBasis{get;}
     internal ImmutableArray<ValuationPortfolio> Portfolios{get;}

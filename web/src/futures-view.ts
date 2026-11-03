@@ -19,6 +19,8 @@ import {PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-
 import {releasesRetained,retainedText,retryAllowed,isLifecycleCommand,isCrudeOperation,tradeStatusPath} from './trade-requests.js';
 import {setupRisk,riskDenied,type RunView} from './risk-view.js';
 import {setupRiskResults} from './risk-results-view.js';
+import {validateHistorical} from './historical-risk.js';
+import {validateParametric} from './parametric-risk.js';
 import {validateJoint} from './joint-risk.js';
 import {changeChart,changeScales,gapsText,lensCells,madeHere,noMoveText,positionKey,positionMoves,runBar,runExclusions,runGaps,runSummary,shockCount,shocksText,tileWords,unmovedNote,
   type LensCell,type ReadPlace,type RunGap} from './risk-lens.js';
@@ -83,7 +85,7 @@ const tileReports={held:'every held contract',parallel:'every held curve',custom
  * no results.
  */
 type Inline={key:string;state:'elsewhere'}|{key:string;state:'failed';reason:string}
-  |{key:string;state:'joint';excluded:ExcludedPosition[]}
+  |{key:string;state:'joint'|'statistical';excluded:ExcludedPosition[]}
   |{key:string;state:'shown';run:number;cells:Map<string,LensCell>;excluded:ExcludedPosition[];summary:ReturnType<typeof runSummary>;scales:Map<string,string>;gaps:RunGap[]};
 // How the Group by control names each row grouping; a view without one is a flat list.
 const rowGroupLabels:Readonly<Record<NonNullable<RowGroup>,string>>={book:'Book',market:'Market',instrumentType:'Instrument type'};
@@ -760,6 +762,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function stripRisk():StripRisk{
     const run=risk.current();
     if(inline?.state==='shown')return riskResults(inline);
+    if(inline?.state==='statistical')return {state:'unavailable',value:'VaR / ES report',reason:'Open Full risk report and graphics for the statistical distribution, native allocations and captured history.'};
     if(inline?.state==='joint')return {state:'unavailable',value:'Joint risk report',reason:'Open Full risk report and graphics for named scenario contributions and mixed Greeks.'};
     if(inline?.state==='failed')return {state:'unavailable',value:'Results not shown',reason:inline.reason};
     if(inline?.state==='elsewhere')return {state:'unavailable',value:'Results made elsewhere',reason:'The run on screen was made at another close, context or books than the Blotter read on screen. Export downloads its results.'};
@@ -785,7 +788,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const fullKey=resultsKey(run)+':'+run.key+':'+run.running+':'+options.zone();
     if(fullReportPanel.open&&fullReportKey!==fullKey){fullReportKey=fullKey;fullReport.show(run);}
     const results=inline===undefined||inline.key!==resultsKey(run)?{state:'none' as const}:inline.state==='shown'?{state:view.mode==='pivot'?'pivot' as const:'shown' as const,excluded:inline.excluded}
-      :inline.state==='failed'?{state:'failed' as const,reason:inline.reason}:inline.state==='joint'?{state:'joint' as const,excluded:inline.excluded}:{state:'elsewhere' as const};
+      :inline.state==='failed'?{state:'failed' as const,reason:inline.reason}:(inline.state==='joint'||inline.state==='statistical')?{state:inline.state,excluded:inline.excluded}:{state:'elsewhere' as const};
     renderRunBar(get('desk-run'),{...runBar(run,{zone:options.zone(),knowledge:knowledgeWords[options.knowledge()],results}),setup:run.setupText},busy());
   }
   // The results of a run are the reports its parts returned, and what became of the parts that returned none, at the read on screen. A
@@ -805,12 +808,13 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const read=holdings!,parts=run.parts.flatMap(p=>p.report?[p.report]:[]);
     if(!readPlace||!madeHere(run,readPlace))return {key,state:'elsewhere'};
     try{
-      if(parts.some(p=>p.joint)){
-        if(parts.length!==1)throw Error('A joint report is one complete job.');
-        validateJoint(parts[0]);const excluded=runExclusions(parts),held=new Set(read.holdings.map(positionKey));
+      if(parts.some(p=>p.joint||p.parametric||p.historical)){
+        if(parts.length!==1)throw Error('A scenario or statistical report is one complete job.');
+        const report=parts[0];
+        if(report.historical)validateHistorical(report);else if(report.parametric)validateParametric(report);else validateJoint(report);const excluded=runExclusions(parts),held=new Set(read.holdings.map(positionKey));
         const covered=new Set(parts[0].inputs!.positions.map(positionKey)),left=new Set(excluded.map(positionKey));
         if(read.holdings.some(h=>covered.has(positionKey(h))===(h.unavailableReason!==null)||left.has(positionKey(h))!==(h.unavailableReason!==null))||[...covered,...left].some(k=>!held.has(k)))throw Error('The joint report bindings do not match this retained Blotter read.');
-        return {key,state:'joint',excluded};
+        return {key,state:report.historical||report.parametric?'statistical':'joint',excluded};
       }
       const excluded=runExclusions(parts),cells=lensCells(parts),held=new Set(read.holdings.map(positionKey)),left=new Set(excluded.map(positionKey));
       if(read.holdings.some(h=>cells.has(positionKey(h))===(h.unavailableReason!==null)||left.has(positionKey(h))!==(h.unavailableReason!==null))
@@ -875,6 +879,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   }
   // What the run on screen says of the position at a row, for its panel's Risk tab.
   function positionRisk(h:Holding,row:DeskRow):PositionRisk{
+    if(inline?.state==='statistical')return {state:'empty',reason:'Open Full risk report and graphics for portfolio quantile/tail allocations and scenario trade detail.'};
     if(inline?.state==='joint')return {state:'empty',reason:'Open Full risk report and graphics for this trade’s joint scenario contributions or selected derivatives.'};
     if(inline?.state==='elsewhere')return {state:'elsewhere'};
     if(inline?.state==='failed')return {state:'failed',reason:inline.reason};

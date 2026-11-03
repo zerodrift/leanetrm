@@ -56,11 +56,13 @@ for synthetic booking, graphical break-even pricing and settlement previews.
 - **Risk jobs:** temporary nested stresses, risk around the stressed market,
   and queued mixed-book runs pinned to the header's financial context, with retained
   results and cancellation; see [the risk engine](docs/risk-engine.md)
-- **Parametric VaR / expected shortfall:** guided portfolio/book/trade setup,
+- **VaR / expected shortfall:** guided portfolio/book/trade setup,
   visible editable defaults, automatic end-of-day history alignment, official-close
   priority with explicit approved price-type alternatives, aligned-factor coverage
   grids and correlation/covariance graphics; see [how to run VaR](docs/risk-factor-history.md#guided-var-setup-d301)
-  and [the implemented model and limits](docs/parametric-risk.md)
+  and [the parametric model](docs/parametric-risk.md). Full-PV
+  [historical simulation](docs/historical-risk.md) adds empirical loss distributions,
+  signed book/trade allocations, sample PV drilldown and a matching normal comparison
 - **Scheduled swaps:** persistent booking, amendments and inspection of up to 120
   monthly periods per side, with explicit quantities, observations, payment rules
   and discounting; see [quantity contracts](docs/financial-swap-quantities.md)
@@ -170,6 +172,7 @@ existing database.
 - [Large dependency-graph benchmark](docs/connected-graph-benchmark.md)
 - [Nested market scenarios and durable risk jobs](docs/risk-engine.md)
 - [Native one-session parametric VaR/ES](docs/parametric-risk.md)
+- [Full-PV historical simulation VaR/ES](docs/historical-risk.md)
 - [Identity, agent login kinds and authorization](docs/security.md)
 - [Reference schema and disposable verification](db/README.md)
 

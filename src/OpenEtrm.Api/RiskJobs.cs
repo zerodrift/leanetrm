@@ -46,7 +46,7 @@ public static class RiskJobs
         if(body.RequestId==Guid.Empty||body.Request?.Context is not {KnowledgeMode:"retained",ContextId:{} contextId})
             throw new MarketDataException("risk_job_context","Queue an exact retained financial context with a stable request identity.");
         var run=body.Run is {} part?RunFrame(part):null;
-        if((body.Request.Joint is not null||body.Request.Parametric is not null)&&run is not null)throw new MarketDataException("risk_job_run","A joint or statistical request is one complete job; independent sensitivity parts do not combine complete results.");
+        if((body.Request.Joint is not null||body.Request.Parametric is not null||body.Request.Historical is not null)&&run is not null)throw new MarketDataException("risk_job_run","A joint or statistical request is one complete job; independent sensitivity parts do not combine complete results.");
         var prepared=await calculator.Prepare(connection,data,frame,body.Request,ct);
         var request=prepared.Request with {BookIds=prepared.BookIds,PortfolioIds=[],
             Detail=prepared.Detail==OpenEtrm.MarketData.Risk.RiskDetail.Books?"books":"holdings",
@@ -149,9 +149,14 @@ public static class RiskJobs
         return values;
     }
 
-    public static async Task<object> ParametricArchive(NpgsqlConnection connection,Guid catalog,int limit,DateTimeOffset? before,Guid? id,CancellationToken ct)
+    public static async Task<object> StatisticalArchive(NpgsqlConnection connection,Guid catalog,int limit,DateTimeOffset? before,Guid? id,string method,CancellationToken ct)
     {
-        await using var command=ScheduleStore.Command(connection,"SELECT risk.archive_parametric($1,$2,$3::timestamptz,$4::uuid)::text",catalog,limit,
+        var sql=method switch{
+            "parametric"=>"SELECT risk.archive_parametric($1,$2,$3::timestamptz,$4::uuid)::text",
+            "historical"=>"SELECT risk.archive_historical($1,$2,$3::timestamptz,$4::uuid)::text",
+            "statistical"=>"SELECT risk.archive_statistical($1,$2,$3::timestamptz,$4::uuid)::text",
+            _=>throw new MarketDataException("risk_archive_input","Choose a supported statistical report method.")};
+        await using var command=ScheduleStore.Command(connection,sql,catalog,limit,
             before is {} at?at:DBNull.Value,id is {} key?key:DBNull.Value);
         var value=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
         foreach(var item in value["items"]!.AsArray())await Receipt(connection,catalog,item!.AsObject(),ct);

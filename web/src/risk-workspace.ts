@@ -66,7 +66,7 @@ export function setupRiskWorkspace(o:Options){
   if(unreadRecovery)throw Error('Inspect Reports and runs before resolving the unreadable retained submission.');
   if(!await leave())return;
   editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));
-  await engine!.calculate({...requestScope(),pricingPolicy:metadata.pricingPolicy,convention:metadata.convention,numericalPolicy:metadata.numericalPolicy,detail:'books',bumps:[],stress:[],parametric:request},queued,metadata.context,metadata.asOf);
+  await engine!.calculate({...requestScope(),pricingPolicy:metadata.pricingPolicy,convention:metadata.convention,numericalPolicy:metadata.numericalPolicy,detail:request.historical?'holdings':'books',bumps:[],stress:[],...request},queued,metadata.context,metadata.asOf);
   changed();get('risk-workspace-results').scrollIntoView({block:'start'});
  }});
  const jobs=setupRiskJobs({api:o.api,act:o.act,instant:o.instant,openReport:openJob});

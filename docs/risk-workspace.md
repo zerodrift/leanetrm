@@ -130,3 +130,13 @@ Advanced controls expose drift, the minimum history and finite-difference
 settings. All settings are sent and retained explicitly; API missing-field
 validation, insufficient-coverage refusal and uncertain-command recovery remain
 unchanged. See [the walkthrough and sampling contract](risk-factor-history.md#guided-var-setup-d301).
+
+D305 adds [full-PV historical VaR/ES](historical-risk.md) through this same captured
+scope/history/PV and retained-worker infrastructure. Guided setup selects the
+method, automatically aligns history, and optionally compares the identical study
+to sample-mean delta-normal. Historical reports graph empirical probabilities and
+losses, expose book/trade quantile/tail allocation and drill through every sample's
+factor moves and native PV bindings. The completed archive discovers both methods;
+current authority is checked for report reads and export. Rates, time and current
+option calibration remain frozen. Monte Carlo/PCA/EVT and an operating backtest
+workflow are not implied.

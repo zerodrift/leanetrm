@@ -4,12 +4,13 @@ import type {RunView,RiskJob} from './risk-view.js';
 import {runExclusions,runGaps,type RunGap} from './risk-lens.js';
 import {sameRiskScope,sameTradeSelection,type RiskScope} from './risk-scope.js';
 import {validateJoint,jointCharts,type JointReport} from './joint-risk.js';
+import {validateHistorical,type HistoricalView} from './historical-risk.js';
 import {validateParametric,type ParametricView} from './parametric-risk.js';
 
 export type RiskMetric='delta'|'gamma'|'upPnl'|'downPnl';
 export const riskMetricLabels:Record<RiskMetric,string>={delta:'Delta',gamma:'Gamma',upPnl:'Up P&L',downPnl:'Down P&L'};
 export type ReportPresentation={state:'complete'|'incomplete'|'running'|'unavailable';excluded:ExcludedPosition[];gaps:RunGap[];
- factors:RiskSensitivityReport['factors'];charts:{key:string;spec:ChartSpec}[];joint?:JointReport;parametric?:ParametricView};
+ factors:RiskSensitivityReport['factors'];charts:{key:string;spec:ChartSpec}[];joint?:JointReport;parametric?:ParametricView;historical?:HistoricalView};
 const canonical=(value:unknown):string=>JSON.stringify(value,(_key,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 
 // The book measures a factor moves: a total whose delta, gamma and up and down P&L are all exactly zero is left out of rows and graphics.
@@ -28,6 +29,11 @@ export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset
  if(reports.some(r=>r.context.contextId!==run.context?.contextId||r.snapshotId!==first.snapshotId||canonical(r.scenario)!==canonical(first.scenario)))
   throw Error('The report parts do not share one retained context, close and scenario. Their results cannot be displayed together.');
  const excluded=runExclusions(reports);
+ if(reports.some(r=>r.historical)){
+  if(reports.length!==1||run.parts.length!==1||!first.historical)throw Error('A historical report is one complete job and cannot be combined as sensitivity parts.');
+  const historical=validateHistorical(first as Parameters<typeof validateHistorical>[0]);
+  return {state:gaps.length||excluded.length||!run.scope?'incomplete':historical.result.available?'complete':'unavailable',excluded,gaps,factors:[],charts:[],historical};
+ }
  if(reports.some(r=>r.parametric)){
   if(reports.length!==1||run.parts.length!==1||!first.parametric)throw Error('A parametric report is one complete job and cannot be combined as sensitivity parts.');
   const parametric=validateParametric(first as Parameters<typeof validateParametric>[0]);

@@ -87,13 +87,10 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(restored, expected | {'src/OpenEtrm.Worker/OpenEtrm.Worker.csproj'})
         self.assertEqual(executed, expected)
         schedule_commands = [c for c in commands if '--project' in c and 'Api.Checks' in c[c.index('--project') + 1]]
-        self.assertEqual(len(schedule_commands), 6)
-        self.assertEqual(schedule_commands[0][-2:], ['--', '--schedules'])
-        self.assertEqual(schedule_commands[1][-2:], ['--', '--automation'])
-        self.assertEqual(schedule_commands[2][-2:], ['--', '--live-calculation'])
-        self.assertEqual(schedule_commands[3][-2:], ['--', '--reference-intake'])
-        self.assertEqual(schedule_commands[4][-2:], ['--', '--preview-data'])
-        self.assertEqual(schedule_commands[5][-2:], ['--', '--side-observation-compatibility'])
+        self.assertEqual([c[-2:] for c in schedule_commands],
+                         [['--', flag] for flag in ('--schedules', '--historical-risk', '--automation',
+                           '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility')])
+        self.assertTrue(any('--historical-risk-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--reference-import-check' in c for c in commands))
         self.assertTrue(any('--live-calculation-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('build' in c and 'src/OpenEtrm.Worker/OpenEtrm.Worker.csproj' in c for c in commands))

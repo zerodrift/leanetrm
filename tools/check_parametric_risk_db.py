@@ -5,7 +5,7 @@ import hashlib
 from uuid import uuid4
 
 
-def run_checks(query, manifest, job_id, run_worker):
+def run_checks(query, manifest, job_id, run_worker, method="parametric"):
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     row = json.loads(query(f"SELECT jsonb_build_object('request',request,'frame',frame,'context',context_id,'revision',revision_id,'at',valuation_at) FROM risk.jobs WHERE id='{job_id}';"))
     request, frame, context = row['request'], row['frame'], row['context']
@@ -24,11 +24,11 @@ def run_checks(query, manifest, job_id, run_worker):
         payload = payload or request
         return json.loads(user(f"SELECT risk.submit('{catalog}','{uuid4()}','{context}','{row['revision']}','{row['at']}',{literal(payload)},{literal(chosen)})"))
     plan = frame['factorHistory']
-    for field in ('confidence','absolute','relative'):
+    for field in (('confidence','absolute','relative') if method=='parametric' else ('confidence',)):
         malformed=deepcopy(request)
-        if field=='confidence':malformed['parametric']['policy'][field]=0.99
+        if field=='confidence':malformed[method]['policy'][field]=0.99
         else:malformed['parametric']['finiteDifference']['deltaTolerance'][field]=0
-        reject(lambda: submit(frame,malformed),'risk_parametric_input')
+        reject(lambda: submit(frame,malformed),'risk_'+method+'_input')
     assert int(query(f"SELECT count(*) FROM risk.job_history_observations WHERE job_id='{job_id}';")) == len(plan['observations'])
     assert len(plan['observations']) >= 250
     for table in ('history_clock_captures', 'job_history', 'job_history_observations'):
@@ -85,7 +85,9 @@ def run_checks(query, manifest, job_id, run_worker):
     user(f"SELECT risk.cancel('{jid}')")
     reject(lambda: worker(f"BEGIN;SELECT risk.bind('{jid}','{lease}');"+read()+';COMMIT'), 'risk_job_cancelled')
     worker(f"SELECT risk.acknowledge_cancel('{jid}','{lease}')")
-    plain_frame=deepcopy(frame);plain_frame.pop('factorHistory');plain_request=deepcopy(request);plain_request.pop('parametric')
+    plain_frame=deepcopy(frame);plain_frame.pop('factorHistory');plain_request=deepcopy(request);plain_request.pop(method)
+    if method=='historical':
+        plain_request['bumps']=[{'factor':request['historical']['factors'][0],'size':'0.01','convention':'absolute_curve_coordinate_symmetric_v1'}]
     plain=submit(plain_frame,plain_request);pid=plain['jobId']
     ordinary=json.loads(worker(f"SELECT risk.claim(30,'{request['engineVersion']}')"));assert ordinary['jobId']==pid
     ordinary_visible=worker(f"BEGIN;SELECT risk.bind('{pid}','{ordinary['leaseToken']}');SELECT coalesce(jsonb_agg(id ORDER BY id),'[]'::jsonb) FROM market_data.observations WHERE catalog_id='{catalog}';COMMIT")

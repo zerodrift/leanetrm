@@ -13,6 +13,7 @@ CHECK_PROJECTS = (
     ('tests/OpenEtrm.Rates.Checks/OpenEtrm.Rates.Checks.csproj', ()),
     ('tests/OpenEtrm.Shared.Checks/OpenEtrm.Shared.Checks.csproj', ()),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--schedules',)),
+    ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--historical-risk',)),
 )
 
 
@@ -111,6 +112,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('additive reference demo and exact-version discounting',[*preview,'--reference-demo-check'])
     preview_check('isolated reference metadata editor',[*preview,'--reference-check','--browser-check','--browser',str(browser)])
     preview_check('isolated nested risk and durable workers', [*preview, '--risk-jobs-check', '--browser-check', '--browser', str(browser)], suite='assistant')
+    preview_check('historical full-PV VaR/ES, custody and graphical reports', [*preview, '--historical-risk-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('parametric VaR/ES, retained history custody and graphical reports', [*preview, '--parametric-risk-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('aligned held-factor history and graphical diagnostics', [*preview, '--factor-history-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('mixed-period preview', [*preview, '--example', 'mixed-gas'])

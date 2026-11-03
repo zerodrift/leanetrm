@@ -42,17 +42,32 @@ public static partial class RiskEngine
     // retain resolved replay evidence, never per-scenario graph/pricing sessions.
     public static ConnectedScenarioRiskRun CalculateScenarios(PreparedConnectedPortfolioRisk prepared,
         ConnectedRiskScenarioSet set,string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Books)
+        =>CalculateScenarioSet(prepared,set,numericalPolicy,cancellation,detail,MaxJointScenarios,MaxJointScenarioShifts);
+
+    // Statistical admission owns the complete captured row/column matrix. This
+    // entry shares ordinary PV execution without widening named-scenario commands.
+    public static ConnectedScenarioRiskRun CalculateHistoricalScenarios(PreparedConnectedPortfolioRisk prepared,
+        ConnectedRiskScenarioSet set,string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Holdings)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if(set is null||set.Version!=HistoricalRiskPolicy.Version1||set.Id is null||set.Id.Length!=64||!set.Id.All(char.IsAsciiHexDigitLower))
+            throw Error("risk_historical_policy","Historical repricing requires the exact captured manifest identity and selected historical implementation.");
+        return CalculateScenarioSet(prepared,set,numericalPolicy,cancellation,detail,HistoricalRisk.MaximumSamples,HistoricalRisk.MaximumFactors);
+    }
+
+    private static ConnectedScenarioRiskRun CalculateScenarioSet(PreparedConnectedPortfolioRisk prepared,
+        ConnectedRiskScenarioSet set,string numericalPolicy,CancellationToken cancellation,RiskDetail detail,int maximumScenarios,int maximumShifts)
     {
         cancellation.ThrowIfCancellationRequested();
         if(prepared is null)throw Error("instrument_context","Supply the exact prepared connected portfolio.");
         if(numericalPolicy!=ExactNumericalPolicy)throw Error("risk_policy","Select exact rational portfolio repricing explicitly.");
         if(!Enum.IsDefined(detail))throw Error("risk_detail","Choose holding details or book totals explicitly.");
         if(set is null||!ScenarioName(set.Id)||!ScenarioName(set.Version)||set.Convention!=ConnectedRiskScenarioSet.Independent||
-            set.Scenarios.IsDefaultOrEmpty||set.Scenarios.Length>MaxJointScenarios||
+            set.Scenarios.IsDefaultOrEmpty||set.Scenarios.Length>maximumScenarios||
             set.Scenarios.Any(s=>s is null||!ScenarioName(s.Id)||string.IsNullOrWhiteSpace(s.Label)||s.Label.Length>160||
-                s.Shifts.IsDefault||s.Shifts.IsEmpty!=s.Unchanged||s.Shifts.Length>MaxJointScenarioShifts)||
+                s.Shifts.IsDefault||s.Shifts.IsEmpty!=s.Unchanged||s.Shifts.Length>maximumShifts)||
             set.Scenarios.Select(s=>s.Id).Distinct(StringComparer.Ordinal).Count()!=set.Scenarios.Length)
-            throw Error("risk_scenarios","Supply a versioned named set of one to 512 distinct independent scenarios, each with one to 64 explicit shifts.");
+            throw Error("risk_scenarios",$"Supply one to {maximumScenarios} distinct independent scenarios, each with at most {maximumShifts} explicit shifts or an unchanged projection.");
         var width=ScenarioResultWidth(prepared,detail);
         if(width*(1+set.Scenarios.Length)>MaxJointResultValues)
             throw Error("risk_scenario_capacity","The selected scenario/detail matrix exceeds 250000 retained base and scenario value tuples; reduce the scenario set or select book detail.");

@@ -25,8 +25,8 @@ D289 adds the [Risk results workspace](risk-workspace.md): Risk-owned setup,
 shared sensitivity ladders/heatmaps and drill-through, visible incomplete coverage,
 retained report links, and multipart submission recovery. The bounded recent-job
 directory remains separate from the D299 completed statistical-report archive.
-Delta-normal VaR/ES is implemented below; historical simulation, Monte Carlo/PCA/
-hybrid, EVT and rolling backtesting remain subsequent increments.
+Delta-normal and full-PV historical VaR/ES are implemented below. Monte Carlo/PCA/
+hybrid, EVT and an operating rolling-backtest workflow remain subsequent increments.
 
 D294 adds temporary maximize/restore to every Blotter pane, a shared searchable
 portfolio/book picker in Blotter and Risk, and personal saved-view sidebar pins
@@ -47,8 +47,8 @@ Risk prepares, graphs and reauthorizes exported manifests for the shared
 portfolio/book/trade scope. Owned development data supplies 250 weekday closes
 without changing factor identity. This bounded read adds no persistence table or
 worker. D299 completes R4 covariance/delta-normal VaR/ES and the statistical
-archive/read contract; R5 follows with full-repricing historical simulation and
-rolling checks.
+archive/read contract; D305 completes the bounded R5 full-PV historical estimator,
+report/archive/comparison and initial frozen-forecast rolling fixtures.
 
 D292 adds [individual trade selection in Risk](risk-workspace.md), following
 portfolio → book → trades. Backend filtering precedes valuation, and retained
@@ -220,7 +220,8 @@ unfixed reset to one computed output with the same exact delivery interval.
 D262 adds raw component history for relative selections and exact weighted
 contract mappings, with explicit sampling windows and retained roll jumps.
 Cross-revision rolling histories, arbitrary output replay, adjusted roll series
-and historical VaR/covariance remain work.
+remain work. D299/D305 supply native covariance and historical VaR through
+explicit captured raw dated-factor inputs, without implicit output replay.
 
 Published custom curves also act as reusable sources in the same visual/formula
 workbench (D187). Explicit version/output FKs import the complete parent panel
@@ -1763,11 +1764,22 @@ correlation and local agreement evidence. One complete job retains source/clock
 receipts for fenced replay; an authorized paged archive discovers completed
 reports independently of recent recovery jobs. See [the implemented contract](parametric-risk.md).
 
-Next statistical work is full-repricing historical simulation with explicit
-empirical quantile and fractional tail-mass conventions, method comparison and
-initial rolling hypothetical P&L backtesting. Full Monte Carlo precedes PCA/hybrid
-approximation; EVT requires separate tail qualification. No such estimator or
-production activation is implied by this increment.
+### Historical risk increment (D305, R5)
+
+[Historical simulation](historical-risk.md) implements exact empirical inverse-CDF
+VaR and fractional-tail-mass ES from complete full-PV sibling scenarios. The same
+current portfolio, quantities, time, fixings, rates and option calibration remain
+frozen. Zero/repeated rows keep their probability mass; book/trade quantile/tail
+allocations reconcile within native measure/currency partitions. Guided automatic
+history preparation, distribution/loss widgets, sample PV drilldown, a matching
+same-job normal comparison and the completed archive use the existing custody,
+worker and authorized report operations. Migration 0189 extends private retention
+contracts without new tables or broader observation grants.
+
+The bounded qualification includes two no-look-ahead frozen-forecast HPL fixtures;
+an operating rolling-backtest service remains work. Next is full Monte Carlo
+before PCA/hybrid approximation. EVT requires separate tail qualification.
+Production activation requires a separately qualified schema release.
 
 ### Shared physical lifecycle design (D303, P44)
 

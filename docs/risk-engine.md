@@ -497,3 +497,13 @@ aligned history automatically and reuses only an exact matching prepared input.
 Official closes are initially required; approved alternatives are explicit and
 flagged per endpoint. Saved reports include the same bounded factor grid and
 correlation/covariance display, independently of the current setup.
+
+D305 adds [full-PV historical VaR/ES](historical-risk.md) through this same captured
+scope/history/PV and retained-worker infrastructure. Guided setup selects the
+method, automatically aligns history, and optionally compares the identical study
+to sample-mean delta-normal. Historical reports graph empirical probabilities and
+losses, expose book/trade quantile/tail allocation and drill through every sample's
+factor moves and native PV bindings. The completed archive discovers both methods;
+current authority is checked for report reads and export. Rates, time and current
+option calibration remain frozen. Monte Carlo/PCA/EVT and an operating backtest
+workflow are not implied.

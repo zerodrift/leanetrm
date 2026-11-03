@@ -37,3 +37,11 @@ test('typed joint refusals are definite first-attempt refusals while an uncertai
   p.begin('portfolio/risk/jobs',{request:{joint:{}}});const original=p.command;p.failed(undefined,p.sending());p.failed(code,p.sending());assert.equal(p.command,original,code);
  }
 });
+
+test('historical SQL admission refusals clear only a definitely rejected first command',async()=>{
+ const {knownRiskRejection}=await import('../dist/risk-scenarios.js');const {PendingCommand}=await import('../dist/pending-command.js');
+ for(const code of ['risk_historical_input','risk_statistical_history']){
+  const fresh=new PendingCommand(knownRiskRejection);fresh.begin('portfolio/risk/jobs',{request:{historical:{}}});fresh.failed(code,fresh.sending());assert.equal(fresh.command,undefined,code);
+  const retry=new PendingCommand(knownRiskRejection);retry.begin('portfolio/risk/jobs',{request:{historical:{}}});retry.failed('transport',retry.sending());retry.failed(code,retry.sending());assert.ok(retry.command,code);
+ }
+});

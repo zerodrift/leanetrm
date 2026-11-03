@@ -49,7 +49,10 @@ public sealed partial class PortfolioRiskPreview
             JsonSerializer.Serialize(body.History.PricingPolicy,RiskJobs.Json)!=JsonSerializer.Serialize(outer.PricingPolicy,RiskJobs.Json)||outer.Joint is not null||outer.Detail!="books"||outer.Stress.IsDefault||!outer.Stress.IsEmpty||
             (outer.TradeIds is {} a?string.Join(',',a.Order()):null)!=(body.History.Scope.TradeIds is {} b?string.Join(',',b.Order()):null))
             throw new MarketDataException("risk_parametric_scope","Parametric risk uses the exact captured history, common retained holdings and an unstressed books-detail portfolio.");
-        var fd=body.FiniteDifference;
+        ValidateParametricFiniteDifference(body.FiniteDifference);
+    }
+    private static void ValidateParametricFiniteDifference(ParametricFiniteDifference fd)
+    {
         if(fd is null||fd.Convention!=ParametricFiniteDifference.Version1||fd.TradingTicks is <1 or >1000||fd.DeltaTolerance is null||
             ExactDecimal.Parse(fd.DeltaTolerance.Absolute??"").CompareTo(default)<0||ExactDecimal.Parse(fd.DeltaTolerance.Relative??"").CompareTo(default)<0)
             throw new MarketDataException("risk_parametric_delta","Choose explicit 1–1000 trading ticks and nonnegative native absolute/relative delta agreement tolerances.");
@@ -69,7 +72,7 @@ public sealed partial class PortfolioRiskPreview
         RiskValuationAdmission.Require(rows,nodes,checked(width*scenarios),bumps.Length,3);
     }
     private static async Task<AlignedFactorHistory> ReplayHistory(NpgsqlConnection connection,PortfolioValuation.Prepared portfolio,InputFrame frame,
-        PortfolioHistoryRequest request,RetainedFactorHistory plan,ImmutableArray<RiskHistoryObservation> evidence,CancellationToken ct)
+        PortfolioHistoryRequest request,RetainedFactorHistory plan,ImmutableArray<RiskHistoryObservation> evidence,CancellationToken ct,bool historical=false)
     {
         bool Same<T>(T a,T b)=>JsonSerializer.Serialize(a,RiskJobs.Json)==JsonSerializer.Serialize(b,RiskJobs.Json);
         if(plan.ExpectedManifestId!=request.ExpectedManifestId||plan.Forecast.ContextId!=frame.ContextId||plan.Forecast.ValuationAt!=frame.At||
@@ -95,7 +98,8 @@ public sealed partial class PortfolioRiskPreview
             throw new MarketDataException("risk_parametric_history","The retained calendar sessions differ from their exact reference version.");
         var factors=portfolio.Factors.Select(f=>new RiskHistoryFactor(f,portfolio.Markets.Single(m=>m.Snapshot.Definitions==f.Input.Series.Revision)
             .Snapshot.Selections.Single(s=>s.Observation.Key==f.Observation).Observation.State)).ToImmutableArray();
-        ParametricRisk.Admit(factors.Length,plan.Calendar.BusinessDates.Length-1);
+        if(historical)HistoricalRisk.Admit(factors.Length,plan.Calendar.BusinessDates.Length-1);
+        else ParametricRisk.Admit(factors.Length,plan.Calendar.BusinessDates.Length-1);
         var result=FactorHistory.Align(plan.Forecast,plan.Policy,plan.Calendar,plan.Clock,factors,evidence,ct);
         if(result.Id!=plan.ExpectedManifestId)throw new MarketDataException("risk_history_manifest","The pinned historical observations no longer reproduce their retained manifest.");
         return result;
@@ -135,18 +139,7 @@ public sealed partial class PortfolioRiskPreview
         {
             // Per-pass receipts include the shared preparation. Count that once,
             // retain unique identities from nominal, and sum executed valuation work.
-            var passes=new[]{half!.Work,nominal.Work,twice!.Work};var preparation=prepared.Portfolio;
-            var work=nominal.Work with{
-                ScenarioCount=passes.Sum(w=>w.ScenarioCount),UnitPricerCalls=passes.Sum(w=>w.UnitPricerCalls),
-                RebuiltCurveNodes=passes.Sum(w=>w.RebuiltCurveNodes)-2*preparation.MaterializationWork.RebuiltCurveNodes,
-                ReusedCurveNodes=passes.Sum(w=>w.ReusedCurveNodes)-2*preparation.MaterializationWork.ReusedCurveNodes,
-                PreparationScenarioCount=passes.Sum(w=>w.PreparationScenarioCount)-2*preparation.MaterializationScenarioCount,
-                QuantityApplications=passes.Sum(w=>w.QuantityApplications),CurveGraphEvaluatedNodes=passes.Sum(w=>w.CurveGraphEvaluatedNodes),
-                CurveGraphReusedReads=passes.Sum(w=>w.CurveGraphReusedReads),VolumeComputations=passes.Sum(w=>w.VolumeComputations),
-                UniqueSideCalculations=passes.Sum(w=>w.UniqueSideCalculations),RowEvaluations=passes.Sum(w=>w.RowEvaluations),
-                ScheduleGraphEvaluatedNodes=passes.Sum(w=>w.ScheduleGraphEvaluatedNodes),ScheduleGraphReusedReads=passes.Sum(w=>w.ScheduleGraphReusedReads),
-                ResolvedCurveMonths=passes.Sum(w=>w.ResolvedCurveMonths),ReusedCurveMonths=passes.Sum(w=>w.ReusedCurveMonths),
-                CalibratedBlocks=passes.Sum(w=>w.CalibratedBlocks),ReusedBlocks=passes.Sum(w=>w.ReusedBlocks)};
+            var work=StatisticalWork(prepared.Portfolio,nominal.Work,[half!.Work,nominal.Work,twice!.Work]);
             report["work"]=JsonSerializer.SerializeToNode(work,RiskJobs.Json);
         }
         var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
@@ -161,4 +154,15 @@ public sealed partial class PortfolioRiskPreview
             throw new MarketDataException("risk_result_limit","Reduce the explicit statistical scope or window: the complete report exceeds 30 MB.");
         return report;
     }
+    private static RiskWork StatisticalWork(PortfolioValuation.Prepared preparation,RiskWork basis,ImmutableArray<RiskWork> passes)=>basis with{
+                ScenarioCount=passes.Sum(w=>w.ScenarioCount),UnitPricerCalls=passes.Sum(w=>w.UnitPricerCalls),
+                RebuiltCurveNodes=passes.Sum(w=>w.RebuiltCurveNodes)-(passes.Length-1)*preparation.MaterializationWork.RebuiltCurveNodes,
+                ReusedCurveNodes=passes.Sum(w=>w.ReusedCurveNodes)-(passes.Length-1)*preparation.MaterializationWork.ReusedCurveNodes,
+                PreparationScenarioCount=passes.Sum(w=>w.PreparationScenarioCount)-(passes.Length-1)*preparation.MaterializationScenarioCount,
+                QuantityApplications=passes.Sum(w=>w.QuantityApplications),CurveGraphEvaluatedNodes=passes.Sum(w=>w.CurveGraphEvaluatedNodes),
+                CurveGraphReusedReads=passes.Sum(w=>w.CurveGraphReusedReads),VolumeComputations=passes.Sum(w=>w.VolumeComputations),
+                UniqueSideCalculations=passes.Sum(w=>w.UniqueSideCalculations),RowEvaluations=passes.Sum(w=>w.RowEvaluations),
+                ScheduleGraphEvaluatedNodes=passes.Sum(w=>w.ScheduleGraphEvaluatedNodes),ScheduleGraphReusedReads=passes.Sum(w=>w.ScheduleGraphReusedReads),
+                ResolvedCurveMonths=passes.Sum(w=>w.ResolvedCurveMonths),ReusedCurveMonths=passes.Sum(w=>w.ReusedCurveMonths),
+                CalibratedBlocks=passes.Sum(w=>w.CalibratedBlocks),ReusedBlocks=passes.Sum(w=>w.ReusedBlocks)};
 }

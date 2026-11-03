@@ -29,7 +29,7 @@ internal static class PortfolioJointCalculation
         RiskValuationAdmission.Require(rowScenarios,treeNodes,checked(width*(1L+joint.ChildCount)),joint.Factors.DistinctBy(a=>a.Id).Count(),1);
     }
     internal static PortfolioJointRun Calculate(PortfolioValuation.Prepared portfolio,PortfolioJointRisk.Resolved joint,
-        ImmutableArray<PortfolioCurveShift> stress,RiskDetail detail,CancellationToken ct)
+        ImmutableArray<PortfolioCurveShift> stress,RiskDetail detail,CancellationToken ct,bool historical=false)
     {
         RequireWork(portfolio,joint,detail);ct.ThrowIfCancellationRequested();
         var partitions=ImmutableArray.CreateBuilder<JointPartition>();
@@ -47,7 +47,9 @@ internal static class PortfolioJointCalculation
                     return new ConnectedRiskScenario(s.Id,s.Label,shifts){Unchanged=shifts.IsEmpty};
                 }).ToImmutableArray();
                 var set=joint.Request.Scenarios!;
-                var run=RiskEngine.CalculateScenarios(parent,new(set.Id,set.Version,set.Convention,localSamples),portfolio.Policy.RiskNumericalPolicy,ct,detail);
+                var scenarioSet=new ConnectedRiskScenarioSet(set.Id,set.Version,set.Convention,localSamples);
+                var run=historical?RiskEngine.CalculateHistoricalScenarios(parent,scenarioSet,portfolio.Policy.RiskNumericalPolicy,ct,detail):
+                    RiskEngine.CalculateScenarios(parent,scenarioSet,portfolio.Policy.RiskNumericalPolicy,ct,detail);
                 partitions.Add(new(market,run,[],[]));
             }
             else
