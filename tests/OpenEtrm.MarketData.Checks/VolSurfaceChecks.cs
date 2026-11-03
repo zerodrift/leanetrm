@@ -23,6 +23,7 @@ internal static class VolSurfaceChecks
         Check("grid spans fitted strikes at the listed interval", GridSpansFittedStrikes);
         Check("grid ends on the highest fitted strike off the lattice", GridEndsOnHighestStrike);
         Check("strike axis is the union across expiries", AxisIsUnion);
+        Check("an expiry whose series all expired is option_expired and off the axis", ExpiredExpiryIsOffTheAxis);
     }
 
     private static readonly string[] Moneyness = ["-0.3", "-0.2", "-0.1", "0", "0.1", "0.2", "0.3"];
@@ -254,6 +255,18 @@ internal static class VolSurfaceChecks
         Expect(surface.StrikeAxis.Select(s => s.ToString()).SequenceEqual(expected), $"Unexpected axis: {string.Join(",", surface.StrikeAxis)}.");
         Expect(surface.Series.Select(r => (r.Series.ExpiryAt, r.Series.Strike)).SequenceEqual(
             surface.Series.Select(r => (r.Series.ExpiryAt, r.Series.Strike)).OrderBy(x => x.ExpiryAt).ThenBy(x => x.Strike)), "Series are ordered by expiry then strike.");
+    }
+
+    private static void ExpiredExpiryIsOffTheAxis()
+    {
+        var expired = new[] { "60", "65", "70", "75", "80" }.SelectMany(k => new[] { Series(Expiry1, OptionRight.Call, k, outcome: "option_expired"),
+            Series(Expiry1, OptionRight.Put, k, outcome: "option_expired") });
+        var surface = Build([.. expired, .. BothRights(Expiry2, Strikes)], null, "100");
+        var lapsed = surface.Expiries.Single(e => e.ExpiryAt == Expiry1);
+        Expect(lapsed.Status == "option_expired" && lapsed.Parameters is null && lapsed.Grid.IsEmpty, $"Expected an option_expired expiry; got {lapsed.Status}.");
+        Expect(surface.StrikeAxis.Select(s => s.ToString()).SequenceEqual(Strikes), $"The axis should list only live strikes: {string.Join(",", surface.StrikeAxis)}.");
+        Expect(surface.Series.Count(r => r.Series.ExpiryAt == Expiry1) == 10, "Expired series are still listed.");
+        Expect(surface.Expiries.Single(e => e.ExpiryAt == Expiry2).Status == "fitted", "The live expiry still fits.");
     }
 
     private static void Check(string label, Action run) { run(); Console.WriteLine($"PASS {label}"); }

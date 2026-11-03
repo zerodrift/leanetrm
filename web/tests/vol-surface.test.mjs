@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {surfaceLink} from '../dist/vol-surface-link.js';
-import {decimalText,heatCells,richCheapText} from '../dist/vol-surface-view.js';
+import {decimalText,heatCells,liveSurface,richCheapText} from '../dist/vol-surface-view.js';
 import {richCheapTone} from '../dist/vol-surface-theme.js';
 import {surfaceMesh} from '../dist/vol-surface-3d.js';
 
@@ -67,6 +67,16 @@ test('an outcome or expiry status the page does not know is refused rather than 
   assert.throws(()=>heatCells({modelId:'m',strikeAxis:['1'],expiries:[expiry('e1','fitted')],series:[series('a','e1','1','call','option_unheard_of')]}),/unknown/);
   assert.throws(()=>heatCells({modelId:'m',strikeAxis:['1'],expiries:[expiry('e1','vol_fit_unheard_of')],series:[]}),/unknown/);
   assert.throws(()=>heatCells({modelId:'m',strikeAxis:['1'],expiries:[expiry('e1','fitted')],series:[series('a','e9','1','call','solved','0.01')]}),/expiry/);
+});
+
+test('expired expiries and their series are left out of the drawn surface, and named',()=>{
+  const surface={modelId:'m',strikeAxis:['2'],expiries:[expiry('e0','option_expired'),expiry('e1','fitted')],series:[
+    series('x','e0','1','call','option_expired'),series('a','e1','2','call','solved','0.01')]};
+  const {surface:live,expired}=liveSurface(surface);
+  assert.deepEqual(live.expiries.map(e=>e.expiryAt),['e1']);assert.deepEqual(live.series.map(s=>s.series.code),['a']);
+  assert.deepEqual(expired.map(e=>e.expiryAt),['e0']);assert.deepEqual(live.strikeAxis,['2']);
+  assert.equal(heatCells(live).length,2);
+  assert.throws(()=>liveSurface({...surface,series:[...surface.series,series('y','e0','2','put','solved','0.01')]}),/expired/);
 });
 
 const fittedAt=(expiryAt,strikes,status='fitted')=>({...expiry(expiryAt,status),grid:strikes.map(strike=>({strike,logMoneyness:'0',fitted:'0.4'+strike.replace('.','')}))});

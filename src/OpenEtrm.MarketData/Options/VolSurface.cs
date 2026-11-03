@@ -15,10 +15,11 @@ public sealed record SurfaceSeriesResult(SurfaceSeries Series, LatticeDecimal? L
 
 public sealed record SurfaceGridPoint(ExactDecimal Strike, LatticeDecimal LogMoneyness, LatticeDecimal Fitted);
 
-// Status is fitted, vol_fit_insufficient_strikes or vol_fit_nonpositive.
+// Status is fitted, option_expired (every series of the expiry is at or past it), vol_fit_insufficient_strikes or vol_fit_nonpositive.
 public sealed record SurfaceExpiry(DateTimeOffset ExpiryAt, string UnderlyingCode, LatticeDecimal? Futures, string Status, SmileParameters? Parameters,
     int Points, LatticeDecimal? RmsResidual, LatticeDecimal? MaxAbsResidual, ImmutableArray<SurfaceGridPoint> Grid);
 
+// StrikeAxis lists the strikes of the series of every expiry that has not expired.
 public sealed record VolSurfaceResult(string ModelId, ImmutableArray<ExactDecimal> StrikeAxis, ImmutableArray<SurfaceExpiry> Expiries, ImmutableArray<SurfaceSeriesResult> Series);
 
 public static class VolSurfaces
@@ -46,12 +47,17 @@ public static class VolSurfaces
             builtExpiries.Add(expiry);
             results.AddRange(memberResults);
         }
-        var axis = series.Select(s => s.Strike).Distinct().Order().ToImmutableArray();
+        var live = builtExpiries.Where(e => e.Status != Expired).Select(e => e.ExpiryAt).ToHashSet();
+        var axis = series.Where(s => live.Contains(s.ExpiryAt)).Select(s => s.Strike).Distinct().Order().ToImmutableArray();
         return new VolSurfaceResult(model.Id, axis, [.. builtExpiries], [.. results]);
     }
 
+    private const string Expired = "option_expired";
+
     private static (SurfaceExpiry, List<SurfaceSeriesResult>) BuildExpiry(IVolModel model, SurfaceExpiryInput input, List<SurfaceSeries> members, ExactDecimal strikeInterval)
     {
+        if (members.Count > 0 && members.All(m => m.Outcome == Expired))
+            return (Gap(input, Expired), [.. members.Select(m => new SurfaceSeriesResult(m, null, null, null, false))]);
         if (input.Futures is not { } futures)
             return (Gap(input, "vol_fit_insufficient_strikes"), [.. members.Select(m => new SurfaceSeriesResult(m, null, null, null, false))]);
 

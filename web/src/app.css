@@ -2217,7 +2217,7 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .vol-key-rich,.vol-key-cheap{width:8px;height:8px;border-radius:50%}
 .vol-key-rich{background:var(--vol-rich)}.vol-key-cheap{background:var(--vol-cheap)}
 .vol-smiles{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-.vol-smiles-key{grid-column:1/-1;margin:0;font-size:12px;color:var(--text-3)}
+.vol-smiles-key,.vol-expired{grid-column:1/-1;margin:0;font-size:12px;color:var(--text-3)}
 .vol-smile{padding:14px 14px 8px;transition:border-color .15s,box-shadow .15s}
 .vol-smile[data-linked]{border-color:var(--accent-border);box-shadow:0 0 0 3px var(--accent-soft)}
 .vol-smile-head{display:flex;flex-direction:column;gap:2px;margin-bottom:4px}

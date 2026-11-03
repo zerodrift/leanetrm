@@ -33,8 +33,8 @@ CREATE TRIGGER immutable_record BEFORE UPDATE OR DELETE ON risk.vol_surface_fit_
 -- Admits a fit at the caller's bound trading context. The request names the key (one exact product version, the context's
 -- business date and the vol model), the solver policy, the engine version and the futures convention; the frame is the
 -- working frame pinned at that context. Only a context captured from current knowledge is admitted: its cutoff is the
--- catalog knowledge clock's latest certification, which the capture's lock on the clock holds for the rest of the
--- transaction; an earlier cutoff, or a current capture a later one superseded, is refused with historical_read_only. The
+-- catalog knowledge clock's latest certification, and the share lock taken on the clock here makes a later certification
+-- wait for this transaction to end, so the context is still current when the job commits; an earlier cutoff, or a current capture a later one superseded, is refused with historical_read_only. The
 -- request identity returns its first job; otherwise a queued or running job of the caller for the same request and the
 -- same frame, whatever context it captured, is returned instead of a new one.
 CREATE FUNCTION risk.submit_vol_surface_fit(catalog uuid,operation uuid,context uuid,revision uuid,valuation_at timestamptz,request jsonb,frame jsonb)
@@ -49,7 +49,7 @@ BEGIN
   OR(c.market_catalog_id,c.market_context_id,c.trading_as_of) IS DISTINCT FROM(catalog,context,valuation_at)
  THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
  IF NOT EXISTS(SELECT 1 FROM market_data.temporal_contexts t JOIN market_data.knowledge_clocks k ON k.catalog_id=t.catalog_id
-  WHERE(t.catalog_id,t.id)=(catalog,context) AND t.known_at=k.certified_through AND t.certified_through=k.certified_through)
+  WHERE(t.catalog_id,t.id)=(catalog,context) AND t.known_at=k.certified_through AND t.certified_through=k.certified_through FOR SHARE OF k)
  THEN RAISE EXCEPTION 'historical_read_only' USING ERRCODE='P0001';END IF;
  IF operation IS NULL OR operation='00000000-0000-0000-0000-000000000000'::uuid OR context IS NULL OR revision IS NULL OR valuation_at IS NULL
   OR jsonb_typeof(request) IS DISTINCT FROM 'object' OR jsonb_typeof(frame) IS DISTINCT FROM 'object' OR pg_column_size(frame)>8000000

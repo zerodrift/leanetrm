@@ -90,6 +90,12 @@ points and an evaluation of fitted parameters. One model ships:
 A gap expiry keeps its series and their market volatilities; the page shows it as a
 labelled gap.
 
+An expiry whose every series is at or past its expiry is `option_expired`, whatever
+its underlying settlement. Its series stay listed, but its strikes are not on the
+strike axis, and the page leaves it out of the heat map, the 3D surface and the
+smiles, naming it once as expired. Months that have lapsed therefore never widen
+the axis or add rows.
+
 ## Market volatilities and rich/cheap
 
 Each listed series is calibrated by the same calibration option valuation uses:
@@ -170,7 +176,9 @@ There is no separate queue, service or cache.
 - **`POST /api/vol-surfaces/fit`** takes `{requestId, snapshotId, product, model}`
   and returns `{jobId, state}`. It is admitted only over working data, at the
   context captured for the working frame; the submit operation itself refuses a
-  context not captured from current knowledge with `historical_read_only`.
+  context not captured from current knowledge with `historical_read_only`. It
+  holds a share lock on the catalog's knowledge clock, so a later certification
+  waits for the submit to commit rather than superseding its context first.
   Admission pins the frame, the exact product version, the business date, the
   model, the solver policy, the engine version and the actor.
 - The same request identity returns its first job. A queued or running job of the
@@ -252,7 +260,7 @@ Request-level codes:
 | `historical_read_only` | A fit was requested from a historical context, or at a context not captured from current knowledge |
 | `discount_curve_missing` | The currency has no discount default |
 
-Per-expiry codes are `vol_fit_insufficient_strikes` and `vol_fit_nonpositive`.
+Per-expiry codes are `option_expired`, `vol_fit_insufficient_strikes` and `vol_fit_nonpositive`.
 
 ## Measured runtime
 

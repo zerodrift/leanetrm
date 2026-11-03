@@ -65,6 +65,13 @@ function outcomeReason(outcome:string):string{
 const jobFailures:Record<string,string>={vol_surface_no_settlements:'No settlements for this date',option_expired:'Every series has expired',
  discount_coverage:'No live expiry is inside the discount curve'};
 
+/** The surface as the views draw it: every expiry whose series have all expired is left out with its series, and returned to be named. */
+export function liveSurface(surface:VolSurfaceResult):{surface:VolSurfaceResult;expired:SurfaceExpiry[]}{
+ const expired=surface.expiries.filter(e=>e.status==='option_expired'),gone=new Set(expired.map(e=>e.expiryAt));
+ if(surface.series.some(s=>gone.has(s.series.expiryAt)&&s.series.outcome!=='option_expired'))throw Error('The surface lists a live series under an expired expiry.');
+ return {surface:{...surface,expiries:surface.expiries.filter(e=>!gone.has(e.expiryAt)),series:surface.series.filter(s=>!gone.has(s.series.expiryAt))},expired};
+}
+
 /** One half-cell of the heat map: a series' rich/cheap, a series without one and why, or a strike its expiry does not list. */
 export type HeatCell={row:number;strike:string;right:Right;kind:'value'|'gap'|'unlisted';series?:SurfaceSeries;reasons:string[]};
 export function heatCells(surface:VolSurfaceResult):HeatCell[]{
@@ -359,9 +366,9 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
 
  // The surface's views, drawn for each stored revision a read returns; reading the same revision again, as checking on a refit
  // does, keeps them as drawn.
- function drawSurface(surface:VolSurfaceResult,revision:string){
+ function drawSurface(listed:VolSurfaceResult,revision:string){
   if(drawnRevision===revision)return;
-  const keep=link.current();clearViews();drawnFor=surface;drawnRevision=revision;
+  const keep=link.current();clearViews();const {surface,expired}=liveSurface(listed);drawnFor=surface;drawnRevision=revision;
   cells=heatCells(surface);
   const rich=surface.series.filter(s=>s.richCheap!==null);
   const largest=rich.reduce<SurfaceSeries|undefined>((top,s)=>!top||Math.abs(plotNumber(s.richCheap!))>Math.abs(plotNumber(top.richCheap!))?s:top,undefined);
@@ -385,6 +392,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
    }else{card.append(el('p','vol-gap',`Not fitted: ${expiryReason(expiry.status)}`));smiles.append(card);}
   }
   smiles.prepend(el('p','vol-smiles-key','● call · ▲ put · hollow: not a fit point · line: fitted smile · bars: rich/cheap'));
+  if(expired.length)smiles.prepend(el('p','vol-expired',`Expired, not shown: ${expired.map(expiryLabel).join(', ')}`));
   if(keep&&surface.series.some(s=>s.series.code===keep))link.set(keep);
  }
 

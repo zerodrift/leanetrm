@@ -2,6 +2,7 @@
 the owned exchange example. A synthetic role gives the trader PublishMarketData, so the trader may fit; the risk analyst
 reads market data and trades but may not. Fit jobs run in the risk worker exactly as portfolio risk jobs do."""
 import json
+import threading
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -167,6 +168,38 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     check('the submit operation refuses a current capture a later capture superseded',
           admission(current_capture + f"later=security.capture_date_context('{catalog}','{DAY}',NULL);") == 'historical_read_only')
 
+    # A context captured in an earlier transaction stays current only until the next certification: an admitted submit holds the
+    # knowledge clock, so a certification waits for it to commit rather than superseding the context it was admitted at.
+    def as_trader(statements):
+        token = query("SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context("
+                      f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{statements}").splitlines()[-1]
+    earlier = as_trader(f"SELECT security.capture_date_context('{catalog}','{DAY}',NULL);COMMIT;")
+    # psql sends each statement on its own, so the holder is found by its application name while it sleeps after the submit.
+    held = {}
+
+    def hold():
+        try:
+            held['admitted'] = as_trader(
+                "SET LOCAL application_name='vol_surface_held_submit';"
+                f"SELECT security.use_market_context('{catalog}','{earlier}');SELECT security.use_trading_context('{catalog}','{frame['at']}');"
+                f"SELECT risk.submit_vol_surface_fit('{catalog}','{uuid4()}','{earlier}','{retained['revision']}','{frame['at']}','{json.dumps(retained['request'])}'::jsonb,"
+                f"jsonb_set('{json.dumps(retained['frame'])}'::jsonb,'{{contextId}}',to_jsonb('{earlier}'::text)))->>'jobId';SELECT pg_sleep(3);ROLLBACK;SELECT 'held';")
+        except Exception as error:
+            held['error'] = error
+    holding = threading.Thread(target=hold)
+    holding.start()
+    deadline = time.monotonic() + 10
+    while query("SELECT count(*) FROM pg_stat_activity WHERE application_name='vol_surface_held_submit' AND wait_event='PgSleep';") == '0':
+        assert time.monotonic() < deadline and holding.is_alive(), held
+        time.sleep(.05)
+    certification = as_trader("SET LOCAL lock_timeout='500ms';DO $check$ BEGIN "
+                              f"PERFORM security.capture_date_context('{catalog}','{DAY}',NULL);PERFORM set_config('check.outcome','certified',true);"
+                              "EXCEPTION WHEN lock_not_available THEN PERFORM set_config('check.outcome','waited',true);END $check$;"
+                              "SELECT current_setting('check.outcome');ROLLBACK;")
+    holding.join()
+    check('a certification waits for an admitted submit to commit', certification == 'waited' and held == {'admitted': 'held'}, (certification, held))
+
     # The close that leaves one option underlying unsettled, fitted for both products at its own business date.
     gap = manifest['missingSettlement']
     unpinned = next(f for f in c.call('workspace')['frames'] if f['at'].replace('+00:00', 'Z') == gap['at'])
@@ -217,7 +250,10 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     check('an expired series is listed with option_expired', job(partial['jobId'])['state'] == 'completed'
           and sorted(s['code'] for s in shown) == sorted(row['code'] for row in original)
           and all((s['outcome'], s['settlement'], s['marketVolatility']) == ('option_expired', None, None) for s in shown if s['code'] in gone)
-          and any(s['outcome'] == 'solved' for s in shown if s['code'] not in gone),
+          and any(s['outcome'] == 'solved' for s in shown if s['code'] not in gone)
+          # The expiry whose every series expired is labelled so, and only live series' strikes make up the axis.
+          and [e['status'] for e in listed['surface']['expiries'] if e['expiryAt'].replace('+00:00', 'Z') == lapsed[0]['at']] == ['option_expired']
+          and listed['surface']['strikeAxis'] == sorted({s['strike'] for s in shown if s['code'] not in gone}, key=Decimal),
           (job(partial['jobId']), [(s['code'], s['outcome']) for s in shown if s['code'] in gone]))
     expiries([{**row, 'day': '2026-10-15', 'at': '2026-10-15T18:30:00Z', 'contract': '2026-10-15T18:30:00Z'} for row in original])
     try:
