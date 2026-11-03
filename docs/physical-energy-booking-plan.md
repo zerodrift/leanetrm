@@ -1,5 +1,18 @@
 # Standalone physical energy booking plan
 
+The [D303 object-oriented lifecycle design](physical-lifecycle-design.md) extends
+the reuse direction across gas, crude, LNG, NGLs and power. Booked physical
+memberships have DeliverySchedules over retained geometry, explicit operational
+tracks and fulfillment/cash relationships. The [implemented gas facility increment](facility-quantity-ledger.md)
+provides manual quantities, explicit plans, operating assessments and Side/UI views;
+broader lifecycle classes remain proposals. Shared facility quantity ledgers expose
+schedule/constraint views and explicit cross-trade allocations for qualified
+multi-counterparty operations; financial hedges do not themselves move product.
+Independent resource/movement schedules or shared evidence remain optional
+supported scopes. This plan retains the physical gas/power requirements;
+neither document implements the
+proposed extension or selects missing financial conventions.
+
 This plan specifies broader standalone gas/power delivery obligations and
 operational settlement. Bounded [physical gas booking](physical-gas-side.md),
 [contractual quantities](physical-gas-quantities.md) and
@@ -10,11 +23,13 @@ work. [PPA booking](demo-instruments.md) and bounded
 These physical workflows are not prerequisites for financial gas swaps or
 cash-settled power swaps whose MW is integrated into an agreed energy payment basis.
 
-The common design retains Instrument → Side → SideSchedule. A delivery side owns
-explicit delivery obligations; a cash side owns the contractual link from those
-obligations or accepted measurements to payment records. Reusing delivered energy
-as a cash basis must not create a second physical delivery or count cash twice.
-Operational state and accepted settlement remain distinct from valuation context.
+The common design retains Instrument → Side → SideSchedule. A delivery Side owns
+whole-term physical parameters and its delivery plan; a cash Side declares its own
+payment/input terms. Instrument owns typed cross-membership connections. Trade-owned
+lifecycle allocations link qualified evidence to determinations, documents and
+cash records. Reusing delivered energy as a cash basis must not create a second
+physical delivery or count cash twice. Operational state and accepted settlement
+remain distinct from valuation context.
 
 The first physical power contract should specify delivery point, obligation
 supplier/receiver, exact unit, UTC interval grid, local operating clock, delivery

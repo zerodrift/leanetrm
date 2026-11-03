@@ -2,7 +2,7 @@
 
 Status: local implementation, verified as recorded in
 [verification](verification.md#volatility-surfaces-d301). This is not a production
-activation record. The decision is [D303](decisions.md).
+activation record. The decision is [D304](decisions.md).
 
 A volatility surface shows, for one listed futures option product on one settlement
 date, the implied volatility of every series, a fitted smile per expiry, and how far
@@ -121,7 +121,7 @@ is a market level.
 ## Stored revisions
 
 A surface is stored as an immutable, bitemporal revision (migration
-`0184_vol_surfaces.sql`):
+`0185_vol_surfaces.sql`):
 
 - **Business key.** The exact product version (reference catalog, reference revision
   and code, by foreign key), the settlement business date and the vol model.
@@ -170,7 +170,7 @@ the read never refits.
 
 A fit is a background job of kind `vol_surface_fit_v1` on the retained risk-job
 queue (`risk.jobs`), next to portfolio risk, under the same lease, attempt,
-cancellation and security-generation rules (migration `0185_vol_surface_jobs.sql`).
+cancellation and security-generation rules (migration `0186_vol_surface_jobs.sql`).
 There is no separate queue, service or cache.
 
 - **`POST /api/vol-surfaces/fit`** takes `{requestId, snapshotId, product, model}`

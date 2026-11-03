@@ -16,6 +16,18 @@ contracts and limits. The [Blotter workbench](blotter-workbench.md),
 describe current presentation. The detailed sections below include earlier
 checkpoints; their dated counts and measurements are historical evidence.
 
+D303 adds [facility quantities and physical Side allocation tracks](facility-quantity-ledger.md).
+The Facilities page, SQL/HTTP commands and managed native-period maximum evaluator
+share exact references, retained gas-day targets, immutable facts and actor-bound
+receipts. Current and historical views show source/claim reconciliation; ordinary
+trade readers see only their own planned Side amounts. Versioned maxima flag
+reported breaches and missing/withdrawn rules remain unassessed. Existing direct
+gas quantities, billing, PV and cash are unchanged. This first adapter supports
+one delivery point per facility and one retained gas day; broader facilities,
+commodity adapters, accepted settlement quantities and external notifications
+remain unimplemented. See [the lifecycle extension guide](physical-lifecycle-extension-guide.md)
+before adding consumers.
+
 D302 adds [versioned operating settings and personal presentation](operational-limits.md#implemented-consumers-d302).
 Assistant/access policies have separate current-human permissions, immutable
 revisions and idempotent receipts; new turns, grants, sessions and invitations
@@ -1521,7 +1533,7 @@ sample covariance and native delta-normal VaR/ES.
 
 ## Security boundary
 
-[security.md](security.md) documents seven common role templates, persisted identities,
+[security.md](security.md) documents common role templates, persisted identities,
 scoped grants/delegations, protected catalog ownership/sharing and enforced RLS.
 Database requests bind trusted authenticated identity to an exact login/transaction,
 with a revocation fence and actual-current expiry checks. An agent has a separate

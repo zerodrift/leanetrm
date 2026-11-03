@@ -205,7 +205,7 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
 
 - **Volatility.** Stored volatility surfaces under a versioned vol model, with
   rich/cheap and their graphics, are shipped for viewing as
-  [volatility surfaces](vol-surfaces.md) (D303). Valuing options from the surface,
+  [volatility surfaces](vol-surfaces.md) (D304). Valuing options from the surface,
   interpolated values for unsettled series, vega, volatility shocks, scheduled
   fitting, strategies and payoff diagrams remain.
 - **Margined premium.** Futures-style margined premium needs futures variation

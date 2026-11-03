@@ -1,6 +1,6 @@
 # Identity and authorization foundation
 
-Status: current security persistence, seven role templates and PostgreSQL RLS are
+Status: current security persistence, scoped role templates and PostgreSQL RLS are
 implemented locally and tested in disposable resources. The private pilot has
 invited human accounts, authenticated sessions and session revocation; see
 [hosted authentication](hosted-pilot.md). Workspace administration and atomic
@@ -45,10 +45,21 @@ agent reader:
 | Access Administrator | Manage identities/access, model providers and agents, and create scoped delegations |
 | Agent reader | Read market data, trades, trade parties and the delegator's own jobs (`ReadJobs`, D241); held only by agent principals |
 
-A trigger on role grants keeps the agent reader role to agent principals and agent
-principals to it, even for the database owner, while any grant can still be revoked;
+Later migrations add [agent-only swap settlement](../db/migrations/0109_swap_settlement_agent_role.sql),
+[assistant prompt editing](../db/migrations/0162_assistant_page_prompts.sql) and the
+[facility operations/limits roles](facility-quantity-ledger.md). The current catalog
+has nine assignable human roles and two agent-only roles. Facility operations can
+read/record shared quantities and allocation plans; facility operating limits can
+read/configure maxima. Each also requires market/trade reads. Neither is assigned
+automatically, and the two writing capabilities are separate. Users & access
+serves role names/permissions from the stored catalog.
+
+The initial role-grant trigger kept the agent reader role to agent principals and
+agent principals to it, even for the database owner, while any grant can still be revoked;
 migration 0066 fails, revoking nothing, if an agent principal already holds a current
-role. An agent principal created through Users & access before 0066 therefore holds no
+role. Migration 0109 subsequently permits the separately delegated agent-only
+swap settlement role; human role assignment still refuses both agent-only roles.
+An agent principal created through Users & access before 0066 therefore holds no
 current role and has no authority; Users & access still lists it but no longer changes
 it, and it is not an agent of agent administration. Users & access lists agents and the
 agent reader role but creates and changes no agent and grants no one that role
@@ -260,7 +271,7 @@ path; the application cannot guarantee its own availability during maintenance.
    to each newly supported business operation.
 3. Extend operator-provisioned invitations and bounded agent grants with broader
    identity linking, credential lifecycle and any additional approval policy. The
-   preview admin commands manage the six human role templates; `ManageAccess` does not permit
+   preview admin commands manage the registered assignable human role templates; `ManageAccess` does not permit
    arbitrary SQL, role editing, credential issuance or cross-workspace elevation.
 4. Qualify credential lifecycle, capability cleanup and operational role
    provisioning beyond the bounded implemented request and worker paths.

@@ -12,10 +12,28 @@ def run_checks(Client, check):
           [(k['code'], k['creatable']) for k in directory['kinds']] == [('human', True), ('service', True), ('agent', False)] and all(k['name'] for k in directory['kinds']))
     admin.call('workspace', expected=403)
     check('access administration does not imply market-data access')
-    check('the seven human roles are assignable, and both agent-only roles are listed only to name what agents hold',
-          sorted(r['code'] for r in directory['roles'] if r['assignable']) == ['access_administrator', 'assistant_prompt_editor', 'market_data_approver', 'market_data_editor', 'risk_analyst', 'trader', 'viewer']
+    check('the nine human roles are assignable, and both agent-only roles are listed only to name what agents hold',
+          sorted(r['code'] for r in directory['roles'] if r['assignable']) == ['access_administrator', 'assistant_prompt_editor', 'facility_limits_admin', 'facility_operator', 'market_data_approver', 'market_data_editor', 'risk_analyst', 'trader', 'viewer']
           and sorted(r['code'] for r in directory['roles'] if not r['assignable']) == ['agent_reader', 'swap_settlement_operator'])
-    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == len(directory['roles']) == 9)
+    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == len(directory['roles']) == 11)
+    check('facility roles start unassigned to existing members',
+          all(not {'facility_operator', 'facility_limits_admin'}.intersection(m['roles']) for m in directory['members']))
+    context = dict(effectiveOn='2020-12-18', knowledgeMode='current', retained=None,
+                   convention='facility_business_date_end_utc_v1')
+    for role, login, records, configures in [('facility_operator', 'synthetic_facility_operator', True, False),
+                                            ('facility_limits_admin', 'synthetic_facility_limits', False, True)]:
+        admin.call('admin/create', dict(operationId=str(uuid4()), login=login, name='Synthetic facility permission check',
+                                       kind='human', roles=[role]))
+        admin.call('profile', {'profile': login})
+        facilities = admin.call('facilities/quantities/directory', dict(context=context))
+        check('assigned '+role+' reaches its explicit facility consumer',
+              facilities['canRecord'] is records and facilities['canConfigure'] is configures)
+        command = dict(kind='limit' if records else 'source', ledgerId=str(uuid4()), expectedPreviousId=None,
+                       quantity='1', evidence='Synthetic permission separation')
+        denied = admin.call('facilities/quantities/record', dict(context=context, ownerId=facilities['ownerId'],
+                            operationId=str(uuid4()), effectiveAt='2020-12-18T12:00:00Z', command=command), expected=403)
+        check(role+' cannot use the other facility writing capability', denied['code'] == 'access_denied')
+        admin.call('profile', {'profile': 'admin'})
     request = {'operationId': str(uuid4()), 'login': 'synthetic_reader', 'name': 'Synthetic reader',
                'kind': 'human', 'roles': ['viewer']}
     created = admin.call('admin/create', request)

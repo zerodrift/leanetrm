@@ -1,4 +1,5 @@
-import type {ScheduleView,TicketChoice,TicketDescription,TicketField,TicketLink,TicketSummary,TradeActions} from './ticket-types.js';
+import {facilityAllocationTrack} from './facility-allocation-track.js';
+import type {FacilityAllocationTrack,ScheduleView,TicketChoice,TicketDescription,TicketField,TicketLink,TicketSummary,TradeActions} from './ticket-types.js';
 import {addSide,removeSide,type FieldValue,type TicketSide,type TicketState} from './ticket-model.js';
 import {numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
 import {emptyGridLayout,renderDataGrid,sideColour,type GridHandle} from './data-grid.js';
@@ -19,7 +20,7 @@ export type TicketEntry={side:string;day:string;fields:TicketField[];values:Reco
 // level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved,
 // and instant the page's formatter for the instants the ticket shows. links are the schedule's quantity links, and entry the day entry open, if any.
 export type TicketView={state:TicketState;mode:'new'|'booked';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;previous:ScheduleView|null;summaries:TicketSummary[];
- links:TicketLink[];entry:TicketEntry|null;
+ links:TicketLink[];entry:TicketEntry|null;facilityAllocations?:FacilityAllocationTrack[];
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
 // The common band's rows, in order: TicketBand.Rows in TicketDescriptions.cs.
@@ -116,6 +117,8 @@ function card(o:TicketView,side:TicketSide,rows:string[]){
  const own=el('div','ticket-own');
  for(const f of kind.fields.filter(x=>x.band===null))own.append(fieldRow(o,f,side.code,side.values[f.id]));
  const reported=o.summaries.find(s=>s.side===side.code);if(reported)own.append(summary(reported));
+ const allocations=o.facilityAllocations?.filter(a=>a.sideCode===side.code)??[];
+ if(allocations.length)own.append(facilityAllocationTrack(allocations));
  node.append(el('div','ticket-band-title ticket-band-own',`${kind.pill} details`),own);
  return node;
 }

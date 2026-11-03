@@ -1768,3 +1768,40 @@ empirical quantile and fractional tail-mass conventions, method comparison and
 initial rolling hypothetical P&L backtesting. Full Monte Carlo precedes PCA/hybrid
 approximation; EVT requires separate tail qualification. No such estimator or
 production activation is implied by this increment.
+
+### Shared physical lifecycle design (D303, P44)
+
+The agreed design direction uses object-oriented reuse across physical gas, crude,
+LNG, NGLs and power: individually owned physical Side schedules, a shared facility
+quantity ledger where several trades/counterparties participate, and explicit allocations
+between them. It builds on Instrument/Side and guides future extensions. The local
+[design](physical-lifecycle-design.md) and [developer guide](physical-lifecycle-extension-guide.md)
+define proposed object responsibilities, booked physical DeliverySchedules over
+retained geometry, explicit operational quantity tracks and strategy boundaries,
+source/occurrence/cash lineage and independent qualification cases. Independent
+resource/movement scheduling is added only for a selected concrete consumer.
+The multi-counterparty facility specimen selects one shared flow/measurement and
+explicit allocations to individually owned booked physical schedules. Schedule,
+reconciliation and constraint views use those same authoritative facts. Gates
+cover source/target conservation, correction history, counterparty isolation,
+explicit versioned operating limits, preserving measured breaches, enforced-plan
+races and scoped idempotent notifications. Cash-settled hedges affect risk without
+creating a physical flow; physical netting/curtailment requires a selected model.
+
+The proposed sequence first preserves current crude/swap contracts, selects one
+explicit synthetic gas lifecycle, proves reusable allocation/determination/cash
+behavior with those consumers, and adds a power interval specimen. Shared LNG/NGL lifecycle adapters
+remain future contract selections; existing LNG cargo booking keeps its current
+qualified contract. No new table, commodity capability, cash rule,
+PPA acceptance workflow or implementation authorization follows from the design.
+Current gas/power/PPA and separate-master crude restrictions remain unchanged.
+
+The [implemented facility increment](facility-quantity-ledger.md), migration 0184,
+includes same-basis quantities, explicit allocation plans and versioned
+native-period maximum assessments for retained gas days. The Facilities UI and
+HTTP operations share authorization, receipts and backend quantity rules; trade
+Sides show only their own read-only allocation track. Triggers enforce immutable
+chains, conservation and exact references. Metadata/clock revisions cannot mint
+capacity. Remaining slices include broader facility-to-point relationships, final
+allocation adoption, external source evidence and notification dispatch. Billing,
+fulfillment and cash remain governed by their existing contracts.

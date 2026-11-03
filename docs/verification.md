@@ -1,6 +1,6 @@
 # Local verification and continuous integration
 
-## Volatility surfaces (D303)
+## Volatility surfaces (D304)
 
 Local runs on 2 November 2026 against the branch head after the final review's fixes
 (a revision's inputs now include its valuation instant and the discount-curve points
@@ -3579,3 +3579,42 @@ with the selected prior image, paired configuration rollback and authenticated
 service-recovery checks remains outstanding; the current rollback smoke covers
 public authentication-page availability and anonymous denial only. See the
 [operator transition](hosted-pilot.md#operating-configuration-transition-d302).
+
+## Facility quantity ledger (D303)
+
+The [facility contract](facility-quantity-ledger.md) has independent managed
+checks for exact source conservation, fractional target quotas, native-unit
+compatibility, source corrections, preserved measured operating breaches and
+missing/withdrawn inputs. The full managed core suite passes 656 checks; managed
+API/preview adapter checks pass. The Python verification runner passes 85 checks,
+and the presentation suite passes 1,244 checks. These are local synthetic results.
+
+The owned stock-PostgreSQL SQL/HTTP workflow books three real synthetic physical
+gas trades and allocates a shared source. It qualifies immutable/no-op facts,
+actor-scoped command replay, cross-account owner refusal, exact references,
+retained cutoffs, concurrent replacement conflicts, operating-limit withdrawal
+and correction reconciliation. Incomplete privileged writers separately test
+constraint-trigger conservation, target quotas, native days, stale source
+pins and forward source-publication refusal. A clock shift cannot create another pool. Own-trade allocation projections
+show no source/plan fingerprints or other-party data and remain identical when
+only another target changes.
+
+The dedicated browser workflow passes 20 facility checks; the accompanying gas
+and deal-ticket workflows pass 16 and 28 browser checks. Coverage includes
+responsive facility views, loaded editable
+controls, shared multi-select removal, unload/navigation guards, cross-form draft
+protection, corrections, limit removal, lost-response status recovery and
+navigation with unavailable browser storage. Historical Apply withholds/reloads
+current values, explicit market-close selection enables read-only trade inspection,
+own allocation tracks stay readable when contractual PV is unavailable,
+and account changes clear old values. Administration checks verify the current
+role catalog, initially unassigned facility roles, explicit assignment through the
+normal operation and separation of recording versus limit configuration. Existing gas booking, setup, composition,
+daily quantities and deal-ticket checks run alongside the facility workflow.
+
+Use `tools/run_preview.py --facility-quantity-check --gas-daily-quantity-check
+--gas-composition-check --gas-setup-check --deal-ticket-check --check
+--browser-check --browser /path/to/browser`, with the explicit supported SDK and
+stock PostgreSQL flags described above. The trading CI group includes the facility
+workflow. No production or migration rollout, broader commodity qualification,
+final billing adoption, notification dispatch or throughput benchmark is claimed.

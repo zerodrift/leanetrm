@@ -31,5 +31,6 @@ export type TradeActions={amend:TradeAction;closeOut:TradeAction;record:TradeAct
 export type TicketLink={source:string;target:string;formula:string;fraction:string;receipt:string;delivery:string;fuel:string};
 export type TicketPreview={schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null;quantityUnit:string;links:TicketLink[]};
 // quantityPolicy is the daily quantity selection the booked schedule shows, or null for a trade that records no daily quantities.
-export type TicketTrade=TicketPreview&{draft:TicketDraft;actions:TradeActions;quantityPolicy:string|null};
+export type FacilityAllocationTrack={obligationId:string;sideCode:string;day:string;quantity:string|null;unit:string;state:'planned'|'no_current_allocation'};
+export type TicketTrade=TicketPreview&{draft:TicketDraft;actions:TradeActions;quantityPolicy:string|null;facilityAllocations:FacilityAllocationTrack[]};
 export type TicketReceipt={operationId:string;tradeId:string;instrumentId:string;revision:number};

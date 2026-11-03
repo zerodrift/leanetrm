@@ -2,7 +2,7 @@
 export type ScopeBook={id:string;name:string;portfolio_id:string;portfolio:string};
 export type BookScope={bookIds:string[];portfolioIds:string[]};
 
-function scopeSelect(select:HTMLSelectElement,o:{label:string;all:()=>string;busy:()=>boolean;available?:(option:HTMLOptionElement)=>boolean}){
+export function setupMultiSelect(select:HTMLSelectElement,o:{label:string;all:()=>string;busy:()=>boolean;available?:(option:HTMLOptionElement)=>boolean}){
  const element=<K extends keyof HTMLElementTagNameMap>(tag:K,className='')=>{const n=document.createElement(tag);n.className=className;return n;};
  const caption=element('span','scope-label');caption.id=select.id+'-label';caption.textContent=o.label;
  const label=select.labels[0];
@@ -73,8 +73,8 @@ function scopeSelect(select:HTMLSelectElement,o:{label:string;all:()=>string;bus
 }
 
 export function setupBookScopePicker(o:{books:HTMLSelectElement;portfolios:HTMLSelectElement;busy:()=>boolean}){
- const portfolios=scopeSelect(o.portfolios,{label:'Portfolios',all:()=> 'All portfolios',busy:o.busy});
- const books=scopeSelect(o.books,{label:'Books',all:()=>o.portfolios.selectedOptions.length?'All included books':'All books',busy:o.busy,
+ const portfolios=setupMultiSelect(o.portfolios,{label:'Portfolios',all:()=> 'All portfolios',busy:o.busy});
+ const books=setupMultiSelect(o.books,{label:'Books',all:()=>o.portfolios.selectedOptions.length?'All included books':'All books',busy:o.busy,
   available:option=>!o.portfolios.selectedOptions.length||Array.from(o.portfolios.selectedOptions).some(portfolio=>portfolio.value===option.dataset.portfolioId)});
  const sync=()=>{portfolios.sync();books.sync();};
  for(const [picker,other] of [[portfolios,books],[books,portfolios]])picker.element.querySelector('summary')!.addEventListener('click',()=>{if(!picker.element.open)other.element.open=false;});

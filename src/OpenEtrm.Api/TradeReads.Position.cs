@@ -105,7 +105,10 @@ public sealed partial class TradeReads
     async Task<object> GasTerms(NpgsqlConnection connection,GasPosition position,CancellationToken ct)
     {
         var components=await PreviewDatabase.Rows(connection,"SELECT row_to_json(m)::text FROM trading.gas_component_terms m WHERE(catalog_id,instrument_id)=($1,$2) ORDER BY slot",[database.Manifest.CatalogId,position.Binding],ct);
-        return new{head=position.Head,physical=position.Physical,components,amend=new{allowed=false,reason=GasTicketStore.AmendReason}};
+        var facilityAllocations=position.Head.GetProperty("composition").GetBoolean()
+            ?await new FacilityQuantityStore(database).TradeAllocations(connection,position.Head.Id("trade_id"),ct)
+            :JsonSerializer.SerializeToElement(Array.Empty<object>());
+        return new{head=position.Head,physical=position.Physical,components,facilityAllocations,amend=new{allowed=false,reason=GasTicketStore.AmendReason}};
     }
     public Task<object> Position(NpgsqlConnection connection,TradingView view,TradePositionReadRequest request,CancellationToken ct)
     {
