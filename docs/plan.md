@@ -15,6 +15,12 @@ implemented and locally qualified; schema release and production mapping
 activation remain separate. See
 [the entry contract](crude-delivery-setups.md#physical-reference-entry).
 
+D301 completes the guided parametric setup: visible editable defaults, automatic
+history preparation, no time entry, explicit official-close/alternate price-type
+priority, aligned-factor coverage grids and switchable matrix graphics. End-of-day
+sampling retains exact local windows and knowledge fences. Migration 0180 needs
+a separately qualified schema rollout; see the [walkthrough and contracts](risk-factor-history.md).
+
 D289 adds the [Risk results workspace](risk-workspace.md): Risk-owned setup,
 shared sensitivity ladders/heatmaps and drill-through, visible incomplete coverage,
 retained report links, and multipart submission recovery. The bounded recent-job

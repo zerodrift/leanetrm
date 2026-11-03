@@ -2,8 +2,75 @@
 
 D296 adds the managed `FactorHistory` operation, its authorized
 `POST /api/portfolio/risk/history` adapter, and the graphical history panel in Risk.
-This is the common calibration input for subsequent statistical engines. It does
-not calculate VaR or expected shortfall.
+This is the common calibration input for statistical engines. History preparation
+does not itself calculate covariance, VaR or expected shortfall; the parametric
+engine does that after alignment.
+
+## Guided VaR setup (D301)
+
+1. In **Risk**, choose the portfolio, book(s), and optionally individual trades.
+2. Open **Parametric VaR**. Starting settings are **99% confidence**, a
+   **six-month history window**, **one business-day horizon**, **zero drift**, and
+   at least **60 complete common daily changes**. A sole calendar is selected
+   automatically; choose a calendar when more than one is offered.
+3. **Official daily close** is the initially permitted price type. Add and order
+   alternatives only when they are acceptable for this calculation. The pinned
+   feed/source is unchanged. Select a shorter window or custom dates if the
+   calendar does not cover the requested window; dates are never shortened silently.
+4. Click **Run VaR** or **Queue VaR job**. End-of-day history is prepared
+   automatically, then the engine calculates covariance, native finite-difference
+   sensitivities, VaR and expected shortfall. **Preview price coverage** is optional.
+5. Review the aligned-factor grid, coverage, exclusions and the report's
+   correlation/covariance matrix. Open a grid cell for its selected type, actual
+   observation timestamp, source and available alternatives. Green identifies an
+   official close, amber an allowed alternative, and grey unavailable data.
+
+**Advanced settings** exposes the minimum common changes, drift, trading-tick step
+and delta tolerances. The starting finite-difference settings are one native
+trading tick, zero absolute tolerance and `0.0001` relative tolerance. These are
+visible editable inputs, sent explicitly and retained with the calculation;
+missing API fields still fail. An unavailable result never relaxes the settings.
+
+Prepared history is reused only for the same account, full retained context,
+scope, pricing policy, calendar, window and history/price-type settings. Changing
+confidence alone can reuse it. Scope, context or history-input changes invalidate
+it. An unconfirmed queued command must be reconciled before another is submitted.
+
+## End-of-day sampling and price types
+
+The guided profile uses `daily_latest_visible_session_end_v1` with
+`ordered_price_types_fixed_series_source_unit_contract_v1`. It captures each
+business date's **two local-midnight boundaries**, UTC instants and offsets under
+`captured_calendar_day_windows_v1`. The request uses the fixed `end_of_day`
+sentinel, without time entry. A date's window is half-open `[start, next midnight)`;
+it includes fractional late marks and preserves 23/25-hour DST days. Only dates
+whose exclusive end is at or before both the forecast market and valuation
+cutoffs are complete. Unfinished dates are omitted visibly. The forecast knowledge
+instant and certified publication prefix still bound every observation; choosing
+end of day never advances the forecast or admits information learned later.
+
+The first allowed type is `official_close_v1`: domain `DailySettlement` with
+`Final` publication state. Additional supported choices distinguish final trader
+marks, final index fixings, final parameters, final contract settlements,
+preliminary trader marks and preliminary daily settlements. This is the recorded
+publication classification, not an inferred claim about a free-text feed name.
+
+Selection tries the explicitly ordered list per factor and date. Within a role,
+the latest timestamp and unique visible correction head are resolved **before**
+state eligibility. A latest preliminary head cannot revive an earlier final.
+Missing or ineligible official data can use the next type only when the user has
+allowed it; correction forks or changed units/contracts refuse that endpoint
+rather than hiding behind a fallback. No price is carried from a previous date.
+The current-PV factor's original source, role, state and base anchor stay intact;
+only calibration can consume the explicitly permitted alternate roles/states.
+
+Every selected type, available type and official-close status is retained in the
+manifest's `dayPrices`. Endpoint observation keys resolve to exact timestamps in
+its retained evidence. A change between unlike selected types is flagged in the
+grid: it includes that price-type difference, with no inferred basis adjustment.
+Migration 0180 extends the trusted clock-capture/retention guards; no raw worker
+permission is broadened. Legacy exact-close requests, receipts and manifest hashes
+keep their existing contract.
 
 ## Universe and source mapping
 
@@ -19,7 +86,9 @@ refuse before deduplication. Connected curve references are unioned deterministi
 Explicit frozen facts are excluded from calibration. Every live column remains
 present even when its observed change is exactly zero.
 
-The first profile is `dated_factor_common_session_changes_v1`. Its explicit
+The common profile is `dated_factor_common_session_changes_v1`. The original
+exact-close alignment remains available through its explicit request contract. Its
+explicit
 policies are fixed current dated-input mapping, unique visible correction head,
 exact session close, native absolute change, common complete adjacent sessions,
 and exact source/role/state/unit/contract regime. Arithmetic uses
@@ -45,8 +114,9 @@ visible ancestry refuses the manifest.
 
 ## Sessions and retained clock evidence
 
-The caller selects the exact calendar version, inclusive first date, exclusive
-window end, local close time with seconds, and explicit reject policies for
+For legacy exact-close alignment, the caller selects the exact calendar version,
+inclusive first date, exclusive window end, local close time with seconds, and
+explicit reject policies for
 ambiguous and nonexistent times. The server reads the authorized reference clock
 and resolves every original business date once. The
 `captured_calendar_session_closes_v1` contract retains serialized rules, their
@@ -88,8 +158,9 @@ not qualified production throughput claims.
 The operation uses the existing Risk retained-context and trade-scope admission.
 Current trade, scenario, market and exact-reference authority is checked again
 after evidence assembly and immediately before publication. Captured identities
-grant no permission. The panel uses Risk's portfolio/book/trade selection, leaves
-every financial input unselected initially, and rejects responses inconsistent
+grant no permission. The panel uses Risk's portfolio/book/trade selection,
+materializes the visible server-provided starting profile, and rejects responses
+inconsistent
 with its submitted scope, snapshot, window or policies.
 
 The panel displays coverage, exclusions and rejected intervals, plus one selected

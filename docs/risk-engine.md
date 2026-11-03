@@ -481,3 +481,13 @@ Real Swarm deployment and recovery remain unqualified here.
 The page assistant has no general Python interpreter tool. A future code sandbox
 needs a separately agreed execution and isolation contract; the existing managed
 risk worker is not a general code execution service.
+
+### Guided statistical runs (D300)
+
+**Parametric VaR** uses the same portfolio/book/trade scope. Its visible starting
+profile and end-of-day price-type controls are documented in the
+[VaR walkthrough](risk-factor-history.md#guided-var-setup-d300). A Run click prepares
+aligned history automatically and reuses only an exact matching prepared input.
+Official closes are initially required; approved alternatives are explicit and
+flagged per endpoint. Saved reports include the same bounded factor grid and
+correlation/covariance display, independently of the current setup.

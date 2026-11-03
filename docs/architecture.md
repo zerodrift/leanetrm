@@ -6,6 +6,13 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D301 makes [VaR setup](risk-factor-history.md#guided-var-setup-d301) a guided
+calculation with visible editable starting settings, automatic aligned-history
+preparation and singleton calendar selection. Captured local-day windows and
+explicit ordered price types support end-of-day calibration; official daily
+closes are selected initially. Coverage grids and correlation/covariance graphics
+retain exact source/knowledge evidence and preserve the existing exact-close path.
+
 D299 adds [parametric VaR and expected shortfall](parametric-risk.md), using the
 complete held-factor history, ordinary native PV finite differences and one
 retained statistical job. Reports include signed book/factor contributions and

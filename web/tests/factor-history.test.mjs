@@ -36,3 +36,17 @@ test('a self-consistent response for another submitted trade or snapshot is refu
  const wrongClose=report();wrongClose.snapshotId='other';wrongClose.selection.context.snapshotId='other';wrongClose.request.scope={...structuredClone(scope),context:{...scope.context,snapshotId:'other'}};
  assert.throws(()=>validateFactorHistory(wrongClose,expected),/scope|snapshot|consistent/i);
 });
+function endOfDayReport(){
+ const r=report(),h=r.manifest,s=h.samples[0];h.policy={...h.policy,alignment:'daily_latest_visible_session_end_v1',regimes:'ordered_price_types_fixed_series_source_unit_contract_v1',priceTypes:['official_close_v1']};
+ s.from.marks[0].observation={id:'one'};s.to.marks[0].observation={id:'two'};
+ h.evidence=[{observation:{key:{id:'one'},source:{code:'close'},role:2,state:2,value:'10',observedAt:'2026-01-01T16:00:00Z'}},{observation:{key:{id:'two'},source:{code:'close'},role:2,state:2,value:'7',observedAt:'2026-01-02T16:00:00Z'}}];
+ r.request.policy=structuredClone(h.policy);
+ h.dayPrices=h.sessions.map(s=>({at:s.close,choices:[{selectedType:'official_close_v1',officialCloseStatus:'available',availableTypes:['official_close_v1']}]}));
+ return r;
+}
+test('end-of-day history refuses missing or mismatched price provenance',()=>{
+ validateFactorHistory(endOfDayReport());
+ for(const edit of [r=>{delete r.manifest.dayPrices;r.manifest.policy={...r.manifest.policy,alignment:'exact_session_close_v1',regimes:'exact_source_role_state_unit_contract_v1'};delete r.manifest.policy.priceTypes;},r=>delete r.manifest.evidence[0].observation.observedAt,r=>delete r.manifest.evidence[0].observation.source,r=>delete r.manifest.dayPrices,r=>r.manifest.dayPrices.pop(),r=>r.manifest.dayPrices[0].choices=[],r=>r.manifest.dayPrices[0].choices[0].selectedType=null,r=>r.manifest.dayPrices[0].choices[0].selectedType='trader_mark_final_v1',r=>r.manifest.dayPrices[0].choices[0].officialCloseStatus='missing_mark',r=>r.manifest.evidence[0].observation.role=1]){
+  const r=endOfDayReport();edit(r);assert.throws(()=>validateFactorHistory(r),/price|coverage|consistent/i);
+ }
+});

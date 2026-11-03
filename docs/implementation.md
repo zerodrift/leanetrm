@@ -226,7 +226,23 @@ Standalone physical forward booking, option products other than listed American
 futures options ([D288](futures-options.md)) remain unimplemented.
 [Parametric risk](parametric-risk.md) implements native sample covariance and
 one-session delta-normal VaR/ES; historical full repricing and other statistical
-methods remain work.
+methods remain work. D301 adds the guided
+[VaR walkthrough](risk-factor-history.md#guided-var-setup-d301): a visible six-month,
+99%, one-session starting profile, automatic history preparation, end-of-day local
+windows and explicitly ordered price types. Official daily closes are initially
+required; approved alternatives and missing official data are retained per endpoint.
+The bounded factor grid and correlation/covariance switch share the same captured
+report. Existing exact-close payloads retain their original hash and serialized
+shape; migration 0180 extends the clock guards without widening worker permissions.
+
+D301 qualification includes 18 managed history groups (including a baseline-produced
+legacy replay fixture), the full managed suite, API adapter checks, 1,230 frontend
+checks and 83 Python checks. Owned stock-PostgreSQL/worker checks cover official-only
+missing coverage, explicit ordered fallback, the first hour of a 25-hour local
+day, independent exact covariance and direct/worker parity. Sixteen parametric and
+ten history browser checks cover automatic preparation, singleton calendars, cache
+reuse, coverage grids, covariance graphics, export authorization, uncertain-command
+recovery and phone layout. Deployment still requires separate schema qualification.
 
 Trading opens a shared Blotter with individual futures trade bindings, managed
 pivots, account-saved layouts, exact exports and shared charts. Eight synthetic

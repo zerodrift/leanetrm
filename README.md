@@ -50,6 +50,11 @@ for synthetic booking, graphical break-even pricing and settlement previews.
 - **Risk jobs:** temporary nested stresses, risk around the stressed market,
   and queued mixed-book runs pinned to the header's financial context, with retained
   results and cancellation; see [the risk engine](docs/risk-engine.md)
+- **Parametric VaR / expected shortfall:** guided portfolio/book/trade setup,
+  visible editable defaults, automatic end-of-day history alignment, official-close
+  priority with explicit approved price-type alternatives, aligned-factor coverage
+  grids and correlation/covariance graphics; see [how to run VaR](docs/risk-factor-history.md#guided-var-setup-d301)
+  and [the implemented model and limits](docs/parametric-risk.md)
 - **Scheduled swaps:** persistent booking, amendments and inspection of up to 120
   monthly periods per side, with explicit quantities, observations, payment rules
   and discounting; see [quantity contracts](docs/financial-swap-quantities.md)
@@ -82,8 +87,10 @@ for synthetic booking, graphical break-even pricing and settlement previews.
 
 ## What's not built yet
 
-Full futures settlement PV and variation margin, options, VaR, gas scenario risk
-and physical settlement, general physical power booking, inventory costing,
+Full futures settlement PV and variation margin, option products beyond the
+supported listed American futures options, full-repricing historical VaR,
+Monte Carlo/PCA/hybrid VaR, EVT and broader physical settlement, general physical
+power booking, inventory costing,
 post-delivery crude valuation, PPA accepted-cash accounting/payments, broader agent
 credential lifecycle and production qualification remain work. General swap/PPA
 portfolio execution directly from compact retained programs is still an integration
