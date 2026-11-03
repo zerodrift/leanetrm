@@ -45,3 +45,16 @@ test('the sidebar has no PPA entry, while page reporting and unsaved checks incl
  const unsaved=source.match(/function unsaved\(\)\{([\s\S]*?)\n\}/)[1];
  assert.equal(new Function('page','ppa',unsaved)('ppa',{unsaved:()=>true}),true);
 });
+
+test('an opened PPA ticket asks before leaving only once something in it was edited',()=>{
+ const unsaved=ppaSource.match(/unsaved:\(\)=>([^}]+)\}/)[1];
+ const ask=(edited,{ticket=true,termination=false,uncertain=false}={})=>new Function('edited','get','command','return '+unsaved)(edited,
+  id=>({hidden:id==='ppa-ticket'?!ticket:id==='ppa-termination'?!termination:true}),()=>({command:uncertain?{uncertain:true}:undefined}));
+ assert.equal(ask(false),false);
+ assert.equal(ask(true),true);
+ assert.equal(ask(true,{ticket:false}),false);
+ assert.equal(ask(false,{termination:true}),true);
+ assert.equal(ask(false,{uncertain:true}),true);
+ const open=ppaSource.match(/function openNew\(pricing=false\)\{([^\n]+)\}\n/)[1];
+ assert.match(open,/show\('ppa-ticket',true\);[^]*edited=false;[^;]*$/);
+});
