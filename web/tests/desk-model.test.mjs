@@ -88,7 +88,7 @@ test('tile rows are keyed on the exact currency reference, never on its display 
  assert.deepEqual(pv.rows.filter(r=>r.total==='220'||r.total==='7').map(r=>r.total).sort(),['220','7']);
  assert.deepEqual(pv.rows.map(r=>r.currency).filter(c=>c==='USD').length,2,'two references of one currency code stay two rows, each reading by that code');
 });
-test('a currency of one code reads by that code in any reference revision; a unit that collides names its revision by a short id, not its catalog',()=>{
+test('a currency or unit of one code reads by that code in any reference revision, and never names a revision or catalog',()=>{
  const catalogId='10000000-0000-0000-0000-000000000001',second='e5f6a7b8-0000-4000-8000-000000000002';
  // The fixture's own references are in revision 20000000-...; these two share their codes with them and differ in the revision.
  const currency={...fixture.summaries[0].groups[0].currencyReference,revision:{catalogId,revisionId:second}};
@@ -96,7 +96,7 @@ test('a currency of one code reads by that code in any reference revision; a uni
  assert.deepEqual(tiles[0].rows.map(r=>r.currency),['EUR','USD','USD']);
  const unit={...fixture.summaries[2].groups[0].quantitySpecification,revision:{catalogId,revisionId:second}};
  const mix=positionsTile(changed(fixture.summaries,2,groups=>[...groups,{...groups[0],quantitySpecification:unit,tradeCount:1}]),fixture.holdings.length,0);
- assert.deepEqual(mix.segments.map(s=>s.label).filter(label=>/MMBtu/.test(label)),['Synthetic gas · Swaps · MMBtu (IT) · revision 20000000','Synthetic gas · Swaps · MMBtu (IT) · revision e5f6a7b8']);
+ assert.deepEqual(mix.segments.map(s=>s.label).filter(label=>/MMBtu/.test(label)),['Synthetic gas · Swaps · MMBtu (IT)','Synthetic gas · Swaps · MMBtu (IT)']);
  for(const label of [...tiles[0].rows.map(r=>r.currency),...mix.segments.map(s=>s.label)])assert.doesNotMatch(label,/[0-9a-f]{8}-[0-9a-f]{4}-.*:/,'a catalog is not part of what names a revision');
 });
 test('a book without positions of a measure gets no split, and a book that values none says so',()=>{

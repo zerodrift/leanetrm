@@ -117,9 +117,9 @@ function distinct(entries:ReadonlyMap<string,Identity>,word:string|null):Map<str
 }
 // A reference is identified by its code in its catalog's revision; a key built from it has been validated by referenceKey.
 const referenceIdentity=(label:string,reference:unknown):Identity=>{const {code,revision}=reference as Reference;return {label,code,revision:revision.revisionId,catalog:revision.catalogId};};
-// A currency reads by its code in whichever reference revision it was booked under; amounts in each stay apart all the same (D98).
+// A currency or unit reads by its code in whichever reference revision it was booked under; amounts in each stay apart all the same (D98).
 const currencyLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.currencyReference),referenceIdentity(text(g,'currency'),g.currencyReference)])),null);
-const unitLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.quantitySpecification),referenceIdentity(text(g,'unit'),g.quantitySpecification)])),'revision');
+const unitLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.quantitySpecification),referenceIdentity(text(g,'unit'),g.quantitySpecification)])),null);
 const marketKey=(market:string,revision:string)=>`${market}|${revision}`;
 // The market a position is grouped under: its curve, or the several curves of a scheduled swap together as the backend keys them.
 const marketOf=(h:Pick<Holding,'curve'|'marketKey'|'definitionRevisionId'>)=>marketKey(h.marketKey??h.curve,h.definitionRevisionId);
