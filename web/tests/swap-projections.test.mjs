@@ -12,3 +12,12 @@ test('projection selection requires an explicit offered choice and transports it
  assert.deepEqual(selected,reference);assert.notEqual(selected,reference);
  selected.version=99;assert.equal(reference.version,7);
 });
+
+test('a kept projection is labelled by its curve name, never by its key',async()=>{
+ const {projectionKeyLabel}=await import('../dist/swap-projections.js');
+ const key=JSON.stringify(['fe2039b9-a57c-5d18-b65e-64bab5061e43','houston_ship_channel_forward','houston_ship_channel_iferc_bidweek']);
+ const names={houston_ship_channel_forward:'Houston Ship Channel delivery-month forwards'};
+ assert.equal(projectionKeyLabel(key,curve=>names[curve]),'Houston Ship Channel delivery-month forwards');
+ for(const bad of ['','not json','[]',JSON.stringify(['revision',7,'index'])])
+  assert.throws(()=>projectionKeyLabel(bad,curve=>curve),{message:'The kept projection has no curve to name.'});
+});
