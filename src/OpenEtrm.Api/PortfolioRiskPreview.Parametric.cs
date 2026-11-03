@@ -154,14 +154,11 @@ public sealed partial class PortfolioRiskPreview
             exposures=nominal.Totals.Select(t=>new{t.BookId,t.Measure,currency=t.Value.Currency}),
             factors=history.Columns.Select(c=>new{c.Id,factor=Factor(markets,CurveRiskAxes.Quote(prepared.Portfolio,c.Mapping.Factor,ct))}),
             books=prepared.Books.Where(b=>prepared.BookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name")}),
-            partitions=result.Partitions.Select(p=>new{p.Measure,measureLabel=MeasureLabel(p.Measure),currencyReference=p.Currency,currency=Currency(markets,p.Currency),
-                display=new{standardDeviation=StatisticalDisplay(p.StandardDeviation),valueAtRisk=StatisticalDisplay(p.ValueAtRisk),expectedShortfall=StatisticalDisplay(p.ExpectedShortfall)}}),
+            partitions=result.Partitions.Select(p=>new{p.Measure,measureLabel=MeasureLabel(p.Measure),currencyReference=p.Currency,currency=Currency(markets,p.Currency)}),
             finiteDifference=new{spec.FiniteDifference.Convention,spec.FiniteDifference.TradingTicks,spec.FiniteDifference.DeltaTolerance,evaluated=evaluate,estimates},
             passes=evaluate?new[]{half!.Work,nominal.Work,twice!.Work}:new[]{nominal.Work}},RiskJobs.Json);
         if(System.Text.Encoding.UTF8.GetByteCount(report.ToJsonString(RiskJobs.Json))>30_000_000)
             throw new MarketDataException("risk_result_limit","Reduce the explicit statistical scope or window: the complete report exceeds 30 MB.");
         return report;
     }
-    private static string StatisticalDisplay(string value)=>OpenEtrm.Shared.Numerics.SignedRatio.TryParse(value,out var parsed)?
-        parsed.Format(12,MidpointRounding.ToEven):throw new MarketDataException("risk_parametric_numeric","Expected plain backend Gaussian output.");
 }

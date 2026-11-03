@@ -2,6 +2,7 @@ import {historyGridState,renderHistoryGrid} from './risk-history-grid.js';
 import {node,table} from './risk-report-elements.js';
 import {renderChart} from './chart-view.js';
 import {parametricCharts,type ParametricView} from './parametric-risk.js';
+import {amountText} from './amount-display.js';
 
 export const newParametricView=()=>({partition:0,metric:'valueAtRisk' as 'valueAtRisk'|'expectedShortfall',rows:0,columns:0,matrix:'correlation' as 'correlation'|'covariance',history:historyGridState()});
 /** Shared Risk/Blotter rendering. Every risk amount, contribution and matrix cell is a backend result. */
@@ -14,16 +15,17 @@ export function renderParametric(host:HTMLElement,view:ParametricView,state:Retu
  if(state.partition>=result.partitions.length)state.partition=0;
  const p=result.partitions[state.partition],label=view.partitions.find(v=>v.measure===p.measure&&JSON.stringify(v.currencyReference)===JSON.stringify(p.currency))!;
  const controls=node('div');controls.className='risk-result-controls';
- const choose=node('select');choose.setAttribute('aria-label','Parametric native measure');choose.append(...view.partitions.map((v,i)=>new Option(`${v.measureLabel} · ${v.currency} · partition ${i+1}`,String(i))));choose.value=String(state.partition);
+ const choose=node('select');choose.setAttribute('aria-label','Parametric native measure');choose.append(...view.partitions.map((v,i)=>new Option(`${v.measureLabel} · ${v.currency}`,String(i))));choose.value=String(state.partition);
  choose.onchange=()=>{state.partition=Number(choose.value);redraw();};const measure=node('label','Native measure and currency ');measure.append(choose);controls.append(measure);
  for(const [metric,text] of [['valueAtRisk','VaR contributions'],['expectedShortfall','ES contributions']] as const){const button=node('button',text);button.type='button';button.className='secondary';button.setAttribute('aria-pressed',String(metric===state.metric));button.onclick=()=>{state.metric=metric;redraw();};controls.append(button);}
  host.append(controls);
  const cards=node('div');cards.className='parametric-cards';
  for(const [key,title] of [['valueAtRisk','Value at risk'],['expectedShortfall','Expected shortfall'],['standardDeviation','Loss standard deviation']] as const){
-  const card=node('div');card.className='parametric-stat';const value=node('strong',label.display[key]+' '+label.currency);value.title=p[key];card.append(node('span',title),value);cards.append(card);
+  const card=node('div');card.className='parametric-stat';const value=node('strong',amountText(p[key],'money')+' '+label.currency);value.title=p[key];card.append(node('span',title),value);cards.append(card);
  }
- host.append(cards,node('p',`Exact model loss mean: ${p.mean} ${label.currency}. Exact loss variance: ${p.variance}. Book-component reconciliation residuals: VaR ${p.varReconciliation}, ES ${p.esReconciliation}.`));
- if(!p.density.length)host.append(node('p','Zero variance: the fitted loss is a point mass at '+p.mean+' '+label.currency+'. No continuous density is drawn.'));
+ const moments=node('details');moments.append(node('summary','Exact model moments'),node('p',`Loss mean: ${p.mean} ${label.currency}. Loss variance: ${p.variance}. Book-component reconciliation residuals: VaR ${p.varReconciliation}, ES ${p.esReconciliation}.`));
+ host.append(cards,node('p',`Model loss mean: ${amountText(p.mean,'money')} ${label.currency}.`),moments);
+ if(!p.density.length)host.append(node('p','Zero variance: the fitted loss is a point mass at '+amountText(p.mean,'money')+' '+label.currency+'. No continuous density is drawn.'));
  const matrixSelect=node('select');matrixSelect.setAttribute('aria-label','Factor matrix');matrixSelect.append(new Option('Correlation','correlation'),new Option('Covariance','covariance'));matrixSelect.value=state.matrix;
  matrixSelect.onchange=()=>{state.matrix=matrixSelect.value as typeof state.matrix;redraw();};const matrixLabel=node('label','Factor matrix ');matrixLabel.append(matrixSelect);controls.append(matrixLabel);
  const size=c.columns.length;

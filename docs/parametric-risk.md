@@ -46,9 +46,10 @@ operations. Density uses range reduction and four squarings, without native
 platform exponential functions. Confidence that collapses to 0.5 in binary64
 refuses. Nonzero exact values that cannot cross the finite binary64 boundary
 refuse rather than silently underflowing. Approximate values retain G17 digits
-expanded to plain decimal; display amounts use managed half-even rounding to
-12 fractional places. Exact intermediate numerator/denominator size is bounded
-at 16,384 bits.
+expanded to plain decimal. The report shows VaR, ES, deviation and mean through
+the shared amount display at the user's money precision (D114), with the exact
+value on hover; exact moments and reconciliation residuals stay in a collapsed
+receipt. Exact intermediate numerator/denominator size is bounded at 16,384 bits.
 
 Deltas are measured by ordinary full PV at native half, nominal and double
 central-difference steps, under
