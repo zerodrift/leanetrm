@@ -228,7 +228,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  root.replaceChildren(controls,fitBar,error,views);
 
  let products:{code:string;name:string}[]=[],product='',shown:SurfaceRead|undefined,drawn:View[]=[],cells:HeatCell[]=[],drawnFor:VolSurfaceResult|undefined,drawnRevision='';
- let generation=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='';
+ let generation=0,reading=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='';
  const expiryLabel=(e:SurfaceExpiry)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',year:'numeric',timeZone:o.zone()}).format(new Date(e.expiryAt));
  const instant=(at:string)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZone:o.zone()}).format(new Date(at));
 
@@ -246,14 +246,15 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  // running, one timer reads again, unless the product, context or page changed or the page is hidden.
  async function read(number:number){
   const context=o.context(),scope=scopeOf();
-  const answer=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model});
+  let answer:SurfaceRead;
+  reading++;try{answer=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model});}finally{reading--;}
   if(number!==generation)return;
   if(answer.model!==model||answer.snapshotId!==context.snapshotId||(answer.state==='fitted')!==!!answer.surface||answer.surface&&answer.surface.modelId!==model)
    throw Error('The surface read does not match the selected product, model and context. Refresh and try again.');
   shown=answer;render();stop();
-  if(active(answer.job))timer=setTimeout(()=>{timer=undefined;
+  if(active(answer.job)&&!document.hidden)timer=setTimeout(()=>{timer=undefined;
    let same=false;try{same=scopeOf()===scope;}catch{/* an unapplied context reads nothing */}
-   if(number===generation&&same&&!root.hidden&&!document.hidden)void read(number).catch(error=>{if(number===generation)failed(error);});
+   if(number===generation&&same&&!root.hidden)void read(number).catch(error=>{if(number===generation)failed(error);});
   },checkBackMs);
  }
  // A newly chosen product or context: what was shown and any read or check-back under way are given up.
@@ -283,14 +284,22 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
    const listed=await optionProducts();
    if(number!==generation)return;
    products=listed;
-   if(!products.some(p=>p.code===product))product='';
    productSelect.replaceChildren(new Option(products.length?'Choose…':'No option products',''),...products.map(p=>new Option(publicText(`${p.name} · ${p.code}`),p.code)));
-   productSelect.value=product;productSelect.disabled=!products.length;
+   productSelect.disabled=!products.length;
+   // A product asked for, or chosen before, that the context does not list is said, never swapped for another or for none.
+   const missing=product&&!products.some(p=>p.code===product)?product:'';
+   if(missing)product='';
+   productSelect.value=product;
+   if(missing){failed(Error(`Option product ${missing} is not in the reference data at this context.`));return;}
    await readProduct();
   }catch(error){if(number===generation)failed(error);}
  }
  productSelect.onchange=()=>{product=productSelect.value;void readProduct();};
- document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!root.hidden&&timer===undefined&&active(shown?.job??null)){const number=generation;void read(number).catch(error=>{if(number===generation)failed(error);});}});
+ // A hidden page stops checking back; shown again, it reads at once unless a read is already under way.
+ document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){stop();return;}
+  if(!root.hidden&&!reading&&active(shown?.job??null)){const number=generation;void read(number).catch(error=>{if(number===generation)failed(error);});}
+ });
 
  function render(){
   const read=shown!;

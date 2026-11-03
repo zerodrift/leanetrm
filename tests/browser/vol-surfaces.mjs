@@ -24,16 +24,22 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
  const picture=async name=>{const shot=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});await writeFile(join(artifacts,name+'.png'),Buffer.from(shot.data,'base64'));};
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
- // Every vol-surface request with its answer and when it was sent; and a switch that marks the next read's stored revision as
- // having revised inputs.
+ // Every vol-surface request with its answer and when it was sent and answered; and switches that lose the next fit's response
+ // after the backend has answered it, as a dropped connection would, mark the next read's stored revision as having revised
+ // inputs, and leave one option product out of the reference catalog's answers.
  const {identifier}=await command('Page.addScriptToEvaluateOnNewDocument',{source:`
-  window.surfaceCalls=[];window.reviseNextRead=false;const send=window.fetch;
+  window.surfaceCalls=[];window.reviseNextRead=false;window.loseNextFit=false;window.unlistedProduct=null;const send=window.fetch;
   window.fetch=async(input,init)=>{
    const path=String(typeof input==='string'?input:input.url),call=/[/](vol-surfaces[/][a-z]+)$/.exec(path);
+   if(window.unlistedProduct&&/[/]reference[/]catalog[?]table=futures_option_products/.test(path)){
+    const response=await send(input,init),page=await response.json();
+    return new Response(JSON.stringify({...page,rows:page.rows.filter(row=>row.code!==window.unlistedProduct)}),{status:response.status,headers:{'Content-Type':'application/json'}});
+   }
    if(!call)return send(input,init);
    const record={path:call[1],body:init?.body?JSON.parse(init.body):null,sent:performance.now()};window.surfaceCalls.push(record);
    let response=await send(input,init);
-   record.status=response.status;record.answer=await response.clone().json().catch(()=>null);
+   record.status=response.status;record.answer=await response.clone().json().catch(()=>null);record.answered=performance.now();
+   if(call[1]==='vol-surfaces/fit'&&window.loseNextFit){window.loseNextFit=false;throw new TypeError('Failed to fetch');}
    if(call[1]==='vol-surfaces/read'&&response.ok&&window.reviseNextRead&&record.answer.revision){
     window.reviseNextRead=false;const revised={...record.answer,revision:{...record.answer.revision,inputsRevised:true}};
     response=new Response(JSON.stringify(revised),{status:200,headers:{'Content-Type':'application/json'}});
@@ -88,22 +94,46 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
     document.querySelector('#vol-fit-failure').parentElement===document.querySelector('#vol-fit').parentElement`,
    "[document.querySelector('#vol-fit-status')?.textContent,document.querySelector('#vol-fit')?.textContent,document.querySelector('#vol-fit-failure')?.textContent]");
 
-  // Fit now submits a job; the page shows its state and checks back until it finishes.
-  await click('#vol-fit');
-  await settled(`${calls('vol-surfaces/fit')}.some(c=>c.status===200)`,30000);
-  const submitted=await evaluate(`${calls('vol-surfaces/fit')}.at(-1)`);
+  // Fit now submits a job. Its response is lost after the backend queued it: the request is kept and retried under its own id.
+  await evaluate('window.loseNextFit=true');await click('#vol-fit');
+  await settled(`${calls('vol-surfaces/fit')}.length===1&&!document.querySelector('#vol-fit-retry').hidden`,30000);
+  const lost=await evaluate(`${calls('vol-surfaces/fit')}.at(-1)`);
   await check('Fit now submits the product and model at the selected close under a fresh request id',
-   q(Object.keys(submitted.body).sort().join()==='model,product,requestId,snapshotId'&&submitted.body.product==='nymex_lo'&&submitted.body.model===model&&
-    submitted.body.snapshotId===unfitted.body.context.snapshotId&&/^[0-9a-f-]{36}$/.test(submitted.body.requestId)&&['queued','running'].includes(submitted.answer.state)));
+   q(Object.keys(lost.body).sort().join()==='model,product,requestId,snapshotId'&&lost.body.product==='nymex_lo'&&lost.body.model===model&&
+    lost.body.snapshotId===unfitted.body.context.snapshotId&&/^[0-9a-f-]{36}$/.test(lost.body.requestId)&&lost.status===200&&['queued','running'].includes(lost.answer.state)));
+  await check('a lost fit response keeps the request to retry, and offers no fresh fit meanwhile',
+   "!!document.querySelector('#vol-fit-retry').offsetParent&&!document.querySelector('#vol-fit').offsetParent&&/not confirmed/.test(document.querySelector('#vol-fit-failure').textContent)",
+   "[document.querySelector('#vol-fit-retry').hidden,document.querySelector('#vol-fit').hidden,document.querySelector('#vol-fit-failure').textContent]");
+  await click('#vol-fit-retry');
+  await settled(`${calls('vol-surfaces/fit')}.length===2&&${calls('vol-surfaces/fit')}.at(-1).status===200`,30000);
+  const submitted=await evaluate(`${calls('vol-surfaces/fit')}.at(-1)`);
+  await check('the retry sends the original request under its own id and the backend answers its first job',
+   q(JSON.stringify(submitted.body)===JSON.stringify(lost.body)&&submitted.answer.jobId===lost.answer.jobId),q([lost.body,submitted.body,lost.answer,submitted.answer]));
   await settled(`/queued|running/i.test(document.querySelector('#vol-fit-status').textContent)&&!document.querySelector('#vol-fit')?.offsetParent`,30000);
   await check('the queued or running job is shown with its state, and nothing offers a second fit meanwhile',
-   `/Fit (queued|running)/.test(document.querySelector('#vol-fit-status').textContent)&&!document.querySelector('#vol-fit')?.offsetParent`,
+   `/Fit (queued|running)/.test(document.querySelector('#vol-fit-status').textContent)&&!document.querySelector('#vol-fit')?.offsetParent&&document.querySelector('#vol-fit-retry').hidden`,
    "document.querySelector('#vol-fit-status').textContent");
-  await settled(`${ready}==='fitted'&&${calls('vol-surfaces/read')}.at(-1).answer.state==='fitted'`,60000).catch(()=>settled(`${ready}==='fitted'`,60000));
-  const polls=await evaluate(`${calls('vol-surfaces/read')}.filter(c=>c.sent>${q(submitted.sent)})`);
-  const gaps=polls.slice(1).map((c,i)=>c.sent-polls[i].sent);
-  await check('the page checked back on the running job at a fixed interval of at most 2 s, one read at a time, until it finished',
-   q(polls.length>=3&&gaps.every(g=>g>=900&&g<=2600)&&polls.slice(0,-1).every(c=>['queued','running'].includes(c.answer.job?.state))&&polls.at(-1).answer.job?.state==='completed'),q(gaps));
+  const sinceRetry=`${calls('vol-surfaces/read')}.filter(c=>c.sent>${q(submitted.sent)})`;
+  await settled(`${sinceRetry}.length>=3&&${sinceRetry}.at(-1).answer!==undefined`,15000);
+  const polls=await evaluate(sinceRetry);
+  // Each read is sent 1.5 s after the previous one was answered: never before it was answered, and never sooner or later than that.
+  const spacing=polls.slice(1).map((c,i)=>[c.sent-polls[i].answered,c.sent-polls[i].sent]);
+  await check('while the job runs the page reads again 1.5 s after each answer, one read at a time',
+   q(polls.slice(0,-1).every(c=>['queued','running'].includes(c.answer.job?.state))&&spacing.every(([afterAnswer,between])=>afterAnswer>=1450&&afterAnswer<=1750&&between<=2000)),q(spacing));
+  // Hidden, the page reads nothing; shown again, it reads at once and goes on checking back.
+  // The page's clock just before the change, which the page may answer with a read in the same task.
+  const visibility=hidden=>evaluate(`(()=>{const at=performance.now();Object.defineProperty(document,'hidden',{configurable:true,get:()=>${hidden}});
+   Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>${q(hidden?'hidden':'visible')}});document.dispatchEvent(new Event('visibilitychange'));return at;})()`);
+  const hid=await visibility(true);
+  await new Promise(resolve=>setTimeout(resolve,4000));
+  await check('while the browser hides the page it sends no read',`!${calls('vol-surfaces/read')}.some(c=>c.sent>${hid}+${q(1800)})`,`${calls('vol-surfaces/read')}.map(c=>c.sent-${hid})`);
+  const shownAt=await visibility(false);
+  await settled(`${calls('vol-surfaces/read')}.some(c=>c.sent>${shownAt})`,2000);
+  await check('shown again, the page reads at once and checks back on the job',`${calls('vol-surfaces/read')}.find(c=>c.sent>${shownAt}).sent-${shownAt}<500`,
+   `${calls('vol-surfaces/read')}.map(c=>[Math.round(c.sent-${shownAt}),c.answer?.job?.state])`);
+  await evaluate("delete document.hidden;delete document.visibilityState");
+  await settled(`${ready}==='fitted'&&${calls('vol-surfaces/read')}.at(-1).answer.state==='fitted'`,60000);
+  await check('the page went on checking back until the job finished and then showed its surface',`${calls('vol-surfaces/read')}.at(-1).answer.job?.state==='completed'&&${calls('vol-surfaces/read')}.at(-1).answer.job.id===${q(submitted.answer.jobId)}`);
   const before=await evaluate(`${calls('vol-surfaces/read')}.length`);
   await new Promise(resolve=>setTimeout(resolve,3500));
   await check('once the job finished the page stops checking back',`${calls('vol-surfaces/read')}.length===${before}`);
@@ -157,6 +187,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   // A refit's job is checked on only while its product is shown; the next product's stored revision is flagged as having revised inputs.
   await click('#vol-fit');
   await settled(`/Fit (queued|running)/.test(document.querySelector('#vol-fit-status').textContent)`,30000);
+  await check('a later fit is a new request with an id of its own',`${calls('vol-surfaces/fit')}.length===3&&${calls('vol-surfaces/fit')}.at(-1).body.requestId!==${q(submitted.body.requestId)}`);
   await evaluate('window.reviseNextRead=true');await choose('nymex_on');
   const switched=await evaluate('performance.now()');
   await new Promise(resolve=>setTimeout(resolve,3500));
@@ -200,6 +231,33 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
    `${fitsWidth}&&[...document.querySelectorAll('${page} .vol-chart')].every(c=>c.getBoundingClientRect().right<=document.documentElement.clientWidth+1)`,
    `[document.documentElement.scrollWidth,document.documentElement.clientWidth,[...document.querySelectorAll('${page} *')].filter(n=>n.getBoundingClientRect().right>document.documentElement.clientWidth+1).slice(0,5).map(n=>n.className||n.tagName)]`);
   await picture('vol-surface-phone');
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
+  // A product the context's reference data does not list is said by name, never swapped for another or for none.
+  await evaluate("window.unlistedProduct='nymex_lo'");await click('#nav-vol-surfaces');
+  await settled(`${ready}==='error'`,30000);
+  await check('a chosen product the context does not list is a stated error naming it',
+   "document.querySelector('#vol-surface-error').textContent==='Option product nymex_lo is not in the reference data at this context.'&&document.querySelector('#vol-product').value===''",
+   "[document.querySelector('#vol-surface-error').textContent,document.querySelector('#vol-product').value]");
+  await evaluate('window.unlistedProduct=null');
+
+  // A historical view reads the stored surface known at its cutoff and offers no fit, which is admitted only in the current workspace.
+  const send=(path,body)=>evaluate(`(async()=>{const boot=await(await fetch('/examples/exchange/api/bootstrap?includeFrames=false')).json();
+   const r=await fetch('/examples/exchange/api/'+${q(path)},{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:${q(JSON.stringify(body))}});return r.status;})()`);
+  const historical=await send('market/context',{effectiveOn:'2026-10-16',knownAt:new Date().toISOString(),mode:'at',selection:'latest_correction'});
+  if(historical!==200)throw Error('The historical context was refused: '+historical);
+  try{
+   await command('Page.navigate',{url:url+'/?example=exchange'});await wait("document.querySelector('#snapshot').options.length>1&&"+idle,60000);
+   // A historical view the session kept chooses no close; the person chooses one of its date's closes.
+   if(!await evaluate("!!document.querySelector('#snapshot').value"))await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value).value"));
+   await wait(idle,30000);
+   await click('#nav-vol-surfaces');await settled(`document.querySelector('#vol-product').options.length>1&&${idle}`,30000);
+   await choose('nymex_on');
+   const retained=await lastRead();
+   await check('a historical view reads at its retained context and says to fit in the current workspace, with no fit button',
+    `${q(retained.body.context.knowledgeMode==='retained'&&!!retained.body.context.contextId&&retained.answer.canFit===true&&retained.answer.state==='fitted')}&&
+     document.querySelector('.vol-fit-note').textContent==='Fit in the current workspace'&&!document.querySelector('#vol-fit').offsetParent`,
+    "[document.querySelector('.vol-fit-note')?.textContent,document.querySelector('#vol-fit')?.hidden]");
+  }finally{await send('market/current',{});}
  }finally{
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
   await command('Page.removeScriptToEvaluateOnNewDocument',{identifier});
