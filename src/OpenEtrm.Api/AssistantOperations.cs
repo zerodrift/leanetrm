@@ -67,6 +67,8 @@ internal static class AssistantOperations
         Add("blotter","AmendTrade|ReadTrades|ReadMarketData",true,"","swaps/settlement/determine swaps/settlement/net swaps/settlement/payment");
         Add("blotter_risk","RunScenario|ReadTrades|ReadMarketData",false,"portfolio/risk/catalog portfolio/risk");
         Add("risk_jobs","RunScenario|ReadTrades|ReadMarketData",true,"!portfolio/risk/jobs !portfolio/risk/jobs/{id:guid}","portfolio/risk/jobs portfolio/risk/jobs/{id:guid}/cancel");
+        // The page's full VaR catalog, history and report exceed a tool result; these bounded reads run the same calculation.
+        Add("risk_jobs","RunScenario|ReadTrades|ReadMarketData",false,"portfolio/risk/parametric/setup portfolio/risk/parametric/summary");
         Add("ppa","ReadTrades|ReadMarketData",true,"!ppa/frames ppa/catalog ppa/directory ppa/editor ppa/legs ppa/validate ppa/preview ppa/inspect ppa/break-even ppa/status settlement/payment-lineages/plan settlement/ppa/preview");
         Add("ppa","BookTrade|ReadTrades|ReadMarketData",true,"","ppa/book");
         Add("ppa","AmendTrade|ReadTrades|ReadMarketData",true,"","ppa/amend ppa/terminate");

@@ -49,6 +49,10 @@ public sealed partial class PortfolioRiskPreview
             maxObservations=FactorHistory.MaximumObservations,maxCalendarDays=FactorHistory.MaximumCalendarDays,maxResponseBytes=MaximumHistoryBytes}};
 
     public async Task<object> History(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioHistoryRequest body,CancellationToken ct)
+        =>(await CaptureHistory(connection,data,frame,body,ct)).Result;
+    // The history read, and the captured request that names its manifest for a statistical calculation.
+    private async Task<(object Result,PortfolioHistoryRequest Captured)> CaptureHistory(NpgsqlConnection connection,PreviewData data,InputFrame frame,
+        PortfolioHistoryRequest body,CancellationToken ct)
     {
         if(body.Scope is null||body.Policy is null)throw new MarketDataException("risk_history_policy","Choose the retained scope and explicit dated-factor history policies.");
         FactorHistory.ValidatePolicy(body.Policy);
@@ -73,7 +77,7 @@ public sealed partial class PortfolioRiskPreview
         if(JsonSerializer.SerializeToUtf8Bytes(result,RiskJobs.Json).Length>MaximumHistoryBytes)
             throw new MarketDataException("risk_history_capacity","The history manifest exceeds 32 MiB. Reduce the window or select a smaller explicit scope.");
         await RequireHistoryAccess(connection,portfolio,ct);
-        return result;
+        return (result,captured);
     }
 
     private async Task<AlignedFactorHistory> BuildHistory(NpgsqlConnection connection,PortfolioValuation.Prepared portfolio,InputFrame frame,

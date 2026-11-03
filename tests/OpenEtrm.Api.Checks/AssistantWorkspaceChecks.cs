@@ -23,6 +23,14 @@ static class AssistantWorkspaceChecks
         foreach(var excluded in new[]{"futures.amend-preview_v1","swaps.preview_v1","swaps.scheduled-price_v1"})
             if(AssistantOperations.Find(excluded) is not null)
                 throw new Exception($"{excluded} cannot preserve this turn's financial context and must stay outside the catalog.");
+        foreach(var read in new[]{"portfolio.risk.parametric.setup_v1","portfolio.risk.parametric.summary_v1"})
+        {
+            var operation=AssistantOperations.Find(read);
+            if(operation is not {Page:"risk_jobs",Method:"POST",RequiresApproval:false,CurrentOnly:false}||
+                !operation.Permissions.Order().SequenceEqual(new[]{"ReadMarketData","ReadTrades","RunScenario"}))
+                throw new Exception($"{read} must be a pinned Risk-page read under the scenario, trade and market permissions.");
+            AssistantOperations.RequireRead(read);
+        }
         if(AssistantOperations.Find("settings.ai.providers.key_v1") is not null||AssistantOperations.Find("arbitrary.sql_v1") is not null)
             throw new Exception("Credentials and arbitrary operations must stay outside the model catalog.");
         if(AssistantOperations.Catalog.Any(o=>o.Id.Length>64)||AssistantOperations.Catalog.Select(o=>o.Id).Distinct().Count()!=AssistantOperations.Catalog.Count)

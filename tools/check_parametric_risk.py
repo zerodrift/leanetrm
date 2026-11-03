@@ -55,6 +55,9 @@ def run_checks(url, manifest, query, run_worker):
     unavailable = c.call('portfolio/risk/parametric', {**request, 'history': unavailable_history['request']})['parametric']
     assert not unavailable['result']['available'] and unavailable['result']['partitions'] == []
     assert not unavailable['finiteDifference']['evaluated'] and unavailable['finiteDifference']['estimates'] == []
+    compact = c.call('portfolio/risk/parametric/summary', {**request, 'history': unavailable_history['request']})
+    assert not compact['available'] and compact['partitions'] == [] and compact['unavailableReasons'] == unavailable['result']['unavailableReasons']
+    assert not compact['coverage']['available'] and compact['coverage']['minimumSamples'] == 1000
     print('PASS parametric unavailable coverage: retained calibration diagnostics contain no fabricated sensitivities or risk estimates', flush=True)
     mixed_source=deepcopy(history['request']);mixed_source.pop('expectedManifestId');mixed_source['scope']={**scope,'bookIds':[],'tradeIds':None}
     mixed_source['from']='2020-12-15';mixed_source['policy']['minimumSamples']=2
@@ -69,6 +72,7 @@ def run_checks(url, manifest, query, run_worker):
         estimates=[e for e in mixed['finiteDifference']['estimates'] if e['measure']==partition['measure'] and e['currency']==partition['currency']]
         delta=[sum(Fraction(e['nominal']) for e in estimates if e['columnId']==column['id']) for column in mixed_history['manifest']['columns']]
         assert Fraction(partition['variance'])==sum(delta[i]*covariance[i][j]*delta[j] for i in range(d) for j in range(d))
+    check_compact_reads(c, {**scope, 'bookIds': [], 'tradeIds': None}, mixed_request, mixed, mixed_history)
     mixed_job=c.call('portfolio/risk/parametric/jobs',{'requestId':str(uuid4()),'request':mixed_request});run_worker()
     assert c.call('portfolio/risk/jobs/'+mixed_job['id'])['result']['parametric']['result']==mixed['result']
     print('PASS parametric mixed scope: complete shared factor union, independent multi-factor native variance oracles and exact worker partition replay',flush=True)
@@ -108,5 +112,47 @@ def run_checks(url, manifest, query, run_worker):
     c.call('portfolio/risk/jobs/' + job['id'], expected=403)
     c.call('portfolio/risk/parametric/archive?limit=1', expected=403)
     c.call('portfolio/risk/parametric', request, expected=403)
+    c.call('portfolio/risk/parametric/setup', scope, expected=403)
+    c.call('portfolio/risk/parametric/summary', request, expected=403)
     c.call('profile', {'profile': 'risk'})
     print('PASS parametric authority: retained identity never grants a viewer calculation or report access', flush=True)
+
+
+ASSISTANT_RESULT_BYTES = 65536
+
+
+def check_compact_reads(c, scope, request, report, history):
+    """The assistant's VaR setup and summary are bounded projections of the same catalog and calculation the Risk page uses."""
+    import json
+    def size(value): return len(json.dumps(value, separators=(',', ':')).encode())
+    catalog = c.call('portfolio/risk/catalog', scope)
+    setup = c.call('portfolio/risk/parametric/setup', scope)
+    assert size(setup) <= ASSISTANT_RESULT_BYTES, size(setup)
+    assert (setup['history'], setup['parametric'], setup['pricingPolicy']) == (catalog['history'], catalog['parametric'], catalog['pricingPolicy'])
+    assert {b['id']: b['name'] for b in setup['books']} == {b['id']: b['name'] for b in report['books']}
+    assert sum(b['valuedTrades'] + b['excludedTrades'] for b in setup['books']) == c.call('portfolio/risk/scope', {**scope, 'offset': 0, 'limit': 1})['total']
+    uncaptured = deepcopy(request); uncaptured['history'].pop('expectedManifestId')
+    for body in (request, uncaptured):
+        summary = c.call('portfolio/risk/parametric/summary', body)
+        assert size(summary) <= ASSISTANT_RESULT_BYTES, size(summary)
+        full = report['result']
+        assert summary['available'] and summary['historyId'] == history['manifest']['id'] == full['calibration']['historyId']
+        assert summary['policy'] == request['policy']
+        assert summary['history'] == {k: request['history'][k] for k in ('calendar', 'from', 'to', 'policy')}
+        coverage = history['coverage']
+        assert summary['coverage'] == {k: coverage[k] for k in ('available', 'factors', 'sessions', 'samples', 'rejected', 'minimumSamples')}
+        assert [(f['id'], f['label'], f['unit']) for f in summary['factors']] == [(f['id'], f['factor']['label'], f['factor']['unit']) for f in report['factors']]
+        day_end = request['history']['policy']['alignment'] == 'daily_latest_visible_session_end_v1'
+        assert all(sum(f['sessionPriceTypes'].values()) == coverage['sessions'] if day_end else f['sessionPriceTypes'] is None for f in summary['factors'])
+        assert summary['books'] == report['books']
+        position = {f['id']: i for i, f in enumerate(report['factors'])}
+        assert len(summary['partitions']) == len(full['partitions'])
+        for compact, exact in zip(summary['partitions'], full['partitions']):
+            assert (compact['measure'], compact['currency']) == (exact['measure'], next(p['currency'] for p in report['partitions'] if p['measure'] == exact['measure']))
+            assert {k: compact[k] for k in ('mean', 'standardDeviation', 'valueAtRisk', 'expectedShortfall')} == {k: exact[k] for k in ('mean', 'standardDeviation', 'valueAtRisk', 'expectedShortfall')}
+            assert compact['books'] == [{'bookId': b['id'], 'valueAtRisk': b['valueAtRisk'], 'expectedShortfall': b['expectedShortfall']} for b in exact['books']]
+            ranked = sorted(exact['factors'], key=lambda f: -abs(Fraction(f['valueAtRisk'])))
+            assert compact['factors'] == [{'factor': position[f['id']], 'valueAtRisk': f['valueAtRisk'], 'expectedShortfall': f['expectedShortfall']} for f in ranked]
+    current = deepcopy(uncaptured); current['history']['scope']['context']['knowledgeMode'] = 'current'; current['history']['scope']['context'].pop('contextId')
+    c.call('portfolio/risk/parametric/summary', current, expected=422)
+    print('PASS parametric assistant reads: bounded setup and summary repeat the catalog and the exact calculated report', flush=True)

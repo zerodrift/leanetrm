@@ -1713,6 +1713,14 @@ api.MapPost("/portfolio/risk/historical/jobs",(HttpContext c,SubmitHistoricalRis
     return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>
     {c.Items["risk_job_attempted"]=true;return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,new(body.RequestId,request),ct);});
 });
+api.MapPost("/portfolio/risk/parametric/setup",(HttpContext c,PortfolioRiskCatalogRequest body)=>PortfolioRead(c,
+    body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
+    (connection,data,frame,ct)=>portfolioRisk.ParametricSetup(connection,data,frame,body,ct)));
+api.MapPost("/portfolio/risk/parametric/summary",(HttpContext c,PortfolioParametricRequest body)=>
+{
+    var request=PortfolioRiskPreview.StatisticalRequest(body);
+    return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>portfolioRisk.ParametricSummary(connection,data,frame,body,ct));
+});
 api.MapPost("/portfolio/risk/parametric/jobs",(HttpContext c,SubmitParametricRiskJob body)=>
 {
     var request=PortfolioRiskPreview.StatisticalRequest(body.Request);
