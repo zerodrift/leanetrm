@@ -84,6 +84,18 @@ def run_checks(url, query, manifest):
     assert http_view['balance']['constraint'] == 'unassessed' and http_view['balance']['available'] is None
     directory = client.call('facilities/quantities/directory', dict(context=http_context))
     assert any(row['id'] == ledger for row in directory['ledgers'])
+    # Repeat the maintenance autovacuum performed before a slow hosted directory read: it
+    # vacuums locations, counting rows without statistics, and analyzes units and
+    # quantity specifications. The directory and its target choices must still check each
+    # ledger's and each target's visibility once, not for every combination of joined rows.
+    query('VACUUM ref_data.locations;ANALYZE ref_data.units,ref_data.quantity_specifications;')
+
+    def pages(statement):
+        plan = json.loads(call(f'EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) {statement}', context=capture()))[0]['Plan']
+        return plan['Shared Hit Blocks'] + plan['Shared Read Blocks']
+    reads = dict(directory=pages(f"SELECT security.facility_quantity_directory('{catalog_id}');"),
+                 choices=pages(f"SELECT security.facility_quantity_choices('{catalog_id}',NULL,'{at}');"))
+    assert reads['directory'] < 20000 and reads['choices'] < 100000, reads
     source_body = dict(kind='source', ledgerId=ledger, expectedPreviousId=None, quantity='100',
                        evidence='Synthetic facility statement')
     source_operation = str(uuid4())

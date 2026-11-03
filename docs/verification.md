@@ -3565,3 +3565,52 @@ Use `tools/run_preview.py --facility-quantity-check --gas-daily-quantity-check
 stock PostgreSQL flags described above. The trading CI group includes the facility
 workflow. No production or migration rollout, broader commodity qualification,
 final billing adoption, notification dispatch or throughput benchmark is claimed.
+
+## Facility read plans (2026-11-03, local)
+
+Hosted runners timed out the Facilities page's first directory load after the
+preview's 5-second command limit. The command was
+`security.facility_quantity_directory`. Its per-ledger visibility checks
+(`trading_visible`, `reference_version_visible`) sat on the ledger row of a view
+that joined labels from five reference tables. Autovacuum vacuumed
+`ref_data.locations` (row count, no statistics) and analyzed `ref_data.units` and
+`ref_data.quantity_specifications`. After that the planner joined the reference
+tables first: 106,272 combinations, probing the ledger 13,284 times and running
+both checks on each probe. `security.facility_quantity_choices`, which the same
+request runs next, degraded the same way: `facility_gas_target` resolved the
+trade's latest visible revision for each of the schedule's 31 rows before it
+matched the requested day. Migration 0185 reads the labels by exact key and
+resolves the revision once per target. Results are unchanged.
+
+Workload: the owned preview of the trading CI facility step (`--facility-quantity-check
+--gas-daily-quantity-check --gas-composition-check --gas-setup-check --browser-check`),
+measured just before the facility browser workflow starts. The catalog then holds one
+facility ledger, 14 gas delivery obligations, 94 schedule grids and 222 target choices,
+on one reference revision. Each read ran as the trader in a captured 2021-01-15 working
+context, using `EXPLAIN (ANALYZE, BUFFERS, TIMING OFF)`: five consecutive calls in one
+transaction, with the median reported. Before and after ran against the same database,
+replacing only the 0185 objects. Environment: Apple M4 Pro, 14 cores, 48 GB, macOS,
+stock PostgreSQL 16.14, all pages in shared buffers. Pages are deterministic for a
+plan. Time is not. Other local workloads were running during the choices run (load
+average 13 to 20), so its times are higher than the directory run's.
+
+| Read, statistics left by autovacuum | Before | After |
+| --- | --- | --- |
+| `facility_quantity_directory`, one ledger | 2,958 ms, 1,769,720 pages | 1.1 ms, 2,182 pages |
+| `facility_quantity_choices`, 222 targets | 3,637 ms, 1,189,144 pages | 838 ms, 165,799 pages |
+
+Before autovacuum reached those tables, the directory read took 15.5 ms and the
+choices read 420 ms, so the plans in use depended on maintenance timing. With 0185
+the directory returned byte-identical JSON. The catalog-wide and ledger-scoped
+choices also returned byte-identical JSON (matching MD5).
+
+The facility ledger check repeats exactly that maintenance and bounds both reads
+by pages read, which unlike time does not depend on the machine. With 3 synthetic
+trades the reads take 1,650,158 and 185,346 pages before 0185 and 2,160 and
+48,916 after (bounds 20,000 and 100,000). The trading CI facility step passes locally,
+including 20 facility and 16 physical gas browser checks. The `Command Timeout` is unchanged.
+
+The choices read still proves the trade's authority once for every candidate
+(one call per obligation-day). Its cost grows linearly with the catalog's
+single-day gas targets, up to its 1,001-result limit. No hosted-runner timing is
+claimed here.
