@@ -463,7 +463,13 @@ after reload. Worker and calculation diagnostics are expandable. Statistical VaR
 aligned calibration history and a complete report archive remain future work.
 
 Queueing writes to PostgreSQL. A separately configured managed risk worker claims
-compatible work; submitting a request does not provision a worker. The Swarm
+compatible work; submitting a request does not provision a worker. The queue
+carries a second job kind, `vol_surface_fit_v1`, which fits and records a
+[volatility surface](vol-surfaces.md#fit-jobs) (D300) under the same lease, attempt,
+cancellation and security-generation rules; its actor needs `PublishMarketData`,
+`ReadTrades` and `ReadMarketData` instead of `RunScenario`. `GET
+/api/portfolio/risk/jobs` and the Risk page list portfolio risk jobs by convention,
+so fit jobs do not appear there. The Swarm
 stack in `deploy/risk-workers.swarm.yaml` places replicas on nodes explicitly
 labeled for risk and uses the exact API image. The shared infrastructure view is
 an approved node projection, not a risk-worker replica or queue-health monitor.

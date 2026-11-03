@@ -1,5 +1,44 @@
 # Local verification and continuous integration
 
+## Volatility surfaces (D300)
+
+Local runs on 2 November 2026 against the branch head, each in its own disposable
+PostgreSQL cluster with synthetic data. The capability is described in
+[volatility surfaces](vol-surfaces.md).
+
+| Run | Result |
+| --- | --- |
+| MarketData checks `--vol-surface` | 16 PASS |
+| `npm test --prefix web` | 1,202 pass |
+| `run_preview.py --exchange-check --browser-check` | exit 0, 318 PASS, including 29 futures-option and 46 Vol surfaces browser checks |
+
+The managed checks are independent of the fit's algorithm: a smile generated from
+known parameters is recovered, rich/cheap equals an offset deliberately added to one
+series, and too few strikes, a nonpositive smile, a missing underlying and the grid's
+ends each give their stated result. The exchange preview run fits both example
+products in the managed calculation (`--vol-surface-fit`), stores and reads
+revisions under the trading publication protocol, and runs fit jobs over HTTP
+through a risk worker: a retried request identity returns its job, a refit of the same
+inputs records nothing, a revised settlement flags the stored surface and a refit
+records a new revision while the old cutoff still reads the old one, a historical
+context cannot fit, and a fenced attempt records nothing. The browser checks cover the
+page's views, linking, fit states, hidden-page reads and historical view, and the
+Volatility surface links from the option ticket and an option trade's Details, each
+opening the page on the option's product at the context the option was read at.
+
+Measured fit runtime with 71 (ON) and 70 (LO) series per product, 70 solved each,
+in a Debug build: the `--vol-surface-fit` check took 27.4 and 28.0 s (ON) and 29.6
+and 31.2 s (LO) in two earlier runs, and 24.7 to 25.0 s (ON) and 25.9 to 26.8 s (LO)
+in this task's three runs. Earlier end-to-end fit jobs in the preview worker took
+18.3 to 22.6 s, with 0.14 to 0.21 s of queue wait; the worker's fit of ON took 16.5 to
+16.8 s in this task's runs. The first build, with about 30 series per product, took
+11.7 s per product, which missed the original 5 s synchronous budget.
+
+Environment: macOS 26.6.2 arm64, PostgreSQL 16, .NET 10.0.402 Debug build, Node
+24.22.0, Chrome, all components on one machine. These are local workload
+observations, not a performance qualification. Migrations 0172 and 0173 need a
+separately qualified schema release; nothing was deployed.
+
 ## Individual trade risk scope
 
 The D292 local qualification on 2 November 2026 passed the focused API trade-scope
