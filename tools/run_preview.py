@@ -565,28 +565,29 @@ def main():
                 time.sleep(.1)
         else:
             raise RuntimeError('Preview did not become ready:\n'+(temporary/'app.log').read_text())
-        def prepare_risk_worker(selected=None,login='preview_risk_worker'):
+        # A worker's calculation timeout; its process gets 30 s more to claim, report and exit.
+        def prepare_risk_worker(selected=None,login='preview_risk_worker',timeout=60):
             from check_risk_jobs_db import provision_worker
             provision_worker(query,selected or manifest,login)
             connection=temporary/f'{login}-connection'
             connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2')
             connection.chmod(0o600)
             config=temporary/f'{login}.json'
-            config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':60}))
+            config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':timeout}))
             config.chmod(0o600)
             return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
-        def risk_worker_runner(selected=None,login='preview_risk_worker'):
-            worker_env=prepare_risk_worker(selected,login)
+        def risk_worker_runner(selected=None,login='preview_risk_worker',timeout=60):
+            worker_env=prepare_risk_worker(selected,login,timeout)
             def run(measure=False):
                 command=[str(dotnet),str(frozen_dll),'--risk-worker','once']
                 if not measure:
-                    subprocess.run(command,cwd=ROOT,env=worker_env,check=True,timeout=90);return None
+                    subprocess.run(command,cwd=ROOT,env=worker_env,check=True,timeout=timeout+30);return None
                 # One claimed job, with the worker process's resident memory sampled every 50 ms; returns the sampled peak in KiB.
-                process=subprocess.Popen(command,cwd=ROOT,env=worker_env);peak=0;deadline=time.monotonic()+90
+                process=subprocess.Popen(command,cwd=ROOT,env=worker_env);peak=0;deadline=time.monotonic()+timeout+30
                 while process.poll() is None:
                     sample=subprocess.run(['ps','-o','rss=','-p',str(process.pid)],capture_output=True,text=True).stdout.strip()
                     peak=max(peak,int(sample)) if sample else peak
-                    if time.monotonic()>deadline:process.kill();raise RuntimeError('The risk worker did not finish within 90 seconds.')
+                    if time.monotonic()>deadline:process.kill();raise RuntimeError(f'The risk worker did not finish within {timeout+30} seconds.')
                     time.sleep(.05)
                 if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
                 return peak
@@ -1028,7 +1029,7 @@ def main():
                 check_vol_surface_fit(url,query,exchange_manifest,dotnet,temporary,app_env)
                 # Surfaces fitted as jobs on the risk queue, recorded and read back over HTTP.
                 from check_vol_surface_api import run_checks as check_vol_surface_api
-                check_vol_surface_api(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_fit_worker'),worker_login='exchange_fit_worker')
+                check_vol_surface_api(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_fit_worker',timeout=300),worker_login='exchange_fit_worker')
                 if args.browser_check:
                     # The option ticket and position window, beside the options the checks above booked; then Vol surfaces, whose fits
                     # the trader submits and a served risk worker runs.
