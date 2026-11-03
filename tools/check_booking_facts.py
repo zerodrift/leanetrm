@@ -5,7 +5,7 @@ from preview_client import PreviewClient
 from preview_fixture import trade_booking
 
 
-def run_checks(url,query=None,manifest=None,client=None):
+def run_checks(url,query=None,manifest=None,client=None,administrator=None):
     c=client or PreviewClient(url);c.bootstrap();profile=c.call('profile',{'profile':'trader'})
     w=c.call('workspace');frame=next(f for f in w['frames'] if f['at'].startswith('2020-12-18'))
     context={'snapshotId':frame['id'],'convention':'contract_lot_execution_pnl_v2','knowledgeMode':'current'}
@@ -44,7 +44,9 @@ def run_checks(url,query=None,manifest=None,client=None):
         assert c.call('swaps/book',{**swap,'operationId':str(uuid4()),**patch},expected=422)['code']=='trade_booking_read_only'
     assert swap_result==c.call('swaps/book',swap)
 
-    admin=PreviewClient(url);admin.bootstrap();admin.call('profile',{'profile':'admin'})
+    admin=administrator or PreviewClient(url)
+    if administrator is None:admin.bootstrap()
+    admin.call('profile',{'profile':'admin'})
     login='booking_'+uuid4().hex[:12]
     other=admin.call('admin/create',{'operationId':str(uuid4()),'login':login,'name':'Synthetic second booker','kind':'human','roles':['trader']})
     admin.call('profile',{'profile':login});other_frame=next(f for f in admin.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))

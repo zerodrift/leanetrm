@@ -10,15 +10,20 @@ static class HostedAccessChecks
         foreach (var input in new[] { "", "a b", "admin@example.com\nforged", "é", new string('a', 65) })
             Reject(() => HostedAccess.Login(input));
         foreach (var input in new[] { "short", new string('a', 1025) })
-            Reject(() => HostedAccess.Password(input));
+            Reject(() => HostedAccess.Password(input,15));
         var password = "A private synthetic test password 42!";
-        HostedAccess.Password(password);
-        var hash = HostedAccess.HashPassword(password);
+        HostedAccess.Password(password,15);
+        Reject(()=>HostedAccess.Password(password,64));
+        var hash = HostedAccess.HashPassword(password,15);
         Require(hash != password && HostedAccess.VerifyPassword(hash, password), "password is hashed and verifies");
         Require(!HostedAccess.VerifyPassword(hash, password + "!"), "wrong password is rejected");
         Require(!HostedAccess.VerifyPassword("broken", password), "malformed stored hash fails closed");
         var older=new PasswordHasher<string>(Microsoft.Extensions.Options.Options.Create(new PasswordHasherOptions{IterationCount=1000})).HashPassword("local",password);
         Require(HostedAccess.CheckPassword(older,password)==PasswordVerificationResult.SuccessRehashNeeded,"supported older hash requests an upgrade");
+        const string legacy = "Legacy8!";
+        var legacyHash = new PasswordHasher<string>(Microsoft.Extensions.Options.Options.Create(new PasswordHasherOptions{IterationCount=1000})).HashPassword("local",legacy);
+        Require(HostedAccess.CheckPassword(legacyHash,legacy)==PasswordVerificationResult.SuccessRehashNeeded,
+            "A stricter enrollment policy must not prevent verification or rehash of an existing credential.");
         var token = HostedAccess.NewToken();
         Require(token.Length == 64 && HostedAccess.TokenDigest(token) != token, "invitation and session tokens have 256 bits and are stored as digests");
         Reject(() => HostedAccess.TokenDigest("bad"));

@@ -20,13 +20,17 @@ test('the groups and their pages keep the sidebar order',()=>{
   ['overview','Overview',['dashboard']],
   ['trading','Trading',['futures']],
   ['markets','Markets',['market','custom-curves','delivery','interval-series','interval-curves']],
-  ['operations','Operations',['risk','jobs']],
+  ['operations','Operations',['facilities','risk','jobs']],
   ['settings','Settings',['schedules','power','gas-setup','crude-setup','reference','parties']],
   ['admin','Admin',['admin','ai']]]);
 });
 test('PPA bookings is a Trading page the Blotter opens, not a sidebar entry',()=>{
  assert.equal(pageGroup('ppa'),'Trading');assert.ok(!allPages.includes('ppa'));
  assert.equal(pageAvailable('ppa',['ReadMarketData','ReadTrades']),true);assert.equal(pageAvailable('ppa',['ReadMarketData']),false);
+});
+test('facility quantities require explicit complete-pool access',()=>{
+ assert.equal(pageAvailable('facilities',['ReadMarketData','ReadTrades','ReadFacilityQuantities']),true);
+ for(const permissions of [[],['ReadMarketData','ReadTrades'],['ReadFacilityQuantities']])assert.equal(pageAvailable('facilities',permissions),false);
 });
 test('a page outside every group is refused instead of given a default heading',()=>{
  assert.throws(()=>pageGroup('unknown'),/could not load/);
@@ -40,7 +44,8 @@ test('trade readers start on the Blotter; market readers on curves; others by pe
 test('each first page needs every permission its navigation entry needs',()=>{
  // The Blotter lists trades valued against market data, so trades alone do not open it.
  assert.equal(firstPage(['ReadTrades']),null);
- assert.equal(firstPage(['ManageAccess']),null);
+ assert.equal(firstPage(['ManageAccess']),'admin');
+ assert.equal(pageAvailable('admin',['ManageAccess']),true,'access policy administration must not require identity administration');
  assert.equal(firstPage(['ManageIdentities']),null);
  assert.equal(firstPage(['ReadTradeParties','RunJobs']),null);
 });

@@ -42,6 +42,23 @@ class PublicRouteRendering(unittest.TestCase):
         for value in [1, 65535]:
             self.assertEqual(render_template('${UPSTREAM_PORT}', {**self.values, 'UPSTREAM_PORT': value}), str(value))
 
+    def test_gateway_uses_the_selected_process_budgets(self):
+        from gateway_configuration import render_gateway
+        limits = {'requestBytes': 4096, 'intervalRevisionBytes': 65536,
+                  'extendedRequestSeconds': 11, 'responseGraceSeconds': 3}
+        template = (Path(__file__).resolve().parents[1] / 'deploy/nginx.conf.template').read_text()
+        rendered = render_gateway(template, self.values, limits)
+        self.assertIn('client_max_body_size 4096;', rendered)
+        self.assertIn('client_max_body_size 65536;', rendered)
+        self.assertIn('proxy_read_timeout 20s;', rendered)
+        self.assertIn('exceeds its 4 KiB limit', rendered)
+        self.assertIn('exceeds its 64 KiB limit', rendered)
+        longer=render_gateway(template,self.values,{**limits,'extendedRequestSeconds':20,'responseGraceSeconds':5})
+        self.assertIn('proxy_read_timeout 25s;',longer)
+        for key in limits:
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                render_gateway(template, self.values, {k:v for k,v in limits.items() if k!=key})
+
     def test_optimized_python_refuses_verification_before_starting_nginx(self):
         with tempfile.TemporaryDirectory() as temporary:
             sentinel = Path(temporary) / 'synthetic-nginx'

@@ -165,7 +165,7 @@ public sealed partial class ModelCatalog
         "model_changed"=>"The model's capability version changed. Reload the agent directory and name the version it lists.",
         "model_disabled"=>"Enable the model before an agent version names it.",
         "model_limit_exceeded"=>"Ask for no more output tokens per call than the model version allows.",
-        "grant_duration_exceeded"=>$"A grant lasts at most {RuntimeSet.MaxGrantDays} days.",
+        "grant_duration_exceeded"=>"The selected grant duration exceeds the current workspace operating policy.",
         "instructions_too_long"=>string.Create(CultureInfo.InvariantCulture,$"Instructions are limited to {RuntimeSet.AgentInstructions:N0} characters."),
         "agent_retired"=>"This agent is retired: it can no longer be changed or granted.",
         "agent_managed"=>"Users & access neither creates nor changes agents, and grants the agent reader role to no one.",

@@ -14,16 +14,18 @@ public sealed record RiskHistoryFactor(QuoteFactor Factor,PublicationState State
 public sealed record RiskHistoryCalendar(ReferenceKey Reference,DateOnly From,DateOnly To,ImmutableArray<DateOnly> BusinessDates);
 public sealed record RiskHistoryResolvedClose(DateOnly Date,DateTimeOffset Instant,int OffsetSeconds);
 public sealed record RiskHistoryClock(ReferenceKey Reference,string Rules,string Fingerprint,string CloseTime,string AmbiguousTime,string InvalidTime,
-    string Resolution,ImmutableArray<RiskHistoryResolvedClose> ResolvedCloses)
+    string Resolution,ImmutableArray<RiskHistoryResolvedClose> ResolvedCloses,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]ImmutableArray<RiskHistoryDayWindow> DayWindows=default)
 {
-    public const string Captured="captured_calendar_session_closes_v1";
+    public const string Captured="captured_calendar_session_closes_v1",DayEnds="captured_calendar_day_windows_v1",EndOfDay="end_of_day";
 }
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record RiskHistoryPolicy(string Convention,string NumericalPolicy,string Basis,string Revisions,string Alignment,string Transform,string Missing,string Regimes,int MinimumSamples)
+public sealed record RiskHistoryPolicy(string Convention,string NumericalPolicy,string Basis,string Revisions,string Alignment,string Transform,string Missing,string Regimes,int MinimumSamples,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]ImmutableArray<string> PriceTypes=default)
 {
     public const string Version1="dated_factor_common_session_changes_v1",Raw="fixed_current_dated_input_mapping_v1",
         Heads="unique_visible_correction_head_v1",ExactCloses="exact_session_close_v1",Absolute="native_absolute_change_v1",
-        Complete="common_complete_adjacent_sessions_v1",Fixed="exact_source_role_state_unit_contract_v1";
+        Complete="common_complete_adjacent_sessions_v1",Fixed="exact_source_role_state_unit_contract_v1",DayEnd="daily_latest_visible_session_end_v1",PriceOrder="ordered_price_types_fixed_series_source_unit_contract_v1";
 }
 // Knowledge is certified publication evidence, separate from observed or received time.
 public sealed record RiskHistoryObservation(MarketObservation Observation,ReferenceKey Quote,PriceUnit Unit,ContractKey Contract,
@@ -38,7 +40,8 @@ public sealed record RiskHistoryChange(string Id,RiskHistoryEndpoint From,RiskHi
 public sealed record RiskHistoryRejected(string Id,RiskHistoryEndpoint From,RiskHistoryEndpoint To,ImmutableArray<RiskHistoryIssue> Issues);
 public sealed record AlignedFactorHistory(string Id,RiskHistoryForecast Forecast,RiskHistoryPolicy Policy,RiskHistoryCalendar Calendar,
     RiskHistoryClock Clock,ImmutableArray<RiskHistoryColumn> Columns,ImmutableArray<RiskHistorySession> Sessions,
-    ImmutableArray<RiskHistoryObservation> Evidence,ImmutableArray<RiskHistoryChange> Samples,ImmutableArray<RiskHistoryRejected> Rejected,bool Available,string? UnavailableReason);
+    ImmutableArray<RiskHistoryObservation> Evidence,ImmutableArray<RiskHistoryChange> Samples,ImmutableArray<RiskHistoryRejected> Rejected,bool Available,string? UnavailableReason,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]ImmutableArray<RiskHistoryDayPrices> DayPrices=default);
 
 // Admission precedes loading observation history. The adapter consumes these
 // exact columns and sessions for its bounded authorized read.
@@ -55,7 +58,7 @@ public sealed class PreparedFactorHistory
     {Forecast=forecast;Policy=policy;Calendar=calendar;Clock=clock;Columns=columns;Sessions=sessions;}
 }
 
-public static class FactorHistory
+public static partial class FactorHistory
 {
     public const int MaximumFactors=1024,MaximumSessions=2049,MaximumCells=250000,MaximumObservations=500000,MaximumCalendarDays=3660;
     // The authorized adapter resolves a reference clock once. Retained replay uses
@@ -63,6 +66,7 @@ public static class FactorHistory
     public static RiskHistoryClock CaptureClock(RiskHistoryCalendar calendar,ReferenceKey reference,PowerClock clock,string closeTime,string ambiguousTime,string invalidTime)
     {
         RequireCalendar(calendar);Money.RequireKey(reference);
+        if(closeTime==RiskHistoryClock.EndOfDay)return CaptureDayClock(calendar,reference,clock,ambiguousTime,invalidTime);
         if(reference.Revision!=calendar.Reference.Revision||clock is null||ambiguousTime!="reject"||invalidTime!="reject"||
             !TimeOnly.TryParseExact(closeTime,"HH:mm:ss",CultureInfo.InvariantCulture,DateTimeStyles.None,out var time))
             throw Error("risk_history_calendar","Choose the exact calendar clock, explicit close time and reject policies for ambiguous/nonexistent closes.");
@@ -85,7 +89,7 @@ public static class FactorHistory
         ImmutableArray<RiskHistoryFactor> factors,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();RequireForecast(forecast);ValidatePolicy(policy);
-        var columns=Columns(forecast,factors);var sessions=Sessions(calendar,clock,forecast);
+        var columns=Columns(forecast,factors);var sessions=policy.Alignment==RiskHistoryPolicy.DayEnd?DaySessions(calendar,clock,forecast):Sessions(calendar,clock,forecast);
         if((long)columns.Length*sessions.Length>MaximumCells)
             throw Error("risk_history_capacity","Reduce the history window or scope: at most 250000 factor/session cells are admitted.");
         return new(forecast with{Markets=[..forecast.Markets.OrderBy(m=>m.Definitions.RevisionId)]},policy,
@@ -163,15 +167,22 @@ public static class FactorHistory
             lineage.Reverse();
             return new(row.Observation.Key,row.Observation.Value,row.KnowledgeOrder!.Value,row.KnownAt!.Value,lineage.ToImmutable());
         }
+        var dayRows=policy.Alignment==RiskHistoryPolicy.DayEnd?visible.Values.GroupBy(r=>(r.Observation.Series,r.Observation.Source)).ToDictionary(g=>g.Key,g=>g.OrderBy(r=>r.Observation.ObservedAt).ToArray()):new Dictionary<(SeriesKey,ReferenceKey),RiskHistoryObservation[]>();
+        var dayPrices=ImmutableArray.CreateBuilder<RiskHistoryDayPrices>();
         var endpoints=ImmutableArray.CreateBuilder<RiskHistoryEndpoint>();var issuesBySession=new List<ImmutableArray<(string Factor,string Reason)>>();
         foreach(var session in sessions)
         {
+            var dayWindow=policy.Alignment==RiskHistoryPolicy.DayEnd?clock.DayWindows.Single(w=>w.Date==session.Date):null;
+            var choices=ImmutableArray.CreateBuilder<RiskHistoryPriceChoice>();
             var marks=ImmutableArray.CreateBuilder<RiskHistoryMark?>();var issues=ImmutableArray.CreateBuilder<(string,string)>();
             foreach(var column in columns)
             {
-                cancellation.ThrowIfCancellationRequested();marks.Add(Mark(column,session,out var reason));
+                cancellation.ThrowIfCancellationRequested();string? reason;
+                if(policy.Alignment==RiskHistoryPolicy.DayEnd){marks.Add(MarkDay(column,dayWindow!,policy,visible,dayRows,superseded,out reason,out var choice,cancellation));choices.Add(choice);}
+                else marks.Add(Mark(column,session,out reason));
                 if(reason is not null)issues.Add((column.Id,reason));
             }
+            if(policy.Alignment==RiskHistoryPolicy.DayEnd)dayPrices.Add(new(session.Close,choices.ToImmutable()));
             endpoints.Add(new(session.Close,marks.ToImmutable()));issuesBySession.Add(issues.ToImmutable());
         }
         var samples=ImmutableArray.CreateBuilder<RiskHistoryChange>();var rejected=ImmutableArray.CreateBuilder<RiskHistoryRejected>();
@@ -188,7 +199,7 @@ public static class FactorHistory
             .ThenBy(r=>r.Observation.ObservedAt).ThenBy(r=>r.KnowledgeOrder).ThenBy(r=>r.Observation.Key.Id).ToImmutableArray();
         var available=samples.Count>=policy.MinimumSamples;
         var result=new AlignedFactorHistory("",forecast,policy,calendar,clock,columns,sessions,evidence,samples.ToImmutable(),rejected.ToImmutable(),available,
-            available?null:"insufficient_common_history");
+            available?null:"insufficient_common_history",policy.Alignment==RiskHistoryPolicy.DayEnd?dayPrices.ToImmutable():default);
         cancellation.ThrowIfCancellationRequested();return result with{Id=Digest(result)};
     }
     private static bool Utc(DateTimeOffset at)=>at.Offset==TimeSpan.Zero&&at.Year<9999;
@@ -204,9 +215,11 @@ public static class FactorHistory
     public static void ValidatePolicy(RiskHistoryPolicy p)
     {
         if(p is null||p.Convention!=RiskHistoryPolicy.Version1||p.NumericalPolicy!=CurveModel.NumericalPolicy||p.Basis!=RiskHistoryPolicy.Raw||p.Revisions!=RiskHistoryPolicy.Heads||
-            p.Alignment!=RiskHistoryPolicy.ExactCloses||p.Transform!=RiskHistoryPolicy.Absolute||p.Missing!=RiskHistoryPolicy.Complete||
-            p.Regimes!=RiskHistoryPolicy.Fixed||p.MinimumSamples<2||p.MinimumSamples>=MaximumSessions)
-            throw Error("risk_history_policy","Select the versioned raw dated-factor, exact-close, common-complete absolute-change contract and an explicit minimum of 2–2048 changes.");
+            p.Alignment is not (RiskHistoryPolicy.ExactCloses or RiskHistoryPolicy.DayEnd)||p.Transform!=RiskHistoryPolicy.Absolute||p.Missing!=RiskHistoryPolicy.Complete||
+            p.MinimumSamples<2||p.MinimumSamples>=MaximumSessions||
+            (p.Alignment==RiskHistoryPolicy.ExactCloses?(p.Regimes!=RiskHistoryPolicy.Fixed||!p.PriceTypes.IsDefault):
+             (p.Regimes!=RiskHistoryPolicy.PriceOrder||p.PriceTypes.IsDefaultOrEmpty||p.PriceTypes.Length>PriceTypes.Length||p.PriceTypes.Distinct().Count()!=p.PriceTypes.Length||p.PriceTypes.Any(t=>!PriceTypes.Any(v=>v.Code==t)))))
+            throw Error("risk_history_policy","Choose a supported history policy and a minimum of 2–2048 complete daily changes. End-of-day history also needs an ordered list of allowed price types.");
     }
     private static ImmutableArray<RiskHistoryColumn> Columns(RiskHistoryForecast forecast,ImmutableArray<RiskHistoryFactor> factors)
     {
@@ -248,7 +261,7 @@ public static class FactorHistory
     {
         RequireCalendar(calendar);
         if(clock is null||calendar.Reference.Revision!=clock.Reference.Revision||clock.AmbiguousTime!="reject"||clock.InvalidTime!="reject"||
-            clock.Resolution!=RiskHistoryClock.Captured||string.IsNullOrWhiteSpace(clock.Rules)||clock.Rules.Length>65536||!Hash(clock.Fingerprint)||
+            clock.Resolution!=RiskHistoryClock.Captured||!clock.DayWindows.IsDefault||string.IsNullOrWhiteSpace(clock.Rules)||clock.Rules.Length>65536||!Hash(clock.Fingerprint)||
             clock.Fingerprint!=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(clock.Rules)))||clock.ResolvedCloses.IsDefault||
             clock.ResolvedCloses.Length!=calendar.BusinessDates.Length||!clock.ResolvedCloses.Select(c=>c.Date).Order().SequenceEqual(calendar.BusinessDates.Order())||
             !TimeOnly.TryParseExact(clock.CloseTime,"HH:mm:ss",CultureInfo.InvariantCulture,DateTimeStyles.None,out var time))
@@ -267,12 +280,16 @@ public static class FactorHistory
     private static string Sha(object value)=>Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value)));
     private static object Unit(PriceUnit u)=>new{u.Currency,u.Quantity,multiplier=u.Multiplier.ToString()};
     private static object Endpoint(RiskHistoryEndpoint p)=>new{p.At,marks=p.Marks.Select(m=>m is null?null:new{m.Observation,value=m.Value.ToString(),m.KnowledgeOrder,m.KnownAt,m.Lineage})};
-    private static string Digest(AlignedFactorHistory h)=>Sha(new{h.Forecast,h.Policy,h.Calendar,h.Clock,
+    private static string Digest(AlignedFactorHistory h)
+    {
+        var legacy=new{h.Forecast,h.Policy,h.Calendar,h.Clock,
         columns=h.Columns.Select(c=>new{c.Id,factor=new{c.Mapping.Factor.Input,c.Mapping.Factor.Quote,unit=Unit(c.Mapping.Factor.Unit),c.Mapping.Factor.Contract,
             c.Mapping.Factor.Observation,c.Mapping.Factor.Source,c.Mapping.Factor.Role,baseValue=c.Mapping.Factor.BaseValue.ToString(),c.Mapping.Factor.Curves,
             tradingTick=c.Mapping.Factor.TradingTick.ToString()},c.Mapping.State}),h.Sessions,
         evidence=h.Evidence.Select(r=>new{r.Observation.Key,r.Observation.Series,r.Observation.Source,r.Observation.Role,r.Observation.State,r.Observation.ObservedAt,
             value=r.Observation.Value.ToString(),r.Quote,unit=Unit(r.Unit),r.Contract,r.Revises,r.KnowledgeOrder,r.KnownAt}),
         samples=h.Samples.Select(s=>new{s.Id,from=Endpoint(s.From),to=Endpoint(s.To),changes=s.Changes.Select(v=>v.ToString())}),
-        rejected=h.Rejected.Select(s=>new{s.Id,from=Endpoint(s.From),to=Endpoint(s.To),s.Issues}),h.Available,h.UnavailableReason});
+        rejected=h.Rejected.Select(s=>new{s.Id,from=Endpoint(s.From),to=Endpoint(s.To),s.Issues}),h.Available,h.UnavailableReason};
+        return h.DayPrices.IsDefault?Sha(legacy):Sha(new{history=legacy,h.DayPrices});
+    }
 }

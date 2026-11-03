@@ -7,13 +7,15 @@ using OpenEtrm.Shared.Numerics;
 namespace OpenEtrm.MarketData.Gas;
 
 [EconomicDefinition("retained_gas_member_v1")]
-public sealed record RetainedGasMember
+public sealed record RetainedGasMember : IRetainedProgramMember
 {
     public Guid SideId { get; }
     public BookedSideProgram Program { get; }
     [IdentityField] public ExactDecimal Direction { get; }
     [IdentityField] public ExactRatio Ratio { get; }
     [IdentityField] public string ProgramDigest { get; }
+    ExactDecimal IRetainedProgramMember.ValuationCoefficient => Direction;
+    ExactRatio? IRetainedProgramMember.ValuationRatio => Ratio;
 
     public RetainedGasMember(Guid sideId, ExactDecimal direction, ExactRatio ratio, BookedSideProgram program)
     {
@@ -27,16 +29,13 @@ public sealed record RetainedGasMember
 
 // Booked programs supply economics; the common PV/factor contracts supply risk.
 [EconomicDefinition("retained_gas_instrument_v1")]
-public sealed record RetainedGasInstrument : Instrument
+public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedGasMember>
 {
-    [IdentityField] public ImmutableArray<RetainedGasMember> Members { get; }
+    [IdentityField] public override ImmutableArray<RetainedGasMember> Members { get; }
     [IdentityField] public ImmutableArray<GasValuationAssignment> Assignments { get; }
     public ImmutableArray<SchedulePriceTerm> ActivePrices => [..Assignments.Select(a => new SchedulePriceTerm(ExactDecimal.Parse("1"), null, a.Lookup)).Distinct()];
     public override ReferenceKey Currency => Assignments[0].Quote.Currency;
     public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), Assignments[0].Quote.Quantity);
-    public override bool SupportsQuantityScaling => true;
-    internal override bool RequiresNativeProgramMarket => true;
-    public override string RetainedScheduleIdentity => "retained_side_programs_v1/" + string.Join('/', Members.Select(m => m.ProgramDigest));
 
     public RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members,
         ImmutableArray<GasValuationAssignment> assignments) : base(id)
@@ -53,20 +52,7 @@ public sealed record RetainedGasInstrument : Instrument
         [..Assignments.Select(a => PeriodPriceSelector.ProjectionAt(a.Lookup, context.Snapshot)).OfType<CurveRequest>().Distinct()],
         UnitQuantity.Specification, Currency) { ScheduleIdentity = RetainedScheduleIdentity };
 
-    public override ExactMoney Value(UnitValuationContext context)
-    {
-        if (context.Measure != ValuationMeasure.PresentValue)
-            throw new MarketDataException("valuation_measure", "Retained gas implements contractual present value only.");
-        var (basis, scenario) = context.RetainedProgramMarkets(Declare(context).Dependencies);
-        var sources = new ScheduleMarketSources(basis.Graph.Plan.Context, basis, null, null,
-            IntervalKnowledgePolicy.ResolvedCutoff, PendingActualsPolicy.RequireActuals,
-            [..Assignments.Select(a => a.Lookup).Distinct()], [], Assignments);
-        var total = ExactMoney.FromMoney(new(default, Currency));
-        foreach (var member in Members)
-        {
-            var value = sources.Evaluate(member.Program, member.SideId, scenario, context.DiscountProvider, context.Cancellation);
-            total = total.Add(value.PresentValue.Scale(member.Ratio).Scale(member.Direction));
-        }
-        return total;
-    }
+    protected override ScheduleMarketSources Sources(CurveBuild basis) => new(basis.Graph.Plan.Context, basis, null, null,
+        IntervalKnowledgePolicy.ResolvedCutoff, PendingActualsPolicy.RequireActuals,
+        [..Assignments.Select(a => a.Lookup).Distinct()], [], Assignments);
 }

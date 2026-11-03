@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0179_lng_portfolio_scope.sql`. It includes reference/market data, certified
+`0183_access_policy_consumers.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
@@ -47,6 +47,12 @@ Recent schema groups and their contracts:
 
 - 0175: immutable statistical history/clock receipts, lease-fenced source reads and
   authorized completed-report archive ([parametric risk](../docs/parametric-risk.md)).
+- 0180: guided end-of-day history windows, ordered price types and retained
+  endpoint coverage ([aligned history](../docs/risk-factor-history.md#guided-var-setup-d301)).
+- 0181–0183: [current operating policies, personal presentation and hosted access
+  admission](../docs/operational-limits.md#implemented-consumers-d302), with immutable
+  revisions, exact policy pins and retained command receipts.
+
 
 Apply migrations in order. Some deliberately refuse incompatible retained data;
 existing installations require the separately qualified schema/rebooking procedure.
@@ -1562,3 +1568,45 @@ runs known at a context's cutoff, and only to the definition's owner with
 under the publication lock; contention with concurrent context captures is not yet
 measured (docs/verification.md). As a new migration it stops automatic hosted
 updates until the operator qualifies a new baseline (D135).
+
+
+## 0181–0183: operating policy and personal presentation
+
+0181 adds scoped immutable assistant/access operating revisions and receipts,
+exact policy pins for new turns, agent versions and grants, and fail-closed helper
+body/owner/ACL guards. New asks require runtime `turns_v12`; retries keep their
+original result. 0182 adds human/workspace/example presentation revisions, owner
+binding and idempotent optimistic saves, without financial context fields. 0183
+uses current access policy at sign-in/enrollment/invitation admission and retains
+session/invitation/login lineage. Old rows keep their recorded identity and expiry;
+no prior policy is invented. The four-argument invitation claim is closed.
+
+These migrations stop automatic hosted updates until the operator qualifies the
+schema, API, explicit process/connection configuration and gateway together. See
+[operating configuration](../docs/operational-limits.md#implemented-consumers-d302)
+and [the hosted transition](../docs/hosted-pilot.md#operating-configuration-transition-d302).
+
+## Migration 0184: shared facility quantities
+
+The [facility contract](../docs/facility-quantity-ledger.md) adds exact-version
+point/commodity/quantity/legal-entity relationships, typed retained gas-day targets,
+immutable source/limit/plan revisions and actor-scoped request receipts. Definer
+operations authorize reads/writes; forced RLS hides tables from runtime. Deferred
+triggers independently enforce chains, provenance and source/target conservation.
+Metadata or clock changes cannot create a fresh logical-day pool. Existing trade
+readers receive only their own allocation projection, without facility totals or
+global head identities. The operations and limits role presets are unassigned.
+No legacy rows are rewritten. Qualify this schema and matching API/roles together
+before any hosted activation; no automatic deployment is authorized by this increment.
+
+## Migration 0185: facility read plans
+
+The facility scope view reads its location, commodity, unit and legal-entity labels
+by each ledger's exact keys; foreign keys and the header trigger guarantee those
+rows, so the view returns the same rows. `security.facility_gas_target` selects the
+trade's latest visible revision once before matching the requested day's schedule
+rows. With partial statistics on small tables, the previous joins let the planner repeat
+per-row visibility checks for every combination of reference or schedule rows. The
+migration refuses an unexpected predecessor view or function and keeps owners and
+privileges. Results, refusals and visibility rules are unchanged; no rows are rewritten. See
+[verification](../docs/verification.md#facility-read-plans-2026-11-03-local).

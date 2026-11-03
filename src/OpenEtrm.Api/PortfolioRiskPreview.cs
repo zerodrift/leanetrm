@@ -27,7 +27,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
 {
     public const string Convention="portfolio_instrument_repricing_v1";
     // The most bumps one request takes: a holdings-detail result prices every position under each bump, a books-detail result keeps only book totals.
-    public const int MaxHoldingsBumps=16,MaxBooksBumps=4096;
+    public const int MaxHoldingsBumps=16,MaxBooksBumps=4096,MaxStress=16;
+    public static object Limits=>new{maxHoldingsBumps=MaxHoldingsBumps,maxBooksBumps=MaxBooksBumps,maxStress=MaxStress,maxParts=RiskJobRun.MaxParts};
     private static readonly AmountFormat Display=new(12,CashTieRule.ToEven,false,true);
     private static PortfolioValuationPolicy PricingPolicy=>new(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,
         FuturesRisk.Implementation,SwapStore.Convention,RateConventions.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1",
@@ -59,7 +60,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             measures=portfolio.Positions.Select(p=>p.Measure).Distinct().Order().Select(m=>new{measure=m,measureLabel=MeasureLabel(m)}),
             bumpConvention=ConnectedRiskBump.Convention,stressConvention=CurveShift.ParentAdditive,convention=Convention,
             numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=PricingPolicy,
-            history=HistoryCapabilities(portfolio),
+            history=HistoryCapabilities(portfolio),limits=Limits,
             parametric=ParametricCapabilities(),
             joint=new{convention=PortfolioJointRiskRequest.Version1,scenarioConvention=ConnectedRiskScenarioSet.Independent,bumpConvention=ConnectedRiskBump.Convention,shiftConvention=CurveShift.ParentAdditive,
                 derivativeConvention=ConnectedFiniteDifferenceRequest.HalfNominalDouble,maxScenarios=PortfolioJointRisk.MaxScenarios,
@@ -120,7 +121,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         if(body.Convention!=Convention||body.NumericalPolicy!=RiskEngine.ExactNumericalPolicy||body.Bumps.IsDefault||
             (body.Joint is null?body.Parametric is null&&body.Bumps.IsEmpty||body.Bumps.Length>(detail==RiskDetail.Books?MaxBooksBumps:MaxHoldingsBumps):!body.Bumps.IsEmpty)||body.Bumps.Any(b=>b is null))
             throw new MarketDataException("risk_convention","Select the supported portfolio convention, exact numerical policy and bounded explicit curve-coordinate bumps.");
-        if(!body.Stress.IsDefault&&(body.Stress.Length>16||body.Stress.Any(s=>s is null)))
+        if(!body.Stress.IsDefault&&(body.Stress.Length>MaxStress||body.Stress.Any(s=>s is null)))
             throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative curve shifts.");
         var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental,retained,body.TradeIds);
         AlignedFactorHistory? history=null;

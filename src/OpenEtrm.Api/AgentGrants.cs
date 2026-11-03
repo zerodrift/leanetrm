@@ -38,7 +38,7 @@ public static class AgentGrants
 
     public static Task<JsonElement> Grant(NpgsqlConnection connection,GrantRequest body,CancellationToken ct)=>
         body is {OperationId:var operation,AgentId:var agent,Version:{} version}&&operation!=Guid.Empty&&agent!=Guid.Empty
-            ?ModelProviders.Read(connection,"SELECT assistant.grant_agent($1,$2,$3,$4)::text",[operation,agent,version,RuntimeSet.MaxGrantDays],ct)
+            ?ModelProviders.Read(connection,"SELECT assistant.grant_agent($1,$2,$3,(security.operating_values('assistant')->>'maxGrantDays')::integer)::text",[operation,agent,version],ct)
             :throw Input();
 
     public static Task<JsonElement> Revoke(NpgsqlConnection connection,RevokeRequest body,CancellationToken ct)=>

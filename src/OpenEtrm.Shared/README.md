@@ -140,3 +140,11 @@ retains a chain of previous frames. Owners must explicitly qualify semantic
 correspondence and supply changed bound operators. Context resolution, financial
 units, lineage, source admission and authorization remain in their owning modules.
 Native/basis/custom curves, instrument pricing and risk use this kernel.
+
+## Explicit connection budgets
+
+`Configuration.ConnectionBudget` carries only connect seconds, command seconds
+and pool size. The API and worker supply both the operating values and their
+qualified ceiling; `IsWithin` requires every value positive and within that
+ceiling. It contains no credentials, defaults, database driver or financial
+policy. Connection-file parsing and structured errors remain process-owned.

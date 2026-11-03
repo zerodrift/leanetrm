@@ -46,14 +46,24 @@ UPDATE ref_data.revisions SET state='sealed' WHERE catalog_id='{catalog}' AND id
     def private_file(name,value):
         path=temporary/name;path.write_text(value);path.chmod(0o600);return str(path)
     for suffix in ['.capture.json','.mapping.json']:(temporary/('reference-plan.json'+suffix)).chmod(0o600)
-    auth=private_file('import-auth.connection',f'Host={temporary};Port=55439;Database=postgres;Username=preview_authenticator;SSL Mode=Disable')
-    executor=private_file('import-operator.connection',f'Host={temporary};Port=55439;Database=postgres;Username=preview_reference_importer;SSL Mode=Disable')
+    budget=';Timeout=5;Command Timeout=30;Maximum Pool Size=2'
+    auth=private_file('import-auth.connection',f'Host={temporary};Port=55439;Database=postgres;Username=preview_authenticator;SSL Mode=Disable'+budget)
+    executor=private_file('import-operator.connection',f'Host={temporary};Port=55439;Database=postgres;Username=preview_reference_importer;SSL Mode=Disable'+budget)
     config={'authenticatorConnectionFile':auth,'operatorConnectionFile':executor,'issuer':'https://reference.synthetic.invalid','subject':'importer',
             'tenantId':tenant,'workspaceId':workspace,'catalogId':catalog,'operationId':operation,'mapping':json.loads(Path(str(plan_file)+'.mapping.json').read_text())}
     config_file=private_file('import-config.json',json.dumps(config))
     command=[str(dotnet),str(ROOT/'src/OpenEtrm.Api/bin/Debug/net10.0/OpenEtrm.Api.dll'),'--import-reference',config_file,str(plan_file)+'.capture.json']
     inspected=subprocess.run(command[:-2]+['inspect',*command[-2:]],cwd=ROOT,env=environment,text=True,capture_output=True,timeout=60)
     assert inspected.returncode==0 and json.loads(inspected.stdout)['series']==1
+    for connection in (auth,executor):
+        path=Path(connection);complete=path.read_text()
+        for setting in budget.split(';')[1:]:
+            path.write_text(complete.replace(';'+setting,''))
+            refused=subprocess.run(command,cwd=ROOT,env=environment,text=True,capture_output=True,timeout=60)
+            assert refused.returncode!=0 and json.loads(refused.stderr)['code']=='reference_import_failed'
+            assert query(f"SELECT count(*) FROM ref_data.reference_import_receipts WHERE catalog_id='{catalog}' AND revision_id='{operation}';")=='0'
+        path.write_text(complete)
+    print('PASS private reference import refuses either connection without each explicit budget before recording a receipt',flush=True)
     for _ in range(2):
         result=subprocess.run(command,cwd=ROOT,env=environment,text=True,capture_output=True,timeout=60)
         assert result.returncode==0,result.stderr

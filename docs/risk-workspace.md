@@ -107,7 +107,26 @@ does not add a durable report archive or statistical worker.
 [Parametric VaR/ES](parametric-risk.md) (D299) now uses that history with explicit
 native finite differences, sample covariance and drift/confidence/tail policies.
 Risk shares Gaussian density, signed book/factor contributions, in-sample linearized
-losses and correlation diagnostics, plus a paged archive of completed statistical
+losses and correlation/covariance graphics, plus a paged archive of completed statistical
 reports. Unavailable scope/history or unstable deltas retain diagnostics without
 risk estimates. Historical full repricing, Monte Carlo, PCA/hybrid, EVT and rolling
 backtests remain subsequent increments. No production throughput is claimed.
+
+## Guided parametric setup (D301)
+
+The primary **Parametric VaR** action opens the shared selected scope with visible
+editable starting settings: 99% confidence, six months, one business-day horizon,
+zero drift and 60 minimum common changes. A sole business calendar is selected
+automatically. **Scenarios and Greeks** opens the existing deterministic editor.
+
+**Run VaR** prepares exact end-of-day price history automatically;
+**Preview price coverage** is optional. Official daily closes are selected
+initially. Permitted alternatives are ordered explicitly, remain on the pinned
+source, and appear beside missing-official diagnostics in the colored factor grid.
+Actual observation timestamps and changes between unlike price types remain
+visible. The report offers correlation or covariance with exact native units.
+
+Advanced controls expose drift, the minimum history and finite-difference
+settings. All settings are sent and retained explicitly; API missing-field
+validation, insufficient-coverage refusal and uncertain-command recovery remain
+unchanged. See [the walkthrough and sampling contract](risk-factor-history.md#guided-var-setup-d301).

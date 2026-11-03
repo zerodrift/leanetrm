@@ -1,15 +1,16 @@
+import {historyGridState,renderHistoryGrid} from './risk-history-grid.js';
 import {node,table} from './risk-report-elements.js';
 import {renderChart} from './chart-view.js';
 import {parametricCharts,type ParametricView} from './parametric-risk.js';
 
-export const newParametricView=()=>({partition:0,metric:'valueAtRisk' as 'valueAtRisk'|'expectedShortfall',rows:0,columns:0});
+export const newParametricView=()=>({partition:0,metric:'valueAtRisk' as 'valueAtRisk'|'expectedShortfall',rows:0,columns:0,matrix:'correlation' as 'correlation'|'covariance',history:historyGridState()});
 /** Shared Risk/Blotter rendering. Every risk amount, contribution and matrix cell is a backend result. */
 export function renderParametric(host:HTMLElement,view:ParametricView,state:ReturnType<typeof newParametricView>,redraw:()=>void,plots:HTMLElement[]){
  const result=view.result,c=result.calibration;
  host.append(node('p',`Delta-normal · one adjacent business-session market move · signed upper loss tail · confidence ${result.policy.confidence} · ${result.policy.drift==='zero_drift_v1'?'explicit zero drift':'sample-mean drift'}.`),
   node('p','This method uses local delta. Gamma, time passage and full-repricing tail outcomes are outside this approximation.'),
   node('p',`${c.samples} common changes · ${c.columns.length} dated factors · covariance rank ${c.rank} · ${c.conditioning.replaceAll('_',' ')}${c.correlationCondition===null?'':` · correlation condition ${c.correlationCondition}`}.`));
- if(!result.available){host.append(node('p','Parametric risk unavailable: '+result.unavailableReasons.map(v=>v.replaceAll('_',' ')).join('; ')));diagnostics();return;}
+ if(!result.available){host.append(node('p','Parametric risk unavailable: '+result.unavailableReasons.map(v=>v.replaceAll('_',' ')).join('; ')));alignedGrid();diagnostics();return;}
  if(state.partition>=result.partitions.length)state.partition=0;
  const p=result.partitions[state.partition],label=view.partitions.find(v=>v.measure===p.measure&&JSON.stringify(v.currencyReference)===JSON.stringify(p.currency))!;
  const controls=node('div');controls.className='risk-result-controls';
@@ -23,17 +24,20 @@ export function renderParametric(host:HTMLElement,view:ParametricView,state:Retu
  }
  host.append(cards,node('p',`Exact model loss mean: ${p.mean} ${label.currency}. Exact loss variance: ${p.variance}. Book-component reconciliation residuals: VaR ${p.varReconciliation}, ES ${p.esReconciliation}.`));
  if(!p.density.length)host.append(node('p','Zero variance: the fitted loss is a point mass at '+p.mean+' '+label.currency+'. No continuous density is drawn.'));
+ const matrixSelect=node('select');matrixSelect.setAttribute('aria-label','Factor matrix');matrixSelect.append(new Option('Correlation','correlation'),new Option('Covariance','covariance'));matrixSelect.value=state.matrix;
+ matrixSelect.onchange=()=>{state.matrix=matrixSelect.value as typeof state.matrix;redraw();};const matrixLabel=node('label','Factor matrix ');matrixLabel.append(matrixSelect);controls.append(matrixLabel);
  const size=c.columns.length;
  if(size>32){
-  for(const [key,title] of [['rows','Correlation rows'],['columns','Correlation columns']] as const){const wrap=node('label',title+' '),select=node('select');select.setAttribute('aria-label',title);
+  for(const [key,title] of [['rows','Matrix rows'],['columns','Matrix columns']] as const){const wrap=node('label',title+' '),select=node('select');select.setAttribute('aria-label',title);
    for(let start=0;start<size;start+=32)select.append(new Option(`${start+1}–${Math.min(start+32,size)} of ${size}`,String(start)));select.value=String(state[key]);
    select.onchange=()=>{state[key]=Number(select.value);redraw();};wrap.append(select);controls.append(wrap);}
  }
  const graphics=node('div');graphics.className='risk-report-charts';host.append(graphics);
- for(const spec of parametricCharts(view,state.partition,state.metric,state.rows,state.columns)){const plot=node('div');plot.className='chart risk-result-chart';graphics.append(plot);plots.push(plot);renderChart(plot,spec);}
+ for(const spec of parametricCharts(view,state.partition,state.metric,state.rows,state.columns,state.matrix)){const plot=node('div');plot.className='chart risk-result-chart';graphics.append(plot);plots.push(plot);renderChart(plot,spec);}
  const book=node('details');book.open=true;book.append(node('summary','Exact component data'),table(['Book','Mean contribution','Covariance with portfolio loss','Component VaR','Component ES','Currency'],p.books.map(v=>[
   view.books.find(b=>b.id===v.id)!.name,v.mean,v.varianceCross,v.valueAtRisk,v.expectedShortfall,label.currency])));host.append(book);
- diagnostics();
+ alignedGrid();diagnostics();
+ function alignedGrid(){renderHistoryGrid(host,view.history,view.factors.map(f=>({id:f.id,label:f.factor.label,unit:f.factor.unit})),state.history,redraw);}
  function diagnostics(){
   const factor=(id:string)=>view.factors.find(f=>f.id===id)!.factor;
   if(c.covariance.length){

@@ -150,7 +150,7 @@ SELECT power_data.finish_attempt(:'fence_token','{payload('5')}'::jsonb,NULL);""
     repository=Path(__file__).resolve().parents[1]
     subprocess.run([str(dotnet),str(repository/'src/OpenEtrm.Api/bin/Debug/net10.0/OpenEtrm.Api.dll'),'--render-power-days',str(request),str(calendar_sql)],cwd=repository,env=environment,check=True,timeout=30)
     query(calendar_sql.read_text());query(f"UPDATE power_data.jobs SET from_day={worker_offset},through_day={worker_offset} WHERE id='{job}';INSERT INTO power_data.request_gates VALUES('PJM',120,clock_timestamp());")
-    connection=directory/'connection';connection.write_text(f'Host={root};Port=55439;Database=postgres;Username=synthetic_collector;SSL Mode=Disable');connection.chmod(0o600)
+    connection=directory/'connection';connection.write_text(f'Host={root};Port=55439;Database=postgres;Username=synthetic_collector;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2');connection.chmod(0o600)
     config=directory/'collection.json';config.write_text(json.dumps({'connectionFile':str(connection),'providers':[{'provider':'PJM','baseUrl':'https://provider.synthetic.invalid/api','apiKey':'synthetic-key','requestsPerMinute':120,'tokenUrl':None,'clientId':None,'tokenScope':None,'accountId':None,'apiSecret':None}],'pjmPageSize':50,'ercotPageSize':1000,'maximumRows':100000,'timeoutSeconds':10}));config.chmod(0o600)
     project='tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj'
     subprocess.run([str(dotnet),'restore',project,'--locked-mode'],cwd=repository,env=environment,check=True,timeout=60,stdout=subprocess.DEVNULL)

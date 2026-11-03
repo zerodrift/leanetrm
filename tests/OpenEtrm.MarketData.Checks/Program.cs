@@ -3,6 +3,8 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--facility-quantities"]){FacilityQuantityChecks.Run();return;}
+
 if(args is ["--crude-inventory-sales"]){CrudeInventorySalesChecks.Run();return;}
 if(args is ["--crude-receipt-cash"]){CrudeReceiptCashChecks.Run();return;}
 if(args is ["--physical-crude-side"]){PhysicalCrudeSideChecks.Run();return;}
@@ -105,6 +107,7 @@ if (args.Length > 0)
 }
 
 CrudeReceiptCashChecks.Run();
+FacilityQuantityChecks.Run();
 CrudeInventorySalesChecks.Run();
 PhysicalCrudeSideChecks.Run();
 LngCargoChecks.Run();

@@ -1,3 +1,6 @@
+import {coalescedRead} from './coalesced-read.js';
+import {requestDeadlines} from './request-deadline.js';
+import {preferenceSession} from './preference-session.js';
 import {riskReportAddress} from './risk-results.js';
 import {streamBlotter} from './blotter-stream.js';
 // The Blotter in a window of its own (docs/blotter-workbench.md, Pop-out Blotter), tied to the main window that opened it. It takes the view
@@ -16,7 +19,7 @@ import {validateMarketNavigation,type MarketNavigation} from './market-navigatio
 import {displayInstant,publicText,setCurveNames} from './market-view.js';
 import {bookingFallback} from './new-trade.js';
 import {withNotice} from './notice-text.js';
-import {loadPreferences,newPreferences,type Preferences} from './preferences.js';
+import {newPreferences,type Preferences} from './preferences.js';
 
 const $=<T extends HTMLElement=HTMLElement>(id:string):T=>{const node=document.getElementById(id);if(!node)throw Error('This window could not load. Close it and pop the Blotter out again.');return node as T;};
 const text=(id:string,value:string)=>{$(id).textContent=publicText(value);};
@@ -27,6 +30,7 @@ let tied:{session:string;example:'baseline'|'exchange'}|undefined,untied:string|
 try{tied=readBlotterWindowUrl(location.href);}catch(error){untied=(error as Error).message;}
 history.replaceState(null,'',location.pathname);
 if(tied&&!window.opener)untied='This Blotter window has no main window. Close it, and pop the Blotter out from the main window.';
+const deadlines=requestDeadlines();
 const apiRoot=tied?.example==='exchange'?'/examples/exchange/api/':'/api/';
 
 // `ended`: the tie is over and no value is shown; `retaining`: with the main window gone, only an unconfirmed trade request is kept, with its controls.
@@ -45,7 +49,7 @@ function failed(error:unknown){text('error',error instanceof Error?error.message
 async function responseFor(path:string,body?:unknown,signal?:AbortSignal):Promise<Response>{
   let response:Response;
   try{response=await fetch(apiRoot+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},
-    body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000)});}
+    body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(deadlines.milliseconds(path))]):AbortSignal.timeout(deadlines.milliseconds(path))});}
   catch{throw Object.assign(Error(body!==undefined?'We could not confirm the result. Check the Blotter before trying again.':'This window could not connect.'),{code:'response_unknown'});}
   if(response.status===401){end('Signed out · sign in again in the main window');throw Object.assign(Error('Sign in to continue.'),{code:'sign_in_required'});}
   if(!response.ok)throw await apiRefusal(path,response,hosted);
@@ -61,10 +65,10 @@ async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
   if(!busy)checkAccount();
   return payload;
 }
-let checking=false;
+const savedPreferences=preferenceSession(transport,notice);
 function checkAccount(){
-  if(checking||ended||!started)return;
-  checking=true;void verify().then(report,error=>{if(!ended)failed(error);}).finally(()=>{checking=false;});
+  if(ended||!started)return;
+  void verify.afterCurrent().then(report,error=>{if(!ended)failed(error);});
 }
 
 function syncControls(){
@@ -86,21 +90,31 @@ async function act(work:()=>Promise<void>){
 const whenIdle=(work:()=>void)=>{if(busy)setTimeout(()=>whenIdle(work),50);else work();};
 
 // The account, workspace and permissions of this window's session, which must be those the main window named.
-async function verify(){
-  const boot=await transport<{mode:string;csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;access:{profile:string;permissions:string[]}|null}>('bootstrap?includeFrames=false&includeAccess=true');
+function refuseAccount():never{
+  end('This window’s account is not the main window’s, so it shows no values');
+  throw Error('This window’s account is not the main window’s, so it acts on nothing here.');
+}
+async function readAccount(){
+  const boot=await transport<{requestDeadlines:unknown;mode:string;csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;access:{profile:string;permissions:string[]}|null}>('bootstrap?includeFrames=false&includeAccess=true');
   // The workspace's mode decides how a refusal is worded, as the main window's does; an unknown one is refused.
   if(boot.mode!=='hosted-pilot'&&boot.mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Close this window and pop the Blotter out again.');
-  hosted=boot.mode==='hosted-pilot';
+  deadlines.read(boot.requestDeadlines);hosted=boot.mode==='hosted-pilot';
   const identity=[boot.runId,boot.tenantId,boot.workspaceId,boot.profile].join(':');
   if(!boot.profile||!boot.csrfToken||!boot.access||boot.access.profile!==boot.profile||!Array.isArray(boot.access.permissions))throw Error('This window could not verify its account. Close it and pop the Blotter out again.');
-  if(identity!==latest?.profile){end('This window’s account is not the main window’s, so it shows no values');throw Error('This window’s account is not the main window’s, so it acts on nothing here.');}
-  if(profile!==boot.profile){
-    profile=boot.profile;
-    try{prefs=loadPreferences(localStorage,tied!.example==='baseline'?profile:tied!.example+':'+profile,Intl.DateTimeFormat().resolvedOptions().timeZone);}
-    catch{prefs=newPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone);notice('Your saved profile could not be loaded. This window uses your browser’s time zone.');}
-  }
-  csrf=boot.csrfToken;scope=identity;permissions=[...boot.access.permissions];
+  if(identity!==latest?.profile)refuseAccount();
+  return {profile:boot.profile,csrf:boot.csrfToken,permissions:boot.access.permissions,identity};
 }
+const verify=coalescedRead(async()=>{
+  const {identity}=await readAccount();
+  const priorZone=prefs.timeZone;
+  const loaded=await savedPreferences.load(identity,Intl.DateTimeFormat().resolvedOptions().timeZone);
+  // Preference I/O can outlive a shared-cookie account change. Recheck before installing its result or redrawing values.
+  const current=await readAccount();
+  if(current.identity!==identity)refuseAccount();
+  profile=current.profile;prefs=loaded;
+  csrf=current.csrf;scope=identity;permissions=[...current.permissions];
+  if(priorZone!==prefs.timeZone&&started&&!ended)futures.refreshDisplay();
+});
 // The market navigation this window reads, which must name the close and the knowledge the main window selects.
 async function readNavigation(context:BlotterContext){
   const next=validateMarketNavigation(await api<MarketNavigation>('workspace/navigation'));

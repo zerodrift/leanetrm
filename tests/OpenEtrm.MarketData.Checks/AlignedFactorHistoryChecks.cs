@@ -123,7 +123,75 @@ internal static class AlignedFactorHistoryChecks
             Reject("risk_history_capacity",()=>FactorHistory.Align(f.Forecast,f.Policy,calendar,FactorHistory.CaptureClock(calendar,f.Clock.Reference,PowerClock.Capture(TimeZoneInfo.Utc),"16:00:00","reject","reject"),factors,[]));
             Reject("risk_history_capacity",()=>f.Align(observations:[..Enumerable.Repeat(f.Observations[0],FactorHistory.MaximumObservations+1)]));
         });
+        Check("baseline exact-close manifests keep their original hash and serialized shape",()=>
+        {
+            var path=Path.Combine(AppContext.BaseDirectory,"fixtures","risk-history-exact-close-v1.json");
+            var json=new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web){Converters={new HistoryDecimalConverter()}};
+            var original=System.Text.Json.JsonSerializer.Deserialize<AlignedFactorHistory>(File.ReadAllText(path),json)!;
+            if(original.Id!="5f18a71aabb794bd265f0f0695d2add56453dbb3eaa1f2882a1c385f4c36ff9b"||FactorHistory.Replay(original).Id!=original.Id)
+                throw new Exception("A manifest produced by the pre-EOD baseline no longer replays.");
+            var before=System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path));var after=System.Text.Json.JsonSerializer.SerializeToNode(original,json);
+            if(!System.Text.Json.Nodes.JsonNode.DeepEquals(before,after))throw new Exception("New optional history fields changed a retained legacy payload.");
+        });
+        Check("end-of-day alignment accepts later daily marks without time entry",()=>
+        {
+            var f=new Fixture();
+            var clock=FactorHistory.CaptureClock(f.Calendar,f.Clock.Reference,PowerClock.Capture(TimeZoneInfo.Utc),"end_of_day","reject","reject");
+            var policy=f.Policy with{Alignment=RiskHistoryPolicy.DayEnd,Regimes=RiskHistoryPolicy.PriceOrder,PriceTypes=["trader_mark_final_v1"]};
+            var result=FactorHistory.Align(f.Forecast,policy,f.Calendar,clock,[f.X,f.Y],f.Observations);
+            if(result.Samples.Length!=2||!result.Available)throw new Exception("End-of-day must select prices within each captured local day.");
+        });
+        Check("official closes are required unless an ordered alternative is explicitly allowed",()=>
+        {
+            var f=new Fixture();var clock=FactorHistory.CaptureClock(f.Calendar,f.Clock.Reference,PowerClock.Capture(TimeZoneInfo.Utc),"end_of_day","reject","reject");
+            var policy=f.Policy with{Alignment=RiskHistoryPolicy.DayEnd,Regimes=RiskHistoryPolicy.PriceOrder,PriceTypes=["official_close_v1"]};
+            var missing=FactorHistory.Align(f.Forecast,policy,f.Calendar,clock,[f.X,f.Y],f.Observations);
+            if(missing.Available||missing.Samples.Length!=0||missing.DayPrices.Any(d=>d.Choices.Any(c=>c.SelectedType is not null||c.OfficialCloseStatus!="missing_mark")))throw new Exception("Trader marks cannot masquerade as official settlements.");
+            var allowed=FactorHistory.Align(f.Forecast,policy with{PriceTypes=["official_close_v1","trader_mark_final_v1"]},f.Calendar,clock,[f.X,f.Y],f.Observations);
+            if(!allowed.Available||allowed.DayPrices.Any(d=>d.Choices.Any(c=>c.SelectedType!="trader_mark_final_v1"||!c.AvailableTypes.Contains("trader_mark_final_v1"))))throw new Exception("Every explicit fallback needs its price-type receipt.");
+            if(FactorHistory.Replay(allowed).Id!=allowed.Id)throw new Exception("Price-type selections must replay exactly.");
+            Reject("risk_history_policy",()=>FactorHistory.Align(f.Forecast,policy with{PriceTypes=["official_close_v1","official_close_v1"]},f.Calendar,clock,[f.X],f.Observations));
+        });
+        Check("end-of-day takes the latest role head before state eligibility and refuses forks",()=>
+        {
+            var f=new Fixture();var clock=FactorHistory.CaptureClock(f.Calendar,f.Clock.Reference,PowerClock.Capture(TimeZoneInfo.Utc),"end_of_day","reject","reject");
+            var policy=f.Policy with{Alignment=RiskHistoryPolicy.DayEnd,Regimes=RiskHistoryPolicy.PriceOrder,PriceTypes=["official_close_v1","trader_mark_final_v1"]};
+            var official=f.Observations.Select(r=>r with{Observation=r.Observation with{Key=new(f.Forecast.CatalogId,Guid.NewGuid()),Role=ObservationRole.DailySettlement,ObservedAt=r.Observation.ObservedAt.AddHours(6)}}).ToImmutableArray();
+            var rows=f.Observations.AddRange(official);var complete=FactorHistory.Align(f.Forecast,policy,f.Calendar,clock,[f.X,f.Y],rows);
+            if(!complete.Available||complete.DayPrices.Any(d=>d.Choices.Any(c=>c.SelectedType!="official_close_v1")))throw new Exception("Later official closes must win without changing the current PV anchors.");
+            var correction=f.Correct(official[1],"999",90,f.Forecast.KnownAt.AddMinutes(-1));correction=correction with{Observation=correction.Observation with{State=PublicationState.Preliminary}};
+            var fallback=FactorHistory.Align(f.Forecast,policy,f.Calendar,clock,[f.X,f.Y],rows.Add(correction));
+            if(!fallback.DayPrices[1].Choices.Any(c=>c.SelectedType=="trader_mark_final_v1"&&c.OfficialCloseStatus=="publication_state"))throw new Exception("A preliminary head cannot revive an old official final.");
+            var a=f.Correct(official[1],"998",91,f.Forecast.KnownAt.AddMinutes(-1));var fork=FactorHistory.Align(f.Forecast,policy,f.Calendar,clock,[f.X,f.Y],rows.Add(correction).Add(a));
+            if(fork.Available||!fork.Rejected.SelectMany(r=>r.Issues).Any(i=>i.Reason=="ambiguous_revision"))throw new Exception("Fallback must never hide a correction fork.");
+            var future=f.Correct(official[1],"1000",200,f.Forecast.KnownAt.AddMinutes(1));
+            if(FactorHistory.Align(f.Forecast,policy,f.Calendar,clock,[f.X,f.Y],rows.Add(future)).Id!=complete.Id)throw new Exception("Future knowledge cannot change end-of-day history.");
+        });
+        Check("end-of-day retains DST windows, fractional late marks and omits unfinished sessions",()=>
+        {
+            var f=new Fixture();var zone=PowerClock.Capture(TimeZoneInfo.FindSystemTimeZoneById("America/New_York"));
+            var days=ImmutableArray.Create(new DateOnly(2026,3,7),new DateOnly(2026,3,8),new DateOnly(2026,3,9));var calendar=f.Calendar with{From=days[0],To=days[^1].AddDays(1),BusinessDates=days};
+            var clock=FactorHistory.CaptureClock(calendar,f.Clock.Reference,zone,"end_of_day","reject","reject");
+            if(clock.DayWindows[1].End-clock.DayWindows[1].Start!=TimeSpan.FromHours(23))throw new Exception("A spring DST day is not 24 hours.");
+            var forecast=f.Forecast with{MarketCutoff=clock.DayWindows[^1].End,ValuationAt=clock.DayWindows[^1].End,KnownAt=clock.DayWindows[^1].End.AddHours(1)};
+            var rows=f.Observations.Select((r,n)=>r with{Observation=r.Observation with{ObservedAt=clock.DayWindows[n%3].End.AddTicks(-1)},KnownAt=forecast.KnownAt.AddMinutes(-1)}).ToImmutableArray();
+            var policy=f.Policy with{Alignment=RiskHistoryPolicy.DayEnd,Regimes=RiskHistoryPolicy.PriceOrder,PriceTypes=["trader_mark_final_v1"]};
+            var result=FactorHistory.Align(forecast,policy,calendar,clock,[f.X,f.Y],rows);
+            if(result.Samples.Length!=2||FactorHistory.Replay(result).Id!=result.Id)throw new Exception("Fractional late marks and captured DST boundaries must replay.");
+            var early=forecast with{MarketCutoff=clock.DayWindows[^1].Start.AddHours(12),ValuationAt=clock.DayWindows[^1].Start.AddHours(12)};
+            // Current anchors must themselves remain within the forecast; supply the prior-day anchor for this independent run.
+            var factors=new[]{f.X,f.Y}.Select(v=>{var anchor=rows.Single(r=>r.Observation.Series==v.Factor.Input.Series&&r.Observation.ObservedAt==clock.DayWindows[1].End.AddTicks(-1));return v with{Factor=v.Factor with{Observation=anchor.Observation.Key,BaseValue=anchor.Observation.Value}};}).ToImmutableArray();
+            var cropped=FactorHistory.Align(early,policy,calendar,clock,factors,rows);
+            if(cropped.Sessions.Length!=2||cropped.Samples.Length!=1||cropped.Available)throw new Exception("An unfinished local day must not become a completed EOD sample.");
+            var bad=clock with{DayWindows=clock.DayWindows.SetItem(1,clock.DayWindows[1] with{Start=clock.DayWindows[1].Start.AddHours(1)})};
+            Reject("risk_history_calendar",()=>FactorHistory.Align(forecast,policy,calendar,bad,[f.X,f.Y],rows));
+        });
         Console.WriteLine($"{count} aligned factor history checks passed.");return count;
+    }
+    private sealed class HistoryDecimalConverter:System.Text.Json.Serialization.JsonConverter<ExactDecimal>
+    {
+        public override ExactDecimal Read(ref System.Text.Json.Utf8JsonReader reader,Type type,System.Text.Json.JsonSerializerOptions options)=>ExactDecimal.Parse(reader.GetString()!);
+        public override void Write(System.Text.Json.Utf8JsonWriter writer,ExactDecimal value,System.Text.Json.JsonSerializerOptions options)=>writer.WriteStringValue(value.ToString());
     }
     private static int Index(AlignedFactorHistory h,RiskHistoryFactor factor)=>Array.FindIndex(h.Columns.ToArray(),c=>c.Mapping.Factor.Input==factor.Factor.Input);
     private static void Equal(ExactDecimal value,string expected){if(value!=ExactDecimal.Parse(expected))throw new Exception($"Expected {expected}, got {value}.");}

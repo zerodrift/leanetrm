@@ -61,6 +61,7 @@ def prepare(origin, installation, tzdb, directory, collection=None):
 DO $$ BEGIN IF EXISTS(SELECT 1 FROM security.tenants) OR EXISTS(SELECT 1 FROM market_data.catalogs) THEN RAISE EXCEPTION 'Fresh isolated database required';END IF;END $$;
 INSERT INTO security.tenants VALUES('{t}','pilot');
 INSERT INTO security.workspaces VALUES('{t}','{w}','trading');
+SELECT security.initialize_operating_policies('{t}','{w}');
 INSERT INTO ref_data.catalogs VALUES('{r}','pilot_reference','Trading reference data');
 INSERT INTO ref_data.revisions(catalog_id,id,revision_key) VALUES({ref},'initial_units_v1');
 INSERT INTO ref_data.currencies VALUES({ref},'usd','USD','US Dollar',2);
@@ -84,7 +85,7 @@ INSERT INTO security.identity_bindings VALUES('{origin}/local','{owner}','{owner
 INSERT INTO security.workspace_memberships VALUES('{t}','{w}','{owner}','pending_owner','Pending private invitation',true,1);
 INSERT INTO security.role_grants SELECT gen_random_uuid(),'{owner}',id,'{t}','{w}',clock_timestamp(),'9999-12-31',false FROM security.roles WHERE code IN('viewer','trader','risk_analyst','market_data_editor','market_data_approver','access_administrator');
 INSERT INTO security.hosted_accounts(principal_id,issuer,tenant_id,workspace_id) VALUES('{owner}','{origin}/local','{t}','{w}');
-INSERT INTO security.hosted_invitations(token_digest,principal_id,purpose,expires_at) VALUES('{digest}','{owner}','claim',clock_timestamp()+interval '24 hours');
+SELECT security.issue_hosted_invitation('{digest}','{owner}','claim');
 INSERT INTO trading.publications VALUES('{c}',1,pg_current_xact_id());
 INSERT INTO trading.portfolios VALUES('{c}','{ids['portfolio']}','Trading',1,clock_timestamp());
 INSERT INTO trading.books VALUES('{c}','{ids['book']}','{ids['portfolio']}','Trading',1,clock_timestamp());

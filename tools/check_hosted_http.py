@@ -79,7 +79,7 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
     config = {'installationId': installation, 'publicOrigin': origin, 'stateDirectory': str(state), 'webDirectory': str(root / 'web'),
               'manifestDirectory': str(definitions), 'runtimeConnectionFile': str(directory / 'runtime.connection'),
               'authenticatorConnectionFile': str(directory / 'authenticator.connection'), 'listenPort': api_port,
-              'trustedProxyNetwork': '127.0.0.1/32', 'protectionCertificateFile': str(pfx), 'credentialKeyFile': keys[0], 'credentialRetryKeyFile': keys[1]}
+              'trustedProxyNetwork': '127.0.0.1/32', 'protectionCertificateFile': str(pfx), 'credentialKeyFile': keys[0], 'credentialRetryKeyFile': keys[1], 'limits':json.loads((Path(__file__).resolve().parents[1]/'deploy/process-limits.example.json').read_text())}
     configuration = directory / 'host.json'; configuration.write_text(json.dumps(config))
     # Model requests reach the loopback fake provider through the check endpoint, and every proxy setting names a trap that
     # no request may reach (docs/ai-assistant.md §5.2, §11).
@@ -267,6 +267,14 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         query(f"UPDATE security.workspace_memberships SET enabled=false WHERE principal_id='{second}';UPDATE security.workspace_memberships SET enabled=true WHERE principal_id='{second}';")
         client.call('/api/bootstrap', expected=401)
         client.call('/api/bootstrap?includeFrames=false&includeAccess=true', expected=401)
+        # A deliberately small capacity must survive sign-out and externally ended sign-ins.
+        api.terminate();api.wait(timeout=10)
+        config['limits']['pageSessions']=1;configuration.write_text(json.dumps(config));api=start()
+        capacity=Client();capacity.login('admin_human',password);capacity.bootstrap()
+        capacity.call('/api/logout',{});capacity.login('admin_human',password);capacity.bootstrap()
+        query(f"SELECT security.revoke_hosted_session(token_digest) FROM security.hosted_sessions WHERE principal_id='{administrator}' AND revoked_at IS NULL;")
+        capacity.login('admin_human',password);capacity.bootstrap()
+        print('PASS hosted page capacity1 releases explicit sign-outs and reclaims only SQL-verified ended sign-ins',flush=True)
         print('PASS hosted HTTPS: private invitation/password login, malformed-login rejection, secure cookies, immutable actor, persona/admin-create denial, scoped business read, CSRF logout, origin/host checks, restart persistence, cross-human session reset and revocation', flush=True)
     finally:
         if api and api.poll() is None: api.terminate(); api.wait(timeout=10)

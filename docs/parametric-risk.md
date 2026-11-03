@@ -12,7 +12,10 @@ allowlist or nonzero-Greek filter.
 The caller selects `dated_factor_delta_normal_v1` and
 `exact_moments_binary64_normal_v1`, confidence as a plain decimal greater than
 0.5 and at most 0.9999, and either `zero_drift_v1` or `sample_mean_drift_v1`.
-There are no financial defaults. The covariance estimator is
+The API supplies no missing-field financial defaults. Risk offers the visible,
+editable D301 starting profile described in the
+[VaR walkthrough](risk-factor-history.md#guided-var-setup-d301); every selected input
+is sent and retained explicitly. The covariance estimator is
 `equal_weight_sample_n_minus_one_v1`, centered about the sample mean under
 `sample_mean_centered_v1`, regardless of forecast drift selection. Changes are
 native absolute changes in fixed dated factors, on common complete rows. There
@@ -102,10 +105,18 @@ the current header can price a new run. It is a report archive, not a scheduler.
 
 ## Presentation and bounded qualification
 
-Risk's factor-history panel collects every statistical choice explicitly. The
+Risk's guided setup offers history window, confidence, business calendar and
+ordered permitted price types, with numerical controls under Advanced. Run VaR
+automatically prepares the exact aligned history when needed; preview is optional.
+The
 shared report widget displays native VaR/ES/deviation cards, Gaussian density,
 signed book/factor contributions, in-sample linearized losses with the model VaR
-reference, and a correlation heatmap. Large matrices use explicit 32-by-32 display
+reference, and a switchable correlation/covariance heatmap. The aligned-factor grid
+shows
+selected prices or common changes, official-close coverage, permitted fallback
+types and actual observation timestamps. Both views page their display without
+reducing the calibration universe; covariance cells identify both native units.
+Large matrices use explicit 32-by-32 display
 windows; every factor remains in calibration. Exact component/covariance and FD
 receipts accompany the graphics. Switching VaR/ES changes the displayed backend
 components. TypeScript performs no financial calculation.

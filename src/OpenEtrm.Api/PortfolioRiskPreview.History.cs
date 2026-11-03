@@ -18,14 +18,33 @@ public sealed partial class PortfolioRiskPreview
 {
     private const int MaximumHistoryBytes=32*1024*1024;
     private static IEnumerable<PreviewData> HistoryReferences(PortfolioValuation.Prepared p)=>p.Markets.Select(m=>m.Data).DistinctBy(d=>d.ReferenceRevision);
+    private static object HistoryCalendarChoice(PreviewData data,JsonElement calendar,PortfolioValuation.Prepared portfolio)
+    {
+        var from=DateWorkspace.Date(calendar.Text("coverage_from"));var to=DateWorkspace.Date(calendar.Text("coverage_to"));
+        object[] windows=[];string? setupError=null;
+        try{
+            var clock=PpaQuantitiesStore.Clock(data,calendar.Text("clock_code"));
+            var cutoff=portfolio.Markets.Min(m=>m.Snapshot.MarketCutoff);
+            var end=DateOnly.FromDateTime(cutoff.UtcDateTime);
+            while(clock.StartOfDay(end).ToUniversalTime()>cutoff)end=end.AddDays(-1);
+            while(clock.StartOfDay(end.AddDays(1)).ToUniversalTime()<=cutoff)end=end.AddDays(1);
+            windows=[..new[]{(Months:3,Code:"three_months",Label:"3 months"),(Months:6,Code:"six_months",Label:"6 months"),(Months:12,Code:"one_year",Label:"1 year")}
+                .Select(w=>(object)new{code=w.Code,label=w.Label,from=end.AddMonths(-w.Months).ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),
+                    to=end.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),covered=end.AddMonths(-w.Months)>=from&&end<=to})];
+        }catch(MarketDataException error){setupError=error.Message;}
+        return new{reference=new ReferenceKey(data.ReferenceRevision,calendar.Text("code")),label=calendar.Text("code").Replace('_',' '),
+            from=calendar.Text("coverage_from"),to=calendar.Text("coverage_to"),clock=calendar.Text("clock_code"),
+            clockRule=ReferenceClockJson.Read(data.References["clock_rules"].Single(r=>r.Text("code")==calendar.Text("clock_code"))),windows,setupError};
+    }
     private static object HistoryCapabilities(PortfolioValuation.Prepared p)=>new{
         profile=new{convention=RiskHistoryPolicy.Version1,numericalPolicy=CurveModel.NumericalPolicy,basis=RiskHistoryPolicy.Raw,revisions=RiskHistoryPolicy.Heads,alignment=RiskHistoryPolicy.ExactCloses,
             transform=RiskHistoryPolicy.Absolute,missing=RiskHistoryPolicy.Complete,regimes=RiskHistoryPolicy.Fixed},
         clockPolicy=new{ambiguousTime="reject",invalidTime="reject",resolution=RiskHistoryClock.Captured},
-        calendars=HistoryReferences(p).SelectMany(d=>d.References["calendars"].Select(c=>new{reference=new ReferenceKey(d.ReferenceRevision,c.Text("code")),
-            label=c.Text("code").Replace('_',' '),from=c.Text("coverage_from"),to=c.Text("coverage_to"),clock=c.Text("clock_code"),
-            clockRule=ReferenceClockJson.Read(d.References["clock_rules"].Single(r=>r.Text("code")==c.Text("clock_code")))}))
-            .OrderBy(c=>c.reference.Revision.CatalogId).ThenBy(c=>c.reference.Revision.RevisionId).ThenBy(c=>c.reference.Code,StringComparer.Ordinal),
+        guided=new{profile=new{convention=RiskHistoryPolicy.Version1,numericalPolicy=CurveModel.NumericalPolicy,basis=RiskHistoryPolicy.Raw,revisions=RiskHistoryPolicy.Heads,
+            alignment=RiskHistoryPolicy.DayEnd,transform=RiskHistoryPolicy.Absolute,missing=RiskHistoryPolicy.Complete,regimes=RiskHistoryPolicy.PriceOrder},
+            lookback="six_months",minimumSamples=60,closeTime=RiskHistoryClock.EndOfDay,resolution=RiskHistoryClock.DayEnds,priceTypes=new[]{"official_close_v1"}},
+        priceTypes=FactorHistory.PriceTypes.Select(t=>new{t.Code,t.Label}),
+        calendars=HistoryReferences(p).SelectMany(d=>d.References["calendars"].OrderBy(c=>c.Text("code"),StringComparer.Ordinal).Select(c=>HistoryCalendarChoice(d,c,p))),
         limits=new{maxFactors=FactorHistory.MaximumFactors,maxSessions=FactorHistory.MaximumSessions,maxCells=FactorHistory.MaximumCells,
             maxObservations=FactorHistory.MaximumObservations,maxCalendarDays=FactorHistory.MaximumCalendarDays,maxResponseBytes=MaximumHistoryBytes}};
 
@@ -121,12 +140,13 @@ public sealed partial class PortfolioRiskPreview
                   JOIN market_data.knowledge_events e ON(e.catalog_id,e.revision_id,e.observation_id)=(o.catalog_id,o.definition_revision_id,o.id)
                   JOIN market_data.market_knowledge_receipts k ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid)
                   WHERE o.catalog_id=$1 AND o.definition_revision_id=$2 AND o.series_id=ANY($3::uuid[])
-                    AND ((o.observed_at>=$4 AND o.observed_at<=$5) OR o.id IN(SELECT id FROM anchor_ids))
+                    AND ((o.observed_at>=$4 AND(o.observed_at<$5 OR(NOT $11::boolean AND o.observed_at=$5))) OR o.id IN(SELECT id FROM anchor_ids))
                     AND o.observed_at<=$10 AND e.event_order<=$7 AND k.known_from<=$8
                   ORDER BY o.observed_at,o.id LIMIT $9
                 )t
-                """,[group.Key.CatalogId,group.Key.RevisionId,series,prepared.Sessions[0].Close.AddDays(-1),prepared.Sessions[^1].Close.AddDays(1),anchors,
-                    prepared.Forecast.MarketKnownThrough,prepared.Forecast.KnownAt,remaining+1,prepared.Forecast.MarketCutoff],ct);
+                """,[group.Key.CatalogId,group.Key.RevisionId,series,prepared.Policy.Alignment==RiskHistoryPolicy.DayEnd?prepared.Clock.DayWindows.First(w=>w.Date==prepared.Sessions[0].Date).Start:prepared.Sessions[0].Close.AddDays(-1),
+                    prepared.Policy.Alignment==RiskHistoryPolicy.DayEnd?prepared.Clock.DayWindows.First(w=>w.Date==prepared.Sessions[^1].Date).End:prepared.Sessions[^1].Close.AddDays(1),anchors,
+                    prepared.Forecast.MarketKnownThrough,prepared.Forecast.KnownAt,remaining+1,prepared.Forecast.MarketCutoff,prepared.Policy.Alignment==RiskHistoryPolicy.DayEnd],ct);
             if(rows.Length>remaining)throw new MarketDataException("risk_history_capacity","Too many observation revisions are required for this history window.");
             evidence.AddRange(ReadHistoryEvidence(data,rows,ct));
         }

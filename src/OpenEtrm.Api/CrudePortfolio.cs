@@ -31,14 +31,8 @@ internal static class CrudePortfolio
         var retained = new RetainedScheduleStore(database);
         foreach (var group in positions.GroupBy(p => p.Definition).OrderBy(g => g.Key))
         {
-            var candidates = supplied.Where(s => s.Data.DefinitionRevision.RevisionId == group.Key).ToArray();
-            if (candidates.Length > 1 || candidates.Length == 0 && requirePinnedSources)
-                throw Invalid("Every crude market requires exactly one admitted source frame; retained jobs cannot select a replacement market.");
-            var source = candidates.Length == 1 ? candidates[0] :
-                await PhysicalMarketSelection.Crude.Read(database, connection, frame, ct, group.First().Trade);
-            if (source.Data.DefinitionRevision.RevisionId != group.Key || source.Frame.At != frame.At || source.Frame.ContextId != contextId ||
-                group.Any(p => p.Reference != source.Data.ReferenceRevision))
-                throw Invalid("Crude holdings require their exact source/reference revisions, valuation instant and certified context.");
+            var source = await PhysicalMarketSelection.Crude.PortfolioSource(database, connection, frame, group.Key,
+                [..group.Select(p => p.Reference)], supplied, requirePinnedSources, group.First().Trade, ct);
             var snapshot = MarketSnapshotBinding.Bind(source.Data.Snapshot(source.Frame), contextId, SchedulePreview.ParseAt(context.KnownAt));
             var instruments = new Dictionary<Guid, RetainedCrudeInstrument>();
             var trades = ImmutableArray.CreateBuilder<Trade>();

@@ -28,7 +28,7 @@ public static class AgentAdministration
     {
         var directory=(await ModelProviders.Read(connection,"SELECT assistant.agent_directory()::text",[],ct)).Deserialize<Dictionary<string,JsonElement>>()!;
         directory["vendors"]=ModelProviders.VendorNames;
-        directory["bounds"]=JsonSerializer.SerializeToElement(new {instructions=RuntimeSet.AgentInstructions,grantDays=RuntimeSet.MaxGrantDays});
+        directory["bounds"]=JsonSerializer.SerializeToElement(new {instructions=RuntimeSet.AgentInstructions,grantDays=(await ModelProviders.Read(connection,"SELECT security.operating_values('assistant')::text",[],ct)).GetProperty("maxGrantDays").GetInt32()});
         return directory;
     }
 
@@ -45,9 +45,9 @@ public static class AgentAdministration
             ||operation==Guid.Empty||agent==Guid.Empty||model==Guid.Empty)
             throw Input();
         return ModelProviders.Read(connection,
-            "SELECT assistant.save_agent_version($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)::text",
+            "SELECT assistant.save_agent_version($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,(security.operating_values('assistant')->>'maxGrantDays')::integer)::text",
             [operation,agent,expected,Text(description),Text(instructions),model,modelVersion,Text(reasoning),caching,Texts(tools),Texts(roles),
-             steps,input,output,elapsed,read,retries,history,days,RuntimeSet.AgentInstructions,RuntimeSet.MaxGrantDays],ct);
+             steps,input,output,elapsed,read,retries,history,days,RuntimeSet.AgentInstructions],ct);
     }
 
     public static Task<JsonElement> Publish(NpgsqlConnection connection,AgentCommandRequest body,CancellationToken ct)=>

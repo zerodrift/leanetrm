@@ -37,7 +37,7 @@ def main():
             run([bins/'pg_ctl', '-D', root/'data', '-l', root/'postgres.log', '-w', '-o',
                  shlex.join(['-k', str(root), '-h', '', '-p', '55439', '-c', f'track_commit_timestamp={tracking}']), 'start'])
             connection = root/'connection'
-            connection.write_text(f'Host={root};Port=55439;Database=postgres;Username=boundary_test_owner;SSL Mode=Disable')
+            connection.write_text(f'Host={root};Port=55439;Database=postgres;Username=boundary_test_owner;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2')
             connection.chmod(0o600)
             print(run([dotnet, ROOT/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0/OpenEtrm.Api.Checks.dll',
                        '--database-login-boundaries', connection, str(tracking == 'on').lower()]).strip())

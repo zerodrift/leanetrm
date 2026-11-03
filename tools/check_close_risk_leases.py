@@ -78,7 +78,7 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
             'revisionPolicy': 'exact_bundle_whole_operation_v1', 'ppaImplementation': 'ppa_capabilities_v1', 'valuationPolicy': policy}}
     scheduler, runtime = root/'lease.scheduler.connection', root/'lease.runtime.connection'
     for path, login in ((scheduler, 'pilot_fixture_scheduler'), (runtime, 'pilot_fixture_runtime')):
-        path.write_text(f'Host={root};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Application Name=synthetic-renewable-risk')
+        path.write_text(f'Host={root};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2;Application Name=synthetic-renewable-risk')
         path.chmod(0o600)
     worker_env = {k: v for k, v in app_environment.items() if not k.startswith(('OPENETRM_PREVIEW_', 'ASPNETCORE_'))}
     worker_env.update(OPENETRM_WORKER_CONNECTION_FILE=str(scheduler), OPENETRM_PILOT_RUNTIME_CONNECTION_FILE=str(runtime),

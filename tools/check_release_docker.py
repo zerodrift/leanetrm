@@ -39,6 +39,8 @@ def main():
     parser.add_argument('--previous-credential-keys', required=True, choices=['absent', 'named'],
                         help="Whether the previous image's host.json names the page assistant's credential key files; images before "
                              'migration 0087 refuse them, so the check adds them before deploying, as the operator does')
+    parser.add_argument('--previous-process-limits',required=True,choices=['absent','named'],
+                        help='Whether the prior image accepts the limits section; rollback restores its exact original host configuration')
     args = parser.parse_args()
     require(os.geteuid() == 0, 'disposable Docker qualification requires root')
     deploy.command(deploy.attestation_command(args.gh, args.bundle, args.attestation, args.repository, 'master', 'ci.yml', args.commit), timeout=180)
@@ -70,13 +72,15 @@ def main():
         runtime_password, auth_password = secrets.token_hex(32), secrets.token_hex(32)
         for filename, login, password in [('runtime.connection', 'synthetic_runtime', runtime_password),
                                            ('authenticator.connection', 'synthetic_authenticator', auth_password)]:
-            (application / filename).write_text('Host=' + values['DATABASE_CONTAINER'] + ';Database=openetrm;Username=' + login + ';Password=' + password + ';SSL Mode=Disable')
+            (application / filename).write_text('Host=' + values['DATABASE_CONTAINER'] + ';Database=openetrm;Username=' + login + ';Password=' + password + ';SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=8')
         host = {'installationId': installation, 'publicOrigin': origin, 'stateDirectory': '/var/lib/openetrm',
                 'webDirectory': '/opt/openetrm/web', 'manifestDirectory': '/run/private', 'runtimeConnectionFile': '/run/private/runtime.connection',
                 'authenticatorConnectionFile': '/run/private/authenticator.connection', 'listenPort': 8080,
                 'trustedProxyNetwork': '127.0.0.1/32', 'protectionCertificateFile': '/run/private/protection.pfx'}
         keys = {'credentialKeyFile': '/run/private/credential.key', 'credentialRetryKeyFile': '/run/private/credential-retry.key'}
         if args.previous_credential_keys == 'named': host.update(keys)
+        limits=json.loads((Path(__file__).resolve().parents[1]/'deploy/process-limits.example.json').read_text())
+        if args.previous_process_limits=='named':host['limits']=limits
         (application / 'host.json').write_text(json.dumps(host))
         certificate, key = root / 'tls.crt', root / 'tls.key'
         deploy.command(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
@@ -136,10 +140,14 @@ def main():
                     deploy.http_checks(origin, certificate=str(certificate)); break
                 except (deploy.ReleaseError, deploy.InfrastructureError): time.sleep(1)
             else: raise RuntimeError('owned baseline API was not ready')
+            rollback_host=dict(host)
+            if args.previous_process_limits=='absent':host['limits']=limits
             if args.previous_credential_keys == 'absent':
                 # Once the previous API has started for the last time, as an installation's operator does (docs/hosted-pilot.md).
                 host.update(keys); (application / 'host.json').write_text(json.dumps(host))
                 os.chown(application / 'host.json', 1654, 1654); (application / 'host.json').chmod(0o600)
+            (application / 'host.json').write_text(json.dumps(host))
+            os.chown(application / 'host.json',1654,1654);(application / 'host.json').chmod(0o600)
             baseline = {'phase': 'completed', 'database': {'systemIdentifier': psql('SELECT system_identifier FROM pg_control_system();')},
                         'migrations': [{'name': path.name, 'sha256': sha256(path)} for path in migrations]}
             baseline_path = root / 'initialization.json'; deploy.atomic_json(baseline_path, baseline)
@@ -163,6 +171,18 @@ def main():
             require(psql('SELECT (SELECT count(*) FROM trading.trades),(SELECT count(*) FROM power_data.prices),(SELECT count(*) FROM security.hosted_sessions);') == before,
                     'qualification changed financial/session data')
             deploy.Deployment(settings).run()
+            # Rollback is a paired image/configuration transition, never an old binary with a new strict JSON contract.
+            (application / 'host.json').write_text(json.dumps(rollback_host))
+            os.chown(application / 'host.json',1654,1654);(application / 'host.json').chmod(0o600)
+            rollback_values=deploy.environment(env);rollback_values['API_IMAGE']=args.previous_image
+            deploy.write_environment(env,rollback_values)
+            deploy.command([*compose,'up','-d','--no-deps','api'])
+            for attempt in range(20):
+                try:deploy.http_checks(origin,certificate=str(certificate));break
+                except (deploy.ReleaseError,deploy.InfrastructureError):time.sleep(1)
+            else:raise RuntimeError('Owned prior image with its original host configuration did not recover')
+            require(psql('SELECT (SELECT count(*) FROM trading.trades),(SELECT count(*) FROM power_data.prices),(SELECT count(*) FROM security.hosted_sessions);')==before,'Rollback changed retained financial/session data')
+            print('PASS paired prior-image and original-configuration rollback over the upgraded schema')
             print('PASS owned Docker/PostgreSQL release: real attestation, candidate HTTPS/auth preflight, exact image promotion, unchanged database/data and idempotent repeat')
         finally:
             if server is not None: server.shutdown(); server.server_close()

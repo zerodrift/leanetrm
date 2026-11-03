@@ -1523,7 +1523,7 @@ fails. `tests/test_release_deployment.py` checks that a deployment verifies the 
 fence: an unchanged persisted file, the recorded rules live, and the ingress network's
 own bridge, refusing a network recreated with another. It also refuses a serving API
 that names a provider check endpoint. `tools/check_release_docker.py` starts the
-previous image with the host configuration it accepts (`--previous-credential-keys`)
+previous image with the host configuration it accepts (`--previous-credential-keys` and `--previous-process-limits`)
 and adds the key files' fields before the deployment, as an operator does. `tools/check_public_routes.py` checks that the gateway passes an event
 stream's first frame through before the application ends the response; a copy of the
 template with buffering on fails it.
@@ -3468,3 +3468,149 @@ Environment: macOS 26.6.2 arm64, Apple M4 Pro, 14 logical processors, PostgreSQL
 .NET 10.0.402 Debug build for the preview runs, Node 24.22.0, Chrome, all components
 on one machine. These are local workload observations, not a performance
 qualification. The digest check has not yet been observed on Linux for this change; CI is to confirm it.
+
+## D302 shared mechanisms and operating configuration
+
+Qualification on 2026-11-02 used isolated disposable stock PostgreSQL 16 and
+synthetic inputs. The complete increment was exercised on base `f026c3ec`;
+after integration with `5a6cd3e9`, the targeted checks below were rerun. The managed core's 656 checks pass with the retained gas/crude extraction;
+its explicit canonical identity and rational PV oracles also passed against the
+original concrete implementations before extraction. Shared utilities, API
+contracts and the worker build pass. Custom reference-unit symbols survive catalog
+presentation, and the reference-editing/integrity suite passes on the full schema.
+
+On the `f026c3ec` baseline, the frontend passed 1,225 checks and Python tooling
+passed 84. The complete standard preview passed its 1,213 browser checks and
+subsequent backend checks. Hosted HTTPS/browser checks passed, including
+capacity-one logout/re-login and SQL-verified revocation reclamation. Assistant
+admission/tool/stream/usage checks and 288 browser checks passed; a turn admitted before a policy change retains
+its old pin/reserve/output budgets, a new turn uses the new policy, and grant/save
+replays keep their original outcome after a cap reduction. Managed output checks
+consume actual SQL-admitted limits and refuse oversized complete results.
+
+Owned settings/upgrade checks pass current authority, ownership, exact replay,
+no-op revisions, optimistic conflicts, complete bounded input, access-only
+administration without market authority, exact session/lockout/invitation durations
+and duplicate failed-login handling. Altered privileged helper bodies/ACLs refuse;
+completed prior turns, versions, grants and session identity/expiry remain unchanged
+without invented policy lineage. Gas and crude HTTP/worker checks reproduce exact
+retained mixed-portfolio valuation and shock results. The public gateway passes
+38 live owned route checks, and custom process-budget rendering checks cover body
+sizes, refusals, longer deadlines and the fixed stream heartbeat margin.
+
+After integrating `5a6cd3e9` (D299 parametric risk), the combined tree passed 1,232 frontend
+checks, 84 Python checks, managed API contracts, and owned settings/upgrade SQL.
+The dedicated parametric SQL/HTTP/worker suite and its 11 browser checks passed.
+These targeted reruns do not represent a full combined-tree CI run.
+
+The subsequent integration onto `587fc183` preserves physical LNG (0176–0179,
+D300) and guided VaR (0180, D301); operating settings now occupy 0181–0183 and
+D302. A delayed-preference browser regression reproduces the pop-out account
+switch failure on the earlier implementation. Verification demands now retain a
+fresh following read, and delayed preferences are applied only after rechecking
+the same tied identity. The private import fixture explicitly selects connection
+budgets; six refusal checks verify that omitting any budget from either login
+records no import receipt. The owned import/upgrade suite, 1,242 frontend checks
+and 85 Python checks pass on this integration. The fixed assistant browser suite
+passes all 288 checks, and the guided parametric SQL/worker suite and its 16
+browser checks pass.
+
+The exchange preview explicitly provisions its separate workspace policies before
+agent admission. Its scoped-policy check and full exchange/options HTTP,
+lifecycle, retained risk and 35 browser checks pass; missing configuration still
+refuses at runtime.
+
+Independent adversarial source review found no remaining material defect after
+these fixes. This is local implementation qualification. An attested Docker run
+with the selected prior image, paired configuration rollback and authenticated
+service-recovery checks remains outstanding; the current rollback smoke covers
+public authentication-page availability and anonymous denial only. See the
+[operator transition](hosted-pilot.md#operating-configuration-transition-d302).
+
+## Facility quantity ledger (D303)
+
+The [facility contract](facility-quantity-ledger.md) has independent managed
+checks for exact source conservation, fractional target quotas, native-unit
+compatibility, source corrections, preserved measured operating breaches and
+missing/withdrawn inputs. The full managed core suite passes 656 checks; managed
+API/preview adapter checks pass. The Python verification runner passes 85 checks,
+and the presentation suite passes 1,244 checks. These are local synthetic results.
+
+The owned stock-PostgreSQL SQL/HTTP workflow books three real synthetic physical
+gas trades and allocates a shared source. It qualifies immutable/no-op facts,
+actor-scoped command replay, cross-account owner refusal, exact references,
+retained cutoffs, concurrent replacement conflicts, operating-limit withdrawal
+and correction reconciliation. Incomplete privileged writers separately test
+constraint-trigger conservation, target quotas, native days, stale source
+pins and forward source-publication refusal. A clock shift cannot create another pool. Own-trade allocation projections
+show no source/plan fingerprints or other-party data and remain identical when
+only another target changes.
+
+The dedicated browser workflow passes 20 facility checks; the accompanying gas
+and deal-ticket workflows pass 16 and 28 browser checks. Coverage includes
+responsive facility views, loaded editable
+controls, shared multi-select removal, unload/navigation guards, cross-form draft
+protection, corrections, limit removal, lost-response status recovery and
+navigation with unavailable browser storage. Historical Apply withholds/reloads
+current values, explicit market-close selection enables read-only trade inspection,
+own allocation tracks stay readable when contractual PV is unavailable,
+and account changes clear old values. Administration checks verify the current
+role catalog, initially unassigned facility roles, explicit assignment through the
+normal operation and separation of recording versus limit configuration. Existing gas booking, setup, composition,
+daily quantities and deal-ticket checks run alongside the facility workflow.
+
+Use `tools/run_preview.py --facility-quantity-check --gas-daily-quantity-check
+--gas-composition-check --gas-setup-check --deal-ticket-check --check
+--browser-check --browser /path/to/browser`, with the explicit supported SDK and
+stock PostgreSQL flags described above. The trading CI group includes the facility
+workflow. No production or migration rollout, broader commodity qualification,
+final billing adoption, notification dispatch or throughput benchmark is claimed.
+
+## Facility read plans (2026-11-03, local)
+
+Hosted runners timed out the Facilities page's first directory load after the
+preview's 5-second command limit. The command was
+`security.facility_quantity_directory`. Its per-ledger visibility checks
+(`trading_visible`, `reference_version_visible`) sat on the ledger row of a view
+that joined labels from five reference tables. Autovacuum vacuumed
+`ref_data.locations` (row count, no statistics) and analyzed `ref_data.units` and
+`ref_data.quantity_specifications`. After that the planner joined the reference
+tables first: 106,272 combinations, probing the ledger 13,284 times and running
+both checks on each probe. `security.facility_quantity_choices`, which the same
+request runs next, degraded the same way: `facility_gas_target` resolved the
+trade's latest visible revision for each of the schedule's 31 rows before it
+matched the requested day. Migration 0185 reads the labels by exact key and
+resolves the revision once per target. Results are unchanged.
+
+Workload: the owned preview of the trading CI facility step (`--facility-quantity-check
+--gas-daily-quantity-check --gas-composition-check --gas-setup-check --browser-check`),
+measured just before the facility browser workflow starts. The catalog then holds one
+facility ledger, 14 gas delivery obligations, 94 schedule grids and 222 target choices,
+on one reference revision. Each read ran as the trader in a captured 2021-01-15 working
+context, using `EXPLAIN (ANALYZE, BUFFERS, TIMING OFF)`: five consecutive calls in one
+transaction, with the median reported. Before and after ran against the same database,
+replacing only the 0185 objects. Environment: Apple M4 Pro, 14 cores, 48 GB, macOS,
+stock PostgreSQL 16.14, all pages in shared buffers. Pages are deterministic for a
+plan. Time is not. Other local workloads were running during the choices run (load
+average 13 to 20), so its times are higher than the directory run's.
+
+| Read, statistics left by autovacuum | Before | After |
+| --- | --- | --- |
+| `facility_quantity_directory`, one ledger | 2,958 ms, 1,769,720 pages | 1.1 ms, 2,182 pages |
+| `facility_quantity_choices`, 222 targets | 3,637 ms, 1,189,144 pages | 838 ms, 165,799 pages |
+
+Before autovacuum reached those tables, the directory read took 15.5 ms and the
+choices read 420 ms, so the plans in use depended on maintenance timing. With 0185
+the directory returned byte-identical JSON. The catalog-wide and ledger-scoped
+choices also returned byte-identical JSON (matching MD5).
+
+The facility ledger check repeats exactly that maintenance and bounds both reads
+by pages read, which unlike time does not depend on the machine. With 3 synthetic
+trades the reads take 1,650,158 and 185,346 pages before 0185 and 2,160 and
+48,916 after (bounds 20,000 and 100,000). The trading CI facility step passes locally,
+including 20 facility and 16 physical gas browser checks. The `Command Timeout` is unchanged.
+
+The choices read still proves the trade's authority once for every candidate
+(one call per obligation-day). Its cost grows linearly with the catalog's
+single-day gas targets, up to its 1,001-result limit. No hosted-runner timing is
+claimed here.

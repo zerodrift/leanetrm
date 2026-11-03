@@ -1,7 +1,6 @@
 import {navigationGroups} from './navigation-groups.js';
 // market is the Market filter's commodity code, or null for All markets.
 export type Preferences={version:1;timeZone:string;browseBy:'commodity'|'marketType';market:string|null;marketType:'all'|'futures'|'forwards'|'rates';tab:'prices'|'inputs'|'dependencies';sidebarCollapsed:boolean;libraryCollapsed:boolean;assistantHidden:boolean;assistantMinimized:boolean;collapsedMenus:string[];collapsedCurveGroups:string[]};
-export interface PreferenceStorage {getItem(key:string):string|null;setItem(key:string,value:string):void;}
 // Collapsed groups are saved by navigation group id. The earlier three-group sidebar saved other ids; they name no current
 // group, so a saved profile loses them instead of failing to load.
 const groupIds:string[]=navigationGroups.map(group=>group.id),retiredMenus=['market-menu','settings-menu','trading-menu'];
@@ -21,6 +20,3 @@ export function parsePreferences(raw:string):Preferences {
   if(menus.some(x=>!groupIds.includes(x)))throw Error('Saved menu settings could not be read.');
   return {version:1,timeZone:v.timeZone,browseBy:v.browseBy,market:v.market??null,marketType:v.marketType,tab:v.tab,sidebarCollapsed:v.sidebarCollapsed??false,libraryCollapsed:v.libraryCollapsed??false,assistantHidden:v.assistantHidden??false,assistantMinimized:v.assistantMinimized??false,collapsedMenus:menus,collapsedCurveGroups:v.collapsedCurveGroups??[]};
 }
-const key=(profile:string)=>`openetrm.preferences.v1.${profile}`;
-export function loadPreferences(storage:PreferenceStorage,profile:string,zone:string):Preferences {const saved=storage.getItem(key(profile));return saved===null?newPreferences(zone):parsePreferences(saved);}
-export function savePreferences(storage:PreferenceStorage,profile:string,prefs:Preferences){storage.setItem(key(profile),JSON.stringify(parsePreferences(JSON.stringify(prefs))));}

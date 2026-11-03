@@ -64,7 +64,7 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
 }
 // How a request binds its context: shared, like every request, or exclusive, taking the epoch row before binding so
 // a control-table write cannot deadlock against requests already admitted (docs/ai-assistant.md §5.4).
-public enum Admission { Shared, Administration, Agents, Grants }
+public enum Admission { Shared, Administration, Agents, Grants, OperatingAgents, OperatingAccess }
 public sealed class PreviewDeniedException : Exception;
 
 public sealed class PreviewDatabase : IAsyncDisposable
@@ -122,6 +122,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
 
     public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
     {
+        var processLimits=hosted?.Limits??ProcessLimits.Read(Path.Combine(root,"process-limits.json"));
         if(manifestName is not ("manifest.json" or "exchange-manifest.json"))throw new InvalidOperationException("Choose a configured preview manifest.");
         Manifest = JsonSerializer.Deserialize<PreviewManifest>(File.ReadAllText(Path.Combine(root, manifestName)),
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new InvalidOperationException("Missing preview manifest.");
@@ -129,12 +130,12 @@ public sealed class PreviewDatabase : IAsyncDisposable
         if (hosted is not null && Manifest.IdentityIssuer != hosted.IdentityIssuer) throw new InvalidOperationException("The exact hosted identity issuer must match the manifest.");
         if (hosted is null)
         {
-            authenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", 8);
-            runtime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", 8);
-            calculationRuntime=PreviewSource(root,"OPENETRM_PREVIEW_RUNTIME","preview_runtime",null,"openetrm-calculation-listener");
+            authenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", true);
+            runtime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", true);
+            calculationRuntime=PreviewSource(root,"OPENETRM_PREVIEW_RUNTIME","preview_runtime",false,"openetrm-calculation-listener");
             // An agent read is bounded by its version's time per read, so no one command of it is cut off sooner (D245).
-            agentAuthenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", RuntimeSet.AgentPool, AgentReads, AgentCommandSeconds);
-            agentRuntime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", RuntimeSet.AgentPool, AgentReads, AgentCommandSeconds);
+            agentAuthenticator = PreviewSource(root, "OPENETRM_PREVIEW_AUTHENTICATOR", "preview_authenticator", true, AgentReads, AgentCommandSeconds,processLimits.AgentConnections);
+            agentRuntime = PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", true, AgentReads, AgentCommandSeconds,processLimits.AgentConnections);
             runtimeLogin = "preview_runtime";
         }
         else
@@ -146,8 +147,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
                 throw new InvalidOperationException("Hosted runtime and authenticator require separate logins to the same dedicated database.");
             authenticator=NpgsqlDataSource.Create(auth.ConnectionString); runtime=NpgsqlDataSource.Create(app.ConnectionString);
             calculationRuntime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app.ConnectionString){Pooling=false,ApplicationName="openetrm-calculation-listener"}.ConnectionString);
-            agentAuthenticator=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(auth.ConnectionString){MaxPoolSize=RuntimeSet.AgentPool,ApplicationName=AgentReads,CommandTimeout=AgentCommandSeconds}.ConnectionString);
-            agentRuntime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app.ConnectionString){MaxPoolSize=RuntimeSet.AgentPool,ApplicationName=AgentReads,CommandTimeout=AgentCommandSeconds}.ConnectionString);
+            agentAuthenticator=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(auth.ConnectionString){MaxPoolSize=processLimits.AgentConnections,ApplicationName=AgentReads,CommandTimeout=AgentCommandSeconds}.ConnectionString);
+            agentRuntime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app.ConnectionString){MaxPoolSize=processLimits.AgentConnections,ApplicationName=AgentReads,CommandTimeout=AgentCommandSeconds}.ConnectionString);
             runtimeLogin=app.Username!;
         }
     }
@@ -157,7 +158,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
     // through its cancellation, stops a read (D245).
     internal const int AgentCommandSeconds=RuntimeSet.MaxReadSeconds;
 
-    private static NpgsqlDataSource PreviewSource(string root, string variable, string login, int? pool, string? application=null, int commandTimeout=5)
+    private static NpgsqlDataSource PreviewSource(string root, string variable, string login, bool pooling, string? application=null, int? commandTimeout=null,int? maximumPool=null)
     {
         var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable(variable)
             ?? throw new InvalidOperationException($"Missing {variable}."));
@@ -166,8 +167,9 @@ public sealed class PreviewDatabase : IAsyncDisposable
         // JSON timestamp transport follows the API UTC contract, independently
         // of the database host, process environment or display preference.
         config.Timezone = "UTC";
-        config.CommandTimeout = commandTimeout; config.Timeout = 5;
-        if (pool is {} size) config.MaxPoolSize = size; else config.Pooling = false;
+        HostedConfiguration.RequireBudget(config,new(5,30,8));
+        if(commandTimeout is {} seconds)config.CommandTimeout=seconds;
+        config.Pooling=pooling;if(maximumPool is {} pool)config.MaxPoolSize=pool;
         if (application is not null) config.ApplicationName = application;
         return NpgsqlDataSource.Create(config.ConnectionString);
     }
@@ -178,10 +180,10 @@ public sealed class PreviewDatabase : IAsyncDisposable
     public static (NpgsqlDataSource Holder, NpgsqlDataSource Writes) WorkerSources(string root, HostedConfiguration? hosted)
     {
         if (hosted is null)
-            return (PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", null), PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", 8));
+            return (PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", false), PreviewSource(root, "OPENETRM_PREVIEW_RUNTIME", "preview_runtime", true));
         var app = HostedConfiguration.Connection(hosted.RuntimeConnectionFile).ConnectionString;
         return (NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app) { Pooling = false }.ConnectionString),
-            NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(app) { MaxPoolSize = 8 }.ConnectionString));
+            NpgsqlDataSource.Create(app));
     }
 
     public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, Admission admission=Admission.Shared)
@@ -200,6 +202,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
         catch (PostgresException e) when (hostedSession is not null && e.SqlState == "42501") { throw new PreviewSessionEnded(); }
         return await Bound(source, token, hostedSession is not null, invocation?.ReadLimit, admission switch{Admission.Administration=>"SELECT security.use_administration_context($1)",
             Admission.Agents=>"SELECT assistant.use_agent_admission($1)",Admission.Grants=>"SELECT assistant.use_grant_admission($1)",
+            Admission.OperatingAgents=>"SELECT security.use_operating_policy_context($1,'ManageAgents')",
+            Admission.OperatingAccess=>"SELECT security.use_operating_policy_context($1,'ManageAccess')",
             _=>"SELECT security.use_context($1)"}, async(connection,ct)=>
         {
             await Hold(connection,permission,ct);

@@ -371,11 +371,12 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         }
     }
     sealed class HasBody:IHttpRequestBodyDetectionFeature {public bool CanHaveBody=>true;}
+    // Fixed ceiling for the internal operation transport. A turn separately enforces its admitted, possibly smaller output budget.
     sealed class BoundedResponse:MemoryStream
     {
         public override void Write(byte[] buffer,int offset,int count){Bound(count);base.Write(buffer,offset,count);}
         public override void Write(ReadOnlySpan<byte> buffer){Bound(buffer.Length);base.Write(buffer);}
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer,CancellationToken cancellationToken=default){Bound(buffer.Length);return base.WriteAsync(buffer,cancellationToken);}
-        void Bound(int count){if(Length+count>RuntimeSet.ToolResultBytes)throw new ToolRefusal("result_too_large");}
+        void Bound(int count){if(Length+count>65536)throw new ToolRefusal("result_too_large");}
     }
 }

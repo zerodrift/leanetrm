@@ -34,6 +34,7 @@ def main():
     parser.add_argument('--with-gas-quantity-dates',action='store_true',help='Include synthetic January working frames for daily gas quantity exploration')
     parser.add_argument('--gas-quantity-benchmark',action='store_true',help='Measure owned daily gas quantity grids with authorized revision history')
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
+    parser.add_argument('--facility-quantity-check',action='store_true',help='Qualify shared facility quantity storage and explicit gas allocations')
     parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
     parser.add_argument('--deal-ticket-check',action='store_true',help='Qualify the deal ticket schedule view of composed gas trades')
     parser.add_argument('--crude-setup-check',action='store_true',help='Qualify exact crude delivery-to-market bindings')
@@ -132,10 +133,10 @@ def main():
         args.demo_instruments_check=True;args.physical_gas_check=True
     if args.crude_lifecycle_check or args.crude_setup_check: args.physical_crude_check=True
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
-    if args.gas_setup_check or args.gas_composition_check or args.deal_ticket_check or args.gas_daily_quantity_check: args.physical_gas_check=True
+    if args.gas_setup_check or args.gas_composition_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
-    fixing_frames=args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    fixing_frames=args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
     if args.interval_series_benchmark or args.usage_benchmark or args.blotter_stream_benchmark:
@@ -232,6 +233,9 @@ def main():
             if args.lng_cargo_check and migration.name=='0176_lng_cargo_references.sql':
                 from check_lng_upgrade import run_checks as check_lng_upgrade
                 check_lng_upgrade(query,ROOT,manifest,[reference,market,security,trading_fixture(manifest['catalogId'])])
+            if migration.name.endswith(('_operating_policies.sql','_access_policy_consumers.sql')):
+                from check_settings_upgrade import run_checks as check_settings_upgrade
+                check_settings_upgrade(query,migration)
             if (args.assistant_check or args.provider_adapters_check) and migration.name=='0105_model_identifier_policy.sql':
                 from check_model_versions import check_identifier_policy_upgrade
                 check_identifier_policy_upgrade(query,migration.read_text())
@@ -436,6 +440,7 @@ def main():
                 from factor_swap_fixture import prepare as prepare_factor
                 prepare_factor(manifest)
         query(security)
+        query(f"SELECT security.initialize_operating_policies('{manifest["tenantId"]}','{manifest["workspaceId"]}');")
         if args.example=='standard' and (not args.check or args.factor_history_check or args.parametric_risk_check):
             from factor_history_fixture import seed as seed_history
             seed_history(query,manifest)
@@ -448,6 +453,7 @@ def main():
             from exchange_fixture import fixture as exchange_fixture
             er,em,es,et,exchange_manifest=exchange_fixture(ROOT)
             query(er);query(em);query(es);query(et)
+            query(f"SELECT security.initialize_operating_policies('{exchange_manifest['tenantId']}','{exchange_manifest['workspaceId']}');")
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
             if args.exchange_check:
                 from check_futures_option_storage import run_checks as check_futures_option_storage
@@ -515,6 +521,7 @@ def main():
         # Freeze assets for this owned instance; a later web build must not change
         # another running preview's presentation while it is being used.
         shutil.copytree(ROOT/'web/dist',temporary/'web')
+        shutil.copyfile(ROOT/'deploy/process-limits.example.json',temporary/'process-limits.json')
         port=args.port
         if port==0:
             with socket.socket() as reservation:
@@ -523,8 +530,8 @@ def main():
         url=f'http://127.0.0.1:{port}'
         app_env={**env,'OPENETRM_PREVIEW_ROOT':str(temporary),'OPENETRM_PREVIEW_PORT':str(port),
                  'OPENETRM_PREVIEW_WEB':str(temporary/'web'),
-                 'OPENETRM_PREVIEW_RUNTIME':f'Host={temporary};Port=55439;Database=postgres;Username=preview_runtime;SSL Mode=Disable',
-                 'OPENETRM_PREVIEW_AUTHENTICATOR':f'Host={temporary};Port=55439;Database=postgres;Username=preview_authenticator;SSL Mode=Disable',
+                 'OPENETRM_PREVIEW_RUNTIME':f'Host={temporary};Port=55439;Database=postgres;Username=preview_runtime;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=8',
+                 'OPENETRM_PREVIEW_AUTHENTICATOR':f'Host={temporary};Port=55439;Database=postgres;Username=preview_authenticator;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=8',
                  **credential_keys}
         # Exercise transport independently of the launcher's UTC psql sessions.
         if args.check:
@@ -559,7 +566,7 @@ def main():
             from check_risk_jobs_db import provision_worker
             provision_worker(query,selected or manifest,login)
             connection=temporary/f'{login}-connection'
-            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username={login};SSL Mode=Disable')
+            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2')
             connection.chmod(0o600)
             config=temporary/f'{login}.json'
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':60}))
@@ -679,6 +686,9 @@ def main():
                 from check_physical_gas_preview import run_checks,run_shape_checks
                 run_checks(url)
                 run_shape_checks(query,manifest)
+                if args.facility_quantity_check:
+                    from check_facility_quantity_ledger import run_checks as check_facility_quantities
+                    facility_fixture=check_facility_quantities(url,query,manifest)
                 if args.gas_daily_quantity_check:
                     from check_gas_daily_quantities import run_checks as check_gas_daily_quantities
                     check_gas_daily_quantities(url,query,manifest)
@@ -693,7 +703,9 @@ def main():
                     check_deal_ticket(url,query,manifest)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
-                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,**({'facility':facility_fixture} if args.facility_quantity_check else {})}))
+                    if args.facility_quantity_check:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--facility-quantities'],cwd=ROOT,env=env,check=True,timeout=300)
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
                     if args.deal_ticket_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=300)
@@ -1222,7 +1234,7 @@ def main():
                 from check_swap_payment_rules import run_checks as check_swap_payment_rules
                 check_swap_payment_rules(url,session)
                 from check_booking_facts import run_checks as check_booking_facts
-                check_booking_facts(url,query,manifest,session)
+                check_booking_facts(url,query,manifest,session,browsers[0])
                 from check_draft_pricing import run_checks as check_draft
                 check_draft(url,query,manifest,session)
                 from check_definition_publication import run_checks as check_definition_publication

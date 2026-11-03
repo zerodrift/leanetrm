@@ -65,3 +65,11 @@ test('actor command retention survives storage failure and editor remount withou
  actor='desk:a';assert.equal(transport.read().body.operationId,'original-operation');
  transport.write(undefined);assert.equal(transport.read(),null);
 });
+
+test('facility request recovery uses the shared validated transport contract',async()=>{
+ const {restoreTradeRequest}=await import('../dist/pending-command.js');
+ const saved={path:'facilities/quantities/record',operationId:'synthetic-facility-operation',body:{ownerId:'synthetic-owner',command:{kind:'source',quantity:'100'}},uncertain:true};
+ assert.deepEqual(restoreTradeRequest(saved),saved);
+ assert.equal(restoreTradeRequest({...saved,path:'admin/update'}),undefined);
+ assert.equal(restoreTradeRequest({...saved,body:null}),undefined);
+});

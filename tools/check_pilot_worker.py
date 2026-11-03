@@ -145,8 +145,8 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     denied=query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{old_token}');SELECT NOT security.has_permission('ReadMarketData');ROLLBACK;")
     assert denied.splitlines()[-1]=='t','The run context survived expiry of its actual lease'
     scheduler=root/'pilot.scheduler.connection';runtime=root/'pilot.runtime.connection'
-    scheduler.write_text(f'Host={root};Port=55439;Database=postgres;Username=pilot_fixture_scheduler;SSL Mode=Disable;Application Name=synthetic-pilot-worker');scheduler.chmod(0o600)
-    runtime.write_text(f'Host={root};Port=55439;Database=postgres;Username=pilot_fixture_runtime;SSL Mode=Disable;Application Name=synthetic-pilot-worker');runtime.chmod(0o600)
+    scheduler.write_text(f'Host={root};Port=55439;Database=postgres;Username=pilot_fixture_scheduler;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2;Application Name=synthetic-pilot-worker');scheduler.chmod(0o600)
+    runtime.write_text(f'Host={root};Port=55439;Database=postgres;Username=pilot_fixture_runtime;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2;Application Name=synthetic-pilot-worker');runtime.chmod(0o600)
     worker_environment={k:v for k,v in environment.items() if not k.startswith(('OPENETRM_PREVIEW_','ASPNETCORE_'))}
     worker_environment.update(OPENETRM_WORKER_CONNECTION_FILE=str(scheduler),OPENETRM_PILOT_RUNTIME_CONNECTION_FILE=str(runtime),
         OPENETRM_PILOT_MANIFEST_FILE=str(root/'manifest.json'),OPENETRM_WORKER_POLL_SECONDS='1',OPENETRM_WORKER_LEASE_SECONDS='120',
