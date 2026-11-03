@@ -1,6 +1,6 @@
 import {plotNumber} from './plot-number.js';
 import type {SurfaceLink} from './vol-surface-link.js';
-import {themeToken,volTheme} from './vol-surface-theme.js';
+import {richCheapColour,themeToken,volTheme} from './vol-surface-theme.js';
 import type {SurfaceExpiry,VolSurfaceResult} from './vol-surface-view.js';
 
 // The fitted volatility surface in 3D, drawn on a canvas by this module: strike across, expiry in depth and volatility up. It places
@@ -43,7 +43,7 @@ export function levelRange(surface:VolSurfaceResult):{low:string;high:string}|nu
 
 type Rgb=[number,number,number];
 type Screen={x:number;y:number;depth:number};
-type Stalk={code:string;rich:boolean;base:[number,number,number];tip:[number,number,number]};
+type Stalk={code:string;richCheap:string;base:[number,number,number];tip:[number,number,number]};
 type Placed={code:string;base:Screen;tip:Screen};
 // The default view: turned a little from the strike axis and looking down onto the surface.
 const initial={yaw:-0.6,pitch:0.45};
@@ -71,7 +71,7 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
  const world=(strike:number,time:number,vol:number):[number,number,number]=>[unit(strike,strikeSpan)*2-1,unit(time,timeSpan)*2-1,unit(vol,volSpan)*height];
  const timeOf=new Map(surface.expiries.map(e=>[e.expiryAt,Date.parse(e.expiryAt)]));
  const placedStalks:Stalk[]=stalks.map(s=>{const k=plotNumber(s.series.strike),t=timeOf.get(s.series.expiryAt)!;
-  return {code:s.series.code,rich:!s.richCheap!.startsWith('-'),base:world(k,t,plotNumber(s.fitted!)),tip:world(k,t,plotNumber(s.series.marketVolatility!))};});
+  return {code:s.series.code,richCheap:s.richCheap!,base:world(k,t,plotNumber(s.fitted!)),tip:world(k,t,plotNumber(s.series.marketVolatility!))};});
  const point=(expiry:number,strike:string)=>world(plotNumber(strike),times[expiry],plotNumber(fittedOf.get(expiry)!.get(strike)!));
  const shade=(expiry:number,strike:string)=>unit(plotNumber(fittedOf.get(expiry)!.get(strike)!),{min:plotNumber(levels.low),max:plotNumber(levels.high)});
 
@@ -159,7 +159,7 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
   }
   placed=[];
   for(const s of placedStalks){
-   const base=at(s.base),tip=at(s.tip),linked=s.code===highlighted,colour=s.rich?colours.rich:colours.cheap;
+   const base=at(s.base),tip=at(s.tip),linked=s.code===highlighted,colour=richCheapColour(colours,s.richCheap);
    placed.push({code:s.code,base,tip});
    shapes.push({depth:Math.min(base.depth,tip.depth)-.03-(linked?1:0),paint(){
     ctx.beginPath();ctx.moveTo(base.x,base.y);ctx.lineTo(tip.x,tip.y);ctx.strokeStyle=colour;ctx.lineWidth=linked?3:1.6;ctx.stroke();

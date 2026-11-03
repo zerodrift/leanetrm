@@ -5,7 +5,7 @@ import {PendingCommand} from './pending-command.js';
 import {valuationReason,type ValuationReason} from './valuation-status.js';
 import {surfaceLink,type SurfaceLink} from './vol-surface-link.js';
 import {drawSurface3d,levelRange} from './vol-surface-3d.js';
-import {volTheme} from './vol-surface-theme.js';
+import {richCheapColour,richCheapTone,volTheme} from './vol-surface-theme.js';
 
 // Vol surfaces (Markets): the stored volatility surface of one option product at the selected context, fitted by a job on the
 // risk queue, shown as a rich/cheap heat map, a rotatable 3D surface and one smile per expiry. Every value, fit, rich/cheap and reason
@@ -43,6 +43,11 @@ export function decimalText(value:string,{shift=0,places,signed=false}:{shift?:n
  return (scaled===0n?'':minus?'-':signed?'+':'')+(places?text.slice(0,-places)+'.'+text.slice(-places):text);
 }
 const points=(value:string,signed=false)=>decimalText(value,{shift:2,places:2,signed});
+/** A rich/cheap value as the views name it: rich or cheap by its signed volatility points, or exactly on the smile. Display only. */
+export function richCheapText(value:string):string{
+ const tone=richCheapTone(value);
+ return tone==='neutral'?'On the smile':`${tone==='rich'?'Rich':'Cheap'} ${points(value,true)} vol pts`;
+}
 // Trailing zeros of an exact price, as a label shows it.
 const trimmed=(value:string)=>value.includes('.')?value.replace(/0+$/,'').replace(/\.$/,''):value;
 
@@ -57,7 +62,8 @@ function outcomeReason(outcome:string):string{
  if(outcome==='at_intrinsic')return 'Settles at intrinsic value, so no volatility solves it';
  try{return valuationReason(outcome as ValuationReason,'futures_option');}catch{throw Error('The surface returned an unknown series outcome.');}
 }
-const jobFailures:Record<string,string>={vol_surface_no_settlements:'No settlements for this date'};
+const jobFailures:Record<string,string>={vol_surface_no_settlements:'No settlements for this date',option_expired:'Every series has expired',
+ discount_coverage:'No live expiry is inside the discount curve'};
 
 /** One half-cell of the heat map: a series' rich/cheap, a series without one and why, or a strike its expiry does not list. */
 export type HeatCell={row:number;strike:string;right:Right;kind:'value'|'gap'|'unlisted';series?:SurfaceSeries;reasons:string[]};
@@ -108,7 +114,7 @@ function heatMap(host:HTMLElement,surface:VolSurfaceResult,cells:HeatCell[],labe
  const at=(cell:HeatCell)=>`<b>${rightLabel(cell.right)} ${escape(cell.strike)}</b> · ${escape(label(surface.expiries[cell.row]))}`;
  function tip(params:{seriesId:string;dataIndex:number}){
   if(params.seriesId==='values'){const cell=values[params.dataIndex],rc=cell.series!.richCheap!;
-   return `${at(cell)}<br>${rc.startsWith('-')?'Cheap':'Rich'} ${points(rc,true)} vol pts · ${escape(cell.series!.series.code)}`;}
+   return `${at(cell)}<br>${richCheapText(rc)} · ${escape(cell.series!.series.code)}`;}
   if(params.seriesId==='gaps'){const cell=gaps[params.dataIndex];return `${at(cell)}<br>No rich/cheap: ${cell.reasons.map(escape).join('; ')}`;}
   return `${at(unlisted[params.dataIndex])}<br>Not listed for this expiry`;
  }
@@ -157,10 +163,10 @@ function smile(host:HTMLElement,expiry:SurfaceExpiry,members:SurfaceSeries[],ext
  const market=(right:Right)=>byRight(right).map(s=>({name:s.series.code,value:[plotNumber(s.series.strike),plotNumber(s.series.marketVolatility!)*100],
   itemStyle:s.fitPoint?{color:colors.text2}:{color:colors.surface,borderColor:colors.text2,borderWidth:1.5}}));
  const bars=(right:Right)=>byRight(right).filter(s=>s.richCheap!==null).map(s=>({name:s.series.code,value:[plotNumber(s.series.strike),plotNumber(s.richCheap!)*100],
-  itemStyle:{color:s.richCheap!.startsWith('-')?colors.cheap:colors.rich,opacity:right==='call'?1:.6}}));
+  itemStyle:{color:richCheapColour(colors,s.richCheap!),opacity:right==='call'?1:.6}}));
  const tip=(p:{name:string})=>{const s=members.find(m=>m.series.code===p.name);if(!s)return '';
   return `<b>${rightLabel(s.series.right)} ${escape(s.series.strike)}</b><br>Market ${points(s.series.marketVolatility!)} · fitted ${s.fitted===null?'—':points(s.fitted)}`+
-   (s.richCheap===null?'':`<br>${s.richCheap.startsWith('-')?'Cheap':'Rich'} ${points(s.richCheap,true)} vol pts`);};
+   (s.richCheap===null?'':`<br>${richCheapText(s.richCheap)}`);};
  const series=[
   {id:'fitted',type:'line',data:expiry.grid.map(g=>[plotNumber(g.strike),plotNumber(g.fitted)*100]),showSymbol:false,silent:true,lineStyle:{color:colors.accent,width:2},z:1},
   {id:'calls',type:'scatter',symbol:'circle',symbolSize:8,data:market('call'),emphasis:{scale:1.8,itemStyle:{borderColor:colors.text,borderWidth:2}},z:3},
@@ -198,7 +204,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  const productSelect=el('select');productSelect.id='vol-product';
  const productRow=el('div','vol-field'),productLabel=el('label',undefined,'Option product');productLabel.htmlFor='vol-product';productRow.append(productLabel,productSelect);
  const modelRow=el('div','vol-field'),modelValue=el('code','vol-model',model);modelValue.id='vol-model';modelRow.append(el('span','vol-field-label','Vol model'),modelValue);
- const legend=el('p','vol-legend','Rich: the market’s implied volatility is above the fitted smile. Cheap: below it. In volatility points.');legend.id='vol-legend';
+ const legend=el('p','vol-legend','Rich: the market’s implied volatility is above the fitted smile. Cheap: below it. On the smile: exactly on it. In volatility points.');legend.id='vol-legend';
  const controls=el('div','vol-controls');controls.append(productRow,modelRow,legend);
  const status=el('p','vol-status');status.id='vol-fit-status';status.setAttribute('role','status');
  const actions=el('div','vol-fit-actions');

@@ -1,7 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {surfaceLink} from '../dist/vol-surface-link.js';
-import {decimalText,heatCells} from '../dist/vol-surface-view.js';
+import {decimalText,heatCells,richCheapText} from '../dist/vol-surface-view.js';
+import {richCheapTone} from '../dist/vol-surface-theme.js';
 import {surfaceMesh} from '../dist/vol-surface-3d.js';
 
 test('the shared series is heard once per change, and not after unsubscribing',()=>{
@@ -11,6 +12,15 @@ test('the shared series is heard once per change, and not after unsubscribing',(
   assert.deepEqual(heard,['a',null,'b']);assert.equal(link.current(),'b');
   stop();link.set('c');
   assert.deepEqual(heard,['a',null,'b']);assert.equal(link.current(),'c');
+});
+
+test('a rich/cheap of exactly zero is on the smile, neither rich nor cheap, and drawn in the neutral tone',()=>{
+  assert.equal(richCheapTone('0.0012'),'rich');assert.equal(richCheapText('0.0012'),'Rich +0.12 vol pts');
+  assert.equal(richCheapTone('-0.0012'),'cheap');assert.equal(richCheapText('-0.0012'),'Cheap -0.12 vol pts');
+  for(const zero of ['0','0.000000000000000000000000000000','-0.000'])
+    {assert.equal(richCheapTone(zero),'neutral',zero);assert.equal(richCheapText(zero),'On the smile',zero);}
+  assert.equal(richCheapTone('0.000000000000000000000000000001'),'rich');
+  for(const value of ['','1e-3','.5'])assert.throws(()=>richCheapTone(value),/exact decimal/);
 });
 
 test('exact decimal fractions are shown as volatility points to two decimals, rounding half to even',()=>{
