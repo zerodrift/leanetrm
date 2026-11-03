@@ -35,5 +35,6 @@ def run_checks(url, query, manifest, dotnet, owned_root, environment):
                'products': list(PRODUCTS), 'atIntrinsic': AT_INTRINSIC, 'missingSettlement': manifest['missingSettlement']}
     path = Path(owned_root) / 'vol-surface-fit.json'
     path.write_text(json.dumps(fixture))
+    # About six fits of calibration in all; a hosted runner fits each product in about 90 s.
     subprocess.run([str(dotnet), 'run', '--project', 'tests/OpenEtrm.Api.Checks', '--', '--vol-surface-fit', str(path)],
-                   cwd=Path(__file__).resolve().parents[1], env=environment, check=True, timeout=300)
+                   cwd=Path(__file__).resolve().parents[1], env=environment, check=True, timeout=900)
