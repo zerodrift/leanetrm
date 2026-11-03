@@ -46,6 +46,13 @@ Run with explicit local tool paths:
 python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/dotnet --historical-risk-check --browser-check --browser /path/to/chrome
 ```
 
+The standard CI group, which includes existing exchange and volatility-fit
+qualification, has a 60-minute job budget. Two runs of the original 45-minute
+budget were cancelled while existing exchange/fit qualification was progressing
+without an assertion failure. Other verification groups retain 45 minutes. All group commands, assertions, aggregate success requirements
+and release dependencies remain unchanged; this is CI capacity, not a pricing or
+production-runtime limit.
+
 ## Volatility surfaces (D304)
 
 Local runs on 2 November 2026 against the branch head after the final review's fixes

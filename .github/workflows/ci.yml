@@ -21,7 +21,8 @@ jobs:
       matrix:
         group: ["workspace", "standard", "assistant", "trading", "portfolio", "settlement", "ppa", "recovery"]
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # Existing exchange/volatility-fit qualification needs headroom beyond 45 minutes.
+    timeout-minutes: ${{ matrix.group == 'standard' && 60 || 45 }}
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
