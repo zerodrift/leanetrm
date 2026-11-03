@@ -137,6 +137,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // Existing booking controls share the table toolbar.
   const scopePicker=setupBookScopePicker({books:get('blotter-books'),portfolios:get('blotter-portfolios'),busy});
   get('blotter-refresh').id='futures-refresh';get('blotter-new').id='futures-new';get('blotter-rows').id='desk-positions';
+  // Group headers wrap at the grid's visible width, which the stylesheet reads from here.
+  {const positions=get('desk-positions');new ResizeObserver(()=>positions.style.setProperty('--desk-visible-width',`${positions.querySelector('.tabulator-tableholder')?.clientWidth??positions.clientWidth}px`)).observe(positions);}
   let catalog:Catalog|undefined,holdings:Holdings|undefined,summaries:Summary[]|undefined,owner='',snapshot='',uncertain=false,generation=0;
   // The first page of the booked positions a read values: its total is the count the status line gives, and the priced read must hold its
   // bindings. Failed valuation can expose these independently read operational facts.

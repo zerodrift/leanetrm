@@ -782,9 +782,9 @@ dialog label{margin-top:16px}
 .desk-chart-empty{margin:0;padding:24px 0;text-align:center;font-size:12px;color:var(--text-3)}
 #desk-positions .tabulator-row.tabulator-group{min-height:0;padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:12px;font-weight:650;color:var(--text)}
 #desk-positions .tabulator-row.tabulator-group:hover{background:var(--surface-3)}
-/* A group header wraps within the visible grid and stays there while a wide grid scrolls sideways. */
-#desk-positions .tabulator-tableholder{container-type:inline-size}
-.desk-group{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;width:calc(100% - 24px);max-width:calc(100cqw - 40px);position:sticky;left:12px}
+/* A group header wraps within the visible grid and stays there while a wide grid scrolls sideways. The width is the grid's,
+   measured on resize: a container query unit here is resolved again in every layout the grid forces, which slows its redraws. */
+.desk-group{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;width:calc(100% - 24px);max-width:calc(var(--desk-visible-width,100%) - 40px);position:sticky;left:12px}
 /* Tabulator's own theme colors group header text; the desk's headers use the shared ink. */
 #desk-positions .tabulator-group span{margin-left:0;color:inherit}
 #desk-positions .tabulator-group span.desk-group-count{font-weight:500;color:var(--text-2)}
