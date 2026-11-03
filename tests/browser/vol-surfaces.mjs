@@ -332,7 +332,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   const historical=await send('market/context',{effectiveOn:'2026-10-16',knownAt:new Date().toISOString(),mode:'at',selection:'latest_correction'});
   if(historical!==200)throw Error('The historical context was refused: '+historical);
   try{
-   await command('Page.navigate',{url:url+'/?example=exchange'});await wait("document.querySelector('#snapshot').options.length>1&&"+idle,60000);
+   await command('Page.navigate',{url:url+'/?example=exchange'});await wait("(document.querySelector('#snapshot')?.options.length??0)>1&&"+idle,60000);
    // A historical view the session kept chooses no close; the person chooses one of its date's closes.
    if(!await evaluate("!!document.querySelector('#snapshot').value"))await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value).value"));
    await wait(idle,30000);
