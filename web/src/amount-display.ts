@@ -19,14 +19,17 @@ const prices=new Set(['price','fixedPrice','executionPrice','mark','markMinusPri
 const quantities=new Set(['resolvedQuantity','quantity','physicalQuantity','totalQuantity','weight']);
 const factors=new Set(['discountFactor','factor','multiplier','delta','gamma']);
 /** The part of an API read whose amounts a page shows, by the read's path; undefined for a read whose amounts no page shows. A workspace
- *  read's report and its desk summaries are both shown, its catalog is not; a curve's points are, and so is a risk report or retained job. */
+ *  read's report and its desk summaries are both shown, its catalog is not; a curve's points are. */
 // An exact amount a read states as {numerator,denominator}, as the rational text the backend formats; null for anything else.
 export function rationalText(value:unknown):string|null{
  const v=value as {numerator?:unknown;denominator?:unknown};
  return v&&typeof v==='object'&&typeof v.numerator==='string'&&typeof v.denominator==='string'?(v.denominator==='1'?v.numerator:`${v.numerator}/${v.denominator}`):null;
 }
+// A risk report or retained job. The page that shows one prepares its amounts itself, after it knows the run is still the one on screen,
+// so the Blotter's run is never held waiting on the display of a report it may no longer show.
+export const riskReportRead=(path:string)=>/^portfolio\/risk(\/jobs\/[^/]+)?$/.test(path);
 export function shownAmounts(path:string,payload:unknown):unknown{
- if(!/^(trading\/(blotter|workspace|position)|swaps\/(preview|editor)|futures\/(holdings|editor|amend-preview)|crude\/(preview|editor)|ppa\/(preview|inspect|break-even)|evaluate|history|power\/preview|portfolio\/risk(\/jobs\/[^/]+)?)$/.test(path))return undefined;
+ if(!/^(trading\/(blotter|workspace|position)|swaps\/(preview|editor)|futures\/(holdings|editor|amend-preview)|crude\/(preview|editor)|ppa\/(preview|inspect|break-even)|evaluate|history|power\/preview)$/.test(path))return undefined;
  const read=payload as {blotter?:unknown;summaries?:unknown;points?:unknown};
  return path==='trading/workspace'?{blotter:read.blotter,summaries:read.summaries}:path==='evaluate'||path==='history'?{points:read.points}:payload;
 }

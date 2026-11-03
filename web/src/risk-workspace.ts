@@ -4,6 +4,7 @@ import {setupRiskJobs} from './risk-jobs-view.js';
 import {copyRiskEditor,setupRiskResults} from './risk-results-view.js';
 import {recentCompletedRuns,riskAddress} from './risk-results.js';
 import {askInPanel} from './side-panel.js';
+import {prepareAmountDisplay,riskReportRead} from './amount-display.js';
 import {publicText} from './market-view.js';
 import {sameRiskScope} from './risk-scope.js';
 import {setupBookScopePicker} from './scope-picker.js';
@@ -35,6 +36,8 @@ export function setupRiskWorkspace(o:Options){
   try{if(command)sessionStorage.setItem(storedKey(),JSON.stringify(command));else sessionStorage.removeItem(storedKey());}
   catch{if(command)get('risk-workspace-note').textContent='This browser could not retain the unconfirmed submission across reload. Keep this page open and reconcile it.';}
  }
+ // Risk shows its reports' amounts at the display precision, so its own reads of them prepare that text before they are drawn.
+ const reportApi=async<T>(path:string,body?:unknown):Promise<T>=>{const value=await o.api<T>(path,body);if(riskReportRead(path))await prepareAmountDisplay(value,request=>o.api<string[]>('amounts/display',request));return value;};
  function changed(){
   if(!engine)return;retain();const run=engine.current();
   const idsOfJobs=run?.retained?run.parts.flatMap(p=>p.job?.id?[p.job.id]:[]):[];
@@ -53,7 +56,7 @@ export function setupRiskWorkspace(o:Options){
   if(!directory||!selection||!scopeValid()||JSON.stringify(o.source())!==JSON.stringify(selection))throw Error('Choose a market close and refresh the Risk scope first.');
   return {...scope,context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId}};
  }
- engine=setupRisk({api:o.api,act:o.act,busy:o.busy,zone:o.zone,profile:o.identity,canRun:o.canRun,prefix,onDenied:reset,onChange:changed,edited:o.changed,scope:requestScope});
+ engine=setupRisk({api:reportApi,act:o.act,busy:o.busy,zone:o.zone,profile:o.identity,canRun:o.canRun,prefix,onDenied:reset,onChange:changed,edited:o.changed,scope:requestScope});
  history=setupFactorHistory({api:o.api,act:o.act,busy:o.busy,identity:o.identity,scope:requestScope,instant:o.instant,async calculate(request,metadata,queued){
   if(unreadRecovery)throw Error('Inspect Reports and runs before resolving the unreadable retained submission.');
   if(!await leave())return;
