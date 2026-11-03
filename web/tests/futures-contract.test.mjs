@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {futuresContractDescription} from '../dist/futures-contract.js';
+import {futuresContractDescription,futuresContractLabel} from '../dist/futures-contract.js';
 import {setCurveNames} from '../dist/market-view.js';
 
 const contract={curve:'synthetic_future',name:'Synthetic February contract',contractSize:'100',unit:'MWh',nominalSize:'100',nominalUnit:'MWh',lotBasis:'fixed_total',settlementMethod:'cash',mark:'12.5',quoteMultiplier:'1',currency:'USD',tick:'0.1',clearingIncrement:'0.1',minimumPrice:'-1000',maximumPrice:'1000',firstTrading:null,eligibleFrom:'2026-01-05T09:00:00Z',lastTrading:'2026-01-30T17:00:00Z',eligibilityNote:'Explicit sample trading eligibility; generated marks.'};
@@ -32,4 +32,10 @@ test('contract description keeps unknown exchange first trading distinct from ex
  assert.match(text,/Trading eligibility interval Dec 1, 2020, 6:30 AM/);
  assert.match(text,/Generated price/);
  assert.doesNotMatch(text,/1970|Invalid Date/);
+});
+
+test('a contract is named by its delivery period and curve, never its series code',()=>{
+  setCurveNames([{code:contract.curve,name:'Synthetic futures'}]);
+  const label=futuresContractLabel({...contract,id:'r_zx5m7w2w3e',series:{code:'r_zx5m7w2w3e'},deliveryFrom:'2027-01-01',deliveryTo:'2027-02-01'});
+  assert.equal(label,'Jan 2027 · Synthetic futures');
 });
