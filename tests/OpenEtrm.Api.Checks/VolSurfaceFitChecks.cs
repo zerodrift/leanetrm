@@ -8,8 +8,7 @@ using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
 
 // The volatility surface fit of the owned exchange example's option products: each solved series against that series
-// calibrated alone, and the observations it reports against the frame's own pins, which tools/check_vol_surface_fit.py
-// selects independently in SQL.
+// calibrated alone, and the observations it reports against every observation those lone calibrations touched.
 internal static class VolSurfaceFitChecks
 {
     internal static async Task Run(string path)
@@ -19,7 +18,7 @@ internal static class VolSurfaceFitChecks
         using var fixture=JsonDocument.Parse(File.ReadAllText(path));var request=fixture.RootElement;
         var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
         InputFrame Frame(string name)=>request.GetProperty(name).Deserialize<InputFrame>(json)!;
-        var expected=request.GetProperty("observations").EnumerateObject().ToDictionary(p=>p.Name,p=>p.Value.EnumerateArray().Select(v=>v.GetGuid()).ToHashSet());
+        var products=request.GetProperty("products").EnumerateArray().Select(p=>p.GetString()!).ToArray();
         var model=VolModels.Require(VolModels.QuadraticLogMoneyness);
         var catalog=database.Manifest.CatalogId;
         var ct=CancellationToken.None;
@@ -41,7 +40,7 @@ internal static class VolSurfaceFitChecks
 
         var settled=await Read(Frame("frame"));
         var fits=new Dictionary<string,VolSurfaceInputs>();
-        foreach(var product in expected.Keys)
+        foreach(var product in products)
         {
             var clock=Stopwatch.StartNew();
             var fit=await Fit(settled,product);
@@ -51,29 +50,43 @@ internal static class VolSurfaceFitChecks
             Console.WriteLine($"INFO surface fit runtime {product}: {fit.Result.Series.Length} series, {solved} solved, {clock.ElapsedMilliseconds} ms");
         }
 
-        // The receipt volatility of each solved series calibrated alone, from a base build of its own two requests and a
-        // discount context of its own expiry under the currency's configured default curve.
-        var solvedSeries=fits.Values.SelectMany(f=>f.Result.Series).Select(s=>s.Series).Where(s=>s.Outcome==FuturesOptionPricing.SolvedMode).ToArray();
-        var options=solvedSeries.Select(s=>new FuturesOptionInstrument(settled.Data.FuturesOptionSeries.Single(o=>o.Key.Code==s.Code))).ToArray();
+        // Each live listed series calibrated alone, from a base build of its own two requests and a discount context of its own
+        // expiry under the currency's configured default curve: its receipt and every observation that calibration touched.
+        var live=settled.Data.FuturesOptionSeries.Where(s=>products.Contains(s.Product.Code)&&settled.Frame.At<s.Terms.ExpiryAt)
+            .Select(s=>new FuturesOptionInstrument(s)).ToArray();
         var curves=new Dictionary<ReferenceKey,CurrencyDiscountCurve?>();
-        foreach(var currency in options.Select(o=>o.Currency).Distinct())
+        foreach(var currency in live.Select(o=>o.Currency).Distinct())
             curves[currency]=await Session(connection=>SwapStore.CurrencyDefault(connection,catalog,settled.Data,settled.Frame,currency,ct));
         var policy=OptionNumericalPolicies.Require(AmericanFuturesOptionModel.Id);
-        var mismatched=solvedSeries.Zip(options).AsParallel().Select(pair=>
+        var alone=live.AsParallel().Select(option=>
         {
-            var (series,option)=pair;
             var (underlying,settlement)=FuturesOptionPricing.Requests(settled.Data.Model,option.Series,FuturesOptionPricing.DailySettlement);
             var basis=settled.Data.Model.Build(settled.Snapshot,[underlying,settlement],ct);
-            var discounting=new CurrencyDefaultDiscounting([new SidePaymentKey(option.Id,0,option.Series.Terms.ExpiryAt,option.Currency)],settled.Snapshot,true,curves[option.Currency]);
-            var alone=FuturesOptionPricing.Prepare(option,basis,settled.Snapshot,discounting,FuturesOptionPricing.DailySettlement,policy,true,ct).Receipt;
-            return alone.Mode==FuturesOptionPricing.SolvedMode&&alone.Volatility==series.MarketVolatility?.ToString()?null:$"{series.Code}: {series.MarketVolatility} vs {alone.Mode} {alone.Volatility}";
-        }).OfType<string>().ToArray();
+            var expiry=new SidePaymentKey(option.Id,0,option.Series.Terms.ExpiryAt,option.Currency);
+            var discounting=new CurrencyDefaultDiscounting([expiry],settled.Snapshot,true,curves[option.Currency]);
+            // A solve the calibration refuses has still touched its settlements and discount factor.
+            FuturesOptionCalibrationReceipt? receipt;
+            try{receipt=FuturesOptionPricing.Prepare(option,basis,settled.Snapshot,discounting,FuturesOptionPricing.DailySettlement,policy,true,ct).Receipt;}
+            catch(MarketDataException){receipt=null;}
+            var settlements=basis.Values.SelectMany(v=>v.Lineage).Select(o=>o.Id).ToHashSet();
+            return (Code:option.Series.Key.Code,Product:option.Series.Product.Code,Receipt:receipt,Settlements:settlements,
+                Rates:discounting.Inputs[expiry].Observations.Select(o=>o.Id).ToHashSet());
+        }).ToDictionary(a=>a.Code);
+
+        var solvedSeries=fits.Values.SelectMany(f=>f.Result.Series).Select(s=>s.Series).Where(s=>s.Outcome==FuturesOptionPricing.SolvedMode).ToArray();
+        var mismatched=solvedSeries.Select(series=>alone[series.Code].Receipt is {Mode:FuturesOptionPricing.SolvedMode} receipt&&
+            receipt.Volatility==series.MarketVolatility?.ToString()?null:$"{series.Code}: {series.MarketVolatility} vs {alone[series.Code].Receipt?.Volatility}").OfType<string>().ToArray();
         Check("surface fit reproduces each settlement's solved volatility",solvedSeries.Length>0&&mismatched.Length==0,
             solvedSeries.Length==0?"no series solved":string.Join("; ",mismatched));
 
-        Check("observation ids are exactly the pinned inputs",fits.All(f=>f.Value.ObservationIds.ToHashSet().SetEquals(expected[f.Key])&&
+        var expected=products.ToDictionary(p=>p,p=>alone.Values.Where(a=>a.Product==p).SelectMany(a=>a.Settlements.Concat(a.Rates)).ToHashSet());
+        var rates=products.ToDictionary(p=>p,p=>alone.Values.Where(a=>a.Product==p).SelectMany(a=>a.Rates).ToHashSet());
+        Check("observation ids are exactly every observation the calibration touched, discount-curve points included",
+            products.All(p=>rates[p].Count>0&&!rates[p].Overlaps(alone.Values.SelectMany(a=>a.Settlements))&&expected[p].IsSubsetOf(settled.Frame.ObservationIds))&&
+            fits.All(f=>f.Value.ObservationIds.ToHashSet().SetEquals(expected[f.Key])&&
             f.Value.ObservationIds.SequenceEqual(f.Value.ObservationIds.Order())&&f.Value.ObservationIds.Distinct().Count()==f.Value.ObservationIds.Length),
-            string.Join("; ",fits.Select(f=>$"{f.Key}: {f.Value.ObservationIds.Length} of {expected[f.Key].Count}")));
+            string.Join("; ",fits.Select(f=>$"{f.Key}: {f.Value.ObservationIds.Length} of {expected[f.Key].Count}, "+
+                $"{f.Value.ObservationIds.Count(rates[f.Key].Contains)} of {rates[f.Key].Count} discount-curve points")));
 
         var intrinsic=request.GetProperty("atIntrinsic").GetString()!;
         var fallback=fits.Values.SelectMany(f=>f.Result.Series).Single(s=>s.Series.Code==intrinsic).Series;
@@ -81,7 +94,7 @@ internal static class VolSurfaceFitChecks
         var (missingSeries,missingUnderlying)=(missing.GetProperty("series").GetString()!,missing.GetProperty("underlying").GetString()!);
         var unpinnedMarket=await Read(Frame("missingFrame"));
         var unpinned=new List<VolSurfaceResult>();
-        foreach(var product in expected.Keys)unpinned.Add((await Fit(unpinnedMarket,product)).Result);
+        foreach(var product in products)unpinned.Add((await Fit(unpinnedMarket,product)).Result);
         var unpinnedSeries=unpinned.SelectMany(r=>r.Series).Select(s=>s.Series).ToArray();
         var withoutUnderlying=unpinnedSeries.Where(s=>s.UnderlyingCode==missingUnderlying).ToArray();
         var withoutExpiry=unpinned.SelectMany(r=>r.Expiries).Single(e=>e.UnderlyingCode==missingUnderlying);

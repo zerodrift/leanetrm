@@ -1,5 +1,6 @@
 """Stored volatility surfaces in the owned exchange example: immutable revisions recorded once per request and per
-pinned input set (D238), published through the trading knowledge protocol and read at a certified cutoff."""
+valuation instant and pinned input set (D238), published through the trading knowledge protocol and read at a certified
+cutoff."""
 import hashlib
 import json
 import threading
@@ -8,13 +9,15 @@ from uuid import uuid4
 
 MODEL = 'smile_quadratic_log_moneyness_v1'
 POLICY = 'american_futures_option_crr_v1'
-RECORD = 'trading.record_vol_surface_revision(uuid,uuid,uuid,jsonb,date,text,text,uuid,uuid[],jsonb,text)'
+RECORD = 'trading.record_vol_surface_revision(uuid,uuid,uuid,jsonb,date,text,text,uuid,timestamptz,uuid[],jsonb,text)'
 
 
 def run_checks(query, manifest):
     catalog = manifest['catalogId']
     frame_at = manifest['frames'][0]['at']
     day = frame_at[:10]
+    # Another valuation instant on the same business date.
+    later_at = day + 'T17:00:00Z'
     product = json.dumps({'referenceCatalogId': manifest['referenceCatalogId'], 'referenceRevisionId': manifest['referenceRevisionId'], 'code': 'nymex_on'})
     other_product = product.replace('nymex_on', 'nymex_lo')
     actor = query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='{manifest['identityIssuer']}' AND subject='trader';")
@@ -30,11 +33,12 @@ def run_checks(query, manifest):
     def digest(surface):
         return hashlib.sha256(json.dumps(surface, sort_keys=True).encode()).hexdigest()
 
-    def record(request, inputs, surface, sha=None, frame=first_frame, model=MODEL, null=None):
+    def record(request, inputs, surface, sha=None, frame=first_frame, valuation=frame_at, model=MODEL, null=None):
         """The internal recording a risk worker's finish path makes, run here as the owning connection; `null` names
         one argument passed as SQL NULL."""
         arguments = {'catalog': f"'{catalog}'", 'actor': f"'{actor}'", 'request': f"'{request}'", 'product': f"'{product}'::jsonb",
                      'business_date': f"'{day}'", 'model': f"'{model}'", 'policy': f"'{POLICY}'", 'frame': f"'{frame}'",
+                     'valuation_at': f"'{valuation}'::timestamptz",
                      'inputs': 'ARRAY[' + ','.join(f"'{o}'" for o in inputs) + ']::uuid[]', 'surface': f"'{json.dumps(surface)}'::jsonb",
                      'digest': f"'{sha or digest(surface)}'"}
         if null is not None:
@@ -95,9 +99,10 @@ def run_checks(query, manifest):
     check('concurrent identical fits record one revision', first['created'] and not results['second']['created']
           and results['second']['revision'] == first['revision'] and counts() == f"{int(before.split('|')[0]) + 1}|{int(before.split('|')[1]) + 1}",
           (results, counts()))
-    stored = query(f"SELECT concat_ws('|',actor_id,request_id,effective_on,model_id,solver_policy,content_sha256,publication_order) FROM trading.vol_surface_revisions WHERE (catalog_id,id)=('{catalog}','{first['revision']}');")
-    check('the revision keeps its actor, request, business date, model, solver policy, digest and publication order',
-          stored == f"{actor}|{first_request}|{day}|{MODEL}|{POLICY}|{digest(first_surface)}|{first['publicationOrder']}", stored)
+    stored = query(f"SELECT concat_ws('|',actor_id,request_id,effective_on,model_id,solver_policy,valuation_at=timestamptz '{frame_at}',content_sha256,publication_order) "
+                   f"FROM trading.vol_surface_revisions WHERE (catalog_id,id)=('{catalog}','{first['revision']}');")
+    check('the revision keeps its actor, request, business date, model, solver policy, valuation instant, digest and publication order',
+          stored == f"{actor}|{first_request}|{day}|{MODEL}|{POLICY}|t|{digest(first_surface)}|{first['publicationOrder']}", stored)
     check('the revision pins exactly its input observations',
           query(f"SELECT string_agg(observation_id::text,',' ORDER BY observation_id) FROM trading.vol_surface_inputs WHERE (catalog_id,revision_id)=('{catalog}','{first['revision']}');")
           == ','.join(first_inputs))
@@ -107,7 +112,8 @@ def run_checks(query, manifest):
     check('the same request with a different payload is refused',
           refused(record(first_request, first_inputs, second_surface), 'vol_surface_input')
           and refused(record(first_request, second_inputs, first_surface), 'vol_surface_input')
-          and refused(record(first_request, first_inputs, first_surface, frame=uuid4()), 'vol_surface_input'))
+          and refused(record(first_request, first_inputs, first_surface, frame=uuid4()), 'vol_surface_input')
+          and refused(record(first_request, first_inputs, first_surface, valuation=later_at), 'vol_surface_input'))
     settled = counts()
     again = json.loads(query(record(uuid4(), list(reversed(first_inputs)), first_surface, frame=uuid4()) + ';'))
     check('identical inputs and content record nothing new',
@@ -115,6 +121,14 @@ def run_checks(query, manifest):
     check('identical inputs with different content are refused as nondeterministic',
           refused(record(uuid4(), first_inputs, second_surface), 'vol_surface_nondeterministic')
           and refused(record(uuid4(), first_inputs, first_surface, sha=digest(second_surface)), 'vol_surface_nondeterministic') and counts() == settled)
+    # Time to expiry runs from the valuation instant, so the same observations valued at another instant are other inputs.
+    moved = json.loads(query(record(uuid4(), first_inputs, second_surface, valuation=later_at) + ';'))
+    check('the same observations at another valuation instant record a new revision',
+          moved['created'] and moved['revision'] != first['revision'] and moved['publicationOrder'] > first['publicationOrder']
+          and counts() == f"{int(settled.split('|')[0]) + 1}|{int(settled.split('|')[1]) + 1}", (moved, counts()))
+    settled = counts()
+    check('at that instant, the same observations with different content are refused as nondeterministic',
+          refused(record(uuid4(), first_inputs, first_surface, valuation=later_at), 'vol_surface_nondeterministic') and counts() == settled)
     for table in ('vol_surface_revisions', 'vol_surface_inputs', 'vol_surface_commands'):
         check(f'{table} rows are immutable', all(query(f"BEGIN;{rejection(change, None, '55000')}ROLLBACK;") is not None
                                                  for change in (f'UPDATE trading.{table} SET catalog_id=catalog_id', f'DELETE FROM trading.{table}')))
@@ -123,10 +137,11 @@ def run_checks(query, manifest):
           and refused(record(uuid4(), first_inputs + first_inputs[:1], first_surface), 'vol_surface_input')
           and refused(record(uuid4(), [str(uuid4())], first_surface), 'vol_surface_input')
           and refused(record(uuid4(), first_inputs, first_surface, sha='not-a-digest'), 'vol_surface_input')
+          and refused(record(uuid4(), first_inputs, first_surface, valuation='infinity'), 'vol_surface_input')
           and refused(record(uuid4(), first_inputs, first_surface, model='smile_unknown_v1'), 'vol_model_unknown')
           and refused(record(uuid4(), first_inputs, first_surface).replace('nymex_on', 'nymex_unlisted'), 'vol_surface_product'))
     null_codes = {'product': 'vol_surface_product', 'model': 'vol_model_unknown'}
-    for argument in ('catalog', 'actor', 'request', 'product', 'business_date', 'model', 'policy', 'frame', 'inputs', 'surface', 'digest'):
+    for argument in ('catalog', 'actor', 'request', 'product', 'business_date', 'model', 'policy', 'frame', 'valuation_at', 'inputs', 'surface', 'digest'):
         check(f'a recording with a null {argument} is refused', refused(record(uuid4(), first_inputs, first_surface, null=argument),
                                                                         null_codes.get(argument, 'vol_surface_input')))
     check('no runtime, worker or authenticator role can record directly',
@@ -141,10 +156,11 @@ def run_checks(query, manifest):
           second['created'] and second['revision'] != first['revision'] and second['publicationOrder'] > first['publicationOrder'], second)
     later = capture()
     seen_earlier, seen_later = json.loads(read(earlier)), json.loads(read(later))
-    check('earlier cutoff does not see later revision', seen_earlier['revision'] == first['revision'] and seen_later['revision'] == second['revision'],
+    check('earlier cutoff does not see later revision', seen_earlier['revision'] == moved['revision'] and seen_later['revision'] == second['revision'],
           (seen_earlier, seen_later))
-    check('a read returns the revision with its inputs, knowledge time, actor and content',
+    check('a read returns the revision with its inputs, valuation instant, knowledge time, actor and content',
           seen_later['inputs'] == second_inputs and seen_later['actor'] == actor and seen_later['content'] == second_surface
+          and seen_later['valuationAt'].replace('+00:00', 'Z') == frame_at
           and seen_later['knownFrom'] is not None and seen_earlier['knownFrom'] <= seen_later['knownFrom']
           and (seen_later['model'], seen_later['solverPolicy'], seen_later['effectiveOn']) == (MODEL, POLICY, day), seen_later)
     check('a product never fitted for the date reads as not fitted', read(later, key=other_product) == '')

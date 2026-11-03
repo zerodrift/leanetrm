@@ -37,6 +37,8 @@ strike, log-moneyness, market, fitted and rich/cheap):
   between expiries are a visual join, not a fit, and the legend says so. Market
   volatilities sit on stalks from the smile, coloured rich or cheap. Drag or the
   arrow keys rotate the view, and a reset returns it to the default angle.
+  A rich/cheap of exactly zero is shown as "On the smile", in a neutral colour, in
+  every view.
 - **Smiles.** One chart per expiry: the fitted grid as a line, the market
   volatilities as points shaped by right, and rich/cheap as bars. Each header states
   the RMS and largest absolute residual and the number of fit points.
@@ -95,7 +97,8 @@ Each listed series is calibrated by the same calibration option valuation uses:
 underlying observations and the currency's payment-discount selection. A series'
 outcome is `solved`, `at_intrinsic` (the intrinsic fallback, so no volatility) or the
 calibration's error code, such as `option_settlement_missing` or `option_expired`.
-Only solved series have a market volatility.
+Every listed series of the product is shown, a series at or past its expiry with
+`option_expired`. Only solved series have a market volatility.
 
 **Rich/cheap is market minus fit**, for every solved series of a fitted expiry, both
 rights: its market volatility minus σ̂ at its strike. An in-the-money series'
@@ -124,26 +127,38 @@ A surface is stored as an immutable, bitemporal revision (migration
   Reads use `security.trading_visible(catalog_id, publication_order, effective_at)`.
   No separate clock or client-supplied time is used, and a revision just recorded
   states no `knownFrom` until a capture certifies it.
-- **Contents.** The resolved frame identity, the exact settlement observation
-  revisions it was fitted from (`trading.vol_surface_inputs`), the solver policy, the
-  surface in canonical JSON and its SHA-256 digest. The
-  `market_data.guard_knowledge_receipt()` trigger refuses updates and deletes.
+- **Contents.** The resolved frame identity, the frame's valuation instant
+  (`valuation_at`), the exact observation revisions the calibration consumed
+  (`trading.vol_surface_inputs`), the solver policy, the surface as JSON and a
+  digest. The `market_data.guard_knowledge_receipt()` trigger refuses updates and
+  deletes.
+  - The pinned observations are every observation the calibration read: each
+    series' option settlement, its underlying futures settlement, and the
+    discount-curve points behind each series' discount factor to expiry.
+  - The valuation instant is an input because time to expiry runs from it.
+  - The digest (`content_sha256`) is the worker's SHA-256 of its canonical
+    serialization of the surface. The content is stored as `jsonb`, so the digest
+    is not a digest of the stored or returned bytes. Recording compares it, with
+    the content, to decide whether a refit reproduced the stored surface.
 
 Recording follows D238:
 
 - A request identity returns its first outcome; the same identity with different
   contents is refused with `vol_surface_input`.
-- If the key's latest revision pinned the same input observations with the same
-  content, it is returned and nothing new is stored. The same inputs with different
-  content are refused with `vol_surface_nondeterministic`.
-- Different pinned inputs, for example after a settlement is revised, record a new
-  revision with its own knowledge time. Earlier revisions stay readable at earlier
+- The inputs of a revision are its valuation instant and its pinned observations.
+  If the key's latest revision has the same inputs and the same content, it is
+  returned and nothing new is stored. The same inputs with different content are
+  refused with `vol_surface_nondeterministic`.
+- Different inputs, for example after a settlement or a discount-curve point is
+  revised, or a fit at another valuation instant, record a new revision with its
+  own knowledge time. Earlier revisions stay readable at earlier
   cutoffs.
 
 A read returns the latest revision of the key visible at the bound context, ordered
 by publication order, never by row order. It never falls back to another date or
-another model. It also states whether any pinned input has a newer revision known at
-that context (`inputsRevised`); the read never refits.
+another model. It also states whether any pinned observation, settlement or
+discount-curve point, has a newer revision known at that context (`inputsRevised`);
+the read never refits.
 
 ## Fit jobs
 
@@ -154,9 +169,10 @@ There is no separate queue, service or cache.
 
 - **`POST /api/vol-surfaces/fit`** takes `{requestId, snapshotId, product, model}`
   and returns `{jobId, state}`. It is admitted only over working data, at the
-  context captured for the working frame. Admission pins the frame, the exact product
-  version, the business date, the model, the solver policy, the engine version and
-  the actor.
+  context captured for the working frame; the submit operation itself refuses a
+  context not captured from current knowledge with `historical_read_only`.
+  Admission pins the frame, the exact product version, the business date, the
+  model, the solver policy, the engine version and the actor.
 - The same request identity returns its first job. A queued or running job of the
   same person for the same key and pinned frame is returned instead of a second one.
 - A risk worker claims the job, rechecks the actor's authority, reads the pinned
@@ -228,10 +244,12 @@ Request-level codes:
 | `vol_model_unknown` | The model is not a supported vol model |
 | `vol_surface_product` | The product is not an option product of this market, or not readable |
 | `vol_surface_context` | The context states no business date or was not captured, or the read's date is not the context's |
-| `vol_surface_no_settlements` | The frame has no settlement of any listed series of the product |
+| `vol_surface_no_settlements` | The frame has no settlement of any live listed series of the product |
+| `option_expired` | Every listed series of the product is at or past its expiry |
+| `discount_coverage` | No live listed series' expiry is covered by the discount curve |
 | `vol_surface_input` | A malformed request, request identity reuse with other contents, or an inconsistent fit input |
-| `vol_surface_nondeterministic` | A refit of the same pinned inputs produced different content |
-| `historical_read_only` | A fit was requested from a historical context |
+| `vol_surface_nondeterministic` | A refit at the same valuation instant and pinned observations produced different content |
+| `historical_read_only` | A fit was requested from a historical context, or at a context not captured from current knowledge |
 | `discount_curve_missing` | The currency has no discount default |
 
 Per-expiry codes are `vol_fit_insufficient_strikes` and `vol_fit_nonpositive`.

@@ -37,7 +37,7 @@
   - Reads order by knowledge (publication order), never by row order.
 - **Bitemporal storage reuses the existing protocol.** Use `trading.publications`, `trading.knowledge_receipts`, `security.trading_visible(catalog_id,publication_order,effective_at)` and the `market_data.guard_knowledge_receipt()` immutability trigger, exactly as `db/migrations/0154_crude_receipt_cash.sql` does for crude operational events. Do not create a new knowledge clock or timestamp column.
 - **Permissions.**
-  - Reading needs `ReadMarketData`.
+  - Reading needs `ReadMarketData` and `ReadTrades`, since stored revisions ride the trading visibility protocol.
   - Submitting a fit job needs `PublishMarketData` and `ReadTrades`, and only in the current workspace: a historical context is refused with `historical_read_only`. The worker rechecks the actor's current authority before fitting and at publication.
   - Agents get no fit operation in this work.
 - **Commodity-neutral.** No code or copy names gas or crude except example data.
@@ -222,7 +222,7 @@
     - A queued or running job for the same key and pinned frame is returned instead of a new one.
   - **Worker execution.** The worker claims the job and rechecks authority. It computes, serializes the result canonically and hashes it. It calls `security.record_vol_surface` and finishes the job, with the job result holding `{revision, created, series, solves, elapsedMs}`. Recording and finishing happen in one transaction.
     - A fit error finishes the job `failed` with its code and records nothing.
-  - `POST /api/vol-surfaces/read`, under `ReadMarketData`. It resolves the context as option valuation does, then returns:
+  - `POST /api/vol-surfaces/read`, under `ReadMarketData` and `ReadTrades`. It resolves the context as option valuation does, then returns:
     - `context`: business date, cutoff and snapshot id;
     - `model` and `solverPolicy`;
     - `state`, which is `fitted` or `notFitted`;
@@ -271,7 +271,7 @@
 - Create: `web/src/vol-surface-view.ts`, holding the page, the heat map and the smiles
 - Create: `web/src/vol-surface-link.ts`, holding the linked-highlight state, with subscribe and set for a series code
 - Modify:
-  - `web/src/navigation-groups.ts`: add `'vol-surfaces'` to Markets, gated by `ReadMarketData`;
+  - `web/src/navigation-groups.ts`: add `'vol-surfaces'` to Markets, gated by `ReadMarketData` and `ReadTrades`;
   - `web/src/index.html`: add `nav-vol-surfaces` and `vol-surfaces-page`;
   - `web/src/app.ts`: page switch, title "Vol surfaces", date context as on the `market` page;
   - `web/src/app.css`.
@@ -282,7 +282,7 @@
 - Produces: `export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;historical:()=>boolean}):{refresh():void;open(product:string):void}`. `open` is used by Task 9.
 
 - [ ] **Step 1: Write the failing browser checks**:
-  - the page is listed in Markets for a market reader and absent without `ReadMarketData`;
+  - the page is listed in Markets for a reader of market data and trades, and absent without `ReadMarketData` or `ReadTrades`;
   - a product picker and the read-only model label `smile_quadratic_log_moneyness_v1` are shown;
   - `notFitted` shows "Not fitted for this date" and a *Fit now* button only when `canFit`;
   - after *Fit now*, a queued or running job shows its state, and the page checks back until the job finishes and then shows the surface; a failed job shows its code next to the button;

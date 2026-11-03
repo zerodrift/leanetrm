@@ -1691,7 +1691,7 @@ api.MapPost("/portfolio/risk/jobs",(HttpContext c,SubmitPortfolioRiskJob body)=>
         return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,body,ct);
     }));
 api.MapGet("/portfolio/risk/jobs",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
-    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.List(connection,database.Manifest.CatalogId,ct,PortfolioRiskPreview.Convention)),c.RequestAborted))));
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.List(connection,database.Manifest.CatalogId,PortfolioRiskPreview.Convention,ct)),c.RequestAborted))));
 api.MapGet("/portfolio/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
 api.MapPost("/portfolio/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>

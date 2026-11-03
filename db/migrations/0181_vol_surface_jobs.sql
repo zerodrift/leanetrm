@@ -32,8 +32,11 @@ CREATE TRIGGER immutable_record BEFORE UPDATE OR DELETE ON risk.vol_surface_fit_
 
 -- Admits a fit at the caller's bound trading context. The request names the key (one exact product version, the context's
 -- business date and the vol model), the solver policy, the engine version and the futures convention; the frame is the
--- working frame pinned at that context. The request identity returns its first job; otherwise a queued or running job of the
--- caller for the same request and the same frame, whatever context it captured, is returned instead of a new one.
+-- working frame pinned at that context. Only a context captured from current knowledge is admitted: its cutoff is the
+-- catalog knowledge clock's latest certification, which the capture's lock on the clock holds for the rest of the
+-- transaction; an earlier cutoff, or a current capture a later one superseded, is refused with historical_read_only. The
+-- request identity returns its first job; otherwise a queued or running job of the caller for the same request and the
+-- same frame, whatever context it captured, is returned instead of a new one.
 CREATE FUNCTION risk.submit_vol_surface_fit(catalog uuid,operation uuid,context uuid,revision uuid,valuation_at timestamptz,request jsonb,frame jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE c security.request_contexts;job risk.jobs;p ref_data.futures_option_products;business_date date;pin uuid;entry record;new_id uuid=gen_random_uuid();
@@ -45,6 +48,9 @@ BEGIN
   OR NOT security.market_access(catalog,'ReadMarketData') OR EXISTS(SELECT 1 FROM security.principals x WHERE x.id=c.actor_id AND x.kind='agent')
   OR(c.market_catalog_id,c.market_context_id,c.trading_as_of) IS DISTINCT FROM(catalog,context,valuation_at)
  THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
+ IF NOT EXISTS(SELECT 1 FROM market_data.temporal_contexts t JOIN market_data.knowledge_clocks k ON k.catalog_id=t.catalog_id
+  WHERE(t.catalog_id,t.id)=(catalog,context) AND t.known_at=k.certified_through AND t.certified_through=k.certified_through)
+ THEN RAISE EXCEPTION 'historical_read_only' USING ERRCODE='P0001';END IF;
  IF operation IS NULL OR operation='00000000-0000-0000-0000-000000000000'::uuid OR context IS NULL OR revision IS NULL OR valuation_at IS NULL
   OR jsonb_typeof(request) IS DISTINCT FROM 'object' OR jsonb_typeof(frame) IS DISTINCT FROM 'object' OR pg_column_size(frame)>8000000
   OR(SELECT array_agg(key ORDER BY key) FROM jsonb_object_keys(request) key)
@@ -115,9 +121,9 @@ BEGIN
 END$$;
 
 -- Completes a fit job's current attempt by recording its surface. The attempt is fenced, and its actor's authority and the
--- security generation rechecked, exactly as risk.finish does, before anything is recorded; the key, request and frame are the
--- job's own, and every input must be one of the observations the job pinned. Recording and completion share this
--- transaction: a refusal, a lost lease or lost authority records nothing.
+-- security generation rechecked, exactly as risk.finish does, before anything is recorded; the key, request, frame and
+-- valuation instant are the job's own, and every input must be one of the observations the job pinned. Recording and
+-- completion share this transaction: a refusal, a lost lease or lost authority records nothing.
 CREATE FUNCTION risk.finish_vol_surface_fit(job_id uuid,token uuid,inputs uuid[],surface jsonb,digest text,measures jsonb) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE job risk.jobs;outcome jsonb;
@@ -130,12 +136,13 @@ BEGIN
   OR inputs IS NULL OR EXISTS(SELECT 1 FROM unnest(inputs) i(id) WHERE NOT EXISTS(SELECT 1 FROM risk.job_observations o WHERE(o.job_id,o.observation_id)=(job.id,i.id)))
  THEN RAISE EXCEPTION 'risk_job_input';END IF;
  outcome=trading.record_vol_surface_revision(job.catalog_id,job.actor_id,job.id,job.request->'product',(job.request->>'businessDate')::date,
-  job.request->>'model',job.request->>'solverPolicy',(job.frame->>'id')::uuid,inputs,surface,digest);
+  job.request->>'model',job.request->>'solverPolicy',(job.frame->>'id')::uuid,job.valuation_at,inputs,surface,digest);
  RETURN risk.finish(job_id,token,jsonb_build_object('revision',outcome->'revision','created',outcome->'created')||measures,NULL);
 END$$;
 
--- Whether any observation a visible surface revision pinned has a newer revision of the same source fact known at the
--- bound context: a later knowledge event, visible exactly as the context's market reads are.
+-- Whether any observation a visible surface revision pinned, a settlement or a discount-curve point, has a newer revision
+-- of the same source fact known at the bound context: a later knowledge event, visible exactly as the context's market
+-- reads are.
 CREATE FUNCTION security.vol_surface_inputs_revised(catalog uuid,revision uuid) RETURNS boolean
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE revised boolean;

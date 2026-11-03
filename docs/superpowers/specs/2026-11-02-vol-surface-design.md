@@ -108,7 +108,10 @@ From AGENTS.md and the architecture, for this work:
     volatility. It is shown as "at intrinsic" and left out of the fit.
   - A series whose solve raises a named error, such as `option_settlement_missing`
     or `option_settlement_above_bound`, is shown with that reason and left out.
-  - A series at or past expiry is left out with `option_expired`.
+  - A series at or past expiry is left out of the fit and shown with
+    `option_expired`. A product with no live series is refused with
+    `option_expired`, and one whose live series all fall outside the discount curve
+    with `discount_coverage`.
 - **Errors for the whole request:**
   - A request for an unknown or unseen product, or one with no series, raises a
     structured error.
@@ -219,8 +222,11 @@ Decided by the user: surfaces are stored, bitemporally. The details are my calls
 - **Business key.** The exact product version, the business date and the vol model
   identifier and version.
 - **What a revision holds.**
-  - The resolved snapshot identity and the exact settlement and underlying
-    observation revisions it was fitted from.
+  - The resolved snapshot identity and its valuation instant, stored on the
+    revision.
+  - Every observation revision the calibration consumed, pinned exactly: each
+    series' option settlement, its underlying futures settlement, and the
+    discount-curve points behind its discount factor to expiry.
   - The solver policy identifier.
   - Everything in the response shape below: per expiry, per series, and the fitted
     grid.
@@ -233,6 +239,8 @@ Decided by the user: surfaces are stored, bitemporally. The details are my calls
     - It needs `PublishMarketData`, plus `ReadTrades`, because the currency's
       discount default is read through a trading read today. It needs a request
       identity.
+    - It is admitted only at a context captured from current knowledge; the
+      operation itself refuses any other context with `historical_read_only`.
     - It pins the exact input frame, the product, the business date, the vol model
       and the actor.
     - The same request identity returns the same job (D238).
@@ -250,13 +258,19 @@ Decided by the user: surfaces are stored, bitemporally. The details are my calls
     - A fit that fails records no revision and finishes the job as `failed`, with
       its structured code.
   - **Recording rules.**
-    - If the latest revision for the key already pinned the same input revisions, the
-      job completes with that revision and records nothing new. The fit is
-      deterministic, so a recomputed result that differs from it fails the job with
+    - A revision's inputs are its valuation instant and its pinned observations:
+      time to expiry runs from the valuation instant, and the solve reads the
+      settlements and discount factors.
+    - If the latest revision for the key has the same inputs, the job completes with
+      that revision and records nothing new. The fit is deterministic, so a
+      recomputed result that differs from it fails the job with
       `vol_surface_nondeterministic` and is never stored.
-    - If settlements were revised since, so the pinned inputs differ, it records a
-      new revision with its own knowledge time. The earlier revision stays readable
-      at earlier cutoffs.
+    - If the inputs differ (a settlement or discount-curve point was revised, or
+      the fit is at another valuation instant), it records a new revision with its
+      own knowledge time. The earlier revision stays readable at earlier cutoffs.
+    - The stored digest is the worker's SHA-256 of its canonical serialization,
+      compared with the content at recording. The content is stored as `jsonb`, so
+      the digest is not a digest of the stored or returned bytes.
     - A request-level error (unknown product, no settlements,
       `discount_curve_missing`, `vol_model_unknown`) records nothing. Per-expiry
       gaps and per-series reasons are part of a successful revision.
@@ -271,8 +285,9 @@ Decided by the user: surfaces are stored, bitemporally. The details are my calls
     caller may see: queued, running, failed (with its code) or cancelled. While a
     job is queued or running, the page shows its progress and checks back until it
     finishes. It shows a failed job's reason next to the button.
-  - **Out-of-date state.** The read also checks whether any input settlement has a
-    newer revision known at the cutoff than the ones the surface pinned. If so, the
+  - **Out-of-date state.** The read also checks whether any pinned observation,
+    settlement or discount-curve point, has a newer revision known at the cutoff
+    than the one the surface pinned. If so, the
     surface is still shown, labelled "inputs revised after this fit", with a *Refit*
     button for those allowed to fit. The read never refits by itself.
 - **Cost.** Reading is a lookup. The fit runs off the request path; its runtime is

@@ -116,13 +116,56 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
           and revisions(PRODUCT) == 2, (recorded, current['revision']))
     check('the old cutoff still reads the old revision', earlier['revision']['id'] == fitted['revision']['id'] and earlier['surface'] == surface, earlier['revision'])
 
-    c.call('market/context', {'effectiveOn': DAY, 'knownAt': current['context']['knownAt'], 'mode': 'at', 'selection': 'latest_correction'})
+    # One discount-curve point the stored surface pinned, revised by the market data editor: the fit discounts each series to
+    # its expiry, so the point is one of its inputs.
+    rate = query(f"SELECT o.id||'|'||trim_scale(o.value) FROM trading.vol_surface_inputs i JOIN market_data.observations o ON(o.catalog_id,o.id)=(i.catalog_id,i.observation_id) "
+                 f"JOIN market_data.rate_curve_points p ON(p.catalog_id,p.revision_id,p.series_id)=(o.catalog_id,o.definition_revision_id,o.series_id) "
+                 f"WHERE i.revision_id='{current['revision']['id']}' ORDER BY o.id LIMIT 1;")
+    check('the stored surface pins the discount-curve points it used', rate != '', current['revision'])
+    rate = rate.split('|')
+    c.call('profile', {'profile': 'editor'})
+    discounted = c.call('corrections', {'snapshotId': corrected['frame']['id'], 'observationId': rate[0], 'value': str(Decimal(rate[1]) + Decimal('0.0025'))})
+    c.call('profile', {'profile': 'trader'})
+    stale = read(snapshot=corrected['frame']['id'])
+    check('a revised discount-curve point flags the stored surface', stale['revision']['inputsRevised'] is True
+          and stale['revision']['id'] == current['revision']['id'], stale['revision'])
+    rediscounted = fit(snapshot=discounted['frame']['id'])
+    run_worker()
+    rerun = job(rediscounted['jobId'])
+    latest = read(snapshot=discounted['frame']['id'])
+    check('refit after a discount-curve revision records a new revision', rerun['state'] == 'completed' and rerun['result']['created'] is True
+          and latest['revision']['id'] == rerun['result']['revision'] != current['revision']['id'] and latest['revision']['inputsRevised'] is False
+          and latest['surface'] != current['surface'] and revisions(PRODUCT) == 3, (rerun, latest['revision']))
+
+    c.call('market/context', {'effectiveOn': DAY, 'knownAt': latest['context']['knownAt'], 'mode': 'at', 'selection': 'latest_correction'})
     try:
         alias = next(f for f in c.call('workspace')['frames'] if f['at'] == frame['at'])
         historical = fit(snapshot=alias['id'], expected=422)
     finally:
         c.call('market/current', {})
     check('historical context cannot fit', historical['code'] == 'historical_read_only', historical)
+
+    # The submit operation itself admits only a context captured from current knowledge: one captured at an earlier cutoff,
+    # or a current capture that a later capture has superseded, is refused with historical_read_only.
+    retained = json.loads(query(f"SELECT json_build_object('request',request,'frame',frame,'revision',revision_id)::text FROM risk.jobs WHERE id='{first['jobId']}';"))
+
+    def admission(capture):
+        """Captures contexts in one transaction, binds the last one named `bound`, and submits a fit at it."""
+        token = query("SET SESSION AUTHORIZATION preview_authenticator; SELECT security.issue_context("
+                      f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
+        body = (f"DECLARE bound uuid;later uuid;BEGIN {capture}PERFORM security.use_market_context('{catalog}',bound);"
+                f"PERFORM security.use_trading_context('{catalog}','{frame['at']}');"
+                f"PERFORM risk.submit_vol_surface_fit('{catalog}','{uuid4()}',bound,'{retained['revision']}','{frame['at']}',"
+                f"'{json.dumps(retained['request'])}'::jsonb,jsonb_set('{json.dumps(retained['frame'])}'::jsonb,'{{contextId}}',to_jsonb(bound::text)));"
+                "RAISE EXCEPTION 'admitted';EXCEPTION WHEN SQLSTATE 'P0001' THEN PERFORM set_config('check.outcome',SQLERRM,true);END")
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');"
+                     f"DO $check$ {body} $check$;SELECT current_setting('check.outcome');ROLLBACK;").splitlines()[-1]
+    current_capture = f"bound=security.capture_date_context('{catalog}','{DAY}',NULL);"
+    check('the submit operation admits a context captured from current knowledge', admission(current_capture) == 'admitted')
+    check('the submit operation refuses a context captured at an earlier cutoff',
+          admission(f"bound=security.capture_date_context('{catalog}','{DAY}','{fitted['context']['knownAt']}');") == 'historical_read_only')
+    check('the submit operation refuses a current capture a later capture superseded',
+          admission(current_capture + f"later=security.capture_date_context('{catalog}','{DAY}',NULL);") == 'historical_read_only')
 
     # The close that leaves one option underlying unsettled, fitted for both products at its own business date.
     gap = manifest['missingSettlement']
@@ -145,7 +188,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
           and any(e['underlyingCode'] == gap['underlying'] for _, s in examples.values() if s for e in s['expiries']),
           {p: (j['state'], j['errorCode'], s and [(e['underlyingCode'], e['status']) for e in s['expiries']]) for p, (j, s) in examples.items()})
 
-    # Every listed series of the other product moved past its expiry: the frame then settles none of them.
+    # Every listed series of the other product moved past its expiry: the fit then has no live series to calibrate.
     terms = query(f"SELECT coalesce(json_agg(json_build_object('code',s.code,'day',s.last_trading_date,'at',s.expiry_at,'contract',k.expiry_at)),'[]')::text "
                   f"FROM ref_data.futures_option_series s JOIN market_data.contracts k ON(k.reference_catalog_id,k.reference_revision_id,k.futures_option_series_code)=(s.catalog_id,s.revision_id,s.code) "
                   f"WHERE (s.catalog_id,s.revision_id)=({R}) AND s.product_code='{UNFITTED}' AND (k.catalog_id,k.revision_id)=({M});")
@@ -157,6 +200,25 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
               + "ALTER TABLE ref_data.futures_option_series ENABLE TRIGGER USER;ALTER TABLE market_data.contracts ENABLE TRIGGER USER;")
     original = json.loads(terms)
     assert original
+    # The other product's first expiry moved before an earlier close, fitted at that close's own business date so that no
+    # surface is left at the close the later checks read: its series are listed as expired, and the others still solve.
+    lapsed_day = min(row['day'] for row in original)
+    lapsed = [{**row, 'day': '2026-10-13', 'at': '2026-10-13T18:30:00Z', 'contract': '2026-10-13T18:30:00Z'} for row in original if row['day'] == lapsed_day]
+    close = next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2026-10-14'))
+    expiries(lapsed)
+    try:
+        partial = fit(product=UNFITTED, snapshot=close['id'])
+        run_worker()
+    finally:
+        expiries(original)
+    listed = read(product=UNFITTED, snapshot=close['id'])
+    gone = {row['code'] for row in lapsed}
+    shown = [s['series'] for s in (listed['surface'] or {'series': []})['series']]
+    check('an expired series is listed with option_expired', job(partial['jobId'])['state'] == 'completed'
+          and sorted(s['code'] for s in shown) == sorted(row['code'] for row in original)
+          and all((s['outcome'], s['settlement'], s['marketVolatility']) == ('option_expired', None, None) for s in shown if s['code'] in gone)
+          and any(s['outcome'] == 'solved' for s in shown if s['code'] not in gone),
+          (job(partial['jobId']), [(s['code'], s['outcome']) for s in shown if s['code'] in gone]))
     expiries([{**row, 'day': '2026-10-15', 'at': '2026-10-15T18:30:00Z', 'contract': '2026-10-15T18:30:00Z'} for row in original])
     try:
         failing = fit(product=UNFITTED)
@@ -165,7 +227,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         expiries(original)
     failed = read(product=UNFITTED)
     check('a failing fit finishes failed with its code', job(failing['jobId'])['state'] == 'failed' and failed['state'] == 'notFitted'
-          and failed['job'] == {'id': failing['jobId'], 'state': 'failed', 'errorCode': 'vol_surface_no_settlements'} and revisions(UNFITTED) == 0, failed)
+          and failed['job'] == {'id': failing['jobId'], 'state': 'failed', 'errorCode': 'option_expired'} and revisions(UNFITTED) == 0, failed)
 
     # The completion of a claimed attempt, called as the worker login. Its digest is one a recording would refuse with
     # vol_surface_input, so a refusal other than the fence's or the authority recheck's means the recording was reached first.
@@ -184,16 +246,16 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         return 'completed'
     wrong = finish(uuid4())
     check('a completion with another lease token is fenced and records nothing', claim['jobId'] == fenced['jobId']
-          and 'risk_job_fence' in wrong and revisions(PRODUCT) == 2 and job(fenced['jobId'])['state'] == 'running', wrong)
+          and 'risk_job_fence' in wrong and revisions(PRODUCT) == 3 and job(fenced['jobId'])['state'] == 'running', wrong)
     query(f"UPDATE security.role_grants SET revoked=true WHERE id='{grant}';")
     lost = finish(claim['leaseToken'])
     check('a completion after the fitter lost PublishMarketData is refused and records nothing',
-          'risk_job_authority_changed' in lost and revisions(PRODUCT) == 2 and job(fenced['jobId'])['state'] == 'running', lost)
+          'risk_job_authority_changed' in lost and revisions(PRODUCT) == 3 and job(fenced['jobId'])['state'] == 'running', lost)
     # Once its lease expires, the next claim fails the fenced attempt through the queue's own authority-changed path.
     time.sleep(max(0, (datetime.fromisoformat(claim['leaseExpiresAt']) - datetime.now(timezone.utc)).total_seconds()) + 0.5)
     query(f"SET SESSION AUTHORIZATION {worker_login};SELECT risk.claim(10,'{engine}');")
     check('the fenced attempt is failed once its lease expires', (job(fenced['jobId'])['state'], job(fenced['jobId'])['errorCode'])
-          == ('failed', 'risk_job_authority_changed') and revisions(PRODUCT) == 2, job(fenced['jobId']))
+          == ('failed', 'risk_job_authority_changed') and revisions(PRODUCT) == 3, job(fenced['jobId']))
     grant = str(uuid4())
     query(f"INSERT INTO security.role_grants VALUES('{grant}','{trader}','{role}','{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false);")
 
