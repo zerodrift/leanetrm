@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {crudeRequest,restoreCrudeCommand} from '../dist/physical-crude-model.js';
+import {crudeRequest,restoreCrudeCommand,crudePreview} from '../dist/physical-crude-model.js';
+import {prepareAmountDisplay,selectDisplayPrecision,initialDisplayPrecision} from '../dist/amount-display.js';
 import {PendingCommand} from '../dist/pending-command.js';
 const assignment={code:'synthetic_assignment',definitionRevisionId:'exact-definition'};
 const profile={code:'physical_crude_standard_volume_v1',quantityBasis:'standard_volume_total',tolerance:'0',discounting:false};
@@ -36,4 +37,17 @@ test('a selected maintained delivery setup is sent exactly and imported requests
  const mapped=crudeRequest({},header,{...assignment,crudeSetupId:'exact-setup-version'},profile,fields);
  assert.equal(mapped.crudeSetupId,'exact-setup-version');
  assert.equal('crudeSetupId' in crudeRequest({},header,assignment,profile,fields),false);
+});
+test('a crude preview names its binding, profile, directions and sides, and shows amounts at the display precision',async()=>{
+ selectDisplayPrecision(initialDisplayPrecision());
+ const value={presentValue:'292500',currency:'USD',quantity:'50000',quantityUnit:'bbl',deliveryFrom:'2026-12-01T00:00:00Z',deliveryTo:'2027-01-01T00:00:00Z',
+  sides:[{role:'delivery',direction:'receive',presentValue:'3505000'},{role:'consideration',direction:'pay',presentValue:'-3212500'}]};
+ await prepareAmountDisplay(value,async body=>body.map(r=>({'292500':'292,500.000','50000':'50,000','3505000':'3,505,000.000','-3212500':'-3,212,500.000'})[r.value]));
+ const terms={assignmentCode:'cs_07e77acf',direction:'receive',considerationDirection:'pay',fixedPrice:'64.25',paymentAt:'2027-01-20T18:00:00Z',handlingFee:null,profile:'physical_crude_standard_volume_v1',tolerance:'0'};
+ const shown=crudePreview(value,terms,{binding:'WTI Cushing delivery',profile:'Fixed standard volume at 60°F · zero tolerance · undiscounted'},'America/Chicago');
+ assert.equal(shown.total,'Contractual present value: 292,500.000 USD');
+ assert.deepEqual(shown.terms,[['Delivery window','Nov 30, 2026, 6:00 PM CST to Dec 31, 2026, 6:00 PM CST · exclusive'],['Contract volume','50,000 bbl'],
+  ['Pricing binding','WTI Cushing delivery'],['Physical direction','Receive crude'],['Consideration direction','Pay consideration'],['Fixed price','64.25'],
+  ['Payment · America/Chicago','Jan 20, 2027, 12:00 PM CST'],['Handling fee','None'],['Profile','Fixed standard volume at 60°F · zero tolerance · undiscounted']]);
+ assert.deepEqual(shown.sides,[['Delivery','Receive','3,505,000.000'],['Consideration','Pay','-3,212,500.000']]);
 });

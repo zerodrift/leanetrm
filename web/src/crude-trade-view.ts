@@ -9,12 +9,12 @@ const direction=(value:string)=>value==='receive'?'Receive':value==='deliver'?'D
 export async function readCrudeView(api:Api,context:Record<string,unknown>,h:Holding,operations?:()=>void):Promise<DetailRead>{
  const detail=await api<{head:{revision:number;instrument_id:string;request:Terms};physical:Row}>('trading/crude',{context:{...context,convention:'trading_workspace_v1'},tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision),instrumentType:'physical_crude'});
  if(String(detail.head.revision)!==h.revision||detail.head.instrument_id!==h.bindingId)throw Error('The crude position changed. Refresh the Blotter.');
- const t=detail.head.request,p=detail.physical;
+ const t=detail.head.request,p=detail.physical,priceUnit=`${p.multiplier==='1'?'':p.multiplier+' '}${p.currency} / ${p.unit}`;
  return{amend:{allowed:false,reason:'Crude amendments and custody measurement conversion are not supported. Accepted certified receipts and invoice cash are separate operational facts.'},view:zone=>{
   const terms:TermSection[]=[{title:'Physical crude trade',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Value measure','Contractual PV']]},
    {title:'Crude',rows:[['Assignment',t.assignmentCode],['Commodity',String(p.commodity_name)],['Grade',String(p.grade_name)],['Facility',String(p.facility_name)],['Custody point',String(p.custody_point_name)],['Physical direction',direction(t.direction)],['Contract volume',`${t.quantity} ${p.unit}`],['Standard temperature',`${p.standard_temperature} ${p.temperature_scale}`],['Delivery',`${displayExactInstant(t.deliveryFrom,zone)} to ${displayExactInstant(t.deliveryTo,zone)} · exclusive`],['Pricing curve',String(p.curve_name)],['Profile',t.profile],['Tolerance',t.tolerance]]},
-   {title:'Fixed price',rows:[['Consideration direction',direction(t.considerationDirection)],['Fixed price',t.fixedPrice],['Price unit',`${p.currency} / ${p.multiplier} ${p.unit}`],['Payment',displayExactInstant(t.paymentAt,zone)]]},
-   {title:'Handling fee',rows:t.handlingFee===null?[['Handling fee','None']]:[['Handling fee',t.handlingFee],['Price unit',`${p.currency} / ${p.multiplier} ${p.unit}`],['Handling fee direction',direction(t.handlingFeeDirection!)],['Payment',displayExactInstant(t.paymentAt,zone)]]}];
+   {title:'Fixed price',rows:[['Consideration direction',direction(t.considerationDirection)],['Fixed price',t.fixedPrice],['Price unit',priceUnit],['Payment',displayExactInstant(t.paymentAt,zone)]]},
+   {title:'Handling fee',rows:t.handlingFee===null?[['Handling fee','None']]:[['Handling fee',t.handlingFee],['Price unit',priceUnit],['Handling fee direction',direction(t.handlingFeeDirection!)],['Payment',displayExactInstant(t.paymentAt,zone)]]}];
   return{terms,actions:operations?[{id:'crude-operations',label:'Delivery and cash',run:operations}]:undefined,history:[{title:`Revision ${h.revision}`,rows:[['Booked',displayExactInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]}]};
  }};
 }

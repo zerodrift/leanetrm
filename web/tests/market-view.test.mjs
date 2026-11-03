@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {summaryTiles,contractCountText,displayDate,frameOptions,deliveryMonth,deliveryLabel,historyPriceLabel,displayInstant,timeLabels,publicText,publicColumns,quoteUnit,curveName,setCurveNames} from '../dist/market-view.js';
+import {summaryTiles,contractCountText,displayDate,frameOptions,deliveryMonth,deliveryLabel,historyPriceLabel,displayInstant,timeLabels,publicText,publicColumns,quoteUnit,curveName,setCurveNames,clockLabel,displayExactInstant} from '../dist/market-view.js';
 import {dataSections,referenceGroups} from '../dist/data-sections.js';
 import {newPreferences,parsePreferences,loadPreferences,savePreferences} from '../dist/preferences.js';
 const id='12345678-1234-1234-1234-123456789012';
@@ -75,10 +75,22 @@ test('summary tiles and the contract count come from the backend summary, not fr
 });
 
 test('physical delivery labels retain exclusive UTC intraday boundaries and fractional precision',()=>{
- assert.equal(deliveryLabel('2021-01-04T09:00:00Z','2021-01-05T09:00:00+00:00'),'2021-01-04 09:00:00 UTC – 2021-01-05 09:00:00 UTC (exclusive)');
+ assert.equal(deliveryLabel('2021-01-04T09:00:00Z','2021-01-05T09:00:00+00:00'),'Jan 4, 2021, 9:00 AM UTC – Jan 5, 2021, 9:00 AM UTC (exclusive)');
  assert.equal(deliveryLabel('2021-01-04T09:00:00.000001Z','2021-01-04T09:00:00.000002Z'),'2021-01-04 09:00:00.000001 UTC – 2021-01-04 09:00:00.000002 UTC (exclusive)');
  assert.throws(()=>deliveryLabel('2021-01-04','2021-01-05T09:00:00Z'),/invalid/);
  assert.throws(()=>deliveryLabel('2021-01-04T09:00:00-06:00','2021-01-05T09:00:00Z'),/invalid/);
 });
 
-test('instant delivery labels follow the selected user zone without shifting operating dates',()=>{assert.equal(deliveryLabel('2021-01-04T09:00:00.000001Z','2021-01-05T09:00:00Z','America/Chicago'),'2021-01-04 03:00:00.000001 UTC-06:00 · America/Chicago – 2021-01-05 03:00:00 UTC-06:00 · America/Chicago (exclusive)');assert.equal(deliveryLabel('2021-01-01','2021-02-01','America/Chicago'),'Jan 2021');});
+test('instant delivery labels follow the selected user zone without shifting operating dates',()=>{assert.equal(deliveryLabel('2021-01-04T09:00:00.000001Z','2021-01-05T09:00:00Z','America/Chicago'),'2021-01-04 03:00:00.000001 UTC-06:00 · America/Chicago – Jan 5, 2021, 3:00 AM CST (exclusive)');assert.equal(deliveryLabel('2021-01-01','2021-02-01','America/Chicago'),'Jan 2021');});
+
+test('a clock is named by its time zone, a zero fixed offset as UTC, never by its code',()=>{
+ assert.equal(clockLabel({code:'cpt',kind:'iana',iana_zone:'America/Chicago',fixed_offset_seconds:null}),'America/Chicago');
+ assert.equal(clockLabel({code:'utc',kind:'fixed_offset',iana_zone:null,fixed_offset_seconds:0}),'UTC');
+ assert.equal(clockLabel({code:'est',kind:'fixed_offset',iana_zone:null,fixed_offset_seconds:-18000}),'UTC−05:00');
+});
+
+test('a whole-minute instant reads as a date and time with its zone; one with seconds or a fraction keeps every digit',()=>{
+ assert.equal(displayExactInstant('2026-12-01T00:00:00Z','America/Chicago'),'Nov 30, 2026, 6:00 PM CST');
+ assert.equal(displayExactInstant('2026-12-01T00:00:00Z','UTC'),'Dec 1, 2026, 12:00 AM UTC');
+ assert.equal(displayExactInstant('2026-12-01T00:00:07Z','America/Chicago'),'2026-11-30 18:00:07 UTC-06:00 · America/Chicago');
+});

@@ -18,6 +18,15 @@ export const val = (row:Row,key:string) => String(row[key] ?? '—');
 const UUID=/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 export const publicText = (value:unknown) => String(value).replace(UUID,'internal record');
 export const friendly = (code:unknown) => publicText(code).replace(/^test_/,'').replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase());
+// A clock as people read it: its time zone, or its fixed offset from UTC; its code is never shown.
+export type ClockRow={code:string;kind?:string;iana_zone?:string|null;fixed_offset_seconds?:number|string|null};
+export function clockLabel(clock:ClockRow):string{
+  if(clock.iana_zone)return clock.iana_zone;
+  if(clock.kind!=='fixed_offset'||clock.fixed_offset_seconds==null)return friendly(clock.code);
+  const seconds=Number(clock.fixed_offset_seconds);if(seconds===0)return 'UTC';
+  const minutes=Math.abs(seconds)/60,pad=(n:number)=>String(n).padStart(2,'0');
+  return `UTC${seconds<0?'−':'+'}${pad(Math.floor(minutes/60))}:${pad(minutes%60)}`;
+}
 export function exactRow(rows:Row[],key:string,value:string):Row {
   const matches=rows.filter(r=>r[key]===value);
   if(matches.length!==1)throw Error('Some market details are missing or inconsistent. Refresh and try again.');
@@ -63,10 +72,12 @@ function formatter(options:Intl.DateTimeFormatOptions){
   return built;
 }
 export function displayInstant(value:string,zone:string,seconds=false){return formatter({year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',...(seconds?{second:'2-digit'}:{}),timeZone:zone}).format(new Date(value));}
-// Retain sub-millisecond text while translating the calendar and UTC offset.
-// Only actual instants use this formatter; business/operating dates stay dates.
+// An actual instant in the user's zone: a whole minute as a date and time with its zone's short name, anything finer with every digit,
+// including sub-millisecond text, and its UTC offset. Business/operating dates stay dates.
 export function displayExactInstant(value:string,zone:string){
  if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)||!Number.isFinite(Date.parse(value)))throw Error('The instant is invalid.');
+ if(/T\d{2}:\d{2}:00(?:Z|[+-]\d{2}:\d{2})$/.test(value))
+  return formatter({year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:zone,timeZoneName:'short'}).format(new Date(value));
  const parts=formatter({year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23',timeZone:zone,timeZoneName:'longOffset'}).formatToParts(new Date(value));
  const part=(type:string)=>parts.find(p=>p.type===type)!.value;
  const fraction=value.match(/(\.\d+)(?:Z|[+-]\d{2}:\d{2})$/)?.[1]??'';

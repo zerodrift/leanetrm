@@ -63,6 +63,9 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
   if(revision.RevisionId!=expected)throw Invalid("The delivery master bundle does not match its declared exact reference revision.");
   return revision;
  }
+ // The delivery clocks the crude profile admits: an explicit UTC clock, as PhysicalCrudeStore requires of every booking.
+ internal static Task<ImmutableArray<JsonElement>> ProfileClocks(NpgsqlConnection c,ReferenceRevision revision,CancellationToken ct)=>
+  PreviewDatabase.Rows(c,"SELECT row_to_json(k)::text FROM ref_data.clock_rules k WHERE(catalog_id,revision_id)=($1,$2) AND kind='fixed_offset' AND fixed_offset_seconds=0 ORDER BY code",[revision.CatalogId,revision.RevisionId],ct);
  public async Task<object> CatalogRead(NpgsqlConnection c,CancellationToken ct)
  {
   var revision=await DeliveryRevision(c,ct);
@@ -85,8 +88,7 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
    ORDER BY c.name,m.id,c.code
    """,[Catalog,Sources().ToArray()],ct);
   var versions=await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM market_data.crude_setup_versions v WHERE catalog_id=$1 ORDER BY publication_order DESC NULLS LAST,id LIMIT 100",[Catalog],ct);
-  var clocks=await PreviewDatabase.Rows(c,"SELECT row_to_json(k)::text FROM ref_data.clock_rules k WHERE(catalog_id,revision_id)=($1,$2) AND kind='fixed_offset' AND fixed_offset_seconds=0 ORDER BY code",[revision.CatalogId,revision.RevisionId],ct);
-  return new{deliveryReferences=await CrudeDeliveryReferences.Read(c,revision,ct),deliveryPoints=points,sources,clocks,versions,quantityPolicies=new[]{new{code=CrudeQuantityEquivalence.Policy,label="Same standard volume at 60°F · no conversion"}},
+  return new{deliveryReferences=await CrudeDeliveryReferences.Read(c,revision,ct),deliveryPoints=points,sources,clocks=await ProfileClocks(c,revision,ct),versions,quantityPolicies=new[]{new{code=CrudeQuantityEquivalence.Policy,label="Same standard volume at 60°F · no conversion"}},
    canSave=await PreviewDatabase.HasPermission(c,"WriteMarketDefinitions",ct),canPublish=await PreviewDatabase.HasPermission(c,"SealMarketDefinitions",ct),
    scope="Maintain exact delivery-to-price bindings for pre-delivery crude booking and valuation. Booked contracts retain their exact setup and original pricing source. Delivery-to-cash for separate delivery masters remains unsupported."};
  }

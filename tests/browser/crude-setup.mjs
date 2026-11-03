@@ -51,7 +51,7 @@ export async function run(actions){
  await evaluate('window.releaseCrudeResolution()');
  await check('a late mapping response cannot restore pricing after a physical selection changes',"document.querySelector('#crude-assignment').value===''&&!document.querySelector('#crude-reference').textContent.includes('synthetic_crude_forward')&&document.querySelector('#crude-book-submit').disabled");
  await set('#crude-grade','synthetic_unmapped_grade');await set('#crude-quantity','1000');await set('#crude-price','78');
- await submit('#crude-form');await wait("document.querySelector('#crude-total').textContent==='Contractual present value: 2000 USD'&&"+idle);
+ await submit('#crude-form');await wait("document.querySelector('#crude-total').textContent==='Contractual present value: 2,000.000 USD'&&"+idle);
  await evaluate(`(()=>{const original=window.fetch;window.fetch=async function(input,init){if(String(input).endsWith('/api/crude/book')){window.fetch=original;window.syntheticRejectedCrudeCommand=JSON.parse(init.body);return new Response(JSON.stringify({code:'crude_setup_conflict',message:'Synthetic definite stale publication rollback'}),{status:409,headers:{'Content-Type':'application/json'}});}return original.call(this,input,init);};})()`);
  await click('#crude-book-submit');await wait(idle);
  await check('a definite stale-setup booking refusal unlocks the ticket for review',"document.querySelector('#crude-pending').hidden&&!document.querySelector('#crude-price').disabled");

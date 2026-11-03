@@ -1,14 +1,15 @@
 import {crudeChoices,crudeSelection,crudeReferenceFields,type CrudeReferenceData} from './crude-selection.js';
+import type {ClockRow} from './market-view.js';
 import {zonedInput} from './user-time.js';
 import {displayExactInstant} from './market-view.js';
 import {decorateSideCard,sideAddButton} from './side-card.js';
 import {PendingCommand,actorTransport,type RequestCommand} from './pending-command.js';
-import {crudeConvention,crudeRequest,restoreCrudeCommand,type CrudeProfile,type CrudeFields} from './physical-crude-model.js';
+import {crudeConvention,crudePreview,crudeRequest,restoreCrudeCommand,type CrudeProfile,type CrudeFields,type CrudeValue} from './physical-crude-model.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Party={id:string;revision:number;name:string};
 type Assignment={crudeSetupId?:string|null;bindingName:string;code:string;definitionRevisionId:string;physical:Record<string,unknown>;quantityUnit:string;priceUnit:string;curve:string;curveName:string};
-type Catalog={deliveryReferences:CrudeReferenceData;profiles:CrudeProfile[];books:{id:string;name:string}[];legalEntities:Party[];counterparties:Party[];canBook:boolean;scope:string};
-type Value={presentValue:string;currency:string;sides:{role:string;direction:string;presentValue:string;quantity:unknown}[];deliveryFrom:string;deliveryTo:string;quantity:string;quantityUnit:string};
+type Catalog={deliveryReferences:CrudeReferenceData;clocks:ClockRow[];profiles:CrudeProfile[];books:{id:string;name:string}[];legalEntities:Party[];counterparties:Party[];canBook:boolean;scope:string};
+type Value=CrudeValue;
 type Receipt={tradeId:string;instrumentId:string;operationId:string;revision:number};
 type DirectoryRow={tradeId:string;revision:number;instrumentId:string;bookId:string;bookName:string;direction:string;quantity:string;quantityUnit:string;deliveryFrom:string;deliveryTo:string;gradeName:string;facilityName:string;custodyPointName:string};
 // An accepted receipt survives context changes, but its follow-up views belong only
@@ -60,7 +61,7 @@ export function setupPhysicalCrude(o:{api:Api;act:(work:()=>Promise<void>)=>Prom
  function selection(){return crudeSelection(selectedReferences());}
  function referenceChoices(){
   if(!catalog)return;
-  const choices=crudeChoices(catalog.deliveryReferences);
+  const choices=crudeChoices(catalog.deliveryReferences,catalog.clocks);
   for(const key of crudeReferenceFields)options('crude-'+key,choices[key],val('crude-'+key));
   reference(resolved);
  }
@@ -118,9 +119,10 @@ export function setupPhysicalCrude(o:{api:Api;act:(work:()=>Promise<void>)=>Prom
   return crudeRequest(selectedContext,header,assignment,profile,{...fields,deliveryFrom,deliveryTo,paymentAt});
  }
  function render(value:Value,title:string,terms?:Record<string,unknown>){
-  shownValue={value,title,terms};get('crude-result-title').textContent=title;get('crude-total').textContent=`Contractual present value: ${value.presentValue} ${value.currency}`;
-  details('crude-terms',[['Delivery window',`${displayExactInstant(value.deliveryFrom,o.zone())} to ${displayExactInstant(value.deliveryTo,o.zone())} · exclusive`],['Contract volume',`${value.quantity} ${value.quantityUnit}`],...(terms?[['Assignment',String(terms.assignmentCode)],['Physical direction',String(terms.direction)],['Consideration direction',String(terms.considerationDirection)],['Fixed price',String(terms.fixedPrice)],['Payment · '+o.zone(),displayExactInstant(String(terms.paymentAt),o.zone())],['Handling fee',terms.handlingFee===null?'None':`${terms.handlingFee} · ${terms.handlingFeeDirection}`],['Profile',String(terms.profile)],['Tolerance',String(terms.tolerance)]] as [string,string][]:[])]);
-  const table=document.createElement('table'),head=table.createTHead().insertRow();for(const name of ['Side','Direction','Signed PV']){const th=document.createElement('th');th.textContent=name;head.append(th);}const body=table.createTBody();for(const side of value.sides){const row=body.insertRow();for(const text of [side.role,String(side.direction),side.presentValue])row.insertCell().textContent=text;}get('crude-sides').replaceChildren(table);get('crude-result').hidden=false;
+  shownValue={value,title,terms};get('crude-result-title').textContent=title;
+  const shown=crudePreview(value,terms,{binding:resolved?.bindingName,profile:catalog?.profiles.find(p=>p.code===terms?.profile)?.label},o.zone());
+  get('crude-total').textContent=shown.total;details('crude-terms',shown.terms);
+  const table=document.createElement('table'),head=table.createTHead().insertRow();for(const name of ['Side','Direction','Signed PV']){const th=document.createElement('th');th.textContent=name;head.append(th);}const body=table.createTBody();for(const side of shown.sides){const row=body.insertRow();for(const text of side)row.insertCell().textContent=text;}get('crude-sides').replaceChildren(table);get('crude-result').hidden=false;
  }
  async function open(tradeId:string){const g=epoch,a=owner;const r=await o.api<{terms:Record<string,unknown>;valuation:Value;tradeId:string;revision:number}>('crude/editor',{context:context(),tradeId});if(g!==epoch||a!==o.actor())return;reviewed=undefined;render(r.valuation,`Booked trade · revision ${r.revision} · read only`,r.terms);sync();}
  async function directory(){const g=epoch,a=owner;const result=await o.api<{trades:DirectoryRow[]}>('crude/directory',context());if(g!==epoch||a!==o.actor())return;

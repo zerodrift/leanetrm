@@ -87,3 +87,7 @@ test('a risk report and a retained risk job show their amounts; the job director
  assert.equal(shownAmounts('portfolio/risk/jobs/job-1',report),report);
  assert.equal(shownAmounts('portfolio/risk/jobs',[]),undefined);
 });
+test('a crude preview and a reopened crude trade show their amounts',()=>{
+ const preview={presentValue:'292500',quantity:'50000',sides:[{presentValue:'3505000'}]};
+ assert.equal(shownAmounts('crude/preview',preview),preview);assert.equal(shownAmounts('crude/editor',preview),preview);
+});

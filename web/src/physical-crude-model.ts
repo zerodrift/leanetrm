@@ -1,4 +1,6 @@
 import {resolvedUtcInstant as instant} from './user-time.js';
+import {amountText} from './amount-display.js';
+import {displayExactInstant} from './market-view.js';
 import type {RequestCommand} from './pending-command.js';
 export const crudeConvention='physical_crude_fixed_volume_v1';
 export type CrudeProfile={code:string;quantityBasis:string;tolerance:string;discounting:boolean;label?:string};
@@ -22,4 +24,20 @@ export function restoreCrudeCommand(value:unknown):RequestCommand|undefined{
  const v=value as Record<string,unknown>;
  if(v.path!=='crude/book'||typeof v.operationId!=='string'||!v.operationId||!v.body||typeof v.body!=='object'||Array.isArray(v.body))return;
  return{path:'crude/book',operationId:v.operationId,body:structuredClone(v.body as Record<string,unknown>),uncertain:true};
+}
+// What a crude preview or booked valuation shows: its delivery, volume and contract terms by name, each side's signed PV, and amounts at
+// the display precision. A direction or side the contract does not name is refused rather than shown as its code.
+export type CrudeValue={presentValue:string;currency:string;quantity:string;quantityUnit:string;deliveryFrom:string;deliveryTo:string;sides:{role:string;direction:string;presentValue:string}[]};
+const physicalDirections:Record<string,string>={receive:'Receive crude',deliver:'Deliver crude'},cashDirections:Record<string,string>={pay:'Pay consideration',receive:'Receive consideration'},
+ feeDirections:Record<string,string>={pay:'Pay fee',receive:'Receive fee'},sideRoles:Record<string,string>={delivery:'Delivery',consideration:'Consideration',handling_fee:'Handling fee'},
+ sideDirections:Record<string,string>={receive:'Receive',deliver:'Deliver',pay:'Pay'};
+const named=(names:Record<string,string>,value:unknown)=>{const name=names[String(value)];if(!name)throw Error(`The crude preview names an unknown term: ${String(value)}.`);return name;};
+export function crudePreview(value:CrudeValue,terms:Record<string,unknown>|undefined,labels:{binding?:string;profile?:string},zone:string){
+ const money=(v:string)=>amountText(v,'money');
+ return{total:`Contractual present value: ${money(value.presentValue)} ${value.currency}`,
+  terms:[['Delivery window',`${displayExactInstant(value.deliveryFrom,zone)} to ${displayExactInstant(value.deliveryTo,zone)} · exclusive`],['Contract volume',`${amountText(value.quantity,'quantity')} ${value.quantityUnit}`],
+   ...(terms?[['Pricing binding',labels.binding??String(terms.assignmentCode)],['Physical direction',named(physicalDirections,terms.direction)],['Consideration direction',named(cashDirections,terms.considerationDirection)],
+    ['Fixed price',String(terms.fixedPrice)],['Payment · '+zone,displayExactInstant(String(terms.paymentAt),zone)],
+    ['Handling fee',terms.handlingFee===null?'None':`${String(terms.handlingFee)} · ${named(feeDirections,terms.handlingFeeDirection)}`],['Profile',labels.profile??String(terms.profile)]]:[])] as [string,string][],
+  sides:value.sides.map(s=>[named(sideRoles,s.role),named(sideDirections,s.direction),money(s.presentValue)])};
 }

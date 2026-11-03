@@ -13,7 +13,7 @@ test('common crude details read exact retained selection, preserve independent d
  assert.ok(rows.some(([label,value])=>label==='Consideration direction'&&value==='Pay'));
  assert.ok(rows.some(([label,value])=>label==='Handling fee direction'&&value==='Receive'));
  assert.ok(rows.some(([label,value])=>label==='Contract volume'&&value==='1000 bbl'));
- assert.ok(rows.some(([label,value])=>label==='Price unit'&&value==='USD / 1 bbl'));
+ assert.ok(rows.some(([label,value])=>label==='Price unit'&&value==='USD / bbl'));
  assert.deepEqual(view.terms.map(s=>s.title),['Physical crude trade','Crude','Fixed price','Handling fee']);assert.equal(view.actions,undefined);
 });
 test('common crude details reject another retained instrument or revision',async()=>{
@@ -24,4 +24,8 @@ test('retained crude details preserve exact intraday and fractional exclusive de
  const read=await readCrudeView(async()=>({...detail,head:{...detail.head,request:exact}}),{},h);
  const delivery=read.view('America/Chicago').terms.flatMap(t=>t.rows).find(([name])=>name==='Delivery')[1];
  assert.ok(delivery.includes('06:00:01.1234567 UTC-06:00'));assert.ok(delivery.includes('06:00:02.7654321 UTC-06:00'));assert.ok(delivery.includes('exclusive'));
+});
+test('a crude price unit names its quote multiplier only when it is not one',async()=>{
+ const read=await readCrudeView(async()=>({...detail,physical:{...detail.physical,multiplier:'100'}}),{},h);
+ assert.ok(read.view('UTC').terms.flatMap(t=>t.rows).some(([label,value])=>label==='Price unit'&&value==='100 USD / bbl'));
 });

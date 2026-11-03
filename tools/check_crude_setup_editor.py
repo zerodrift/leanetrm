@@ -300,7 +300,8 @@ def run_booking_checks(url, query, manifest, *, run_worker):
             'profile': catalog['profiles'][0]['code'], 'quantityBasis': 'standard_volume_total', 'tolerance': '0', 'discounting': False,
             'deliveryFrom': '2021-01-10T00:00:00Z', 'deliveryTo': '2021-01-11T00:00:00Z', 'paymentAt': '2021-02-01T00:00:00Z',
             'quantity': '1000', 'direction': 'receive', 'considerationDirection': 'pay', 'fixedPrice': '78', 'handlingFee': None, 'handlingFeeDirection': None}
-    references=c.call('crude/references',context)['deliveryReferences']
+    ticket=c.call('crude/references',context);references=ticket['deliveryReferences']
+    assert ticket['clocks'] and all(k['kind']=='fixed_offset' and k['fixed_offset_seconds']==0 for k in ticket['clocks']), ticket['clocks']
     grade=next(g for g in references['grades'] if g['code']==assignment['grade'])
     physical={'referenceCatalogId':references['catalogId'],'referenceRevisionId':references['revisionId'],
               'commodity':assignment['commodity'],'grade':assignment['grade'],'facility':assignment['facility'],
@@ -308,6 +309,7 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     resolution={**context,'physical':physical,'deliveryFrom':body['deliveryFrom'],'deliveryTo':body['deliveryTo']}
     resolved=c.call('crude/resolve',resolution)
     assert resolved['code']==body['assignmentCode'] and resolved['crudeSetupId']==body['crudeSetupId']
+    assert resolved['priceUnit']==f"USD / {resolved['quantityUnit']}", resolved['priceUnit']
     body['physical']=physical
     before = c.call('crude/preview', body)
     assert Decimal(before['presentValue']) == 2000

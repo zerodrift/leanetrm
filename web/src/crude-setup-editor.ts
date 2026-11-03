@@ -1,7 +1,8 @@
 import {crudeChoices,type CrudeReferenceData} from './crude-selection.js';
+import type {ClockRow} from './market-view.js';
 type Configuration={code:string;deliveryReferenceCatalogId:string;deliveryReferenceRevisionId:string;commodity:string;grade:string;facility:string;custodyPoint:string;clock:string;definitionRevisionId:string;curve:string;validFrom:string;validTo:string;quantityPolicy:string};
 type Version={id:string;state:'draft'|'published';base_setup_id:string|null;configuration:Configuration};
-type Catalog={deliveryReferences:CrudeReferenceData;sources:{definitionRevisionId:string;curve:string;name:string}[];clocks:{code:string}[];quantityPolicies:{code:string;label:string}[];versions:Version[];canSave:boolean;canPublish:boolean};
+type Catalog={deliveryReferences:CrudeReferenceData;sources:{definitionRevisionId:string;curve:string;name:string}[];clocks:ClockRow[];quantityPolicies:{code:string;label:string}[];versions:Version[];canSave:boolean;canPublish:boolean};
 type Pending={path:string;body:Record<string,unknown>;uncertain:boolean};
 
 export function setupCrudeConfiguration(o:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;actor:()=>string;historical:()=>boolean;source:()=>{snapshotId:string};marketLabel:()=>string}){
@@ -50,11 +51,11 @@ export function setupCrudeConfiguration(o:{api:<T>(path:string,body?:unknown)=>P
   const e=epoch,actor=o.actor(),c=await o.api<Catalog>('crude-setup/catalog');if(e!==epoch||actor!==o.actor())return;
   catalog=c;
   get<HTMLSelectElement>('cs-version').replaceChildren(new Option('Choose a saved version…',''),...c.versions.map(v=>new Option(`${v.configuration.code} · ${v.state} · ${v.id}`,v.id)));
-  const physicalChoices=crudeChoices(c.deliveryReferences);
+  const physicalChoices=crudeChoices(c.deliveryReferences,c.clocks);
   for(const key of ['commodity','grade','facility','custodyPoint'] as const)
    get<HTMLSelectElement>('cs-'+key).replaceChildren(new Option('Choose…',''),...physicalChoices[key].map(r=>new Option(r.label,r.value)));
   get<HTMLSelectElement>('cs-source').replaceChildren(new Option('Choose existing pricing source…',''),...c.sources.map(s=>new Option(`${s.name} · ${s.curve} · ${s.definitionRevisionId}`,sourceKey(s))));
-  get<HTMLSelectElement>('cs-clock').replaceChildren(new Option('Choose delivery clock…',''),...c.clocks.map(k=>new Option(k.code,k.code)));
+  get<HTMLSelectElement>('cs-clock').replaceChildren(new Option('Choose delivery clock…',''),...physicalChoices.clock.map(k=>new Option(k.label,k.value)));
   get<HTMLSelectElement>('cs-policy').replaceChildren(new Option('Choose quantity relationship…',''),...c.quantityPolicies.map(p=>new Option(p.label,p.code)));
   get('cs-coverage').textContent='Choose each physical reference separately. Saving validates the maintained delivery relationship; publication configures the pricing source for new trades.';
   get('cs-market').textContent=o.marketLabel();

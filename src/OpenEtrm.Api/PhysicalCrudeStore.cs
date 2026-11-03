@@ -41,7 +41,7 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
  public async Task<object> References(NpgsqlConnection c,CancellationToken ct)
  {
   var revision=await new CrudeSetupEditor(database).DeliveryRevision(c,ct);
-  return new{deliveryReferences=await CrudeDeliveryReferences.Read(c,revision,ct),
+  return new{deliveryReferences=await CrudeDeliveryReferences.Read(c,revision,ct),clocks=await CrudeSetupEditor.ProfileClocks(c,revision,ct),
    books=await PreviewDatabase.Rows(c,"SELECT row_to_json(b)::text FROM trading.books b WHERE catalog_id=$1 ORDER BY name",[Catalog],ct),
    legalEntities=await TradeParties.Catalog(c,Catalog,true,ct),counterparties=await TradeParties.Catalog(c,Catalog,false,ct),
    canBook=await PreviewDatabase.HasPermission(c,"BookTrade",ct),
@@ -90,7 +90,7 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   var currency=One(data.References["currencies"].Where(r=>r.Text("code")==quote.Currency.Code)).Text("display_code");
   return new{code=row.Text("code"),definitionRevisionId=sourceRevision,crudeSetupId=row.OptionalId("setup_id"),
    bindingName=row.OptionalText("setup_code")??row.Text("code"),physical=body.Physical,curve=curve.Text("code"),curveName=curve.Text("name"),
-   quantityUnit=unit,priceUnit=quote.Multiplier==ExactDecimal.Parse("1")?currency+" / 1 "+unit:currency+" × "+quote.Multiplier+" / "+unit};
+   quantityUnit=unit,priceUnit=Presentation.PriceUnitLabel.Format(PriceUnit.FromQuote(quote),currency,unit)};
  }
  private async Task<ImmutableArray<JsonElement>> Assignments(NpgsqlConnection c,PreviewData data,CancellationToken ct,bool currentOnly=false)
  {
@@ -120,7 +120,7 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
    var quote=One(data.Quotes.Where(x=>x.Key.Code==curve.Text("quote_code")));
    var unit=Unit(data,quote.Quantity);
    var currency=One(data.References["currencies"].Where(x=>x.Text("code")==quote.Currency.Code)).Text("display_code");
-   return new{code=row.Text("code"),crudeSetupId=row.OptionalText("setup_id"),bindingName=row.OptionalText("setup_code")??row.Text("code"),definitionRevisionId=data.DefinitionRevision.RevisionId,commodity=row.Text("commodity_code"),commodityName=row.Text("commodity_name"),grade=row.Text("grade_code"),gradeName=row.Text("grade_name"),facility=row.Text("facility_code"),facilityName=row.Text("facility_name"),custodyPoint=row.Text("custody_point_code"),custodyPointName=row.Text("custody_point_name"),quantityCode=quote.Quantity.Code,quantityName=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==quote.Quantity.Code)).Text("code")+" · "+unit,quantityUnit=unit,priceUnit=quote.Multiplier==ExactDecimal.Parse("1")?currency+" / 1 "+unit:currency+" × "+quote.Multiplier+" / "+unit,curve=row.Text("curve_code"),curveName=curve.Text("name"),clock=row.Text("clock_code"),clockName=row.Text("clock_code"),standardTemperature=row.Text("standard_temperature"),temperatureScale=row.Text("temperature_scale")};
+   return new{code=row.Text("code"),crudeSetupId=row.OptionalText("setup_id"),bindingName=row.OptionalText("setup_code")??row.Text("code"),definitionRevisionId=data.DefinitionRevision.RevisionId,commodity=row.Text("commodity_code"),commodityName=row.Text("commodity_name"),grade=row.Text("grade_code"),gradeName=row.Text("grade_name"),facility=row.Text("facility_code"),facilityName=row.Text("facility_name"),custodyPoint=row.Text("custody_point_code"),custodyPointName=row.Text("custody_point_name"),quantityCode=quote.Quantity.Code,quantityName=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==quote.Quantity.Code)).Text("code")+" · "+unit,quantityUnit=unit,priceUnit=Presentation.PriceUnitLabel.Format(PriceUnit.FromQuote(quote),currency,unit),curve=row.Text("curve_code"),curveName=curve.Text("name"),clock=row.Text("clock_code"),clockName=row.Text("clock_code"),standardTemperature=row.Text("standard_temperature"),temperatureScale=row.Text("temperature_scale")};
   }).ToArray();
   return new{assignments,books=await PreviewDatabase.Rows(c,"SELECT row_to_json(b)::text FROM trading.books b WHERE catalog_id=$1 ORDER BY name",[Catalog],ct),
    legalEntities=await TradeParties.Catalog(c,Catalog,true,ct),counterparties=await TradeParties.Catalog(c,Catalog,false,ct),canBook=await PreviewDatabase.HasPermission(c,"BookTrade",ct),
