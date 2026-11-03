@@ -43,6 +43,21 @@ choices. Update the decision record when a decision changes.
 - Follow DRY and favor simple, elegant code: clear names, small responsibilities
   and explicit contracts. Share proven common code in `src/OpenEtrm.Shared`;
   do not create speculative frameworks or a miscellaneous dumping ground.
+- For physical delivery and cash extensions, read `docs/physical-lifecycle-design.md`
+  and `docs/physical-lifecycle-extension-guide.md`. Reuse Instrument/Side and
+  booked physical delivery/lifecycle behavior through explicit composition. Keep
+  economic Side terms immutable and give each booked physical membership its own
+  DeliverySchedule; share behavior rather than assuming shared physical Side
+  instances. When a supported facility flow spans trades, use a shared facility
+  quantity ledger with schedule/constraint views and explicit allocations to
+  their owned Side schedules. Financial hedges do not create physical flows;
+  valid measured breaches remain facts. Other independent operational-resource
+  scopes need their own supported consumer. Those documents
+  distinguish proposed object names from implemented APIs and do not select
+  missing financial policies or authorize unused commodity frameworks. Read
+  `docs/facility-quantity-ledger.md` for the implemented relational operations;
+  reuse its exact source/target relationships and immutable receipts rather than
+  introducing a parallel persistence or event framework.
 - Only check in work the author would be proud to say they wrote. Review the
   result for correctness, readability and restraint; remove temporary scaffolding,
   dead code and needless duplication. Passing tests alone is not that review.

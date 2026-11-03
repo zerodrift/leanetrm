@@ -679,3 +679,14 @@ the common Blotter and retained detail. Independent review covered version
 admission, direct-write parity, normalization, ordered links, current authority,
 async responses and pending-command recovery. This is bounded local evidence,
 not production activation.
+
+## Facility allocation plan on a booked physical Side
+
+A booked gas Side with a [facility allocation](facility-quantity-ledger.md) shows a
+read-only delivery-day track in its details. The trade inspector shows the same
+track independently when post-delivery contractual PV is unavailable. It projects the Side's own planned
+quantity and unit from the shared facility ledger, with explicit removal/null
+state. It does not expose shared pool totals, residuals, other counterparties or
+source/plan head identifiers. Changing another target's allocation alone does not
+change this response. This operational plan stays separate from direct daily
+quantity inputs and contractual billing/valuation.

@@ -19,6 +19,7 @@
       <button id="nav-interval-series" class="nav-item" aria-label="Interval data" title="Interval data"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20v-6M9 20V8M14 20v-9M19 20V4"/></svg></span><span class="nav-text">Interval data</span></button>
     </nav></details>
     <details id="nav-group-operations" class="nav-group" open><summary>Operations</summary><nav aria-label="Operations">
+      <button id="nav-facilities" class="nav-item" aria-label="Facilities" title="Facilities" hidden><span class="nav-icon" aria-hidden="true">▥</span><span class="nav-text">Facilities</span></button>
       <button id="nav-risk" class="nav-item" aria-label="Risk" title="Risk" hidden><span class="nav-icon" aria-hidden="true">±</span><span class="nav-text">Risk</span></button>
       <button id="nav-jobs" class="nav-item" aria-label="Jobs & Infrastructure" title="Jobs & Infrastructure"><span class="nav-icon" aria-hidden="true">↻</span><span class="nav-text">Jobs &amp; Infrastructure</span></button>
     </nav></details>
@@ -324,6 +325,46 @@
     <details class="card risk-report-library"><summary>Reports and runs</summary><div class="card-heading"><p>The recent directory is bounded. A missing part is unavailable, never a completed or zero-risk part. Open a report to read its captured context.</p><button id="risk-jobs-refresh" class="secondary" type="button">Refresh recent runs</button></div><div id="risk-jobs-list" class="table-wrap" aria-live="polite"></div><div id="risk-jobs-report"></div>
       <details><summary>Worker diagnostics</summary><p>Queued work waits for a separately configured worker with matching engine binaries. Queueing does not start a worker.</p><button id="risk-jobs-nodes" class="secondary" type="button">Manage worker nodes</button></details>
     </details>
+  </section>
+  <section id="facilities-page" data-own-controls hidden>
+    <div class="card"><div class="card-heading"><div><h2>Facilities</h2><p>Report and allocate quantities for booked gas deliveries.</p></div><button id="facility-refresh" type="button" class="secondary">Refresh</button></div>
+      <p id="facility-context" class="field-help"></p><label for="facility-ledger">Facility delivery day</label><select id="facility-ledger"><option value="">Choose a ledger…</option></select>
+      <p id="facility-empty" class="muted">Choose a ledger, or create one from a booked delivery below.</p></div>
+    <div id="facility-forms">
+      <div class="card"><label for="facility-effective">New records effective at · <span data-user-time-zone></span></label><input id="facility-effective" type="datetime-local" step="1" required>
+        <p class="field-help">Choose an explicit effective time on the business date above. Reports include records through the end of that UTC date.</p></div>
+      <details id="facility-create-card" class="card"><summary>Create or open a facility ledger</summary><form id="facility-create-form"><fieldset id="facility-create-fields">
+        <label for="facility-create-target">Booked delivery</label><select id="facility-create-target" required><option value="">Choose a booked delivery…</option></select>
+        <p class="field-help">The delivery point, native day, commodity, unit and legal entitlement define this ledger. Selecting an existing scope opens it.</p><button type="submit">Create or open ledger</button>
+      </fieldset></form></details>
+      <div id="facility-editor" hidden>
+        <div class="card"><h3 id="facility-title"></h3><p id="facility-period" class="field-help"></p><div id="facility-balance" class="facility-balance"></div>
+          <p id="facility-exception" class="mode-banner" role="status" hidden></p><p id="facility-reconcile" class="mode-banner" role="status" hidden>The reported source or a target changed. Review and replace the allocation plan to reconcile it.</p>
+          <p class="field-help">Allocations reference one reported quantity. These operational plans do not post billing or cash.</p></div>
+        <div class="facility-entry-grid">
+          <form id="facility-source-form" class="card"><h3>Reported quantity</h3><fieldset id="facility-source-fields">
+            <label for="facility-source-quantity">Native quantity · <span data-facility-unit></span></label><input id="facility-source-quantity" inputmode="decimal" required autocomplete="off">
+            <label for="facility-source-evidence">Source or correction reason</label><input id="facility-source-evidence" maxlength="500" required autocomplete="off">
+            <button type="submit">Record quantity</button><p class="field-help">Corrections retain earlier records and allocations. A quantity above an operating limit is recorded and flagged.</p>
+          </fieldset></form>
+          <form id="facility-limit-form" class="card"><h3>Operating limit</h3><fieldset id="facility-limit-fields">
+            <label for="facility-limit-quantity">Maximum native-period quantity · <span data-facility-unit></span></label><input id="facility-limit-quantity" inputmode="decimal" required autocomplete="off">
+            <label class="check"><input id="facility-limit-remove" type="checkbox">Remove the current limit</label>
+            <label for="facility-limit-evidence">Limit source or change reason</label><input id="facility-limit-evidence" maxlength="500" required autocomplete="off">
+            <button type="submit">Save operating limit</button><p class="field-help">This compares a whole native-period quantity, not a flow rate. Missing or removed limits remain unassessed.</p>
+          </fieldset></form>
+        </div>
+        <form id="facility-plan-form" class="card"><h3>Trade allocations</h3><p id="facility-trade-help" class="field-help" hidden></p><fieldset id="facility-plan-fields">
+          <label for="facility-targets">Allocation targets</label><select id="facility-targets" multiple></select><div id="facility-allocation-table" class="table-wrap"></div>
+          <label for="facility-plan-evidence">Allocation source or change reason</label><input id="facility-plan-evidence" maxlength="500" required autocomplete="off">
+          <p class="field-help">Enter each allocation explicitly. Saving replaces the complete plan; removing a target releases its allocation.</p>
+          <div class="actions"><button id="facility-preview" type="button" class="secondary">Check quantities</button><button id="facility-plan-save" type="submit">Save allocation plan</button></div><p id="facility-preview-result" role="status"></p>
+        </fieldset></form>
+        <details class="card"><summary>Revision history</summary><p class="field-help">Up to 100 visible revisions per record type. Use As known on in the shared header to inspect an earlier state.</p><h4>Reported quantities</h4><div id="facility-source-history" class="table-wrap"></div><h4>Allocation plans</h4><div id="facility-plan-history" class="table-wrap"></div><h4>Operating limits</h4><div id="facility-limit-history" class="table-wrap"></div></details>
+      </div>
+    </div>
+    <div id="facility-pending" class="card mode-banner" hidden><h3>Request outcome unconfirmed</h3><p id="facility-pending-description"></p><div class="actions"><button id="facility-status" type="button" class="secondary">Check status</button><button id="facility-retry" type="button">Retry original request</button><button id="facility-discard" type="button" class="secondary">Discard after checking</button></div></div>
+    <p id="facility-saved" role="status"></p>
   </section>
   <section id="jobs-page" hidden>
     <div class="card"><div class="card-heading"><div><h2>Jobs &amp; Infrastructure</h2><p id="jobs-scope"></p></div><button id="jobs-refresh" class="secondary" type="button">Refresh jobs</button></div><div id="jobs-table" class="table-wrap"></div><p id="jobs-page-count"></p><div class="actions"><button id="jobs-previous" type="button" class="secondary" disabled>Previous page</button><button id="jobs-next" type="button" class="secondary" disabled>Next page</button></div></div>

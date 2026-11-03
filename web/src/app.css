@@ -2177,3 +2177,18 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .risk-setup-summary{padding:12px;background:var(--bg-2,#f2f6f2);border-radius:8px;line-height:1.6}.risk-price-policy{margin:16px 0}.risk-price-policy ol{padding-left:24px}.risk-price-policy li{padding:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center}.risk-price-policy li span{margin-right:auto}.history-matrix table{font-size:12px}.history-matrix th,.history-matrix td{min-width:140px;max-width:260px;vertical-align:top}.history-matrix td[data-price-type=official]{background:#e7f4e9}.history-matrix td[data-price-type=alternative]{background:#fff1d3}.history-matrix td[data-price-type=missing]{background:#edf0ee;color:#526259}.history-matrix td p{white-space:normal;overflow-wrap:anywhere;font-size:11px}.history-matrix summary{font-variant-numeric:tabular-nums;cursor:pointer}.history-matrix{max-width:100%;overflow-x:auto}#risk-parametric-fields{min-width:0;border:0;padding:0}#risk-parametric-form{min-width:0}#risk-history-panel .actions{flex-wrap:wrap}
 
 #risk-parametric-form .actions{display:flex;gap:8px;align-items:end;margin:12px 0}#risk-parametric-form .risk-price-policy .actions>label{display:grid;gap:6px;min-width:0;width:min(100%,340px)}
+.facility-balance{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin:1rem 0}
+.facility-balance>div{padding:.85rem 1rem;background:var(--surface-alt,#f4f6f8);border:1px solid var(--border,#d9dfe7);border-radius:8px;min-width:0}
+.facility-balance span{display:block;font-size:.8rem;color:var(--muted,#67748a)}
+.facility-balance strong{display:block;margin-top:.35rem;font-size:1.25rem;overflow-wrap:anywhere}
+.facility-entry-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+#facility-exception[data-state=breached]{border-left:4px solid var(--danger,#b93842)}
+#facility-exception[data-state=unassessed]{border-left:4px solid var(--muted,#67748a)}
+#facility-exception[data-state=within_limit]{border-left:4px solid var(--positive,#237755)}
+#facility-allocation-table input{min-width:9rem;max-width:14rem}
+@media(max-width:760px){.facility-entry-grid{grid-template-columns:1fr}.facility-balance{gap:.5rem}.facility-balance>div{padding:.65rem}.facility-balance strong{font-size:1rem}}
+
+#facilities-page,#facility-forms,#facility-editor,#facilities-page fieldset,.facility-entry-grid>*{min-width:0}
+#facilities-page select,#facilities-page input:not([type=checkbox]){box-sizing:border-box;max-width:100%}
+#facilities-page fieldset{border:0;padding:0}
+#facility-ledger,#facility-create-target{width:100%}

@@ -34,6 +34,7 @@ def main():
     parser.add_argument('--with-gas-quantity-dates',action='store_true',help='Include synthetic January working frames for daily gas quantity exploration')
     parser.add_argument('--gas-quantity-benchmark',action='store_true',help='Measure owned daily gas quantity grids with authorized revision history')
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
+    parser.add_argument('--facility-quantity-check',action='store_true',help='Qualify shared facility quantity storage and explicit gas allocations')
     parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
     parser.add_argument('--deal-ticket-check',action='store_true',help='Qualify the deal ticket schedule view of composed gas trades')
     parser.add_argument('--crude-setup-check',action='store_true',help='Qualify exact crude delivery-to-market bindings')
@@ -132,10 +133,10 @@ def main():
         args.demo_instruments_check=True;args.physical_gas_check=True
     if args.crude_lifecycle_check or args.crude_setup_check: args.physical_crude_check=True
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
-    if args.gas_setup_check or args.gas_composition_check or args.deal_ticket_check or args.gas_daily_quantity_check: args.physical_gas_check=True
+    if args.gas_setup_check or args.gas_composition_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
-    fixing_frames=args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    fixing_frames=args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
     if args.interval_series_benchmark or args.usage_benchmark or args.blotter_stream_benchmark:
@@ -685,6 +686,9 @@ def main():
                 from check_physical_gas_preview import run_checks,run_shape_checks
                 run_checks(url)
                 run_shape_checks(query,manifest)
+                if args.facility_quantity_check:
+                    from check_facility_quantity_ledger import run_checks as check_facility_quantities
+                    facility_fixture=check_facility_quantities(url,query,manifest)
                 if args.gas_daily_quantity_check:
                     from check_gas_daily_quantities import run_checks as check_gas_daily_quantities
                     check_gas_daily_quantities(url,query,manifest)
@@ -699,7 +703,9 @@ def main():
                     check_deal_ticket(url,query,manifest)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
-                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,**({'facility':facility_fixture} if args.facility_quantity_check else {})}))
+                    if args.facility_quantity_check:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--facility-quantities'],cwd=ROOT,env=env,check=True,timeout=300)
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)
                     if args.deal_ticket_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=300)

@@ -70,8 +70,9 @@ public sealed class GasTicketStore(PreviewDatabase database)
   }
   else read=await composition.ReadSinglePoint(c,data,frame,body.TradeId,ct);
   var refused=composed?await daily.RecordRefusal(c,working,ct):null;
+  var facilityAllocations=composed?await new FacilityQuantityStore(database).TradeAllocations(c,body.TradeId,ct):JsonSerializer.SerializeToElement(Array.Empty<object>(),Json);
   return new{draft=GasTicket.Reopen(read.Terms),schedule=read.Valuation.Schedule,summaries=read.Valuation.Summaries,scheduleRefusal=read.Valuation.ScheduleRefusal,quantityUnit=read.Valuation.QuantityUnit,
-   links=read.Valuation.Links,quantityPolicy=composed?QuantityPolicy:null,
+   links=read.Valuation.Links,quantityPolicy=composed?QuantityPolicy:null,facilityAllocations,
    actions=new{amend=new{allowed=false,reason=AmendReason},closeOut=new{allowed=false,reason=CloseOutReason},record=new{allowed=composed&&refused is null,reason=!composed?SinglePointRecordReason:refused?.Message??RecordReason}}};
  }
 }

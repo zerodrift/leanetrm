@@ -35,6 +35,20 @@ Human presentation preferences are separately owned and cannot choose financial
 context. Process settings are explicit private configuration. See
 [operating configuration](operational-limits.md#implemented-consumers-d302).
 
+D303 requests an object-oriented reusable physical lifecycle for gas, crude,
+LNG, NGLs and power. The [local design](physical-lifecycle-design.md) composes
+booked physical DeliverySchedules, a shared facility quantity ledger where needed,
+and explicit fulfillment/cash relationships around the existing Instrument/Side
+contracts; the [extension guide](physical-lifecycle-extension-guide.md)
+records implementation responsibilities and qualification gates. Its P44 object
+boundaries remain proposed; no further commodity or settlement support is implied.
+The [implemented facility workflow](facility-quantity-ledger.md) adds manual quantity
+revisions, explicit gas allocation plans, versioned native-period limit assessments
+and a Facilities UI through authorized operations and integrity triggers. Each
+trade projects only its own planned physical Side allocations from those facts.
+Existing gas billing, fulfillment and valuation remain unchanged; broader facility
+mappings, final allocation adoption and notification dispatch remain future work.
+
 D284 extends the assistant across existing page operations, with explicit human
 approval of every proposed business command and separately delegated, versioned
 page guidance. Operational questions need no financial access or invented market
@@ -978,7 +992,8 @@ discount provider merely to admit an instrument to risk (D181).
 Use interfaces and abstract base classes to require the behavior. Provide shared
 base implementations where semantics agree: an ordinary instrument combines side
 event plans and sums normalized, signed side contributions; leaf sides implement
-their own schedule and PV behavior. A composite side delegates to its components.
+their own schedule and PV behavior. Under D253, whole-term Sides do not own peer
+Side objects; composition and source-to-target connections belong to Instrument.
 Different instrument business labels do not require different subclasses unless
 their behavior differs. Avoid a deep inheritance tree for combinations of terms.
 
@@ -1026,13 +1041,15 @@ options are standalone instruments (D288).
 
 ### 3.5 Physical and financial composition
 
-A composite side can combine a physical delivery side and a financial side to
-represent a physical swap. Keep each component's schedule and valuation behavior:
+An instrument can combine independent physical delivery and financial memberships.
+Keep each Side's whole-term schedule and valuation behavior; do not represent this
+composition as a Side owning child Sides:
 
 ```text
-CompositeSide
-  PhysicalSide: delivery events and commodity-specific delivery terms
-  FloatingSide: payments linked to the declared delivery quantity
+Instrument
+  Physical membership → delivery events and typed physical terms
+  Payment membership → contractual payment events
+  Explicit connection → physical output to the selected payment input
 ```
 
 Gas physical terms can include pipeline, zone, receipt/delivery point and gas-day
@@ -1040,16 +1057,41 @@ conventions. Power physical terms can include market, node/zone, delivery profil
 and the applicable clock. These are typed commodity-specific references and
 conventions, not one unvalidated location string.
 
-The financial component explicitly binds the physical quantity/activity that it
-prices. Components declare whether their PV represents delivery's economic value,
+The instrument explicitly binds the physical quantity/activity that a financial
+membership prices. Contributions declare whether their PV represents delivery's economic value,
 cash payments, fees or another supported obligation. Count commodity value once
 and keep it distinguishable from contractual payments. A physical movement does
 not silently imply an additional cash sale.
 
-Combine schedules by retaining event identity, type, source side/component and
+Combine schedules by retaining event identity, type, source membership/Side and
 quantity/payment links. An instrument schedule is an aligned view of these events,
 not a date-only join that duplicates payments or forces all event types to have
 the same frequency. Valuation still delegates to the side implementations.
+
+The physical Side defines its delivery-schedule behavior; the editable schedule
+instance is independently owned by a booked binding and physical membership.
+Common classes, policies and primitives supply reuse; shared physical Side
+instances are not a workflow requirement. Its stage revisions
+use retained geometry and do not mutate shared economics. Direct entries can own
+their evidence; independent shared meter/receipt/resource records retain their
+own identities/rights and explicit allocations. Independent movement scheduling
+is a separate supported scope when needed, not a prerequisite for every booked
+Side. Title/inventory, documents and cash retain their own records and relationships.
+The D303 design adds proposed lifecycle capabilities and a separately qualified
+settlement-aware valuation contract around this boundary.
+
+A separately supported facility quantity ledger presents shared operational facts
+as a facility schedule, reconciliation and constraint views. Exact source links
+preserve existing meter/receipt stores; versioned explicit allocations connect it
+to multiple counterparties' booked physical Sides. Preserve each Side's terms and
+lifecycle. Financial hedges affect instrument risk, not physical flow/capacity.
+Managed assessments use exact operating-rule versions and native quantities;
+valid measurements above limits remain recorded breaches. Prospective enforcement
+and notification visibility require explicit scoped policies. Shared
+source/target capacity, applicable operating-rule heads and current authority are
+fenced together; common facility membership grants no access to another trade or
+permission to net physical flows or cash. See the D303
+[facility case](physical-lifecycle-design.md#several-trades-at-one-facility).
 
 ## 4. Market factors and curve dependencies
 

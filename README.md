@@ -50,6 +50,9 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   pinned preview and propose a bounded custom-curve draft. Saving uses the ordinary
   authorized operation after explicit human approval; publishing remains a person’s action
 - **Live corrections:** push updates through the shared header context, with visible refresh/stale status; [policy and limits](docs/live-calculation.md)
+- **Facility quantities:** shared reported quantities, explicit trade/Side allocation plans,
+  versioned operating maxima and historical views for retained gas days; see
+  [the implemented scope](docs/facility-quantity-ledger.md)
 - **Risk jobs:** temporary nested stresses, risk around the stressed market,
   and queued mixed-book runs pinned to the header's financial context, with retained
   results and cancellation; see [the risk engine](docs/risk-engine.md)
@@ -171,6 +174,7 @@ existing database.
 
 **Operations**
 
+- [Shared facility quantities, physical Side allocations and operating limits](docs/facility-quantity-ledger.md)
 - [Connected-curve cutover prerequisites](docs/connected-calculation.md#adopting-the-schema-cutover)
 - [Jobs, workers and infrastructure](docs/automation.md)
 - [Private pilot operations](docs/hosted-pilot.md)

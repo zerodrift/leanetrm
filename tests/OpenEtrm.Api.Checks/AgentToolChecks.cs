@@ -475,7 +475,7 @@ static class AgentToolChecks
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"blotter_new_lng","blotter_new_ppa","blotter_new_gas","blotter_new_crude","blotter_new_option","gas_setup","physical_gas","physical_crude"};
+        var unsupported=new[]{"facility_quantities","blotter_new_lng","blotter_new_ppa","blotter_new_gas","blotter_new_crude","blotter_new_option","gas_setup","physical_gas","physical_crude"};
         var workspace=new[]{"risk_jobs","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
                 .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs","ppa"}.Concat(workspace).Order()),

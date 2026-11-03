@@ -101,6 +101,9 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal)
         => (422,p.MessageText,"The complete retained schedule requires compatible exact references, typed operations and an immutable validated manifest."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "settlement_version_conflict" or "settlement_operation_conflict" => (409,p.MessageText,"Reconcile the original operation or reload the settlement version."),
+    MarketDataException m when m.Code is "facility_quantity_conflict" or "facility_quantity_owner_changed" => (409,m.Code,m.Message),
+    PostgresException p when p.MessageText.StartsWith("facility_quantity_",StringComparison.Ordinal)
+        => (p.SqlState=="42501"?403:p.MessageText is "facility_quantity_conflict" or "facility_quantity_owner_changed"?409:422,p.MessageText,FacilityQuantityStore.Refusal(p.MessageText)),
     PostgresException p when p.MessageText=="crude_mapped_lifecycle" => (422,p.MessageText,"Delivery-to-cash operations for separately maintained crude delivery masters are not yet qualified. Contractual booking and pre-delivery valuation remain available."),
     PostgresException p when p.MessageText=="crude_setup_market_scope" => (422,p.MessageText,"Current crude bindings must use one original pricing revision. Multiple grades and curves within it are supported; saved trades keep earlier revisions."),
     PostgresException p when p.MessageText=="crude_setup_conflict" => (409,p.MessageText,"The setup head or request changed. Reload or retry the original request."),
@@ -1405,6 +1408,18 @@ var gasStore=new PhysicalGasStore(database);
 api.MapPost("/gas/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,
  (connection,data,frame,ct)=>gasStore.CatalogRead(connection,data,frame,ct),expectedConvention:PhysicalGasStore.Convention));
 var gasDaily=new GasDailyQuantities(database);
+var facilityQuantities=new FacilityQuantityStore(database);
+api.MapPost("/facilities/quantities/preview",(HttpContext c,FacilityPreviewRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"RecordFacilityQuantities",async(connection,ct)=>Results.Ok(await facilityQuantities.Preview(connection,body,session.MarketContext,ct)),c.RequestAborted)));
+api.MapPost("/facilities/quantities/directory",(HttpContext c,FacilityDirectoryRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadFacilityQuantities",async(connection,ct)=>Results.Ok(await facilityQuantities.Directory(connection,body,session.MarketContext,ct)),c.RequestAborted)));
+api.MapPost("/facilities/quantities/read",(HttpContext c,FacilityReadRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadFacilityQuantities",async(connection,ct)=>Results.Ok(await facilityQuantities.Read(connection,body,session.MarketContext,ct)),c.RequestAborted)));
+api.MapPost("/facilities/quantities/status",(HttpContext c,FacilityStatusRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),"ReadFacilityQuantities",async(connection,ct)=>Results.Ok(await facilityQuantities.Status(connection,body,ct)),c.RequestAborted)));
+api.MapPost("/facilities/quantities/record",(HttpContext c,FacilityWriteRequest body)=>Locked(c,session=>
+ database.WithIdentity(Profile(session),body.Command.ValueKind==JsonValueKind.Object&&body.Command.TryGetProperty("kind",out var kind)&&kind.ValueKind==JsonValueKind.String&&kind.GetString()=="limit"?"ConfigureFacilityLimits":"RecordFacilityQuantities",
+ async(connection,ct)=>Results.Ok(await facilityQuantities.Save(connection,body,session.MarketContext,ct)),c.RequestAborted)));
 api.MapPost("/gas/quantities/read",(HttpContext c,GasDailyReadRequest body)=>TradingRead(c,body.Context,
  (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>gasDaily.Read(connection,view.CalculationFrame,body,ct),ct),expectedConvention:PhysicalGasStore.Convention));
 api.MapPost("/gas/quantities/history",(HttpContext c,PhysicalGasEditorRequest body)=>TradingRead(c,body.Context,

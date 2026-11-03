@@ -1585,3 +1585,16 @@ These migrations stop automatic hosted updates until the operator qualifies the
 schema, API, explicit process/connection configuration and gateway together. See
 [operating configuration](../docs/operational-limits.md#implemented-consumers-d302)
 and [the hosted transition](../docs/hosted-pilot.md#operating-configuration-transition-d302).
+
+## Migration 0184: shared facility quantities
+
+The [facility contract](../docs/facility-quantity-ledger.md) adds exact-version
+point/commodity/quantity/legal-entity relationships, typed retained gas-day targets,
+immutable source/limit/plan revisions and actor-scoped request receipts. Definer
+operations authorize reads/writes; forced RLS hides tables from runtime. Deferred
+triggers independently enforce chains, provenance and source/target conservation.
+Metadata or clock changes cannot create a fresh logical-day pool. Existing trade
+readers receive only their own allocation projection, without facility totals or
+global head identities. The operations and limits role presets are unassigned.
+No legacy rows are rewritten. Qualify this schema and matching API/roles together
+before any hosted activation; no automatic deployment is authorized by this increment.
