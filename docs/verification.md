@@ -1,5 +1,13 @@
 # Local verification and continuous integration
 
+The native volatility-fit admission regression runs with
+`python3 tools/check_vol_surface_admission_expiry.py --pg-bin /path/to/postgres/bin`.
+It uses an owned stock PostgreSQL cluster and synthetic fixtures. Both request
+replay and queued-key reuse wait on observed advisory locks until the bound token
+expires naturally, then refuse without recording a reuse alias. Valid creation,
+replay and reuse retain the same job. The regression failed against migration
+0187 and passes with 0188; it is included in the synthetic verification runner.
+
 ## Volatility surfaces (D304)
 
 Local runs on 2 November 2026 against the branch head after the final review's fixes
