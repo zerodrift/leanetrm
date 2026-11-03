@@ -133,8 +133,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   // A read's send time is recorded as it is sent, so one already under way when the page was hidden was sent before it.
   await check('while the browser hides the page it sends no read',`!${calls('vol-surfaces/read')}.some(c=>c.sent>${hid})`,`${calls('vol-surfaces/read')}.map(c=>c.sent-${hid})`);
   const shownAt=await visibility(false);
-  await settled(`${calls('vol-surfaces/read')}.some(c=>c.sent>${shownAt})`,2000);
-  await check('shown again, the page reads at once and checks back on the job',`${calls('vol-surfaces/read')}.find(c=>c.sent>${shownAt}).sent-${shownAt}<500`,
+  await settled(`${calls('vol-surfaces/read')}.some(c=>c.sent>=${shownAt})`,2000);
+  await check('shown again, the page reads at once and checks back on the job',`${calls('vol-surfaces/read')}.find(c=>c.sent>=${shownAt}).sent-${shownAt}<500`,
    `${calls('vol-surfaces/read')}.map(c=>[Math.round(c.sent-${shownAt}),c.answer?.job?.state])`);
   await evaluate("delete document.hidden;delete document.visibilityState");
   await settled(`${ready}==='fitted'&&${calls('vol-surfaces/read')}.at(-1).answer.state==='fitted'`,60000);
