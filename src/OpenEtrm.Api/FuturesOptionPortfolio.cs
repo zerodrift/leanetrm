@@ -108,13 +108,20 @@ internal sealed class FuturesOptionMarket
     }
 }
 
+// The calibration of a set of option series from one snapshot's unshocked base: the bindings of the series that
+// calibrated, with their settlements; each other series' structured failure; the payments other than the series' expiries
+// that the discount curve does not cover; each currency's discounting; and the base build with each series' two requests.
+internal sealed record FuturesOptionCalibrations(ImmutableDictionary<Guid,FuturesOptionMarketBinding> Bindings,ImmutableDictionary<Guid,ExactDecimal> Settlements,
+    ImmutableDictionary<Guid,string> Failures,ImmutableArray<Guid> UncoveredPayments,ImmutableDictionary<ReferenceKey,CurrencyDefaultDiscounting> Discounting,
+    CurveBuild? Basis,ImmutableDictionary<Guid,(CurveRequest Underlying,CurveRequest Settlement)> Requests);
+
 internal static class FuturesOptionPortfolio
 {
     internal static async Task<FuturesOptionMarket> Prepare(NpgsqlConnection connection,Guid catalog,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
         ImmutableArray<FuturesOptionPosition> positions,FuturesOptionValuationPolicy policy,CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var numerical=policy.Validate();
+        policy.Validate();
         if(positions.IsDefault||positions.Any(p=>p.Definition!=data.DefinitionRevision.RevisionId||p.Reference!=data.ReferenceRevision)||snapshot.Definitions!=data.DefinitionRevision)
             throw new MarketDataException("option_market_context","Option holdings require their exact market definition and reference revisions.");
         var options=positions.Select(p=>p.SeriesKey).Distinct().ToDictionary(key=>key,key=>new FuturesOptionInstrument(
@@ -122,18 +129,36 @@ internal static class FuturesOptionPortfolio
         if(positions.Any(p=>options[p.SeriesKey].Id!=p.OptionBinding))throw FuturesOptionPositions.Missing();
         var premiums=positions.Select(p=>p.Premium(options[p.SeriesKey].Series.Multiplier)).DistinctBy(p=>p.Id).ToImmutableDictionary(p=>p.Id);
         var unsettled=premiums.Values.Where(p=>!p.Settled(snapshot.ValuationAt)).ToArray();
-        var failures=new Dictionary<Guid,string>();var premiumFailures=new Dictionary<Guid,string>();
-        var held=positions.Where(p=>p.OpenLots!=default).Select(p=>options[p.SeriesKey]).DistinctBy(o=>o.Id).OrderBy(o=>o.Id).ToArray();
-        foreach(var expired in held.Where(o=>snapshot.ValuationAt>=o.Series.Terms.ExpiryAt))failures[expired.Id]="option_expired";
-        var live=held.Where(o=>!failures.ContainsKey(o.Id)).ToArray();
+        var held=positions.Where(p=>p.OpenLots!=default).Select(p=>options[p.SeriesKey]).ToArray();
+        var calibrations=await Calibrate(connection,catalog,data,frame,snapshot,held,[..unsettled.Select(p=>p.Payment)],policy,ct);
+        return new(){Bindings=calibrations.Bindings,Settlements=calibrations.Settlements,OptionFailures=calibrations.Failures,Premiums=premiums,
+            PremiumFailures=calibrations.UncoveredPayments.ToImmutableDictionary(id=>id,_=>"discount_coverage"),Discounting=calibrations.Discounting,ValuationAt=snapshot.ValuationAt};
+    }
+
+    // Calibrates each distinct option series once from the unshocked base of the snapshot, in series-identity order. A
+    // series-specific failure (expired, outside the discount curve, a missing curve or settlement, a settlement the solver
+    // refuses) is kept against the series with its structured code; the first other failure fails the calibration. Each
+    // currency's discounting covers the series' expiries and the co-discounted payments, which share that one context; a
+    // payment the curve does not cover is returned by its side identity.
+    // coDiscountedPayments exists so held premiums share each currency's one discount context with the options, as they always have.
+    internal static async Task<FuturesOptionCalibrations> Calibrate(NpgsqlConnection connection,Guid catalog,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
+        IReadOnlyCollection<FuturesOptionInstrument> options,ImmutableArray<SidePaymentKey> coDiscountedPayments,FuturesOptionValuationPolicy policy,CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var numerical=policy.Validate();
+        var failures=new Dictionary<Guid,string>();var uncoveredPayments=ImmutableArray.CreateBuilder<Guid>();
+        var series=options.DistinctBy(o=>o.Id).OrderBy(o=>o.Id).ToArray();
+        foreach(var expired in series.Where(o=>snapshot.ValuationAt>=o.Series.Terms.ExpiryAt))failures[expired.Id]="option_expired";
+        var live=series.Where(o=>!failures.ContainsKey(o.Id)).ToArray();
         var discounting=ImmutableDictionary.CreateBuilder<ReferenceKey,CurrencyDefaultDiscounting>();
-        foreach(var currency in live.Select(o=>o.Currency).Concat(unsettled.Select(p=>p.Currency)).Distinct())
+        foreach(var currency in live.Select(o=>o.Currency).Concat(coDiscountedPayments.Select(p=>p.Currency)).Distinct())
         {
             ImmutableArray<SidePaymentKey> keys=[..live.Where(o=>o.Currency==currency).Select(o=>new SidePaymentKey(o.Id,0,o.Series.Terms.ExpiryAt,currency)),
-                ..unsettled.Where(p=>p.Currency==currency).Select(p=>p.Payment)];
-            // A payment date the curve does not cover leaves out only the option or premium that owns it.
+                ..coDiscountedPayments.Where(p=>p.Currency==currency)];
+            // A payment date the curve does not cover leaves out only the option or payment that owns it.
             discounting.Add(currency,CurrencyDefaultDiscounting.Covering(keys,snapshot,true,await SwapStore.CurrencyDefault(connection,catalog,data,frame,currency,ct),out var uncovered));
-            foreach(var key in uncovered)(premiums.ContainsKey(key.SideId)?premiumFailures:failures)[key.SideId]="discount_coverage";
+            foreach(var key in uncovered)
+                if(live.Any(o=>o.Id==key.SideId))failures[key.SideId]="discount_coverage";else uncoveredPayments.Add(key.SideId);
         }
         live=[..live.Where(o=>!failures.ContainsKey(o.Id))];
         var requests=new Dictionary<Guid,(CurveRequest Underlying,CurveRequest Settlement)>();
@@ -156,7 +181,7 @@ internal static class FuturesOptionPortfolio
         }
         // Each series calibrates independently from the same immutable base, so the series run in parallel. Every outcome,
         // failures included, is kept in series-identity order; the first failure that is not one series' own then fails the
-        // preparation, exactly as a sequential pass in that order would, and never as a parallel AggregateException.
+        // calibration, exactly as a sequential pass in that order would, and never as a parallel AggregateException.
         var outcomes=calibrated.AsParallel().AsOrdered().Select(option=>
         {
             try{return(Option:option,Binding:FuturesOptionPricing.Prepare(option,basis!,snapshot,discounting[option.Currency],policy.ObservationRole,numerical,policy.FallbackDeclared,ct),Error:(Exception?)null);}
@@ -172,8 +197,8 @@ internal static class FuturesOptionPortfolio
             bindings.Add(option.Id,binding!);
             settlements.Add(option.Id,basis!.Values.Single(v=>v.Request==requests[option.Id].Settlement).Price.Value);
         }
-        return new(){Bindings=bindings.ToImmutable(),Settlements=settlements.ToImmutable(),OptionFailures=failures.ToImmutableDictionary(),
-            Premiums=premiums,PremiumFailures=premiumFailures.ToImmutableDictionary(),Discounting=discounting.ToImmutable(),ValuationAt=snapshot.ValuationAt};
+        return new(bindings.ToImmutable(),settlements.ToImmutable(),failures.ToImmutableDictionary(),uncoveredPayments.ToImmutable(),discounting.ToImmutable(),
+            basis,requests.ToImmutableDictionary());
     }
 
     // The Blotter's base values of the held option and premium bindings, by trade and binding, through the same connected

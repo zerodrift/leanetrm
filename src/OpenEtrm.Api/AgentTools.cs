@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -36,6 +37,7 @@ sealed record PrepareCurveArguments(string Code,string Name,string Formula,strin
 // Save curve draft's request: the curve as it was prepared, and the assistant's own draft it revises, or none for a new curve.
 sealed record SaveCurveArguments(PrepareCurveArguments Curve,Guid? CurveId):ToolArguments;
 sealed record CurveArguments(string Curve):ToolArguments;
+sealed record OptionCatalogArguments(string Product,DateOnly Expiry):ToolArguments;
 sealed record ReferenceArguments(string Table,string Search):ToolArguments;
 sealed record PartyArguments(string Kind):ToolArguments;
 sealed record BlotterArguments(FuturesBlotterView View):ToolArguments;
@@ -153,11 +155,17 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
               "description":"Trade: a revision, or null for its latest under the pinned knowledge. Null for the blotter."}},
              "required":["view","mode","bookIds","portfolioIds","groupBy","measures","tradeId","instrumentType","revision"],"additionalProperties":false}
             """,["ReadMarketData","ReadTrades"]),
-        Tool("futures_option_catalog","Reads the listed futures options bookable at the pinned knowledge and As of frame: each unexpired option "+
-            "series with its exact instrument identity, right, strike, expiry, underlying, multiplier, premium tick and style, and its daily "+
-            "settlement at the frame. It reads only; options are booked by the user. Takes no input.",
+        Tool("futures_option_catalog","Reads the futures options of one option product and one expiry date bookable at the pinned knowledge "+
+            "and As of frame: each unexpired option series with its exact instrument identity, right, strike, expiry, underlying, multiplier, "+
+            "premium tick and style, and its daily settlement at the frame. It reads only; options are booked by the user. Both inputs are "+
+            "required: read_reference_data's futures_option_series table, searched by the product code, lists each series' product_code and "+
+            "its expiry date as last_trading_date.",
             """
-            {"type":"object","properties":{},"additionalProperties":false}
+            {"type":"object","properties":{"product":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z][a-z0-9_]*$",
+             "description":"The option product's code, the series' product_code in the futures_option_series reference table."},
+             "expiry":{"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+             "description":"The options' expiry date, yyyy-mm-dd: the series' last_trading_date in the futures_option_series reference table."}},
+             "required":["product","expiry"],"additionalProperties":false}
             """,["ReadMarketData","ReadTrades"]),
         Tool("read_trade_parties","Reads the legal entity or counterparty versions in force at the pinned As of frame, as known at the pinned knowledge.",
             """
@@ -220,7 +228,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new("trades.blotter_v1","read_trades",ToolNeeds.Frame,TradeAccess,["blotter_view"]),
         new("trades.trade_v1","read_trades",ToolNeeds.Frame,TradeAccess,["futures_trade","swap_trade","ppa_trade","ppa_revision"]),
         new("trades.ppa_book_v1","read_trades",ToolNeeds.Frame,TradeAccess,["ppa_scope"]),
-        new("trades.futures_option_catalog_v1","futures_option_catalog",ToolNeeds.Frame,TradeAccess,[]),
+        new("trades.futures_option_catalog_v2","futures_option_catalog",ToolNeeds.Frame,TradeAccess,[]),
         new("trade_parties.versions_v1","read_trade_parties",ToolNeeds.Frame,PartyAccess,[]),
         new("schedules.library_v1","read_schedules",ToolNeeds.View,MarketAccess,[]),
         new("schedules.tou_products_v1","read_schedules",ToolNeeds.CurrentOnly,MarketAccess,[]),
@@ -289,7 +297,10 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 if(mode=="trades"?!groupBy.IsEmpty||!measures.IsEmpty:groupBy.IsEmpty||measures.IsEmpty)throw ToolInput.Invalid();
                 return new(Operations["trades.blotter_v1"],new BlotterArguments(new(mode,members.Ids("bookIds"),members.Ids("portfolioIds"),groupBy,measures,
                     mode=="pivot"?TradingBlotter.PivotConvention:null)));
-            case "futures_option_catalog":members.Exactly();return new(Operations["trades.futures_option_catalog_v1"],new NoArguments());
+            case "futures_option_catalog":
+                members.Exactly("product","expiry");
+                return new(Operations["trades.futures_option_catalog_v2"],new OptionCatalogArguments(members.Text("product",1,64,OptionProductCode()),
+                    DateOnly.TryParseExact(members.Text("expiry",10,10,IsoDate()),"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out var expiry)?expiry:throw ToolInput.Invalid()));
             case "read_trade_parties":
                 members.Exactly("kind");
                 return new(Operations["trade_parties.versions_v1"],new PartyArguments(members.Choice("kind","legal_entity","counterparty")));
@@ -324,6 +335,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
 
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9_.-]*\z")] private static partial Regex CurveCode();
     [GeneratedRegex(@"^[a-z][a-z0-9_]{0,31}\z")] private static partial Regex CustomCode();
+    [GeneratedRegex(@"^[a-z][a-z0-9_]{0,63}\z")] private static partial Regex OptionProductCode();
+    [GeneratedRegex(@"^[0-9]{4}-[0-9]{2}-[0-9]{2}\z")] private static partial Regex IsoDate();
     [GeneratedRegex(@"^n[1-9][0-9]{0,8}\z")] private static partial Regex Handle();
 
     // The fixed text each refusal carries, never a read's own message, which may name business data (§7.3, D177). A
@@ -359,6 +372,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         ["snapshot_inputs"]="The pinned As of frame does not name each of its inputs exactly once.",
         ["blotter_view"]="Choose available books and portfolios, with supported groupings and measures; lots need contract grouping.",
         ["futures_trade"]="This futures trade is unavailable at the pinned knowledge.",
+        ["option_definition"]="No option product with this code, or no unexpired series of it with this expiry date, is listed at the pinned knowledge and As of frame.",
         ["swap_trade"]="This swap is unavailable at the pinned knowledge.",
         ["futures_definition"]="A held futures contract cannot be resolved at the pinned knowledge.",
         ["swap_context"]="A swap market this read needs is unavailable at the pinned As of frame.",
@@ -600,16 +614,17 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             {Operation.Id:"trades.blotter_v1",Arguments:BlotterArguments blotter}=>ToolResults.Blotter(await trades.Blotter(connection,pin.Trading(await Context()),blotter.View,ct)),
             {Operation.Id:"trades.trade_v1",Arguments:TradeArguments trade}=>await Trade(connection,pin.Trading(await Context()),trade,ct),
             {Operation.Id:"trades.ppa_book_v1",Arguments:PpaBookArguments book}=>ToolResults.PpaBook(await trades.PpaBook(connection,pin.Trading(await Context()),book.Book,ct)),
-            {Operation.Id:"trades.futures_option_catalog_v1"}=>await OptionCatalog(connection,pin.Trading(await Context()),ct),
+            {Operation.Id:"trades.futures_option_catalog_v2",Arguments:OptionCatalogArguments catalog}=>await OptionCatalog(connection,pin.Trading(await Context()),catalog,ct),
             {Arguments:JobListArguments list}=>await Jobs(connection,list,ct),
             {Arguments:JobHistoryArguments job}=>await JobHistory(connection,job,ct),
             _=>throw new InvalidOperationException("An operation has no read.")
         };
     }
 
-    // The series options/catalog lists, on the shared trading read path at the view's frame, without its booking directory.
-    async Task<ToolResult> OptionCatalog(NpgsqlConnection connection,TradingView view,CancellationToken ct)=>ToolResults.FuturesOptions(
-        await trades.Read(connection,view,data=>Task.FromResult<object>(FuturesOptionStore.Series(data,view.CalculationFrame)),ct));
+    // One product's series of one expiry among those options/catalog lists, on the shared trading read path at the view's
+    // frame, without its booking directory.
+    async Task<ToolResult> OptionCatalog(NpgsqlConnection connection,TradingView view,OptionCatalogArguments catalog,CancellationToken ct)=>ToolResults.FuturesOptions(
+        await trades.Read(connection,view,data=>Task.FromResult<object>(FuturesOptionStore.ExpirySeries(data,view.CalculationFrame,catalog.Product,catalog.Expiry)),ct));
 
     // A trade's editor read, then the deal's saved display formats it is shown by, in the same transaction under the
     // trading context it bound. Formats are current shared presentation, which the page reads the same way.

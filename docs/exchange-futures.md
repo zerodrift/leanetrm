@@ -106,8 +106,8 @@ facts only and no document text or prices.
   - Exercise-notice cutoffs: 4:15 p.m. and 4:30 p.m. The rule states no time zone, so no
     instruction-cutoff instant is derived.
 - **Option series (`ref_data.futures_option_series`):** explicit rows for the December
-  2026–April 2027 maturities. Each maturity has three strikes on the listed grid, as calls
-  and puts. One deep in-the-money ON call (December 2026, strike 2.00) is added for the
+  2026–April 2027 maturities. Each maturity has seven strikes on the listed grid, at the
+  maturity's centre and 2, 4 and 6 strike intervals either side, as calls and puts. One deep in-the-money ON call (December 2026, strike 2.00) is added for the
   intrinsic-value fallback. Each series:
   - names its exact underlying futures series;
   - takes its published expiry date;
@@ -176,8 +176,12 @@ Each frame's option settlement is generated as follows:
 
 1. Take a European Black-76 value at a zero rate, from the underlying's synthetic
    settlement in the same frame.
-2. Use a synthetic volatility: 0.60 for ON, 0.40 for LO.
-3. Measure years to expiry as act/365 seconds to the configured expiry.
+2. Measure years to expiry T as act/365 seconds to the configured expiry.
+3. Use a synthetic smile volatility, base + skew·k + curve·k² + term·T with
+   k = ln(strike / futures): (0.55, −0.20, 2.00, 0.10) for ON and
+   (0.36, −0.30, 4.00, 0.08) for LO. A fixed table in the fixture adds +0.03 or −0.03
+   to four out-of-the-money series of each product, so a fitted surface shows two rich
+   and two cheap points per product.
 4. Round half-even to the clearing increment.
 
 The values are computed with the standard-library `decimal` oracle in

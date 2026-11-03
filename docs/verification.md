@@ -1,5 +1,58 @@
 # Local verification and continuous integration
 
+## Volatility surfaces (D304)
+
+Local runs on 2 November 2026 against the branch head after the final review's fixes
+(a revision's inputs now include its valuation instant and the discount-curve points
+the calibration read), each in its own disposable PostgreSQL cluster with synthetic
+data. The capability is described in
+[volatility surfaces](vol-surfaces.md).
+
+| Run | Result |
+| --- | --- |
+| MarketData checks `--vol-surface` | 16 PASS |
+| MarketData checks `--futures-options` | 33 PASS |
+| `npm test --prefix web` | 1,237 pass |
+| `python3 -m unittest tests.test_migration_identity tests.test_release_deployment` | 33 OK |
+| `run_preview.py --exchange-check --browser-check` | exit 0, 330 PASS, including 30 futures-option and 46 Vol surfaces browser checks |
+| `run_preview.py --risk-jobs-check` | exit 0, 186 PASS |
+| `run_preview.py --connected-portfolio-check` | exit 0, 41 PASS |
+
+The managed checks are independent of the fit's algorithm: a smile generated from
+known parameters is recovered, rich/cheap equals an offset deliberately added to one
+series, and too few strikes, a nonpositive smile, a missing underlying and the grid's
+ends each give their stated result. The exchange preview run fits both example
+products in the managed calculation (`--vol-surface-fit`), where the pinned
+observations must equal every observation the series touch when each is calibrated
+alone, discount-curve points included; stores and reads revisions under the trading
+publication protocol, where the same observations at another valuation instant
+record a new revision; and runs fit jobs over HTTP through a risk worker: a retried
+request identity returns its job, a refit of the same inputs records nothing, a
+revised settlement or discount-curve point flags the stored surface and a refit
+records a new revision while the old cutoff still reads the old one, an expired series
+is listed as `option_expired` and a product with no live series fails with that code,
+a historical context cannot fit and the submit operation itself refuses a context not
+captured from current knowledge, and a fenced attempt records nothing. The browser checks cover the
+page's views, linking, fit states, hidden-page reads and historical view, and the
+Volatility surface links from the option ticket and an option trade's Details, each
+opening the page on the option's product at the context the option was read at;
+leaving a ticket with typed entries asks first whether to discard them.
+
+Measured fit runtime with 71 (ON) and 70 (LO) series per product, 70 solved each,
+in a Debug build: the `--vol-surface-fit` check took 27.4 and 28.0 s (ON) and 29.6
+and 31.2 s (LO) in two earlier runs, and 24.7 to 25.2 s (ON) and 25.9 to 26.8 s (LO)
+in that task's four runs, and 36.1 s (ON) and 27.3 s (LO) in the final fix run, whose
+risk-worker fit of ON took 16.4 s. Earlier end-to-end fit jobs in the preview worker took
+18.3 to 22.6 s, with 0.14 to 0.21 s of queue wait. The fit inside the risk worker
+took 15.9 to 20.9 s: 15.9 to 16.8 s for ON in the previous task's runs and 20.9 s in the
+latest earlier run. The first build, with about 30 series per product, took
+11.7 s per product, which missed the original 5 s synchronous budget.
+
+Environment: macOS 26.6.2 arm64, PostgreSQL 16, .NET 10.0.402 Debug build, Node
+24.22.0, Chrome, all components on one machine. These are local workload
+observations, not a performance qualification. The vol-surface migrations need a
+separately qualified schema release; nothing was deployed.
+
 ## Parametric risk and retained statistical reports
 
 D299 was qualified locally on the integrated master using disposable stock

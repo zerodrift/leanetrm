@@ -140,10 +140,9 @@ public static class RiskJobs
         return receipt;
     }
 
-    public static async Task<object> List(NpgsqlConnection connection,Guid catalog,CancellationToken ct,string? convention=null)
+    public static async Task<object> List(NpgsqlConnection connection,Guid catalog,string convention,CancellationToken ct)
     {
-        await using var command=convention is null?ScheduleStore.Command(connection,"SELECT risk.list($1)::text",catalog):
-            ScheduleStore.Command(connection,"SELECT risk.list($1,$2)::text",catalog,convention);
+        await using var command=ScheduleStore.Command(connection,"SELECT risk.list($1,$2)::text",catalog,convention);
         var values=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsArray();
         foreach(var value in values)await Receipt(connection,catalog,value!.AsObject(),ct);
         await RequireCurrentAccess(connection,catalog,ct);

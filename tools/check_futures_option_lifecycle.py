@@ -5,7 +5,7 @@ import json
 import threading
 import time
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 from preview_client import PreviewClient
@@ -34,7 +34,7 @@ def run_checks(url, query, manifest):
     options = catalog['options']
     reference = (manifest['referenceCatalogId'], manifest['referenceRevisionId'])
     check('the option catalog lists every unexpired listed ON and LO series with its exact-version instrument identity',
-          len(options) == 61 and all(o['instrumentId'] == str(uuid.UUID(hashlib.sha256(
+          len(options) == 141 and all(o['instrumentId'] == str(uuid.UUID(hashlib.sha256(
               f"futures_option_v1:{reference[0]}:{reference[1]}:{o['series']}".encode()).hexdigest()[:32])) for o in options))
     check('each listed series carries its product multiplier and premium tick from reference data',
           all((Decimal(o['multiplier']), Decimal(o['premiumTick'])) == SPECIFICATION[o['product']] for o in options))
@@ -167,8 +167,10 @@ TOOL_RESULT_BYTES, MARGIN = 64 * 1024, Decimal('0.75')
 
 
 def check_agent_catalog(url, query, manifest, fake):
-    """The page assistant's futures option catalog in the exchange example: one turn reading every listed series, which
-    equals the options/catalog route's series at the turn's frame, within the tool-result bound with a stated margin."""
+    """The page assistant's futures option catalog in the exchange example: one turn that finds each option product's listed
+    expiry dates in the futures_option_series reference table, then reads each product and expiry, each equal to that
+    product's series of that expiry in the options/catalog route at the turn's frame and within the tool-result bound with a
+    stated margin, and refuses a missing input, an unknown product and an expiry date the product does not list."""
     from assistant_fixture import Fixture
     from fake_model_provider import recording, stream, tool_use
     base = PreviewClient(url); base.bootstrap()
@@ -185,10 +187,23 @@ def check_agent_catalog(url, query, manifest, fake):
     fixture = Fixture(c, query, manifest, administrator, stamp, 'option catalog')
     fixture.qualify()
     model_name = f'model-option-catalog-{stamp}'
-    agent = fixture.publish(fixture.save(fixture.create('option catalog'), fixture.model(model_name), tools=('futures_option_catalog',)))
+    agent = fixture.publish(fixture.save(fixture.create('option catalog'), fixture.model(model_name),
+                                         tools=('futures_option_catalog', 'read_reference_data'), toolSteps=16))
     c.call('profile', {'profile': 'trader'})
     c.call('assistant/grants/grant', {'operationId': str(uuid4()), 'agentId': agent['id'], 'version': 1})
-    fake.respond(stream(tool_use(model_name, [('toolu_option_catalog', 'futures_option_catalog', {})])),
+    # Each product's expiry dates with a series unexpired at the frame, selected here in SQL independently of the tool.
+    R = f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'"
+    listed = [tuple(row.split('|')) for row in query(
+        f"SELECT DISTINCT product_code||'|'||last_trading_date FROM ref_data.futures_option_series WHERE (catalog_id,revision_id)=({R}) "
+        f"AND expiry_at>'{frame['at']}'::timestamptz ORDER BY 1;").split()]
+    products = sorted({product for product, _ in listed})
+    assert products == ['nymex_lo', 'nymex_on'] and len(listed) == 10, listed
+    discovered = {f'toolu_series_{product}': {'table': 'futures_option_series', 'search': product} for product in products}
+    reads = {f"toolu_{product}_{expiry.replace('-', '')}": {'product': product, 'expiry': expiry} for product, expiry in listed}
+    refusals = {'toolu_missing': {'product': 'nymex_on'}, 'toolu_unknown': {'product': 'nymex_unlisted', 'expiry': listed[0][1]},
+                'toolu_unlisted': {'product': 'nymex_on', 'expiry': '2026-11-25'}}
+    fake.respond(stream(tool_use(model_name, [(call, 'read_reference_data', body) for call, body in discovered.items()]
+                                 + [(call, 'futures_option_catalog', body) for call, body in {**reads, **refusals}.items()])),
                  stream(recording(model_name, text='These are the listed options.')))
     since = len(fake.received)
     turn = c.call('assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None, 'agentId': agent['id'], 'version': 1,
@@ -199,16 +214,51 @@ def check_agent_catalog(url, query, manifest, fake):
             'completed', 'failed', 'cancelled', 'interrupted'):
         assert time.monotonic() < deadline, current
         time.sleep(.05)
-    content = next(b['content'] for r in fake.received[since:] for m in json.loads(r['body'])['messages'] if m['role'] == 'user'
-                   for b in m['content'] if b['type'] == 'tool_result' and b['tool_use_id'] == 'toolu_option_catalog')
-    read = json.loads(content)
+    contents = {b['tool_use_id']: b['content'] for r in fake.received[since:] for m in json.loads(r['body'])['messages'] if m['role'] == 'user'
+                for b in m['content'] if b['type'] == 'tool_result'}
+    assert current['state'] == 'completed', current
+    found = {call: json.loads(contents[call]) for call in discovered}
+
+    def expiries(read, product):
+        """The expiry dates a reference read lists for the product's series unexpired at the frame."""
+        return sorted({(row['product_code'], row['last_trading_date']) for row in read['result']['rows'] if row['product_code'] == product
+                       and datetime.fromisoformat(row['expiry_at']) > datetime.fromisoformat(frame['at'])})
+    assert all(read.get('operation') == 'reference_data.table_v1' and expiries(read, discovered[call]['search']) == [
+        pair for pair in listed if pair[0] == discovered[call]['search']] for call, read in found.items()), \
+        {call: read.get('code', read.get('operation')) for call, read in found.items()}
+    print("PASS the futures_option_series reference table, searched by product, lists each product's expiry dates the catalog reads", flush=True)
     page = c.call('options/catalog', {'snapshotId': frame['id'], 'convention': CONVENTION, 'knowledgeMode': 'current'})
-    size = len(content.encode())
-    assert current['state'] == 'completed' and read['operation'] == 'trades.futures_option_catalog_v1' and len(page['options']) == 61 \
-        and read['result'] == {'convention': CONVENTION, 'options': page['options']}, (current, read.get('operation'))
-    print(f"PASS the agent's futures option catalog equals options/catalog for all 61 listed series at the turn's frame", flush=True)
-    assert size <= TOOL_RESULT_BYTES * MARGIN, size
-    print(f'PASS the 61-series catalog result is {size} bytes, within {MARGIN:%} of the {TOOL_RESULT_BYTES}-byte tool-result bound', flush=True)
+    series = {row['code']: row['last_trading_date'] for row in json.loads(query(
+        f"SELECT coalesce(json_agg(json_build_object('code',code,'last_trading_date',last_trading_date)),'[]')::text FROM ref_data.futures_option_series WHERE (catalog_id,revision_id)=({R});"))}
+    results = {call: json.loads(contents[call]) for call in reads}
+    assert len(page['options']) == 141 and all(
+        read.get('operation') == 'trades.futures_option_catalog_v2' and read['result'] == {'convention': CONVENTION, 'options': [
+            o for o in page['options'] if o['product'] == body['product'] and series[o['series']] == body['expiry']]}
+        and read['result']['options'] for body, read in zip(reads.values(), results.values())) \
+        and sum(len(read['result']['options']) for read in results.values()) == 141, {call: read.get('code', read.get('operation')) for call, read in results.items()}
+    print("PASS the agent's futures option catalog equals options/catalog's series of each product and expiry at the turn's frame, together all 141", flush=True)
+    # Each read reports the turn's pinned knowledge, cutoff and As of frame, and records the Blotter's accesses.
+    pinned = {'knowledge': 'working_data', 'contextId': current['context']['contextId'], 'cutoff': current['context']['cutoff']}
+    assert all({k: v for k, v in read['context'].items() if k != 'frame'} == pinned and read['context']['frame']['id'] == frame['id']
+               for read in results.values()), {call: read['context'] for call, read in results.items()}
+    catalog, references = str(uuid.UUID(manifest['catalogId'])), str(uuid.UUID(manifest['referenceCatalogId']))
+    blotter = [{'access': 'market_access', 'permission': 'ReadMarketData', 'market': catalog, 'reference': None},
+               {'access': 'reference_access', 'permission': 'ReadMarketData', 'market': None, 'reference': references},
+               {'access': 'trading_access', 'permission': 'ReadTrades', 'market': catalog, 'reference': None}]
+    recorded = json.loads(query(
+        "SELECT coalesce(json_agg(json_build_object('operation',s.operation,'code',s.code,'access',(SELECT coalesce(json_agg(json_build_object("
+        "'access',a.access,'permission',a.permission,'market',a.market_catalog_id,'reference',a.reference_catalog_id) ORDER BY a.access),'[]') "
+        "FROM assistant.tool_read_access a WHERE (a.turn_id,a.step)=(s.turn_id,s.ordinal))) ORDER BY s.ordinal),'[]')::text "
+        f"FROM assistant.tool_steps s WHERE s.turn_id='{turn['id']}' AND s.tool='futures_option_catalog' AND s.code IS NULL;"))
+    assert len(recorded) == len(reads) and all(step['operation'] == 'trades.futures_option_catalog_v2' and step['access'] == blotter for step in recorded), recorded
+    print("PASS each catalog read reports the turn's pinned knowledge, cutoff and As of frame, under the Blotter's accesses", flush=True)
+    sizes = {call: len(contents[call].encode()) for call in reads}
+    assert all(size <= TOOL_RESULT_BYTES * MARGIN for size in sizes.values()), sizes
+    print(f"PASS each product and expiry's catalog result is within {MARGIN:%} of the {TOOL_RESULT_BYTES}-byte tool-result bound, in bytes: "
+          + ', '.join(f"{body['product']} {body['expiry']} {sizes[call]}" for call, body in reads.items()), flush=True)
+    refused = {call: json.loads(contents[call])['code'] for call in refusals}
+    assert refused == {'toolu_missing': 'tool_arguments_invalid', 'toolu_unknown': 'option_definition', 'toolu_unlisted': 'option_definition'}, refused
+    print('PASS the catalog refuses a missing input, an unknown product and an expiry date the product does not list, with no default', flush=True)
 
 
 def run_lifecycle_checks(url, query, manifest):

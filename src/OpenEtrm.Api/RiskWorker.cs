@@ -80,24 +80,13 @@ public static class RiskWorker
             catch(NpgsqlException){leaseLost=true;calculation.Cancel();}
         }
         var heartbeat=Heartbeat();
-        string? failure=null;string? serializedReport=null;
+        string? failure=null;string? serializedReport=null;VolSurfaceFitOutcome? fit=null;
+        var fits=VolSurfaceStore.Fits(job);
         try
         {
-            using var loading=CancellationTokenSource.CreateLinkedTokenSource(calculation.Token);
-            loading.CancelAfter(TimeSpan.FromSeconds(Math.Min(settings.LeaseSeconds/2,30)));
-            Loaded prepared;
-            try{prepared=await Load(source,job,id,lease,loading.Token);}
-            catch(OperationCanceledException) when(loading.IsCancellationRequested&&!calculation.IsCancellationRequested)
-            {throw new MarketDataException("risk_input_timeout","The retained inputs could not be loaded within the worker's bounded authority window.");}
-            loading.CancelAfter(Timeout.InfiniteTimeSpan);
-            var value=await Task.Run(()=>prepared.Calculate(calculation.Token),calculation.Token);
-            var report=JsonSerializer.SerializeToNode(value,RiskJobs.Json)!.AsObject();
-            report["context"]=JsonSerializer.SerializeToNode(prepared.Context,RiskJobs.Json);
-            report["asOf"]=JsonSerializer.SerializeToNode(prepared.At,RiskJobs.Json);
-            report["engineVersion"]=RiskJobs.EngineVersion;
-            serializedReport=report.ToJsonString(RiskJobs.Json);
-            if(System.Text.Encoding.UTF8.GetByteCount(serializedReport)>30_000_000)
-                throw new MarketDataException("risk_result_limit","The retained result exceeds the supported serialized report size.");
+            // A fit reads its pinned inputs and then solves, all under the calculation timeout.
+            if(fits)fit=await VolSurfaceStore.Fit(source,job,id,lease,calculation.Token);
+            else serializedReport=await Report(source,job,id,lease,settings,calculation.Token);
             calculation.Token.ThrowIfCancellationRequested();
         }
         catch(Exception e) when(e is MarketDataException or PreviewDeniedException or OpenEtrm.Shared.Temporal.TemporalException or NpgsqlException or
@@ -123,13 +112,20 @@ public static class RiskWorker
             return;
         }
         if(calculation.IsCancellationRequested&&failure is null)failure="risk_timeout";
-        await using var finish=source.CreateCommand(cancellationRequested?"SELECT risk.acknowledge_cancel($1,$2)":"SELECT risk.finish($1,$2,$3::jsonb,$4)");
-        finish.Parameters.AddWithValue(id);finish.Parameters.AddWithValue(lease);
-        if(!cancellationRequested)
+        // A fitted surface is recorded by the transaction that completes its job; anything else completes through risk.finish.
+        NpgsqlCommand Completion()
         {
-            finish.Parameters.Add(new NpgsqlParameter{Value=failure is null&&serializedReport is not null?serializedReport:DBNull.Value,NpgsqlDbType=NpgsqlTypes.NpgsqlDbType.Text});
-            finish.Parameters.Add(new NpgsqlParameter{Value=(object?)failure??DBNull.Value,NpgsqlDbType=NpgsqlTypes.NpgsqlDbType.Text});
+            if(!cancellationRequested&&failure is null&&fit is not null)return VolSurfaceStore.Finish(source,id,lease,fit);
+            var command=source.CreateCommand(cancellationRequested?"SELECT risk.acknowledge_cancel($1,$2)":"SELECT risk.finish($1,$2,$3::jsonb,$4)");
+            command.Parameters.AddWithValue(id);command.Parameters.AddWithValue(lease);
+            if(!cancellationRequested)
+            {
+                command.Parameters.Add(new NpgsqlParameter{Value=failure is null&&serializedReport is not null?serializedReport:DBNull.Value,NpgsqlDbType=NpgsqlTypes.NpgsqlDbType.Text});
+                command.Parameters.Add(new NpgsqlParameter{Value=(object?)failure??DBNull.Value,NpgsqlDbType=NpgsqlTypes.NpgsqlDbType.Text});
+            }
+            return command;
         }
+        await using var finish=Completion();
         try
         {
             var state=await finish.ExecuteScalarAsync(CancellationToken.None);
@@ -141,13 +137,14 @@ public static class RiskWorker
             }
             Console.WriteLine($"RISK_JOB {id} {state}");
         }
-        catch(PostgresException p) when(p.SqlState=="P0001"&&p.MessageText is "risk_result_limit" or "risk_job_input"&&failure is null)
+        catch(PostgresException p) when(p.SqlState=="P0001"&&failure is null&&(fits?VolSurfaceStore.Refusal(p.MessageText):p.MessageText is "risk_result_limit" or "risk_job_input"))
         {
-            // A deterministic publication limit must not become a reclaim loop.
+            // A deterministic publication limit or recording refusal must not become a reclaim loop.
             try
             {
-                await using var rejected=source.CreateCommand("SELECT risk.finish($1,$2,NULL,'risk_result_limit')");
+                await using var rejected=source.CreateCommand("SELECT risk.finish($1,$2,NULL,$3)");
                 rejected.Parameters.AddWithValue(id);rejected.Parameters.AddWithValue(lease);
+                rejected.Parameters.AddWithValue(fits?p.MessageText:"risk_result_limit");
                 var state=await rejected.ExecuteScalarAsync(CancellationToken.None);
                 if(Equals(state,"cancellation_requested"))await AcknowledgeStopped(source,id,lease);
                 else Console.WriteLine($"RISK_JOB {id} {state}");
@@ -182,6 +179,27 @@ public static class RiskWorker
     }
 
     private sealed record Loaded(Func<CancellationToken,object> Calculate,ScheduleContext Context,DateTimeOffset At);
+
+    // A portfolio risk job's serialized report: its retained inputs loaded within the worker's bounded authority window, then calculated.
+    private static async Task<string> Report(NpgsqlDataSource source,JsonObject job,Guid id,Guid lease,RiskWorkerConfiguration settings,CancellationToken calculation)
+    {
+        using var loading=CancellationTokenSource.CreateLinkedTokenSource(calculation);
+        loading.CancelAfter(TimeSpan.FromSeconds(Math.Min(settings.LeaseSeconds/2,30)));
+        Loaded prepared;
+        try{prepared=await Load(source,job,id,lease,loading.Token);}
+        catch(OperationCanceledException) when(loading.IsCancellationRequested&&!calculation.IsCancellationRequested)
+        {throw new MarketDataException("risk_input_timeout","The retained inputs could not be loaded within the worker's bounded authority window.");}
+        loading.CancelAfter(Timeout.InfiniteTimeSpan);
+        var value=await Task.Run(()=>prepared.Calculate(calculation),calculation);
+        var report=JsonSerializer.SerializeToNode(value,RiskJobs.Json)!.AsObject();
+        report["context"]=JsonSerializer.SerializeToNode(prepared.Context,RiskJobs.Json);
+        report["asOf"]=JsonSerializer.SerializeToNode(prepared.At,RiskJobs.Json);
+        report["engineVersion"]=RiskJobs.EngineVersion;
+        var serialized=report.ToJsonString(RiskJobs.Json);
+        if(System.Text.Encoding.UTF8.GetByteCount(serialized)>30_000_000)
+            throw new MarketDataException("risk_result_limit","The retained result exceeds the supported serialized report size.");
+        return serialized;
+    }
 
     private static async Task<Loaded> Load(NpgsqlDataSource source,JsonObject job,Guid id,Guid lease,CancellationToken ct)
     {

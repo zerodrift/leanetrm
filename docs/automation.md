@@ -344,6 +344,13 @@ The legacy interactive futures operation retains its separate exact18 contract.
 The portfolio risk API and retained risk queue use this common valuation adapter
 with exact rational holding or book detail and explicit supplemental market pins.
 
+The retained risk queue also carries a second job kind, `vol_surface_fit_v1`, which
+fits and records one option product's [volatility surface](vol-surfaces.md#fit-jobs)
+under the same lease, attempt, cancellation and security-generation rules. Its actor
+needs `PublishMarketData`, `ReadTrades` and `ReadMarketData` instead of
+`RunScenario`. Risk-page job lists read portfolio risk jobs by convention and exclude
+fit jobs.
+
 The scheduler login issues a short-lived context for its registered service and
 exact run fence. Its installed mapping has an exact market-catalog foreign key;
 startup matches the selected manifest and runtime login before claiming work.

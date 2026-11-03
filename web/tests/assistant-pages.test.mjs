@@ -37,7 +37,7 @@ test('every other page reports the view it shows in its read tool input form, an
     {page:'blotter',layout,selection:{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:trade,instrumentType:'future',revision:2}});
   assert.deepEqual(pageReport({page:'futures',...open,risk:true,trade:null,entry:null,view:blotter}),{page:'blotter_risk',selection:{},layout});
   for(const [page,id] of [['facilities','facility_quantities'],['dashboard','dashboard'],['gas-setup','gas_setup'],['crude-setup','crude_setup'],['gas','physical_gas'],['crude','physical_crude'],['delivery','delivery_prices'],['interval-series','interval_series'],['interval-curves','interval_curves'],
-    ['admin','users_access'],['ai','settings_ai']])assert.deepEqual(pageReport({page}),{page:id,selection:{}});
+    ['admin','users_access'],['ai','settings_ai'],['vol-surfaces','vol_surfaces']])assert.deepEqual(pageReport({page}),{page:id,selection:{}});
 });
 
 test('Jobs & Infrastructure reports the list of your jobs, or the history of the job whose details are open, as Read jobs takes them',()=>{

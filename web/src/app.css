@@ -17,6 +17,11 @@
   --gas:#eb6834;--power:#2a78d6;--gain:#1f8a5b;--loss:#d6453d;--gain-ink:#0f6b3c;--loss-ink:#b3261e;
   /* Deal ticket side colours, by the description's colour token: the side cards and their schedule header groups. */
   --side-gas:var(--gas);--side-cash:#2f8f6a;--side-fee:#8152b8;--side-neutral:#68776f;
+  /* Volatility rich and cheap: the ends of a diverging scale centred on --surface-3 at zero (vol-surface-view.ts). Warm and cool, so
+     they read apart without red and green, and each is 4.5:1 or better on white; a sign and a label always accompany them. */
+  --vol-rich:#c2532a;--vol-cheap:#2a68b5;
+  /* Volatility level: the ends of the 3D surface's sequential shading (vol-surface-3d.ts), greens apart from the rich and cheap stalks. */
+  --vol-level-low:#bfe3cf;--vol-level-high:#1d5a45;
   /* Curve kinds (curve-kinds.ts): a white icon on each fill (4.8:1 or better), each fill 4.2:1 or better on every surface. The label
      always accompanies the colour: it is the badge's name and tooltip. Market curves are greens and greys, relationships warm,
      custom graphs blues and purples. */
@@ -2180,6 +2185,73 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 #risk-workspace-editor select,#risk-workspace-editor input:not([type=radio]){width:100%;max-width:100%;min-width:0}
 .risk-result-controls select{min-width:0}
 
+/* Vol surfaces: controls and fit state in a column, then the heat map beside its readout and the smiles in a grid that stacks. */
+#vol-surfaces-page{display:flex;flex-direction:column;gap:16px;min-width:0}
+.vol-controls{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 24px}
+.vol-field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.vol-field select{min-width:240px;max-width:100%}
+.vol-field-label{font-size:13px;font-weight:500;color:var(--text-2)}
+.vol-model{font-family:var(--mono);font-size:12px;color:var(--text-2);background:var(--surface-3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;line-height:1.3;overflow-wrap:anywhere}
+.vol-legend{flex:1 1 260px;margin:0;font-size:12px;line-height:1.55;color:var(--text-3)}
+.vol-fit-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.vol-status{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0;font-size:13px;color:var(--text-2);font-weight:500}
+.vol-fit-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.vol-fit-note{font-size:12px;color:var(--text-3)}
+.vol-fit-failure{font-size:12px;color:var(--danger);overflow-wrap:anywhere}.vol-fit-failure:empty,.vol-fit-note:empty{display:none}
+.vol-chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--border)}
+.vol-chip-warn{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-border)}
+.vol-spinner{width:12px;height:12px;border-radius:50%;border:2px solid var(--accent-border);border-top-color:var(--accent);animation:vol-spin .9s linear infinite}
+@keyframes vol-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.vol-spinner{animation:none}}
+.vol-error{margin:0;padding:10px 14px;font-size:13px;color:var(--danger);background:var(--danger-soft);border:1px solid var(--danger-border);border-radius:var(--radius)}
+.vol-views{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:16px;align-items:start}
+.vol-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;box-shadow:var(--shadow);min-width:0}
+.vol-card h3{margin:0}
+.vol-card-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;margin-bottom:6px}
+.vol-scale{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)}
+.vol-scale-end{font-variant-numeric:tabular-nums;color:var(--text-2)}
+.vol-scale-bar{width:120px;height:8px;border-radius:999px;background:linear-gradient(90deg,var(--vol-cheap),var(--surface-3) 50%,var(--vol-rich))}
+.vol-halves{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0 0 4px;font-size:11px;color:var(--text-3)}
+.vol-halves b{color:var(--text-2)}
+.vol-key-gap,.vol-key-unlisted{display:inline-block;width:12px;height:10px;border-radius:2px;margin-left:6px;vertical-align:-1px}
+.vol-key-gap{background:repeating-linear-gradient(-45deg,var(--surface-2) 0 2px,var(--border-strong) 2px 3px)}
+.vol-key-unlisted{border:1px dashed var(--border)}
+.vol-chart{width:100%;min-width:0}
+.vol-chart:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--radius-sm)}
+.vol-heat .vol-chart{min-height:180px}
+.vol-readout{position:sticky;top:16px}
+.vol-readout dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;margin:12px 0 0;font-size:13px}
+.vol-readout dt{color:var(--text-3)}
+.vol-readout dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;color:var(--text);overflow-wrap:anywhere}
+.vol-readout-empty,.vol-readout-reason{margin:12px 0 0;font-size:12px;line-height:1.55;color:var(--text-3)}
+/* The 3D surface sits beside the readout, which stays in view over the heat map and the surface. */
+.vol-readout{grid-row:span 2}
+.vol-surface-3d{grid-column:1}
+.vol-3d-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.vol-3d-hint{font-size:12px;color:var(--text-3)}
+.vol-3d-canvas canvas{display:block;width:100%;touch-action:pan-y;border-radius:var(--radius-sm)}
+.vol-3d-canvas canvas:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.vol-3d-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;margin:8px 0 0;font-size:12px;line-height:1.55;color:var(--text-3)}
+.vol-3d-key{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 6px}
+.vol-3d-levels{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.vol-3d-level-bar{width:72px;height:8px;border-radius:999px;background:linear-gradient(90deg,var(--vol-level-low),var(--vol-level-high))}
+.vol-key-row,.vol-key-join,.vol-key-rich,.vol-key-cheap{display:inline-block;flex:none}
+.vol-key-row{width:14px;height:2px;background:var(--accent)}
+.vol-key-join{width:14px;height:10px;border-radius:2px;background:linear-gradient(90deg,var(--vol-level-low),var(--vol-level-high))}
+.vol-key-rich,.vol-key-cheap{width:8px;height:8px;border-radius:50%}
+.vol-key-rich{background:var(--vol-rich)}.vol-key-cheap{background:var(--vol-cheap)}
+.vol-smiles{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.vol-smiles-key,.vol-expired{grid-column:1/-1;margin:0;font-size:12px;color:var(--text-3)}
+.vol-smile{padding:14px 14px 8px;transition:border-color .15s,box-shadow .15s}
+.vol-smile[data-linked]{border-color:var(--accent-border);box-shadow:0 0 0 3px var(--accent-soft)}
+.vol-smile-head{display:flex;flex-direction:column;gap:2px;margin-bottom:4px}
+.vol-smile-head h4{margin:0;font-size:14px;font-weight:600}
+.vol-smile-sub,.vol-smile-stats{margin:0;font-size:12px;color:var(--text-3);overflow-wrap:anywhere}
+.vol-smile-stats{font-variant-numeric:tabular-nums;color:var(--text-2)}
+.vol-smile .vol-chart{height:236px}
+.vol-gap{margin:12px 0 8px;padding:12px;font-size:12px;line-height:1.55;color:var(--warn);background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius)}
+.vol-tooltip{max-width:280px;white-space:normal!important;line-height:1.5}
+@media(max-width:900px){.vol-views{grid-template-columns:minmax(0,1fr)}.vol-readout{position:static;grid-row:auto}.vol-smiles{grid-template-columns:minmax(0,1fr)}}
 .factor-history-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0;min-width:0}.factor-history-fields label{display:grid;gap:6px;min-width:0}.factor-history-fields input,.factor-history-fields select,#risk-history-results select{width:100%;min-width:0}#risk-history-fields,#risk-history-results{min-width:0}#risk-history-results>label{display:block;margin:14px 0}
 
 #risk-history-panel{min-width:0;max-width:100%}#risk-history-fields{border:0;padding:0;margin:0}#risk-history-results .table-wrap{max-width:100%;overflow-x:auto}

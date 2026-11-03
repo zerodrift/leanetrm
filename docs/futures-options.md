@@ -184,9 +184,16 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   scenario policy, calibration receipts, tree-price counts and fallback count.
 - **New trade.** The option ticket selects exchange, commodity, underlying future,
   call or put, then strike; each list comes from the backend catalog and resets
-  those below it. Lifecycle actions in the Blotter and the position window are
+  those below it. Once a series is chosen, the ticket links to its product's
+  [volatility surface](vol-surfaces.md), as an option trade's Details do in the
+  Blotter. Lifecycle actions in the Blotter and the position window are
   offered only on working data with booking authority.
-- **Agents.** Agents have the read-only `futures_option_catalog` tool. They cannot
+- **Agents.** Agents have the read-only `futures_option_catalog` tool
+  (`trades.futures_option_catalog_v2`). It takes a required option product code and
+  expiry date and returns that product's listed series of that expiry; there is no
+  default to every product or expiry, and an unknown product or unlisted expiry is
+  refused `option_definition`. The `futures_option_series` reference table, searched
+  by product, lists each series' expiry date as `last_trading_date`. Agents cannot
   book options or record lifecycle events: booking facts need a human booker.
   Migration `0166_futures_options.sql` adds the tool only when the agent tool list
   is exactly the expected one, and fails if any agent tool or the agent reader role
@@ -196,9 +203,11 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
 
 ## Remaining work
 
-- **Volatility.** Volatility surfaces as market objects, volatility models,
-  interpolation, volatility shocks and vega; volatility graphics, strategies and
-  payoff diagrams. Planned for the next release.
+- **Volatility.** Stored volatility surfaces under a versioned vol model, with
+  rich/cheap and their graphics, are shipped for viewing as
+  [volatility surfaces](vol-surfaces.md) (D304). Valuing options from the surface,
+  interpolated values for unsettled series, vega, volatility shocks, scheduled
+  fitting, strategies and payoff diagrams remain.
 - **Margined premium.** Futures-style margined premium needs futures variation
   margin first.
 - **Other option types.** European, cash-settled, weekly, calendar spread, crack

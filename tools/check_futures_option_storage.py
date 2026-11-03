@@ -55,9 +55,9 @@ ROLLBACK;""") is not None
           == 'nymex_lo|0.50|https://www.cmegroup.com/trading/files/strike-price/strike-price-listing-and-exercise-procedures-table.xlsx;'
              'nymex_on|0.05|https://www.cmegroup.com/trading/files/strike-price/strike-price-listing-and-exercise-procedures-table.xlsx')
     series = f"ref_data.futures_option_series o JOIN ref_data.futures_option_products p ON(p.catalog_id,p.revision_id,p.code)=(o.catalog_id,o.revision_id,o.product_code) JOIN ref_data.futures_series u ON(u.catalog_id,u.revision_id,u.code)=(o.catalog_id,o.revision_id,o.underlying_series_code) JOIN ref_data.futures_products f ON(f.catalog_id,f.revision_id,f.code)=(u.catalog_id,u.revision_id,u.product_code) JOIN ref_data.futures_milestones m ON(m.catalog_id,m.revision_id,m.series_code,m.milestone)=(u.catalog_id,u.revision_id,u.code,'last_trading') WHERE (o.catalog_id,o.revision_id)=({R})"
-    check('five confirmed maturities per product, three strikes each as calls and puts, plus one deep in-the-money ON call',
+    check('five confirmed maturities per product, seven strikes each as calls and puts, plus one deep in-the-money ON call',
           query(f"SELECT string_agg(x,';' ORDER BY x) FROM(SELECT concat_ws('|',p.code,count(DISTINCT u.code),count(*) FILTER(WHERE o.option_right='call'),count(*) FILTER(WHERE o.option_right='put')) x FROM {series} GROUP BY p.code)y;")
-          == 'nymex_lo|5|15|15;nymex_on|5|16|15')
+          == 'nymex_lo|5|35|35;nymex_on|5|36|35')
     check('every series underlies its product\'s own futures product', query(f"SELECT count(*) FROM {series} AND f.code<>p.underlying_product_code;") == '0')
     check('strikes are multiples of the futures trading tick and of the strike interval', query(f"SELECT count(*) FROM {series} AND (o.strike % f.outright_tick_size<>0 OR o.strike % p.strike_interval<>0);") == '0')
     check('every option series expires before its underlying future',
@@ -146,7 +146,7 @@ ROLLBACK;""") is not None
           rejected(draft_market + f"INSERT INTO market_data.contracts SELECT {market},gen_random_uuid(),{R},'future_option',u.delivery_from,u.delivery_to,o.expiry_at+interval '1 hour',NULL,o.code FROM ref_data.futures_option_series o JOIN ref_data.futures_series u ON(u.catalog_id,u.revision_id,u.code)=(o.catalog_id,o.revision_id,o.underlying_series_code) WHERE (o.catalog_id,o.revision_id,o.code)=({R},'{code}');"
                    f"UPDATE market_data.revisions SET state='sealed' WHERE (catalog_id,id)=({market});", '23514', message='Futures option constituent must match its listed series'))
     check('every option series is an executable contract on its product\'s direct daily-settlement curve',
-          query(f"SELECT count(*) FILTER(WHERE k.expiry_at=o.expiry_at AND c.direct_role='daily_settlement' AND c.rule='direct' AND c.quote_code=p.quote_code),count(*) FROM ref_data.futures_option_series o JOIN ref_data.futures_option_products p ON(p.catalog_id,p.revision_id,p.code)=(o.catalog_id,o.revision_id,o.product_code) JOIN market_data.contracts k ON(k.reference_catalog_id,k.reference_revision_id,k.futures_option_series_code)=(o.catalog_id,o.revision_id,o.code) JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(k.catalog_id,k.revision_id,k.id) JOIN market_data.curves c ON(c.catalog_id,c.revision_id,c.code)=(m.catalog_id,m.revision_id,m.curve_code) WHERE (o.catalog_id,o.revision_id)=({R});") == '61|61')
+          query(f"SELECT count(*) FILTER(WHERE k.expiry_at=o.expiry_at AND c.direct_role='daily_settlement' AND c.rule='direct' AND c.quote_code=p.quote_code),count(*) FROM ref_data.futures_option_series o JOIN ref_data.futures_option_products p ON(p.catalog_id,p.revision_id,p.code)=(o.catalog_id,o.revision_id,o.product_code) JOIN market_data.contracts k ON(k.reference_catalog_id,k.reference_revision_id,k.futures_option_series_code)=(o.catalog_id,o.revision_id,o.code) JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(k.catalog_id,k.revision_id,k.id) JOIN market_data.curves c ON(c.catalog_id,c.revision_id,c.code)=(m.catalog_id,m.revision_id,m.curve_code) WHERE (o.catalog_id,o.revision_id)=({R});") == '141|141')
     settled = f"""WITH obs AS(SELECT o.observed_at,o.value,k.futures_series_code,k.futures_option_series_code FROM market_data.observations o
  JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(o.catalog_id,o.definition_revision_id,o.series_id)
  JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(s.catalog_id,s.revision_id,s.contract_id)
@@ -160,7 +160,7 @@ x AS(SELECT os.code,op.value premium,fu.value futures,os.strike,os.option_right,
     check('each option settles in every frame above intrinsic plus one increment and within its bound; one deep in-the-money near-expiry call settles at intrinsic',
           query(settled + " SELECT count(*),count(*) FILTER(WHERE premium=intrinsic),string_agg(DISTINCT code,',') FILTER(WHERE premium=intrinsic),"
                 "count(*) FILTER(WHERE premium<>intrinsic AND premium<=intrinsic+inc),count(*) FILTER(WHERE premium%inc<>0 OR premium>CASE option_right WHEN 'call' THEN futures ELSE strike END) FROM x;")
-          == '244|4|nymex_on_20261201_c2.00|0|0')
+          == '564|4|nymex_on_20261201_c2.00|0|0')
     check('every exchange price observation is labeled synthetic',
           query(f"SELECT count(*) FILTER(WHERE source_event_id NOT LIKE 'synthetic\\_%'),count(*)>0 FROM market_data.observations WHERE catalog_id='{manifest['catalogId']}';") == '0|t')
     check('a close on a clock the caller cannot see is a structured error, never a missing instant that passes the close checks',

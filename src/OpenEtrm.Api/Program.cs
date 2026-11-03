@@ -154,6 +154,8 @@ const string malformed="The request is incomplete or malformed.";
     MarketDataException m => (422,m.Code,m.Message),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_denied" => (403,"access_denied","Current authority does not permit this risk job operation."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_conflict" => (409,p.MessageText,"This request identity already belongs to different risk inputs."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "vol_surface_product" or "vol_surface_context" or "vol_surface_input" or "vol_model_unknown"
+        => (422,p.MessageText,"Name an option product of this market, the context's business date and a supported vol model."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("risk_",StringComparison.Ordinal) => (422,p.MessageText,"The risk job does not meet its retained context, input or execution contract."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "swap_conflict" or "swap_revision_conflict" or "trade_operation_conflict" => (409,p.MessageText,"This trade or operation changed. Reconcile the original request or reload the latest revision."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("scheduled_",StringComparison.Ordinal) => (422,p.MessageText,"The scheduled swap requires complete, compatible quantity, delivery, observation and payment terms."),
@@ -1722,7 +1724,7 @@ api.MapPost("/portfolio/risk/jobs",(HttpContext c,SubmitPortfolioRiskJob body)=>
         return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,body,ct);
     }));
 api.MapGet("/portfolio/risk/jobs",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
-    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.List(connection,database.Manifest.CatalogId,ct,PortfolioRiskPreview.Convention)),c.RequestAborted))));
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.List(connection,database.Manifest.CatalogId,PortfolioRiskPreview.Convention,ct)),c.RequestAborted))));
 api.MapGet("/portfolio/risk/jobs/{id:guid}",(HttpContext c,Guid id)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await RiskJobs.Read(connection,database.Manifest.CatalogId,id,ct,expectedConvention:PortfolioRiskPreview.Convention)),c.RequestAborted)));
 api.MapPost("/portfolio/risk/jobs/{id:guid}/cancel",(HttpContext c,Guid id)=>Locked(c,session=>
@@ -1776,6 +1778,21 @@ api.MapPost("/options/instruction",(HttpContext c,FuturesOptionInstructionReques
 api.MapPost("/options/expiry",(HttpContext c,FuturesOptionExpiryRequest body)=>OptionWrite(c,body.SnapshotId,(connection,frame,ct)=>optionStore.Expire(connection,frame,body,ct)));
 api.MapPost("/options/holding",(HttpContext c,FuturesOptionHoldingRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("option_context","Supply the selected context."),
     (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>optionStore.Holding(connection,body.TradeId,ct),ct),expectedConvention:FuturesOptionStore.Convention));
+// Volatility surfaces: a fit is a job on the retained risk queue, admitted over working data by those who may publish market data
+// and read trades; the read returns the stored revision known at the selected context. No agent tool fits.
+api.MapPost("/vol-surfaces/fit",(HttpContext c,VolSurfaceFitRequest body)=>Locked(c,async session=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data to fit a volatility surface.");
+    c.Items["risk_job_attempted"]=true;
+    return await database.WithIdentity(Profile(session),"PublishMarketData",async(connection,ct)=>
+    {
+        if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct))throw new PreviewDeniedException();
+        var view=await TradingView.Capture(connection,knowledgeStore,Frame(session,body.SnapshotId),ct);
+        return Results.Ok(await tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Submit(connection,database.Manifest,view,body,ct),ct));
+    },c.RequestAborted);
+}));
+api.MapPost("/vol-surfaces/read",(HttpContext c,VolSurfaceReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("vol_surface_context","Supply the selected context."),
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Read(connection,database.Manifest,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 api.MapGet("/jobs",(HttpContext c,int? page,int? collectionPage)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
     async(connection,ct)=>Results.Ok(await CollectionJobs.Directory(connection,ct,page??0,collectionPage??0)),c.RequestAborted)));
 api.MapPost("/jobs/collection/update",(HttpContext c,CollectionJobUpdate body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,

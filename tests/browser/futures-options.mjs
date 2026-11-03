@@ -23,9 +23,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await setupWorkspaceProbe(evaluate);
   // Every option request and its answer, the workspace reads' rows, and a switch that loses the next booking's response after the
   // backend has answered it, as a dropped connection would.
-  await evaluate(`(()=>{const send=window.fetch;window.optionCalls=[];window.blotterRows=null;window.loseNextBooking=false;
+  await evaluate(`(()=>{const send=window.fetch;window.optionCalls=[];window.surfaceReads=[];window.blotterRows=null;window.loseNextBooking=false;
    window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{const path=String(input);const response=await send(input,init);
     if(path.endsWith('/trading/workspace')&&response.ok)window.blotterRows=(await response.clone().json()).blotter.holdings;
+    if(/[/]vol-surfaces[/]read$/.test(path))window.surfaceReads.push({body:JSON.parse(init.body),status:response.status});
     const option=/[/]options[/]([a-z]+)$/.exec(path);
     if(option){const body=init?.body?JSON.parse(init.body):null,answer=await response.clone().json().catch(()=>null);window.optionCalls.push({path:option[1],body,status:response.status,answer});
      if(option[1]==='book'&&window.loseNextBooking){window.loseNextBooking=false;throw new TypeError('Failed to fetch');}}
@@ -76,7 +77,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  const strikes=[...new Set(catalog.options.filter(o=>o.underlyingSeries===chosen.underlyingSeries&&o.right==='call').map(o=>o.strike))];
  await check('call and put and then the strikes list only the chosen contract\'s series',
   `${values('right')}.join()==='call,put'&&[...${values('strike')}].sort().join()===${q(strikes.sort().join())}`);
+ await check('the ticket offers no volatility surface until a series is chosen',"document.querySelector('#option-ticket-vol-surface').hidden");
  await set('#option-strike',chosen.strike);
+ await check('the chosen series offers its product\'s volatility surface',"!document.querySelector('#option-ticket-vol-surface').hidden&&document.querySelector('#option-ticket-vol-surface').textContent==='Volatility surface'");
  await check('expiry, contract and the backend\'s settlement are read-only values of the picked series',
   `(()=>{const facts=Object.fromEntries([...document.querySelectorAll('#option-page .option-fact')].map(f=>[f.querySelector('.option-fact-label').textContent,f.querySelector('.option-fact-value').textContent]));
    return facts.Series===${q(chosen.series)}&&facts['Exchange contract'].endsWith(${q(chosen.product)})&&facts['Settlement at this close']===${q(chosen.settlementPrice+' '+chosen.currency)}&&
@@ -214,4 +217,35 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await check('the Blotter then holds exactly one exercise: the linked future and the option\'s remaining lot, linked to it alone',
   q(after.filter(r=>r.instrumentType==='future').length===1&&after.some(r=>r.tradeId===exercised.answer.futuresTradeId&&r.instrumentType==='future'&&r.lots==='1')&&
    after.some(r=>r.component==='option'&&r.openLots==='1'&&r.lifecycleState==='partially_closed'&&r.linkedFuturesTradeIds.join()===exercised.answer.futuresTradeId)));
+
+ // An option, booked or being entered, links to its product's volatility surface: Vol surfaces opens on that product, read at the
+ // context the option was read at.
+ const surfaceOpened=async(name,product,context)=>{
+  await settled(`document.querySelector('#page-title').textContent==='Vol surfaces'&&window.surfaceReads.length>0&&!['idle','loading'].includes(document.querySelector('#vol-surfaces-page').dataset.state)&&${idle}`,30000);
+  const read=await evaluate('window.surfaceReads.at(-1)');
+  await check(name,q(read.status===200&&read.body.product===product&&read.body.context.snapshotId===context.snapshotId&&read.body.context.knowledgeMode===context.knowledgeMode&&
+   await evaluate(`document.querySelector('#vol-product').value===${q(product)}&&['notFitted','fitted'].includes(document.querySelector('#vol-surfaces-page').dataset.state)`)),
+   `({read:window.surfaceReads.at(-1),state:document.querySelector('#vol-surfaces-page').dataset.state,error:document.querySelector('#vol-surface-error').textContent,product:document.querySelector('#vol-product').value})`);
+ };
+ await newTrade({click,wait},'options');
+ await wait("document.querySelector('#option-exchange').options.length>1&&"+idle);
+ await set('#option-exchange','nymex');await pick(chosen);
+ const ticketRead=(await evaluate("window.optionCalls.filter(c=>c.path==='catalog').at(-1)")).body;
+ // The person types the lots, which is an edit of the ticket that leaving would discard.
+ await evaluate("document.querySelector('#option-lots').focus()");await command('Input.insertText',{text:'1'});
+ await evaluate("window.surfaceReads=[]");await click('#option-ticket-vol-surface');
+ // Leaving the ticket's entries is the person's word, asked as any page change asks it.
+ const discard="[...document.querySelectorAll('button')].find(b=>b.textContent==='Discard changes'&&b.getClientRects().length)";
+ await wait(`!!${discard}||document.querySelector('#page-title').textContent==='Vol surfaces'`,30000);
+ await check('leaving the ticket with typed entries asks first whether to discard them',`!!${discard}&&document.querySelector('#page-title').textContent!=='Vol surfaces'`);
+ await evaluate(`${discard}.click()`);
+ await surfaceOpened('the ticket\'s Volatility surface opens Vol surfaces on the chosen series\' product at the ticket\'s context',chosen.product,ticketRead);
+ await click('#nav-futures');await wait("document.querySelector('#page-title').textContent==='Blotter'&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&"+idle,60000);
+ await find(receipt.tradeId);await details(row);
+ await evaluate("[...document.querySelectorAll('#position-details [role=tab]')].find(t=>t.textContent==='Terms')?.click()");
+ await wait("!!document.querySelector('#option-trade-vol-surface')&&"+idle,30000);
+ const holdingRead=(await evaluate(`window.optionCalls.filter(c=>c.path==='holding'&&c.body.tradeId===${q(receipt.tradeId)}).at(-1)`)).body.context;
+ await check('the option trade offers its product\'s volatility surface',`document.querySelector('#option-trade-vol-surface').textContent==='Volatility surface'&&${term('Product')}===${q(chosen.product)}`);
+ await evaluate("window.surfaceReads=[]");await click('#option-trade-vol-surface');
+ await surfaceOpened('the trade\'s Volatility surface opens Vol surfaces on its product at the context the trade was read at',chosen.product,holdingRead);
 }

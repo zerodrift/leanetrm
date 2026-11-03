@@ -54,6 +54,7 @@ if(args is ["--swap-risk-holdings",var swapRiskFixture]){await SwapRiskHoldingCh
 if(args is ["--close-out-drafts",var closeOutFixture]){await CloseOutDraftChecks.Run(closeOutFixture);return;}
 if(args is ["--swap-risk-holdings-denied",var deniedSwapRiskFixture]){await SwapRiskHoldingChecks.Run(deniedSwapRiskFixture,true);return;}
 if(args is ["--swap-risk-holdings-expired",var expiredSwapRiskFixture]){await SwapRiskHoldingChecks.Run(expiredSwapRiskFixture,false,true);return;}
+if(args is ["--vol-surface-fit",var volSurfaceFitFixture]){await VolSurfaceFitChecks.Run(volSurfaceFitFixture);return;}
 if(args is ["--ppa-portfolio",var ppaPortfolioFixture]){await PpaPortfolioChecks.Run(ppaPortfolioFixture);return;}
 if(args is ["--ppa-portfolio-denied",var deniedPpaPortfolioFixture]){await PpaPortfolioChecks.Run(deniedPpaPortfolioFixture,true);return;}
 

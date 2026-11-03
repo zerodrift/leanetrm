@@ -86,18 +86,30 @@ OPTION_SOURCES={
 }
 # code, name, underlying, multiplier, premium increment, strike interval, strike grid
 # centre for the first maturity and its monthly step, option expiry dates (Dec 2026-Apr 2027),
-# and the synthetic volatility of the generated settlements.
+# and the synthetic smile of the generated settlements: (base, skew, curve, term) of
+# volatility = base + skew*k + curve*k^2 + term*T, with k = ln(strike/futures) and T in years.
+# Every smile value is synthetic, not a market level.
 OPTION_PRODUCTS=[
  ('nymex_on','NYMEX Henry Hub Natural Gas Option (American) · ON','nymex_ng','10000','0.001','0.05','3.25','0.05',
-  ['2026-11-24','2026-12-28','2027-01-26','2027-02-23','2027-03-25'],'0.60'),
+  ['2026-11-24','2026-12-28','2027-01-26','2027-02-23','2027-03-25'],('0.55','-0.20','2.00','0.10')),
  ('nymex_lo','NYMEX Crude Oil Option · LO','nymex_cl','1000','0.01','0.50','60.50','0.50',
-  ['2026-11-17','2026-12-16','2027-01-14','2027-02-17','2027-03-17'],'0.40'),
+  ['2026-11-17','2026-12-16','2027-01-14','2027-02-17','2027-03-17'],('0.36','-0.30','4.00','0.08')),
 ]
+# Each maturity lists these strikes, in strike intervals from its centre, each as a call and a put.
+STRIKE_STEPS=(-6,-4,-2,0,2,4,6)
+# Fixed synthetic volatility offsets of single series from the smile: the rich (+) and cheap (-) points a fitted
+# surface shows. Each is an out-of-the-money series at every close, away from the missing-settlement cases.
+SMILE_OFFSETS={
+ 'nymex_on_20261201_c3.45':Decimal('0.03'),'nymex_on_20270201_p3.15':Decimal('-0.03'),
+ 'nymex_on_20270301_c3.60':Decimal('-0.03'),'nymex_on_20270401_p3.25':Decimal('0.03'),
+ 'nymex_lo_20261201_c62.50':Decimal('0.03'),'nymex_lo_20270201_p59.50':Decimal('-0.03'),
+ 'nymex_lo_20270301_c64.00':Decimal('-0.03'),'nymex_lo_20270401_p60.50':Decimal('0.03'),
+}
 # Synthetic USD zero rates (simple, ACT/365F) at their pillar dates; the first pillar is the example premium payment date.
 USD_RATES=[('2026-10-19',Decimal('0.04')),('2027-06-30',Decimal('0.045'))]
 # The close, the option series and the underlying future whose daily settlements that close does not pin: the
 # missing-settlement and missing-underlying cases.
-MISSING_SETTLEMENT=('2026-10-13T17:00:00Z','nymex_on_20270101_c3.05','nymex_cl_20270101')
+MISSING_SETTLEMENT=('2026-10-13T17:00:00Z','nymex_on_20270101_c3.10','nymex_cl_20270101')
 # One deliberately deep in-the-money near-expiry series settles exactly at intrinsic: the fallback case.
 AT_INTRINSIC=('nymex_on','20261201','call',Decimal('2.00'))
 OPTION_RULES=[
@@ -153,10 +165,10 @@ def option_reference(R):
           f"VALUES({R},'{code}','{name}','candidate','nymex','{underlying}','{code}_quote','{code}_contract',{multiplier},'american','exercise_into_future','premium_paid_up_front',false,{interval},'nymex_option_strikes',"
           f"'{code}_american_v1','{code}_expiry_v1','nymex_itm_settlement_v1','nymex_exercise_notice_v1');")
         refs.append(close_time(R,'option_expiry',code,OPTION_EXPIRY_CLOSE[code]))
-        # Three strikes per maturity on the listed grid around the example's centre.
+        # Seven strikes per maturity on the listed grid around the example's centre.
         for i,expiry in enumerate(expiries):
             month=MONTHS[i+1].replace('-','');centre_i=Decimal(centre)+i*Decimal(step)
-            strikes=[(right,strike) for strike in (centre_i-5*Decimal(interval),centre_i,centre_i+5*Decimal(interval)) for right in ('call','put')]
+            strikes=[(right,centre_i+n*Decimal(interval)) for n in STRIKE_STEPS for right in ('call','put')]
             if AT_INTRINSIC[:2]==(code,month):strikes.append(AT_INTRINSIC[2:])
             for right,strike in strikes:
                 sc=f'{code}_{month}_{right[0]}{strike}'
@@ -164,6 +176,14 @@ def option_reference(R):
                     f"ref_data.close_instant({R},'option_expiry','{code}','{expiry}'),NULL,'{code}_expiry');")
                 series.append((sc,code,f'{underlying}_{month}',right,strike,expiry))
     return refs,series
+
+def smile_volatility(smile,futures,strike,years,offset):
+    """The synthetic smile's volatility at a strike and time to expiry, plus the series' fixed synthetic offset."""
+    base,skew,curve,term=map(Decimal,smile)
+    with localcontext() as ctx:
+        ctx.prec=60
+        k=(strike/futures).ln()
+        return base+skew*k+curve*k*k+term*years+offset
 
 def option_settlement(price,futures,strike,right,years,volatility,increment):
     """A synthetic European Black-76 premium at a zero rate, on the clearing increment, above intrinsic plus one increment."""
@@ -304,6 +324,10 @@ def fixture(root):
                      f"VALUES({M},'{sid}','usd_rate_{n}',{R},NULL,NULL,'test_zero_rate');",
                      "INSERT INTO market_data.rate_curve_points(catalog_id,revision_id,curve_code,maturity,series_id,ordinal) "
                      f"VALUES({M},'usd_rates','{maturity}','{sid}',{n});"])
+    unlisted=SMILE_OFFSETS.keys()-{row[1] for row in option_rows}
+    if unlisted:raise ValueError(f'Smile offsets name unlisted series: {sorted(unlisted)}')
+    if any(row[1] in SMILE_OFFSETS and (row[1]==MISSING_SETTLEMENT[1] or row[3]==MISSING_SETTLEMENT[2]) for row in option_rows):
+        raise ValueError('Smile offsets must stay away from the missing-settlement series and the missing underlying.')
     price=black76(root)
     frames=[];now=datetime.now(timezone.utc).isoformat()
     for n in range(4):
@@ -317,10 +341,13 @@ def fixture(root):
             observe(sid,settled[sc],role)
         for sid,sc,code,underlying,right,strike,expiry_at in option_rows:
             futures=settled[underlying];increment=products[code][4]
+            if sc in SMILE_OFFSETS and not (strike<futures if right=='put' else strike>futures):
+                raise ValueError(f'Smile offset series {sc} is not out of the money against {futures} at {at}')
             if AT_INTRINSIC==(code,sc.split('_')[2],right,strike):value=max(futures-strike if right=='call' else strike-futures,Decimal(0))
             else:
                 years=Decimal((expiry_at-datetime.fromisoformat(at)).total_seconds())/Decimal(365*86400)
-                value=option_settlement(price,futures,strike,right,years,Decimal(products[code][9]),increment)
+                volatility=smile_volatility(products[code][9],futures,strike,years,SMILE_OFFSETS.get(sc,Decimal(0)))
+                value=option_settlement(price,futures,strike,right,years,volatility,increment)
             observe(sid,value,'daily_settlement')
         for sid,rate in rate_rows:observe(sid,rate,'parameter')
         frames.append({'at':at,'observationIds':pins,'curveContracts':contracts})
