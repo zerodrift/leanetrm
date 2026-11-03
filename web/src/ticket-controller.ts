@@ -12,7 +12,7 @@ type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 type Opened={tradeId:string;bindingId:string;revision:number};
 type NewEntry={booked:(receipt:{tradeId:string})=>void};
 // instant is the page's formatter for the instants the ticket shows.
-export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string;instant:(at:string)=>string;actor:()=>string;readOnly?:boolean}&({opened:Opened}|({opened?:undefined}&NewEntry));
+export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string;instant:(at:string)=>string;zone:()=>string;actor:()=>string;readOnly?:boolean}&({opened:Opened}|({opened?:undefined}&NewEntry));
 export type TicketHandle={unsaved():boolean;pending():boolean;destroy():void};
 
 /** Edits settle this long before the draft is previewed and its lookups read. */
@@ -87,7 +87,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  function draw(){
   queued=false;
   if(!current()||!d||!state)return;
-  const shown:TicketView={state,mode,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,previous:panel.previous,summaries:panel.summaries,links:panel.links,entry:entryView(),status:panel.status,
+  const shown:TicketView={state,mode,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,entry:entryView(),status:panel.status,
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
   // An answer that changes nothing on screen draws nothing again, so the person keeps their place in the ticket and its schedule.
   // The schedules are compared by the preview they came from; everything else by its content.
@@ -201,6 +201,16 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  const retry=()=>listed().filter(([side,f])=>keyOf(side,f.id) in choiceErrors);
  const on:TicketEvents={
   edit:(side,field,value)=>change(s=>setValue(s,side,field,value),side===null?'all':[...dependents(side,field),...retry()]),
+  // A local date-time is resolved in the user's zone by the managed resolver; a time the clock repeats or skips is refused, not guessed.
+  editLocal:(side,field,local)=>{
+   const key=keyOf(side,field),zone=o.zone();delete lookupErrors[key];
+   if(!local){on.edit(side,field,'');return;}
+   void o.api<{candidates:{instant:string}[]}>('time/inspect',{localTime:local,timeZone:zone}).then(result=>{
+    if(!current()||zone!==o.zone())return;
+    if(result.candidates.length===1){on.edit(side,field,result.candidates[0].instant);return;}
+    lookupErrors[key]=result.candidates.length===0?`${local} does not occur in ${zone}; the clock skips it.`:`${local} occurs twice in ${zone}; choose a time the clock does not repeat.`;draw();
+   },error=>{if(current()){lookupErrors[key]=reasonOf(error);draw();}});
+  },
   accept:(side,field)=>change(s=>acceptOffer(s,side,field),[]),
   selectSide:code=>{selectedSide=tab=code;draw();},
   tab:id=>{tab=id;if(state!.sides.some(s=>s.code===id))selectedSide=id;draw();},

@@ -35,6 +35,12 @@ internal static class GasTicketChecks
         var full = Draft(Receipt, Linked, Cash, Fee);
 
         Check("the gas description is valid", () => TicketDescriptions.Validate(GasTicket.Description));
+        Check("the trade date is assigned when booked, never looked up", () =>
+        {
+            var tradeDate = GasTicket.Description.TradeFields.Single(f => f.Id == "trade_date");
+            Equal(null, tradeDate.Lookup, "lookup"); Equal("Assigned when booked: the UTC date of execution.", tradeDate.Rule, "rule");
+        });
+        Check("a delivery end reads as exclusive", () => Equal("To · exclusive", GasTicket.Description.Sides.Single(s => s.Kind == "physical").Fields.Single(f => f.Id == "delivery_to").Label, "label"));
         Check("every editable field reaches the booking request", () =>
         {
             var r = Map(full);

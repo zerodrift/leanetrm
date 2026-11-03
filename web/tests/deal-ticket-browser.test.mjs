@@ -128,7 +128,7 @@ test('a lookup answer that changes nothing leaves the drawn schedule standing',{
      rows:[{key:'2041-02',parent:null,level:'month',start:'',end:'',operatingDate:null,cells:cells(q),delivered:false}]},summaries:[],scheduleRefusal:null,quantityUnit:'MMBtu',links:[]};}
     throw Error('unexpected '+path);
    };
-   setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:'synthetic_flow',instant:at=>at,actor:()=>'synthetic',booked:()=>{}});
+   setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:'synthetic_flow',instant:at=>at,zone:()=>'UTC',actor:()=>'synthetic',booked:()=>{}});
    const until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,20));if(!test())throw Error('timed out');};
    const edit=async value=>{await until(()=>!!document.querySelector('[data-field=q] input'));const input=document.querySelector('[data-field=q] input');input.value=value;input.onchange();};
    const drawn=q=>document.querySelector('.ticket-status')?.dataset.kind==='current'&&document.querySelector('.tabulator-row[data-row-key="2041-02"]')?.textContent.includes(q);
@@ -159,7 +159,7 @@ test('a draft whose lookup answers were dropped reads them again when the person
     if(path==='tickets/preview')return {schedule:null,summaries:null,scheduleRefusal:{code:'schedule_view',message:'Not drawn here.'},quantityUnit:'MMBtu',links:[]};
     throw Error('unexpected '+path);
    };
-   setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:'synthetic_flow',instant:at=>at,actor:()=>'synthetic',booked:()=>{}});
+   setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:'synthetic_flow',instant:at=>at,zone:()=>'UTC',actor:()=>'synthetic',booked:()=>{}});
    window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,20));if(!test())throw Error('timed out');};
    const edit=async value=>{await until(()=>!!document.querySelector('[data-field=q] input'));const input=document.querySelector('[data-field=q] input');input.value=value;input.onchange();};
    await edit('5');await until(()=>held.length===1);
@@ -191,7 +191,7 @@ test('ticket field reads are bounded and superseded or closed reads are cancelle
     });
     throw Error('Unexpected request '+path);
    };
-   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({snapshotId:'synthetic'}),product:'synthetic_flow',instant:at=>at,actor:()=>'bounded-reader',booked:()=>{}});
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({snapshotId:'synthetic'}),product:'synthetic_flow',instant:at=>at,zone:()=>'UTC',actor:()=>'bounded-reader',booked:()=>{}});
    window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,10));if(!test())throw Error('timed out');};
    await until(()=>calls.length>0);
   })()`);
@@ -227,7 +227,7 @@ test('cancelled lookup and preview answers cannot return through the same draft'
     if(path==='tickets/preview')return new Promise(resolve=>previews.push({resolve,signal}));
     throw Error('Unexpected '+path);
    };
-   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:'synthetic_flow',instant:at=>at,actor:()=>'late-reader',booked:()=>{}});
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:'synthetic_flow',instant:at=>at,zone:()=>'UTC',actor:()=>'late-reader',booked:()=>{}});
    window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,10));if(!test())throw Error('timed out');};
    window.edit=value=>{const input=document.querySelector('[data-field=reference] input');input.value=value;input.onchange();};
    await until(()=>!!document.querySelector('[data-field=reference] input'));
@@ -271,7 +271,7 @@ test('ticket reference reads are bounded and queued choices follow only the late
     }
     throw Error(path);
    };
-   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,actor:()=>'synthetic',booked:()=>{}});
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,zone:()=>'UTC',actor:()=>'synthetic',booked:()=>{}});
    await tick();
    document.querySelector('[data-side="cash-1"] .ticket-remove').click();
    for(const kind of ['physical','fee'])[...document.querySelectorAll('.ticket-add-kind')].find(b=>b.textContent===kind).click();
@@ -308,7 +308,7 @@ test('returning to an earlier draft cannot apply a partially superseded lookup b
     }
     throw Error(path);
    };
-   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,actor:()=>'synthetic',booked:()=>{}});
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,zone:()=>'UTC',actor:()=>'synthetic',booked:()=>{}});
    await delay(30);
    window.edit=value=>{const input=document.querySelector('[data-field=input] input');input.value=value;input.onchange();};
    edit('base');await delay(700);
@@ -342,7 +342,7 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
     throw Error(path);
    };
    window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,20));if(!test())throw Error('Condition not ready');};
-   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,actor:()=>'synthetic-reader',opened:{tradeId:'synthetic',bindingId:'synthetic',revision:1}});
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,zone:()=>'UTC',actor:()=>'synthetic-reader',opened:{tradeId:'synthetic',bindingId:'synthetic',revision:1}});
    await until(()=>held.length===1);
    const level=document.querySelector('.ticket-level');level.value='day';level.onchange();
    document.querySelector('.ticket-tab[data-tab="physical-1"]').click();

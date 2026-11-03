@@ -89,7 +89,8 @@ export function positionSummary(h:Holding,row:DeskRow,formats:HoldingFormats):Po
     ...(typeof h.settlement==='string'&&row.pill!=='OPT'?[{label:'Settlement',text:settlementText(h.settlement),unit:null}]:[]),
   ];
   return {pill:row.pill,reference:row.reference,revision:row.revision,book:h.book,market:row.market,commodity:h.commodity,
-    subtitle:`${row.delivery} · ${row.side} · ${quantityText(row,formats.quantity)} ${row.unit}`,value,markMinusPrice,facts};
+    // A position with no single quantity states its note, which has no unit; a part that repeats the one before it is said once.
+    subtitle:[row.delivery,row.side,row.quantity===null?row.quantityNote:`${quantityText(row,formats.quantity)} ${row.unit}`].filter((part,i,all)=>part&&part!==all[i-1]).join(' · '),value,markMinusPrice,facts};
 }
 
 export type CurveView={state:'loading'}|{state:'unavailable';reason:string}|{state:'chart';spec:ChartSpec;note:string|null};

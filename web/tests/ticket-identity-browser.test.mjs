@@ -31,7 +31,7 @@ async function fixture(work){
    };
    window.until=async test=>{for(let i=0;i<300&&!test();i++)await new Promise(resolve=>setTimeout(resolve,10));if(!test())throw Error('Ticket condition not ready');};
    window.open=async(booked=false,readOnly=false)=>{
-    window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({snapshotId:'frame-a'}),product:description.product,instant:at=>at,actor:()=>window.actor,readOnly,
+    window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({snapshotId:'frame-a'}),product:description.product,instant:at=>at,zone:()=>'UTC',actor:()=>window.actor,readOnly,
      ...(booked?{opened:{tradeId:'trade-a',bindingId:'binding-a',revision:1}}:{booked:r=>callbacks.push(r)})});
     await until(()=>!!document.querySelector('.deal-ticket'));
    };

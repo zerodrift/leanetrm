@@ -212,7 +212,7 @@ const scheduledSummary=changes=>{const h=scheduledHeld(changes);return positionS
 
 test('a scheduled swap\'s title and facts say its quantity, fixed price and mark are by period, each in its unit',()=>{
  const view=scheduledSummary();
- assert.equal(view.subtitle,'Jan 2021 · Pay fixed · By period MMBtu (IT)');
+ assert.equal(view.subtitle,'Jan 2021 · Pay fixed · By period');
  assert.deepEqual(view.facts,[{label:'Fixed price',text:'By period',unit:'USD/MMBtu (IT)'},{label:'Mark',text:'By period',unit:null},{label:'Quantity',text:'By period',unit:'MMBtu (IT)'},{label:'Settlement',text:'Projection',unit:null}]);
  assert.equal(view.markMinusPrice,null);
  assert.equal(scheduledSummary({fixedPrice:'3'}).facts[0].text,'3','a price every fixed period shares is stated');
@@ -257,4 +257,11 @@ test('a physical crude position labels its value as contractual PV and offers no
  const h={...fixture.holdings[0],instrumentType:'physical_crude',contractIdentityKind:'crude_instrument',direction:'deliver',quantity:'1000',measure:'crude_contractual_present_value',presentValue:'9900',mark:'80',fixedPrice:'70',markMinusPrice:null};
  const shown=positionSummary(h,positionRows([h])[0],formats);
  assert.equal(shown.value.label,'Contractual PV');assert.equal(shown.markMinusPrice,null);assert.match(shown.subtitle,/Deliver/);
+});
+
+test('a position with no single quantity states its note once, without a unit',()=>{
+ const gas={...rows['TR-000001'],pill:'GAS',side:'By physical side',quantity:null,quantityNote:'By physical side'};
+ assert.equal(positionSummary(held['TR-000001'],gas,formats).subtitle,'Jan 2021 · By physical side');
+ const scheduled={...rows['TR-000001'],quantity:null,quantityNote:'By period'};
+ assert.equal(positionSummary(held['TR-000001'],scheduled,formats).subtitle,'Jan 2021 · Pay fixed · By period');
 });

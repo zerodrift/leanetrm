@@ -4,12 +4,13 @@ import {numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type Sche
 import {emptyGridLayout,renderDataGrid,sideColour,type GridHandle} from './data-grid.js';
 import {reasonOf} from './ticket-preview.js';
 import {sideCardHeader} from './side-card.js';
+import {localTimeValue} from './user-time.js';
 
 // Draws a deal ticket from its backend description, the model's state and the latest preview: the trade strip, one card per side whose
 // common band rows line up across the cards, and the schedule panel. Every value, aggregate and refusal is the backend's or the model's;
 // the view only lays them out and reports what the person does.
 export type TicketStatus={kind:'current'|'updating'|'stale'|'refused';text:string};
-export type TicketEvents={edit(side:string|null,field:string,value:string):void;accept(side:string|null,field:string):void;selectSide(code:string):void;tab(id:string):void;
+export type TicketEvents={edit(side:string|null,field:string,value:string):void;editLocal(side:string|null,field:string,local:string):void;accept(side:string|null,field:string):void;selectSide(code:string):void;tab(id:string):void;
  level(l:string):void;toggle(row:string,open:boolean):void;addSide(kind:string):void;removeSide(code:string):void;preview():void;book():void;
  enter(side:string,day:string,value:string):void;entryValue(field:string,value:string):void;record():void;cancelEntry():void;checkEntry():void;retryEntry():void};
 // A day's entry in a side's tab, as the person fills in its record: the fields the record takes, their values and choices, whether a record
@@ -18,7 +19,7 @@ export type TicketEntry={side:string;day:string;fields:TicketField[];values:Reco
 // fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field. Under the chosen
 // level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved,
 // and instant the page's formatter for the instants the ticket shows. links are the schedule's quantity links, and entry the day entry open, if any.
-export type TicketView={state:TicketState;mode:'new'|'booked';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;previous:ScheduleView|null;summaries:TicketSummary[];
+export type TicketView={state:TicketState;mode:'new'|'booked';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
  links:TicketLink[];entry:TicketEntry|null;
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
@@ -46,7 +47,12 @@ function soonButton(b:HTMLButtonElement,soon:string){
  return b;
 }
 
-function editor(f:TicketField,value:string,choices:TicketChoice[]|undefined,edit:(value:string)=>void){
+// A date-time is entered as a local time in the user's zone; the controller resolves it to the instant the ticket holds.
+function editor(f:TicketField,value:string,choices:TicketChoice[]|undefined,edit:(value:string)=>void,zone?:string,editLocal?:(local:string)=>void){
+ if(f.type==='datetime'&&zone&&editLocal){
+  const input=el('input','ticket-control');input.type='datetime-local';input.value=value?localTimeValue(value,zone):'';input.setAttribute('aria-label',`${f.label} · ${zone}`);
+  input.onchange=()=>editLocal(input.value);return input;
+ }
  let control:HTMLInputElement|HTMLSelectElement;
  if(f.type==='choice'){
   const select=el('select','ticket-control'),options=[{value:'',label:'Choose…'},...choices??[]];
@@ -72,18 +78,18 @@ function fieldRow(o:TicketView,f:TicketField,side:string|null,v:FieldValue|undef
   const control=el('input','ticket-control');control.disabled=true;control.setAttribute('aria-disabled','true');control.setAttribute('aria-label',f.label);control.title=f.soon??'';
   row.title=f.soon??'';body.append(control,soonTag());
  }else if(f.state==='editable'&&entry){
-  chip();body.append(editor(f,value,o.choices[key],next=>o.on.edit(side,f.id,next)));
+  chip();body.append(editor(f,value,o.choices[key],next=>o.on.edit(side,f.id,next),o.zone,local=>o.on.editLocal(side,f.id,local)));
   if(unit)body.append(el('span','ticket-unit',unit));
   if(v?.offered)body.append(button('ticket-offer',`Use ${v.offered.value} (${v.offered.label})`,()=>o.on.accept(side,f.id)));
  }else{
   chip();
-  const shown=f.type==='choice'?choiceText(value,unit,o.choices[key]):value&&unit?`${value} ${unit}`:value;
+  const shown=f.type==='choice'?choiceText(value,unit,o.choices[key]):f.type==='datetime'&&value?o.instant(value):value&&unit?`${value} ${unit}`:value;
   if(shown||(o.mode==='booked'&&f.type==='choice'&&value)){
    const text=el('span','ticket-value',shown);text.hidden=!shown;
    if(o.mode==='booked'&&f.type==='choice'){text.dataset.choiceKey=key;text.dataset.choiceValue=value;if(unit)text.dataset.choiceUnit=unit;}
    body.append(text);
   }
-  if(f.state==='derived'&&f.rule)body.append(el('span','ticket-rule',f.rule));
+  if((f.state==='derived'||f.state==='info')&&f.rule)body.append(el('span','ticket-rule',f.rule));
  }
  if(o.fieldErrors[key]){const error=el('p','ticket-error',o.fieldErrors[key]);error.setAttribute('role','alert');row.append(error);}
  return row;

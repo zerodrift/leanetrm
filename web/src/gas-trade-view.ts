@@ -17,14 +17,14 @@ export async function readGasView(api:Api,context:Record<string,unknown>,h:Holdi
   return{terms,history:[{title:`Revision ${h.revision}`,rows:[['Booked',displayInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]}],
    schedules:(host:HTMLElement)=>{
     const box=document.createElement('div');host.append(box);
-    const ticket=setupTicket(box,{api,context:()=>({...context,convention}),product:'physical_gas',instant:at=>displayInstant(at,zone),actor:o.actor,readOnly:o.readOnly,opened:{tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision)}});
+    const ticket=setupTicket(box,{api,context:()=>({...context,convention}),product:'physical_gas',instant:at=>displayInstant(at,zone),zone:()=>zone,actor:o.actor,readOnly:o.readOnly,opened:{tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision)}});
     return ()=>{ticket.destroy();box.remove();};
    }};
  }};
 }
 
 /** New trade's physical gas form: the deal ticket of physical gas, in the panel the trade is entered in. */
-export function setupGasTicket(o:{api:Api;source:()=>{snapshotId:string};historical:()=>boolean;actor:()=>string;instant:(at:string)=>string;onBooked:(tradeId:string)=>Promise<void>}){
+export function setupGasTicket(o:{api:Api;source:()=>{snapshotId:string};historical:()=>boolean;actor:()=>string;instant:(at:string)=>string;zone:()=>string;onBooked:(tradeId:string)=>Promise<void>}){
  const root=document.getElementById('gas-page')!,host=document.createElement('div');host.id='gas-ticket';root.replaceChildren(host);
  let ticket:TicketHandle|undefined;
  const reset=()=>{ticket?.destroy();ticket=undefined;};
@@ -32,7 +32,7 @@ export function setupGasTicket(o:{api:Api;source:()=>{snapshotId:string};histori
   async begin(){
    reset();
    if(o.historical())throw Error('Return to working data to enter a gas trade.');
-   ticket=setupTicket(host,{api:o.api,context:()=>({...o.source(),convention,knowledgeMode:'current'}),product:'physical_gas',instant:o.instant,actor:o.actor,booked:r=>void o.onBooked(r.tradeId)});
+   ticket=setupTicket(host,{api:o.api,context:()=>({...o.source(),convention,knowledgeMode:'current'}),product:'physical_gas',instant:o.instant,zone:o.zone,actor:o.actor,booked:r=>void o.onBooked(r.tradeId)});
   },
   inspect:()=>Promise.reject(Error('A booked gas trade opens in the Details pane.')),
   unsaved:()=>!!ticket?.unsaved(),

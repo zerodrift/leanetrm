@@ -178,3 +178,26 @@ test('a side summary from the preview shows its reported figures, and a missing 
  assert.deepEqual(byClass(summary,'ticket-summary-line').map(n=>n.textContent),['Billed quantity310,000','Amount-1,057,720.00']);
  assert.equal(byClass(byClass(host,'ticket-card')[0],'ticket-summary').length,0);
 });
+
+test('an information field without a looked-up value states its rule instead',()=>{
+ const informed={...description,tradeFields:[...description.tradeFields,f('trade_date','Trade date',{type:'date',state:'info',rule:'Assigned when booked.'})]};
+ const host=draw({state:newTicket(informed)});
+ assert.deepEqual(byClass(host,'ticket-rule').map(n=>n.textContent).filter(t=>t==='Assigned when booked.'),['Assigned when booked.']);
+});
+
+const timed={...description,sides:description.sides.map(s=>s.kind!=='cash'?s:{...s,fields:s.fields.map(x=>x.id==='pay_at'?{...x,type:'datetime'}:x)})};
+test('a date-time field is entered as a local time in the user zone and sent for the controller to resolve',()=>{
+ const state=setValue(newTicket(timed),'cash-1','pay_at','2026-12-28T18:00:00Z'),sent=[];
+ const host=draw({state,zone:'America/Chicago',on:{...noEvents(),editLocal:(...a)=>sent.push(a)}});
+ const [input]=controls(all(host).find(n=>n.dataset.field==='pay_at'&&n.dataset.band));
+ assert.equal(input.type,'datetime-local');assert.equal(input.value,'2026-12-28T12:00');
+ input.value='2026-12-29T09:30';input.onchange();
+ assert.deepEqual(sent,[['cash-1','pay_at','2026-12-29T09:30']]);
+});
+test('a booked date-time shows through the page\'s instant formatter, never as its ISO text',()=>{
+ const state=setValue(newTicket(timed),'cash-1','pay_at','2026-12-28T18:00:00Z');
+ const actions={amend:{allowed:false,reason:'No amendment.'},closeOut:{allowed:false,reason:'No close-out.'},record:{allowed:false,reason:'No day quantities.'}};
+ const host=draw({state,mode:'booked',actions,zone:'America/Chicago',instant:at=>`shown ${at}`});
+ const row=all(host).find(n=>n.dataset.field==='pay_at'&&n.dataset.band);
+ assert.equal(one(row,'ticket-value').textContent,'shown 2026-12-28T18:00:00Z');
+});
