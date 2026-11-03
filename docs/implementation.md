@@ -1533,7 +1533,7 @@ sample covariance and native delta-normal VaR/ES.
 
 ## Security boundary
 
-[security.md](security.md) documents seven common role templates, persisted identities,
+[security.md](security.md) documents common role templates, persisted identities,
 scoped grants/delegations, protected catalog ownership/sharing and enforced RLS.
 Database requests bind trusted authenticated identity to an exact login/transaction,
 with a revocation fence and actual-current expiry checks. An agent has a separate

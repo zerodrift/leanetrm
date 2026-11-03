@@ -3554,7 +3554,9 @@ protection, corrections, limit removal, lost-response status recovery and
 navigation with unavailable browser storage. Historical Apply withholds/reloads
 current values, explicit market-close selection enables read-only trade inspection,
 own allocation tracks stay readable when contractual PV is unavailable,
-and account changes clear old values. Existing gas booking, setup, composition,
+and account changes clear old values. Administration checks verify the current
+role catalog, initially unassigned facility roles, explicit assignment through the
+normal operation and separation of recording versus limit configuration. Existing gas booking, setup, composition,
 daily quantities and deal-ticket checks run alongside the facility workflow.
 
 Use `tools/run_preview.py --facility-quantity-check --gas-daily-quantity-check
