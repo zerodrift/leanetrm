@@ -216,7 +216,8 @@ export type MixSegment={key:string;commodity:string;commodityName:string;instrum
 export type PositionsTile={count:number;segments:MixSegment[];note:string|null};
 /**
  * The positions the read returned (the number of its rows), mixed by the backend's commodity and instrument type groups,
- * one segment per group, never summed per commodity. `unvalued` is the read's own count of positions it cannot value.
+ * one segment per group, never summed per commodity: only groups that read alike in every term share a segment. `unvalued` is the
+ * read's own count of positions it cannot value.
  */
 export function positionsTile(summaries:readonly Summary[],rows:number,unvalued:number):PositionsTile{
   const groups=groupsOf(summaries,mix),units=unitLabels(groups),currencies=currencyLabels(groups);
@@ -226,9 +227,14 @@ export function positionsTile(summaries:readonly Summary[],rows:number,unvalued:
   // Segments of one commodity and instrument type say what keeps them apart: their unit, their currency, or both.
   const label=(e:typeof entries[number])=>{const same=entries.filter(o=>o.base===e.base);if(same.length===1)return e.base;
     return [e.base,...(new Set(same.map(o=>o.unit)).size>1?[e.unit]:[]),...(new Set(same.map(o=>o.currency)).size>1?[e.currency]:[])].join(' · ');};
+  // Groups that read alike in every term (one commodity and type, a unit and a currency of one code under several reference revisions)
+  // are one segment of their trades: a count of trades has no unit to keep apart.
+  const merged=new Map<string,{key:string;commodity:string;commodityName:string;instrumentType:string;label:string;trades:number}>();
+  for(const e of entries){const at=JSON.stringify([e.commodity,e.instrumentType,label(e)]),seen=merged.get(at);
+    if(seen)seen.trades+=e.trades;else merged.set(at,{key:at,commodity:e.commodity,commodityName:e.commodityName,instrumentType:e.instrumentType,label:label(e),trades:e.trades});}
   // Two commodities that share a name are told apart by their codes.
-  const labels=distinct(new Map(entries.map(e=>[e.key,{label:label(e),code:e.commodity,revision:e.key}])),'group');
-  const segments=entries.map(({key,commodity,commodityName,instrumentType,trades})=>({key,commodity,commodityName,instrumentType,label:labels.get(key)!,trades}))
+  const labels=distinct(new Map([...merged.values()].map(e=>[e.key,{label:e.label,code:e.commodity,revision:e.key}])),'group');
+  const segments=[...merged.values()].map(({key,commodity,commodityName,instrumentType,trades})=>({key,commodity,commodityName,instrumentType,label:labels.get(key)!,trades}))
     .sort((a,b)=>a.label.localeCompare(b.label)||byText(a.key,b.key));
   if(!Number.isInteger(rows)||rows<0)throw Error(inconsistent);
   const excluded=excludedPositions(unvalued);

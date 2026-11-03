@@ -96,7 +96,8 @@ test('a currency or unit of one code reads by that code in any reference revisio
  assert.deepEqual(tiles[0].rows.map(r=>r.currency),['EUR','USD','USD']);
  const unit={...fixture.summaries[2].groups[0].quantitySpecification,revision:{catalogId,revisionId:second}};
  const mix=positionsTile(changed(fixture.summaries,2,groups=>[...groups,{...groups[0],quantitySpecification:unit,tradeCount:1}]),fixture.holdings.length,0);
- assert.deepEqual(mix.segments.map(s=>s.label).filter(label=>/MMBtu/.test(label)),['Synthetic gas · Swaps · MMBtu (IT)','Synthetic gas · Swaps · MMBtu (IT)']);
+ const swaps=mix.segments.filter(s=>s.label.startsWith('Synthetic gas · Swaps')),before=positionsTile(fixture.summaries,fixture.holdings.length,0).segments.find(s=>s.label==='Synthetic gas · Swaps');
+ assert.deepEqual(swaps.map(s=>[s.label,s.trades]),[['Synthetic gas · Swaps',before.trades+1]],'segments that read alike in every term are one segment of their trades');
  for(const label of [...tiles[0].rows.map(r=>r.currency),...mix.segments.map(s=>s.label)])assert.doesNotMatch(label,/[0-9a-f]{8}-[0-9a-f]{4}-.*:/,'a catalog is not part of what names a revision');
 });
 test('a book without positions of a measure gets no split, and a book that values none says so',()=>{
