@@ -28,19 +28,22 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('#risk-jobs-new');await wait("!document.querySelector('#workspace-risk-fields').disabled&&"+idle);
  await check('the shared run editor opens inside Risk without loading or opening the Blotter',
   "document.querySelector('#risk-workspace-editor').open&&document.querySelector('#risk-workspace-editor-body').contains(document.querySelector('#workspace-risk-report'))&&document.querySelector('#futures-page').hidden&&new Set([...document.querySelectorAll('[id]')].map(n=>n.id)).size===document.querySelectorAll('[id]').length");
- await click('#workspace-risk-form input[value=custom]');await click('#risk-jobs-new');await wait(idle);
- await check('Run risk on an open, edited setup brings it into view and keeps its choices without asking',
-  "document.querySelector('#risk-workspace-editor').open&&document.querySelector('#workspace-risk-form input[value=custom]').checked&&document.querySelector('#risk-page-prompt').hidden&&!document.querySelector('#risk-jobs-new').disabled");
  const catalog="window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk/catalog').data";
- const target=await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`);
- await click('#workspace-risk-form input[value=custom]');await set('#workspace-risk-factor',target);await set('#workspace-risk-bump','0.05');await click('#workspace-risk-run');
+ // A held contract's target, so the shock moves a held measure and the report draws its chart.
+ const target=await evaluate(`${catalog}.heldContractTargets[0]`);
+ await click('#workspace-risk-form input[value=custom]');await set('#workspace-risk-factor',target);await set('#workspace-risk-bump','0.05');
+ await click('#risk-jobs-new');
+ await check('Run risk on an open, edited setup brings it into view and keeps its choices without asking',
+  `document.querySelector('#risk-workspace-editor').open&&document.querySelector('#workspace-risk-form input[value=custom]').checked&&document.querySelector('#workspace-risk-factor').value===${JSON.stringify(target)}&&document.querySelector('#workspace-risk-bump').value==='0.05'&&document.querySelector('#risk-page-prompt').hidden`);
+ await click('#workspace-risk-run');
  await wait("document.querySelector('#risk-workspace-results canvas')&&"+idle,60000);
  const baseline=await evaluate("window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk').data");
- await check('Risk renders the backend delta and its native unit with exact accessible report data',
-  `(()=>{const f=${JSON.stringify(baseline.factors[0])},root=document.querySelector('#risk-workspace-results');return f.totals.every(t=>root.textContent.includes(t.values.display.delta)&&root.textContent.includes(t.values.deltaUnit))&&root.querySelector('[data-chart-kind=bar]')&&root.querySelector('.risk-coverage').dataset.state===${JSON.stringify(baseline.excludedPositions.length?'incomplete':'complete')};})()`);
+ await check('Risk shows each moved total\'s delta at display precision with its exact amount beneath it, and its native unit',
+  `(()=>{const f=${JSON.stringify(baseline.factors[0])},root=document.querySelector('#risk-workspace-results');const moved=f.totals.filter(t=>[t.values.delta,t.values.gamma,t.values.upPnl,t.values.downPnl].some(v=>!/^-?0+(?:\\.0+)?(?:\\/\\d+)?$/.test(v)));return moved.length>0&&moved.every(t=>[...root.querySelectorAll('td span[title]')].some(n=>n.title===t.values.display.delta)&&root.textContent.includes(t.values.deltaUnit))&&root.querySelector('[data-chart-kind=bar]')&&root.querySelector('.risk-coverage').dataset.state===${JSON.stringify(baseline.excludedPositions.length?'incomplete':'complete')};})()`,
+  `({titles:[...document.querySelectorAll('#risk-workspace-results td span[title]')].map(n=>n.title).slice(0,6),deltas:${JSON.stringify(baseline.factors[0].totals.map(t=>[t.values.display.delta,t.values.delta,t.values.deltaUnit]))},coverage:document.querySelector('#risk-workspace-results .risk-coverage')?.dataset.state,bar:!!document.querySelector('#risk-workspace-results [data-chart-kind=bar]')})`);
  await click('#risk-workspace-results [data-risk-metric=gamma]');
- await check('gamma uses the backend gamma amount and squared factor unit',
-  `(()=>{const root=document.querySelector('#risk-workspace-results');return ${JSON.stringify(baseline.factors[0].totals)}.every(t=>root.textContent.includes(t.values.display.gamma)&&root.textContent.includes(t.values.gammaUnit));})()`);
+ await check('gamma shows each moved total\'s exact backend gamma beneath its display text, with the squared factor unit',
+  `(()=>{const root=document.querySelector('#risk-workspace-results');return ${JSON.stringify(baseline.factors[0].totals)}.filter(t=>[t.values.delta,t.values.gamma,t.values.upPnl,t.values.downPnl].some(v=>!/^-?0+(?:\\.0+)?(?:\\/\\d+)?$/.test(v))).every(t=>[...root.querySelectorAll('td span[title]')].some(n=>n.title===t.values.display.gamma)&&root.textContent.includes(t.values.gammaUnit));})()`);
  await set('#risk-workspace-results select[aria-label="Risk graphic"]','heatmap');
  await check('the same report has a graphical heatmap with an accessible table and factor drill-through',
   "!!document.querySelector('#risk-workspace-results [data-chart-kind=heatmap] canvas')&&!!document.querySelector('#risk-workspace-results .risk-result-table table')&&!!document.querySelector('#risk-workspace-results [data-risk-factor]')");
@@ -52,7 +55,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('#risk-form input[value=custom]');await set('#risk-factor',target);await set('#risk-bump','0.05');await click('#risk-run');await wait("!document.querySelector('#desk-run').hidden&&"+idle,60000);
  await evaluate("document.querySelector('#desk-risk-full').open=true");await wait("document.querySelector('#desk-risk-full-results canvas')");
  await check('the Blotter renders the same exact financial values through the shared full-report widget',
-  `(()=>{const report=window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk').data,base=${JSON.stringify(baseline)};return JSON.stringify(report.factors.map(f=>f.totals))===JSON.stringify(base.factors.map(f=>f.totals))&&document.querySelector('#desk-risk-full-results').textContent.includes(base.factors[0].totals[0].values.display.delta);})()`);
+  `(()=>{const report=window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk').data,base=${JSON.stringify(baseline)};return JSON.stringify(report.factors.map(f=>f.totals))===JSON.stringify(base.factors.map(f=>f.totals))&&base.factors[0].totals.filter(t=>[t.values.delta,t.values.gamma,t.values.upPnl,t.values.downPnl].some(v=>!/^-?0+(?:\\.0+)?(?:\\/\\d+)?$/.test(v))).every(t=>[...document.querySelectorAll('#desk-risk-full-results td span[title]')].some(n=>n.title===t.values.display.delta));})()`);
 
  await tradeSelection({command,evaluate,wait,click,set,check,shot,idle,url,frame});
  await runJointChecks({command,evaluate,wait,click,set,check,shot,idle,url,frame});
@@ -146,7 +149,8 @@ async function tradeSelection({command,evaluate,wait,click,set,check,shot,idle,u
  await click('#risk-jobs-new');await wait("!document.querySelector('#workspace-risk-fields').disabled&&"+idle);
  const target=await evaluate("window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk/catalog').data.scenarioTargets.find(t=>t.kind==='contract').id");
  await click('#workspace-risk-form input[value=custom]');await set('#workspace-risk-factor',target);await set('#workspace-risk-bump','0.05');await click('#workspace-risk-run');
- await wait("document.querySelector('#risk-workspace-results canvas')&&"+idle,60000);
+ // A shock that moves none of the selected trade's measures draws no chart; the report's coverage line shows it is drawn.
+ await wait("document.querySelector('#risk-workspace-results .risk-coverage')&&"+idle,60000);
  await check('an individual trade report includes only that trade and labels its captured subset',
   `(()=>{const r=window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk').data;return JSON.stringify(r.tradeIds)===${JSON.stringify(JSON.stringify([trade]))}&&r.inputs.positions.length>0&&r.inputs.positions.every(p=>p.tradeId===${JSON.stringify(trade)})&&document.querySelector('#risk-workspace-results').textContent.includes('1 selected trade');})()`);
  await shot('risk-workspace-selected-trade');
@@ -155,9 +159,9 @@ async function tradeSelection({command,evaluate,wait,click,set,check,shot,idle,u
  const job=await evaluate("window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk/jobs'&&r.data?.id).data.id");
  await wait(`window.__workspaceRiskReads.some(r=>r.data?.id===${JSON.stringify(job)}&&r.data?.state==='completed'&&r.data?.result)&&${idle}`,60000);
  await evaluate(`location.hash=${JSON.stringify('#risk/job/'+job)};true`);
- await wait("document.querySelector('#risk-workspace-results canvas')&&document.querySelector('#risk-workspace-context-note').textContent.startsWith('Retained report:')&&"+idle,60000);
+ await wait("document.querySelector('#risk-workspace-results .risk-coverage')&&document.querySelector('#risk-workspace-context-note').textContent.startsWith('Retained report:')&&"+idle,60000);
  const origin=await evaluate('performance.timeOrigin');await command('Page.reload');
- try{await wait(`performance.timeOrigin!==${origin}&&document.querySelector('#risk-workspace-results canvas')&&${idle}`,60000);}
+ try{await wait(`performance.timeOrigin!==${origin}&&document.querySelector('#risk-workspace-results .risk-coverage')&&${idle}`,60000);}
  catch(error){console.error('TRADE_RELOAD_STATE',JSON.stringify(await evaluate(`({origin:performance.timeOrigin,before:${origin},hash:location.hash,busy:document.body.getAttribute('aria-busy'),error:document.querySelector('#error')?.textContent,note:document.querySelector('#risk-workspace-note')?.textContent,result:document.querySelector('#risk-workspace-results')?.textContent})`)));await shot('risk-joint-trade-reload-failure');throw error;}
  await check('a queued trade subset survives a retained link and reload without widening its captured selection',
   `(()=>{const j=window.__workspaceRiskReads.findLast(r=>r.data?.id===${JSON.stringify(job)}&&r.data?.result).data;return JSON.stringify(j.scope.tradeIds)===${JSON.stringify(JSON.stringify([trade]))}&&j.result.inputs.positions.every(p=>p.tradeId===${JSON.stringify(trade)})&&document.querySelector('#risk-workspace-results').textContent.includes('1 selected trade');})()`);

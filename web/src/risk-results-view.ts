@@ -12,7 +12,8 @@ import {valuationReason} from './valuation-status.js';
 
 /** The same report widget is used in Risk and the Blotter. All financial amounts and their display strings come from the report. */
 /** A risk amount at the selected display precision: sensitivities as factors, values and P&L as money. */
-const shown=(v:RiskValues,key:'base'|'upPnl'|'downPnl'|'delta'|'gamma')=>amountText(v.display[key],key==='delta'||key==='gamma'?'factor':'money');
+// A value at the display precision, with the backend's exact amount beneath it (D114), as the Blotter shows its figures.
+const shown=(v:RiskValues,key:'base'|'upPnl'|'downPnl'|'delta'|'gamma')=>{const exact=v.display[key],cell=node('span',amountText(exact,key==='delta'||key==='gamma'?'factor':'money'));cell.title=exact;return cell;};
 
 export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:string)=>string=id=>location.pathname+location.search+'#risk/job/'+encodeURIComponent(id)){
  let metric:RiskMetric='delta',kind:'bar'|'heatmap'='bar',current:RunView|undefined,selected:string|undefined,factorPage=0,bookPage=0,groupKey:string|undefined;
