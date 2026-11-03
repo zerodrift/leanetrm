@@ -28,6 +28,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('#risk-jobs-new');await wait("!document.querySelector('#workspace-risk-fields').disabled&&"+idle);
  await check('the shared run editor opens inside Risk without loading or opening the Blotter',
   "document.querySelector('#risk-workspace-editor').open&&document.querySelector('#risk-workspace-editor-body').contains(document.querySelector('#workspace-risk-report'))&&document.querySelector('#futures-page').hidden&&new Set([...document.querySelectorAll('[id]')].map(n=>n.id)).size===document.querySelectorAll('[id]').length");
+ await click('#workspace-risk-form input[value=custom]');await click('#risk-jobs-new');await wait(idle);
+ await check('Run risk on an open, edited setup brings it into view and keeps its choices without asking',
+  "document.querySelector('#risk-workspace-editor').open&&document.querySelector('#workspace-risk-form input[value=custom]').checked&&document.querySelector('#risk-page-prompt').hidden&&!document.querySelector('#risk-jobs-new').disabled");
  const catalog="window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk/catalog').data";
  const target=await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`);
  await click('#workspace-risk-form input[value=custom]');await set('#workspace-risk-factor',target);await set('#workspace-risk-bump','0.05');await click('#workspace-risk-run');
