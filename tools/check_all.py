@@ -16,7 +16,7 @@ CHECK_PROJECTS = (
 )
 
 
-GROUPS = ('workspace', 'standard', 'assistant', 'trading', 'portfolio', 'settlement', 'ppa', 'recovery')
+GROUPS = ('workspace', 'standard', 'assistant', 'trading', 'portfolio', 'settlement', 'ppa', 'recovery', 'options')
 
 
 def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
@@ -104,7 +104,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('market close calendar', [*preview, '--market-dates-check', '--browser-check', '--browser', str(browser)])
     preview_check('positions a close cannot value', [*preview, '--valuation-status-check', '--browser-check', '--browser', str(browser)], suite='portfolio')
     preview_check('Blotter commodity, swap direction, mark minus price, summaries and curve shapes', [*preview, '--desk-fields-check'], suite='portfolio')
-    preview_check('isolated exchange futures, option reference storage, option booking and browser', [*preview, '--exchange-check', '--browser-check', '--browser', str(browser)])
+    # Option booking, lifecycle and volatility-surface fits are one of the longest workflows, so they take a job of their own.
+    preview_check('isolated exchange futures, option reference storage, option booking and browser', [*preview, '--exchange-check', '--browser-check', '--browser', str(browser)], suite='options')
     preview_check('isolated hosted authentication and browser', [*preview, '--hosted-check', '--browser-check', '--browser', str(browser)])
     preview_check('isolated jobs and infrastructure browser', [*preview, '--jobs-check', '--browser-check', '--browser', str(browser)])
     preview_check('additive reference demo and exact-version discounting',[*preview,'--reference-demo-check'])
