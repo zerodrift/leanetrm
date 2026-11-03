@@ -2161,8 +2161,9 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .risk-result-table{margin:16px 0}.risk-factor-detail{margin-top:24px;outline:none}
 /* A risk table's last column names units; it wraps so the amounts stay in view. */
 :is(.risk-result-table,.risk-factor-detail) td:last-child{white-space:normal;min-width:140px}
-/* A factor's name wraps within its column so the book, measure and value columns stay in view. */
-.risk-result-table td:first-child [data-risk-factor]{white-space:normal;text-align:left;max-width:22rem}
+/* Factor, shock, book and measure names wrap so the value and unit columns stay in view. */
+.risk-result-table td:nth-child(-n+4){white-space:normal}.risk-result-table td:first-child{min-width:14rem}.risk-result-table td:nth-child(4){min-width:8rem}
+.risk-result-table td:first-child [data-risk-factor]{white-space:normal;text-align:left}
 .risk-report-paging{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0;font-size:12px;color:var(--text-3)}
 .risk-report-library>summary,.risk-full-report>summary,#risk-workspace-editor>summary{font-weight:600;cursor:pointer;padding:4px 0}
 .risk-report-library .card-heading{margin-top:12px}.risk-full-report{margin:10px 0}
