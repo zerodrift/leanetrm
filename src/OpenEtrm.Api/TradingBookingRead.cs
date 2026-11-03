@@ -6,7 +6,7 @@ namespace OpenEtrm.Api;
 internal static class TradingBookingRead
 {
  internal static async Task<T> Run<T>(PreviewDatabase database,NpgsqlConnection connection,InputFrame frame,
-  Func<PreviewData,InputFrame,Task<T>> read,CancellationToken ct,bool gasMarket=false,bool crudeMarket=false,Guid? crudeSetup=null)
+  Func<PreviewData,InputFrame,Task<T>> read,CancellationToken ct,PhysicalMarketSelection? physicalMarket=null,Guid? crudeSetup=null)
  {
   // Current-knowledge booking explicitly resolves a certified pricing view.
   // Its temporary read binding must not turn the ensuing write into a historical write.
@@ -19,16 +19,10 @@ internal static class TradingBookingRead
    await using(var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,frame.At))
     await trading.ExecuteNonQueryAsync(ct);
    var pinned=frame with{ContextId=context.ContextId};
-   if(gasMarket&&crudeMarket)throw new InvalidOperationException("Choose exactly one booking market.");
-   if(crudeMarket)
+   if(physicalMarket is not null)
    {
-    var crude=await PhysicalMarketSelection.Crude.Read(database,connection,pinned,ct,setup:crudeSetup);
-    return await read(crude.Data,crude.Frame);
-   }
-   if(gasMarket)
-   {
-    var gas=await PhysicalMarketSelection.Gas.Read(database,connection,pinned,ct);
-    return await read(gas.Data,gas.Frame);
+    var selectedMarket=await physicalMarket.Read(database,connection,pinned,ct,setup:crudeSetup);
+    return await read(selectedMarket.Data,selectedMarket.Frame);
    }
    var selected=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
    return await read(selected,pinned);

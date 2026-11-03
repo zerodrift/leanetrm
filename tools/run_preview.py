@@ -28,6 +28,8 @@ def main():
     from check_standalone import main as check_standalone
     check_standalone()
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--parametric-risk-check',action='store_true',help='Qualify retained parametric VaR/ES with aligned dated-factor history')
+    parser.add_argument('--factor-history-check',action='store_true',help='Qualify aligned dated-factor history under the retained risk context')
     parser.add_argument('--unified-trading-check',action='store_true',help='Verify the common trading workflow across futures, swaps, PPAs and gas')
     parser.add_argument('--with-gas-quantity-dates',action='store_true',help='Include synthetic January working frames for daily gas quantity exploration')
     parser.add_argument('--gas-quantity-benchmark',action='store_true',help='Measure owned daily gas quantity grids with authorized revision history')
@@ -38,6 +40,7 @@ def main():
     parser.add_argument('--gas-setup-check',action='store_true',help='Qualify versioned gas setup authoring and trade pins')
     parser.add_argument('--crude-lifecycle-check',action='store_true',help='Qualify crude receipts, inventory disposition and delivery-to-cash operations')
     parser.add_argument('--physical-crude-check',action='store_true',help='Qualify native fixed-volume crude booking and retained execution')
+    parser.add_argument('--lng-cargo-check',action='store_true',help='Qualify native LNG cargo booking, exact references and saved Incoterms')
     parser.add_argument('--physical-gas-check',action='store_true',help='Qualify physical gas preview, durable schedules and booking UI operations')
     parser.add_argument('--demo-instruments-check',action='store_true',help='Verify mixed synthetic PPA and heat-rate bookings, blotter and risk')
     parser.add_argument('--pg-bin', type=Path, required=True, help='Installed stock PG16+ binaries')
@@ -131,7 +134,7 @@ def main():
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.gas_setup_check or args.gas_composition_check or args.deal_ticket_check or args.gas_daily_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
-    if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check: args.check=True
+    if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
     fixing_frames=args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
@@ -139,7 +142,7 @@ def main():
         if args.example != 'standard' or args.interval_series_benchmark+args.usage_benchmark+args.blotter_stream_benchmark>1 or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
+    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -226,6 +229,9 @@ def main():
             date_plan=compile_plan(dotnet,dll,temporary) if not args.check else None
             reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.lng_cargo_check and migration.name=='0176_lng_cargo_references.sql':
+                from check_lng_upgrade import run_checks as check_lng_upgrade
+                check_lng_upgrade(query,ROOT,manifest,[reference,market,security,trading_fixture(manifest['catalogId'])])
             if (args.assistant_check or args.provider_adapters_check) and migration.name=='0105_model_identifier_policy.sql':
                 from check_model_versions import check_identifier_policy_upgrade
                 check_identifier_policy_upgrade(query,migration.read_text())
@@ -341,9 +347,13 @@ def main():
             if args.crude_setup_check:
                 from crude_fixture import prepare_delivery
                 market,manifest=prepare_delivery(market,manifest)
-                from crude_fixture import DELIVERY_CATALOG
+                from crude_fixture import DELIVERY_CATALOG,UNRELATED_CATALOG
                 from preview_fixture import TENANT, WORKSPACE
                 security+=f"\nINSERT INTO security.reference_catalog_scopes VALUES('{DELIVERY_CATALOG}','{TENANT}','{WORKSPACE}','owner');"
+                security+=f"\nINSERT INTO security.reference_catalog_scopes VALUES('{UNRELATED_CATALOG}','{TENANT}','{WORKSPACE}','owner');"
+        if args.lng_cargo_check:
+            from lng_fixture import prepare as prepare_lng
+            reference,market,manifest=prepare_lng(reference,market,manifest)
         if args.execution_check:
             from check_futures_execution import prepare as prepare_execution
             reference,market,manifest=prepare_execution(reference,market,manifest)
@@ -387,6 +397,9 @@ def main():
             query(combined)
 
             print('PASS fresh hosted seed validates on an empty stock database without synthetic users, observations or trades, and grants its owner the human roles',flush=True)
+        if args.example=='standard' and (not args.check or args.factor_history_check or args.parametric_risk_check):
+            from factor_history_fixture import calendar as history_calendar
+            reference=history_calendar(reference,manifest)
         query(reference)
         if args.power_actual_check:
             from check_power_actual_storage import prepare_market
@@ -423,6 +436,9 @@ def main():
                 from factor_swap_fixture import prepare as prepare_factor
                 prepare_factor(manifest)
         query(security)
+        if args.example=='standard' and (not args.check or args.factor_history_check or args.parametric_risk_check):
+            from factor_history_fixture import seed as seed_history
+            seed_history(query,manifest)
         if args.hosted_check:
             from check_hosted_auth import run_checks as check_hosted_auth
             check_hosted_auth(query, manifest)
@@ -568,7 +584,7 @@ def main():
                 if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
                 return peak
             return run
-        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
+        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
             if not args.check and date_plan is not None:
                 from demo_date_plan import verify_instrument_dates
                 count=verify_instrument_dates(query,date_plan,manifest['catalogId'],manifest['revisionId'])
@@ -614,11 +630,33 @@ def main():
                 if args.browser_check:
                     target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--unified-trading'],cwd=ROOT,env=env,check=True,timeout=240)
+            elif args.lng_cargo_check:
+                from check_lng_cargo_schema import run_schema_checks as check_lng_schema,run_resolution_checks as check_lng_resolution
+                from check_physical_lng_preview import run_checks as check_lng
+                check_lng_schema(query)
+                check_lng_resolution(query,manifest)
+                lng_receipt=check_lng(url,query,manifest)
+                lng_admission=temporary/'lng-admission.json'
+                lng_admission.write_text(query(f"SELECT request::text FROM trading.trades WHERE(catalog_id,id)=('{manifest['catalogId']}','{lng_receipt['tradeId']}');"))
+                subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--lng-admission',str(lng_admission)],cwd=ROOT,env=app_env,check=True,timeout=120)
+                from check_lng_cargo_schema import run_booking_authority_check
+                run_booking_authority_check(query,manifest,psql,env,lng_receipt)
+                from check_lng_portfolio import run_checks as check_lng_portfolio
+                check_lng_portfolio(url,lng_receipt,run_worker=risk_worker_runner(),query=query,manifest=manifest)
+                if args.browser_check:
+                    target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-lng'],cwd=ROOT,env=env,check=True,timeout=180)
+                from check_lng_retained import run_checks as check_lng_retained
+                check_lng_retained(url,query,manifest,lng_receipt)
             elif args.physical_crude_check:
                 from check_physical_crude_preview import run_checks as check_crude,run_shape_checks as check_crude_shapes
                 if args.crude_setup_check:
-                    from check_crude_setup_editor import run_checks as check_crude_setup
+                    from check_crude_setup_editor import run_checks as check_crude_setup,run_resolution_authority_check
                     check_crude_setup(url,query,manifest)
+                    run_resolution_authority_check(query,manifest,psql,env)
+                    from check_crude_setup_editor import run_gas_reference_bootstrap,run_reference_publication_checks
+                    run_reference_publication_checks(url,query,manifest,psql,env)
+                    run_gas_reference_bootstrap(manifest,temporary,dotnet,frozen_dll,app_env,args.browser.resolve() if args.browser_check else None)
                 crude_receipt=check_crude(url,query,manifest)
                 check_crude_shapes(query,manifest,crude_receipt)
                 from check_crude_portfolio import run_checks as check_crude_portfolio
@@ -664,7 +702,7 @@ def main():
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_setup_check:
                     from check_gas_setup_editor import run_checks as check_gas_setup
-                    check_gas_setup(url)
+                    check_gas_setup(url,query,manifest)
             elif args.retained_schedule_check:
                 from check_retained_side_schedules import run_stage_checks,run_temporal_checks
                 run_stage_checks(query,manifest)
@@ -706,6 +744,25 @@ def main():
                 check_daily_custom_projection(url,manifest,query,run_worker)
                 from check_curve_lookup import run_checks as check_curve_lookup
                 check_curve_lookup(url,manifest,query,run_worker)
+            elif args.parametric_risk_check:
+                from check_parametric_risk import run_checks as check_parametric
+                worker_env=prepare_risk_worker()
+                def run_statistical_worker():
+                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
+                check_parametric(url,manifest,query,run_statistical_worker)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=worker_env,start_new_session=True)
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--parametric-risk'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=300):raise RuntimeError('Owned parametric browser checks failed')
+            elif args.factor_history_check:
+                from check_factor_history import run_checks as check_factor_history
+                check_factor_history(url,manifest,query)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--factor-history'],cwd=ROOT,env=env,check=True,timeout=240)
             elif args.risk_jobs_check:
                 from preview_client import PreviewClient
                 from check_risk_preview import run_checks as check_risk

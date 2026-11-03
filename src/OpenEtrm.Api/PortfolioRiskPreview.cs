@@ -17,11 +17,13 @@ namespace OpenEtrm.Api;
 public sealed record PortfolioRiskRequest(FuturesReadRequest Context,ImmutableArray<Guid> BookIds,ImmutableArray<Guid> PortfolioIds,
     ImmutableArray<CurveBumpRequest> Bumps,string? Convention,string? NumericalPolicy,PortfolioValuationPolicy PricingPolicy,
     string? Detail=null,ImmutableArray<CurveShiftRequest> Stress=default,
-    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] ImmutableArray<Guid>? TradeIds=null);
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] ImmutableArray<Guid>? TradeIds=null,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioJointRiskRequest? Joint=null,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioParametricRequest? Parametric=null);
 
 // Transport and presentation over the shared instrument valuation operation.
 // Instrument materialization and pricing remain outside this report adapter.
-public sealed class PortfolioRiskPreview(PreviewDatabase database)
+public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
 {
     public const string Convention="portfolio_instrument_repricing_v1";
     // The most bumps one request takes: a holdings-detail result prices every position under each bump, a books-detail result keeps only book totals.
@@ -33,7 +35,8 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
     internal sealed record Prepared(PortfolioRiskRequest Request,RiskDetail Detail,
         ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books,PortfolioValuation.Prepared Portfolio,
         ImmutableArray<PortfolioCurveBump> Bumps,ImmutableArray<PortfolioCurveShift> Stress,
-        ImmutableArray<(PreviewData Data,InputFrame Frame)> SupplementalMarkets);
+        ImmutableArray<(PreviewData Data,InputFrame Frame)> SupplementalMarkets)
+    {internal PortfolioJointRisk.Resolved? Joint{get;init;} internal AlignedFactorHistory? History{get;init;}}
 
     public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioRiskCatalogRequest body,CancellationToken ct)
     {
@@ -55,7 +58,13 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
             books=portfolio.Positions.GroupBy(p=>p.BookId).Select(g=>new{bookId=g.Key}),excludedPositions=portfolio.Excluded,
             measures=portfolio.Positions.Select(p=>p.Measure).Distinct().Order().Select(m=>new{measure=m,measureLabel=MeasureLabel(m)}),
             bumpConvention=ConnectedRiskBump.Convention,stressConvention=CurveShift.ParentAdditive,convention=Convention,
-            numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=PricingPolicy};
+            numericalPolicy=RiskEngine.ExactNumericalPolicy,pricingPolicy=PricingPolicy,
+            history=HistoryCapabilities(portfolio),
+            parametric=ParametricCapabilities(),
+            joint=new{convention=PortfolioJointRiskRequest.Version1,scenarioConvention=ConnectedRiskScenarioSet.Independent,bumpConvention=ConnectedRiskBump.Convention,shiftConvention=CurveShift.ParentAdditive,
+                derivativeConvention=ConnectedFiniteDifferenceRequest.HalfNominalDouble,maxScenarios=PortfolioJointRisk.MaxScenarios,
+                maxShifts=PortfolioJointRisk.MaxShifts,maxAxes=RiskEngine.MaxSensitivityAxes,maxMixed=RiskEngine.MaxMixedSensitivities,
+                maxResultValues=RiskEngine.MaxJointResultValues,maxOptionTreeNodes=PortfolioJointCalculation.MaximumOptionTreeNodes}};
     }
 
     // The held targets a preset shocks in the books (blotter-desk.md, Risk report inline), as the catalog offers them and in its
@@ -101,16 +110,32 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
         =>Calculate(await Prepare(connection,data,frame,body,ct),ct);
 
     internal async Task<Prepared> Prepare(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioRiskRequest body,CancellationToken ct,
-        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,RetainedRun? retained=null)
+        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,RetainedRun? retained=null,
+        RetainedFactorHistory? historyPlan=null,ImmutableArray<RiskHistoryObservation> historyEvidence=default)
     {
         var detail=body.Detail switch{null or "holdings"=>RiskDetail.Holdings,"books"=>RiskDetail.Books,
             _=>throw new MarketDataException("risk_detail","Choose holdings or books for the result detail.")};
-        if(body.Convention!=Convention||body.NumericalPolicy!=RiskEngine.ExactNumericalPolicy||body.Bumps.IsDefaultOrEmpty||
-            body.Bumps.Length>(detail==RiskDetail.Books?MaxBooksBumps:MaxHoldingsBumps)||body.Bumps.Any(b=>b is null))
+        if(body.Joint is {} jointRequest)PortfolioJointRisk.Validate(jointRequest);
+        if(body.Parametric is {} statistical)ValidateParametric(body,statistical);
+        if(body.Convention!=Convention||body.NumericalPolicy!=RiskEngine.ExactNumericalPolicy||body.Bumps.IsDefault||
+            (body.Joint is null?body.Parametric is null&&body.Bumps.IsEmpty||body.Bumps.Length>(detail==RiskDetail.Books?MaxBooksBumps:MaxHoldingsBumps):!body.Bumps.IsEmpty)||body.Bumps.Any(b=>b is null))
             throw new MarketDataException("risk_convention","Select the supported portfolio convention, exact numerical policy and bounded explicit curve-coordinate bumps.");
         if(!body.Stress.IsDefault&&(body.Stress.Length>16||body.Stress.Any(s=>s is null)))
             throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative curve shifts.");
         var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental,retained,body.TradeIds);
+        AlignedFactorHistory? history=null;
+        if(body.Parametric is {} parametric)
+        {
+            if(!BookScope.Select(books,parametric.History.Scope.BookIds,parametric.History.Scope.PortfolioIds).Select(b=>b.Id("id")).Order().SequenceEqual(bookIds))
+                throw new MarketDataException("risk_parametric_scope","History and current holdings must use exactly the same book scope.");
+            history=historyPlan is null?await BuildHistory(connection,portfolio,frame,parametric.History,ct,statistical:true):
+                await ReplayHistory(connection,portfolio,frame,parametric.History,historyPlan,historyEvidence,ct);
+            var selected=ParametricBumps(portfolio,history,parametric.FiniteDifference,ct);
+            if(!body.Bumps.IsEmpty&&JsonSerializer.Serialize(body.Bumps,RiskJobs.Json)!=JsonSerializer.Serialize(selected,RiskJobs.Json))
+                throw new MarketDataException("risk_parametric_delta","A parametric request must shock its complete captured dated-factor universe in native coordinates.");
+            body=body with{Bumps=selected};
+        }
+        else if(historyPlan is not null)throw new MarketDataException("risk_parametric_history","Only a statistical job may carry a retained calibration history.");
         var bumps=body.Bumps.Select(b=>
         {
             var axis=CurveRiskAxes.Resolve(portfolio,b.Factor,ct);var size=ExactDecimal.Parse(b.Size??"");
@@ -127,18 +152,27 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
                 throw new MarketDataException("risk_stress","Choose the explicit additive convention and a nonzero signed shift.");
             return new PortfolioCurveShift(axis,size);
         }).ToImmutableArray();
-        PortfolioValuation.RequireWork(portfolio,bumps.Length);
+        var joint=body.Joint is null?null:PortfolioJointRisk.Resolve(portfolio,body.Joint,ct);
+        if(body.Parametric is not null)RequireParametricWork(portfolio,bumps);
+        else if(joint is null)PortfolioValuation.RequireWork(portfolio,bumps.Length);
+        else PortfolioJointCalculation.RequireWork(portfolio,joint,detail);
         var canonical=body with{
             Bumps=bumps.Select(b=>new CurveBumpRequest(b.Axis.Request,b.Size.ToString(),ConnectedRiskBump.Convention)).ToImmutableArray(),
-            Stress=stress.Select(s=>new CurveShiftRequest(s.Axis.Request,s.Size.ToString(),CurveShift.ParentAdditive)).ToImmutableArray()};
+            Stress=stress.Select(s=>new CurveShiftRequest(s.Axis.Request,s.Size.ToString(),CurveShift.ParentAdditive)).ToImmutableArray(),Joint=joint?.Request};
         return new(canonical,detail,bookIds,books,portfolio,bumps,stress,
-            portfolio.Markets.Where(m=>m.Data.DefinitionRevision!=data.DefinitionRevision).Select(m=>(m.Data,m.Frame)).ToImmutableArray());
+            portfolio.Markets.Where(m=>m.Data.DefinitionRevision!=data.DefinitionRevision).Select(m=>(m.Data,m.Frame)).ToImmutableArray()){Joint=joint,History=history};
     }
 
     internal static object Calculate(Prepared prepared,CancellationToken ct)
     {
+        if(prepared.Request.Parametric is not null)return CalculateParametric(prepared,ct);
+        if(prepared.Joint is not null)return CalculateJoint(prepared,ct);
         var trees=prepared.Portfolio.Options?.TreePrices??0;
         var run=PortfolioValuation.Calculate(prepared.Portfolio,prepared.Bumps,prepared.Stress,prepared.Detail,ct);
+        return PresentSensitivity(prepared,run,trees);
+    }
+    private static object PresentSensitivity(Prepared prepared,PortfolioValuationResult run,int trees)
+    {
         var optionWork=prepared.Portfolio.OptionWork is {} work?work with{ScenarioTreePrices=prepared.Portfolio.Options!.TreePrices-trees}:null;
         var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
         var positions=run.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
@@ -187,7 +221,7 @@ public sealed class PortfolioRiskPreview(PreviewDatabase database)
     private static string Displayed(ExactMoney value)=>Display.FormatFraction(BigInteger.Parse(value.Numerator,CultureInfo.InvariantCulture),BigInteger.Parse(value.Denominator,CultureInfo.InvariantCulture));
     private static string MeasureLabel(string measure)=>measure switch{
         PortfolioValuation.FuturesMeasure=>"Futures execution P&L",PortfolioValuation.SwapMeasure=>"Present value",PortfolioValuation.PpaMeasure=>"Value excluding overdue cash",
-        CrudePositions.Measure=>"Crude contractual PV",FuturesOptionPositions.Measure=>FuturesOptionPositions.MeasureLabel,
+        CrudePositions.Measure=>"Crude contractual PV",LngPositions.Measure=>"LNG contractual PV",FuturesOptionPositions.Measure=>FuturesOptionPositions.MeasureLabel,
         GasPositions.Measure=>"Gas contractual PV",
         _=>throw new MarketDataException("valuation_measure","The report requires an explicit valuation measure label.")};
     private static string Currency(ImmutableArray<PreviewData> markets,ReferenceKey key)=>Reference(markets,"currencies",key).Text("display_code");

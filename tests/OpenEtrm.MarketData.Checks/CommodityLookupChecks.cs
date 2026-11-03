@@ -119,10 +119,11 @@ internal sealed class CommodityLookupFixture
     public CurveRequest Request(int n) => new(C("local"), contracts[n].Key);
     public SelectedObservation Selection(int n, bool spread) => Snapshot.Selections[n * 2 + (spread ? 1 : 0)];
 
-    public CommodityLookupFixture(int days, bool monthly = false, bool volume = false, string multiplier = "1")
+    public CommodityLookupFixture(int days, bool monthly = false, bool volume = false, string multiplier = "1", string? commodity = null,
+        string? basis = null, string? dimension = null)
     {
         var from = new DateOnly(2041, 1, 1); firstMonth = days - 31;
-        quantities = [new(R("quantity"), R(volume ? "test_crude" : "gas"), R(volume ? "standard_volume" : "energy"), R("unit"), R(volume ? "volume" : "energy_dimension"))];
+        quantities = [new(R("quantity"), R(commodity ?? (volume ? "test_crude" : "gas")), R(basis ?? (volume ? "standard_volume" : "energy")), R("unit"), R(dimension ?? (volume ? "volume" : "energy_dimension")))];
         QuoteSpecification Q(string code, QuoteKind kind) => new(R(code), kind, R("currency"), R("quantity"),
             ExactDecimal.Parse(multiplier), ExactDecimal.Parse("0.001"), ExactDecimal.Parse("0.001"), ExactDecimal.Parse("-1000"), ExactDecimal.Parse("1000"));
         quotes = [Q("outright", QuoteKind.Outright), Q("basis", QuoteKind.Basis)];

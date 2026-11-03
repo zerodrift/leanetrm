@@ -1,15 +1,20 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0171_crude_setup_bookings.sql`. It includes reference/market data, certified
+`0179_lng_portfolio_scope.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
-Side programs, dashboard layouts and bounded physical gas/crude operations.
+Side programs, dashboard layouts, bounded physical gas/crude operations and
+pre-loading LNG cargo booking/valuation with saved Incoterms.
 The migration notes below include historical foundation checkpoints; statements
 about what an individual migration lacks describe that checkpoint, not the whole
 application. See [current implementation](../docs/implementation.md) and
 [verification](../docs/verification.md) for consumers and qualification.
 
 Recent schema groups and their contracts:
+
+- 0176–0179: [physical LNG cargo](../docs/physical-lng.md), separate physical masters,
+  saved Incoterms, exact discharge-energy conversion, native admission and retained
+  Blotter/portfolio/worker execution. Schema release and market activation are separate.
 
 - 0131–0138: [dated-contract observations](../docs/observation-price-scenarios.md),
   executable contract admission and retained worker reads.
@@ -34,6 +39,14 @@ Recent schema groups and their contracts:
   ([individual scope](../docs/risk-engine.md#individual-trade-scope-d292)).
 - 0170–0171: [maintained crude delivery setups](../docs/crude-delivery-setups.md),
   exact original pricing bindings, versioned native booking and leased worker reads.
+- 0172: typed complete joint-scenario/selected-derivative jobs and private exact-axis
+  retention validation ([joint risk](../docs/joint-scenario-risk.md)).
+- 0173: physical crude reference resolution and final booking source-pin checks
+  ([physical reference entry](../docs/crude-delivery-setups.md#physical-reference-entry)).
+- 0174: authorized versions for reusing unchanged Blotter reads.
+
+- 0175: immutable statistical history/clock receipts, lease-fenced source reads and
+  authorized completed-report archive ([parametric risk](../docs/parametric-risk.md)).
 
 Apply migrations in order. Some deliberately refuse incompatible retained data;
 existing installations require the separately qualified schema/rebooking procedure.

@@ -138,3 +138,13 @@ test('the muted text of the desk meets AA contrast on the rows and group headers
   for(const [name,background] of Object.entries(grounds)){const ratio=contrast(color,background);assert.ok(ratio>=4.5,`${selector} on a ${name} is ${ratio.toFixed(2)}:1`);}
  }
 });
+
+test('a loss chart shades positive losses red without reversing exact plotted values',()=>{
+ const spec={title:'Scenario loss',axis:'category',unit:'USD',kind:'bar',colorBySign:true,positiveTone:'loss',series:[{name:'Book',points:[{x:'loss',y:'3'},{x:'gain',y:'-2'}]}]};
+ const bars=chartOptions(spec).series[0].data;
+ assert.equal(bars[0].value,3);assert.equal(bars[0].itemStyle.color,polarity.loss);assert.equal(bars[1].itemStyle.color,polarity.gain);
+ const heat=chartOptions({...spec,kind:'heatmap'});
+ assert.deepEqual(heat.visualMap.inRange.color,[polarity.gain,'#f7f8f7',polarity.loss]);
+ assert.equal(heat.series[0].data[0][2],3);
+ assert.equal(chartOptions({...spec,kind:'heatmap',series:[{name:'Book',points:[{x:'loss',y:'3'}]}]}).visualMap.inRange.color.at(-1),polarity.loss);
+});

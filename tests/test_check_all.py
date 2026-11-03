@@ -40,6 +40,14 @@ class CheckAllTests(unittest.TestCase):
         for argument in ('--gas-composition-check','--gas-setup-check','--browser-check','--browser'):
             self.assertIn(argument,gas[0])
 
+    def test_lng_booking_upgrade_recovery_and_worker_checks_run_in_trading_partition(self):
+        commands=[]
+        run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))
+        cargo=[c for c in commands if '--lng-cargo-check' in c]
+        self.assertEqual(len(cargo),1)
+        self.assertIn('--browser-check',cargo[0])
+        self.assertEqual(cargo[0][cargo[0].index('--browser')+1],'/browser executable')
+
     def test_physical_crude_lifecycle_and_recovery_are_qualified_in_trading_partition(self):
         commands=[]
         run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))
@@ -127,6 +135,8 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--unit-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--exchange-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('--risk-jobs-check' in command and '--browser-check' in command for command in commands))
+        self.assertTrue(any('--factor-history-check' in command and '--browser-check' in command for command in commands))
+        self.assertTrue(any('--parametric-risk-check' in command and '--browser-check' in command for command in commands))
         self.assertTrue(any('mixed-gas' in command for command in commands))
         self.assertTrue(any('--hosted-check' in command and '--browser-check' in command for command in commands))
 
@@ -188,6 +198,8 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(group_of('--close-risk-check'), 'ppa')
         self.assertEqual(group_of('--assistant-check'), 'assistant')
         self.assertEqual(group_of('--risk-jobs-check'), 'assistant')
+        self.assertEqual(group_of('--factor-history-check'), 'assistant')
+        self.assertEqual(group_of('--parametric-risk-check'), 'assistant')
         self.assertEqual(group_of('--hosted-check'), 'workspace')
         for flag in ('--draft-check', '--factor-swap-check', '--index-fixing-check',
                      '--side-observation-check', '--demo-instruments-check', '--close-out-drafts-check', '--unified-trading-check'):

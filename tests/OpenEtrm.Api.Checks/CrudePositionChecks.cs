@@ -10,7 +10,7 @@ internal static class CrudePositionChecks
   var trade=Guid.NewGuid();var instrument=Guid.NewGuid();var book=Guid.NewGuid();var definition=Guid.NewGuid();
   JsonElement Row(Guid? selectedBook=null,Guid? selectedDefinition=null,int revision=1)=>JsonSerializer.SerializeToElement(new{trade_id=trade,binding_id=instrument,book_id=selectedBook??book,definition_revision_id=selectedDefinition??definition,revision,trade_reference=17});
   ImmutableArray<JsonElement> inventory=[Row()];
-  CrudePositions.RequireInventory(inventory,[Row()]);
+  PositionInventory.Require(inventory,[Row()],Missing);
   Reject(inventory,[]);
   Reject(inventory,[Row(),Row()]);
   Reject(inventory,[Row(revision:2)]);
@@ -24,9 +24,10 @@ internal static class CrudePositionChecks
   if(target.Page!="blotter"||target.Selection!["revision"]!.GetValue<int>()!=1||target.Selection["instrumentType"]!.GetValue<string>()!="physical_crude")throw new Exception("Crude tool navigation must reopen the exact retained revision.");
   Console.WriteLine("PASS crude position completeness: missing, duplicated, revised, moved-book and replaced-source facts refuse before valuation");
  }
+ private static MarketDataException Missing()=>new("position_facts","Incomplete retained position inventory.");
  private static void Reject(ImmutableArray<JsonElement> inventory,ImmutableArray<JsonElement> rows)
  {
-  try{CrudePositions.RequireInventory(inventory,rows);}catch(MarketDataException e)when(e.Code=="position_facts"){return;}
+  try{PositionInventory.Require(inventory,rows,Missing);}catch(MarketDataException e)when(e.Code=="position_facts"){return;}
   throw new Exception("Incomplete or conflicting crude facts were admitted.");
  }
 }

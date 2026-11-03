@@ -223,8 +223,10 @@ Swap definitions mark Discounting, and common/specialized PV reject conflicting
 policies. Existing market series, observations, explicit derived dependencies and
 immutable scenario risk already separate market inputs from contractual cashflows.
 Standalone physical forward booking, option products other than listed American
-futures options ([D288](futures-options.md)) and VaR/covariance remain
-unimplemented; their agreed design is recorded in architecture/plan.
+futures options ([D288](futures-options.md)) remain unimplemented.
+[Parametric risk](parametric-risk.md) implements native sample covariance and
+one-session delta-normal VaR/ES; historical full repricing and other statistical
+methods remain work.
 
 Trading opens a shared Blotter with individual futures trade bindings, managed
 pivots, account-saved layouts, exact exports and shared charts. Eight synthetic
@@ -1482,7 +1484,9 @@ for one exact series from an explicit set of observation IDs. Raw corrections ar
 retained separately. The result never selects a newer correction, carries a price
 forward or fills a missing sample. Those pins are supplied explicit inputs, not
 certification of a wall-clock `known_at`. Histories are ready to identify sample
-columns; synchronized sampling/covariance/VaR estimators remain later work.
+columns. [Aligned dated-factor history](risk-factor-history.md) and
+[parametric risk](parametric-risk.md) subsequently add certified common sampling,
+sample covariance and native delta-normal VaR/ES.
 
 ## Security boundary
 

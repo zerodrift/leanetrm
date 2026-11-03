@@ -31,8 +31,12 @@ profile. Passing a timestamp never proves a receipt, title transfer or payment.
 
 Grade, commodity, facility, custody point, quantity basis, unit, quote, currency
 and valuation assignment retain exact scoped reference versions. A city or a
-pricing hub is not a custody point. A grade's identity selects its applicable
-valuation assignment; another grade at the same point cannot borrow that mark.
+pricing hub is not a custody point. D297 derives the applicable valuation from
+the exact commodity, grade, facility, custody point, quantity specification,
+clock and delivery interval. Each master remains a separate explicit choice;
+the trader cannot choose a curve or binding to bypass missing or ambiguous
+mapping. Another grade at the same point cannot borrow that mark. See
+[physical reference entry](crude-delivery-setups.md#physical-reference-entry).
 An all-in curve has only its declared price dependencies. Equal price levels do
 not imply a common benchmark exposure or a quality differential.
 

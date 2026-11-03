@@ -34,6 +34,20 @@ internal static class JointScenarioRiskChecks
             Equal(RiskEngine.CalculateExact(f.Prepared,[],RiskEngine.ExactNumericalPolicy).Groups.Single().BaseValues.Single().Value,"500");
             if(run.Detail!=RiskDetail.Books||run.Scenarios.Any(s=>!s.Groups.Single().Positions.IsEmpty))throw new Exception("Book detail must not retain a position cube.");
         });
+        Check("an explicitly unaffected market partition retains the sample without duplicating base work",()=>
+        {
+            var f=new Fixture((x,_)=>ExactDecimal.Parse("100")+ExactDecimal.Parse("2")*x,"5");
+            var flat=new ConnectedRiskScenario("other_market","Other market only",[]){Unchanged=true};
+            var run=RiskEngine.CalculateScenarios(f.Prepared,f.Set(flat,f.Sample("here",("1",null))),RiskEngine.ExactNumericalPolicy,detail:RiskDetail.Holdings);
+            var unchanged=run.Scenarios[0];
+            Equal(unchanged.Groups.Single().Totals.Single().Values.Value,"500");
+            Equal(unchanged.Groups.Single().Positions.Single().Values.Loss,"0");
+            if(unchanged.Scenario.Id!=run.BaseScenario.Id||unchanged.Groups.Single().UnitPricerCalls!=0||unchanged.GraphWork!=default)
+                throw new Exception("An explicitly unchanged projection must reuse the exact base and record no child graph work.");
+            Equal(run.Scenarios[1].Groups.Single().Totals.Single().Values.Pnl,"10");
+            Reject("risk_scenarios",()=>RiskEngine.CalculateScenarios(f.Prepared,f.Set(flat with{Unchanged=false}),RiskEngine.ExactNumericalPolicy));
+            Reject("risk_scenarios",()=>RiskEngine.CalculateScenarios(f.Prepared,f.Set(f.Sample("invalid",("1",null)) with{Unchanged=true}),RiskEngine.ExactNumericalPolicy));
+        });
         Check("selected mixed gamma is measured from four corners at three explicit steps",()=>
         {
             var f=new Fixture((x,y)=>x*y,"5");
@@ -203,9 +217,10 @@ internal static class JointScenarioRiskChecks
         });
         Check("retained result size is bounded before producing a scenario matrix",()=>
         {
-            var f=new Fixture((x,_)=>x,copies:500);
+            var calls=0;var f=new Fixture((x,_)=>{calls++;return x;},copies:500);
             var set=f.Set(Enumerable.Range(0,512).Select(i=>f.Sample(i.ToString(),("1",null))).ToArray());
             Reject("risk_scenario_capacity",()=>RiskEngine.CalculateScenarios(f.Prepared,set,RiskEngine.ExactNumericalPolicy,detail:RiskDetail.Holdings));
+            if(calls!=0)throw new Exception("Oversized result matrices must refuse before base PV is evaluated.");
             var small=RiskEngine.CalculateScenarios(f.Prepared,f.Set(f.Sample("one",("1",null))),RiskEngine.ExactNumericalPolicy);
             Equal(small.Scenarios.Single().Groups.Single().Totals.Single().Values.Pnl,"500");
         });

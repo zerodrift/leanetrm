@@ -1,7 +1,7 @@
 // Product editors share the desk's panel without duplicating their forms,
 // native requests or recovery state. Each editor owns its product rules.
-export type TicketProduct='ppa'|'gas'|'crude'|'options';
-const products=['ppa','gas','crude','options'] as const;
+export type TicketProduct='ppa'|'gas'|'crude'|'lng'|'options';
+const products=['ppa','gas','crude','lng','options'] as const;
 export type ProductEditor={root:HTMLElement;begin:()=>Promise<void>;inspect:(trade:string)=>Promise<void>;reset:()=>void;
  unsaved:()=>boolean;pending:()=>boolean;sync:()=>void};
 export function productTickets(editors:Record<TicketProduct,ProductEditor>){

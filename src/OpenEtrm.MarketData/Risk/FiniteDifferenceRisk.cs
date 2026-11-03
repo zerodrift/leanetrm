@@ -94,8 +94,7 @@ public static partial class RiskEngine
                             up.Add(down).Subtract(basis.Scale(two)).DivideBy(steps[first][step]).DivideBy(steps[first][step]);
                     }
                 }
-                var stable=WithinTolerance(estimates[0],estimates[1],tolerance)&&WithinTolerance(estimates[2],estimates[1],tolerance);
-                return new(estimates[0],estimates[1],estimates[2],stable);
+                return AssessFiniteDifference(estimates[0],estimates[1],estimates[2],tolerance);
             }
             var groups=run.Groups.Select((g,n)=>new ConnectedDerivativeGroup(n,
                 g.Values.Select((v,i)=>new DerivativeBookValue(v.BookId,Estimate(n,i,false))).ToImmutableArray(),
@@ -116,6 +115,12 @@ public static partial class RiskEngine
         bump.Size.CompareTo(default)>0&&bump.ConventionId==ConnectedRiskBump.Convention;
     private static bool ValidTolerance(FiniteDifferenceTolerance? tolerance)=>tolerance is not null&&
         tolerance.Absolute.CompareTo(default)>=0&&tolerance.Relative.CompareTo(default)>=0;
+    public static ExactFiniteDifferenceEstimate AssessFiniteDifference(ExactMoney half,ExactMoney nominal,ExactMoney twice,FiniteDifferenceTolerance tolerance)
+    {
+        if(!ValidTolerance(tolerance))throw Error("risk_sensitivity","Select explicit nonnegative absolute and relative tolerances.");
+        var halfAgrees=WithinTolerance(half,nominal,tolerance);var doubleAgrees=WithinTolerance(twice,nominal,tolerance);
+        return new(half,nominal,twice,halfAgrees&&doubleAgrees);
+    }
     private static bool WithinTolerance(ExactMoney estimate,ExactMoney nominal,FiniteDifferenceTolerance tolerance)
     {
         ExactMoney Abs(ExactMoney amount)=>amount.CompareTo(ExactMoney.FromMoney(new(default,amount.Currency)))<0?amount.Scale(ExactDecimal.Parse("-1")):amount;

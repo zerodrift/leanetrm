@@ -30,13 +30,14 @@ export function createTableWorkspace(host:HTMLElement,options:WorkspaceOptions){
   }
   function labeled(parent:HTMLElement,label:string,control:HTMLElement){const wrap=node('div'),caption=node('label',label);if(control.id)caption.htmlFor=control.id;wrap.append(caption,control);parent.append(wrap);}
   const savePanel=menu('Save view','settings'),name=node('input',undefined,'name');name.maxLength=60;name.placeholder='Name this view';labeled(savePanel,'View name',name);
-  const sidebar=node('input',undefined,'sidebar');sidebar.type='checkbox';const sidebarChoice=node('label');sidebarChoice.className='table-menu-check';sidebarChoice.append(sidebar,' Show in the sidebar');savePanel.append(sidebarChoice);
+  const sidebar=node('input',undefined,'sidebar');sidebar.type='checkbox';const sidebarChoice=node('label');sidebarChoice.className='table-menu-check';sidebarChoice.append(sidebar,' Pin to sidebar');savePanel.append(sidebarChoice);
   const saveActions=node('div');saveActions.className='table-menu-actions';saveActions.append(button('Save view','save'),button('Delete view','delete'),button('Reload views','views-reload'),button('Reset layout','reset-layout'));savePanel.append(saveActions);
-  const note=node('p','Named views are saved to your account. Reload views restores the selected saved layout. Dates and market inputs are selected separately.','view-note');note.className='field-help';savePanel.append(note);
+  const note=node('p','Save your filters and layout as a named view. Pin it for one-click access from the sidebar. Dates and market inputs are selected separately.','view-note');note.className='field-help';savePanel.append(note);
   const columnsPanel=menu('Columns','columns'),columnChoices=node('div',undefined,'column-choices');columnChoices.className='table-field-choices';columnsPanel.append(columnChoices);
   const columnNote=node('p','Filters on hidden columns stay active. Pivot units and currencies stay visible.');columnNote.className='field-help';columnsPanel.append(columnNote);
   const scopePanel=menu('Book / portfolio','scope');
   for(const [key,label] of options.scopes){const select=node('select',undefined,key);select.multiple=true;select.size=4;labeled(scopePanel,label+' · none selected means all',select);}
+  const scopeHelp=node('p','Choose portfolios to narrow the available books. No selection includes all readable books in that scope.');scopeHelp.className='field-help';scopePanel.append(scopeHelp);
   const scopeApply=button('Apply filters','scope-apply');scopeApply.onclick=()=>{options.onScope();};scopePanel.append(scopeApply);
   const pivotPanel=menu('Pivot','pivot');const builderHeading=node('div');builderHeading.className='pivot-builder-heading';const introduction=node('div');introduction.append(node('strong','Build a pivot'),node('p','Arrange your rows, columns and values. Drag dimensions between axes or use the arrow controls.'));builderHeading.append(introduction);pivotPanel.append(builderHeading);
   const mode=node('select',undefined,'mode');mode.append(new Option(options.rowLabel,options.rowMode),new Option('Pivot table','pivot'));labeled(pivotPanel,'Display',mode);

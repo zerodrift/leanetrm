@@ -182,6 +182,51 @@ def run_checks(query, manifest, psql=None, environment=None):
         reject(lambda: query(f"UPDATE risk.{table} SET job_id=job_id WHERE job_id='{generic_job['jobId']}';"), 'immutable')
         assert query(f"SELECT NOT has_table_privilege('openetrm_runtime','risk.{table}','SELECT') AND NOT has_table_privilege('openetrm_risk_worker','risk.{table}','INSERT');") == 't'
     print('PASS connected risk axes: mandatory graph coverage, typed coordinates, resolved point custody, numeric bounds and immutable private pins', flush=True)
+    # Joint sets retain their original typed request and the union of every
+    # selected axis. They cannot borrow sensitivity multipart semantics.
+    extra_curve = {'revision': {'catalogId': catalog, 'revisionId': supplemental_revision}, 'code': member['curve']}
+    extra_factor = {'coordinate': 'market_quote', 'target': {'kind': 'parallel', 'curve': extra_curve}}
+    extra_axis = {'id': 'd' * 64, 'marketRevisionId': supplemental_revision, 'factor': extra_factor,
+                  'points': [{'curve': extra_curve, 'pointId': str(uuid4())}]}
+    joint_frame = {**generic_frame, 'scenarioAxes': [axis, extra_axis], 'scope': {'bookIds': books, 'portfolioIds': []}}
+    shift = lambda selected: {'factor': selected, 'size': '0.01', 'convention': 'absolute_curve_coordinate_parent_additive_v1'}
+    joint_contract = {'convention': 'portfolio_joint_risk_v1', 'scenarios': {'id': 'synthetic_joint', 'version': '1',
+        'convention': 'independent_joint_absolute_curve_scenarios_v1', 'scenarios': [
+            {'id': 'together', 'label': 'Two retained markets', 'shifts': [shift(factor), shift(extra_factor)]}]}, 'derivatives': None}
+    joint_payload = {**generic_request, 'engineVersion': 'synthetic_joint_engine_v1', 'bumps': [], 'joint': joint_contract}
+    operation = str(uuid4())
+    joint_job = submit(operation, joint_payload, joint_frame)
+    assert joint_job['kind'] == 'scenarios' and joint_job['scenarioCount'] == 1
+    assert submit(operation, joint_payload, joint_frame)['jobId'] == joint_job['jobId']
+    assert query(f"SELECT count(*) FROM risk.job_scenario_axes WHERE job_id='{joint_job['jobId']}';") == '2'
+    user(f"SELECT risk.cancel('{joint_job['jobId']}')")
+    reject(lambda: submit(payload=joint_payload, selected_frame={**joint_frame, 'scenarioAxes': [axis]}), 'risk_axis_input')
+    reject(lambda: submit(payload=joint_payload, selected_frame={**joint_frame, 'scenarioAxes': []}), 'risk_axis_input')
+    reject(lambda: submit(payload=joint_payload, selected_frame={**joint_frame, 'run': {'id': str(uuid4()), 'part': 1, 'parts': 2}}), 'risk_job_run')
+    invalid_joint = deepcopy(joint_payload)
+    invalid_joint['joint']['scenarios']['scenarios'][0]['shifts'][1]['factor']['target']['curve']['code'] = 'not_in_the_retained_union'
+    reject(lambda: submit(payload=invalid_joint, selected_frame=joint_frame), 'risk_axis_input')
+    zero = {'absolute': '0', 'relative': '0'}
+    fd_payload = {**joint_payload, 'joint': {'convention': 'portfolio_joint_risk_v1', 'scenarios': None, 'derivatives': {
+        'convention': 'exact_central_half_nominal_double_v1', 'axes': [
+            {'id': name, 'bump': {'factor': selected, 'size': '0.01', 'convention': 'absolute_curve_coordinate_symmetric_v1'},
+             'deltaTolerance': zero, 'gammaTolerance': zero} for name, selected in [('a', factor), ('b', extra_factor)]],
+        'mixed': [{'id': 'pair', 'firstAxis': 'a', 'secondAxis': 'b', 'tolerance': zero}]}}}
+    fd_job = submit(payload=fd_payload, selected_frame=joint_frame)
+    assert fd_job['kind'] == 'derivatives' and fd_job['derivativeCount'] == 5
+    user(f"SELECT risk.cancel('{fd_job['jobId']}')")
+    for change in ('missing_tolerance', 'negative_tolerance', 'duplicate_pair', 'missing_axis', 'tiny_step', 'ambiguous_operation'):
+        invalid = deepcopy(fd_payload)
+        selected = invalid['joint']['derivatives']
+        if change == 'missing_tolerance': selected['axes'][0]['deltaTolerance'].pop('relative')
+        elif change == 'negative_tolerance': selected['axes'][0]['deltaTolerance']['absolute'] = '-1'
+        elif change == 'duplicate_pair': selected['mixed'].append({**selected['mixed'][0], 'id': 'duplicate', 'firstAxis': 'b', 'secondAxis': 'a'})
+        elif change == 'missing_axis': selected['mixed'][0]['secondAxis'] = 'absent'
+        elif change == 'tiny_step': selected['axes'][0]['bump']['size'] = '0.000000000000000001'
+        else: invalid['joint']['scenarios'] = joint_contract['scenarios']
+        reject(lambda: submit(payload=invalid, selected_frame=joint_frame), 'risk_joint_input')
+    assert query("SELECT NOT has_function_privilege('openetrm_runtime','risk.axis_commands(jsonb)','EXECUTE') AND NOT has_function_privilege('synthetic_risk_worker','risk.require_joint_axes(risk.jobs)','EXECUTE');") == 't'
+    print('PASS joint risk retention: typed scenarios/derivatives, complete immutable axis union, exact retry, private kernels and direct-SQL multipart refusal', flush=True)
     empty_markets = submit(payload=generic_request, selected_frame={**frame, 'supplementalMarkets': {}, 'swapMarketSelections': {}})
     user(f"SELECT risk.cancel('{empty_markets['jobId']}')")
     reject(lambda: submit(payload={key: value for key, value in generic_request.items() if key != 'pricingPolicy'}, selected_frame=generic_frame), 'risk_job_input')

@@ -4,18 +4,45 @@ Status: design baseline approved for implementation on 2026-10-16. Milestone 0 i
 complete. The broad product milestones below remain incomplete; the bounded
 capabilities described here have their own implementation and verification records.
 
+D297 separates physical reference choices from pricing coverage in crude, gas
+and the existing physical PPA consumer. Crude entry has individual master fields
+and derives its unique pricing mapping in the backend. Missing or overlapping
+mappings refuse; retained trades keep their admitted source. Migration 0173 adds
+the final booking guard and needs a separately qualified release. Standalone
+physical power dimensions and fee catalogs remain subsequent work. The next
+[physical LNG cargo and saved Incoterms slice](physical-lng.md) is authorized and
+implemented and locally qualified; schema release and production mapping
+activation remain separate. See
+[the entry contract](crude-delivery-setups.md#physical-reference-entry).
+
 D289 adds the [Risk results workspace](risk-workspace.md): Risk-owned setup,
 shared sensitivity ladders/heatmaps and drill-through, visible incomplete coverage,
 retained report links, and multipart submission recovery. The bounded recent-job
-directory remains separate from a complete archive. Joint statistical scenarios,
-aligned history, VaR/expected shortfall, Monte Carlo/PCA/hybrid, EVT and backtesting
-remain subsequent increments; deterministic graphics do not establish them.
+directory remains separate from the D299 completed statistical-report archive.
+Delta-normal VaR/ES is implemented below; historical simulation, Monte Carlo/PCA/
+hybrid, EVT and rolling backtesting remain subsequent increments.
+
+D294 adds temporary maximize/restore to every Blotter pane, a shared searchable
+portfolio/book picker in Blotter and Risk, and personal saved-view sidebar pins
+in place of fixed physical-product shortcuts. Membership comes from the bound
+directory; managed scope resolution and existing saved-view persistence remain
+unchanged. See [the workbench](blotter-workbench.md#panes-arrange-resize-collapse).
 
 D291 adds the [managed joint-scenario and mixed-derivative boundary](joint-scenario-risk.md):
 bounded named sibling shocks, exact full-PV loss, selected cross-gammas and explicit
-half/nominal/double step diagnostics. Joint-run HTTP admission, durable retention
-and graphical widgets remain the next integration gate. Aligned history and
-statistical engines remain subsequent increments.
+half/nominal/double step diagnostics. D295 integrates typed HTTP admission,
+durable worker replay and graphical scenario/Greek reports in Risk and Blotter.
+Migration 0172 needs a separately qualified schema release.
+
+D296 adds [aligned dated-factor history](risk-factor-history.md) (R3): complete
+held-factor union, certified correction/knowledge selection, captured calendar
+closes, exact common adjacent-session changes and explicit coverage diagnostics.
+Risk prepares, graphs and reauthorizes exported manifests for the shared
+portfolio/book/trade scope. Owned development data supplies 250 weekday closes
+without changing factor identity. This bounded read adds no persistence table or
+worker. D299 completes R4 covariance/delta-normal VaR/ES and the statistical
+archive/read contract; R5 follows with full-repricing historical simulation and
+rolling checks.
 
 D292 adds [individual trade selection in Risk](risk-workspace.md), following
 portfolio → book → trades. Backend filtering precedes valuation, and retained
@@ -1701,3 +1728,42 @@ runtime writes, exact replay/amendment, source/link ordering and display-zone
 changes during authoring. Independent asset normalization sets, partial-month
 capacity, arbitrary REC inventory and composed break-even/monthly settlement
 remain outside this contract. Production activation remains separate.
+
+
+### Page restoration and Blotter reuse (D298)
+
+Reference category sources are declared by the server and validated independently
+of pricing definitions. Reload restores the current permitted page, with explicit
+reference/risk addresses taking precedence. Only a page identifier is persisted.
+Power TOUs keeps its historical context and shows a working-data requirement
+instead of loading current-only definitions; returning to working data restores
+the page. Working-close changes preserve the independent TOU editor.
+
+Completed Blotter values stay in window memory across page visits. Reentry checks
+current authority and an opaque version of the exact server selection and durable
+publication/display heads before showing retained rows. Unchanged reads avoid
+position and valuation requests; changed versions reload. Failed or superseded
+checks cannot reveal retained values. Explicit Refresh remains a new read.
+
+The freshness head includes interval-series and collected-price publications,
+shared deal precision, workspace reference labels and all current context-capture
+source streams. New input streams must extend this head before their values are
+eligible for browser reuse. This increment does not persist values across reload,
+introduce a shared pricing cache or subscribe ordinary working pages to live
+corrections. Migration 0174 requires normal qualified schema release handling.
+
+
+### Parametric risk increment (D299)
+
+Delta-normal VaR/ES now consumes D296 aligned history through complete native
+finite differences, explicit sample/drift/confidence/tail policies and exact
+portfolio moments. Risk displays distributions, signed book/factor contributions,
+correlation and local agreement evidence. One complete job retains source/clock
+receipts for fenced replay; an authorized paged archive discovers completed
+reports independently of recent recovery jobs. See [the implemented contract](parametric-risk.md).
+
+Next statistical work is full-repricing historical simulation with explicit
+empirical quantile and fractional tail-mass conventions, method comparison and
+initial rolling hypothetical P&L backtesting. Full Monte Carlo precedes PCA/hybrid
+approximation; EVT requires separate tail qualification. No such estimator or
+production activation is implied by this increment.

@@ -6,6 +6,18 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D299 adds [parametric VaR and expected shortfall](parametric-risk.md), using the
+complete held-factor history, ordinary native PV finite differences and one
+retained statistical job. Reports include signed book/factor contributions and
+correlation diagnostics; currencies and valuation measures remain separate.
+
+The authorized next [physical LNG cargo](physical-lng.md) slice retains separate
+loading/discharge references, explicit discharge-energy/conversion terms,
+backend-derived valuation and saved Incoterms edition/rule/named place. Its
+local qualification covers native booking, retained trading views and shared
+interactive/queued scenario valuation. Incoterms do not supply
+title events, pricing rules or freight charges.
+
 D284 extends the assistant across existing page operations, with explicit human
 approval of every proposed business command and separately delegated, versioned
 page guidance. Operational questions need no financial access or invented market
@@ -18,6 +30,13 @@ with explicit standard-volume equivalence and immutable booking pins. Native
 pre-delivery valuation and shared portfolio risk consume the original market
 identities. Separate-master delivery-to-cash remains unqualified and refuses;
 existing imported assignments keep their established workflow.
+
+D297 keeps physical master parameters separate in trade entry. Exact reference
+tables supply choices even without pricing coverage and even for singleton lists.
+Crude pricing is derived by the backend from the selected physical tuple and
+delivery interval; missing or ambiguous mappings refuse. Physical gas retains
+its product/pipeline/zone/location fields, and physical power retains its existing
+delivery location and unit fields. See [physical reference entry](crude-delivery-setups.md#physical-reference-entry).
 
 D271 introduces the bounded [fixed-volume physical crude](physical-crude.md)
 consumer for local implementation: exact grade/custody references, normalized
@@ -199,6 +218,30 @@ Historical requests retain their selected context and remain read-only.
 Business reads follow the definition bundle's declared reference relationships;
 the reference inspector loads its selected table separately in bounded pages
 under the same authorization and temporal rules (D144).
+Reference inspection receives a server-declared source for each category: exact
+reference and definition revisions. The browser checks category pages and product
+reads against that source, profile and context, rather than assuming inspection
+uses the pricing bundle's reference revision (D298).
+
+A tab remembers only its current page identifier per workspace, example and
+account. Reload checks current navigation permissions before restoring it;
+explicit reference and risk addresses take precedence. The page preference stores
+no business data; completed Blotter values are not persisted to browser storage.
+Existing retained-command storage is unchanged.
+
+The browser retains one completed Blotter read in window memory across page
+visits. Before showing it again, a fresh authorized `trading/freshness` read
+validates the exact current or retained selection and returns an opaque equality
+version. Reuse requires identical account, frame/context, scope, report, summary
+and chart inputs. The version identifies the running server instance. Its head
+includes every current temporal publication stream, shared deal formats, currently
+readable workspace reference display versions and the security epoch with current
+permissions/scopes. It excludes contexts and receipts created by
+reads. Sample the head before valuation: a publication during the read then forces
+a new read at reentry. A failed check clears the retained data; a superseded check
+cannot reveal it. This is browser read reuse, not cached authorization or a shared
+calculation cache. Explicit Refresh and input changes perform new reads.
+
 Initial browsing uses a distinct market-navigation response: curve names and
 explicit classifications, frame summaries and exact bundle/context identities.
 A classification is the curve's market type plus, for commodity curves, its
@@ -337,8 +380,13 @@ Trading opens a **Blotter** of individual trade bindings. Named views select
 columns, portfolio/book filters, row filters and an explicit pivot layout. Pivots
 use the managed backend, preserving exact quantity and currency partitions; they
 do not merge obligations. Saving a view does not save or choose market inputs,
-knowledge coordinates or authority. Shared financial date controls stay in the
-page header (D217). As of, with the Blotter's close badge (D219), remains visible;
+knowledge coordinates or authority. The Blotter and Risk share searchable
+portfolio/book selectors; portfolio membership narrows displayed book choices
+without silently removing explicit selections or changing the managed intersection. Named Blotter views
+can be pinned to the sidebar instead of fixed physical-product shortcuts.
+All four Blotter panes support temporary maximize/restore (D294).
+Shared financial date controls stay in the page header (D217).
+As of, with the Blotter's close badge (D219), remains visible;
 As known on and its explanation open in document flow under a summary naming the
 knowledge in use. Jobs exposes the same controls for saved valuation reports;
 unapplied edits block report reads, while job and node operations stay current.
@@ -1578,7 +1626,19 @@ bounded named sibling scenarios with exact loss/P&L, common PV/quantity handling
 selected mixed differences and explicit half/nominal/double step diagnostics.
 Temporary child layers leave the parent context unchanged even on failure.
 Completed results retain receipts and actual work, without child graph sessions.
-HTTP/durable joint-run admission and the new report widgets remain integration work.
+D295 integrates typed HTTP admission, complete retained worker runs and shared
+Risk/Blotter widgets. Each exact market partition retains its applicable axes and
+complete sample receipts; unaffected partitions are explicit. Native
+book/measure/currency estimates are added before step agreement is assessed.
+Migration 0172 preserves the existing authority, input and publication fences;
+joint runs cannot use sensitivity multipart frames.
+
+The [aligned dated-factor history](risk-factor-history.md) operation (D296)
+deduplicates the complete held input closure and retains exact common
+adjacent-session changes, certified correction evidence and captured calendar
+closes. Its authorized Risk read/export and graphics preserve portfolio/book/trade
+scope, current authority and unavailable coverage. This bounded manifest consumer
+adds no table or worker job; statistical estimation and a durable archive follow.
 
 Finite differences and full repricing are the generic black-box mechanism. For
 an absolute bump `h` in factor `f`:

@@ -1113,8 +1113,9 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .dock-tabs{display:flex;flex:1 1 auto;min-width:0;gap:2px;overflow-x:auto}
 .dock-grip{flex:none;padding:6px 4px;color:var(--text-3);cursor:grab;user-select:none}
 .dock-collapse{flex:none;min-height:0;padding:2px 8px;border:0;background:transparent;color:var(--text-2);font-size:14px;line-height:1}
-.dock-collapse:hover{background:var(--accent-soft);color:var(--accent-text)}
-.dock-collapse:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.dock-maximize{flex:none;min-height:28px;padding:2px 7px;border:0;background:transparent;color:var(--text-2);font-size:16px;line-height:1}
+.dock-collapse:hover,.dock-maximize:hover{background:var(--accent-soft);color:var(--accent-text)}
+.dock-collapse:focus-visible,.dock-maximize:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .dock-bar{display:flex;flex:none;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 6px 12px;background:var(--surface-2)}
 .dock-title{font-size:13px;font-weight:550;color:var(--text-2)}
 .dock-tab{flex:none;margin-bottom:-1px;padding:10px 12px 8px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--text-2);font-size:13px;font-weight:550;cursor:grab}
@@ -1297,6 +1298,8 @@ button.custom-curve-dot.connectable:hover,button.custom-curve-dot.connectable:fo
 .risk-size input{display:block;width:100%;font-family:var(--mono)}
 .risk-prefilled{display:inline-block;margin-top:4px;padding:1px 8px;border:1px solid #b9d9c9;border-radius:999px;background:var(--accent-soft);color:var(--accent-text);font-size:11px}
 .risk-custom{margin-top:12px}
+.risk-exact-value{display:block;font:11px var(--mono);overflow-wrap:anywhere;color:var(--text-3)}
+.risk-joint-editor{margin-top:16px;min-width:0}.risk-joint-editor>button{margin:6px 8px 6px 0}.joint-risk-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0;min-width:0}.joint-risk-fields label,.risk-joint-editor>label{display:grid;gap:6px;min-width:0}.joint-risk-fields input,.joint-risk-fields select,.risk-joint-editor>label input{width:100%;min-width:0}.joint-risk-list{display:grid;gap:10px;padding-left:24px}.joint-risk-list li{overflow-wrap:anywhere;padding:10px;border:1px solid var(--border);border-radius:var(--radius)}.joint-risk-list li p{margin:6px 0}
 .risk-scenario-editor{padding:14px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(125deg,#f4f9f6,#fff 75%);margin:0 0 12px}
 .risk-scenario-heading{margin-bottom:12px}
 .risk-scenario-heading p{margin:4px 0 0}
@@ -1687,9 +1690,9 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .details-pane .side-panel-tab{scroll-margin-top:42px}
 .draft-error{color:var(--danger);margin:10px 0}
 /* Maximizing is temporary presentation state: the saved dock arrangement and the editor stay in place. */
-#blotter-dock:has(#position-details[data-maximized=true]) :is(.dock-split,.dock-group):not(:has(#position-details)),
-#blotter-dock:has(#position-details[data-maximized=true]) :is(.dock-divider,.dock-head,.dock-bar){display:none}
-#blotter-dock:has(#position-details[data-maximized=true]) :is(.dock-split,.dock-group):has(#position-details){flex:1 1 0!important;min-height:0!important;min-width:0}
+.tab-dock[data-maximized] :is(.dock-split,.dock-group):not([data-maximized-path]),
+.tab-dock[data-maximized] :is(.dock-divider,.dock-grip){display:none}
+.tab-dock[data-maximized] :is(.dock-split,.dock-group)[data-maximized-path]{flex:1 1 0!important;min-height:0!important;min-width:0}
 .details-pane .side-panel-prompt{margin:0 0 10px;padding-right:16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
 /* A form in a narrow details pane takes the one column, as it does in a side panel. */
 @container (max-width:600px){
@@ -1950,7 +1953,7 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 /* The same product form lives in the shared trade panel. */
 .embedded-trade{min-width:0}
 .embedded-trade > .card{margin:0 0 1rem}
-.embedded-trade #crude-book-directory,.embedded-trade #ppa-book-directory{display:none}
+.embedded-trade #lng-book-directory,.embedded-trade #crude-book-directory,.embedded-trade #ppa-book-directory{display:none}
 #side-panel .product-switch{flex-wrap:wrap}
 #side-panel .embedded-trade .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
 
@@ -2094,9 +2097,44 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .risk-workspace-heading .card-heading{align-items:flex-start;gap:20px}
 .risk-workspace-heading .actions{flex-wrap:wrap;justify-content:flex-end}
 .risk-workspace-scope{display:grid;grid-template-columns:repeat(2,minmax(180px,1fr));gap:16px;margin-top:16px;max-width:760px}
-.risk-workspace-scope label{display:grid;gap:6px;font-weight:600}
-.risk-workspace-scope select{width:100%;min-height:86px}
 .risk-trade-scope{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;max-width:760px;margin-top:16px}.risk-trade-scope label{display:grid;gap:6px;font-weight:600;min-width:0}.risk-trade-scope select{width:100%;min-width:0}.risk-trade-scope button{justify-self:start}
+.risk-workspace-scope>.scope-field{min-width:0}
+/* Book scope: one shared searchable checkbox picker in the Blotter and Risk. */
+.scope-label{display:block;margin:0 0 6px;font-size:12px;font-weight:600;color:var(--text-2)}
+.scope-picker{position:relative;min-width:0;margin-bottom:12px}
+.scope-picker>summary{display:flex;align-items:center;gap:8px;min-height:38px;padding:8px 11px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);color:var(--text);font-size:13px;list-style:none;cursor:pointer}
+.scope-picker>summary::-webkit-details-marker{display:none}
+.scope-picker>summary::after{content:'⌄';margin-left:auto;color:var(--text-3)}
+.scope-picker[open]>summary::after{content:'⌃'}
+.scope-picker>summary:hover,.scope-picker[open]>summary{border-color:var(--accent-border);background:var(--surface-2)}
+.scope-picker>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.scope-picker>summary[aria-disabled=true]{opacity:.55;cursor:default}
+.scope-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scope-count{flex:none;min-width:20px;padding:1px 6px;border-radius:12px;background:var(--accent-soft);color:var(--accent-text);font-size:11px;text-align:center}
+.scope-picker-panel{padding:10px;margin-top:5px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.scope-search{width:100%;min-width:0;margin-bottom:8px!important}
+.scope-chips{display:flex;flex-wrap:wrap;gap:5px}
+.scope-chips:empty{display:none}
+.scope-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:2px 4px 2px 8px;margin-bottom:7px;border:1px solid var(--accent-border);border-radius:6px;background:var(--accent-soft);color:var(--accent-text);font-size:12px}
+.scope-chip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scope-chip button{flex:none;min-height:22px;padding:0 5px;border:0;background:transparent;color:inherit;font-size:16px}
+.scope-chip[data-unavailable=true]{border-color:var(--warn-border);background:var(--warn-soft);color:var(--text-2)}
+.scope-all{margin:0 0 5px;padding:3px 6px;border:0;background:transparent;color:var(--accent-text);font-size:12px}
+.scope-options{max-height:190px;overflow-y:auto;overscroll-behavior:contain}
+.scope-picker .scope-option{display:flex;align-items:center;gap:9px;padding:8px;margin:0;border-radius:5px;font-size:13px;font-weight:400;cursor:pointer}
+.scope-option:hover{background:var(--surface-2)}
+.scope-option:has(input:checked){background:var(--accent-soft)}
+.scope-option input{flex:none;width:15px;height:15px;min-height:0;margin:0;accent-color:var(--accent)}
+.scope-option>span{min-width:0;overflow-wrap:anywhere}
+.scope-option small{display:block;margin-top:2px;color:var(--text-3);font-size:11px}
+.scope-option:has(input:disabled){color:var(--text-3);cursor:default}
+.scope-empty{margin:8px 4px;font-size:12px;color:var(--text-3)}
+.scope-picker-panel{position:absolute;z-index:25;left:0;right:0;box-shadow:var(--shadow)}
+#blotter-scope[open]>.table-menu-panel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px;overflow:visible;max-height:none}
+#blotter-scope .scope-picker{margin-bottom:8px}
+#blotter-scope .field-help{grid-column:1/-1;margin:0;font-size:12px}
+#blotter-scope-apply{grid-column:2;justify-self:end;margin-top:8px}
+@media(max-width:600px){#blotter-scope[open]>.table-menu-panel{grid-template-columns:minmax(0,1fr)}#blotter-scope-apply{grid-column:1}}
 .risk-context-note:empty{display:none}
 .risk-context-note{padding:12px 16px;background:#f4f7f5;border-left:3px solid var(--gas);border-radius:4px}
 .risk-coverage{padding:12px 16px;margin:16px 0;border:1px solid #dbe7df;border-radius:8px;background:#f4f8f5}
@@ -2190,3 +2228,21 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .vol-gap{margin:12px 0 8px;padding:12px;font-size:12px;line-height:1.55;color:var(--warn);background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius)}
 .vol-tooltip{max-width:280px;white-space:normal!important;line-height:1.5}
 @media(max-width:900px){.vol-views{grid-template-columns:minmax(0,1fr)}.vol-readout{position:static;grid-row:auto}.vol-smiles{grid-template-columns:minmax(0,1fr)}}
+.factor-history-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0;min-width:0}.factor-history-fields label{display:grid;gap:6px;min-width:0}.factor-history-fields input,.factor-history-fields select,#risk-history-results select{width:100%;min-width:0}#risk-history-fields,#risk-history-results{min-width:0}#risk-history-results>label{display:block;margin:14px 0}
+
+#risk-history-panel{min-width:0;max-width:100%}#risk-history-fields{border:0;padding:0;margin:0}#risk-history-results .table-wrap{max-width:100%;overflow-x:auto}
+
+/* Retained Blotter values cannot appear before the server rechecks current access. */
+#futures-page.checking-cache>*{visibility:hidden}
+#risk-parametric-fields{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0 0;min-width:0}#risk-parametric-fields legend{font-weight:650;padding:0 8px}.parametric-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:12px;margin:16px 0}.parametric-stat{border:1px solid var(--border);border-radius:8px;padding:16px;display:grid;gap:8px;min-width:0}.parametric-stat span{font-size:12px;color:var(--text-muted)}.parametric-stat strong{font-size:21px;overflow-wrap:anywhere}.risk-result-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}.risk-result-controls label{display:grid;gap:6px;min-width:0;max-width:100%}.risk-result-controls select{max-width:100%}#risk-workspace-results p{overflow-wrap:anywhere}#risk-workspace-results details{min-width:0;max-width:100%}
+
+#lng-page,#lng-page .card,#lng-page label{min-width:0}
+#lng-page .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
+#lng-page input,#lng-page select{min-width:0;max-width:100%;box-sizing:border-box}
+#lng-page .table-wrap{max-width:100%;overflow-x:auto}
+#lng-page fieldset{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0;min-width:0}
+#lng-page legend{font-weight:600;padding:0 8px}
+#lng-page dl{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,2fr);gap:8px 16px;font-size:13px}
+#lng-page dt{color:var(--text-muted)}
+#lng-page dd{margin:0;overflow-wrap:anywhere}
+#lng-page.embedded-trade>.card:first-child{border:0;box-shadow:none;background:transparent;padding:0}

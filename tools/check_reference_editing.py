@@ -66,7 +66,12 @@ def run_checks(query, manifest):
     apply_id = str(uuid4())
     sql = f"SELECT security.apply_reference_display('{catalog}','{source}','{operation}','{apply_id}',0)::text"
     rejected(lambda: call('editor', sql), 'reference_denied')
+    head_sql=f"SELECT json_build_object('legacy',security.calculation_head('{manifest['catalogId']}'),'fresh',security.blotter_head('{manifest['catalogId']}'))::text"
+    head_before=json.loads(call('trader',head_sql))
     activated = json.loads(call('approver', sql))
+    head_after=json.loads(call('trader',head_sql))
+    assert head_before['legacy']==head_after['legacy'] and head_before['fresh']!=head_after['fresh']
+    print('PASS Blotter freshness: applied reference labels invalidate reuse independently of the pricing publication streams.',flush=True)
     assert activated['version'] == 1 and activated['displayRevisionId'] == operation
     assert json.loads(call('approver', sql)) == activated
     display = json.loads(call('viewer', f"SELECT security.reference_display_state('{catalog}','{source}')::text"))

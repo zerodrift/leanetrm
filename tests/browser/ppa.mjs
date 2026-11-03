@@ -21,7 +21,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await fill({'ppa-clock':'synthetic_eastern','ppa-cadence':'60','ppa-from':'2031-11-01','ppa-to':'2031-12-01','ppa-coverage-from':'2031-11-02T00:00','ppa-coverage-to':'2031-11-03T00:00','ppa-mw':'80','ppa-unit':'test_capacity_quantity','ppa-currency':'usd','ppa-discount':'false','ppa-quantity-kind':'profile','ppa-profile-capacity':'test_capacity_quantity','ppa-profile-energy':'test_power_quantity','ppa-hours':'all','ppa-calendar':'synthetic_eastern_holidays','ppa-pending-actuals':'require_actuals_v1'});
   await set('#ppa-component-0-coefficient','1');await payment(0);await set('#ppa-component-1-coefficient','-1');await payment(1);
   await fill({'ppa-component-1-price-kind':'flat','ppa-component-1-price-quantity':'test_power_quantity','ppa-component-1-multiplier':'1','ppa-component-1-price':'40'});
-  if(composition==='fixed_physical')await set('#ppa-component-0-location','test_hub_a');
+  if(composition==='fixed_physical'){
+   await check('physical power keeps an explicit reference location choice without a curve override',"document.querySelector('#ppa-component-0-location').value===''&&[...document.querySelector('#ppa-component-0-location').options].some(o=>o.value==='synthetic_unmapped_power_location')&&document.querySelector('#ppa-component-0-curve').disabled&&document.querySelector('#ppa-component-0-curve').closest('label').hidden");
+   await set('#ppa-component-0-location','test_hub_a');
+  }
   else await fill({'ppa-component-0-curve':'test_power_hourly_shaped','ppa-component-0-price-quantity':'test_power_quantity','ppa-component-0-multiplier':'1','ppa-component-0-index-multiplier':'1','ppa-component-0-adder':'1.25'});
   await set('#ppa-preview-month','2031-11');await click('#ppa-preview');
  }
@@ -88,7 +91,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('[data-add-role=fixed_charge]');await set('#ppa-component-3-coefficient','-1');await payment(3);
  await fill({'ppa-component-3-price-kind':'flat','ppa-component-3-price-quantity':'test_power_quantity','ppa-component-3-multiplier':'1','ppa-component-3-price':'0.25'});await click('#ppa-preview');
  await check('three-side PPA preview deducts the independent 500 charge from 2500',"[...document.querySelectorAll('#ppa-measures tbody tr')].slice(0,2).every(r=>r.lastElementChild.textContent==='2000')&&document.querySelector('#error').hidden",text('error'));
- await click('#details-maximize');await evaluate("document.querySelector('#ppa-components').scrollIntoView({block:'start'})");await shot('ppa-three-side-entry');await click('#details-maximize');
+ await click('#blotter-dock [data-maximize=details]');await evaluate("document.querySelector('#ppa-components').scrollIntoView({block:'start'})");await shot('ppa-three-side-entry');await click('#blotter-dock [data-maximize=details]');
  await set('#ppa-reason','Synthetic three-side PPA booking');await click('#ppa-confirm');await click('#ppa-submit');await manageSaved();
  await check('booked optional PPA side retains its exact role, direction and delivery quantity link',"(()=>{const m=JSON.parse(document.querySelector('#ppa-retained-terms').textContent)[0].terms.memberships,s=m.find(s=>s.role==='fixed_charge');return m.length===3&&s.ordinal===0&&s.coefficient==='-1'&&s.side.quantity.kind==='slots'&&JSON.stringify(s.side.quantity.slots)==='[{\"role\":\"energy_delivery\",\"ordinal\":0}]';})()",text('ppa-retained-terms'));
  await click('#ppa-draft');await check('unbooked PPA pricing mode has no booking control',"document.querySelector('#ppa-submit').hidden&&document.querySelector('#ppa-submit').disabled&&document.querySelector('#ppa-confirm').closest('label').hidden");

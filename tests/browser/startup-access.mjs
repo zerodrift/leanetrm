@@ -19,9 +19,11 @@ export async function run({command,evaluate,wait,click,persona,check,idle,url}){
       return new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
     };
   `});
-  const navigate=async(mode='')=>{await command('Page.navigate',{url:url+'/'+(mode?'?access-case='+mode:'')});await wait(idle+"&&(!document.querySelector('#error').hidden||performance.getEntriesByName('leanetrm:workspace-ready','mark').length===1)");};
+  const navigate=async(mode='')=>{await evaluate('window.__startupLeaving=true');await command('Page.navigate',{url:url+'/'+(mode?'?access-case='+mode:'')});await wait("!window.__startupLeaving&&"+idle+"&&(!document.querySelector('#error').hidden||performance.getEntriesByName('leanetrm:workspace-ready','mark').length===1)");};
   try{
-    await command('Page.navigate',{url:url+'/'});await wait(idle+"&&!!document.querySelector('#profile-label')");
+    await command('Page.navigate',{url:'about:blank'});await command('Page.navigate',{url:url+'/'});await wait(idle+"&&!!document.querySelector('#profile-label')");
+    // These assertions cover first-page defaults. Page restoration has its own account/permission regression suite.
+    await evaluate("Object.keys(sessionStorage).filter(key=>key.startsWith('openetrm:page:v1:')).forEach(key=>sessionStorage.removeItem(key))");
     await persona('trader');await navigate();
     await check('selected-profile startup hydrates from its explicit access projection without a second access request',"window.__startupAccessModes[0]==='true'&&!window.__startupAccessReads.includes('/api/access')&&window.__startupAccessReads.includes('/api/workspace/navigation')&&document.querySelectorAll('.curve-button').length>0&&document.querySelector('#error').hidden");
     await check('a trade reader opens on the Blotter under the Trading heading',"document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#page-section').textContent==='TRADING'&&!document.querySelector('#futures-page').hidden&&document.querySelector('#market-page').hidden&&document.querySelector('#nav-futures').classList.contains('active')&&!document.querySelector('#nav-group-trading').hidden");

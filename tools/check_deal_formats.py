@@ -12,9 +12,13 @@ def run_checks(url):
     before=c.call('swaps/editor',{'context':context,'tradeId':trade,'revision':None})
     display=c.call('trade-formats/read',{'context':context,'tradeId':trade})
     assert display['scope']=='current_deal_presentation'
+    freshness_request={**context,'convention':'trading_workspace_v1'}
+    prior_version=c.call('trading/freshness',freshness_request)
     for role,policy in [('trade',{'money':3,'price':4,'quantity':1,'factor':6}),('fixed',{'money':4,'price':7,'quantity':3,'factor':9}),('floating',{'money':2,'price':2,'quantity':3,'factor':5})]:
         saved=c.call('trade-formats/save',{'tradeId':trade,'role':role,'expectedRevision':0,'format':policy})
         assert saved['revision']==1 and saved['format']==policy
+    assert prior_version!=c.call('trading/freshness',freshness_request),'Shared deal formats invalidate retained Blotter display'
+    print('PASS Blotter freshness: deal display changes invalidate retained rows without amending financial facts.',flush=True)
     after=c.call('swaps/editor',{'context':context,'tradeId':trade,'revision':None})
     assert before['state']==after['state'] and before['history']==after['history']
     assert before['valuation']['presentValue']==after['valuation']['presentValue']

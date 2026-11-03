@@ -5,7 +5,11 @@ using OpenEtrm.Shared.Calculation;
 
 namespace OpenEtrm.MarketData.Risk;
 
-public sealed record ConnectedRiskScenario(string Id,string Label,ImmutableArray<CurveShift> Shifts);
+public sealed record ConnectedRiskScenario(string Id,string Label,ImmutableArray<CurveShift> Shifts)
+{
+    // An authorized multi-market operation explicitly projects an unaffected partition.
+    public bool Unchanged{get;init;}
+}
 public sealed record ConnectedRiskScenarioSet(string Id,string Version,string Convention,ImmutableArray<ConnectedRiskScenario> Scenarios)
 {
     public const string Independent="independent_joint_absolute_curve_scenarios_v1";
@@ -27,6 +31,12 @@ public sealed record ConnectedScenarioRiskRun(Guid SnapshotId,string NumericalPo
 public static partial class RiskEngine
 {
     public const int MaxJointScenarios=512,MaxJointScenarioShifts=64,MaxJointResultValues=250000;
+    public static long ScenarioResultWidth(PreparedConnectedPortfolioRisk prepared,RiskDetail detail)
+    {
+        if(prepared is null||!Enum.IsDefined(detail))throw Error("risk_contract","Supply the prepared portfolio and explicit result detail.");
+        return prepared.Portfolios.Sum(p=>(long)p.Positions.Select(position=>(position.BookId,position.FixedBasis.Currency)).Distinct().Count()+
+            (detail==RiskDetail.Holdings?p.Positions.Length:0));
+    }
 
     // A complete run is returned only after every sibling has succeeded. Results
     // retain resolved replay evidence, never per-scenario graph/pricing sessions.
@@ -40,20 +50,20 @@ public static partial class RiskEngine
         if(set is null||!ScenarioName(set.Id)||!ScenarioName(set.Version)||set.Convention!=ConnectedRiskScenarioSet.Independent||
             set.Scenarios.IsDefaultOrEmpty||set.Scenarios.Length>MaxJointScenarios||
             set.Scenarios.Any(s=>s is null||!ScenarioName(s.Id)||string.IsNullOrWhiteSpace(s.Label)||s.Label.Length>160||
-                s.Shifts.IsDefaultOrEmpty||s.Shifts.Length>MaxJointScenarioShifts)||
+                s.Shifts.IsDefault||s.Shifts.IsEmpty!=s.Unchanged||s.Shifts.Length>MaxJointScenarioShifts)||
             set.Scenarios.Select(s=>s.Id).Distinct(StringComparer.Ordinal).Count()!=set.Scenarios.Length)
             throw Error("risk_scenarios","Supply a versioned named set of one to 512 distinct independent scenarios, each with one to 64 explicit shifts.");
-        var calculation=new PortfolioRiskCalculation(prepared.Market,prepared.Portfolios,prepared.Contracts,detail,cancellation);
-        var width=calculation.Bases.Sum(b=>(long)b.Totals.Length+(detail==RiskDetail.Holdings?b.Positions.Length:0));
+        var width=ScenarioResultWidth(prepared,detail);
         if(width*(1+set.Scenarios.Length)>MaxJointResultValues)
             throw Error("risk_scenario_capacity","The selected scenario/detail matrix exceeds 250000 retained base and scenario value tuples; reduce the scenario set or select book detail.");
+        var calculation=new PortfolioRiskCalculation(prepared.Market,prepared.Portfolios,prepared.Contracts,detail,cancellation);
         var results=ImmutableArray.CreateBuilder<ConnectedRiskScenarioResult>(set.Scenarios.Length);
         var graph=default(GraphWork);
         foreach(var sample in set.Scenarios)
         {
             cancellation.ThrowIfCancellationRequested();
             // Every sample starts from the selected parent, never the last sample.
-            var scenario=prepared.Scenario.WithShifts(sample.Shifts,cancellation);
+            var scenario=sample.Unchanged?prepared.Scenario:prepared.Scenario.WithShifts(sample.Shifts,cancellation);
             var valuation=prepared.Valuation.WithScenario(scenario);
             var market=ConnectedValuation.WithScenario(prepared.Market,valuation,
                 prepared.IntervalBasis?.BindConnected(valuation,prepared.Bindings,cancellation));
@@ -63,7 +73,7 @@ public static partial class RiskEngine
                 detail==RiskDetail.Books?[]:portfolio.Positions.Select((p,i)=>new ScenarioPositionValue(p.TradeId,p.BindingId,p.BookId,p.ValuationId,
                     ScenarioValues(calculation.Bases[n].Positions[i],values[n].Positions[i]))).ToImmutableArray(),
                 values[n].UnitValuations,prepared.Contracts[n].Length-values[n].UnitValuations)).ToImmutableArray();
-            var work=scenario.Work;graph=AddGraphWork(graph,work);
+            var work=sample.Unchanged?default:scenario.Work;graph=AddGraphWork(graph,work);
             results.Add(new(sample.Id,Receipt(scenario),groups,work));
         }
         var preparation=0;

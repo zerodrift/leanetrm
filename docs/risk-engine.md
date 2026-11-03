@@ -35,7 +35,9 @@ the same remaining graph; an expired unused forecast cannot block an actual.
 The managed [joint scenario operation](joint-scenario-risk.md) (D291) prices
 bounded named sets of sibling layers through the same PV path and computes
 selected mixed derivatives with explicit three-step agreement checks. Its new
-result contracts are not yet admitted by the HTTP or durable-job operations below.
+result contracts are admitted by the explicit D295 joint request described in
+[joint risk](joint-scenario-risk.md#http-and-retained-runs-d295). Legacy symmetric
+requests keep their original wire and multipart behavior.
 
 The composition convention is
 `absolute_curve_coordinate_parent_additive_v1`. Each layer adds a signed,
@@ -138,6 +140,10 @@ The portfolio risk API supports immediate calculations and durable runs:
 | `POST /api/portfolio/risk/scope` | List authorized books and paged trade identities at the selected context, without pricing |
 | `POST /api/portfolio/risk/catalog` | Discover factors under the selected books and financial context |
 | `POST /api/portfolio/risk` | Calculate the explicit bumps around the selected stress |
+| `POST /api/portfolio/risk/history` | Prepare complete aligned dated-factor history |
+| `POST /api/portfolio/risk/parametric` | Calculate explicit one-session delta-normal VaR/ES |
+| `POST /api/portfolio/risk/parametric/jobs` | Retain a complete statistical job |
+| `GET /api/portfolio/risk/parametric/archive` | Page completed owned statistical reports |
 | `POST /api/portfolio/risk/jobs` | Admit `{requestId, request}` with an exact retained context |
 | `GET /api/portfolio/risk/jobs` | List recent owned portfolio job metadata for recovery after a reload |
 | `GET /api/portfolio/risk/jobs/{id}` | Read the owned job and any completed result under current authority |
@@ -459,8 +465,11 @@ gamma and up/down P&L retain backend native units, separate measures/currencies,
 exclusions and captured contexts. Its recent authorized job directory is bounded;
 missing parts remain incomplete, and links grant no authority. Unknown multipart
 submissions retain every original request identity before dispatch and reconcile
-after reload. Worker and calculation diagnostics are expandable. Statistical VaR,
-aligned calibration history and a complete report archive remain future work.
+after reload. Worker and calculation diagnostics are expandable.
+[Aligned history](risk-factor-history.md) and [delta-normal VaR/ES](parametric-risk.md)
+now add statistical calibration, native distribution/contribution diagnostics and
+a completed-report archive. Historical full repricing, Monte Carlo, PCA/hybrid,
+EVT and rolling backtesting remain subsequent work.
 
 Queueing writes to PostgreSQL. A separately configured managed risk worker claims
 compatible work; submitting a request does not provision a worker. The queue

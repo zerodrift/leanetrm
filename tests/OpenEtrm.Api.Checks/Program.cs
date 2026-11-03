@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--lng-admission",var lngAdmission]){await LngAdmissionChecks.Run(lngAdmission);return;}
 if(args is ["--assistant-workspace"]){AssistantWorkspaceChecks.Run();return;}
 if(args is ["--market-preparation-reuse"]){MarketPreparationReuseChecks.Run();return;}
 if(args is ["--crude-instants"]){CrudeInstantChecks.Run();return;}
@@ -15,6 +16,7 @@ if(args is ["--position-qualification"]){await PositionQualificationChecks.Run()
 
 if(args is ["--book-scope"]){BookScopeChecks.Run();return;}
 if(args is ["--risk-trade-scope"]){RiskTradeScopeChecks.Run();return;}
+if(args is ["--portfolio-joint-risk"]){PortfolioJointRiskChecks.Run();return;}
 if(args is ["--database-login-boundaries",var boundaryConnectionFile,var boundaryTracking]){await DatabaseLoginBoundaryChecks.Run(boundaryConnectionFile,bool.Parse(boundaryTracking));return;}
 if(args is ["--date-lists"]){SchedulePublicationChecks.Run();return;}
 if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
@@ -83,6 +85,7 @@ if(args is ["--blotter-stream"]){await BlotterStreamChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
+    RiskValuationAdmissionChecks.Run();
     CurveActivationInputChecks.Run();
     ConnectedSampleChecks.Run();
     FuturesExecutionChecks.Run();
@@ -108,6 +111,7 @@ if (args is ["--schedules"])
     TradePositionFactsChecks.Run();
     BookScopeChecks.Run();
     RiskTradeScopeChecks.Run();
+    PortfolioJointRiskChecks.Run();
     BookedScheduleLookupChecks.Run();
     SideObservationCompatibilityChecks.Run();
     ContractObservationAuthoringChecks.Run();

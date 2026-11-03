@@ -6,6 +6,7 @@ using OpenEtrm.Security;
 if(args is ["--crude-inventory-sales"]){CrudeInventorySalesChecks.Run();return;}
 if(args is ["--crude-receipt-cash"]){CrudeReceiptCashChecks.Run();return;}
 if(args is ["--physical-crude-side"]){PhysicalCrudeSideChecks.Run();return;}
+if(args is ["--lng-cargo"]){LngCargoChecks.Run();return;}
 if(args is ["--gas-daily-quantities"]){GasDailyQuantityChecks.Run();return;}
 if(args is ["--physical-gas-quantities"]){PhysicalGasQuantityChecks.Run();return;}
 if(args is ["--physical-gas-side"]){PhysicalGasSideChecks.Run();return;}
@@ -76,6 +77,8 @@ if(args is ["--connected-scenarios"]){ConnectedScenarioChecks.Run();return;}
 if(args is ["--connected-recipes"]){ConnectedRecipeChecks.Run();return;}
 if(args is ["--custom-projection"]){CustomProjectionChecks.Run();return;}
 if(args is ["--connected-portfolios"]){ConnectedPortfolioChecks.Run();return;}
+if(args is ["--aligned-factor-history"]){AlignedFactorHistoryChecks.Run();return;}
+if(args is ["--parametric-risk"]){ParametricRiskChecks.Run();return;}
 if(args is ["--joint-scenario-risk"]){JointScenarioRiskChecks.Run();return;}
 if(args is ["--temporal-bindings"]){TemporalBindingChecks.Run();return;}
 if(args is ["--connected-graph-benchmark",var graphOutput]){ConnectedGraphBenchmark.Run(graphOutput);return;}
@@ -105,6 +108,7 @@ if (args.Length > 0)
 CrudeReceiptCashChecks.Run();
 CrudeInventorySalesChecks.Run();
 PhysicalCrudeSideChecks.Run();
+LngCargoChecks.Run();
 await ScheduleInputBatchChecks.Run();
 BookedSideProgramChecks.Run();
 ScheduleMarketSourceChecks.Run();
@@ -529,6 +533,8 @@ ConnectedRecipeChecks.Run();
 CustomProjectionChecks.Run();
 ConnectedPortfolioChecks.Run();
 JointScenarioRiskChecks.Run();
+AlignedFactorHistoryChecks.Run();
+ParametricRiskChecks.Run();
 passed += TemporalBindingChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");

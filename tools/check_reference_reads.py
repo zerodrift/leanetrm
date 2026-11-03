@@ -105,7 +105,8 @@ def run_checks(c, check):
                     {'catalogId': full['definitions']['revisions'][0]['reference_catalog_id'],
                      'revisionId': full['definitions']['revisions'][0]['reference_revision_id']})
         check('reference page declares its exact source revision: ' + table,
-              response['referenceRevision'] == revision)
+              response['referenceRevision'] == revision
+              and catalog['referenceSources'][table]=={'referenceRevision':response['referenceRevision'],'definitionRevisionId':response['definitionRevisionId']})
         next_page = c.call('reference/catalog?' + urlencode({'table': table, 'offset': 1}))
         check('reference offset advances the exact ordered selection: ' + table,
               next_page['rows'] == ordered[1:201]

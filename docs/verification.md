@@ -39,6 +39,102 @@ Environment: macOS 26.6.2 arm64, PostgreSQL 16, .NET 10.0.402 Debug build, Node
 observations, not a performance qualification. Migrations 0172 and 0173 need a
 separately qualified schema release; nothing was deployed.
 
+## Parametric risk and retained statistical reports
+
+D299 was qualified locally on the integrated master using disposable stock
+PostgreSQL clusters and owned browser profiles. The full managed suite includes
+11 new numerical groups, with independent exact sample moments, normal tails,
+zero/singular variance, native partitions and rolling-prefix knowledge oracles.
+API checks include complete three-pass PPA/option/value admission. The integrated
+frontend passed 1,221 checks; the Python runner passed 83 checks.
+
+The dedicated parametric suite independently reconstructs native one-factor and
+mixed-factor covariance/variance, then compares actual retained-worker results.
+The one-factor fixture uses 249 common changes; the mixed held universe uses
+three changes and retains its singular covariance diagnostics. Direct SQL checks
+cover trusted capture provenance, altered/missing/cross-context receipts,
+immutable source FKs, runtime/worker privilege denial, bounded orphan reuse,
+active bound leases, expiry/cancellation/current authority and missing-evidence
+failure. Ordinary and statistical jobs expose the same exact observation-ID set
+under existing bound RLS. Three archive pages preserve ownership and ordering;
+viewer calculation/report/archive access refuses.
+
+Eleven owned browser checks passed, including desktop/phone graphics, explicit
+unselected inputs, reauthorized export, wrong-policy response refusal at immediate
+and known queued consumers, unavailable diagnostics, lost queue response and
+reload recovery, archive discovery and parent-scope invalidation. Screenshots were
+inspected. Existing history checks and ten browser checks passed; the existing
+Risk/worker suite and 159 browser checks also passed before the final navigation
+rebase. The integrated parametric rerun passed after that rebase. Independent
+adversarial review resolved receipt provenance, numerical determinism, FD
+representability/work bounds and complete consumer coverage/policy findings.
+
+The 30 MB report limit refused the entire held universe over the long window;
+the smaller explicit mixed window qualifies the native multi-factor calculation.
+No production throughput or deployment is claimed. Migration 0175 requires the
+normal qualified schema release.
+
+## Separate physical references and derived crude pricing
+
+D297 was qualified locally on 2 November 2026 using owned disposable stock
+PostgreSQL clusters and isolated browser profiles. The API build had zero
+warnings; API schedule checks and all 1,211 frontend checks passed.
+
+`tools/run_preview.py --crude-setup-check --browser-check` passed native booking,
+retained reopen and worker risk oracles, missing/ambiguous/partial-overlap mapping
+refusals, source-pin bypass refusal at final SQL admission, exact reference
+namespace checks, and completed-command replay after conflicting publication.
+Observed storage waits followed by natural independent `ReadMarketData` expiry
+refused both raw crude/gas HTTP responses and the direct SQL resolver. Reapplying
+0173 over populated observations, bookings and retained programs preserved every
+captured business row and the completed native retry outcome. Thirteen setup and
+ticket browser checks passed, including explicit singleton selections, version
+reselection and stale asynchronous response rejection. A separate native gas
+browser check opened reference entry with no dated gas price frames.
+
+`--gas-setup-check --deal-ticket-check --browser-check` passed, including an
+unpriced reference path with no imported convention and its later explicit
+maintained pricing setup. `--ppa-bookings-check --browser-check` passed 55 browser
+checks and its exact API/worker oracles; valid unpriced power locations remain
+available and report missing valuation coverage. The existing crude lifecycle
+suite and its 47 browser checks also passed. These results establish the bounded
+local capability; production activation requires the qualified schema release.
+
+## Joint risk admission and reports
+
+The D295 local qualification on 2 November 2026 passed 656 managed core checks,
+19 focused joint-risk groups, API schedule/contract checks, 1,199 frontend checks,
+the independent worker build with zero warnings, deployment configuration and
+32 release-boundary checks. The integrated baseline includes maintained crude
+setup migrations 0170–0171; joint admission is migration 0172.
+
+Owned stock PostgreSQL checks exercise simultaneous signed moves under a nonzero
+parent, common sample IDs across multiple exact market partitions, explicit
+unchanged partitions, local and cross-market derivatives, exact native aggregate
+agreement, immediate/worker financial parity and idempotent retries. Direct SQL
+checks reject incomplete/forged retained axis unions, ambiguous typed requests,
+missing/negative tolerances, unrepresentable half steps and joint multipart frames.
+Private helpers grant no new runtime/worker authority.
+
+Selected-trade named scenarios and nominal Greek estimates reproduce independent
+legacy up/down PV results for futures, swaps/heat-rate, PPAs, gas, crude and
+options, including the option's separate premium. Composed capacity PPA and
+separately maintained crude source bindings retain their selected identity.
+The complete risk/job suite passes 159 owned browser checks. New browser checks
+exercise explicit editors, loss/Greek graphics, retained named-report reload,
+queued derivative parity, binding detail and phone layout. Tables preserve exact
+backend amounts beside display values; positive losses shade red without changing
+plotted signs. Missing coverage refuses a complete report.
+
+Independent adversarial review identified overlapping targets whose distinct
+source keys resolve to the same compiled node. Admission now rejects those named
+samples and mixed pairs before pricing or queueing; the adapter regression fails
+with the previous key-only comparison. Review covers numerical aggregation,
+retained inputs/current authority, worker replay, report coverage and exports.
+No statistical estimator or production throughput is established by this release.
+Migration 0172 requires separate installation qualification; no production deploy
+was performed.
+
 ## Individual trade risk scope
 
 The D292 local qualification on 2 November 2026 passed the focused API trade-scope

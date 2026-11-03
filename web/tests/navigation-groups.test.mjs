@@ -6,6 +6,10 @@ import {navigationGroups,pageGroup,pageAvailable,firstPage} from '../dist/naviga
 const allPages=navigationGroups.flatMap(g=>g.pages);
 const listed=permissions=>allPages.filter(page=>pageAvailable(page,permissions));
 
+test('physical product workflows remain Trading pages while saved views provide personal sidebar entries',()=>{
+ for(const page of ['gas','crude']){assert.equal(pageGroup(page),'Trading');assert.equal(allPages.includes(page),false);assert.equal(pageAvailable(page,['ReadMarketData','ReadTrades']),true);}
+});
+
 test('every page belongs to exactly one group and Overview comes first',()=>{
  const pages=navigationGroups.flatMap(g=>g.pages);
  assert.equal(new Set(pages).size,pages.length);assert.equal(navigationGroups[0].label,'Overview');assert.equal(pageGroup('dashboard'),'Overview');
@@ -14,7 +18,7 @@ test('every page belongs to exactly one group and Overview comes first',()=>{
 test('the groups and their pages keep the sidebar order',()=>{
  assert.deepEqual(navigationGroups.map(g=>[g.id,g.label,[...g.pages]]),[
   ['overview','Overview',['dashboard']],
-  ['trading','Trading',['futures','gas','crude']],
+  ['trading','Trading',['futures']],
   ['markets','Markets',['market','custom-curves','delivery','interval-series','vol-surfaces','interval-curves']],
   ['operations','Operations',['risk','jobs']],
   ['settings','Settings',['schedules','power','gas-setup','crude-setup','reference','parties']],
@@ -52,8 +56,8 @@ test('market data outranks administration and the Blotter outranks plain market 
 test('the sidebar lists each page for the permissions that open it',()=>{
  const market=['dashboard','market','custom-curves','delivery','interval-series','interval-curves','schedules','power','gas-setup','crude-setup','reference'];
  assert.deepEqual(listed(['ReadMarketData','RunJobs']).sort(),[...market,'jobs'].sort());
- assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','futures','gas','crude','vol-surfaces','parties'].sort());
- assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','futures','gas','crude','vol-surfaces'].sort());
+ assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','futures','vol-surfaces','parties'].sort());
+ assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','futures','vol-surfaces'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTradeParties']).sort(),[...market,'jobs','parties'].sort());
  assert.deepEqual(listed(['ManageAccess','ManageIdentities']),['jobs','admin']);
  assert.deepEqual(listed(['ManageAgents']),['jobs','ai']);

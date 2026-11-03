@@ -153,6 +153,10 @@ The default arrangement, top to bottom:
 - Dividers resize. A collapsed pane shows a one-line bar with its title and
   ⌃; its space goes to its neighbours.
 - The Positions grid cannot be collapsed or closed.
+- Each pane can temporarily maximize to fill the dock and restore its previous
+  arrangement. The saved split ratios, grid and editor state stay in place.
+  Moving and resizing wait until the panes are restored. Maximization is not
+  saved in the named view (D294).
 - The arrangement (dock layout, split ratios, collapsed panes, active tabs)
   is saved in the named Blotter view. This bumps `BlotterView` to version 6;
   version 5 views follow the existing earlier-version rule. An unsaved
@@ -192,6 +196,23 @@ The default arrangement, top to bottom:
   returning to trade rows restores the scroll anchor and selection.
   (Design call.)
 
+## Scope and personal sidebar views
+
+Blotter and Risk share searchable checkbox pickers for portfolios and books.
+Choosing portfolios shows their included books, using exact memberships from
+the authorized directory. Empty book selection means all readable books within
+that portfolio scope. Selecting both retains the backend's intersection.
+A selected book outside the chosen portfolios stays visible with an explanation
+and a remove action; no scope is silently broadened. Unavailable saved IDs have
+generic labels rather than names from an earlier directory. Blotter stages these
+choices until **Apply filters**; Risk applies them after its unsaved-setup guard.
+
+To keep a product or other filtered view, choose its filters and columns, open
+**Save view**, name it, select **Pin to sidebar**, and save. Pins use the existing
+account-owned saved view and can be removed by saving it with the pin cleared.
+The fixed Physical gas and Physical crude sidebar entries are removed; their
+positions and native booking operations remain in the common Blotter.
+
 ## Details pane
 
 - Opens the selected position using the existing position panel
@@ -205,7 +226,8 @@ The default arrangement, top to bottom:
   schedule, which D253 placed under the row, shows in the Details pane with
   the sides table.
 - Header: ◂ ▸ (previous and next position in grid order), the position's
-  title, maximize/restore, and ⌄ to collapse. Maximizing temporarily fills
+  title, and ⌄ to collapse. The common pane header offers maximize/restore,
+  as it does for Summary, Positions and Charts. Maximizing temporarily fills
   the dock with Details without changing its saved arrangement or remounting
   the editor. Collapse or reset restores the arrangement.
 - New trade, amendment and close-out forms open in the details pane; the

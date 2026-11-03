@@ -212,7 +212,7 @@ public sealed class CrudeLifecycleStore(PreviewDatabase database)
     if(!existing&&((JsonObject)Invoice(state,body,frame.At))["previewHash"]!.GetValue<string>()!=body.OptionalText("previewHash"))throw new MarketDataException("crude_invoice_preview","Preview the exact invoice allocation before issuing it.");
    }
    return pinned.ContextId!.Value;
-  },ct,crudeMarket:true);
+  },ct,physicalMarket:PhysicalMarketSelection.Crude);
   await using var command=ScheduleStore.Command(c,"SELECT security.record_crude_lifecycle($1,$2,$3::jsonb,$4,$5)::text",database.Manifest.CatalogId,kind,payload,frame.At,context);
   return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
  }

@@ -12,7 +12,9 @@ namespace OpenEtrm.Api;
 
 public sealed record PreviewManifest(string Mode, Guid CatalogId, Guid RevisionId, Guid ReferenceCatalogId,
     Guid ReferenceRevisionId, Guid TenantId, Guid WorkspaceId, PreviewSeedFrame[] Frames,PreviewExample? Example,
-    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",[property:System.Text.Json.Serialization.JsonRequired]string FuturesConvention="",PreviewReferenceCatalog? ReferenceCatalog=null,PreviewPhysicalMarket? GasMarket=null,PreviewPhysicalMarket[]? RetainedGasMarkets=null,PreviewPhysicalMarket? CrudeMarket=null,PreviewPhysicalMarket[]? RetainedCrudeMarkets=null);
+    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",[property:System.Text.Json.Serialization.JsonRequired]string FuturesConvention="",PreviewReferenceCatalog? ReferenceCatalog=null,PreviewPhysicalMarket? GasMarket=null,PreviewPhysicalMarket[]? RetainedGasMarkets=null,PreviewPhysicalMarket? CrudeMarket=null,PreviewPhysicalMarket[]? RetainedCrudeMarkets=null,PreviewPhysicalMarket? LngMarket=null,PreviewPhysicalMarket[]? RetainedLngMarkets=null,PreviewLngReferences? LngReferenceCatalog=null);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record PreviewLngReferences(Guid ReferenceRevisionId,Guid DefinitionRevisionId);
 public sealed record PreviewPhysicalMarket(Guid RevisionId,PreviewSeedFrame[] Frames);
 public sealed record PreviewReferenceCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId,ImmutableArray<string> Tables);
 public sealed record PreviewUnitCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId);
@@ -23,7 +25,7 @@ public sealed record ReferencePage(string Table,ImmutableArray<JsonElement> Rows
     ImmutableDictionary<string,ImmutableArray<JsonElement>> References,int Offset,int PageSize,int MaximumOffset,bool HasMore,string Search,
     ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
 public sealed record FuturesProductRead(JsonElement Product,ImmutableArray<JsonElement> Series,ImmutableArray<JsonElement> Milestones,
-    ImmutableArray<JsonElement> ExecutionPolicies,ImmutableDictionary<string,ImmutableArray<JsonElement>> References,ReferenceRevision ReferenceRevision);
+    ImmutableArray<JsonElement> ExecutionPolicies,ImmutableDictionary<string,ImmutableArray<JsonElement>> References,ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
 public sealed record ReferenceSummaryField(string Label,string? Value);
 public sealed record ReferenceHit(string Table,string Code,string Label,string? ProductCode,ImmutableArray<ReferenceSummaryField> Summary);
 public sealed record ReferenceSearch(string Query,ImmutableArray<ReferenceHit> Hits,bool Truncated);
@@ -91,6 +93,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
         ("commodity_locations","commodity_code,location_code"), ("pipeline_zones","pipeline_code,zone_code"),
         ("pipeline_delivery_points","pipeline_code,zone_code,point_code"),
         ("crude_grades","code"), ("crude_delivery_points","commodity_code,grade_code,facility_code,custody_point_code"),
+        ("lng_products","code"), ("lng_custody_points","product_code,stage,facility_code,custody_point_code"),
+        ("lng_mass_energy_conversions","code"), ("incoterms_editions","code"), ("incoterms_rules","code"),
         ("gas_delivery_conventions","pipeline_code,zone_code,point_code,product_code"), ("gas_meter_assignments","code"), ("exchanges","code"), ("clearing_houses","code"),
         ("exchange_clearing_houses","exchange_code,clearing_house_code"), ("interest_rate_definitions","code"), ("price_index_definitions","code"),
         ("sources","code"), ("product_evidence","product_code,source_code,fact_group"), ("delivery_profiles","code"), ("settlement_targets","code"),
@@ -289,6 +293,17 @@ public sealed class PreviewDatabase : IAsyncDisposable
         if(authenticator is null)throw new InvalidOperationException("This direct reader has no authenticator capability.");
         await DatabaseLoginBoundary.Require(runtime, DatabaseLoginProfile.Runtime, ct);
         await DatabaseLoginBoundary.Require(authenticator, DatabaseLoginProfile.Authenticator, ct);
+    }
+
+    // The isolated trusted issuer attests server-built clock evidence. Runtime
+    // SQL callers cannot mint a substitute calculation capture or read the store.
+    internal async Task<Guid> CaptureHistoryClock(OpenEtrm.MarketData.Risk.AlignedFactorHistory history,CancellationToken ct)
+    {
+        if(authenticator is null)throw new InvalidOperationException("This reader cannot attest calculation inputs.");
+        await using var connection=await authenticator.OpenConnectionAsync(ct);
+        await using var command=ScheduleStore.Command(connection,"SELECT risk.capture_history_clock($1,$2,$3::jsonb,$4::jsonb)",Manifest.CatalogId,history.Forecast.ContextId,
+            JsonSerializer.Serialize(history.Calendar,RiskJobs.Json),JsonSerializer.Serialize(history.Clock,RiskJobs.Json));
+        return(Guid)(await command.ExecuteScalarAsync(ct)??throw new PreviewDeniedException());
     }
 
     public async Task<PreviewData> Read(NpgsqlConnection connection, CancellationToken ct,Guid? selectedRevision=null,PreviewData? sharedReferences=null,ImmutableArray<Guid>? observationIds=null,
@@ -572,7 +587,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         await ProveScopes();
         // Absence is reported only after current authority is proven again.
         if(product.IsEmpty)throw ReferenceItemMissing();
-        return new(product[0],series,milestones,policies,references.ToImmutable(),revision);
+        return new(product[0],series,milestones,policies,references.ToImmutable(),revision,ReferenceSource(Manifest,"futures_products").Definition);
     }
 
     private static MarketDataException ReferenceItemMissing()=>new("reference_item","The reference item does not exist in this context's exact revision.");
@@ -677,7 +692,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         market.Frames.SingleOrDefault(f=>f.At==frame.At)?.ObservationIds.ToImmutableArray();
 
     // The main market revision or an explicitly allow-listed supplemental swap bundle.
-    private bool DeclaredBundle(Guid revision)=>revision==Manifest.RevisionId||revision==Manifest.CrudeMarket?.RevisionId||(Manifest.RetainedCrudeMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.GasMarket?.RevisionId||(Manifest.RetainedGasMarkets??[]).Any(m=>m.RevisionId==revision)||(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision);
+    private bool DeclaredBundle(Guid revision)=>revision==Manifest.RevisionId||revision==Manifest.CrudeMarket?.RevisionId||(Manifest.RetainedCrudeMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.LngMarket?.RevisionId||(Manifest.RetainedLngMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.GasMarket?.RevisionId||(Manifest.RetainedGasMarkets??[]).Any(m=>m.RevisionId==revision)||(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision);
 
     public async Task<Guid> Correct(NpgsqlConnection connection, Guid revision, Guid observationId, string value, CancellationToken ct)
     {
@@ -926,6 +941,8 @@ public sealed class PreviewData
         }).ToImmutableArray();
         return frame with {ObservationIds=pins};
     }
+    internal MarketObservation ReadObservation(JsonElement row)=>new(new(manifest.CatalogId,row.Id("id")),S(row.Id("series_id")),R(row.Text("source_code")),ParseRole(row.Text("role")),
+        row.Text("publication_state") switch{"final"=>PublicationState.Final,"preliminary"=>PublicationState.Preliminary,_=>throw Unsupported()},row.Instant("observed_at"),row.Number("value"));
     public MarketSnapshot Snapshot(InputFrame frame)
     {
         if(frame.ObservationIds.Distinct().Count()!=frame.ObservationIds.Length)
@@ -933,8 +950,7 @@ public sealed class PreviewData
         var selections=frame.ObservationIds.Select(id=>
         {
             var o=Observation(id);
-            return new SelectedObservation(new(S(o.Id("series_id")),o.Text("role")=="index_fixing"||!frame.FrozenObservationIds.IsDefault&&frame.FrozenObservationIds.Contains(id)?InputUse.FrozenFact:InputUse.Variable),new(new(manifest.CatalogId,id),S(o.Id("series_id")),R(o.Text("source_code")),ParseRole(o.Text("role")),
-                o.Text("publication_state") switch {"final"=>PublicationState.Final,"preliminary"=>PublicationState.Preliminary,_=>throw Unsupported()},o.Instant("observed_at"),o.Number("value")));
+            return new SelectedObservation(new(S(o.Id("series_id")),o.Text("role")=="index_fixing"||!frame.FrozenObservationIds.IsDefault&&frame.FrozenObservationIds.Contains(id)?InputUse.FrozenFact:InputUse.Variable),ReadObservation(o));
         }).ToImmutableArray();
         return new(frame.Id,revision,frame.At,frame.At,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,selections);
     }

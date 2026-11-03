@@ -13,16 +13,17 @@ const edges:readonly DropEdge[]=['top','left','centre','right','bottom'];
 const form=(l:DockLayout):unknown=>l.kind==='group'?l.tabs:[l.direction,l.children.map(form)];
 const shape=(a:Arrangement)=>JSON.stringify([form(a.layout),[...a.collapsed].sort()]);
 
-export type Dock={arrangement():Arrangement;set(a:Arrangement):void;reveal(tab:string):void;collapse(tab:string):void;showing(tab:string):boolean;relayout():void;destroy():void};
+export type Dock={arrangement():Arrangement;set(a:Arrangement):void;reveal(tab:string):void;collapse(tab:string):void;maximize(tab:string):void;restore():void;maximized():string|null;showing(tab:string):boolean;relayout():void;destroy():void};
 
 /** `changed` hears each arrangement the viewer makes (never one set by the caller or a narrow page's); `shown` hears each tab whose
  *  body comes into view, also when the dock is drawn again and moves it, so that what it draws can measure itself there (a moved element
  *  loses its scroll offsets); `label` names the tab groups to assistive technology. A tab of `ownCollapse` draws its own collapse
- *  control in its body, which asks first about what it holds, so its group's head draws none while it is shown. */
-export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boolean;rules:DockRules;initial:Arrangement;changed:(a:Arrangement)=>void;shown?:(id:string)=>void;opened?:(open:string[])=>void;label?:string;ownCollapse?:readonly string[]}):Dock{
+ *  control in its body, which asks first about what it holds, so its group's head draws none while it is shown. `maximizable` adds
+ *  temporary maximize/restore controls; the arrangement, bodies and their edits stay in place. */
+export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boolean;rules:DockRules;initial:Arrangement;changed:(a:Arrangement)=>void;shown?:(id:string)=>void;opened?:(open:string[])=>void;label?:string;ownCollapse?:readonly string[];maximizable?:boolean}):Dock{
   const {rules}=o,label=new Map(o.tabs.map(t=>[t.id,t.label]));
   const flat=(a:Arrangement):Arrangement=>({layout:collapse(a.layout),collapsed:a.collapsed});
-  let saved=o.initial,narrow=o.narrow(),shown=narrow?flat(saved):saved,dragged:string|undefined;
+  let saved=o.initial,narrow=o.narrow(),shown=narrow?flat(saved):saved,dragged:string|undefined,maximized:string|null=null;
   const menu=setupMenu('dock-menu');
   // Each tab keeps its button and body for the page's life; a new arrangement moves them into new groups.
   const buttons=new Map(o.tabs.map(t=>[t.id,tabButton(t)]));
@@ -52,7 +53,7 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   /** Makes `node` pick up `tab` for a drop on a group. */
   function dragSource(node:HTMLElement,tab:string){
     node.ondragstart=event=>{
-      if(narrow){event.preventDefault();return;}
+      if(narrow||maximized){event.preventDefault();return;}
       dragged=tab;host.dataset.dragging='';
       if(event.dataTransfer){event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',label.get(tab)!);}
     };
@@ -80,6 +81,10 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
     for(const id of g.tabs)strip.append(buttons.get(id)!);
     grip.draggable=true;grip.title='Drag to move';grip.textContent='⠿';grip.setAttribute('aria-hidden','true');dragSource(grip,g.active);
     head.append(strip,grip);
+    if(o.maximizable){
+      const maximize=document.createElement('button');maximize.type='button';maximize.className='dock-maximize';
+      head.append(maximize);
+    }
     if(!rules.fixed.includes(g.active)&&!o.ownCollapse?.includes(g.active))head.append(collapseButton(g.active,false));
     for(const edge of depth>=rules.maxDepth?['centre' as const]:edges){const zone=div('dock-zone');zone.dataset.edge=edge;dropTarget(zone,index,edge);zones.append(zone);}
     dropTarget(strip,index,'centre');
@@ -134,15 +139,30 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   /** Tells `o.shown` of the tabs that have just come into view, and `o.opened` of the tabs open whenever they are other than before: by the
    *  viewer's arrangement, the caller's (set), a narrow page's or a tab shown or put away. */
   function announce(){
-    const open=openTabs(shown),now=new Set(open),fresh=[...now].filter(id=>!visible.has(id));
+    const open=maximized?[maximized]:openTabs(shown),now=new Set(open),fresh=[...now].filter(id=>!visible.has(id));
     visible=now;for(const id of fresh)o.shown?.(id);
     if(open.join()!==opened){opened=open.join();o.opened?.(open);}
+  }
+  /** A temporary view of one pane: keep its DOM and every saved split in place. */
+  function size(){
+    if(maximized)host.dataset.maximized=maximized;else delete host.dataset.maximized;
+    const body=maximized?bodies.get(maximized):undefined,groups=groupsOf(shown.layout);
+    for(const node of host.querySelectorAll<HTMLElement>('.dock-group,.dock-split')){
+      node.toggleAttribute('data-maximized-path',!!body&&node.contains(body));
+      if(!node.classList.contains('dock-group'))continue;
+      const tab=groups[Number(node.dataset.group)].active,button=node.querySelector<HTMLButtonElement>('.dock-maximize');
+      if(!button)continue;
+      const expanded=tab===maximized,text=`${expanded?'Restore':'Maximize'} ${label.get(tab)}`;
+      button.dataset.maximize=tab;button.textContent=expanded?'↙':'⛶';
+      button.setAttribute('aria-label',text);button.title=text;button.setAttribute('aria-pressed',String(expanded));
+      button.onclick=()=>expanded?restore():maximize(tab);
+    }
   }
   /** Draws `shown` again, keeping focus on what had it. The first drawing announces nothing: the page draws what it shows first itself. */
   function render(again=true){
     const focused=host.contains(document.activeElement)?document.activeElement as HTMLElement:undefined;
     drawnSplits=[];menu.close();stopWaiting();
-    host.replaceChildren(draw(shown.layout,0,{groups:0,splits:0}),menu.element);proportion();
+    host.replaceChildren(draw(shown.layout,0,{groups:0,splits:0}),menu.element);proportion();size();
     if(focused?.isConnected&&document.activeElement!==focused)focused.focus({preventScroll:true});
     // Every body was moved into the groups just drawn, so every one in view comes into view again.
     if(again)visible=new Set();
@@ -152,7 +172,7 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   function apply(next:Arrangement,keep=true){
     const same=shape(next)===shape(shown),away=o.tabs.find(t=>t.id===focusedIn);
     shown=next;if(!narrow&&keep){saved=next;o.changed(next);}
-    if(!same)render();else{groupsOf(shown.layout).forEach(mark);proportion();announce();}
+    if(!same)render();else{groupsOf(shown.layout).forEach(mark);proportion();size();announce();}
     // Focus in a body that is put away, or lost from it (a control there disabled while it works), moves to the tab its group now
     // shows, so that it is not lost.
     const lost=document.activeElement===null||document.activeElement===document.body||away?.body.contains(document.activeElement);
@@ -172,18 +192,20 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
     watch.observe(button,{attributes:true,attributeFilter:['disabled']});
   }
   function move(tab:string,target:{group:number;edge:DropEdge}){
-    if(narrow)return;
+    if(narrow||maximized)return;
     const next=moveArrangement(saved,tab,target,rules);if(next===saved)return;
     apply(next);buttons.get(tab)!.focus({preventScroll:true});
   }
   /** Puts away or brings back the pane showing `tab`; the button that did it, now drawn the other way, keeps focus. */
   function toggle(tab:string){
+    if(maximized)restore();
     apply(toggleCollapsed(narrow?shown:saved,tab,rules));
     host.querySelector<HTMLElement>(`[data-collapse="${tab}"]`)?.focus({preventScroll:true});
   }
 
   function openMenu(tab:string,at:{x:number;y:number}){
     const button=buttons.get(tab)!,back=()=>button.focus({preventScroll:true});
+    if(maximized){menu.open(`${label.get(tab)} tab`,[{label:'Restore panes',run:restore}],at,back,button);return;}
     // A narrow page shows one group, so its menu says why it offers no moves.
     if(narrow){menu.open(`${label.get(tab)} tab`,[{label:'Arrange groups on a wider page'}],at,back,button);return;}
     const groups=groupsOf(saved.layout),from=groups.findIndex(g=>g.tabs.includes(tab));
@@ -196,17 +218,20 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
 
   /** Shows a tab, bringing back its pane if it was put away, in the group that holds it. */
   function reveal(id:string){
+    if(maximized)maximized=id;
     const next=showTab(shown,id);
-    if(JSON.stringify(next)!==JSON.stringify(shown))apply(next);
+    if(JSON.stringify(next)!==JSON.stringify(shown))apply(next);else{size();announce();}
   }
+  function maximize(id:string){if(!o.maximizable||!bodies.has(id))return;endDrag();menu.close();reveal(id);maximized=id;size();announce();}
+  function restore(){if(!maximized)return;maximized=null;size();announce();}
   /** Puts away the pane showing `tab`, as its collapse control does, without moving focus. */
-  function collapseTab(id:string){if(!shown.collapsed.includes(id))apply(toggleCollapsed(narrow?shown:saved,id,rules));}
+  function collapseTab(id:string){if(maximized===id)restore();if(!shown.collapsed.includes(id))apply(toggleCollapsed(narrow?shown:saved,id,rules));}
   /** Replaces the arrangement with one the caller chose (a reset, a restore); `changed` is not told. */
-  function set(next:Arrangement){saved=next;shown=narrow?flat(saved):saved;render();}
+  function set(next:Arrangement){maximized=null;saved=next;shown=narrow?flat(saved):saved;render();}
   /** Follows a change of the page's width: narrow shows one group, wide again the saved arrangement. */
   function relayout(){
     const now=o.narrow();if(now===narrow)return;
-    narrow=now;shown=narrow?flat(saved):saved;render();
+    narrow=now;shown=narrow?flat(saved):saved;if(maximized)shown=showTab(shown,maximized);render();
   }
   // The body that last held focus, kept when focus is lost from it rather than moved elsewhere.
   let focusedIn:string|undefined;
@@ -215,5 +240,5 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
   const leave=(event:FocusEvent)=>{if(!host.contains(event.target as Node))focusedIn=undefined;};
   document.addEventListener('focusin',leave);
   host.classList.add('tab-dock');render(false);
-  return {arrangement:()=>saved,set,reveal,collapse:collapseTab,showing:id=>visible.has(id),relayout,destroy(){host.removeEventListener('focusin',enter);document.removeEventListener('focusin',leave);stopWaiting();menu.close();host.classList.remove('tab-dock');host.replaceChildren();}};
+  return {arrangement:()=>saved,set,reveal,collapse:collapseTab,maximize,restore,maximized:()=>maximized,showing:id=>visible.has(id),relayout,destroy(){host.removeEventListener('focusin',enter);document.removeEventListener('focusin',leave);stopWaiting();menu.close();delete host.dataset.maximized;host.classList.remove('tab-dock');host.replaceChildren();}};
 }

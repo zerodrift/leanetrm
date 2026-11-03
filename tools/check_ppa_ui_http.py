@@ -12,6 +12,11 @@ def run_checks(url, query, manifest, **_):
     client=PreviewClient(url);client.bootstrap();client.call('profile',{'profile':'trader'});client.bootstrap()
     frames=client.call('ppa/frames');frame=next(f for f in frames if not f.get('ppaBundle'))['id']
     catalog=client.call('ppa/catalog',{'snapshotId':frame})
+    def reference_locations(c):
+        reference=c['reference']
+        expected=query(f"SELECT code FROM ref_data.locations WHERE(catalog_id,revision_id)=('{reference['catalogId']}','{reference['revisionId']}') ORDER BY code;").splitlines()
+        assert sorted(r['code'] for r in c['references']['locations'])==expected, 'Power delivery choices must include unpriced reference locations'
+    reference_locations(catalog)
     assert catalog.get('knownAt'), 'catalog must supply database known-at for explicit authoring context'
     assert catalog['legalEntities'] and catalog['counterparties'], 'authorized authoring catalog must expose the seeded exact party choices'
     assert {t['id'] for t in catalog['compositionTemplates']}=={'composed_sides_v1','fixed_physical','indexed_physical','virtual_fixed_for_floating','basis_cash','capacity_agreement'}
@@ -84,6 +89,9 @@ def run_checks(url, query, manifest, **_):
         assert isinstance(period.get('coverage'),str) and period.get('valueAt')==period['key']['valueAt']
         assert period.get('quantitySpecification')=={'revision':{'catalogId':manifest['referenceCatalogId'],'revisionId':manifest['referenceRevisionId']},'code':'test_power_quantity'}
     draft=client.call('ppa/preview',{**preview,'scope':'draft','selectedIds':[],'explicitSubset':False,'terms':terms,'quantity':'80','coverageFrom':body['coverageFrom'],'coverageTo':body['coverageTo']})
+    unpriced=deepcopy(terms);unpriced['memberships'][0]['side']['location']='synthetic_unmapped_power_location'
+    missing=client.call('ppa/preview',{**preview,'scope':'draft','selectedIds':[],'explicitSubset':False,'terms':unpriced,'quantity':'80','coverageFrom':body['coverageFrom'],'coverageTo':body['coverageTo']},expected=422)
+    assert missing['code']=='location_valuation_missing', ('An unpriced master location is valid reference data with missing valuation coverage',missing)
     draft_sides=draft['bindings'][0]['sides']
     draft_rows=[row for side_value in draft_sides for row in side_value['measures']['rows']]
     assert len(draft_rows)==50
@@ -116,6 +124,7 @@ def run_checks(url, query, manifest, **_):
     print('PASS PPA UI: original revision and retained-prefix binding inspection',flush=True)
     bundle=manifest['ppaR3']['bundle'];other_frame=next(f for f in frames if f.get('ppaBundle')==bundle and f['at']==next(f for f in frames if f['id']==frame)['at'])['id']
     other_catalog=client.call('ppa/catalog',dict(snapshotId=other_frame))
+    reference_locations(other_catalog)
     assert other_catalog['definitions']['revisionId']==bundle['definitionRevisionId']
     assert all(r['revision_id']==bundle['referenceRevisionId'] for r in other_catalog['references']['quantitySpecs'])
     alternate=deepcopy(body);alternate.update(operationId=str(uuid4()),snapshotId=other_frame);alternate['terms'].update(bundle)

@@ -165,7 +165,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     `[document.querySelector('#curve-title').textContent,document.querySelector('#contract-panel-head').textContent,document.querySelector('#error').textContent,document.querySelector('#notice').textContent]`);
   await click('#nav-futures');
   await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
-  await check('coming back to the Blotter reads it afresh, with no panel left open',`${panel}.hidden&&!document.querySelector('#futures-page').hidden`);
+  await check('coming back to the Blotter leaves no panel open',`${panel}.hidden&&!document.querySelector('#futures-page').hidden`);
 
   // A new read shows the position the details showed again, from the new read, on the tab they were on.
   await open('fut');
@@ -307,10 +307,10 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await check('discarding them goes to the page chosen',`${title}==='Curves & prices'`);
   await back();
   await check('and the Blotter comes back without the form: it starts fresh',`${panel}.hidden&&document.querySelector('#trade-editing').hidden`);
-  // The sidebar's own Blotter, pressed on the Blotter, opens it afresh and closes the panel.
+  // The sidebar's own Blotter closes the panel; unchanged values are validated and reused.
   await amend(refB);
   await click('#nav-futures');await wait(`${panel}.hidden&&${redrawn(idle)}`);
-  await check('the sidebar\'s Blotter, pressed on the Blotter, reads it again without a question when the form holds no edits',`${panel}.hidden&&${prompt}.hidden&&${title}==='Blotter'`);
+  await check('the sidebar\'s Blotter closes the panel without a question when the form holds no edits',`${panel}.hidden&&${prompt}.hidden&&${title}==='Blotter'`);
   await amend(refB);await typeInto('#trade-lots','5');
   const readsBeforeBlotter=await evaluate(workspaceReads);
   await click('#nav-futures');await asks();
@@ -318,7 +318,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await answer(0);
   await check('and keeping them reads nothing: the panel, its form and the edits stay',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforeBlotter}`);
   await click('#nav-futures');await asks();await answer(1);await wait(`${panel}.hidden&&${redrawn(idle)}`);
-  await check('discarding them reads the Blotter again, which closes the panel with its form',`${panel}.hidden&&document.querySelector('#trade-editing').hidden&&${workspaceReads}>${readsBeforeBlotter}`);
+  await check('discarding them closes the panel and reuses unchanged Blotter values',`${panel}.hidden&&document.querySelector('#trade-editing').hidden&&${workspaceReads}===${readsBeforeBlotter}`);
   // A new As of date.
   const closes=await evaluate("[...document.querySelector('#snapshot').options].map(o=>o.value).filter(Boolean)"),closeNow=await evaluate("document.querySelector('#snapshot').value"),closeOther=closes.find(close=>close!==closeNow);
   if(!closeOther)throw Error('The As of checks need a second close.');

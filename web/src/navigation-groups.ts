@@ -3,11 +3,11 @@ import {aiTabs} from './agent-settings.js';
 // The sidebar's groups in order, each with the pages it lists. A page is named by the id of its entry (`nav-<page>`),
 // a sidebar button, or for the hourly prices of Curves & prices the switch beside its contract prices; its group's
 // label is the eyebrow above the page title. `opened` are a group's pages that another page opens instead of the sidebar:
-// PPA bookings, from the Blotter's new trade panel and its PPA positions.
+// Product bookings, from the Blotter's new trade panel and its positions.
 export type NavigationGroup={id:'overview'|'trading'|'markets'|'operations'|'settings'|'admin';label:string;pages:readonly string[];opened?:readonly string[]};
 export const navigationGroups:readonly NavigationGroup[]=[
  {id:'overview',label:'Overview',pages:['dashboard']},
- {id:'trading',label:'Trading',pages:['futures','gas','crude'],opened:['ppa']},
+ {id:'trading',label:'Trading',pages:['futures'],opened:['ppa','gas','crude']},
  {id:'markets',label:'Markets',pages:['market','custom-curves','delivery','interval-series','vol-surfaces','interval-curves']},
  {id:'operations',label:'Operations',pages:['risk','jobs']},
  {id:'settings',label:'Settings',pages:['schedules','power','gas-setup','crude-setup','reference','parties'],opened:['configuration']},

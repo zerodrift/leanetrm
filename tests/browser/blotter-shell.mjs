@@ -36,6 +36,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('the charts pane holds the market charts, the per-book bars and the position mix',
     "['desk-chart-pv','desk-chart-position','desk-chart-books','desk-chart-mix'].every(id=>document.querySelector('#blotter-pane-charts #'+id)?.getClientRects().length>0)");
   await evaluate("document.querySelector('#desk-positions .standard-data-grid').dataset.probe='kept'");
+  for(const [id,title] of [['summary','Summary'],['grid','Positions'],['charts','Charts']]){
+    const layout=await evaluate(drawn);
+    await click(`#blotter-dock [aria-label="Maximize ${title}"]`);await evaluate(frames);
+    await check(`${title} maximizes to the dock while keeping the grid instance`,
+      `document.querySelector('#blotter-dock').dataset.maximized==='${id}'&&['summary','grid','details','charts'].filter(id=>document.querySelector('#blotter-pane-'+id).checkVisibility()).join()==='${id}'&&${groupOf(id)}.getBoundingClientRect().height>=document.querySelector('#blotter-dock').clientHeight-22&&document.querySelector('#desk-positions .standard-data-grid').dataset.probe==='kept'`);
+    await click(`#blotter-dock [aria-label="Restore ${title}"]`);await evaluate(frames);
+    await check(`${title} restores the previous arrangement and positions`,`${drawn}===${JSON.stringify(layout)}&&${rowInView}`,drawn);
+  }
   // Collapsing a pane gives its room to its neighbours: the positions grow, and the grid is the same one, redrawn, not built again.
   const before=await evaluate(gridHeight);
   await click('#blotter-dock [data-collapse=charts]');await evaluate(frames);

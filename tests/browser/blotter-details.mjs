@@ -11,7 +11,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // made to fail once.
   await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{if(['/api/trading/workspace','/api/trading/workspace/stream'].includes(String(input))&&window.__detailsHold){window.__detailsHold=false;await new Promise(resolve=>{window.__detailsRelease=resolve;});}
     if(String(input)==='/api/trading/positions'&&window.__failCount){window.__failCount=false;return new Response(JSON.stringify({code:'request_failed',message:'Synthetic count failure.'}),{status:500,headers:{'Content-Type':'application/json'}});}
-    return send(input,init);};})()`);
+    const response=await send(input,init);
+    if(String(input)==='/api/trading/workspace'&&response.ok)window.__detailsWorkspace=(await response.clone().json()).blotter;
+    return response;};})()`);
   const press=async key=>{const codes={ArrowDown:40,ArrowUp:38,Enter:13,Escape:27};for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode:codes[key]});};
   // The trader can amend; the standard fixture holds the swaps the earlier suites booked beside its futures.
   await persona('trader');
@@ -141,10 +143,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await wait(`document.querySelector('#position-details')?.hidden===false&&document.querySelector('#details-title').textContent===${JSON.stringify(title)}`).catch(observed);
   await check('once the read lands the details are current again',"!document.querySelector('#position-details').classList.contains('stale')&&document.querySelector('#details-stale-note').hidden");
   await check('a new read shows the selected position again in the details, on its History tab',`document.querySelector('#position-details-tabs-history').getAttribute('aria-selected')==='true'&&${selected}===${JSON.stringify(shown)}&&${kept}`);
-  const otherBook=await evaluate(`(()=>{const book=document.querySelector('#position-details-head .side-panel-meta').textContent.split(' · ').at(-1);return [...document.querySelector('#blotter-books').options].find(o=>o.value&&o.textContent!==book)?.value??null;})()`);
+  const otherBook=await evaluate(`(()=>{const position=window.__detailsWorkspace.holdings.find(h=>h.tradeId+':'+h.bindingId===${selected});if(!position)throw Error('The selected position is absent from the refreshed workspace.');return [...document.querySelector('#blotter-books').options].find(o=>o.value&&o.value!==position.bookId)?.value??null;})()`);
   if(!otherBook)throw Error('The fixture needs a second book to read the Blotter without the selected position.');
   await evaluate(`(()=>{for(const o of document.querySelector('#blotter-books').options)o.selected=o.value===${JSON.stringify(otherBook)};})()`);
   await click('#blotter-apply');await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`);
+  await check('the replacement read contains only the other book and excludes the selected binding',`window.__detailsWorkspace.holdings.every(h=>h.bookId===${JSON.stringify(otherBook)}&&h.tradeId+':'+h.bindingId!==${JSON.stringify(shown)})`);
   await wait(collapsed).catch(observed);
   await check('a new read that no longer holds the selected position collapses the details, never leaving the pane empty',`${collapsed}&&document.querySelector('#position-details').hidden`,room);
   await evaluate("(()=>{for(const o of document.querySelector('#blotter-books').options)o.selected=false;})()");
