@@ -10,5 +10,9 @@ internal static class PilotReportChecks
         if(PriceUnitLabel.Format(quote,"USD","MMBtu")!="0.01 USD / MMBtu")
             throw new Exception("A quote multiplier must scale the cash numerator, including in report labels.");
         Console.WriteLine("PASS report quote labels retain the cash-numerator multiplier");
+        var whole=new PriceUnit(new(reference,"currency"),new(reference,"quantity"),ExactDecimal.Parse("1"));
+        if(PriceUnitLabel.Format(whole,"USD","MMBtu")!="USD / MMBtu")
+            throw new Exception("A unit multiplier of one must not appear in a price unit label.");
+        Console.WriteLine("PASS report quote labels leave out a multiplier of one");
     }
 }

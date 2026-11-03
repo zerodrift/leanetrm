@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {prepareAmountDisplay,amountText,selectDisplayPrecision,initialDisplayPrecision} from '../dist/amount-display.js';
+import {prepareAmountDisplay,amountText,selectDisplayPrecision,initialDisplayPrecision,shownAmounts} from '../dist/amount-display.js';
 import {newPreferences,parsePreferences} from '../dist/preferences.js';
 test('display adapter sends exact text and tick choice, keeping raw financial values untouched',async()=>{
  selectDisplayPrecision(initialDisplayPrecision());
@@ -79,4 +79,11 @@ test('price pivot measures use backend price formatting while keeping their exac
  assert.equal(requests.length,3);assert.ok(requests.every(r=>r.decimalPlaces===4&&r.tick===null));
  assert.equal(amountText(source.groups[0].executionPriceMean,'price'),'0.1235');
  assert.equal(source.groups[0].executionPriceMean,'0.123456789012345678');
+});
+
+test('a risk report and a retained risk job show their amounts; the job directory has none',()=>{
+ const report={factors:[{totals:[{values:{display:{delta:'31753799.370855039072'}}}]}]};
+ assert.equal(shownAmounts('portfolio/risk',report),report);
+ assert.equal(shownAmounts('portfolio/risk/jobs/job-1',report),report);
+ assert.equal(shownAmounts('portfolio/risk/jobs',[]),undefined);
 });

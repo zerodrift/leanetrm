@@ -2157,6 +2157,8 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .risk-report-charts{min-width:0}.risk-result-chart{width:100%;min-height:340px}
 .risk-result-chart .standard-chart-plot{height:330px}
 .risk-result-table{margin:16px 0}.risk-factor-detail{margin-top:24px;outline:none}
+/* A risk table's last column names units; it wraps so the amounts stay in view. */
+:is(.risk-result-table,.risk-factor-detail) td:last-child{white-space:normal;min-width:140px}
 .risk-report-paging{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0;font-size:12px;color:var(--text-3)}
 .risk-report-library>summary,.risk-full-report>summary,#risk-workspace-editor>summary{font-weight:600;cursor:pointer;padding:4px 0}
 .risk-report-library .card-heading{margin-top:12px}.risk-full-report{margin:10px 0}

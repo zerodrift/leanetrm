@@ -14,14 +14,14 @@ const rendered=new Map<string,string>();let precision=initialDisplayPrecision();
 export function selectDisplayPrecision(value:DisplayPrecision){precision=displayPrecision(value);rendered.clear();}
 const key=(value:string,kind:Kind,tick?:string,policy=precision)=>JSON.stringify([value,policy[kind],tick??null,kind!=='money']);
 export function amountText(value:string,kind:Kind,tick?:string,policy=precision){return rendered.get(key(value,kind,tick,policy))??value;}
-const money=new Set(['tradeCashAmount','tradePresentValue','presentValue','instrumentPresentValue','cashAmount','contribution','cashContribution','executionPnl','upPnl','downPnl','basePv','upPv','downPv','change']);
+const money=new Set(['tradeCashAmount','tradePresentValue','presentValue','instrumentPresentValue','cashAmount','contribution','cashContribution','executionPnl','upPnl','downPnl','basePv','upPv','downPv','change','base']);
 const prices=new Set(['price','fixedPrice','executionPrice','mark','markMinusPrice','value','annualRate',...priceMeasureChoices.map(c=>c[0])]);
 const quantities=new Set(['resolvedQuantity','quantity','physicalQuantity','totalQuantity','weight']);
 const factors=new Set(['discountFactor','factor','multiplier','delta','gamma']);
 /** The part of an API read whose amounts a page shows, by the read's path; undefined for a read whose amounts no page shows. A workspace
- *  read's report and its desk summaries are both shown, its catalog is not; a curve's points are. */
+ *  read's report and its desk summaries are both shown, its catalog is not; a curve's points are, and so is a risk report or retained job. */
 export function shownAmounts(path:string,payload:unknown):unknown{
- if(!/^(trading\/(blotter|workspace|position)|swaps\/(preview|editor)|futures\/(holdings|editor|amend-preview)|evaluate|history|power\/preview)$/.test(path))return undefined;
+ if(!/^(trading\/(blotter|workspace|position)|swaps\/(preview|editor)|futures\/(holdings|editor|amend-preview)|evaluate|history|power\/preview|portfolio\/risk(\/jobs\/[^/]+)?)$/.test(path))return undefined;
  const read=payload as {blotter?:unknown;summaries?:unknown;points?:unknown};
  return path==='trading/workspace'?{blotter:read.blotter,summaries:read.summaries}:path==='evaluate'||path==='history'?{points:read.points}:payload;
 }
