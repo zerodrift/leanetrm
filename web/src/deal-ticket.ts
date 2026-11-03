@@ -133,7 +133,8 @@ function addCard(o:TicketView){
 function strip(o:TicketView){
  const d=o.state.description,view=o.schedule,node=el('header','ticket-strip');
  const title=el('div','ticket-title');
- title.append(el('strong','ticket-product',d.product),el('span','ticket-state',o.mode==='new'?'Draft':!view?'Booked':view.delivered?'Booked · in delivery':'Booked · forward'));
+ // The panel heading names the product; the strip names only the trade's state.
+ title.append(el('strong','ticket-state',o.mode==='new'?'Draft':!view?'Booked':view.delivered?'Booked · in delivery':'Booked · forward'));
  const fields=el('div','ticket-trade-fields');for(const f of d.tradeFields)fields.append(fieldRow(o,f,null,o.state.trade[f.id]));
  node.append(title,fields);
  if(view?.delivered){

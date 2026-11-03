@@ -557,7 +557,7 @@ dialog label{margin-top:16px}
 .instrument-sides{display:flex;flex-direction:column;gap:16px;margin:20px 0 12px}.instrument-side{min-width:0;padding:14px;border:1px solid #dce5d5;border-radius:8px;background:#fcfdf9}.instrument-side h3{margin:0 0 12px}.instrument-side label{margin-top:0}.side-contract{margin-bottom:12px}.side-terms{display:contents}.side-term{display:grid;grid-template-columns:minmax(110px,.9fr) minmax(0,1.2fr);gap:16px;padding:10px 0;border-top:1px solid #e6ebdf;font-size:12px;line-height:1.5}.side-term dt{color:#6b7d66}.side-term dd{margin:0;overflow-wrap:anywhere;color:#304f3d;font-variant-numeric:tabular-nums}#trade-editor-terms{margin:8px 0 16px}
 @media(max-width:480px){.instrument-side{padding:12px}.side-term{grid-template-columns:minmax(90px,.9fr) minmax(0,1.2fr);gap:10px}}
 
-.swap-sides .instrument-side>div{padding:9px 0;border-top:1px solid #e6ebdf}.swap-sides input,.swap-sides select{width:100%}.swap-sides p{margin:0;display:flex;align-items:center}#swap-error{color:#8c3830;background:#fff1ed;padding:12px}#swap-result{margin:24px 0}.swap-schedule{margin:20px 0;padding:16px;border:1px solid #e2e8dc;border-radius:8px}.swap-schedule details{margin-top:14px}#swap-reason{width:100%;margin-bottom:16px}#swap-confirmation{padding:16px 0;border-top:1px solid #e2e8dc}#swap-revisions{margin:12px 0}#swap-revisions select{width:auto;margin-right:12px}
+.swap-sides input,.swap-sides select{width:100%}.swap-sides p{margin:0;display:flex;align-items:center}#swap-error{color:#8c3830;background:#fff1ed;padding:12px}#swap-result{margin:24px 0}.swap-schedule{margin:20px 0;padding:16px;border:1px solid #e2e8dc;border-radius:8px}.swap-schedule details{margin-top:14px}#swap-reason{width:100%;margin-bottom:16px}#swap-confirmation{padding:16px 0;border-top:1px solid #e2e8dc}#swap-revisions{margin:12px 0}#swap-revisions select{width:auto;margin-right:12px}
 
 .swap-evidence{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.6;max-height:320px;overflow:auto;padding:12px;background:#f4f7f1;border-radius:6px}
 
@@ -567,7 +567,7 @@ dialog label{margin-top:16px}
 
 /* Shared controls: clear labels, consistent sizing and native keyboard support. */
 .editing label{font-size:12px;line-height:1.5;font-weight:550;color:#4b6154}.editing .field-help{font-size:11px;line-height:1.65}
-.side-payment-rule label{margin-top:16px}.side-payment-rule select{background-color:#fff}.swap-sides .instrument-side{background:#f9fbf8}
+.side-payment-rule label{margin-top:16px}.side-payment-rule select{background-color:#fff}
 .swap-sides input,.swap-sides select{min-width:0}.swap-editing .trade-booking-terms{padding-bottom:4px;border-bottom:1px solid #e1e8de}
 /* The table owns its scroll area; its enclosing section never adds a second one. */
 .editing .table-wrap{overflow:visible;max-height:none}.editing .regular-table-scroll{max-height:280px;border:1px solid #e0e7dd;border-radius:6px}
@@ -622,12 +622,11 @@ dialog label{margin-top:16px}
    between them. */
 .deal-ticket{container-type:inline-size;display:flex;flex-direction:column;gap:14px;font-size:13px}
 .deal-ticket :is(.ticket-strip,.ticket-schedule,.ticket-foot){background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px}
-.ticket-strip{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px}
-.ticket-title{display:flex;flex-direction:column;gap:2px;min-width:140px}
-.ticket-product{font-size:15px;font-weight:700}
-.ticket-state{color:var(--text-3)}
-.ticket-trade-fields{display:flex;flex-wrap:wrap;gap:10px 14px;flex:1 1 auto}
-.ticket-trade-fields .ticket-field{min-width:160px;padding:0;background:none}
+.ticket-strip{display:flex;flex-direction:column;align-items:stretch;gap:14px}
+.ticket-strip>.ticket-title{display:flex;flex-direction:column;gap:2px;flex:none}
+.ticket-state{font-size:14px;font-weight:650;color:var(--text)}
+.ticket-trade-fields{display:flex;flex-direction:column;gap:14px}
+.ticket-trade-fields .ticket-field{padding:0;background:none}
 .ticket-progress{display:flex;align-items:center;gap:8px;color:var(--text-2);font-variant-numeric:tabular-nums}
 .ticket-progress progress{width:120px;accent-color:var(--accent)}
 .ticket-valuation{color:var(--text-3);font-size:12px}
@@ -654,10 +653,10 @@ dialog label{margin-top:16px}
 .deal-ticket .ticket-remove{padding:2px 8px;font-size:11px}
 .ticket-band-title{padding:5px 14px;background:var(--accent-soft);color:var(--accent-text);font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
 .ticket-band-title.ticket-band-own{background:var(--surface-3);color:var(--text-3)}
-.ticket-field{display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:0;padding:7px 14px}
-.ticket-label{color:var(--text-3);font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
-.ticket-body{display:flex;align-items:center;gap:6px;min-height:30px}
-.ticket-control{flex:1 1 auto;min-width:0;height:30px;padding:0 9px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);font-size:13px;font-variant-numeric:tabular-nums}
+.ticket-field{display:flex;flex-direction:column;justify-content:center;gap:6px;min-width:0;padding:7px 14px}
+.ticket-label{color:#4b6154;font-size:12px;line-height:1.5;font-weight:550}
+.ticket-body{display:flex;align-items:center;gap:6px;min-height:36px}
+.ticket-control{flex:1 1 auto;min-width:0;height:36px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);font-size:13px;font-variant-numeric:tabular-nums}
 .ticket-unit{color:var(--text-3);font-size:12px}
 .ticket-looked .ticket-control{background:var(--accent-soft);border-color:var(--accent-border)}
 .ticket-chip{flex:none;padding:1px 6px;border-radius:999px;background:var(--accent);color:#fff;font-size:10px;font-weight:600;white-space:nowrap}
@@ -1035,7 +1034,7 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .advanced-settings[open]>summary{margin-bottom:.75rem}
 .advanced-settings input[type=number]{max-width:8rem}
 .instrument-editor{border-top:1px solid #dce3d5;margin-top:1.25rem;padding-top:.75rem}
-.trade-booking-terms input[readonly]{background:#f5f7f2;color:#526249;cursor:default}
+:is(.trade-booking-terms,.details-form) input[readonly]{background:#f5f7f2;color:#526249;cursor:default}
 .swap-sides>#swap-fixed-editor,.swap-sides>#swap-floating-editor{display:contents}
 /* Empty lists read as an intentional empty state, not stray text. */
 #dates-saved:not(:has(*)),#curve-dates-saved:not(:has(*)){padding:18px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);background:var(--surface-2);text-align:center;font-size:13px}
@@ -1406,7 +1405,7 @@ body.assistant-open.assistant-overlay main{margin-right:0}
 .swap-sides>#swap-first-editor{display:contents}.swap-sides>[hidden]{display:none!important}
 
 /* PPA forms and exact inspection stay within the page; wide native tables scroll locally. */
-#ppa-page{min-width:0}#ppa-page fieldset{min-width:0;border:0;padding:0;margin:16px 0}#ppa-page legend{font-weight:650;margin-bottom:14px}#ppa-page .schedule-fields label{min-width:0}#ppa-page input:not([type=checkbox]),#ppa-page select,#ppa-page textarea{max-width:100%;width:100%;min-width:0}#ppa-page select[multiple]{min-height:100px}.ppa-evidence{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;font-size:12px;background:#f4f6f8;padding:12px;border-radius:8px}.ppa-components{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px}.ppa-component{margin:0!important;min-width:0}#ppa-page .table-wrap{max-width:100%;overflow:auto}#ppa-page td,#ppa-page th{padding:9px 12px;vertical-align:top;text-align:left}#ppa-page td button{margin:2px;white-space:nowrap}#ppa-page .schedule-actions{flex-wrap:wrap}#ppa-page label:has(input[type=checkbox]){display:flex;align-items:flex-start;gap:8px}#ppa-pins,#ppa-trade-title{overflow-wrap:anywhere}@media(max-width:600px){#ppa-page .schedule-fields{grid-template-columns:minmax(0,1fr)}#ppa-page .card{padding:16px}#ppa-page .schedule-actions button{max-width:100%}}
+#ppa-page{min-width:0}:where(#ppa-page) fieldset{min-width:0;border:0;padding:0;margin:16px 0}#ppa-page legend{font-weight:650;margin-bottom:14px}#ppa-page .schedule-fields label{min-width:0}#ppa-page input:not([type=checkbox]),#ppa-page select,#ppa-page textarea{max-width:100%;width:100%;min-width:0}#ppa-page select[multiple]{min-height:100px}.ppa-evidence{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;font-size:12px;background:#f4f6f8;padding:12px;border-radius:8px}.ppa-components{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px}.ppa-component{margin:0!important;min-width:0}#ppa-page .table-wrap{max-width:100%;overflow:auto}#ppa-page td,#ppa-page th{padding:9px 12px;vertical-align:top;text-align:left}#ppa-page td button{margin:2px;white-space:nowrap}#ppa-page .schedule-actions{flex-wrap:wrap}#ppa-page label:has(input[type=checkbox]){display:flex;align-items:flex-start;gap:8px}#ppa-pins,#ppa-trade-title{overflow-wrap:anywhere}@media(max-width:600px){#ppa-page .schedule-fields{grid-template-columns:minmax(0,1fr)}#ppa-page .card{padding:16px}#ppa-page .schedule-actions button{max-width:100%}}
 #ppa-measures table{width:100%;min-width:0;table-layout:fixed}#ppa-measures th,#ppa-measures td{white-space:normal;overflow-wrap:anywhere;width:50%}#ppa-measures td:nth-child(2){font-variant-numeric:tabular-nums}
 
 .ppa-plots { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,32rem),1fr)); gap:1rem; }
@@ -1689,11 +1688,13 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .tab-dock[data-maximized] :is(.dock-divider,.dock-grip){display:none}
 .tab-dock[data-maximized] :is(.dock-split,.dock-group)[data-maximized-path]{flex:1 1 0!important;min-height:0!important;min-width:0}
 .details-pane .side-panel-prompt{margin:0 0 10px;padding-right:16px;border:1px solid var(--warn-border);border-radius:var(--radius)}
-/* A form in a narrow details pane takes the one column, as it does in a side panel. */
+/* A ticket in the details pane is vertical: one field per row, as in a side panel. */
+.details-form .schedule-fields,.details-form .trade-annotation-fields,.details-form .schedule-date-fields,.details-form .swap-term-columns,.details-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr);gap:14px}
+.details-form .trade-annotation-fields{margin:14px 0}.details-form :is(.schedule-fields,.trade-annotation-fields,.schedule-date-fields) label{margin-top:0}
+.details-form select,.details-form input:not([type=checkbox]):not([type=radio]),.details-form textarea{width:100%}
 @container (max-width:600px){
-  .details-form .schedule-fields,.details-form .trade-annotation-fields,.details-form .schedule-date-fields,.details-form .instrument-choices,.details-form .swap-term-columns,.details-form .scheduled-side-columns{grid-template-columns:minmax(0,1fr)}
+  .details-form .instrument-choices{grid-template-columns:minmax(0,1fr)}
   .details-form .instrument-choices button,.details-form #swap-scheduled-open{white-space:normal;min-width:0;max-width:100%}
-  .details-form select,.details-form input:not([type=checkbox]):not([type=radio]),.details-form textarea{width:100%}
 }
 .details-pane #position-details-head{border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
 .details-pane #position-details-head:not(:empty){margin-bottom:12px}
@@ -1885,12 +1886,14 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 #gas-page input,#gas-page select{min-width:0;max-width:100%;box-sizing:border-box}
 /* The physical crude ticket and its retained evidence share the workspace width. */
 #crude-page,#crude-page .card,#crude-page label{min-width:0}
-#crude-page .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
 #crude-page input,#crude-page select{min-width:0;max-width:100%;box-sizing:border-box}
 #crude-page .table-wrap{max-width:100%;overflow-x:auto}
 #crude-page .ppa-evidence{max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 #crude-receipt{overflow-wrap:anywhere}
-#crude-page fieldset{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0;min-width:0}
+/* A label names its unit only once the unit is known. */
+.label-unit:not(:empty)::before{content:' · '}
+/* Side cards own their fieldsets' frame. */
+:where(#crude-page) fieldset{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0;min-width:0}
 #crude-page legend{font-weight:600;padding:0 8px}
 #crude-page dl{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,2fr);gap:8px 16px;font-size:13px}
 #crude-page dt{color:var(--text-muted)}
@@ -1972,10 +1975,10 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 @media(max-width:900px){.schedule-workspace-content{grid-template-columns:1fr}.schedule-calendar.card{position:static}.schedule-path{gap:12px;flex-wrap:wrap}.schedule-tabs button{padding:11px 10px;font-size:12px}.schedule-workspace-intro h2{font-size:25px}}
 /* The futures option ticket and an option's lifecycle actions: one field per row, sections stacked, backend values as label and value rows. */
 .option-ticket .option-fields,.option-lifecycle{display:flex;flex-direction:column;gap:14px;min-width:0;border:0;padding:0;margin:0}
-.option-section{display:flex;flex-direction:column;gap:8px}
-#option-page .trade-annotation-fields{display:flex;flex-direction:column;gap:8px;margin:0}
+.option-section{display:flex;flex-direction:column;gap:14px}
+#option-page .trade-annotation-fields{display:flex;flex-direction:column;gap:14px;margin:0}#option-page .trade-annotation-fields+.trade-annotation-fields{margin-top:14px}
 .option-section-title{margin:0;color:var(--text-3);font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
-.option-row{display:flex;flex-direction:column;gap:4px;min-width:0}
+.option-row{display:flex;flex-direction:column;min-width:0}
 .option-row :is(select,input,textarea){width:100%}
 .option-fact{flex-direction:row;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--border)}
 .option-fact-label{color:var(--text-3);font-size:12px}
@@ -2056,25 +2059,37 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 }
 
 /* Side cards share the gas ticket presentation; native operations own their terms. */
-.entry-side-deck{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px;align-items:start;container-type:inline-size}
+.entry-side-deck{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px;align-items:stretch;container-type:inline-size}
 .entry-side-deck>[hidden]{display:none!important}
 .entry-side-deck>.ticket-add,.entry-side-card{grid-row:auto}
-.entry-side-card{display:block;min-width:0;padding:0;cursor:default;background:var(--surface);border-top:4px solid var(--side-colour)}
+.entry-side-card{display:flex;flex-direction:column;gap:14px;min-width:0;padding:0 0 16px;cursor:default;background:var(--surface);border-top:4px solid var(--side-colour)}
 .entry-side-card>.ticket-card-head{border-bottom:1px solid var(--border);margin:0}
-.entry-side-card>fieldset,.entry-side-card>.schedule-fields,.entry-side-card>.field-help,.entry-side-card>h4,.entry-side-card>details,.entry-side-card>div:not(.ticket-card-head){margin:12px;padding:0;min-width:0}
-.entry-side-card>.schedule-fields,.entry-side-card .schedule-fields{grid-template-columns:minmax(0,1fr)}
+/* Every field in a side card shares one inset and one vertical rhythm, whether it stands alone or in a group. */
+.entry-side-card>:not(.ticket-card-head,button){margin:0 14px;padding:0;min-width:0;border:0;border-radius:0;background:none}
+.entry-side-card>section,.entry-side-card>fieldset,.entry-side-card>.schedule-fields{display:grid;gap:14px}
+.entry-side-card>[hidden]{display:none}
+.ticket-card.entry-side-card label,.entry-side-card .eyebrow{display:block;margin:0 0 6px}
+.ticket-card.entry-side-card *+label{margin-top:14px}
+.ticket-card.entry-side-card :is(section,fieldset,.schedule-fields)>label{margin-top:0}
+.ticket-card.entry-side-card label:has(input,select,textarea){margin-bottom:0}
+.ticket-card.entry-side-card * .field-help{margin:6px 0 0}
+.ticket-card.entry-side-card :is(input,select,textarea,p)+div{margin-top:14px}
+.ticket-card.entry-side-card :is(input,select)+:is(input,select){margin-top:8px}
+.entry-side-card .schedule-fields{grid-template-columns:minmax(0,1fr);margin-bottom:0}
 .entry-side-card fieldset{min-width:0;border:0}
 .entry-side-card .ticket-card-head h3{margin:0;font-size:15px;white-space:normal}
 .entry-side-card .ticket-pill{max-width:45%;white-space:normal}
-.entry-side-card>.text-button{margin:10px 12px}
-.ppa-component.entry-side-card>p,.ppa-component.entry-side-card>.ppa-retained-quantity{margin:12px}
+.entry-side-card>button{align-self:flex-start;margin:0 14px}
 .ppa-component.entry-side-card>h4{font-size:13px}
 #ppa-ticket>.schedule-actions{position:static}
 #ppa-ticket .entry-section{margin:0 0 22px;padding:0;border:0;min-width:0}
 #ppa-ticket .entry-section>legend{font-size:15px;font-weight:600;margin:12px 0}
-#ppa-components .ticket-add{min-height:160px}
-.swap-side-adder,.scheduled-side-adder{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;grid-row:auto;margin:14px 0;min-width:0}
-.swap-side-adder .ticket-add-title{width:100%;text-align:left}
+/* Every ticket offers its side kinds the same way: a titled row of compact buttons. */
+:is(.entry-side-deck>.ticket-add,.swap-side-adder,.scheduled-side-adder){display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;grid-row:auto;min-width:0}
+:is(.swap-side-adder,.scheduled-side-adder){margin:14px 0}
+:is(.entry-side-deck>.ticket-add,.swap-side-adder,.scheduled-side-adder) .ticket-add-title{width:100%;text-align:left}
+:is(.entry-side-deck>.ticket-add,.swap-side-adder,.scheduled-side-adder) .ticket-add-kind{background:var(--surface);color:var(--text);border:1px solid var(--border-strong);font-weight:500}
+:is(.entry-side-deck>.ticket-add,.swap-side-adder,.scheduled-side-adder) .ticket-add-kind:hover:not(:disabled){background:var(--surface-3)}
 #swap-pending-sides:empty{display:none}
 .swap-sides.entry-side-deck{display:grid}
 .entry-side-card .side-payment-rule{padding:0;border:0;background:none}

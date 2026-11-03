@@ -152,6 +152,12 @@ test('in booked mode nothing is editable, no chip is drawn and Amend and Close o
  assert.equal(one(host,'ticket-state').textContent,'Booked');
 });
 
+test('the strip names the trade state and never shows the product code',()=>{
+ const host=draw({state:newTicket(description)});
+ assert.equal(all(host).some(n=>n.textContent===description.product),false);
+ assert.equal(one(host,'ticket-state').textContent,'Draft');
+});
+
 test('the strip shows the status and the model\'s notices, and the ghost card offers the side kinds the model admits',()=>{
  const added=[];
  const state={...newTicket(description),notices:['Point was cleared because Zone changed.']};
