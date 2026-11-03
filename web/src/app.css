@@ -20,6 +20,8 @@
   /* Volatility rich and cheap: the ends of a diverging scale centred on --surface-3 at zero (vol-surface-view.ts). Warm and cool, so
      they read apart without red and green, and each is 4.5:1 or better on white; a sign and a label always accompany them. */
   --vol-rich:#c2532a;--vol-cheap:#2a68b5;
+  /* Volatility level: the ends of the 3D surface's sequential shading (vol-surface-3d.ts), greens apart from the rich and cheap stalks. */
+  --vol-level-low:#bfe3cf;--vol-level-high:#1d5a45;
   /* Curve kinds (curve-kinds.ts): a white icon on each fill (4.8:1 or better), each fill 4.2:1 or better on every surface. The label
      always accompanies the colour: it is the badge's name and tooltip. Market curves are greens and greys, relationships warm,
      custom graphs blues and purples. */
@@ -2160,7 +2162,21 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .vol-readout dt{color:var(--text-3)}
 .vol-readout dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;color:var(--text);overflow-wrap:anywhere}
 .vol-readout-empty,.vol-readout-reason{margin:12px 0 0;font-size:12px;line-height:1.55;color:var(--text-3)}
-.vol-surface-3d{grid-column:1/-1}
+/* The 3D surface sits beside the readout, which stays in view over the heat map and the surface. */
+.vol-readout{grid-row:span 2}
+.vol-surface-3d{grid-column:1}
+.vol-3d-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.vol-3d-hint{font-size:12px;color:var(--text-3)}
+.vol-3d-canvas canvas{display:block;width:100%;touch-action:pan-y;border-radius:var(--radius-sm)}
+.vol-3d-canvas canvas:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.vol-3d-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:8px 0 0;font-size:12px;line-height:1.55;color:var(--text-3)}
+.vol-3d-levels{display:inline-flex;align-items:center;gap:6px}
+.vol-3d-level-bar{width:72px;height:8px;border-radius:999px;background:linear-gradient(90deg,var(--vol-level-low),var(--vol-level-high))}
+.vol-key-row,.vol-key-join,.vol-key-rich,.vol-key-cheap{display:inline-block;flex:none}
+.vol-key-row{width:14px;height:2px;background:var(--accent)}
+.vol-key-join{width:14px;height:10px;border-radius:2px;background:linear-gradient(90deg,var(--vol-level-low),var(--vol-level-high))}
+.vol-key-rich,.vol-key-cheap{width:8px;height:8px;border-radius:50%}
+.vol-key-rich{background:var(--vol-rich)}.vol-key-cheap{background:var(--vol-cheap)}
 .vol-smiles{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
 .vol-smiles-key{grid-column:1/-1;margin:0;font-size:12px;color:var(--text-3)}
 .vol-smile{padding:14px 14px 8px;transition:border-color .15s,box-shadow .15s}
@@ -2172,4 +2188,4 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .vol-smile .vol-chart{height:236px}
 .vol-gap{margin:12px 0 8px;padding:12px;font-size:12px;line-height:1.55;color:var(--warn);background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius)}
 .vol-tooltip{max-width:280px;white-space:normal!important;line-height:1.5}
-@media(max-width:900px){.vol-views{grid-template-columns:minmax(0,1fr)}.vol-readout{position:static}.vol-smiles{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:900px){.vol-views{grid-template-columns:minmax(0,1fr)}.vol-readout{position:static;grid-row:auto}.vol-smiles{grid-template-columns:minmax(0,1fr)}}

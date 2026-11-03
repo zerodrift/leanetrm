@@ -4,9 +4,11 @@ import {plotNumber} from './plot-number.js';
 import {PendingCommand} from './pending-command.js';
 import {valuationReason,type ValuationReason} from './valuation-status.js';
 import {surfaceLink,type SurfaceLink} from './vol-surface-link.js';
+import {drawSurface3d,levelRange} from './vol-surface-3d.js';
 
 // Vol surfaces (Markets): the stored volatility surface of one option product at the selected context, fitted by a job on the
-// risk queue. Every value, fit, rich/cheap and reason is the backend's; the page maps them to pixels, colours and display text. Wire
+// risk queue, shown as a rich/cheap heat map, a rotatable 3D surface and one smile per expiry. Every value, fit, rich/cheap and reason
+// is the backend's; the page maps them to pixels, colours and display text. Wire
 // values are decimal fractions, shown as volatility points (0.012 is 1.20).
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 /** The trading context a read is made at, as the option operations state it. */
@@ -221,15 +223,24 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  const heatChart=el('div','vol-chart');heatChart.tabIndex=0;heatChart.setAttribute('role','img');heatChart.setAttribute('aria-label','Rich/cheap heat map. Use the arrow keys to move between series.');
  heat.append(heatHead,halves,heatChart);
  const readout=el('aside','vol-card vol-readout');readout.id='vol-readout';readout.setAttribute('aria-live','polite');
- // Task 8's rotatable 3D surface draws in this container.
- const surface3d=el('section','vol-card vol-surface-3d');surface3d.id='vol-surface-3d';surface3d.hidden=true;
+ // The rotatable 3D surface: its canvas is drawn afresh for each stored revision, with a legend whose shading scale is that revision's.
+ const surface3d=el('section','vol-card vol-surface-3d');surface3d.id='vol-surface-3d';
+ const resetView=el('button','secondary','Reset view');resetView.id='vol-surface-reset';resetView.type='button';
+ const head3d=el('div','vol-card-head'),tools3d=el('div','vol-3d-tools');tools3d.append(el('span','vol-3d-hint','Drag or use the arrow keys to rotate'),resetView);
+ head3d.append(el('h3',undefined,'Surface'),tools3d);
+ const canvasHost=el('div','vol-3d-canvas'),levelScale=el('span','vol-3d-levels');
+ const legend3d=el('p','vol-3d-legend');
+ legend3d.append(el('span','vol-key-row'),' Rows: the fitted smile at each expiry, shaded by volatility level ',levelScale,
+  ' · ',el('span','vol-key-join'),' Straight panels between expiries: a visual join, not a fit · Stalks: from the fitted smile to the market’s implied volatility, ',
+  el('span','vol-key-rich'),' rich above, ',el('span','vol-key-cheap'),' cheap below');
+ surface3d.append(head3d,canvasHost,legend3d);
  const smiles=el('section','vol-smiles');smiles.id='vol-smiles';
  const views=el('div','vol-views');views.append(heat,readout,surface3d,smiles);
  root.replaceChildren(controls,fitBar,error,views);
 
  // The generations of the reads under way: only a read of the current product and context stands for the next one.
  const reading:number[]=[];
- let products:{code:string;name:string}[]=[],product='',shown:SurfaceRead|undefined,drawn:View[]=[],cells:HeatCell[]=[],drawnFor:VolSurfaceResult|undefined,drawnRevision='';
+ let products:{code:string;name:string}[]=[],product='',shown:SurfaceRead|undefined,drawn:View[]=[],view3d:{reset():void;dispose():void}|undefined,cells:HeatCell[]=[],drawnFor:VolSurfaceResult|undefined,drawnRevision='';
  let generation=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='';
  const expiryLabel=(e:SurfaceExpiry)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',year:'numeric',timeZone:o.zone()}).format(new Date(e.expiryAt));
  const instant=(at:string)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZone:o.zone()}).format(new Date(at));
@@ -239,7 +250,10 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   views.hidden=next!=='fitted';if(next!=='fitted')clearViews();
   if(next!=='notFitted'&&next!=='fitted'){status.textContent=next==='loading'?'Reading the surface…':publicText(next==='error'?'':message);actions.hidden=true;}
  }
- function clearViews(){for(const view of drawn)view.dispose();drawn=[];cells=[];drawnFor=undefined;drawnRevision='';link.set(null);smiles.replaceChildren();scale.replaceChildren();renderReadout(null);}
+ function clearViews(){
+  for(const view of drawn)view.dispose();view3d?.dispose();drawn=[];view3d=undefined;cells=[];drawnFor=undefined;drawnRevision='';link.set(null);
+  smiles.replaceChildren();scale.replaceChildren();canvasHost.replaceChildren();levelScale.replaceChildren();renderReadout(null);
+ }
  function stop(){clearTimeout(timer);timer=undefined;}
  const scopeOf=()=>JSON.stringify([o.context(),product]);
  function failed(error:unknown){state('error',`${messageOf(error)}${codeOf(error)&&!messageOf(error).includes(codeOf(error)!)?` (${codeOf(error)})`:''}`);}
@@ -340,6 +354,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   if(queued)await read(number).catch(error=>{if(number===generation)failed(error);});else render();
  }
  fit.onclick=()=>void submit();retry.onclick=()=>void submit();
+ resetView.onclick=()=>view3d?.reset();
 
  // The surface's views, drawn for each stored revision a read returns; reading the same revision again, as checking on a refit
  // does, keeps them as drawn.
@@ -352,6 +367,12 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   const extent=largest?Math.abs(plotNumber(largest.richCheap!))||1:1;
   if(largest){const end=points(largest.richCheap!.replace(/^-/,''));scale.append(el('span',undefined,'Cheap'),el('span','vol-scale-end','-'+end),el('span','vol-scale-bar'),el('span','vol-scale-end','+'+end),el('span',undefined,'Rich'));}
   drawn.push(heatMap(heatChart,surface,cells,expiryLabel,extent,link));
+  const levels=levelRange(surface);
+  if(levels){
+   const canvas=el('canvas');canvasHost.append(canvas);
+   levelScale.append(el('span','vol-scale-end',points(levels.low)),el('span','vol-3d-level-bar'),el('span','vol-scale-end',`${points(levels.high)} vol pts`));
+   view3d=drawSurface3d(canvas,surface,link,expiryLabel);
+  }else canvasHost.append(el('p','vol-gap','No expiry is fitted at this date, so there is no surface to draw.'));
   for(const expiry of surface.expiries){
    const members=surface.series.filter(s=>s.series.expiryAt===expiry.expiryAt),card=el('article','vol-card vol-smile');card.dataset.expiry=expiry.expiryAt;
    const head=el('header','vol-smile-head'),title=el('h4',undefined,expiryLabel(expiry)),sub=el('p','vol-smile-sub',`${expiry.underlyingCode}${expiry.futures===null?' · no futures settlement':` · futures ${trimmed(expiry.futures)}`}`);

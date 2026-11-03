@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {surfaceLink} from '../dist/vol-surface-link.js';
 import {decimalText,heatCells} from '../dist/vol-surface-view.js';
+import {surfaceMesh} from '../dist/vol-surface-3d.js';
 
 test('the shared series is heard once per change, and not after unsubscribing',()=>{
   const link=surfaceLink(),heard=[];
@@ -56,4 +57,27 @@ test('an outcome or expiry status the page does not know is refused rather than 
   assert.throws(()=>heatCells({modelId:'m',strikeAxis:['1'],expiries:[expiry('e1','fitted')],series:[series('a','e1','1','call','option_unheard_of')]}),/unknown/);
   assert.throws(()=>heatCells({modelId:'m',strikeAxis:['1'],expiries:[expiry('e1','vol_fit_unheard_of')],series:[]}),/unknown/);
   assert.throws(()=>heatCells({modelId:'m',strikeAxis:['1'],expiries:[expiry('e1','fitted')],series:[series('a','e9','1','call','solved','0.01')]}),/expiry/);
+});
+
+const fittedAt=(expiryAt,strikes,status='fitted')=>({...expiry(expiryAt,status),grid:strikes.map(strike=>({strike,logMoneyness:'0',fitted:'0.4'+strike.replace('.','')}))});
+const surfaceOf=expiries=>({modelId:'m',strikeAxis:[],expiries,series:[]});
+
+test('the 3D mesh draws a row per fitted expiry and joins neighbouring rows only where both list the same consecutive strikes',()=>{
+  const mesh=surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',['1','2','3']),fittedAt('2026-12-01T00:00:00Z',['2','3','4']),
+    expiry('2027-01-01T00:00:00Z','vol_fit_insufficient_strikes'),fittedAt('2027-02-01T00:00:00Z',['1','2'])]));
+  assert.deepEqual(mesh.rows.map(r=>[r.expiry,r.points.map(p=>p.strike)]),[[0,['1','2','3']],[1,['2','3','4']],[3,['1','2']]]);
+  assert.deepEqual(mesh.rows[0].points[1],{strike:'2',fitted:'0.42'});
+  // The gap expiry has no row, and no join reaches across it to the next fitted expiry.
+  assert.deepEqual(mesh.joins,[{from:0,to:1,strikes:['2','3']}]);
+});
+
+test('a join never spans a strike that one of its rows lists between the two',()=>{
+  const mesh=surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',['1','2','2.5']),fittedAt('2026-12-01T00:00:00Z',['1','2','3'])]));
+  assert.deepEqual(mesh.joins,[{from:0,to:1,strikes:['1','2']}]);
+});
+
+test('a surface whose fitted grids disagree with their expiry status or order is refused rather than drawn',()=>{
+  assert.throws(()=>surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',[])])),/grid/);
+  assert.throws(()=>surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',['1'],'vol_fit_nonpositive')])),/grid/);
+  assert.throws(()=>surfaceMesh(surfaceOf([fittedAt('2026-12-01T00:00:00Z',['1']),fittedAt('2026-11-01T00:00:00Z',['1'])])),/order/);
 });

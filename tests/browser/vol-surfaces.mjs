@@ -1,6 +1,6 @@
 // Vol surfaces (Markets): the stored volatility surface of one option product at the selected context, drawn as a rich/cheap heat
 // map and one smile per expiry that highlight the same series together, and a fit submitted as a risk-queue job that the page
-// checks back on until it finishes. Runs after the HTTP checks of the exchange example, which leave the trader's own failed fit of
+// checks back on until it finishes, and a rotatable 3D view of the fitted surface with each market point on a stalk. Runs after the HTTP checks of the exchange example, which leave the trader's own failed fit of
 // nymex_lo at the latest close and fitted surfaces of nymex_on there and of both products at the close that leaves one option
 // underlying unsettled. The preview grants the trader PublishMarketData and serves a risk worker for this suite.
 import {mkdtemp,writeFile} from 'node:fs/promises';
@@ -29,6 +29,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
  // inputs, and leave one option product out of the reference catalog's answers.
  const {identifier}=await command('Page.addScriptToEvaluateOnNewDocument',{source:`
   window.surfaceCalls=[];window.reviseNextRead=false;window.loseNextFit=false;window.unlistedProduct=null;const send=window.fetch;
+  // The resize observers of the page's views still observing, so a view replaced or reset can be seen to release its own.
+  const Observer=window.ResizeObserver;window.volObservers=new Set();
+  window.ResizeObserver=class extends Observer{observe(target,options){if(target.closest?.(${q(page)}))window.volObservers.add(this);return super.observe(target,options);}
+   disconnect(){window.volObservers.delete(this);return super.disconnect();}};
   window.fetch=async(input,init)=>{
    const path=String(typeof input==='string'?input:input.url),call=/[/](vol-surfaces[/][a-z]+)$/.exec(path);
    if(window.unlistedProduct&&/[/]reference[/]catalog[?]table=futures_option_products/.test(path)){
@@ -184,6 +188,68 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
     return hosts.every(h=>{const s=e.getInstanceByDom(h).getOption().series;const call=s.find(x=>x.id==='calls'),put=s.find(x=>x.id==='puts');
      return s.some(x=>x.type==='line'&&x.id==='fitted')&&call?.type==='scatter'&&put?.type==='scatter'&&call.symbol!==put.symbol&&s.some(x=>x.type==='bar');});})()`);
 
+  // The 3D view: a canvas the page draws itself, whose pixels are compared at one size and pixel ratio.
+  const canvas3d="document.querySelector('#vol-surface-3d canvas')";
+  const pixels=()=>evaluate(`(()=>{const c=${canvas3d},d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let h=2166136261;
+   for(let i=0;i<d.length;i++){h^=d[i];h=Math.imul(h,16777619);}return {size:[c.width,c.height,devicePixelRatio],digest:h>>>0};})()`);
+  const painted=`(()=>{const c=${canvas3d},d=c.getContext('2d').getImageData(0,0,c.width,c.height).data,colours=new Set();let opaque=0;
+   for(let i=0;i<d.length;i+=4)if(d[i+3]>0){opaque++;colours.add(d[i]<<16|d[i+1]<<8|d[i+2]);}return {share:opaque/(d.length/4),colours:colours.size};})()`;
+  const scheme=async value=>{await command('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value}]});await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');};
+  const capture3d=async name=>{const r=await evaluate("(()=>{const n=document.querySelector('#vol-surface-3d');n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect();return {x:r.left+scrollX,y:r.top+scrollY,width:r.width,height:r.height};})()");
+   const shot=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{...r,scale:1}});await writeFile(join(artifacts,name+'.png'),Buffer.from(shot.data,'base64'));};
+  await settled(`!!${canvas3d}&&document.fonts.status==='loaded'`,10000);
+  await check('the 3D legend names the fitted rows, the straight panels between expiries as a visual join, and the rich and cheap stalks',
+   "(t=>/fitted smile/i.test(t)&&/straight panels? between expiries[^.]*visual join/i.test(t)&&/rich/i.test(t)&&/cheap/i.test(t))(document.querySelector('#vol-surface-3d .vol-3d-legend').textContent)",
+   "document.querySelector('#vol-surface-3d')?.textContent");
+  await check('the 3D mesh has a row for each fitted expiry, joined to its fitted neighbour',
+   `(()=>{const c=${canvas3d},fitted=${q(fitted.surface.expiries.filter(e=>e.status==='fitted').map(e=>e.expiryAt))};
+    return c.dataset.rows===fitted.join(' ')&&c.dataset.joins.split(' ').filter(Boolean).length===fitted.length-1;})()`,`[${canvas3d}.dataset.rows,${canvas3d}.dataset.joins]`);
+  await check('the series hovered in the heat map is highlighted on its stalk in the 3D view',`${canvas3d}.dataset.linked===${q(solved.series.code)}&&/^\\d+(\\.\\d+)?,\\d+(\\.\\d+)?$/.test(${canvas3d}.dataset.linkedAt)`,
+   `[${canvas3d}.dataset.linked,${canvas3d}.dataset.linkedAt]`);
+  await check('the 3D view paints its shaded surface in the light theme',`(p=>p.share>0.1&&p.colours>=50)(${painted})`,painted);
+  await capture3d('vol-surface-3d-light');
+  // The canvas takes its colours from the theme's tokens each time it draws. An emulated colour scheme does not fire the media query's
+  // change event the view redraws on, so Reset view, which draws again, stands in for it.
+  await evaluate("document.querySelector('#vol-surface-3d').style.setProperty('--vol-rich','rgb(255, 0, 255)')");
+  await scheme('dark');await click('#vol-surface-reset');
+  await check('the 3D view paints its shaded surface in the dark theme, in the colours of the theme\'s tokens',
+   `(()=>{const p=${painted},c=${canvas3d},d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let token=false;
+    for(let i=0;i<d.length&&!token;i+=4)token=d[i]===255&&d[i+1]===0&&d[i+2]===255&&d[i+3]===255;return p.share>0.1&&p.colours>=50&&token;})()`,painted);
+  await evaluate("document.querySelector('#vol-surface-3d').style.removeProperty('--vol-rich')");await click('#vol-surface-reset');
+  await capture3d('vol-surface-3d-dark');
+  await scheme('light');await click('#vol-surface-reset');
+  // Dragging rotates the view and Reset view returns it to the default angle; the arrow keys rotate it when the canvas has the focus.
+  const original=await pixels();
+  const box=await evaluate(`(()=>{const r=${canvas3d}.getBoundingClientRect();return {x:r.left,y:r.top};})()`);
+  const from={x:box.x+6,y:box.y+6};
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:from.x,y:from.y});
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',x:from.x,y:from.y,button:'left',buttons:1,clickCount:1});
+  for(let step=1;step<=8;step++)await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:from.x+step*20,y:from.y+step*5,button:'left',buttons:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',x:from.x+160,y:from.y+40,button:'left',buttons:0,clickCount:1});
+  const dragged=await pixels();
+  await check('dragging the 3D view rotates it',q(dragged.digest!==original.digest&&q(dragged.size)===q(original.size)),q([original,dragged]));
+  await click('#vol-surface-reset');
+  const restored=await pixels();
+  await check('Reset view redraws the default angle pixel for pixel at the same size and pixel ratio',q(q(restored)===q(original)),q([original,restored]));
+  await evaluate(`${canvas3d}.focus()`);
+  for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key:'ArrowLeft',code:'ArrowLeft',windowsVirtualKeyCode:37});
+  const turned=await pixels();
+  await check('an arrow key rotates the focused 3D view',`${q(turned.digest!==original.digest)}&&document.activeElement===${canvas3d}`,q([original,turned]));
+  await click('#vol-surface-reset');
+  await check('Reset view returns from a keyboard rotation to the default angle',q(q(await pixels())===q(original)));
+  // Hovering a stalk links its series: the heat map highlights it, as do its smile and the readout.
+  const other=fitted.surface.series.find(s=>s.richCheap!==null&&s.series.code!==solved.series.code&&s.series.expiryAt!==solved.series.expiryAt)??fitted.surface.series.find(s=>s.richCheap!==null&&s.series.code!==solved.series.code);
+  await hover(fitted.surface,other.series.expiryAt,other.series.strike,other.series.right);
+  const [sx,sy]=(await evaluate(`${canvas3d}.dataset.linkedAt`)).split(',').map(Number);
+  await hover(fitted.surface,solved.series.expiryAt,solved.series.strike,solved.series.right);
+  const stalk=await evaluate(`(()=>{const c=${canvas3d};c.scrollIntoView({block:'center'});const r=c.getBoundingClientRect();return {x:r.left+${sx},y:r.top+${sy}};})()`);
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:stalk.x,y:stalk.y});
+  const otherIndex=fitted.surface.expiries.findIndex(e=>e.expiryAt===other.series.expiryAt);
+  await settled(`${canvas3d}.dataset.linked===${q(other.series.code)}`,5000);
+  await check('hovering a stalk in the 3D view highlights its series in the heat map, its smile and the readout',
+   `(async()=>{${inPage}const d=${heat}.getModel().getSeriesByIndex(0).getData(),el=d.getItemGraphicEl(d.indexOfName(${q(other.series.code)}));
+    return !!el&&el.currentStates.includes('emphasis')&&term('Series')===${q(other.series.code)}&&document.querySelectorAll('#vol-smiles .vol-smile')[${otherIndex}].dataset.linked===${q(other.series.code)};})()`,
+   `(async()=>{const d=${heat}.getModel().getSeriesByIndex(0).getData(),el=d.getItemGraphicEl(d.indexOfName(${q(other.series.code)}));return [el?.currentStates,document.querySelector('#vol-readout').innerText];})()`);
   await picture('vol-surface-fitted');
   // A refit's job is checked on only while its product is shown; the next product's stored revision is flagged as having revised inputs.
   await click('#vol-fit');
@@ -224,6 +290,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
     return /not fitted/i.test(typeof label==='string'?label:label.value)&&smile.textContent.includes(${q(reason)})&&!smile.querySelector('.vol-chart');})()`,
    `[${q(rowTip)},document.querySelectorAll('#vol-smiles .vol-smile')[${gap}]?.textContent]`);
 
+  await check('the expiry without a fit draws no row of the 3D mesh, and no join reaches across it',
+   `(()=>{const c=${canvas3d},expiries=${q(gapped.surface.expiries.map(e=>e.expiryAt))},fitted=${q(gapped.surface.expiries.filter(e=>e.status==='fitted').map(e=>e.expiryAt))};
+    const rows=c.dataset.rows.split(' '),joins=c.dataset.joins.split(' ').filter(Boolean).map(j=>j.split('/'));
+    return rows.join()===fitted.join()&&!rows.includes(${q(gapped.surface.expiries[gap].expiryAt)})&&joins.every(([a,b])=>expiries.indexOf(b)===expiries.indexOf(a)+1);})()`,
+   `[${canvas3d}.dataset.rows,${canvas3d}.dataset.joins]`);
+  await check('each redrawn or replaced view has released its resize observer: one is left for each chart shown and one for the 3D view',
+   "window.volObservers.size===document.querySelectorAll('#vol-surfaces-page .vol-chart').length+document.querySelectorAll('#vol-surface-3d canvas').length",
+   "[window.volObservers.size,document.querySelectorAll('#vol-surfaces-page .vol-chart').length]");
   await picture('vol-surface-gap');
   // At phone width nothing scrolls sideways and the views stack.
   await command('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:2,mobile:true});
