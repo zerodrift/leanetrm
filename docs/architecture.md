@@ -6,6 +6,11 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D299 adds [parametric VaR and expected shortfall](parametric-risk.md), using the
+complete held-factor history, ordinary native PV finite differences and one
+retained statistical job. Reports include signed book/factor contributions and
+correlation diagnostics; currencies and valuation measures remain separate.
+
 D284 extends the assistant across existing page operations, with explicit human
 approval of every proposed business command and separately delegated, versioned
 page guidance. Operational questions need no financial access or invented market

@@ -32,7 +32,7 @@ test('rejected scenario admission releases only a first attempt and never erases
 test('typed joint refusals are definite first-attempt refusals while an uncertain write retains its identity',async()=>{
  const {knownRiskRejection}=await import('../dist/risk-scenarios.js');
  const {PendingCommand}=await import('../dist/pending-command.js');
- for(const code of ['risk_joint_contract','risk_joint_input','risk_scenario_capacity','risk_size','risk_job_run']){
+ for(const code of ['risk_parametric_policy','risk_parametric_scope','risk_parametric_delta','risk_parametric_capacity','risk_history_capture','risk_history_manifest','risk_joint_contract','risk_joint_input','risk_scenario_capacity','risk_size','risk_job_run']){
   const p=new PendingCommand(knownRiskRejection);p.begin('portfolio/risk/jobs',{request:{joint:{}}});p.failed(code,p.sending());assert.equal(p.command,undefined,code);
   p.begin('portfolio/risk/jobs',{request:{joint:{}}});const original=p.command;p.failed(undefined,p.sending());p.failed(code,p.sending());assert.equal(p.command,original,code);
  }

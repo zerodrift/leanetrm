@@ -22,14 +22,11 @@ internal static class PortfolioJointCalculation
     internal static void RequireWork(PortfolioValuation.Prepared portfolio,PortfolioJointRisk.Resolved joint,RiskDetail detail)
     {
         var width=portfolio.Markets.Sum(m=>RiskEngine.ScenarioResultWidth(m.Connected,detail));
-        if(checked(width*(1L+joint.ChildCount))>RiskEngine.MaxJointResultValues)
-            throw new MarketDataException("risk_scenario_capacity","Reduce the joint scenario or derivative set, or select book detail: at most 250000 base/sample value tuples may be retained.");
-        if(portfolio.Ppa is {} ppa)CloseRiskAdmission.RequireRowScenarios(checked(ppa.Rows*(1L+joint.ChildCount)),joint.Factors.DistinctBy(a=>a.Id).Count());
+        var rowScenarios=portfolio.Ppa is {} ppa?checked(ppa.Rows*(1L+joint.ChildCount)):0;
         // Admission counts nonterminal rollback nodes; terminal rows are linear in the selected step count.
         var treeNodes=portfolio.Options?.Bindings.Values.Where(b=>b.Receipt.Mode==OpenEtrm.MarketData.Trading.FuturesOptionPricing.SolvedMode)
             .Sum(b=>checked((long)b.Policy.Steps*(b.Policy.Steps+1)/2*(1L+joint.ChildCount)))??0;
-        if(treeNodes>MaximumOptionTreeNodes)
-            throw new MarketDataException("risk_size","The joint run exceeds the 100 million option rollback-node admission bound; reduce its scope or scenario/derivative count.");
+        RiskValuationAdmission.Require(rowScenarios,treeNodes,checked(width*(1L+joint.ChildCount)),joint.Factors.DistinctBy(a=>a.Id).Count(),1);
     }
     internal static PortfolioJointRun Calculate(PortfolioValuation.Prepared portfolio,PortfolioJointRisk.Resolved joint,
         ImmutableArray<PortfolioCurveShift> stress,RiskDetail detail,CancellationToken ct)

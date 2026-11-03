@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0174_blotter_freshness.sql`. It includes reference/market data, certified
+`0175_parametric_risk_history.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts and bounded physical gas/crude operations.
 The migration notes below include historical foundation checkpoints; statements
@@ -39,6 +39,9 @@ Recent schema groups and their contracts:
 - 0173: physical crude reference resolution and final booking source-pin checks
   ([physical reference entry](../docs/crude-delivery-setups.md#physical-reference-entry)).
 - 0174: authorized versions for reusing unchanged Blotter reads.
+
+- 0175: immutable statistical history/clock receipts, lease-fenced source reads and
+  authorized completed-report archive ([parametric risk](../docs/parametric-risk.md)).
 
 Apply migrations in order. Some deliberately refuse incompatible retained data;
 existing installations require the separately qualified schema/rebooking procedure.

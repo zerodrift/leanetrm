@@ -104,8 +104,10 @@ shared selected scope's exact common changes, shows coverage and rejected
 intervals, graphs one dated factor and exports a reauthorized manifest. All history
 choices are explicit; insufficient history is unavailable. This read/export panel
 does not add a durable report archive or statistical worker.
-Parametric and historical VaR/expected
-shortfall, Monte Carlo, PCA/hybrid,
-EVT, distribution diagnostics and backtesting remain separate increments. The
-current graphs describe deterministic sensitivity/scenario results. They do not
-claim statistical loss distributions or validated production throughput.
+[Parametric VaR/ES](parametric-risk.md) (D299) now uses that history with explicit
+native finite differences, sample covariance and drift/confidence/tail policies.
+Risk shares Gaussian density, signed book/factor contributions, in-sample linearized
+losses and correlation diagnostics, plus a paged archive of completed statistical
+reports. Unavailable scope/history or unstable deltas retain diagnostics without
+risk estimates. Historical full repricing, Monte Carlo, PCA/hybrid, EVT and rolling
+backtests remain subsequent increments. No production throughput is claimed.

@@ -120,7 +120,8 @@ policies/schedules, bounded typed evidence and current authority. Browser checks
 cover explicit setup, exact graphics/tables, reauthorized export, unavailable
 coverage, mobile layout and invalidation on input or parent-scope changes.
 
-No table or worker job is added for this bounded read/export consumer. A durable
-statistical-report archive/read contract starts with the parametric engine.
-Covariance, delta-normal VaR/ES, full-repricing historical simulation, rolling
-backtests, Monte Carlo/PCA/hybrid and EVT remain subsequent increments.
+No table or worker job is added for this bounded read/export consumer.
+[Parametric risk](parametric-risk.md) subsequently adds covariance, delta-normal
+VaR/ES and a durable statistical-report archive with trusted clock capture and
+separate source pins. Full-repricing historical simulation, rolling backtests,
+Monte Carlo/PCA/hybrid and EVT remain subsequent increments.

@@ -46,7 +46,7 @@ public static class RiskJobs
         if(body.RequestId==Guid.Empty||body.Request?.Context is not {KnowledgeMode:"retained",ContextId:{} contextId})
             throw new MarketDataException("risk_job_context","Queue an exact retained financial context with a stable request identity.");
         var run=body.Run is {} part?RunFrame(part):null;
-        if(body.Request.Joint is not null&&run is not null)throw new MarketDataException("risk_job_run","A joint scenario or derivative request is one complete job; independent sensitivity parts do not combine joint results.");
+        if((body.Request.Joint is not null||body.Request.Parametric is not null)&&run is not null)throw new MarketDataException("risk_job_run","A joint or statistical request is one complete job; independent sensitivity parts do not combine complete results.");
         var prepared=await calculator.Prepare(connection,data,frame,body.Request,ct);
         var request=prepared.Request with {BookIds=prepared.BookIds,PortfolioIds=[],
             Detail=prepared.Detail==OpenEtrm.MarketData.Risk.RiskDetail.Books?"books":"holdings",
@@ -61,6 +61,8 @@ public static class RiskJobs
         pinnedFrame["supplementalMarkets"]=supplemental;
         pinnedFrame["connectedMarkets"]=JsonSerializer.SerializeToNode(prepared.Portfolio.ConnectedMarkets,Json);
         pinnedFrame["scenarioAxes"]=JsonSerializer.SerializeToNode(CurveRiskAxes.Retained(prepared),Json);
+        if(prepared.History is {} history)pinnedFrame["factorHistory"]=JsonSerializer.SerializeToNode(
+            RetainedFactorHistory.Capture(history,await calculator.CaptureHistoryClock(history,ct)),Json);
         // The worker leaves out exactly the positions this submission left out (D220).
         pinnedFrame["excludedPositions"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Excluded,Json);
         // Option calibrations are recomputed from the pinned inputs on replay, which must reproduce these receipts exactly.
@@ -146,6 +148,15 @@ public static class RiskJobs
         foreach(var value in values)await Receipt(connection,catalog,value!.AsObject(),ct);
         await RequireCurrentAccess(connection,catalog,ct);
         return values;
+    }
+
+    public static async Task<object> ParametricArchive(NpgsqlConnection connection,Guid catalog,int limit,DateTimeOffset? before,Guid? id,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT risk.archive_parametric($1,$2,$3::timestamptz,$4::uuid)::text",catalog,limit,
+            before is {} at?at:DBNull.Value,id is {} key?key:DBNull.Value);
+        var value=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
+        foreach(var item in value["items"]!.AsArray())await Receipt(connection,catalog,item!.AsObject(),ct);
+        await RequireCurrentAccess(connection,catalog,ct);return value;
     }
 
     private static async Task RequireCurrentAccess(NpgsqlConnection connection,Guid catalog,CancellationToken ct)

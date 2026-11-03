@@ -17,24 +17,26 @@ import {trackEdits} from './edit-tracking.js';
 import type {SidePanel} from './side-panel.js';
 import {sameRiskScope,sameTradeSelection,type RiskScope} from './risk-scope.js';
 import {setupJointEditor,type JointChoices} from './joint-risk-editor.js';
+import {validateParametric,type ParametricRequest,type ParametricContainer} from './parametric-risk.js';
 import type {JointRequest,JointCapabilities} from './joint-risk.js';
 import {reportPresentation} from './risk-results.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-type FinancialContext={contextId:string;effectiveOn:string;knownAt?:string;knownThrough:number};
+export type FinancialContext={contextId:string;effectiveOn:string;knownAt?:string;knownThrough:number};
 type Catalog={pricingPolicy:unknown;scenarioTargets:ScenarioTarget[];heldContractTargets:string[];heldCurveTargets:string[];
   heldContractsWithoutTarget:string[];heldCurvesWithoutTarget:string[];excludedPositions:ExcludedPosition[];bumpConvention:string;stressConvention:string;
   convention:string;numericalPolicy:string;context:FinancialContext;asOf:string;joint?:JointCapabilities};
 type Scope={context:unknown;bookIds:string[];portfolioIds:string[];tradeIds?:string[]|null};
 type StressLayer={id:string;shift:ScenarioShift;label:string;unit:string};
-type Request=Scope&{pricingPolicy:unknown;bumps:ScenarioShift[];stress:ScenarioShift[];convention:string;numericalPolicy:string;joint?:JointRequest};
+export type RiskCalculationRequest=Scope&{pricingPolicy:unknown;bumps:ScenarioShift[];stress:ScenarioShift[];convention:string;numericalPolicy:string;joint?:JointRequest;parametric?:ParametricRequest;detail?:string};
+type Request=RiskCalculationRequest;
 export type JobState='queued'|'running'|'completed'|'failed'|'cancellation_requested'|'cancelled';
 /** The run a queued part belongs to (D222): the run's identity, which part this is and how many parts the run has. */
 type JobRun={id:string;part:number;parts:number};
 /** The books and portfolios a run was asked for, as they were chosen. */
 type RunScope=RiskScope;
 export type RiskJob={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:RiskReport;context?:FinancialContext;asOf?:string;
-  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number;kind?:'scenarios'|'derivatives';scenarioCount?:number;derivativeCount?:number};
+  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number;kind?:'scenarios'|'derivatives'|'parametric';scenarioCount?:number;derivativeCount?:number};
 type Job=RiskJob;
 /**
  * A part of a run and what became of it: the report it returned, or the job it was queued as, or why it failed. A queued part's
@@ -126,6 +128,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   const submissions=new Map<string,Run>();
   let generation=0,pollTimer:ReturnType<typeof setTimeout>|undefined,run:Run|undefined,reviewing=false,recent:Job[]=[],runs=0;
   const mounted=()=>!root.hidden;
+  const statisticalRun=()=>!!run?.parts.some(p=>p.request?.parametric||p.report?.parametric||p.job?.kind==='parametric');
   const running=()=>!!run&&run.parts.some(p=>active(p.job));
   const uncertain=(current:Run|undefined)=>current?.parts.flatMap((p,i)=>p.recovery?.command?[i]:[])??[];
   const complete=(current:Run|undefined)=>!!current&&current.parts.every(p=>p.report);
@@ -206,7 +209,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
   // Why the setup offers nothing to run, while it does not: its catalog is being read, could not be read, or was cleared with the read it belonged to.
   function describeStatus(){
-    const status=get('risk-status'),missing=!catalog&&!reviewing;
+    const status=get('risk-status'),missing=!catalog&&!reviewing&&!statisticalRun();
     status.hidden=!reading&&!missing;
     status.textContent=reading?'Reading what the selected books hold…':missing?unread??'Read the risk catalog for the selected books and financial context.':'';
     get('risk-reload').hidden=reading||!missing;
@@ -375,7 +378,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     let first:unknown;const stale=()=>version!==generation;
     await runParts(current.parts,stale,async(part,index)=>{
       if(current.parts.length>1)get('risk-progress').textContent=`Running part ${index+1} of ${current.parts.length}…`;
-      try{const report=await options.api<RiskReport>('portfolio/risk',part.request);projectionPolicyLabels(report.projectionPolicies);part.report=report;}
+      try{const report=await options.api<RiskReport>('portfolio/risk',part.request);projectionPolicyLabels(report.projectionPolicies);if(part.request?.parametric||report.parametric)validateParametric(report as ParametricContainer,part.request?.parametric);part.report=report;}
       catch(error){if(stale())return false;denied(error);if(stale())throw error;part.failure=failure(error,'The part could not be run.');first??=error;}
       return true;
     });
@@ -481,7 +484,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     if(part.job&&value.id!==part.job.id)throw Error('The risk job receipt does not match its part. Refresh to check its retained outcome.');
     part.job=value;part.report=undefined;part.failure=undefined;
     if(value.state==='completed'){
-      if(value.result){try{projectionPolicyLabels(value.result.projectionPolicies);part.report=value.result;}catch(error){part.failure=failure(error,'The completed job result is invalid. Run risk again.');}}
+      if(value.result){try{projectionPolicyLabels(value.result.projectionPolicies);if(part.request?.parametric||value.result.parametric)validateParametric(value.result as ParametricContainer,part.request?.parametric);part.report=value.result;}catch(error){part.failure=failure(error,'The completed job result is invalid. Run risk again.');}}
       else part.failure='The completed job result is unavailable. Refresh its retained outcome.';
     }
     else if(value.state==='failed'||value.state==='cancelled')part.failure=value.error?.message??jobLabels[value.state];
@@ -626,7 +629,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       if(version!==generation)return;
       if(!report)throw Error('The completed job result is unavailable. Refresh its retained outcome.');
       if(!sameTradeSelection(report.tradeIds,current.scope?.tradeIds))throw Error('The exported report must match the run’s selected trades.');
-      if(report.snapshotId!==part.report?.snapshotId||report.context.contextId!==part.report?.context.contextId||JSON.stringify(report.joint?.request)!==JSON.stringify(part.report?.joint?.request))throw Error('The exported report must retain the captured close, context and joint request.');
+      if(report.snapshotId!==part.report?.snapshotId||report.context.contextId!==part.report?.context.contextId||JSON.stringify(report.joint?.request)!==JSON.stringify(part.report?.joint?.request)||JSON.stringify(report.parametric?.request)!==JSON.stringify(part.report?.parametric?.request))throw Error('The exported report must retain the captured close, context and calculation request.');
       projectionPolicyLabels(report.projectionPolicies);
       parts.push(report);
     }
@@ -638,15 +641,16 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function current():RunView|undefined{
     if(!run||run.making)return undefined;
     const requested=run.parts.every(p=>p.request)?run.parts.reduce((count,p)=>count+(p.request!.joint?.scenarios?.scenarios.length??(p.request!.joint?.derivatives?2*p.request!.joint.derivatives.axes.length+p.request!.joint.derivatives.mixed.length:p.request!.bumps.length)),0):null;
+    const statistical=run.parts.some(p=>p.report?.parametric||p.request?.parametric||p.job?.kind==='parametric');
     const retainedKind=run.parts.find(p=>p.report?.joint)?.report?.joint?.kind;
-    return {key:run.key,queued:run.queued,running:running(),retained:reviewing,setup:run.setup,setupText:!run.setup&&retainedKind?`Retained ${retainedKind==='scenarios'?'named joint scenarios':'selected Greeks and cross-gamma'} under the captured request and policies.`:setupText(run.setup),context:run.context,asOf:run.asOf,finishedAt:run.finishedAt,scope:run.scope,factors:requested,
+    return {key:run.key,queued:run.queued,running:running(),retained:reviewing,setup:run.setup,setupText:statistical?'Parametric VaR / ES · captured dated-factor history, native finite differences and explicit policies.':!run.setup&&retainedKind?`Retained ${retainedKind==='scenarios'?'named joint scenarios':'selected Greeks and cross-gamma'} under the captured request and policies.`:setupText(run.setup),context:run.context,asOf:run.asOf,finishedAt:run.finishedAt,scope:run.scope,factors:requested,
       parts:run.parts.map(p=>({report:p.report,job:p.job&&{id:p.job.id,state:p.job.state,finishedAt:p.job.finishedAt??null,shocks:p.job.kind==='scenarios'?p.job.scenarioCount:p.job.kind==='derivatives'?p.job.derivativeCount:p.job.shocks},failure:p.failure,unknown:!!p.recovery?.command,unlisted:!!p.unlisted}))};
   }
 
   function sync(){
     describeStatus();
     const retained=uncertain(run).length>0,locked=options.busy()||running()||retained||reviewing||reading||!catalog;
-    form.hidden=reviewing||retained;get<HTMLFieldSetElement>('risk-fields').disabled=locked;
+    form.hidden=reviewing||retained||statisticalRun();get<HTMLFieldSetElement>('risk-fields').disabled=locked;
     const runnable=options.canRun(),reason=get('risk-run-note');
     reason.hidden=runnable;reason.textContent=runnable?'':riskDenied;
     for(const id of ['risk-run','risk-queue']){const button=get<HTMLButtonElement>(id);button.disabled=locked||!runnable;if(runnable)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby',reason.id);}
@@ -660,6 +664,17 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   return {
     /** Opens the report for the Blotter on screen: the setup and run it holds, or a retained submission, or a new catalog read. */
     open,reset,sync,refresh,
+    /** One complete statistical calculation uses the same idempotent queue/recovery path as other risk reports. */
+    async calculate(request:RiskCalculationRequest,queued:boolean,context:FinancialContext,asOf:string){
+      if(!options.canRun())throw Error(riskDenied);
+      if(running()||submissions.has(options.profile()))throw Error('Reconcile or finish the current risk job before starting another calculation.');
+      const selected=options.scope();
+      if(!request.parametric||!sameRiskScope(selected,request)||JSON.stringify(selected.context)!==JSON.stringify(request.context))throw Error('The statistical scope changed. Prepare its history again.');
+      forgetRun();const version=++generation;
+      run={key:++runs,queued,making:!queued,parts:[{request:structuredClone(request)}],context,asOf,
+        scope:{bookIds:[...selected.bookIds],portfolioIds:[...selected.portfolioIds],tradeIds:selected.tradeIds??null}};
+      const current=run;sync();if(queued)await queue(current,version);else await runNow(current,version);
+    },
     async reviewJob(id:string,anchor?:Job){const version=generation;if(!await readHistory(version))return;await review(id,anchor);},
     recent:()=>recent,
     mountInto(host:HTMLElement){host.append(root);root.hidden=false;sync();},

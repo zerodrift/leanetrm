@@ -13,7 +13,7 @@ export type HistoryManifest={id:string;forecast:{contextId:string;valuationAt:st
  policy:HistoryPolicy;columns:{id:string;mapping:unknown}[];sessions:{date:string;close:string}[];evidence:unknown[];
  samples:{id:string;from:Endpoint;to:Endpoint;changes:string[]}[];rejected:{id:string;from:Endpoint;to:Endpoint;issues:{factorId:string;endpoint:string;reason:string}[]}[];
  available:boolean;unavailableReason:string|null};
-export type HistoryReport={manifest:HistoryManifest;request:HistoryRequest;context:{contextId:string;knownAt:string};asOf:string;snapshotId:string;engineVersion:string;
+export type HistoryReport={manifest:HistoryManifest;request:HistoryRequest;context:{contextId:string;knownAt:string;effectiveOn:string;knownThrough:number};asOf:string;snapshotId:string;engineVersion:string;
  selection:HistoryScope;scope:{bookIds:string[];portfolioIds:string[];tradeIds?:string[]|null};excludedPositions:ExcludedPosition[];columns:{id:string;factor:RiskFactor;state:string}[];
  coverage:{available:boolean;historyAvailable:boolean;portfolioComplete:boolean;factors:number;sessions:number;samples:number;rejected:number;minimumSamples:number;unavailableReason:string|null}};
 

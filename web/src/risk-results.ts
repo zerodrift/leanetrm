@@ -4,11 +4,12 @@ import type {RunView,RiskJob} from './risk-view.js';
 import {runExclusions,runGaps,type RunGap} from './risk-lens.js';
 import {sameRiskScope,sameTradeSelection,type RiskScope} from './risk-scope.js';
 import {validateJoint,jointCharts,type JointReport} from './joint-risk.js';
+import {validateParametric,type ParametricView} from './parametric-risk.js';
 
 export type RiskMetric='delta'|'gamma'|'upPnl'|'downPnl';
 export const riskMetricLabels:Record<RiskMetric,string>={delta:'Delta',gamma:'Gamma',upPnl:'Up P&L',downPnl:'Down P&L'};
 export type ReportPresentation={state:'complete'|'incomplete'|'running'|'unavailable';excluded:ExcludedPosition[];gaps:RunGap[];
- factors:RiskSensitivityReport['factors'];charts:{key:string;spec:ChartSpec}[];joint?:JointReport};
+ factors:RiskSensitivityReport['factors'];charts:{key:string;spec:ChartSpec}[];joint?:JointReport;parametric?:ParametricView};
 const canonical=(value:unknown):string=>JSON.stringify(value,(_key,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 
 /** Presentation of server values only. Factors overlap; there is deliberately no sum across rows or report parts. */
@@ -23,6 +24,11 @@ export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset
  if(reports.some(r=>r.context.contextId!==run.context?.contextId||r.snapshotId!==first.snapshotId||canonical(r.scenario)!==canonical(first.scenario)))
   throw Error('The report parts do not share one retained context, close and scenario. Their results cannot be displayed together.');
  const excluded=runExclusions(reports);
+ if(reports.some(r=>r.parametric)){
+  if(reports.length!==1||run.parts.length!==1||!first.parametric)throw Error('A parametric report is one complete job and cannot be combined as sensitivity parts.');
+  const parametric=validateParametric(first as Parameters<typeof validateParametric>[0]);
+  return {state:gaps.length||excluded.length||!run.scope?'incomplete':parametric.result.available?'complete':'unavailable',excluded,gaps,factors:[],charts:[],parametric};
+ }
  if(reports.some(r=>r.joint)){
   if(reports.length!==1||run.parts.length!==1)throw Error('A joint report is one complete job and cannot be combined as sensitivity parts.');
   const joint=validateJoint(first);

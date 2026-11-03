@@ -1617,6 +1617,25 @@ api.MapPost("/portfolio/risk",(HttpContext c,PortfolioRiskRequest body)=>Portfol
 api.MapPost("/portfolio/risk/history",(HttpContext c,PortfolioHistoryRequest body)=>PortfolioRead(c,
     body.Scope?.Context??throw new MarketDataException("risk_context","Select the retained risk scope and context."),
     (connection,data,frame,ct)=>portfolioRisk.History(connection,data,frame,body,ct)));
+api.MapPost("/portfolio/risk/parametric",(HttpContext c,PortfolioParametricRequest body)=>
+{
+    var request=PortfolioRiskPreview.StatisticalRequest(body);
+    return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>portfolioRisk.Calculate(connection,data,frame,request,ct));
+});
+api.MapPost("/portfolio/risk/parametric/jobs",(HttpContext c,SubmitParametricRiskJob body)=>
+{
+    var request=PortfolioRiskPreview.StatisticalRequest(body.Request);
+    return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>
+    {c.Items["risk_job_attempted"]=true;return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,new(body.RequestId,request),ct);});
+});
+api.MapGet("/portfolio/risk/parametric/archive",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>
+    {
+        if(!int.TryParse(c.Request.Query["limit"],out var limit)||limit is <1 or >100)throw new MarketDataException("risk_archive_input","Choose a report page size from 1 to 100.");
+        var before=c.Request.Query["before"].ToString();var cursor=c.Request.Query["id"].ToString();
+        if((before.Length==0)!=(cursor.Length==0)||cursor.Length>0&&!Guid.TryParse(cursor,out _))throw new MarketDataException("risk_archive_input","Use both fields of the retained archive cursor.");
+        return Results.Ok(await RiskJobs.ParametricArchive(connection,database.Manifest.CatalogId,limit,before.Length==0?null:SchedulePreview.ParseAt(before),cursor.Length==0?null:Guid.Parse(cursor),ct));
+    },c.RequestAborted))));
 api.MapPost("/portfolio/risk/jobs",(HttpContext c,SubmitPortfolioRiskJob body)=>PortfolioRead(c,
     body.Request?.Context??throw new MarketDataException("risk_job_context","Supply the risk request and exact retained context."),
     (connection,data,frame,ct)=>

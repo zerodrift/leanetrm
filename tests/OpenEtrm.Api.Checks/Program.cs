@@ -83,6 +83,7 @@ if(args is ["--blotter-stream"]){await BlotterStreamChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
+    RiskValuationAdmissionChecks.Run();
     CurveActivationInputChecks.Run();
     ConnectedSampleChecks.Run();
     FuturesExecutionChecks.Run();

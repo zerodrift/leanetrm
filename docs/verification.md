@@ -1,5 +1,40 @@
 # Local verification and continuous integration
 
+## Parametric risk and retained statistical reports
+
+D299 was qualified locally on the integrated master using disposable stock
+PostgreSQL clusters and owned browser profiles. The full managed suite includes
+11 new numerical groups, with independent exact sample moments, normal tails,
+zero/singular variance, native partitions and rolling-prefix knowledge oracles.
+API checks include complete three-pass PPA/option/value admission. The integrated
+frontend passed 1,221 checks; the Python runner passed 83 checks.
+
+The dedicated parametric suite independently reconstructs native one-factor and
+mixed-factor covariance/variance, then compares actual retained-worker results.
+The one-factor fixture uses 249 common changes; the mixed held universe uses
+three changes and retains its singular covariance diagnostics. Direct SQL checks
+cover trusted capture provenance, altered/missing/cross-context receipts,
+immutable source FKs, runtime/worker privilege denial, bounded orphan reuse,
+active bound leases, expiry/cancellation/current authority and missing-evidence
+failure. Ordinary and statistical jobs expose the same exact observation-ID set
+under existing bound RLS. Three archive pages preserve ownership and ordering;
+viewer calculation/report/archive access refuses.
+
+Eleven owned browser checks passed, including desktop/phone graphics, explicit
+unselected inputs, reauthorized export, wrong-policy response refusal at immediate
+and known queued consumers, unavailable diagnostics, lost queue response and
+reload recovery, archive discovery and parent-scope invalidation. Screenshots were
+inspected. Existing history checks and ten browser checks passed; the existing
+Risk/worker suite and 159 browser checks also passed before the final navigation
+rebase. The integrated parametric rerun passed after that rebase. Independent
+adversarial review resolved receipt provenance, numerical determinism, FD
+representability/work bounds and complete consumer coverage/policy findings.
+
+The 30 MB report limit refused the entire held universe over the long window;
+the smaller explicit mixed window qualifies the native multi-factor calculation.
+No production throughput or deployment is claimed. Migration 0175 requires the
+normal qualified schema release.
+
 ## Separate physical references and derived crude pricing
 
 D297 was qualified locally on 2 November 2026 using owned disposable stock

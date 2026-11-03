@@ -291,6 +291,17 @@ public sealed class PreviewDatabase : IAsyncDisposable
         await DatabaseLoginBoundary.Require(authenticator, DatabaseLoginProfile.Authenticator, ct);
     }
 
+    // The isolated trusted issuer attests server-built clock evidence. Runtime
+    // SQL callers cannot mint a substitute calculation capture or read the store.
+    internal async Task<Guid> CaptureHistoryClock(OpenEtrm.MarketData.Risk.AlignedFactorHistory history,CancellationToken ct)
+    {
+        if(authenticator is null)throw new InvalidOperationException("This reader cannot attest calculation inputs.");
+        await using var connection=await authenticator.OpenConnectionAsync(ct);
+        await using var command=ScheduleStore.Command(connection,"SELECT risk.capture_history_clock($1,$2,$3::jsonb,$4::jsonb)",Manifest.CatalogId,history.Forecast.ContextId,
+            JsonSerializer.Serialize(history.Calendar,RiskJobs.Json),JsonSerializer.Serialize(history.Clock,RiskJobs.Json));
+        return(Guid)(await command.ExecuteScalarAsync(ct)??throw new PreviewDeniedException());
+    }
+
     public async Task<PreviewData> Read(NpgsqlConnection connection, CancellationToken ct,Guid? selectedRevision=null,PreviewData? sharedReferences=null,ImmutableArray<Guid>? observationIds=null,
         ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,bool includeCalendarDays=true,
         ObservationReadScope observationScope=ObservationReadScope.FactHistory,PpaBundle? ppaBundle=null)

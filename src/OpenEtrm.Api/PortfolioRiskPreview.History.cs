@@ -37,6 +37,32 @@ public sealed partial class PortfolioRiskPreview
         if(from>=to||to.DayNumber-from.DayNumber>FactorHistory.MaximumCalendarDays)
             throw new MarketDataException("risk_history_calendar","Choose a nonempty history window of at most 3660 calendar days.");
         var (portfolio,bookIds,_)=await PreparePortfolio(connection,data,frame,body.Scope.BookIds,body.Scope.PortfolioIds,body.PricingPolicy,ct,tradeIds:body.Scope.TradeIds);
+        var manifest=await BuildHistory(connection,portfolio,frame,body,ct);
+        var context=portfolio.Context;var contextId=context.ContextId!.Value;var markets=portfolio.Markets;
+        var scope=body.Scope with{Context=new(body.Scope.Context.SnapshotId,TradingBlotter.Convention,"retained",contextId),BookIds=bookIds,PortfolioIds=[],
+            TradeIds=body.Scope.TradeIds is {} ids?ids.Order().ToImmutableArray():null};
+        var captured=body with{Scope=scope,ExpectedManifestId=manifest.Id};
+        var sources=markets.Select(m=>m.Data).ToImmutableArray();
+        var result=new{manifest,request=captured,context,asOf=frame.At,snapshotId=portfolio.SnapshotId,engineVersion=RiskJobs.EngineVersion,
+            pricingPolicy=body.PricingPolicy,selection=body.Scope with{Context=scope.Context,TradeIds=scope.TradeIds},scope=new{bookIds,portfolioIds=ImmutableArray<Guid>.Empty,scope.TradeIds},excludedPositions=portfolio.Excluded,
+            columns=manifest.Columns.Select(c=>new{c.Id,factor=Factor(sources,CurveRiskAxes.Quote(portfolio,c.Mapping.Factor,ct)),state=c.Mapping.State.ToString()}),
+            coverage=new{available=manifest.Available&&portfolio.Excluded.IsEmpty,historyAvailable=manifest.Available,
+                portfolioComplete=portfolio.Excluded.IsEmpty,factors=manifest.Columns.Length,sessions=manifest.Sessions.Length,samples=manifest.Samples.Length,
+                rejected=manifest.Rejected.Length,minimumSamples=manifest.Policy.MinimumSamples,manifest.UnavailableReason},
+            limits=new{maxResponseBytes=MaximumHistoryBytes}};
+        // Bound the complete retained evidence before returning a successful result.
+        if(JsonSerializer.SerializeToUtf8Bytes(result,RiskJobs.Json).Length>MaximumHistoryBytes)
+            throw new MarketDataException("risk_history_capacity","The history manifest exceeds 32 MiB. Reduce the window or select a smaller explicit scope.");
+        await RequireHistoryAccess(connection,portfolio,ct);
+        return result;
+    }
+
+    private async Task<AlignedFactorHistory> BuildHistory(NpgsqlConnection connection,PortfolioValuation.Prepared portfolio,InputFrame frame,
+        PortfolioHistoryRequest body,CancellationToken ct,bool statistical=false)
+    {
+        FactorHistory.ValidatePolicy(body.Policy);var from=DateWorkspace.Date(body.From);var to=DateWorkspace.Date(body.To);
+        if(from>=to||to.DayNumber-from.DayNumber>FactorHistory.MaximumCalendarDays)
+            throw new MarketDataException("risk_history_calendar","Choose a nonempty history window of at most 3660 calendar days.");
         var reference=body.Calendar;
         var calendarData=HistoryReferences(portfolio).SingleOrDefault(d=>d.ReferenceRevision==reference.Revision)
             ??throw new MarketDataException("risk_history_calendar","Choose a calendar from the selected portfolio's exact reference bundles.");
@@ -61,27 +87,13 @@ public sealed partial class PortfolioRiskPreview
         var factors=portfolio.Factors.Select(f=>new RiskHistoryFactor(f,markets.Single(m=>m.Data.DefinitionRevision==f.Input.Series.Revision)
             .Snapshot.Selections.Single(s=>s.Observation.Key==f.Observation).Observation.State)).ToImmutableArray();
         var prepared=FactorHistory.Prepare(forecast,body.Policy,calendar,clock,factors,ct);
+        if(statistical)ParametricRisk.Admit(prepared.Columns.Length,prepared.Sessions.Length-1);
         var observations=await HistoryObservations(connection,prepared,markets,ct);
         await RequireHistoryAccess(connection,portfolio,ct);
         var manifest=FactorHistory.Align(prepared,observations,ct);
         if(body.ExpectedManifestId is {} expected&&expected!=manifest.Id)
             throw new MarketDataException("risk_history_manifest","The authorized history no longer matches the requested captured manifest. Review a new result before exporting.");
-        var scope=body.Scope with{Context=new(body.Scope.Context.SnapshotId,TradingBlotter.Convention,"retained",contextId),BookIds=bookIds,PortfolioIds=[],
-            TradeIds=body.Scope.TradeIds is {} ids?ids.Order().ToImmutableArray():null};
-        var captured=body with{Scope=scope,ExpectedManifestId=manifest.Id};
-        var sources=markets.Select(m=>m.Data).ToImmutableArray();
-        var result=new{manifest,request=captured,context,asOf=frame.At,snapshotId=portfolio.SnapshotId,engineVersion=RiskJobs.EngineVersion,
-            pricingPolicy=body.PricingPolicy,selection=body.Scope with{Context=scope.Context,TradeIds=scope.TradeIds},scope=new{bookIds,portfolioIds=ImmutableArray<Guid>.Empty,scope.TradeIds},excludedPositions=portfolio.Excluded,
-            columns=manifest.Columns.Select(c=>new{c.Id,factor=Factor(sources,CurveRiskAxes.Quote(portfolio,c.Mapping.Factor,ct)),state=c.Mapping.State.ToString()}),
-            coverage=new{available=manifest.Available&&portfolio.Excluded.IsEmpty,historyAvailable=manifest.Available,
-                portfolioComplete=portfolio.Excluded.IsEmpty,factors=manifest.Columns.Length,sessions=manifest.Sessions.Length,samples=manifest.Samples.Length,
-                rejected=manifest.Rejected.Length,minimumSamples=manifest.Policy.MinimumSamples,manifest.UnavailableReason},
-            limits=new{maxResponseBytes=MaximumHistoryBytes}};
-        // Bound the complete retained evidence before returning a successful result.
-        if(JsonSerializer.SerializeToUtf8Bytes(result,RiskJobs.Json).Length>MaximumHistoryBytes)
-            throw new MarketDataException("risk_history_capacity","The history manifest exceeds 32 MiB. Reduce the window or select a smaller explicit scope.");
-        await RequireHistoryAccess(connection,portfolio,ct);
-        return result;
+        return manifest;
     }
 
     private static async Task<ImmutableArray<RiskHistoryObservation>> HistoryObservations(NpgsqlConnection connection,PreparedFactorHistory prepared,
@@ -116,18 +128,26 @@ public sealed partial class PortfolioRiskPreview
                 """,[group.Key.CatalogId,group.Key.RevisionId,series,prepared.Sessions[0].Close.AddDays(-1),prepared.Sessions[^1].Close.AddDays(1),anchors,
                     prepared.Forecast.MarketKnownThrough,prepared.Forecast.KnownAt,remaining+1,prepared.Forecast.MarketCutoff],ct);
             if(rows.Length>remaining)throw new MarketDataException("risk_history_capacity","Too many observation revisions are required for this history window.");
-            var mappings=data.Definitions["series"].Where(s=>series.Contains(s.Id("id"))).ToDictionary(s=>s.Id("id"));
-            foreach(var row in rows)
-            {
-                ct.ThrowIfCancellationRequested();var definition=mappings[row.Id("series_id")];
-                var quote=new ReferenceKey(data.ReferenceRevision,definition.Text("quote_code"));
-                var specification=data.Quotes.Single(q=>q.Key==quote);
-                evidence.Add(new(data.ReadObservation(row),quote,PriceUnit.FromQuote(specification),new(group.Key,definition.Id("contract_id")),
-                    row.OptionalId("corrects_id") is {} prior?new(group.Key.CatalogId,prior):null,
-                    int.Parse(row.Text("history_order"),System.Globalization.CultureInfo.InvariantCulture),row.Instant("history_known")));
-            }
+            evidence.AddRange(ReadHistoryEvidence(data,rows,ct));
         }
         return evidence.ToImmutable();
+    }
+    internal static ImmutableArray<RiskHistoryObservation> ReadHistoryEvidence(PreviewData data,ImmutableArray<JsonElement> rows,CancellationToken ct)
+    {
+        var selected=rows.Select(r=>r.Id("series_id")).ToHashSet();
+        var quotes=data.Quotes.ToDictionary(q=>q.Key);
+        var mappings=data.Definitions["series"].Where(s=>selected.Contains(s.Id("id"))).ToDictionary(s=>s.Id("id"),s=>
+        {
+            var quote=new ReferenceKey(data.ReferenceRevision,s.Text("quote_code"));
+            return(Quote:quote,Unit:PriceUnit.FromQuote(quotes[quote]),Contract:new ContractKey(data.DefinitionRevision,s.Id("contract_id")));
+        });
+        return [..rows.Select(row=>
+        {
+            ct.ThrowIfCancellationRequested();var mapping=mappings[row.Id("series_id")];
+            return new RiskHistoryObservation(data.ReadObservation(row),mapping.Quote,mapping.Unit,mapping.Contract,
+                row.OptionalId("corrects_id") is {} prior?new(data.DefinitionRevision.CatalogId,prior):null,
+                int.Parse(row.Text("history_order"),System.Globalization.CultureInfo.InvariantCulture),row.Instant("history_known"));
+        })];
     }
     private static async Task RequireHistoryAccess(NpgsqlConnection connection,PortfolioValuation.Prepared portfolio,CancellationToken ct)
     {

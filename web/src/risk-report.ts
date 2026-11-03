@@ -1,6 +1,7 @@
 import type {ProjectionPolicyReceipt} from './projection-policy.js';
 import type {ValuationReason} from './valuation-status.js';
 import type {JointReport} from './joint-risk.js';
+import type {ParametricView} from './parametric-risk.js';
 
 export type RiskAmounts={base:string;up:string;down:string;upPnl:string;downPnl:string;delta:string;gamma:string};
 export type RiskValues=RiskAmounts&{display:RiskAmounts;currency:string;currencyReference:unknown;deltaUnit:string;gammaUnit:string};
@@ -24,10 +25,10 @@ export type RiskWorkReport={heldInstruments:number;work:{positionCount:number;un
 type ReportBase=RiskWorkReport&{projectionPolicies:ProjectionPolicyReceipt[];displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;tradeIds?:string[]|null;
   detail?:string;inputs?:{positions:{tradeId:string;bindingId:string;bookId:string;measure:string}[];markets:{definitions:{revisionId:string}}[]};excludedPositions?:ExcludedPosition[]};
 export type RiskFactorResult={factor:RiskFactor;bump:string;totals:RiskTotal[];positions:RiskPosition[]};
-export type RiskSensitivityReport=ReportBase&{joint?:undefined;factors:RiskFactorResult[]};
-export type RiskReport=RiskSensitivityReport|(ReportBase&{joint:JointReport;factors?:never});
-export function sensitivityFactors(report:{factors?:RiskFactorResult[];joint?:unknown}):RiskFactorResult[]{
- if(report.joint||!Array.isArray(report.factors))throw Error('This report is not an independent sensitivity report. Open its joint scenario or selected-Greek report.');
+export type RiskSensitivityReport=ReportBase&{joint?:undefined;parametric?:undefined;factors:RiskFactorResult[]};
+export type RiskReport=RiskSensitivityReport|(ReportBase&{joint:JointReport;parametric?:undefined;factors?:never})|(ReportBase&{parametric:ParametricView;joint?:undefined;factors?:never});
+export function sensitivityFactors(report:{factors?:RiskFactorResult[];joint?:unknown;parametric?:unknown}):RiskFactorResult[]{
+ if(report.joint||report.parametric||!Array.isArray(report.factors))throw Error('This report is not an independent sensitivity report. Open its complete scenario, Greek or statistical report.');
  return report.factors;
 }
 export function riskWorkDetails(report:RiskWorkReport){
