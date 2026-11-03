@@ -64,6 +64,7 @@ def run_checks(url, query, manifest):
     terms=c.call('trading/crude',exact)
     assert terms['head']['request']['assignmentCode']==body['assignmentCode']
     assert terms['physical']['grade_code']==assignment['grade']
+    assert terms['profileName']=='Fixed standard volume at 60°F · zero tolerance · undiscounted', terms.get('profileName')
     c.call('trading/position',{**exact,'revision':2},expected=422)
     other=next(book['id'] for book in catalog['books'] if book['id']!=body['bookId'])
     assert c.call('trading/positions',{**positions,'bookIds':[other]})['positions']==[]

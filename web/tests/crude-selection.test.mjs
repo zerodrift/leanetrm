@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {crudeChoices,crudeSelection,crudeReferenceFields} from '../dist/crude-selection.js';
+import {crudeChoices,crudeSelection,crudeReferenceFields,standardTemperature} from '../dist/crude-selection.js';
 const refs={catalogId:'catalog',revisionId:'delivery',commodities:[{code:'crude',name:'Crude'}],
  grades:[{code:'light',name:'Light',commodity_code:'crude'},{code:'unmapped',name:'Unmapped grade',commodity_code:'crude'}],
  locations:[{code:'terminal',name:'Terminal'},{code:'new_dock',name:'New dock'},{code:'hub',name:'Unqualified hub'}],
@@ -28,4 +28,8 @@ test('physical selection sends no user-provided curve or binding override',()=>{
 });
 test('the clock list offers only the clocks the crude profile admits, each named by its time',()=>{
  assert.deepEqual(crudeChoices(refs,profileClocks).clock,[{value:'utc',label:'UTC'}]);
+});
+test('a standard temperature reads in degrees, and a scale the crude contract does not name is refused',()=>{
+ assert.equal(standardTemperature('60','fahrenheit'),'60 °F');
+ assert.throws(()=>standardTemperature('15','rankine'),/temperature scale/);
 });

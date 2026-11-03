@@ -21,3 +21,8 @@ export function crudeSelection(selected:CrudeSelection):Record<CrudeReferenceFie
  if(crudeReferenceFields.some(field=>!selected[field]))return;
  return Object.fromEntries(crudeReferenceFields.map(field=>[field,selected[field]!])) as Record<CrudeReferenceField,string>;
 }
+// The crude contract fixes its standard temperature in degrees Fahrenheit; any other scale is refused rather than shown as its code.
+export function standardTemperature(value:string|number,scale:string){
+ if(scale!=='fahrenheit')throw Error(`The crude grade names an unsupported temperature scale: ${scale}.`);
+ return `${value} °F`;
+}

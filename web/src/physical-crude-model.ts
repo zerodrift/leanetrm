@@ -25,19 +25,24 @@ export function restoreCrudeCommand(value:unknown):RequestCommand|undefined{
  if(v.path!=='crude/book'||typeof v.operationId!=='string'||!v.operationId||!v.body||typeof v.body!=='object'||Array.isArray(v.body))return;
  return{path:'crude/book',operationId:v.operationId,body:structuredClone(v.body as Record<string,unknown>),uncertain:true};
 }
-// What a crude preview or booked valuation shows: its delivery, volume and contract terms by name, each side's signed PV, and amounts at
+// What a crude preview or booked valuation shows: its delivery, volume, pricing source and contract terms by name, each side's signed PV, and amounts at
 // the display precision. A direction or side the contract does not name is refused rather than shown as its code.
-export type CrudeValue={presentValue:string;currency:string;quantity:string;quantityUnit:string;deliveryFrom:string;deliveryTo:string;sides:{role:string;direction:string;presentValue:string}[]};
+export type CrudeValue={presentValue:string;currency:string;quantity:string;quantityUnit:string;deliveryFrom:string;deliveryTo:string;pricingSource:string;priceUnit:string;profileName:string;sides:{role:string;direction:string;presentValue:string}[]};
 const physicalDirections:Record<string,string>={receive:'Receive crude',deliver:'Deliver crude'},cashDirections:Record<string,string>={pay:'Pay consideration',receive:'Receive consideration'},
  feeDirections:Record<string,string>={pay:'Pay fee',receive:'Receive fee'},sideRoles:Record<string,string>={delivery:'Delivery',consideration:'Consideration',handling_fee:'Handling fee'},
  sideDirections:Record<string,string>={receive:'Receive',deliver:'Deliver',pay:'Pay'};
 const named=(names:Record<string,string>,value:unknown)=>{const name=names[String(value)];if(!name)throw Error(`The crude preview names an unknown term: ${String(value)}.`);return name;};
-export function crudePreview(value:CrudeValue,terms:Record<string,unknown>|undefined,labels:{binding?:string;profile?:string},zone:string){
+export function crudePreview(value:CrudeValue,terms:Record<string,unknown>|undefined,zone:string){
  const money=(v:string)=>amountText(v,'money');
  return{total:`Contractual present value: ${money(value.presentValue)} ${value.currency}`,
   terms:[['Delivery window',`${displayExactInstant(value.deliveryFrom,zone)} to ${displayExactInstant(value.deliveryTo,zone)} · exclusive`],['Contract volume',`${amountText(value.quantity,'quantity')} ${value.quantityUnit}`],
-   ...(terms?[['Pricing binding',labels.binding??String(terms.assignmentCode)],['Physical direction',named(physicalDirections,terms.direction)],['Consideration direction',named(cashDirections,terms.considerationDirection)],
-    ['Fixed price',String(terms.fixedPrice)],['Payment · '+zone,displayExactInstant(String(terms.paymentAt),zone)],
-    ['Handling fee',terms.handlingFee===null?'None':`${String(terms.handlingFee)} · ${named(feeDirections,terms.handlingFeeDirection)}`],['Profile',labels.profile??String(terms.profile)]]:[])] as [string,string][],
+   ...(terms?[['Pricing source',value.pricingSource],['Physical direction',named(physicalDirections,terms.direction)],['Consideration direction',named(cashDirections,terms.considerationDirection)],
+    ['Fixed price',`${String(terms.fixedPrice)} ${value.priceUnit}`],['Payment · '+zone,displayExactInstant(String(terms.paymentAt),zone)],
+    ['Handling fee',terms.handlingFee===null?'None':`${String(terms.handlingFee)} ${value.priceUnit} · ${named(feeDirections,terms.handlingFeeDirection)}`],['Profile',value.profileName]]:[])] as [string,string][],
+  columns:['Side','Direction',`Signed PV · ${value.currency}`],
   sides:value.sides.map(s=>[named(sideRoles,s.role),named(sideDirections,s.direction),money(s.presentValue)])};
+}
+// Delivery months follow the delivery clock while times are entered in the display zone; when the two differ, say so beside the dates.
+export function crudeClockHint(clock:string|undefined,zone:string){
+ return !clock||clock===zone?'':`Delivery months start at midnight on the ${clock} delivery clock. Enter times here in ${zone}.`;
 }

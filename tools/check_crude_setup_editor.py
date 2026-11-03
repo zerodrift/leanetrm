@@ -301,7 +301,7 @@ def run_booking_checks(url, query, manifest, *, run_worker):
             'deliveryFrom': '2021-01-10T00:00:00Z', 'deliveryTo': '2021-01-11T00:00:00Z', 'paymentAt': '2021-02-01T00:00:00Z',
             'quantity': '1000', 'direction': 'receive', 'considerationDirection': 'pay', 'fixedPrice': '78', 'handlingFee': None, 'handlingFeeDirection': None}
     ticket=c.call('crude/references',context);references=ticket['deliveryReferences']
-    assert ticket['clocks'] and all(k['kind']=='fixed_offset' and k['fixed_offset_seconds']==0 for k in ticket['clocks']), ticket['clocks']
+    assert ticket['clocks'] and all(k['kind']=='fixed_offset' and int(k['fixed_offset_seconds'])==0 for k in ticket['clocks']), ticket['clocks']
     grade=next(g for g in references['grades'] if g['code']==assignment['grade'])
     physical={'referenceCatalogId':references['catalogId'],'referenceRevisionId':references['revisionId'],
               'commodity':assignment['commodity'],'grade':assignment['grade'],'facility':assignment['facility'],
@@ -313,11 +313,13 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     body['physical']=physical
     before = c.call('crude/preview', body)
     assert Decimal(before['presentValue']) == 2000
+    assert (before['pricingSource'],before['priceUnit'],before['profileName'])==(resolved['curveName'],resolved['priceUnit'],'Fixed standard volume at 60°F · zero tolerance · undiscounted'), before
     c.call('crude/book', {**body, 'crudeSetupId': None}, expected=409)
     booked = c.call('crude/book', body)
     assert c.call('crude/book', body) == booked
     reopened = c.call('crude/editor', {'context': context, 'tradeId': booked['tradeId']})
     assert reopened['terms']['crudeSetupId'] == assignment['crudeSetupId'] and Decimal(reopened['valuation']['presentValue']) == 2000
+    assert {k: reopened['valuation'][k] for k in ('pricingSource', 'priceUnit', 'profileName')} == {k: before[k] for k in ('pricingSource', 'priceUnit', 'profileName')}
     shared = {**context, 'convention': 'trading_workspace_v1'}
     positions = c.call('trading/positions', {'context': shared, 'bookIds': [], 'portfolioIds': [], 'offset': 0, 'limit': 64})
     position = next(p for p in positions['positions'] if p['tradeId'] == booked['tradeId'])
