@@ -1,3 +1,4 @@
+import {requestDeadlines} from './request-deadline.js';
 import {rememberPage,restoredPage} from './page-memory.js';
 import {sameReferenceSource} from './reference-scope.js';
 import {setupCrudeConfiguration} from './crude-setup-editor.js';
@@ -50,7 +51,9 @@ import {dataSections,keylessCategories} from './data-sections.js';
 import {renderReferenceItem} from './reference-detail.js';
 import {renderFuturesProduct} from './futures-product-view.js';
 import type {FuturesProductRead} from './futures-product-model.js';
-import {type Preferences,newPreferences,loadPreferences,savePreferences,validTimeZone,zoneChoices} from './preferences.js';
+import {type Preferences,newPreferences,validTimeZone,zoneChoices} from './preferences.js';
+import {preferenceSession} from './preference-session.js';
+import {setupOperatingPolicy} from './operating-policies.js';
 import {setupShortcutEditor} from './shortcut-view.js';
 import {apiRefusal} from './api-refusal.js';
 import {setupTouProducts} from './tou-products.js';
@@ -98,7 +101,8 @@ let referenceTable='';
 let shownReference='',referenceReturn:{table:string;search:string;offset:number}|undefined;
 const canAdvanceReference=()=>!!referencePage&&referencePage.hasMore&&referencePage.offset+referencePage.pageSize<=referencePage.maximumOffset;
 let hostedPilot=false;
-type ProfileChoices={mode:string;profiles:{id:string;name:string}[];customProfiles:{id:string;name:string}[]};
+const deadlines=requestDeadlines();
+type ProfileChoices={requestDeadlines:unknown;mode:string;profiles:{id:string;name:string}[];customProfiles:{id:string;name:string}[]};
 type StartupAccess={profile:string;permissions:string[]};
 const can=(permission:string)=>permissions.includes(permission);
 const historicalContext=()=>navigation?.context??undefined;
@@ -121,8 +125,12 @@ const observation=(id:string)=>exactRow(data().observations,'id',id);
 const instant=(value:string)=>displayInstant(value,prefs.timeZone);
 const unit=(quote:string)=>quoteUnit(quote,data());
 function notice(message:string){const shown=$('notice');text('notice',withNotice(shown.hidden?'':shown.textContent??'',publicText(message)));shown.hidden=false;}
-function persist(){try{savePreferences(localStorage,(exampleId==='baseline'?currentProfile:exampleId+':'+currentProfile),prefs);}catch{notice('Your changes work for this visit, but this browser could not save your preferences.');}}
-function loadProfile(){clearTableFilters();try{prefs=loadPreferences(localStorage,(exampleId==='baseline'?currentProfile:exampleId+':'+currentProfile),Intl.DateTimeFormat().resolvedOptions().timeZone);}catch{prefs=newPreferences(Intl.DateTimeFormat().resolvedOptions().timeZone);notice('Your saved profile could not be loaded. This visit uses your browser’s time zone. You can save your preferences in Profile.');}}
+const savedPreferences=preferenceSession(api,notice);
+async function persist(confirmZone=false):Promise<boolean>{
+ try{await savedPreferences.save(prefs,confirmZone);return true;}
+ catch(error){notice(error instanceof Error?error.message:'Your preferences could not be saved.');return false;}
+}
+async function loadProfile(){clearTableFilters();prefs=await savedPreferences.load(administrationScope+':'+exampleId+':'+currentProfile,Intl.DateTimeFormat().resolvedOptions().timeZone);}
 function syncControls(){
   renderWorkspaceMode();
   // A view that keeps its controls' states itself (data-own-controls: the deal ticket, coming-soon entries) is left as it drew them.
@@ -131,7 +139,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  futures.sync();futures.follow();riskJobs.sync();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();crude.sync();gasSetup.sync();crudeSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
+  futures.sync();futures.follow();accessPolicy.sync();assistantPolicy.sync();riskJobs.sync();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();crude.sync();gasSetup.sync();crudeSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
 }
 function renderWorkspaceMode(){
   const historical=!!historicalContext();
@@ -152,7 +160,7 @@ function renderWorkspaceMode(){
 }
 async function responseFor(path:string,body?:unknown,root=apiRoot,signal?:AbortSignal):Promise<Response>{
   let response:Response;
-  try{response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000)});}
+  try{response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(deadlines.milliseconds(path))]):AbortSignal.timeout(deadlines.milliseconds(path))});}
   catch{throw Object.assign(Error(body!==undefined?'We could not confirm the result. Refresh and check the saved changes before saving again.':'The app could not connect. Please refresh the page.'),{code:'response_unknown'});}
   if(response.status===401){sessionEnded=true;futures.ended('signed_out');workspace=undefined;result=undefined;historyData=undefined;curve='';document.body.hidden=true;location.replace('/auth');throw Object.assign(Error('Sign in to continue.'),{code:'sign_in_required'});}
   if(!response.ok)throw await apiRefusal(path,response,hostedPilot);
@@ -269,7 +277,7 @@ async function setPage(next:string){
   // Only the reference page has an address; another page leaves none behind.
   if(next!=='reference'&&location.hash.startsWith('#reference'))window.history.replaceState(null,'',location.pathname+location.search);
   if(next!=='risk'&&location.hash.startsWith('#risk'))window.history.replaceState(null,'',location.pathname+location.search);
-  page=next;rememberPage(()=>sessionStorage,administrationScope+':'+exampleId+':'+currentProfile,next);$('risk-page').hidden=next!=='risk';$('gas-setup-page').hidden=next!=='gas-setup';$('crude-setup-page').hidden=next!=='crude-setup';$('gas-page').hidden=next!=='gas';$('crude-page').hidden=next!=='crude';$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('dashboard-page').hidden=next!=='dashboard';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures'||futures.poppedOut();$('blotter-away').hidden=next!=='futures'||!futures.poppedOut();$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next)||usesBusinessDate(next);$('context-toolbar').hidden=!showsDate(next);$('business-date-field').hidden=!usesBusinessDate(next);$<HTMLInputElement>('date-context-on').type=usesBusinessDate(next)?'date':'hidden';$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin';$('ai-page').hidden=next!=='ai';$('no-access-page').hidden=true;
+  page=next;rememberPage(()=>sessionStorage,administrationScope+':'+exampleId+':'+currentProfile,next);$('risk-page').hidden=next!=='risk';$('gas-setup-page').hidden=next!=='gas-setup';$('crude-setup-page').hidden=next!=='crude-setup';$('gas-page').hidden=next!=='gas';$('crude-page').hidden=next!=='crude';$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('jobs-page').hidden=next!=='jobs';$('dashboard-page').hidden=next!=='dashboard';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures'||futures.poppedOut();$('blotter-away').hidden=next!=='futures'||!futures.poppedOut();$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next)||usesBusinessDate(next);$('context-toolbar').hidden=!showsDate(next);$('business-date-field').hidden=!usesBusinessDate(next);$<HTMLInputElement>('date-context-on').type=usesBusinessDate(next)?'date':'hidden';$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin'||!can('ManageIdentities');$('ai-page').hidden=next!=='ai';$('access-policy-page').hidden=next!=='admin'||!can('ManageAccess');$('assistant-policy-page').hidden=next!=='ai'||!can('ManageAgents');$('no-access-page').hidden=true;
   text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='dashboard'?'Dashboard':next==='risk'?'Risk':next==='jobs'?'Jobs & Infrastructure':next==='custom-curves'?'Curve builder':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='interval-curves'?'Curves & prices':next==='parties'?'Entities & counterparties':next==='crude-setup'?'Crude delivery setup':next==='gas-setup'?'Gas delivery setup':next==='crude'?'Physical crude bookings':next==='gas'?'Physical gas bookings':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='market'?'Curves & prices':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules & date mappings':'Reference data');
   for(const name of ['crude-setup','gas-setup','dashboard','market','custom-curves','delivery','interval-series','interval-curves','power','reference','configuration','schedules','admin','ai','parties','risk','jobs'])$('nav-'+name).classList.toggle('active',next===name||(name==='market'&&next==='interval-curves'));
   renderBlotterViews();
@@ -852,7 +860,7 @@ async function profileAction(control:HTMLElement,work:()=>Promise<void>){
 }
 $('profile-dialog').addEventListener('close',()=>profileError());
 $('profile-open').onclick=()=>void act(openProfile);for(const id of ['profile-close','profile-cancel'])$(id).onclick=()=>$<HTMLDialogElement>('profile-dialog').close();
-$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(busy)return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){scheduleWorkspace?.calendar.reset();dateEditor.invalidatePreview();workspaceCloses=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;persist();assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();riskJobs.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();crude.sync();futures.refreshDisplay();$<HTMLDialogElement>('profile-dialog').close();});})();};
+$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(busy)return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){scheduleWorkspace?.calendar.reset();dateEditor.invalidatePreview();workspaceCloses=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;if(!await persist(true))throw Error('Your preferences were not confirmed. Retry Save or reload your profile.');assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();power.refresh();}renderTimeZones();customCurves.refresh();riskJobs.refresh();jobs.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();crude.sync();futures.refreshDisplay();$<HTMLDialogElement>('profile-dialog').close();});})();};
 function setHostMode(mode:string){
   if(mode!=='hosted-pilot'&&mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Please refresh.');
   hostedPilot=mode==='hosted-pilot';
@@ -862,21 +870,21 @@ function setHostMode(mode:string){
 }
 const bootstrapPath='bootstrap?includeFrames=false';
 const startupBootstrapPath=bootstrapPath+'&includeAccess=true';
-async function profileChoices(initial?:ProfileChoices){const boot=initial??await api<ProfileChoices>(bootstrapPath);setHostMode(boot.mode);$('preview-access').hidden=hostedPilot;$('sign-out').hidden=!hostedPilot;choose('profile',[...boot.profiles,...boot.customProfiles.filter(p=>!boot.profiles.some(base=>base.id===p.id))].map(p=>({value:p.id,name:p.name})),currentProfile);const name=select('profile').selectedOptions[0]?.textContent??'Current user';text('profile-label',name);text('profile-avatar',name.slice(0,1));text('profile-title',name);text('profile-access','Current permissions: '+(permissions.length?permissions.map(p=>friendly(p.replace(/([a-z])([A-Z])/g,'$1 $2'))).join(', '):'No workspace access'));$('profile-open').setAttribute('aria-label','Profile · '+name);}
+async function profileChoices(initial?:ProfileChoices){const boot=initial??await api<ProfileChoices>(bootstrapPath);deadlines.read(boot.requestDeadlines);setHostMode(boot.mode);$('preview-access').hidden=hostedPilot;$('sign-out').hidden=!hostedPilot;choose('profile',[...boot.profiles,...boot.customProfiles.filter(p=>!boot.profiles.some(base=>base.id===p.id))].map(p=>({value:p.id,name:p.name})),currentProfile);const name=select('profile').selectedOptions[0]?.textContent??'Current user';text('profile-label',name);text('profile-avatar',name.slice(0,1));text('profile-title',name);text('profile-access','Current permissions: '+(permissions.length?permissions.map(p=>friendly(p.replace(/([a-z])([A-Z])/g,'$1 $2'))).join(', '):'No workspace access'));$('profile-open').setAttribute('aria-label','Profile · '+name);}
 $('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were not signed out'))return;await act(async()=>{futures.ended('signed_out');try{await api('logout',{});}catch(error){await blotterBack();throw error;}location.assign('/auth');});})();
 // A sign-out or account change that failed after it ended the popped-out Blotter shows the Blotter here again, read afresh, rather than an empty page.
 async function blotterBack(){if(page==='futures'&&select('snapshot').value){futures.reset('read');await futures.load();}}
 async function loadIdentity(initialAccess?:unknown){
   $('curve-price-navigation').hidden=true;customCurves.reset();$('custom-curves-page').hidden=true;riskJobs.reset();$('risk-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();lng.reset();$('lng-page').hidden=true;gasSetup.reset();crudeSetup.reset();$('crude-setup-page').hidden=true;$('gas-setup-page').hidden=true;$('gas-page').hidden=true;$('crude-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();scheduleWorkspace?.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
-  $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;$('date-context').hidden=true;
+  $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;accessPolicy.reset();assistantPolicy.reset();$('date-context').hidden=true;
   if(initialAccess===undefined)permissions=(await api<{permissions:string[]}>('access')).permissions;
   else{
     const access=initialAccess as StartupAccess|null;
     if(!access||access.profile!==currentProfile||!Array.isArray(access.permissions)||!access.permissions.every(p=>typeof p==='string'))throw Error('The workspace access metadata is missing or inconsistent. Refresh and try again.');
     permissions=[...access.permissions];
   }
-  loadProfile();renderTimeZones();assistant.reset();
+  await loadProfile();renderTimeZones();assistant.reset();
   // Navigation follows current permissions; the backend still authorizes every operation.
   const read=can('ReadMarketData'),author=read&&(can('WriteMarketDefinitions')||can('SealMarketDefinitions'));
   for(const group of sidebarGroups){
@@ -905,7 +913,7 @@ async function loadIdentity(initialAccess?:unknown){
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
   if(unopened!==undefined)throw unopened;
 }
-$('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was not switched'))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;futures.ended('account_changed');try{await api('profile',{profile:next});}catch(error){await blotterBack();throw error;}currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
+$('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was not switched'))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;futures.ended('account_changed');savedPreferences.invalidate();try{await api('profile',{profile:next});}catch(error){await blotterBack();throw error;}currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
 // A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
 function closeChanged(){
   shownClose=select('snapshot').value;closeBasis=undefined;
@@ -938,6 +946,8 @@ const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=
 const agentGrants=setupAgentGrants({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
 $('profile-dialog').addEventListener('close',agentGrants.hide);
 // Settings › AI, each tab offered by its own permission (docs/ai-assistant.md §9).
+const accessPolicy=setupOperatingPolicy($('access-policy-page'),'access',{api,act,identity:()=>administrationScope+':'+currentProfile,can:()=>can('ManageAccess'),busy:()=>busy});
+const assistantPolicy=setupOperatingPolicy($('assistant-policy-page'),'assistant',{api,act,identity:()=>administrationScope+':'+currentProfile,can:()=>can('ManageAgents'),busy:()=>busy});
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,tabs:()=>aiTabs(permissions)});
 const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile,{holds:holdsEdits,mayChange:async()=>!busy&&await mayLeave()},work=>act(work,{keepNotice:true}),(title,events,owner)=>{if(events.length)scheduleWorkspace?.calendar.show(title,events,owner);else scheduleWorkspace?.calendar.clear(owner);});
 $('date-context').addEventListener('input',dirtyContext);
@@ -1105,8 +1115,8 @@ async function showPage(next:string){
     case 'schedules':await setPage('schedules');await schedules.load();await dateEditor.load();scheduleWorkspace?.show();return;
     case 'configuration':await showPage('schedules');scheduleWorkspace?.show('contracts');return;
     case 'parties':await setPage('parties');await parties.load();return;
-    case 'admin':await setPage('admin');await administration.load();return;
-    case 'ai':await setPage('ai');await aiSettings.load();return;
+    case 'admin':await setPage('admin');await accessPolicy.load();if(can('ManageIdentities'))await administration.load();return;
+    case 'ai':await setPage('ai');await assistantPolicy.load();await aiSettings.load();return;
     // A Blotter in a window of its own is brought to the front, and drawn nowhere else.
     case 'futures':await setPage('futures');if(futures.poppedOut()){futures.front();return;}if(select('snapshot').value)await futures.open();return;
     default:throw Error('This page could not load. Please refresh.');
@@ -1178,8 +1188,8 @@ function unsaved(){
     case 'interval-series':return intervalSeries.unconfirmed();
     case 'dashboard':return dashboard.unconfirmed();
     case 'jobs':return jobs.unconfirmed();
-    case 'admin':return administration.unconfirmed();
-    case 'ai':return aiSettings.unconfirmed();
+    case 'admin':return administration.unconfirmed()||accessPolicy.unconfirmed();
+    case 'ai':return aiSettings.unconfirmed()||assistantPolicy.unconfirmed();
     default:return false;
   }
 }
@@ -1313,6 +1323,7 @@ function syncUnloadQuestion(){
 let initialWorkspaceReady=false;
 void act(async()=>{
 const [examples,boot]=await Promise.all([transport<{id:string;name:string;url:string}[]>('examples',undefined,'/api/'),api<ProfileChoices & {csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;access?:StartupAccess|null}>(startupBootstrapPath)]);
+deadlines.read(boot.requestDeadlines);
 const chooser=select('example-dataset');chooser.replaceChildren(...examples.map(e=>new Option(e.name,e.id)));chooser.value=exampleId;chooser.onchange=()=>void (async()=>{
   const selected=examples.find(e=>e.id===chooser.value);
   if(!selected)return;

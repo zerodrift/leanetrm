@@ -175,8 +175,8 @@ def main():
         url = f'http://127.0.0.1:{port}'
         app_env = {**env, 'OPENETRM_PREVIEW_ROOT': str(temporary), 'OPENETRM_PREVIEW_PORT': str(port),
                    'OPENETRM_PREVIEW_WEB': str(temporary/'web'),
-                   'OPENETRM_PREVIEW_RUNTIME': f'Host={temporary};Port=55439;Database=postgres;Username=preview_runtime;SSL Mode=Disable',
-                   'OPENETRM_PREVIEW_AUTHENTICATOR': f'Host={temporary};Port=55439;Database=postgres;Username=preview_authenticator;SSL Mode=Disable'}
+                   'OPENETRM_PREVIEW_RUNTIME': f'Host={temporary};Port=55439;Database=postgres;Username=preview_runtime;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2',
+                   'OPENETRM_PREVIEW_AUTHENTICATOR': f'Host={temporary};Port=55439;Database=postgres;Username=preview_authenticator;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2'}
         log = (temporary/'api.log').open('w')
         api = subprocess.Popen([str(args.dotnet.resolve()), str(temporary/'api'/dll.name), '--local-preview'],
                                cwd=ROOT, env=app_env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -202,7 +202,7 @@ def main():
         # The Dashboard opens on a saved layout of every widget kind, its Positions definition already run by an owned risk worker.
         provision_worker(query, manifest)
         worker_connection = temporary/'risk-worker-connection'
-        worker_connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username=preview_risk_worker;SSL Mode=Disable')
+        worker_connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username=preview_risk_worker;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2')
         worker_config = temporary/'risk-worker.json'
         worker_config.write_text(json.dumps({'connectionFile': str(worker_connection), 'leaseSeconds': 30, 'pollSeconds': 1, 'timeoutSeconds': 60}))
         worker_env = {**env, 'OPENETRM_RISK_WORKER_CONFIG': str(worker_config)}

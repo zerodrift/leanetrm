@@ -188,6 +188,11 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
 
     operation = str(uuid4())
     granted = grant(trader, operation=operation)
+    grant_policy = next(p['current'] for p in admin.call('settings/operating-policies')['policies'] if p['kind']=='assistant')
+    smaller_grants = admin.call('settings/operating-policies', {'operationId':str(uuid4()), 'kind':'assistant', 'expectedVersion':grant_policy['version'], 'values':{**grant_policy['values'],'maxGrantDays':1}})
+    check('a successful grant replays its first terms after the operating cap is reduced', grant(trader,operation=operation)==granted)
+    refusal(trader,f'{GRANTS}/grant',body(),422,'grant_duration_exceeded')
+    admin.call('settings/operating-policies', {'operationId':str(uuid4()), 'kind':'assistant', 'expectedVersion':smaller_grants['version'], 'values':grant_policy['values']})
     issued, expiry = (datetime.fromisoformat(granted[key]) for key in ('grantedAt', 'expiresAt'))
     check('a grant is derived from the stored version: its model, the permissions its tools need and its duration',
           granted == {'id': granted['id'], 'agentId': guide['id'], 'version': 1, 'modelId': usable, 'modelVersion': version_of(usable),

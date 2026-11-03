@@ -4,6 +4,8 @@ using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 if(args is ["--lng-admission",var lngAdmission]){await LngAdmissionChecks.Run(lngAdmission);return;}
+if(args is ["--tool-output-limits",var toolOutputFile]){ToolOutputLimitChecks.Run(toolOutputFile);return;}
+if(args is ["--reference-presentation"]){ReferencePresentationChecks.Run();return;}
 if(args is ["--assistant-workspace"]){AssistantWorkspaceChecks.Run();return;}
 if(args is ["--market-preparation-reuse"]){MarketPreparationReuseChecks.Run();return;}
 if(args is ["--crude-instants"]){CrudeInstantChecks.Run();return;}
@@ -85,6 +87,7 @@ if(args is ["--blotter-stream"]){await BlotterStreamChecks.Run();return;}
 if (args is ["--schedules"])
 {
     RiskValuationAdmissionChecks.Run();
+    ReferencePresentationChecks.Run();
     CurveActivationInputChecks.Run();
     ConnectedSampleChecks.Run();
     FuturesExecutionChecks.Run();

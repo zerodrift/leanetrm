@@ -431,6 +431,11 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
     records = query(RECORDS)
     replayed = json.loads(contexts.runtime('admin', f'SELECT {sql_save(longest_body, 10, 1)}::text;').splitlines()[-1])
     check("a repeat answers as before whatever the runtime set's bounds, and writes nothing", replayed == longest and query(RECORDS) == records)
+    policy = next(p['current'] for p in admin.call('settings/operating-policies')['policies'] if p['kind']=='assistant')
+    reduced = admin.call('settings/operating-policies', {'operationId':str(uuid4()), 'kind':'assistant', 'expectedVersion':policy['version'], 'values':{**policy['values'],'maxGrantDays':1}})
+    check('an admitted agent-version save replays after the grant cap is reduced', admin.call(f'{AGENTS}/save',longest_body)==longest)
+    contexts.runtime('admin', refused(f"PERFORM {sql_save({**longest_body,'operationId':str(uuid4()),'expectedVersion':longest['newest']['version']})};",'grant_duration_exceeded'))
+    admin.call('settings/operating-policies', {'operationId':str(uuid4()), 'kind':'assistant', 'expectedVersion':reduced['version'], 'values':policy['values']})
     for bounds, code in (((5999, 90), 'instructions_too_long'), ((6000, 27), 'grant_duration_exceeded'), ((None, 90), 'model_admin_input'),
                          ((6000, None), 'model_admin_input')):
         contexts.runtime('admin', refused(f"PERFORM {sql_save({**longest_body, 'operationId': str(uuid4())}, *bounds)};", code))

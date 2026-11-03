@@ -24,11 +24,12 @@ public sealed class HostedAuthentication : IAsyncDisposable
     private readonly NpgsqlDataSource source;
     private readonly HostedConfiguration settings;
     // Unknown accounts perform the same supported password verification work.
-    private readonly string dummyHash = HostedAccess.HashPassword(HostedAccess.NewToken());
-    private readonly SemaphoreSlim hashWork = new(4, 4);
+    private readonly string dummyHash = HostedAccess.RehashPassword(HostedAccess.NewToken());
+    private readonly SemaphoreSlim hashWork;
     public HostedAuthentication(HostedConfiguration settings)
     {
         this.settings = settings;
+        hashWork=new(settings.Limits.PasswordHashers,settings.Limits.PasswordHashers);
         source = NpgsqlDataSource.Create(HostedConfiguration.Connection(settings.AuthenticatorConnectionFile).ConnectionString);
     }
     public static void Configure(WebApplicationBuilder builder, HostedConfiguration settings)
@@ -48,13 +49,13 @@ public sealed class HostedAuthentication : IAsyncDisposable
             o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             o.AddPolicy("local-auth", context => RateLimitPartition.GetFixedWindowLimiter(
                 context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
-                { PermitLimit = 12, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
+                { PermitLimit = settings.Limits.SignInAttemptsPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
         });
         builder.Services.AddAuthentication(Scheme).AddCookie(Scheme, o =>
         {
             o.Cookie.Name = "__Host-openetrm_account"; o.Cookie.HttpOnly = true;
             o.Cookie.SameSite = SameSiteMode.Strict; o.Cookie.SecurePolicy = CookieSecurePolicy.Always; o.Cookie.Path = "/";
-            o.ExpireTimeSpan = TimeSpan.FromMinutes(30); o.SlidingExpiration = false;
+            o.SlidingExpiration = false;
             o.Events.OnValidatePrincipal = async c =>
             {
                 var authentication = c.HttpContext.RequestServices.GetRequiredService<HostedAuthentication>();
@@ -84,16 +85,26 @@ public sealed class HostedAuthentication : IAsyncDisposable
     }
     public Guid Tenant { private get; set; }
     public Guid Workspace { private get; set; }
+    public async Task<string[]> EndedSessions(string[] digests,CancellationToken ct)
+    {
+        if(digests.Length==0)return [];
+        await using var command=source.CreateCommand("SELECT d.digest FROM unnest($1::text[]) d(digest) WHERE NOT EXISTS(SELECT 1 FROM security.hosted_session_info(d.digest))");
+        command.Parameters.AddWithValue(digests);var ended=new List<string>();
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        while(await reader.ReadAsync(ct))ended.Add(reader.GetString(0));
+        return ended.ToArray();
+    }
     // Told of each sign-out once its session is revoked, with the session's digest and subject, so the session's streams
     // end at once (docs/ai-assistant.md §11).
     public Action<string, string>? SignedOut { private get; set; }
     public void Map(WebApplication app)
     {
         var auth = app.MapGroup("/auth");
-        auth.MapGet("", (HttpContext c, IAntiforgery antiforgery) =>
+        auth.MapGet("", async (HttpContext c, IAntiforgery antiforgery) =>
         {
             var csrf = HtmlEncoder.Default.Encode(antiforgery.GetAndStoreTokens(c).RequestToken!);
-            return Results.Content(Page(csrf), "text/html; charset=utf-8");
+            var policy=await AccessPolicy(c.RequestAborted);
+            return Results.Content(Page(csrf,policy.GetProperty("values").GetProperty("passwordMinimum").GetInt32()), "text/html; charset=utf-8");
         });
         auth.MapGet("/script.js", () => Results.Content("""
             const token=location.hash.startsWith('#invite=')?location.hash.slice(8):'';
@@ -108,18 +119,22 @@ public sealed class HostedAuthentication : IAsyncDisposable
         {
             if(c.User.Identity?.IsAuthenticated==true)return Results.StatusCode(409);
             var form = await c.Request.ReadFormAsync(c.RequestAborted);
-            string login, digest, hash;
+            string login, digest, hash;int passwordLength;Guid expectedPolicy;
             try
             {
                 login = HostedAccess.Login(form["login"].ToString());
                 digest = HostedAccess.TokenDigest(form["invitation"].ToString());
-                var password = form["password"].ToString(); HostedAccess.Password(password);
+                var policy=await AccessPolicy(c.RequestAborted,digest);
+                expectedPolicy=policy.GetProperty("revisionId").GetGuid();
+                var minimum=policy.GetProperty("values").GetProperty("passwordMinimum").GetInt32();
+                var password = form["password"].ToString();passwordLength=password.Length;HostedAccess.Password(password,minimum);
                 await hashWork.WaitAsync(c.RequestAborted);
-                try { hash = HostedAccess.HashPassword(password); } finally { hashWork.Release(); }
+                try { hash = HostedAccess.HashPassword(password,minimum); } finally { hashWork.Release(); }
             }
             catch (ArgumentException) { return Results.Redirect("/auth?failed=1"); }
-            await using var command = source.CreateCommand("SELECT security.claim_hosted_invitation($1,$2,$3,$4)");
+            await using var command = source.CreateCommand("SELECT security.claim_hosted_invitation($1,$2,$3,$4,$5,$6)");
             foreach (var value in new[] { digest, login, form["name"].ToString(), hash }) command.Parameters.AddWithValue(value);
+            command.Parameters.AddWithValue(passwordLength);command.Parameters.AddWithValue(expectedPolicy);
             return Results.Redirect(await command.ExecuteScalarAsync(c.RequestAborted) is Guid ? "/auth?claimed=1" : "/auth?failed=1");
         }).RequireRateLimiting("local-auth");
         auth.MapPost("/login", async (HttpContext c) =>
@@ -138,7 +153,7 @@ public sealed class HostedAuthentication : IAsyncDisposable
             }
             PasswordVerificationResult verification;string replacement;
             await hashWork.WaitAsync(c.RequestAborted);
-            try { verification=HostedAccess.CheckPassword(hash,form["password"].ToString());replacement=verification==PasswordVerificationResult.SuccessRehashNeeded?HostedAccess.HashPassword(form["password"].ToString()):hash; } finally { hashWork.Release(); }
+            try { verification=HostedAccess.CheckPassword(hash,form["password"].ToString());replacement=verification==PasswordVerificationResult.SuccessRehashNeeded?HostedAccess.RehashPassword(form["password"].ToString()):hash; } finally { hashWork.Release(); }
             var token = HostedAccess.NewToken();
             await using var finish = source.CreateCommand("SELECT security.finish_hosted_login($1,$2,$3,$4,$5,$6)");
             finish.Parameters.AddWithValue(id); finish.Parameters.AddWithValue(version); finish.Parameters.AddWithValue(hash);
@@ -147,7 +162,7 @@ public sealed class HostedAuthentication : IAsyncDisposable
                 return Results.Redirect("/auth?failed=1");
             var claims = new ClaimsIdentity([new(ClaimTypes.NameIdentifier, identity.Subject), new("session", token)], Scheme);
             c.Response.Cookies.Delete("__Host-openetrm_workspace",new CookieOptions{Secure=true,Path="/"});
-            await c.SignInAsync(Scheme, new ClaimsPrincipal(claims), new AuthenticationProperties { IsPersistent = false });
+            await c.SignInAsync(Scheme, new ClaimsPrincipal(claims), new AuthenticationProperties { IsPersistent = false, ExpiresUtc=identity.Ends });
             return Results.Redirect("/");
         }).RequireRateLimiting("local-auth");
         app.MapPost("/api/logout", async (HttpContext c) =>
@@ -160,11 +175,22 @@ public sealed class HostedAuthentication : IAsyncDisposable
             await c.SignOutAsync(Scheme); c.Response.Cookies.Delete("__Host-openetrm_workspace",new CookieOptions{Secure=true,Path="/"}); return Results.Ok(new{signedOut=true});
         }).WithMetadata(new PreviewScope("baseline"));
     }
-    private static string Page(string csrf) => $$"""
+    async Task<System.Text.Json.JsonElement> AccessPolicy(CancellationToken ct,string? invitation=null)
+    {
+        await using var command=source.CreateCommand(invitation is null?"SELECT security.hosted_access_policy($1,$2)::text":"SELECT security.invitation_access_policy($1)::text");
+        if(invitation is null){command.Parameters.AddWithValue(Tenant);command.Parameters.AddWithValue(Workspace);}
+        else command.Parameters.AddWithValue(invitation);
+        if(await command.ExecuteScalarAsync(ct) is not string text)throw new ArgumentException("The invitation could not be verified.");
+        var policy=System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(text);
+        if(invitation is not null&&(policy.GetProperty("tenantId").GetGuid()!=Tenant||policy.GetProperty("workspaceId").GetGuid()!=Workspace))
+            throw new ArgumentException("The invitation belongs to another workspace.");
+        return policy;
+    }
+    private static string Page(string csrf,int minimum) => $$"""
         <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LeanETRM · Sign in</title><link rel="stylesheet" href="/auth/style.css"></head>
         <body><main><h1>LeanETRM</h1><p id="message">Private workspace. Sign in with your invited account.</p>
         <form id="signin" method="post" action="/auth/login"><input type="hidden" name="__RequestVerificationToken" value="{{csrf}}"><p><label>Login <input name="login" autocomplete="username" required maxlength="48"></label></p><p><label>Password <input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label></p><button>Sign in</button></form>
-        <form id="claim" method="post" action="/auth/claim" hidden><input type="hidden" name="__RequestVerificationToken" value="{{csrf}}"><input id="invitation" type="hidden" name="invitation"><p><label>Login <input name="login" autocomplete="username" pattern="[a-z][a-z0-9_]{0,47}" required maxlength="48"></label></p><p><label>Display name <input name="name" autocomplete="name" required maxlength="80"></label></p><p><label>Choose password <input name="password" type="password" autocomplete="new-password" required minlength="15" maxlength="1024"></label></p><button>Set password</button></form>
+        <form id="claim" method="post" action="/auth/claim" hidden><input type="hidden" name="__RequestVerificationToken" value="{{csrf}}"><input id="invitation" type="hidden" name="invitation"><p><label>Login <input name="login" autocomplete="username" pattern="[a-z][a-z0-9_]{0,47}" required maxlength="48"></label></p><p><label>Display name <input name="name" autocomplete="name" required maxlength="80"></label></p><p><label>Choose password <input name="password" type="password" autocomplete="new-password" required minlength="{{minimum}}" maxlength="1024"></label></p><button>Set password</button></form>
         </main><script src="/auth/script.js"></script></body></html>
         """;
     public async ValueTask DisposeAsync() { await source.DisposeAsync(); hashWork.Dispose(); }

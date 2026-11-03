@@ -1016,8 +1016,9 @@ Deliver:
   revision tables stay behind the scenes. Typed locations support exact supplied
   GPS points; pipeline routes, region boundaries and topology are later scope.
 - User profiles for time zone and extensible remembered presentation preferences;
-  compact minute-level context labels preserve exact selected versions. Browser-local
-  preview preferences do not complete authenticated account persistence.
+  compact minute-level context labels preserve exact selected versions. D302
+  implements the bounded authenticated presentation contract; broader profile
+  fields and live cross-window preference synchronization remain work.
 - A historical environment selector that propagates one resolved context through
   navigation, tables, charts, schedules, risk and reports, with read-only defaults.
 - Due-event reconciliation over retained occurrence IDs, version checks and an
@@ -1637,32 +1638,26 @@ prompt-offset observation authoring; broader source/calendar combinations and
 flexible roll rules remain work. See the
 [scenario matrix](observation-price-scenarios.md#bounded-source-consumer).
 
-Operational limits (P42, proposed): move each operating value out of code into
-explicit, versioned configuration, keeping its ceiling fixed, and state each value
-once. See [operational limits](operational-limits.md) for the complete inventory. In
-order, each its own PR with failing checks first and none started before the owner
-accepts P42:
+Operational limits (P42, D302): the locally implemented current consumers are
+assistant pin/concurrency/reserve/grant/output budgets, access lifetime/lockout/
+enrollment/invitation policy, human presentation preferences, explicit process
+limits and protected connection budgets. API metadata supplies risk dimensions
+and browser request deadlines; the gateway renderer uses selected process values.
+See [the implemented contract and remaining inventory](operational-limits.md).
 
-1. Assistant installation limits: a revisioned table for the pins bound, workspace
-   turns, retained-context reserve and longest grant, saved under `ManageAgents`,
-   recorded on each turn; runtime set `turns_v8`.
-2. Sign-in policy: a revisioned table for sign-in lifetime, lockout, minimum password
-   length and invitation lifetime under `ManageAccess`, recorded on each hosted
-   session; the cookie expires with the session row, so the lifetime is stated once.
-3. Tool result records and bytes on the agent version, as 0121 added the history
-   window.
-4. A required `limits` section in the hosted configuration for request deadlines, body
-   sizes, pools, timeouts and `max_connections`, the sign-in rate, page sessions,
-   heartbeats, polls and provider transport, checked against each other; the gateway's
-   body sizes and read timeout are written from it, and the API serves its request
-   deadlines to the page, which no longer has its own timeout. The collection and
-   reference commands take their HTTP timeouts and deadlines from their own settings.
-5. Each operation the page validates against serves its limits; the page's copies of
-   server limits are removed.
-6. One shared ceiling for the 4,096 retained contexts per catalog.
-7. Settings pages for the installation limits and sign-in policy.
+Migrations 0181–0183, the required host `limits` section, explicit connection-file
+budgets and regenerated gateway settings need one operator-qualified transition.
+Earlier assistant runtimes cannot admit new turns after the policy migration.
+Prior-image rollback must restore its matching host configuration; invitation
+claims/resets and assistant admission have deliberately changed SQL contracts.
+No production rollout or complete prior-image service recovery is qualified here.
 
-The pilot's next schema window applies 0122 (D256) over its hotfixed `pin_turn`.
+The remaining P42 inventory includes collection/reference-command transport
+settings, polling/heartbeat intervals, additional operation-specific presentation
+metadata and consolidation of the retained-context ceiling. These remain planned
+until their named consumers and independent checks are implemented. Financial
+contract bounds, numerical policies and parser safety ceilings stay explicit
+versioned contracts; a configuration table is not a reason to relax them.
 
 
 D261 resolves exact-contract and prompt-offset authoring terms at each observation

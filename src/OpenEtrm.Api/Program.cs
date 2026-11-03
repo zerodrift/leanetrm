@@ -1,5 +1,4 @@
 using OpenEtrm.Shared.Temporal;
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Net;
@@ -31,11 +30,13 @@ var root=Path.GetFullPath(hosted?.ManifestDirectory ?? Environment.GetEnvironmen
 var runId=hosted?.InstallationId ?? Guid.Parse(File.ReadAllText(Path.Combine(root,".openetrm-preview")));
 var port=hosted?.ListenPort ?? int.Parse(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_PORT") ?? throw new InvalidOperationException("Explicit preview port is required."));
 var webRoot=Path.GetFullPath(hosted?.WebDirectory ?? Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_WEB") ?? throw new InvalidOperationException("Explicit built web root is required."));
+var processLimits=hosted?.Limits??ProcessLimits.Read(Path.Combine(root,"process-limits.json"));
+Console.WriteLine("PROCESS_LIMITS "+processLimits.Digest);
 await using var hostedAuthentication=hosted is null?null:new HostedAuthentication(hosted);
 var builder=WebApplication.CreateBuilder(args);
 builder.Services.AddHttpContextAccessor();
 builder.Logging.ClearProviders(); builder.Logging.AddSimpleConsole(o=>o.SingleLine=true); builder.Logging.SetMinimumLevel(LogLevel.Warning);
-const int bodyLimit=32*1024;
+var bodyLimit=processLimits.RequestBytes;
 builder.WebHost.ConfigureKestrel(o=> { o.Listen(hosted is null?IPAddress.Loopback:IPAddress.Any,port); o.Limits.MaxRequestBodySize=bodyLimit; });
 if(hosted is null)builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
 else {HostedAuthentication.Configure(builder,hosted);builder.Services.AddSingleton(hostedAuthentication!);}
@@ -60,14 +61,19 @@ var (workerHolder,workerWrites)=PreviewDatabase.WorkerSources(root,hosted);
 await using var agentWorker=new AgentWorker(workerHolder,workerWrites,app.Logger);
 // Provider keys are sealed under the installation's key files when hosted, else the preview runner's (§5.2, §11).
 var custody=hosted is null?CredentialCustody.FromEnvironment():new CredentialCustody(hosted.CredentialKeyFile,hosted.CredentialRetryKeyFile);
-var adapter=new ModelAdapters(ModelTransport.Handler(checkEndpoint),RuntimeSet.Provider);
+var adapter=new ModelAdapters(ModelTransport.Handler(checkEndpoint,TimeSpan.FromSeconds(processLimits.ProviderConnectSeconds)),new(TimeSpan.FromSeconds(processLimits.ProviderIdleSeconds),processLimits.ProviderResponseBytes));
 var providerTests=new ProviderTests(custody,agentWorker,adapter,app.Logger);
 // The live event stream's subscriptions, which the worker tells of what it publishes (§8).
 var turnStreams=new TurnStreams();
 await using var turnWorker=new TurnWorker(agentWorker,custody,adapter,turnStreams,app.Logger);
 await agentWorker.Generation(CancellationToken.None);
 // Signing out ends the session's streams at once; revoking its sign-in session has cancelled its turns (§11).
-if(hostedAuthentication is not null)hostedAuthentication.SignedOut=turnStreams.EndSession;
+var pageRegistries=new List<PageSessionRegistry>();
+if(hostedAuthentication is not null)hostedAuthentication.SignedOut=(digest,subject)=>
+{
+    turnStreams.EndSession(digest,subject);
+    foreach(var registry in pageRegistries)registry.Retire(digest);
+};
 
 var profiles=new[] { new {id="viewer",name="Viewer",description="Read only"},new {id="editor",name="Market Data Editor",description="Read and correct synthetic prices"},new {id="approver",name="Market Data Approver",description="Read and publish schedule definitions"},new {id="admin",name="Access Administrator",description="Manage workspace identities and roles"},new {id="trader",name="Trader",description="Book and inspect synthetic futures holdings"},new {id="risk",name="Risk Analyst",description="Inspect holdings and run shared market scenarios"} };
 
@@ -76,6 +82,12 @@ const string malformed="The request is incomplete or malformed.";
 (int Status,string Code,string Message) Failure(Exception e,PathString apiPath,HttpContext context)=>e switch
 {
     ToolRefusal refusal=>(422,refusal.Code,AgentTools.Text(refusal.Code)),
+    PostgresException p when p.SqlState=="P0001"&&p.MessageText is "operating_policy_conflict" or "user_preferences_conflict" or "user_preferences_owner_changed"
+        =>(409,p.MessageText,"These settings or this request changed. Reload the current version, or retry the original request."),
+    PostgresException p when p.SqlState=="P0001"&&p.MessageText is "operating_policy_input" or "user_preferences_input"
+        =>(422,p.MessageText,"Supply the complete supported settings within the stated bounds."),
+    PostgresException p when p.SqlState=="P0001"&&p.MessageText=="operating_policy_missing"
+        =>(409,p.MessageText,"The workspace operating policy must be explicitly provisioned before this operation."),
     PostgresException p when p.SqlState=="P0001"&&p.MessageText.StartsWith("page_prompt_",StringComparison.Ordinal)=>(409,p.MessageText,"The page prompt or request changed. Reload its current version or retry the same request."),
     PostgresException p when p.SqlState=="P0001"&&p.MessageText=="proposal_not_ready"=>(409,p.MessageText,"Wait for the assistant answer to complete before reviewing this proposal."),
     // A missing or ended session is session_ended on the assistant's routes, which offer a reload; pages keep access_denied (§8).
@@ -248,7 +260,7 @@ app.Use(async (context,next)=>
     // Authorized event streams have their own session, heartbeat and write bounds.
     using var deadline=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
     var intervalRead=apiPath.StartsWithSegments("/api/ppa")||string.Equals(apiPath.Value,"/api/trading/position",StringComparison.OrdinalIgnoreCase);
-    if(!LiveContexts.Matches(context.Request.Method,apiPath)&&!TurnStream.Matches(context.Request.Method,apiPath))deadline.CancelAfter(TimeSpan.FromSeconds(intervalRead?20:15));
+    if(!LiveContexts.Matches(context.Request.Method,apiPath)&&!TurnStream.Matches(context.Request.Method,apiPath))deadline.CancelAfter(TimeSpan.FromSeconds(intervalRead?processLimits.ExtendedRequestSeconds:processLimits.RequestSeconds));
     context.RequestAborted=deadline.Token;
     try
     {
@@ -300,7 +312,7 @@ app.Use(async (context,next)=>
 app.Use((context,next)=>
 {
     var size=context.Features.Get<IHttpMaxRequestBodySizeFeature>();
-    if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/interval-series/revise",StringComparison.Ordinal))size.MaxRequestBodySize=8*1024*1024;
+    if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/interval-series/revise",StringComparison.Ordinal))size.MaxRequestBodySize=processLimits.IntervalRevisionBytes;
     return next(context);
 });
 
@@ -342,7 +354,8 @@ if(exchangeDatabase is not null)MapPreview(app.MapGroup("/examples/exchange/api"
 app.MapGet("/api/examples",()=>new[]{new {id="baseline",name=hosted is null?"Original synthetic example":"Private pilot workspace",url="/"},new {id="exchange",name="CME & ICE futures · synthetic prices",url="/?example=exchange"}}.Where(e=>e.id=="baseline"||exchangeDatabase is not null));
 void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName,string turnScope,CalculationChanges changes)
 {
-var sessions=new ConcurrentDictionary<string,PreviewSession>();
+var sessions=new PageSessionRegistry(processLimits.PageSessions);
+pageRegistries.Add(sessions);
 var marketReads=new MarketReads(database);
 var scheduleReads=new ScheduleReads(database);
 var partyReads=new PartyReads(database);
@@ -359,24 +372,20 @@ async Task<string[]> CurrentPermissions(NpgsqlConnection connection,Cancellation
 api.MapGet("/health",()=>new {mode=database.Manifest.Mode,runId});
 api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool includeFrames=true,bool includeAccess=false)=>
 {
-    foreach(var item in sessions.Where(x=>DateTimeOffset.UtcNow>x.Value.Ends).ToArray()) sessions.TryRemove(item.Key,out _);
-    PreviewSession session;
-    // A hosted application session belongs to the sign-in session it was opened under (docs/ai-assistant.md §11).
-    if (context.Request.Cookies.TryGetValue(cookieName,out var cookie)&&sessions.TryGetValue(cookie,out var existing)
-        &&(hosted is null||existing.Digest==HostedAuthentication.SessionDigest(context))) session=existing;
-    else
-    {
-        if (sessions.Count>=64) throw new PreviewDeniedException();
-        var id=Convert.ToHexString(RandomNumberGenerator.GetBytes(32)); session=new PreviewSession(database.Manifest,hosted is null?null:HostedAuthentication.SignIn(context));
-        sessions[id]=session;
-        context.Response.Cookies.Append(cookieName,id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=PreviewSession.Lifetime,Path="/"});
-    }
+    // Capacity admission is atomic across concurrent page opens.
+    if(hostedAuthentication is not null)
+        foreach(var digest in await hostedAuthentication.EndedSessions(sessions.ReclaimCandidates(),context.RequestAborted))sessions.Retire(digest);
+    context.Request.Cookies.TryGetValue(cookieName,out var cookie);
+    var admitted=sessions.GetOrCreate(cookie,existing=>hosted is null||existing.Digest==HostedAuthentication.SessionDigest(context),
+        ()=>new PreviewSession(database.Manifest,hosted is null?null:HostedAuthentication.SignIn(context)));
+    var session=admitted.Session;
+    if(admitted.Created)context.Response.Cookies.Append(cookieName,admitted.Id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=session.Ends-DateTimeOffset.UtcNow,Path="/"});
     await session.Gate.WaitAsync(context.RequestAborted);
     try {
         var identity=hosted is null?null:HostedAuthentication.Current(context);
         if(identity is not null){if(session.Profile is not null&&session.Profile!=identity.Subject)throw new PreviewDeniedException();session.Profile=identity.Subject;}
         object response=new {mode=database.Manifest.Mode,runId,notice=hosted is null?"Disposable synthetic workspace. Test identities are simulations, not production sign-in.":"Private pilot workspace. Financial capability is limited to the supported product conventions.",profiles=identity is null?profiles:profiles.Take(0).Append(new{id=identity.Subject,name=identity.Name,description="Signed-in account"}).ToArray(),
-        profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=includeFrames?session.PersistentFrames.Where(f=>f.PpaBundle is null && f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray():[],
+        requestDeadlines=processLimits.RequestDeadlines,processLimits=processLimits.Digest,profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=includeFrames?session.PersistentFrames.Where(f=>f.PpaBundle is null && f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray():[],
         catalogId=database.Manifest.CatalogId,tenantId=database.Manifest.TenantId,workspaceId=database.Manifest.WorkspaceId};
         if(includeAccess)
         {
@@ -1095,6 +1104,15 @@ api.MapPost("/parties/save",(HttpContext c,PartySaveRequest body)=>Locked(c,sess
     c.Items["party_attempted"]=true;
     return database.WithIdentity(Profile(session),"WriteTradeParties",async(connection,ct)=>Results.Ok(await PartyEditors.Save(connection,database.Manifest.CatalogId,body,ct)),c.RequestAborted);
 }));
+api.MapGet("/settings/operating-policies",async Task<IResult>(HttpContext c)=>await Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>Results.Ok(await OperatingPolicies.Directory(connection,ct)),c.RequestAborted)));
+api.MapPost("/settings/operating-policies",(HttpContext c,SaveOperatingPolicyRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),OperatingPolicies.PermissionFor(body.Kind),
+    async(connection,ct)=>Results.Ok(await OperatingPolicies.Save(connection,body,ct)),c.RequestAborted,OperatingPolicies.AdmissionFor(body.Kind))));
+api.MapGet("/settings/preferences",async Task<IResult>(HttpContext c)=>await Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>Results.Ok(await UserPreferences.Read(connection,turnScope,ct)),c.RequestAborted)));
+api.MapPost("/settings/preferences",(HttpContext c,SaveUserPreferencesRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
+    async(connection,ct)=>Results.Ok(await UserPreferences.Save(connection,turnScope,body,ct)),c.RequestAborted)));
+
 api.MapGet("/table-views/blotter",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await TableViews.Read(connection,ct)),c.RequestAborted))));
 api.MapPost("/table-views/blotter",(HttpContext c,SaveTableView body)=>Locked(c,session=>
@@ -1962,7 +1980,7 @@ public sealed partial class PreviewSession
     public Guid[] InitialFrames {get;}
     public PreviewSession(PreviewManifest manifest,HostedSignIn? signIn=null)
     {
-        Ends=signIn is {} s&&s.Ends<Created+Lifetime?s.Ends:Created+Lifetime;
+        Ends=signIn?.Ends??Created+Lifetime;
         Digest=signIn?.Digest??Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         foreach(var f in manifest.Frames) {
             if(f.CurveContracts is null)throw new MarketDataException("missing_curve_view","Every seed frame requires explicit curve contract selections.");

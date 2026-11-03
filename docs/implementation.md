@@ -16,6 +16,17 @@ contracts and limits. The [Blotter workbench](blotter-workbench.md),
 describe current presentation. The detailed sections below include earlier
 checkpoints; their dated counts and measurements are historical evidence.
 
+D302 adds [versioned operating settings and personal presentation](operational-limits.md#implemented-consumers-d302).
+Assistant/access policies have separate current-human permissions, immutable
+revisions and idempotent receipts; new turns, grants, sessions and invitations
+retain their admitted policy. Profile preferences persist for the authenticated
+human/workspace/example, including display zone and navigation presentation.
+Process/connection budgets are explicit, and browser/gateway limits derive from
+the server configuration. Gas and crude share retained program execution and
+source admission; exact commodity identities and financial rules remain in the
+domain. Migrations 0181–0183 and matching private configuration require a separately
+qualified rollout; the remaining P42 inventory is still planned.
+
 The managed [connected calculation engine](connected-calculation.md) now drives
 saved [custom curves](custom-curves.md), their authoring UI, booked swap
 projections, portfolio risk and retained worker replay. Explicit weighted
@@ -35,12 +46,16 @@ check and local documentation links pass. Earlier counts below describe their
 individual increments, rather than additional current suites. These results
 qualify the synthetic local preview; they do not establish production readiness.
 
-The small [shared utility library](../src/OpenEtrm.Shared/README.md) now provides
-immutable date sets, explicit rolling, UTC interval grids/selections and bounded
-canonical sharing. Its 31 checks and synthetic microbenchmark qualify these raw
-in-memory operations only. Date-set operations remain coding utilities. The named contract-schedule resolver
-described below is a domain consumer with exact contract identities. Monthly anchor generation and durable schedule authoring are now consumers. Project instructions
-now require TDD, DRY, simple code and an explicit quality review before check-in.
+The small [shared utility library](../src/OpenEtrm.Shared/README.md) provides
+immutable date sets, rolling, UTC grids, dependency planning, exact rational/
+rounding mechanisms and credential-free connection-budget validation. Named
+financial definitions, reference identities, authorization, storage and numerical
+policies stay with their domain owners. API and worker processes consume the
+connection budget; gas/crude retained execution shares a domain base over the
+existing Instrument/Side model. Historical date-set microbenchmarks qualify raw
+in-memory operations only. Monthly generation and durable schedule authoring are
+current temporal consumers; project instructions require TDD, DRY and explicit
+quality review before check-in.
 
 The blotter now separates numeric amounts from units and currencies. Its pivot
 builder assigns row and column dimensions, backend measures and linked bar,
@@ -1617,22 +1632,23 @@ local power forwards for 18 Dec 2020. Six delivery months use four saved dates.
 Select **Price history** beside a contract to follow its prices over time, distinct
 from the curve's delivery-month axis.
 
-**Profile** holds the user's time zone and preferred browsing layout. A versioned
-browser-local preference record also remembers commodity/type filters and the
-selected detail tab, sidebar/curve-list collapse and individual menu-group states
-per demo persona. The Market filter is saved as a commodity code, or as none for
-**All markets**. Older profile records keep their other settings and acquire the
-new presentation layout defaults, but not their former Market choice: they show
-**All markets**. No market-date IDs, input policies, credentials
-or authority are persisted as preferences. The preview does not implement account
-profiles synchronized across devices; that follows verified sign-in. Unavailable
-browser storage is reported, not presented as a successful save.
+**Profile** holds the user's display time zone and browsing layout. D302 stores
+its closed presentation contract in authenticated human/workspace/example
+versions: commodity/type filters, the selected detail tab, sidebar/curve-list and
+menu-group collapse, and assistant launcher visibility/minimization. The Market
+filter is a commodity code or none for **All markets**. These preferences are
+shared by the main window and popped-out Blotter through the same server reader.
+An absent row starts the current presentation contract; old browser records are
+not imported. Unsupported browser zones are explained and require explicit Save
+before replacement. Ordered saves retain uncertain request identities; ownership
+changes and optimistic conflicts refuse instead of overwriting another profile.
+No financial context, input policy, credential or authority is a preference.
 
 The navigation sidebar can collapse to an icon rail on desktop or hide its menus
-on mobile. Its Market data and Settings groups, the curve list and each commodity
-or market-type group expand independently. Returning from the icon rail restores
-the saved group state. These controls are keyboard-accessible and remember their
-state per demo persona in the browser; they do not change permissions or inputs.
+on mobile. Groups and the curve list expand independently, with keyboard-accessible
+controls. Their server preferences do not change permissions or financial inputs.
+Editor arrangements that use their own layout store retain that separate contract.
+
 The curve list orders its groups, and the curves within each group, by display
 name with the browser's locale collation; for example, **Local power · all-in
 prices** precedes **Local power forwards**. Grouped by market type, each group

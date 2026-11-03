@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using OpenEtrm.Shared.Configuration;
 
 namespace OpenEtrm.Api;
 
@@ -8,7 +9,7 @@ namespace OpenEtrm.Api;
 public sealed record HostedConfiguration(Guid InstallationId, string PublicOrigin, string StateDirectory,
     string WebDirectory, string ManifestDirectory, string RuntimeConnectionFile,
     string AuthenticatorConnectionFile, int ListenPort, string TrustedProxyNetwork, string ProtectionCertificateFile,
-    string CredentialKeyFile, string CredentialRetryKeyFile)
+    string CredentialKeyFile, string CredentialRetryKeyFile, [property:JsonRequired] ProcessLimits Limits)
 {
     public Uri Origin => new(PublicOrigin);
     public string IdentityIssuer => PublicOrigin + "/local";
@@ -21,6 +22,8 @@ public sealed record HostedConfiguration(Guid InstallationId, string PublicOrigi
     }
     public void Validate()
     {
+        if(Limits is null)throw new InvalidOperationException("Complete explicit limits are required.");
+        Limits.Validate();
         if (InstallationId == Guid.Empty || !Uri.TryCreate(PublicOrigin, UriKind.Absolute, out var origin)
             || origin.Scheme != "https" || origin.AbsolutePath != "/" || origin.Query != "" || origin.Fragment != ""
             || origin.UserInfo != "" || PublicOrigin.EndsWith('/') || ListenPort is < 1024 or > 65535
@@ -46,7 +49,15 @@ public sealed record HostedConfiguration(Guid InstallationId, string PublicOrigi
         if (string.IsNullOrWhiteSpace(value.Host) || string.IsNullOrWhiteSpace(value.Database) || string.IsNullOrWhiteSpace(value.Username)
             || value.Username is "postgres" or "preview_owner" || value.PersistSecurityInfo)
             throw new InvalidOperationException("A dedicated hosted database login is required.");
-        value.Timezone = "UTC"; value.CommandTimeout = 5; value.Timeout = 5; value.MaxPoolSize = 8;
+        RequireBudget(value,new(5,30,8));
+        value.Timezone = "UTC";
         return value;
+    }
+    public static void RequireBudget(Npgsql.NpgsqlConnectionStringBuilder value,ConnectionBudget ceiling)
+    {
+        var keys=value.Keys.Cast<string>().Select(key=>key.Replace(" ","",StringComparison.Ordinal).ToLowerInvariant()).ToHashSet();
+        if(!keys.Contains("timeout")||!keys.Contains("commandtimeout")||!keys.Contains("maximumpoolsize")||
+            !new ConnectionBudget(value.Timeout,value.CommandTimeout,value.MaxPoolSize).IsWithin(ceiling))
+            throw new InvalidOperationException("State explicit bounded Timeout, Command Timeout and Maximum Pool Size in each protected connection file.");
     }
 }

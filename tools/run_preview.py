@@ -232,6 +232,9 @@ def main():
             if args.lng_cargo_check and migration.name=='0176_lng_cargo_references.sql':
                 from check_lng_upgrade import run_checks as check_lng_upgrade
                 check_lng_upgrade(query,ROOT,manifest,[reference,market,security,trading_fixture(manifest['catalogId'])])
+            if migration.name.endswith(('_operating_policies.sql','_access_policy_consumers.sql')):
+                from check_settings_upgrade import run_checks as check_settings_upgrade
+                check_settings_upgrade(query,migration)
             if (args.assistant_check or args.provider_adapters_check) and migration.name=='0105_model_identifier_policy.sql':
                 from check_model_versions import check_identifier_policy_upgrade
                 check_identifier_policy_upgrade(query,migration.read_text())
@@ -436,6 +439,7 @@ def main():
                 from factor_swap_fixture import prepare as prepare_factor
                 prepare_factor(manifest)
         query(security)
+        query(f"SELECT security.initialize_operating_policies('{manifest["tenantId"]}','{manifest["workspaceId"]}');")
         if args.example=='standard' and (not args.check or args.factor_history_check or args.parametric_risk_check):
             from factor_history_fixture import seed as seed_history
             seed_history(query,manifest)
@@ -515,6 +519,7 @@ def main():
         # Freeze assets for this owned instance; a later web build must not change
         # another running preview's presentation while it is being used.
         shutil.copytree(ROOT/'web/dist',temporary/'web')
+        shutil.copyfile(ROOT/'deploy/process-limits.example.json',temporary/'process-limits.json')
         port=args.port
         if port==0:
             with socket.socket() as reservation:
@@ -523,8 +528,8 @@ def main():
         url=f'http://127.0.0.1:{port}'
         app_env={**env,'OPENETRM_PREVIEW_ROOT':str(temporary),'OPENETRM_PREVIEW_PORT':str(port),
                  'OPENETRM_PREVIEW_WEB':str(temporary/'web'),
-                 'OPENETRM_PREVIEW_RUNTIME':f'Host={temporary};Port=55439;Database=postgres;Username=preview_runtime;SSL Mode=Disable',
-                 'OPENETRM_PREVIEW_AUTHENTICATOR':f'Host={temporary};Port=55439;Database=postgres;Username=preview_authenticator;SSL Mode=Disable',
+                 'OPENETRM_PREVIEW_RUNTIME':f'Host={temporary};Port=55439;Database=postgres;Username=preview_runtime;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=8',
+                 'OPENETRM_PREVIEW_AUTHENTICATOR':f'Host={temporary};Port=55439;Database=postgres;Username=preview_authenticator;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=8',
                  **credential_keys}
         # Exercise transport independently of the launcher's UTC psql sessions.
         if args.check:
@@ -559,7 +564,7 @@ def main():
             from check_risk_jobs_db import provision_worker
             provision_worker(query,selected or manifest,login)
             connection=temporary/f'{login}-connection'
-            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username={login};SSL Mode=Disable')
+            connection.write_text(f'Host={temporary};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2')
             connection.chmod(0o600)
             config=temporary/f'{login}.json'
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':60}))
@@ -1222,7 +1227,7 @@ def main():
                 from check_swap_payment_rules import run_checks as check_swap_payment_rules
                 check_swap_payment_rules(url,session)
                 from check_booking_facts import run_checks as check_booking_facts
-                check_booking_facts(url,query,manifest,session)
+                check_booking_facts(url,query,manifest,session,browsers[0])
                 from check_draft_pricing import run_checks as check_draft
                 check_draft(url,query,manifest,session)
                 from check_definition_publication import run_checks as check_definition_publication

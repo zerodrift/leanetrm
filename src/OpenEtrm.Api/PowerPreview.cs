@@ -112,7 +112,7 @@ public static class PowerPreview
             weekdays=new[]{"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"},
             quantityChoices=data.References["quantity_specifications"].Where(q=>commodities.Contains(q.Text("commodity_code")) && q.Text("unit_code") is "megawatt" or "megawatt_hour")
                 .Select(q=>new{commodityCode=q.Text("commodity_code"),basis=q.Text("unit_code")=="megawatt"?"flat_power":"total_energy",
-                    label=(q.Text("unit_code")=="megawatt"?"Flat MW over selected hours":"Total MWh for the delivery period")+" · "+q.Text("basis_code").Replace('_',' '),
+                    label=(q.Text("unit_code")=="megawatt"?$"Flat {data.QuantityUnit(q.Text("code"))} over selected hours":$"Total {data.QuantityUnit(q.Text("code"))} for the delivery period")+" · "+q.Text("basis_code").Replace('_',' '),
                     specification=new ReferenceKey(data.ReferenceRevision,q.Text("code"))}),
             display=new PowerDisplayInput(3,4,3),
             numericalPolicy=PowerSettlementPolicy.Preview.Implementation
@@ -189,7 +189,7 @@ public static class PowerPreview
         var fixings=periods.Select(p=>new PowerFixing(p.Start,p.End,index,value.Price.Value,null)).ToArray();
         var settled=PowerSettlement.Calculate(schedule,fixings,index,PowerSettlementPolicy.Preview);
         var currencyLabel=new AmountLabel(index.Currency,currency.Text("display_code"));
-        var energyLabel=new AmountLabel(schedule.EnergyDefinition.Key,"MWh");
+        var energyLabel=new AmountLabel(schedule.EnergyDefinition.Key,data.QuantityUnit(schedule.EnergyDefinition.Key.Code));
         var priceText=value.Price.ToString(priceFormat,currencyLabel,energyLabel);
         return new {summary=settled.Summary,currency=currency.Text("display_code"),mark=value.Price.Value.ToString(),at=frame.At,
             amounts=new{input=schedule.Input,energy=settled.Energy,cash=settled.Cash,

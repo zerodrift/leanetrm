@@ -173,6 +173,7 @@ internal static class PhysicalCrudeSideChecks
                     program.Document.Family, program.Document.EconomicIdentity, program.Document.PricingBindingIdentity)));
         }).ToImmutableArray();
         var retained = new RetainedCrudeInstrument(purchase.Id, purchase.Delivery.Assignment, members);
+        RetainedInstrumentContractChecks.Crude(retained);
         var financial = fixture.Swap(true, 0);
         var book = Guid.NewGuid();
         Trade Holding(Instrument instrument, string quantity) => new(Guid.NewGuid(), book,

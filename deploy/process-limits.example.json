@@ -1,0 +1,15 @@
+{
+  "implementation": "bounded_process_limits_v1",
+  "requestSeconds": 15,
+  "extendedRequestSeconds": 20,
+  "responseGraceSeconds": 5,
+  "requestBytes": 32768,
+  "intervalRevisionBytes": 8388608,
+  "pageSessions": 64,
+  "signInAttemptsPerMinute": 12,
+  "passwordHashers": 4,
+  "agentConnections": 6,
+  "providerConnectSeconds": 5,
+  "providerIdleSeconds": 30,
+  "providerResponseBytes": 4194304
+}

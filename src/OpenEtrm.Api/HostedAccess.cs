@@ -20,16 +20,22 @@ public static partial class HostedAccess
         if (!LoginPattern().IsMatch(login)) throw new ArgumentException("Use 1–48 lowercase ASCII letters, numbers or underscores, starting with a letter.");
         return login;
     }
-    public static void Password(string value)
+    public static void Password(string value,int minimum)
     {
-        if (value.Length is < 15 or > 1024) throw new ArgumentException("Choose a password of 15–1024 characters.");
+        if (minimum is <15 or >1024 || value.Length<minimum || value.Length>1024)
+            throw new ArgumentException($"Choose a password of {minimum}–1024 characters.");
     }
-    public static string HashPassword(string value) { Password(value); return Hasher.HashPassword("local", value); }
+    public static string HashPassword(string value,int minimum) { Password(value,minimum); return Hasher.HashPassword("local", value); }
+    public static string RehashPassword(string value)
+    {
+        if(value.Length is <1 or >1024)throw new ArgumentException("The existing credential exceeds its supported verification bound.");
+        return Hasher.HashPassword("local",value);
+    }
     public static bool VerifyPassword(string hash, string value)
         => CheckPassword(hash,value)!=PasswordVerificationResult.Failed;
     public static PasswordVerificationResult CheckPassword(string hash, string value)
     {
-        if (value.Length is < 15 or > 1024) return PasswordVerificationResult.Failed;
+        if (value.Length is < 1 or > 1024) return PasswordVerificationResult.Failed;
         try { return Hasher.VerifyHashedPassword("local", hash, value); }
         catch (FormatException) { return PasswordVerificationResult.Failed; }
         catch (ArgumentException) { return PasswordVerificationResult.Failed; }

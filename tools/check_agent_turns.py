@@ -714,13 +714,13 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
 
     def ask_sql(turn, profile='trader', operation=None, scope='api', conversation=None, agent_id=None, version=1, question='What does this page show?',
                 report=None, mode='current', context=None, frame=None, generation=None, limit=4000, workspace=4, deadline=30, session='c' * 64,
-                ends="clock_timestamp()+interval '30 minutes'"):
+                ends="clock_timestamp()+interval '30 minutes'", runtime="turns_v12"):
         # The asking process names the catalog, the session binding, the token's digest under its worker generation and
         # the runtime set it applies: its version, the question bound, the workspace's turns and the admission deadline.
         return (f"assistant.ask_turn({literal(operation or uuid4())},'{scope}',{literal(conversation)},{literal(agent_id or guide['id'])},{version},"
                 f"{literal(question)},{literal(json.dumps(REPORT if report is None else report))}::jsonb,'{catalog}','{mode}',{literal(context)},"
                 f"{literal(frame)},'{session}',{literal(profile)},{ends},'{turn.digest}',"
-                f"{worker.generation if generation is None else generation},'turns_v1',{limit},{workspace},{deadline})")
+                f"{worker.generation if generation is None else generation},'{runtime}',{limit},{workspace},{deadline})")
 
     def ask(turn, profile='trader', **request):
         asked = as_person(profile, f'SELECT {ask_sql(turn, profile, **request)}::text;')
@@ -870,6 +870,8 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     check("an ask needs UseAgents, a version the person may use, every permission it needs, a covering grant, a conversation of theirs and "
           "the worker's current generation", query(RECORDS) == records and draft['newest']['version'] == 2)
 
+    refusal('trader', 'agent_runtime_unavailable', runtime='turns_v11')
+
     # A turn from ask to completion (§7.4).
     first = Turn()
     asked = ask(first)
@@ -877,11 +879,11 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     check('an admitted ask creates the conversation and the queued turn under the covering grant, with its accepted event, and is answered '
           'as admitted', asked.get('admitted') is True and asked['turn']['state'] == 'queued' and asked['turn']['ordinal'] == 1 and asked['turn']['version'] == 1 and not asked['turn']['draft']
           and query(f"SELECT delegation_id||' '||cardinality(included_turns)||' '||generation||' '||token_digest||' '||runtime_set FROM assistant.turns "
-                    f"WHERE id='{first.id}';") == f"{covering['id']} 0 {worker.generation} {first.digest} turns_v1"
+                    f"WHERE id='{first.id}';") == f"{covering['id']} 0 {worker.generation} {first.digest} turns_v12"
           and kinds(first) == 'accepted', asked)
     records = query(RECORDS)
     operation = query(f"SELECT operation_id FROM assistant.turns WHERE id='{first.id}';")
-    replayed = ask(Turn(), operation=operation)
+    replayed = ask(Turn(), operation=operation, runtime='turns_v11')
     for request in ({'question': 'Something else?'}, {'conversation': conversation}, {'scope': 'exchange'}, {'mode': 'retained', 'context': str(uuid4())}):
         refusal('trader', 'turn_conflict', operation=operation, **request)
     check('repeating the ask answers with its turn, not as admitted, and writes nothing; any other ask under its identity conflicts',
@@ -1382,7 +1384,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
               f"VALUES('{invitation}','{person}','reset',clock_timestamp()+interval '1 hour');")
         login_name = query(f"SELECT login FROM security.hosted_accounts WHERE principal_id='{person}';")
         assert query("SET SESSION AUTHORIZATION preview_authenticator;"
-                     f"SELECT security.claim_hosted_invitation('{invitation}','{login_name}','Synthetic hosted reset','new_synthetic_hash');") == person
+                     f"SELECT security.claim_hosted_invitation('{invitation}','{login_name}','Synthetic hosted reset','new_synthetic_hash',15,(security.invitation_access_policy('{invitation}')->>'revisionId')::uuid);") == person
     revocations = {
         'signing out': hosted_cancel(lambda _, digest: query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.revoke_hosted_session('{digest}');")),
         'a password reset': hosted_cancel(reset),
@@ -1449,6 +1451,9 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     large, beyond = frame_pins(2000), frame_pins(7000)
     sized = Turn()
     ask(sized, mode='retained', context=retained, frame=frame)
+    initial_policy = next(p['current'] for p in admin.call('settings/operating-policies')['policies'] if p['kind']=='assistant')
+    reduced_policy = admin.call('settings/operating-policies', {'operationId':str(uuid4()), 'kind':'assistant', 'expectedVersion':initial_policy['version'],
+        'values':{**initial_policy['values'], 'pinBytes':1024, 'retainedContextReserve':1, 'toolResultRows':1, 'toolResultBytes':1024}})
     contexts.runtime('trader', refused(f'PERFORM {pin_sql(sized, pins=beyond)};', 'turn_input'))
     as_person('trader', f'SELECT {pin_sql(sized, pins=large)}::text;')
     sizes = query(f"SELECT octet_length(pins::text)||','||octet_length({literal(json.dumps(beyond))}::jsonb::text) FROM assistant.turns "
@@ -1456,7 +1461,23 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     kept, refused_size = map(int, sizes.split(','))
     check("an As of frame's pins of more than 64 KiB and up to 256 KiB are kept as given, and larger ones are refused",
           65536 < kept <= 262144 < refused_size and json.loads(query(f"SELECT pins::text FROM assistant.turns WHERE id='{sized.id}';")) == large, sizes)
+    admitted_limits = start(sized)['started']['operatingLimits']
+    check('a turn admitted before a policy change pins its original byte, reserve and output limits',
+          admitted_limits['revisionId']==initial_policy['revisionId'] and admitted_limits['pinBytes']==262144
+          and admitted_limits['retainedContextReserve']==64 and admitted_limits['toolResultRows']==500 and admitted_limits['toolResultBytes']==65536)
     end(sized, 'failed', 'request_cancelled')
+    under_new_policy = Turn()
+    ask(under_new_policy, mode='retained', context=retained, frame=frame)
+    contexts.runtime('trader', refused(f'PERFORM {pin_sql(under_new_policy,pins=large,reserve="NULL")};', 'turn_input'))
+    pin(under_new_policy,pins=pins,reserve='NULL')
+    next_started = start(under_new_policy)['started']
+    check('a new turn applies the revised pin and output budgets without changing the older admitted turn',
+          next_started['operatingLimits']['revisionId']==reduced_policy['revisionId'] and next_started['operatingLimits']['retainedContextReserve']==1)
+    with tempfile.TemporaryDirectory(prefix='openetrm-admitted-output-') as owned:
+        output = Path(owned)/'admitted.json';output.write_text(json.dumps(next_started['operatingLimits']))
+        subprocess.run([str(dotnet),'run','--no-build','--project','tests/OpenEtrm.Api.Checks','--','--tool-output-limits',str(output)],cwd=ROOT,check=True)
+    end(under_new_policy,'failed','request_cancelled')
+    admin.call('settings/operating-policies', {'operationId':str(uuid4()), 'kind':'assistant', 'expectedVersion':reduced_policy['version'], 'values':initial_policy['values']})
     plain = Turn()
     ask(plain, mode='retained', context=retained)
     contexts.runtime('trader', refused(f'PERFORM {pin_sql(plain, pins=pins)};', 'turn_input'))

@@ -17,10 +17,10 @@ static class ModelTransport
     // Proxy settings in the environment are ignored, redirects are not followed, certificates are validated as
     // usual and no tracing header is added. With a check endpoint, each request goes to that origin instead,
     // keeping its adapter's path.
-    public static HttpMessageHandler Handler(Uri? checkEndpoint)
+    public static HttpMessageHandler Handler(Uri? checkEndpoint,TimeSpan connectTimeout)
     {
         var sockets=new SocketsHttpHandler{UseProxy=false,AllowAutoRedirect=false,UseCookies=false,AutomaticDecompression=DecompressionMethods.None,
-            ConnectTimeout=RuntimeSet.ProviderConnect,ActivityHeadersPropagator=null};
+            ConnectTimeout=connectTimeout,ActivityHeadersPropagator=null};
         return checkEndpoint is null?sockets:new CheckEndpointHandler(checkEndpoint,sockets);
     }
 

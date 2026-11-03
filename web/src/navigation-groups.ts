@@ -31,7 +31,7 @@ export function pageAvailable(page:string,permissions:string[]):boolean{
   case 'parties':return has('ReadMarketData','ReadTradeParties');
   case 'risk':return has('ReadMarketData','ReadTrades','RunScenario');
   case 'jobs':return true; // listed for every account
-  case 'admin':return has('ManageAccess','ManageIdentities');
+  case 'admin':return has('ManageAccess');
   case 'ai':return aiTabs(permissions).length>0;
   default:throw unknownPage();
  }

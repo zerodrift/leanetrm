@@ -6,7 +6,7 @@ LeanETRM books trades, builds curves and calculates P&L and risk on a standard,
 unmodified PostgreSQL database. Calculations use exact arithmetic, every curve
 price traces back to the observations that built it, and corrections never
 overwrite history. It is aimed at shops that need real trade capture and risk
-without a seven-figure implementation.
+with explicit inputs and an auditable calculation history.
 
 > **Status:** a foundation, not a finished product. Try it as a disposable local
 > preview on synthetic data. Nothing here is production-qualified.
@@ -16,13 +16,15 @@ for synthetic booking, graphical break-even pricing and settlement previews.
 
 ## What works today
 
-- **Trade capture:** futures, financial gas and power swaps, factor swaps and PPAs,
+- **Trade capture:** futures, listed American options on futures, financial gas and
+  power swaps, factor swaps and PPAs,
   with exact party references and retained history. New trade opens each product's
   booking workflow; supported amendments retain immutable revisions
 - **Physical gas:** independent fixed delivery, cash and fee sides in the
   [deal ticket](docs/deal-ticket.md), with explicit fuel links, versioned delivery
   setup and trade-owned daily quantity revisions. Contractual pre-delivery PV is
-  supported; gas scenario risk and physical settlement remain work
+  supported alongside interactive/queued contractual scenario risk; operational PV
+  and physical settlement remain work
 - **Physical crude:** fixed standard-volume booking, contractual pre-delivery PV
   and interactive/queued risk, plus bounded receipts, title transfer, inventory-lot
   allocation, dispatch, invoices, payments and cash-record corrections. See
@@ -38,14 +40,15 @@ for synthetic booking, graphical break-even pricing and settlement previews.
 - **P&L and risk:** futures execution P&L and swap/PPA PV using pinned actuals
   and projections. Connected quote and computed-output scenarios produce exact
   delta and gamma; generated-close jobs retain mixed futures-and-swaps reports.
-  Interactive and queued portfolio risk also cover supported PPA and crude bindings;
-  gas bindings appear as explicit exclusions, and automated gas/crude closes refuse.
+  Interactive and queued portfolio risk also cover supported PPA, gas and crude bindings;
+  automated gas/crude closes refuse.
   A delta ladder shows each shocked contract's totals by book and measure, see
-  [the delta ladder](docs/delta-ladder.md)
+  [the delta ladder](docs/delta-ladder.md). Native one-session delta-normal VaR/ES
+  uses retained complete held-factor history, with signed contributions and
+  correlation diagnostics; see [parametric risk](docs/parametric-risk.md)
 - **Agent curve drafts:** authorized agents can read curve ingredients, prepare a
-  pinned preview and save a bounded custom-curve draft through the ordinary Save
-  operation under the person's authoring permission. Explicit Review opens the
-  ordinary editor; publishing remains a person’s action
+  pinned preview and propose a bounded custom-curve draft. Saving uses the ordinary
+  authorized operation after explicit human approval; publishing remains a person’s action
 - **Live corrections:** push updates through the shared header context, with visible refresh/stale status; [policy and limits](docs/live-calculation.md)
 - **Risk jobs:** temporary nested stresses, risk around the stressed market,
   and queued mixed-book runs pinned to the header's financial context, with retained
@@ -62,7 +65,8 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   allocations, manual cash recording, reversals and a closing-context P&L bridge;
   see [the bounded lifecycle](docs/swap-settlement.md)
 - **Blotter:** filters, pivots, saved views, charts, exports, docked trade details,
-  pop-out and backend-prepared close-out drafts; see [the workbench](docs/blotter-workbench.md)
+  pop-out, maximize/restore for every pane, shared portfolio/book selectors, personal
+  sidebar pins and backend-prepared close-out drafts; see [the workbench](docs/blotter-workbench.md)
 - **Dashboard:** account-owned layouts, curve levels/history and positions from
   saved risk run definitions; see [implemented widgets and limits](docs/market-dashboard.md)
 - **Interval series:** audited per-interval values on any market clock (price shapes,
@@ -84,6 +88,11 @@ for synthetic booking, graphical break-even pricing and settlement previews.
 - **Page assistant:** bounded delegated reads, recorded conversations, provider
   configuration and usage accounting in the local preview; see
   [the assistant's implemented scope](docs/ai-assistant.md)
+- **Operating settings and profiles:** versioned assistant/access policies under
+  separate administration permissions, account-owned display preferences, explicit
+  process/connection budgets, and server-supplied risk/request limits. Gas and crude
+  share retained instrument execution while preserving exact commodity contracts;
+  see [implemented consumers and remaining work](docs/operational-limits.md)
 
 ## What's not built yet
 
@@ -156,6 +165,7 @@ existing database.
 - [Connected curve calculation, booked projections and scenarios](docs/connected-calculation.md)
 - [Large dependency-graph benchmark](docs/connected-graph-benchmark.md)
 - [Nested market scenarios and durable risk jobs](docs/risk-engine.md)
+- [Native one-session parametric VaR/ES](docs/parametric-risk.md)
 - [Identity, agent login kinds and authorization](docs/security.md)
 - [Reference schema and disposable verification](db/README.md)
 
@@ -164,6 +174,7 @@ existing database.
 - [Connected-curve cutover prerequisites](docs/connected-calculation.md#adopting-the-schema-cutover)
 - [Jobs, workers and infrastructure](docs/automation.md)
 - [Private pilot operations](docs/hosted-pilot.md)
+- [Operating policies, user preferences and process configuration](docs/operational-limits.md)
 - [Local verification and CI](docs/verification.md)
 
 The wider documents specify the intended system; they are not claims of implemented

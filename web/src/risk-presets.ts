@@ -5,6 +5,14 @@ import {scenarioShift,type ScenarioShift,type ScenarioTarget} from './risk-scena
 
 export type Preset='held'|'parallel';
 export type PresetCatalog={scenarioTargets:ScenarioTarget[];heldContractTargets:string[];heldCurveTargets:string[]};
+export type RiskLimits={maxHoldingsBumps:number;maxBooksBumps:number;maxStress:number;maxParts:number};
+
+export function riskLimits(value:unknown):RiskLimits{
+  const limits=value as RiskLimits|null;
+  if(!limits||['maxHoldingsBumps','maxBooksBumps','maxStress','maxParts'].some(key=>!Number.isSafeInteger(limits[key as keyof RiskLimits])||limits[key as keyof RiskLimits]<1)
+    ||limits.maxParts!==Math.floor(limits.maxBooksBumps/limits.maxHoldingsBumps))throw Error('The risk catalog limits are missing or inconsistent. Reload it.');
+  return {...limits};
+}
 
 const inconsistent='The risk catalog is inconsistent. Reload it.';
 // The kind of target each preset shocks: a whole contract, or a whole curve.
@@ -34,8 +42,8 @@ export function sizesByUnit(targets:ScenarioTarget[]):string[]{
   return [...new Set(targets.map(target=>target.unit))];
 }
 
-/** The bumps of a run in parts of at most `limit`, in order: one holdings request takes at most sixteen. */
-export function splitBumps<T>(bumps:T[],limit=16):T[][]{
+/** The bumps of a run in parts of the limit supplied by its admitted catalog. */
+export function splitBumps<T>(bumps:T[],limit:number):T[][]{
   if(!Number.isInteger(limit)||limit<1)throw Error('A part holds a positive whole number of bumps.');
   const parts:T[][]=[];
   for(let start=0;start<bumps.length;start+=limit)parts.push(bumps.slice(start,start+limit));

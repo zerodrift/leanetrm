@@ -60,7 +60,7 @@ public sealed record AgentIdentity(string Principal,Guid Delegation)
 
 // What a turn's reads run with: its pin, its agent, the page report stored at ask, the version's switched-on tools and its
 // time per read (D245).
-public sealed record TurnReads(TurnPin Pin,AgentIdentity Agent,JsonElement PageReport,ImmutableHashSet<string> Tools,Guid TurnId,TimeSpan ReadLimit);
+public sealed record TurnReads(TurnPin Pin,AgentIdentity Agent,JsonElement PageReport,ImmutableHashSet<string> Tools,Guid TurnId,TimeSpan ReadLimit,ToolOutputLimits OutputLimits);
 
 // How a step ended: with a result or a refusal the model receives, a failure that ends the turn, or a read the worker
 // stopped, whose cause it names.
@@ -201,7 +201,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         TurnPin.From(turn.GetProperty("context"),started.GetProperty("pins"),started.GetProperty("catalogId").GetGuid(),database.Manifest),
         new(started.GetProperty("agentPrincipal").GetString()!,started.GetProperty("delegationId").GetGuid()),turn.GetProperty("pageReport").Clone(),
         [..started.GetProperty("tools").EnumerateArray().Select(t=>t.GetString()!)],turn.GetProperty("id").GetGuid(),
-        TimeSpan.FromSeconds(started.GetProperty("limits").GetProperty("readSeconds").GetInt32()));
+        TimeSpan.FromSeconds(started.GetProperty("limits").GetProperty("readSeconds").GetInt32()),
+        ToolOutputLimits.From(started.GetProperty("operatingLimits")));
 
     // The definitions a version's request offers: its switched-on tools that this release implements, in the fixed order.
     public static ImmutableArray<ModelTool> Offered(IEnumerable<string> switchedOn)
@@ -405,11 +406,11 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     internal static string Refusal(string code)=>JsonSerializer.Serialize(new{code,message=Text(code)});
 
     // A result within the runtime set's row and byte bounds, whole; otherwise none, never a truncated one (§7.3).
-    internal static string? Bounded(JsonObject result,int rows)
+    internal static string? Bounded(JsonObject result,int rows,ToolOutputLimits limits)
     {
-        if(rows>RuntimeSet.ToolResultRows)return null;
+        if(rows>limits.Rows)return null;
         var content=result.ToJsonString();
-        return Encoding.UTF8.GetByteCount(content)<=RuntimeSet.ToolResultBytes?content:null;
+        return Encoding.UTF8.GetByteCount(content)<=limits.Bytes?content:null;
     }
 
     // Runs one request as a step (§7.3): checks its arguments and what it needs of the pin before any read, then reads in
@@ -454,7 +455,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
                 (connection,read)=>Read(connection,turn.Pin,call,read),ct);
             if(!result.Access.IsDefaultOrEmpty)access=[..access.Concat(result.Access).Distinct()];
             if(operation.Id=="custom_curves.prepare_v1")result.Value["proposal"]=new JsonObject{["turnId"]=turn.TurnId.ToString(),["step"]=targets.Steps+1};
-            return Returned(tool,request.Input,call,turn.Pin,readAt!.Value,access,result,targets.Next,dispatched?.Layout);
+            return Returned(tool,request.Input,call,turn.Pin,readAt!.Value,access,result,targets.Next,turn.OutputLimits,dispatched?.Layout);
         }
         catch(Exception e)
         {
@@ -471,13 +472,13 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     // otherwise result_too_large, never a truncated result, issuing none. Rows are counted before any target is issued, and
     // bytes after, since handles count toward them.
     internal static ToolStep Returned(string tool,JsonElement input,ToolCall call,TurnPin pin,DateTimeOffset readAt,ImmutableArray<ReadAccess> access,
-        ToolResult result,int next,BlotterLayout? layout=null)
+        ToolResult result,int next,ToolOutputLimits limits,BlotterLayout? layout=null)
     {
         ToolStep Step(string? code,string content,ToolStepEnd end)=>new(tool,call.Operation.Id,input,code,readAt,access,content,end);
         var tooLarge=Step("result_too_large",Refusal("result_too_large"),ToolStepEnd.Refusal);
-        if(result.Rows>RuntimeSet.ToolResultRows)return tooLarge;
+        if(result.Rows>limits.Rows)return tooLarge;
         var issued=NavigationTargets.Issue(call,result.Value,next);
-        return Bounded(Envelope(pin,call.Operation,readAt,result,issued[0].Handle,layout),result.Rows) is {} content?Step(null,content,ToolStepEnd.Result) with{Issued=issued}
+        return Bounded(Envelope(pin,call.Operation,readAt,result,issued[0].Handle,layout),result.Rows,limits) is {} content?Step(null,content,ToolStepEnd.Result) with{Issued=issued}
             :tooLarge;
     }
 

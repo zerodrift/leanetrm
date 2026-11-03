@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {presetGaps,presetRequest,presetTargets,runParts,sizesByUnit,splitBumps} from '../dist/risk-presets.js';
+import {presetGaps,presetRequest,presetTargets,runParts,sizesByUnit,splitBumps,riskLimits} from '../dist/risk-presets.js';
+
+test('risk catalogs must supply coherent limits and callers keep their own immutable copy',()=>{
+ const supplied={maxHoldingsBumps:3,maxBooksBumps:12,maxParts:4,maxStress:2};
+ const captured=riskLimits(supplied);supplied.maxStress=9;
+ assert.equal(captured.maxStress,2);
+ for(const invalid of [undefined,null,{}, {...captured,maxParts:5},{...captured,maxStress:0},{...captured,maxHoldingsBumps:1.5}])assert.throws(()=>riskLimits(invalid),/limits are missing or inconsistent/);
+});
 
 const gas='USD/MMBtu',power='USD/MWh';
 const target=(id,kind,unit)=>({id,label:`Synthetic ${id}`,coordinate:'market_quote',kind,unit,factor:{coordinate:'market_quote',target:{kind,curve:{code:id}}}});
@@ -34,15 +41,15 @@ test('sizes are asked for once for each unit the targets are quoted in, in the o
  assert.deepEqual(sizesByUnit([]),[]);
 });
 
-test('bumps are split into parts of at most sixteen, in order, none of them empty',()=>{
+test('bumps use the supplied server limit, preserve order, and require an explicit positive whole limit',()=>{
  const bumps=Array.from({length:17},(_,n)=>n);
- assert.deepEqual(splitBumps(bumps).map(part=>part.length),[16,1]);
- assert.deepEqual(splitBumps(bumps).flat(),bumps);
- assert.deepEqual(splitBumps(bumps.slice(0,16)),[bumps.slice(0,16)]);
+ assert.deepEqual(splitBumps(bumps,3).map(part=>part.length),[3,3,3,3,3,2]);
+ assert.deepEqual(splitBumps(bumps,3).flat(),bumps);
+ assert.deepEqual(splitBumps(bumps.slice(0,16),16),[bumps.slice(0,16)]);
  assert.deepEqual(splitBumps(bumps.concat(bumps),16).map(part=>part.length),[16,16,2]);
- assert.deepEqual(splitBumps([]),[]);
+ assert.deepEqual(splitBumps([],3),[]);
  assert.deepEqual(splitBumps(bumps,5).map(part=>part.length),[5,5,5,2]);
- for(const limit of [0,-1,1.5,Number.NaN])assert.throws(()=>splitBumps(bumps,limit),/positive whole number/);
+ for(const limit of [undefined,0,-1,1.5,Number.NaN])assert.throws(()=>splitBumps(bumps,limit),/positive whole number/);
 });
 
 test('a preset shocks each target by the size entered for its unit, under the convention the catalog names',()=>{

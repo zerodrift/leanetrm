@@ -19,7 +19,7 @@ int Setting(string name, int minimum, int maximum) => int.TryParse(Environment.G
     ? value : throw new InvalidOperationException($"An explicit {name} between {minimum} and {maximum} is required.");
 var pollSeconds = Setting("OPENETRM_WORKER_POLL_SECONDS", 1, 60);
 var leaseSeconds = Setting("OPENETRM_WORKER_LEASE_SECONDS", 5, 120);
-connection.MaxPoolSize = 2; connection.CommandTimeout = 5; connection.Timeout = 5; connection.Timezone = "UTC";
+HostedConfiguration.RequireBudget(connection,new(5,5,2));connection.Timezone = "UTC";
 await using var source = NpgsqlDataSource.Create(connection.ConnectionString);
 await DatabaseLoginBoundary.Require(source, DatabaseLoginProfile.Scheduler, CancellationToken.None);
 var pilotRuntimeFile=Environment.GetEnvironmentVariable("OPENETRM_PILOT_RUNTIME_CONNECTION_FILE");
@@ -35,7 +35,7 @@ if(pilotRuntimeFile is not null)
     if(runtime.Host!=connection.Host||runtime.Port!=connection.Port||runtime.Database!=connection.Database||string.IsNullOrWhiteSpace(runtime.Username)||runtime.Username==connection.Username||
         !Path.IsPathFullyQualified(runtime.Host!)&&runtime.SslMode!=SslMode.VerifyFull)
         throw new InvalidOperationException("The pilot runtime requires a separate explicit login to the same qualified database host.");
-    runtime.MaxPoolSize=2;runtime.CommandTimeout=5;runtime.Timeout=5;runtime.Timezone="UTC";
+    HostedConfiguration.RequireBudget(runtime,new(5,5,2));runtime.Timezone="UTC";
     pilotSource=NpgsqlDataSource.Create(runtime.ConnectionString);
     await DatabaseLoginBoundary.Require(pilotSource, DatabaseLoginProfile.Runtime, CancellationToken.None);
     var manifest=JsonSerializer.Deserialize<PreviewManifest>(File.ReadAllText(pilotManifestFile!),new JsonSerializerOptions{PropertyNameCaseInsensitive=true})

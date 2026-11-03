@@ -115,8 +115,9 @@ browser assets. The gateway template `deploy/nginx.conf.template` requires seven
 explicit substitutions: `PUBLIC_HOST`, `CERTIFICATE_CHAIN`, `CERTIFICATE_KEY`,
 `UPSTREAM_ADDRESS`, `UPSTREAM_PORT`, `LANDING_ROOT` and `LANDING_HEADERS`.
 `LANDING_ROOT` names the installed three-file public directory and
-`LANDING_HEADERS` names the installed `site/headers.inc`. Substitute only these
-placeholders; preserve nginx's own `$request_uri`, `$is_args`, `$args`,
+`LANDING_HEADERS` names the installed `site/headers.inc`. Render these inputs
+through `tools/gateway_configuration.py` with the selected host limits. It also
+writes the derived size/deadline placeholders and preserves nginx's own `$request_uri`, `$is_args`, `$args`,
 `$remote_addr` and `$openetrm_backend` variables. Keep rendered configuration,
 certificate keys and installation addresses outside source control.
 
@@ -324,3 +325,48 @@ release. Workers require the API's exact managed engine fingerprint. The existin
 Compose baseline, automation controller and generated-close adapters retain their
 separate responsibilities. No live deployment or multi-node capacity qualification
 is established by this template.
+
+
+## Operating configuration transition (D302)
+
+Migrations 0181–0183 require an operator-qualified schema window; automatic
+updates must remain stopped at the migration/configuration gate. No existing
+installation or private configuration is modified by these sources.
+
+1. Preserve the exact current image, `host.json`, protected connection files,
+   rendered gateway and their hashes. Qualify the target with isolated synthetic
+   resources before selecting operating values. Review every field of
+   `deploy/process-limits.example.json`; it is an executable synthetic baseline,
+   not an instruction to overwrite an installation's policy.
+2. State all selected process values in the required `limits` section of the
+   target's private `host.json`. State `Timeout`, `Command Timeout` and
+   `Maximum Pool Size` explicitly in each protected connection file. The API
+   accepts connect ≤5 s, command ≤30 s and pool ≤8; worker files accept ≤5 s,
+   ≤5 s and ≤2 respectively. Process values must stay within the qualified bounds.
+3. Apply the reviewed schema and target binary together. Existing workspaces get
+   explicit carried-forward operating baselines; fresh provisioning calls
+   `security.initialize_operating_policies` before issuing its invitation.
+   Missing policy refuses. A new API process fences/interrupts its predecessor's
+   work through the existing worker-generation contract. Only `turns_v12` admits
+   new assistant turns; old request receipts remain replayable.
+4. Render a private gateway file using the same target `host.json` and a private
+   JSON file containing the seven operator placeholders:
+   `python3 tools/gateway_configuration.py --host /private/host.json --values /private/gateway-values.json --output /private/nginx.candidate.conf`.
+   Validate with the target nginx before installation. The renderer derives body
+   bytes, refusal messages and a read timeout above the extended API deadline,
+   with a fixed 20-second minimum for the existing stream heartbeat protocol.
+   Review the installed configuration hash and deployment baseline explicitly.
+5. Rollback is a paired image/configuration transition. Earlier binaries reject
+   the new `limits` member, and the earlier invitation claim/reset and assistant
+   admission contracts are intentionally closed by these migrations. Restore
+   that image's exact host configuration before restarting it; do not claim full
+   recovery from an authentication-page smoke test. Authenticated financial reads
+   and required account workflows must be separately qualified for the selected
+   prior image/schema, or keep the target stopped until a compatible repair.
+
+`tools/check_release_docker.py` requires `--previous-process-limits absent|named`
+in addition to the existing prior credential-key contract. It preserves the prior
+host file and tests restoring that file with the prior image. That rollback smoke
+checks authentication-page availability and anonymous denial only; it does not
+qualify prior-image account claims/resets, assistant use or financial reads. The
+attested prior-image Docker run remains a release prerequisite for this increment.

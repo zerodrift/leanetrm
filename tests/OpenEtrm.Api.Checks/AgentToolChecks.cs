@@ -128,7 +128,7 @@ static class AgentToolChecks
 
         // Refused before any claim or read: a historical pin, and the curve open with unsaved edits; the texts are fixed.
         var historical=Pin("retained",Guid.NewGuid(),Working with{ContextId=Guid.NewGuid()});
-        TurnReads Reads(TurnPin pin,string report)=>new(pin,new("agent",Guid.NewGuid()),Json(report),["save_custom_curve_draft"],turn,TimeSpan.FromSeconds(15));
+        TurnReads Reads(TurnPin pin,string report)=>new(pin,new("agent",Guid.NewGuid()),Json(report),["save_custom_curve_draft"],turn,TimeSpan.FromSeconds(15),new(500,65536));
         var save=(SaveCurveArguments)revised.Arguments;
         Require(AgentTools.DraftRefusal(Reads(historical,Report("custom_curves","""{"curve":null,"unsaved":false}""")),save)=="historical_read_only"
             &&AgentTools.DraftRefusal(Reads(Pin("current",Guid.NewGuid(),Working),Report("custom_curves",$$"""{"curve":"{{Curve}}","unsaved":true}""")),save)=="custom_curve_open_unsaved"
@@ -233,11 +233,10 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v11"&&RuntimeSet.ToolResultRows==500&&RuntimeSet.ToolResultBytes==65536&&RuntimeSet.WorkspaceTurns<RuntimeSet.AgentPool
-            &&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
-            "turns_v11 bounds a tool read by its agent version's time per read, at most 30 seconds, and its turn's deadline (D245), gives no command of a read less, bounds tool results and keeps a workspace's turns below its agent pools");
+        Require(RuntimeSet.Turns=="turns_v12"&&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
+            "The operating-policy runtime preserves the existing versioned read deadline ceiling.");
         Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
-            "require every member they state, and their permissions; turns_v11 bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
+            "require every member they state, and their permissions; turns_v12 retains admitted operating limits and bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";
@@ -501,7 +500,7 @@ static class AgentToolChecks
 
         // Read current page (§7.3): its own input is empty, then the stored report's page, then the version's tools.
         var working=Pin("current",Guid.NewGuid(),Working);
-        TurnReads Turn(string report,params string[] tools)=>new(working,new("agent",Guid.NewGuid()),Json(report),[..tools],Guid.NewGuid(),TimeSpan.FromSeconds(15));
+        TurnReads Turn(string report,params string[] tools)=>new(working,new("agent",Guid.NewGuid()),Json(report),[..tools],Guid.NewGuid(),TimeSpan.FromSeconds(15),new(500,65536));
         var curve="""{"page":"curves","selection":{"view":"curve","curve":"future"}}""";
         ModelToolRequest Current(string input="{}")=>new("toolu_synthetic_01","read_current_page",Json(input));
         var (call,dispatched)=AgentTools.Requested(Turn(curve,"read_current_page","read_market_data"),Current());
@@ -558,7 +557,7 @@ static class AgentToolChecks
 
         // Read current page names the layout with the read its report dispatches; a result of any other report or tool names none.
         var working=Pin("current",Guid.NewGuid(),Working);
-        TurnReads Turn(string report)=>new(working,new("agent",Guid.NewGuid()),Json(report),["read_current_page","read_trades"],Guid.NewGuid(),TimeSpan.FromSeconds(15));
+        TurnReads Turn(string report)=>new(working,new("agent",Guid.NewGuid()),Json(report),["read_current_page","read_trades"],Guid.NewGuid(),TimeSpan.FromSeconds(15),new(500,65536));
         var (call,dispatched)=AgentTools.Requested(Turn(Laid("blotter",Blotter)),new("toolu_synthetic_06","read_current_page",Json("{}")));
         var (own,ownDispatched)=AgentTools.Requested(Turn(Laid("blotter",Blotter)),new("toolu_synthetic_07","read_trades",Json(Blotter)));
         Require(call.Operation.Id=="trades.blotter_v1"&&dispatched is {Layout:{Details:true,Charts:false,PoppedOut:true}}&&own.Operation.Id=="trades.blotter_v1"&&ownDispatched is null,
@@ -615,7 +614,7 @@ static class AgentToolChecks
             result["p"]=new string('x',bytes-result.ToJsonString().Length);
             return result;
         }
-        Require(AgentTools.Bounded(Sized(65536),500) is {Length:65536}&&AgentTools.Bounded(Sized(65537),500) is null&&AgentTools.Bounded(Sized(64),501) is null,
+        Require(AgentTools.Bounded(Sized(65536),500,new(500,65536)) is {Length:65536}&&AgentTools.Bounded(Sized(65537),500,new(500,65536)) is null&&AgentTools.Bounded(Sized(64),501,new(500,65536)) is null,
             "a result of 500 rows and 64 KiB is returned whole, and one more row or byte returns none, never a truncated result");
         Console.WriteLine("PASS a result within 500 rows and 64 KiB is returned whole; one more row or byte is result_too_large, never truncated");
 
@@ -896,7 +895,7 @@ static class AgentToolChecks
         var pinned=Pin("current",Guid.NewGuid(),Working);
         ToolResult Directory(int count,int name=4)=>new(new JsonObject{["curves"]=new JsonArray([..Enumerable.Range(0,count)
             .Select(n=>(JsonNode?)new JsonObject{["code"]=$"c{n}",["name"]=new string('x',name)})])},count,false);
-        ToolStep Returned(ToolResult result,int next)=>AgentTools.Returned("read_market_data",Json("""{"view":"curves","curve":null}"""),curves,pinned,Cutoff,[],result,next);
+        ToolStep Returned(ToolResult result,int next)=>AgentTools.Returned("read_market_data",Json("""{"view":"curves","curve":null}"""),curves,pinned,Cutoff,[],result,next,new(500,65536));
         var overRows=Directory(501);
         var (rowsPast,bytesPast,whole)=(Returned(overRows,1),Returned(Directory(10,7000),1),Returned(Directory(500),1));
         var unissued=new TurnTargets();

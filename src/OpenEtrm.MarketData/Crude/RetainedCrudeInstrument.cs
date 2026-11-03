@@ -5,12 +5,14 @@ using OpenEtrm.MarketData.Trading;
 namespace OpenEtrm.MarketData.Crude;
 
 [EconomicDefinition("retained_crude_member_v1")]
-public sealed record RetainedCrudeMember
+public sealed record RetainedCrudeMember : IRetainedProgramMember
 {
     public Guid SideId { get; }
     public BookedSideProgram Program { get; }
     [IdentityField] public ExactDecimal Coefficient { get; }
     [IdentityField] public string ProgramDigest { get; }
+    ExactDecimal IRetainedProgramMember.ValuationCoefficient => Coefficient;
+    OpenEtrm.Shared.Numerics.ExactRatio? IRetainedProgramMember.ValuationRatio => null;
 
     public RetainedCrudeMember(Guid sideId, ExactDecimal coefficient, BookedSideProgram program)
     {
@@ -26,16 +28,13 @@ public sealed record RetainedCrudeMember
 
 // A booked execution projection: no Side definition or schedule generator is used.
 [EconomicDefinition("retained_crude_instrument_v1")]
-public sealed record RetainedCrudeInstrument : Instrument
+public sealed record RetainedCrudeInstrument : RetainedProgramInstrument<RetainedCrudeMember>
 {
-    [IdentityField] public ImmutableArray<RetainedCrudeMember> Members { get; }
+    [IdentityField] public override ImmutableArray<RetainedCrudeMember> Members { get; }
     [IdentityField] public CrudeValuationAssignment Assignment { get; }
     public ImmutableArray<SchedulePriceTerm> ActivePrices => [new(ExactDecimal.Parse("1"), null, Assignment.Lookup)];
     public override ReferenceKey Currency => Assignment.Quote.Currency;
     public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), Assignment.Quantity.Key);
-    public override bool SupportsQuantityScaling => true;
-    internal override bool RequiresNativeProgramMarket => true;
-    public override string RetainedScheduleIdentity => "retained_side_programs_v1/" + string.Join('/', Members.Select(m => m.ProgramDigest));
     public override DefinitionIdentity PricingBindingIdentity => DefinitionIdentity.For(Assignment);
 
     public RetainedCrudeInstrument(Guid id, CrudeValuationAssignment assignment, ImmutableArray<RetainedCrudeMember> members) : base(id)
@@ -59,18 +58,5 @@ public sealed record RetainedCrudeInstrument : Instrument
         PeriodPriceSelector.ProjectionAt(Assignment.Lookup, context.Snapshot) is {} market ? [market] : [],
         UnitQuantity.Specification, Currency) { ScheduleIdentity = RetainedScheduleIdentity };
 
-    public override ExactMoney Value(UnitValuationContext context)
-    {
-        if (context.Measure != ValuationMeasure.PresentValue)
-            throw new MarketDataException("valuation_measure", "Retained crude implements contractual present value only.");
-        var (basis, scenario) = context.RetainedProgramMarkets(Declare(context).Dependencies);
-        var sources = ScheduleMarketSources.ForPhysicalCrude(basis, [Assignment]);
-        var total = ExactMoney.FromMoney(new(default, Currency));
-        foreach (var member in Members)
-        {
-            var value = sources.Evaluate(member.Program, member.SideId, scenario, context.DiscountProvider, context.Cancellation);
-            total = total.Add(value.PresentValue.Scale(member.Coefficient));
-        }
-        return total;
-    }
+    protected override ScheduleMarketSources Sources(CurveBuild basis) => ScheduleMarketSources.ForPhysicalCrude(basis, [Assignment]);
 }

@@ -25,6 +25,16 @@ local qualification covers native booking, retained trading views and shared
 interactive/queued scenario valuation. Incoterms do not supply
 title events, pricing rules or freight charges.
 
+D302 shares the retained-program execution mechanism for gas and crude within
+`OpenEtrm.MarketData`; commodity terms, units, assignments and source policies stay
+in that domain. `OpenEtrm.Shared` supplies credential-free connection-budget
+validation to the API and worker. Exact reference symbols supply quantity labels.
+Current assistant/access settings have immutable workspace revisions and scoped
+receipts; new admissions pin their policy while retries preserve their outcome.
+Human presentation preferences are separately owned and cannot choose financial
+context. Process settings are explicit private configuration. See
+[operating configuration](operational-limits.md#implemented-consumers-d302).
+
 D284 extends the assistant across existing page operations, with explicit human
 approval of every proposed business command and separately delegated, versioned
 page guidance. Operational questions need no financial access or invented market
@@ -416,8 +426,10 @@ Profile customization is presentation state, never a source of authorization,
 market-input selection policy or contractual clock conventions. Blotter layouts persist in the database for the current human account and
 workspace, with current trading-read authority and optimistic version checks.
 They retain no market snapshots, historical coordinates, permissions or results.
-Other preview preferences remain browser-local; production authentication and
-broader account profile synchronization remain part of identity integration.
+D302 stores the closed display-preference contract per authenticated human,
+workspace and example, with exact owner binding and optimistic/idempotent saves.
+It does not migrate arbitrary browser state or change financial inputs. Broader
+profile fields and cross-window live synchronization remain outside that contract.
 
 Modules have explicit contracts. The domain and numerical core do not depend on
 web frameworks, persistence libraries, model-provider SDKs or browser state.

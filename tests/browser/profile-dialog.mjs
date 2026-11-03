@@ -43,4 +43,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await click('#profile-open');await set('#profile','viewer');await evaluate(`${change}.focus()`);
   await block('/api/profile');await press('Escape',27);await release();
   await check('a switch failing after the dialog was closed reports on the page banner',`!${dialog}.open&&${cleared}&&!${banner}.hidden&&${banner}.textContent===${JSON.stringify(message)}`);
+  // Preferences belong to the server identity, independently of any old browser profile entries.
+  await evaluate("for(const key of Object.keys(localStorage))if(key.startsWith('openetrm.preferences.v1.'))localStorage.removeItem(key)");
+  await command('Page.navigate',{url});await wait(idle);
+  await check('the server preference survives reload without browser preference storage',"document.querySelector('[data-user-time-zone]').textContent==='America/Chicago'");
+  await click('#profile-open');await set('#zone','UTC');await evaluate(`${save}.click()`);await wait(idle);
+  await check('the user explicitly restores UTC for subsequent independent browser cases',"!document.querySelector('#profile-dialog').open&&document.querySelector('[data-user-time-zone]').textContent==='UTC'");
+
 }

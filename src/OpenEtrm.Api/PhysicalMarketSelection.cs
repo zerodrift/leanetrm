@@ -55,6 +55,26 @@ internal sealed class PhysicalMarketSelection
 
     internal bool Configured(PreviewManifest manifest) => current(manifest) is not null || retained(manifest).Length > 0;
 
+    internal async Task<(PreviewData Data, InputFrame Frame)> PortfolioSource(PreviewDatabase database,
+        NpgsqlConnection connection, InputFrame frame, Guid definition, ImmutableArray<ReferenceRevision> references,
+        ImmutableArray<(PreviewData Data, InputFrame Frame)> supplied, bool requirePinnedSources, Guid trade, CancellationToken ct)
+    {
+        var candidates = supplied.Where(s => s.Data.DefinitionRevision.RevisionId == definition).ToArray();
+        if (candidates.Length > 1 || candidates.Length == 0 && requirePinnedSources)
+            throw Invalid($"Every held {product} market requires exactly one admitted source frame; retained jobs cannot select a replacement.");
+        var source = candidates.Length == 1 ? candidates[0] : await Read(database, connection, frame, ct, trade);
+        RequirePortfolioSource(source, frame, definition, references);
+        return source;
+    }
+
+    internal void RequirePortfolioSource((PreviewData Data, InputFrame Frame) source, InputFrame frame,
+        Guid definition, ImmutableArray<ReferenceRevision> references)
+    {
+        if (frame.ContextId is null || source.Data.DefinitionRevision.RevisionId != definition || source.Frame.At != frame.At ||
+            source.Frame.ContextId != frame.ContextId || references.IsDefaultOrEmpty || references.Any(r => r != source.Data.ReferenceRevision))
+            throw Invalid($"{product} holdings require their exact source/reference revisions, valuation instant and certified context.");
+    }
+
     internal async Task<(PreviewData Data, InputFrame Frame)> Read(PreviewDatabase database,
         NpgsqlConnection connection, InputFrame frame, CancellationToken ct, Guid? trade = null, Guid? setup = null)
     {

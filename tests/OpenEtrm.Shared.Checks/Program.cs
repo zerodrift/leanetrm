@@ -10,6 +10,13 @@ if (args is ["--benchmark"] or ["--benchmark", _])
 if (args.Length != 0) throw new ArgumentException("Use no arguments for checks, or --benchmark [output-path].");
 UserTimeChecks.Run();
 DependencyPlanChecks.Run();
+var connectionCeiling=new OpenEtrm.Shared.Configuration.ConnectionBudget(5,30,8);
+if(!new OpenEtrm.Shared.Configuration.ConnectionBudget(2,3,4).IsWithin(connectionCeiling)
+    ||new OpenEtrm.Shared.Configuration.ConnectionBudget(0,3,4).IsWithin(connectionCeiling)
+    ||new OpenEtrm.Shared.Configuration.ConnectionBudget(2,31,4).IsWithin(connectionCeiling)
+    ||new OpenEtrm.Shared.Configuration.ConnectionBudget(2,3,9).IsWithin(connectionCeiling))
+    throw new Exception("Explicit connection budgets must be positive and within their caller's ceiling.");
+Console.WriteLine("PASS connection budgets retain explicit operating values and enforce each caller's qualified ceiling");
 
 var passed = 0;
 void Check(string name, Action action) { action(); passed++; Console.WriteLine($"PASS {name}"); }
