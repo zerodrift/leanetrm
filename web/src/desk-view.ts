@@ -179,6 +179,8 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
     switch(keys[column]){
       case 'tradeReference':{const pill=node('span',`desk-pill desk-pill-${row.pill.toLowerCase()}`,row.pill);cell.append(pill,node('span','desk-reference',row.reference));cell.title=publicText(`${row.reference} · revision ${row.revision}`);return cell;}
       case 'market':{const dot=node('i','commodity-dot');dot.style.background=color;dot.title=publicText(row.commodityName);
+        // A long market or delivery label is cut short with an ellipsis; its whole text is the cell's title.
+        cell.classList.add('desk-market-cell');cell.title=`${row.market} · ${row.delivery}`;
         const line=node('span','desk-line');line.append(dot,node('span','desk-market',row.market));cell.append(line,node('small','desk-sub',row.delivery));return cell;}
       case 'quantity':{
         cell.classList.add('desk-size');
@@ -193,7 +195,8 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
         const figure=node('span',row.quantity===null?'desk-figure desk-muted':'desk-figure',quantityText(row,v=>formats.quantity(index,v)));
         figure.title=row.quantity??noteMeaning(row.quantityNote!);
         // The unit and the side or lots sit under the figure, so figures of different units keep their right edges aligned.
-        const line=node('span','desk-line'),under=node('small','desk-sub');line.append(track,figure);under.append(node('span','desk-unit',row.unit),` · ${publicText(row.side)}`);cell.append(line,under);return cell;}
+        // A side the figure already states (a gas position's note) is not said again under it.
+        const line=node('span','desk-line'),under=node('small','desk-sub'),side=publicText(row.side);line.append(track,figure);under.append(node('span','desk-unit',row.unit),...(side===figure.textContent?[]:[` · ${side}`]));cell.append(line,under);return cell;}
       case 'executionPrice':{
         if(row.price===null&&row.priceNote!==null){cell.title=noteMeaning(row.priceNote);cell.append(node('span','desk-muted',row.priceNote),node('small','desk-sub',[row.priceLabel,row.priceUnit].filter(Boolean).join(' · ')));return cell;}
         if(row.price===null){cell.append(node('span','desk-muted','None'),node('small','desk-sub','No fixed price'));return cell;}

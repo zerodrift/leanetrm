@@ -797,6 +797,8 @@ dialog label{margin-top:16px}
 .desk-pill-fut{background:var(--surface-3)}.desk-pill-swap{background:var(--surface);box-shadow:inset 0 0 0 1px var(--border-strong)}
 .commodity-dot{display:inline-block;flex:none;width:7px;height:7px;border-radius:50%}
 .desk-market{overflow:hidden;text-overflow:ellipsis}
+.desk-market-cell>*{display:block;max-width:16rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.desk-market-cell>.desk-line{display:flex}
 .desk-figure{font-variant-numeric:tabular-nums}.desk-value{font-weight:600}
 .desk-unit,.desk-muted{font-size:11px;color:var(--text-2)}.desk-sub .desk-unit{font-size:inherit}
 .desk-size-bar{flex:none}
