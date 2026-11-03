@@ -326,6 +326,8 @@ def fixture(root):
                      f"VALUES({M},'usd_rates','{maturity}','{sid}',{n});"])
     unlisted=SMILE_OFFSETS.keys()-{row[1] for row in option_rows}
     if unlisted:raise ValueError(f'Smile offsets name unlisted series: {sorted(unlisted)}')
+    if any(row[1] in SMILE_OFFSETS and (row[1]==MISSING_SETTLEMENT[1] or row[3]==MISSING_SETTLEMENT[2]) for row in option_rows):
+        raise ValueError('Smile offsets must stay away from the missing-settlement series and the missing underlying.')
     price=black76(root)
     frames=[];now=datetime.now(timezone.utc).isoformat()
     for n in range(4):
@@ -339,6 +341,8 @@ def fixture(root):
             observe(sid,settled[sc],role)
         for sid,sc,code,underlying,right,strike,expiry_at in option_rows:
             futures=settled[underlying];increment=products[code][4]
+            if sc in SMILE_OFFSETS and not (strike<futures if right=='put' else strike>futures):
+                raise ValueError(f'Smile offset series {sc} is not out of the money against {futures} at {at}')
             if AT_INTRINSIC==(code,sc.split('_')[2],right,strike):value=max(futures-strike if right=='call' else strike-futures,Decimal(0))
             else:
                 years=Decimal((expiry_at-datetime.fromisoformat(at)).total_seconds())/Decimal(365*86400)

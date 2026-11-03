@@ -232,6 +232,21 @@ def check_agent_catalog(url, query, manifest, fake):
         and read['result']['options'] for body, read in zip(reads.values(), results.values())) \
         and sum(len(read['result']['options']) for read in results.values()) == 141, {call: read.get('code', read.get('operation')) for call, read in results.items()}
     print("PASS the agent's futures option catalog equals options/catalog's series of each product and expiry at the turn's frame, together all 141", flush=True)
+    # Each read reports the turn's pinned knowledge, cutoff and As of frame, and records the Blotter's accesses.
+    pinned = {'knowledge': 'working_data', 'contextId': current['context']['contextId'], 'cutoff': current['context']['cutoff']}
+    assert all({k: v for k, v in read['context'].items() if k != 'frame'} == pinned and read['context']['frame']['id'] == frame['id']
+               for read in results.values()), {call: read['context'] for call, read in results.items()}
+    catalog, references = str(uuid.UUID(manifest['catalogId'])), str(uuid.UUID(manifest['referenceCatalogId']))
+    blotter = [{'access': 'market_access', 'permission': 'ReadMarketData', 'market': catalog, 'reference': None},
+               {'access': 'reference_access', 'permission': 'ReadMarketData', 'market': None, 'reference': references},
+               {'access': 'trading_access', 'permission': 'ReadTrades', 'market': catalog, 'reference': None}]
+    recorded = json.loads(query(
+        "SELECT coalesce(json_agg(json_build_object('operation',s.operation,'code',s.code,'access',(SELECT coalesce(json_agg(json_build_object("
+        "'access',a.access,'permission',a.permission,'market',a.market_catalog_id,'reference',a.reference_catalog_id) ORDER BY a.access),'[]') "
+        "FROM assistant.tool_read_access a WHERE (a.turn_id,a.step)=(s.turn_id,s.ordinal))) ORDER BY s.ordinal),'[]')::text "
+        f"FROM assistant.tool_steps s WHERE s.turn_id='{turn['id']}' AND s.tool='futures_option_catalog' AND s.code IS NULL;"))
+    assert len(recorded) == len(reads) and all(step['operation'] == 'trades.futures_option_catalog_v2' and step['access'] == blotter for step in recorded), recorded
+    print("PASS each catalog read reports the turn's pinned knowledge, cutoff and As of frame, under the Blotter's accesses", flush=True)
     sizes = {call: len(contents[call].encode()) for call in reads}
     assert all(size <= TOOL_RESULT_BYTES * MARGIN for size in sizes.values()), sizes
     print(f"PASS each product and expiry's catalog result is within {MARGIN:%} of the {TOOL_RESULT_BYTES}-byte tool-result bound, in bytes: "
