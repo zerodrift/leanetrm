@@ -1,6 +1,7 @@
+import {setupVersionLabels} from './setup-versions.js';
 type Row=Record<string,string|number|null>;
 type Configuration={paths:Row[];groups:Row[];meters:Row[];tariffs:Row[]};
-type Version={id:string;state:string;base_setup_id:string|null;configuration:Configuration};
+type Version={id:string;state:string;base_setup_id:string|null;publication_order:number|null;configuration:Configuration};
 type Master={code:string;name?:string;symbol?:string};
 type Catalog={activeSetupId:string|null;configuration:Configuration;versions:Version[];canSave:boolean;canPublish:boolean;locations:Master[];products:Master[];clocks:Master[];quantities:Master[];quotes:Master[];curves:Master[]};
 type Tab=keyof Configuration;
@@ -55,7 +56,7 @@ export function setupGasConfiguration(o:{api:<T>(path:string,body?:unknown)=>Pro
  function drawRows(selected=0){const rows=configuration[tab()];get<HTMLSelectElement>('gs-row').replaceChildren(...rows.map((r,n)=>new Option(tab()==='paths'?`${r.pipeline??'Pipeline'} / ${r.zone??'Zone'} / ${r.point??'Point'} · ${r.product??'Product'}`:String(r.code??'New record'),String(n))));get<HTMLSelectElement>('gs-row').value=rows.length?String(Math.min(selected,rows.length-1)):'';drawFields();}
  function openConfiguration(c:Configuration,b:string|null,id?:string){configuration=structuredClone(c);base=b;draft=id;dirty=false;valid=false;get('gs-validation').textContent='';get('gs-preview').replaceChildren();drawRows();}
  function reset(){catalog=undefined;pending=undefined;dirty=false;valid=false;draft=undefined;epoch++;restore();get('gs-fields').replaceChildren();get('gs-preview').replaceChildren();get('gs-validation').textContent='';get('gs-status').textContent=pending?'A previous change awaits confirmation. Retry its original request.':'';sync();}
- async function refresh(){const e=epoch,c=await o.api<Catalog>('gas-setup/catalog');if(e!==epoch)return;catalog=c;get('gs-active').textContent=c.activeSetupId?`Published setup: ${c.activeSetupId}`:'Current setup: imported definitions';get<HTMLSelectElement>('gs-version').replaceChildren(new Option('Choose a saved version…',''),...c.versions.map(v=>new Option(`${v.state} · ${v.id}`,v.id)));openConfiguration(c.configuration,c.activeSetupId);}
+ async function refresh(){const e=epoch,c=await o.api<Catalog>('gas-setup/catalog');if(e!==epoch)return;catalog=c;const named=setupVersionLabels(c.versions);get('gs-active').dataset.setupId=c.activeSetupId??'';get('gs-active').textContent=c.activeSetupId?`Current setup: ${named.get(c.activeSetupId)??'a published setup not listed here'}`:'Current setup: imported definitions';get<HTMLSelectElement>('gs-version').replaceChildren(new Option('Choose a saved version…',''),...c.versions.map(v=>new Option(named.get(v.id)!,v.id)));openConfiguration(c.configuration,c.activeSetupId);}
  async function load(){reset();if(o.historical())throw Error('Return to working data to configure gas delivery setup.');await refresh();}
  async function send(){
   if(!pending)return;const command=pending,actor=o.actor(),e=epoch,uncertain=command.uncertain;command.uncertain=true;retain();

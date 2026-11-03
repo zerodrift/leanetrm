@@ -29,7 +29,7 @@ export type Holding={booking:Booking;commodity:{code:string;name:string};priceTi
  * with the backend's reason when it is not; `closableLots` the unsigned open lots an exercise or assignment may close.
  */
 export type OptionFacts={component:'option'|'premium';series:string;product:string;exchange:{code:string;name:string};right:string;strike:string;expiryAt:string;
-  underlyingSeries:string;openLots:string;lifecycleState:string;linkedFuturesTradeIds:string[];premium:string;premiumAmount:string;premiumPaymentDate:string;
+  underlyingSeries:string;underlyingName:string;productName:string;openLots:string;lifecycleState:string;linkedFuturesTradeIds:string[];linkedFuturesTrades:string[];premium:string;premiumAmount:string;premiumPaymentDate:string;
   cashState:'pending'|'settled'|null;impliedVolatility:string|null;calibrationMode:string|null;numericalPolicy:string|null;
   actions:Record<'exercise'|'assignment'|'instruction',{allowed:boolean;reason:string|null}>|null;closableLots:string|null;unitPresentValue:string|null};
 export type Summary={view:{groupBy:string[];measures:string[];pivotConvention:string|null};groups:PivotGroup[]};

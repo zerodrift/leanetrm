@@ -294,7 +294,7 @@ public sealed class PhysicalLngStore(PreviewDatabase database)
     {
         var positions = await LngPositions.Read(connection, database.Manifest, [], [], ct);
         return new { trades = positions.OrderByDescending(p => int.Parse(p.Head.Text("publication_order"), CultureInfo.InvariantCulture)).Take(256).Select(p => new {
-            tradeId = p.Trade, revision = p.Head.Text("revision"), instrumentId = p.Binding, bookId = p.Book.Id("id"), bookName = p.Book.Text("name"),
+            tradeId = p.Trade, tradeReference = TradingReference.Trade(p.Head), revision = p.Head.Text("revision"), instrumentId = p.Binding, bookId = p.Book.Id("id"), bookName = p.Book.Text("name"),
             direction = p.Head.Text("direction") == "1" ? "receive" : "deliver", quantity = p.Head.Text("original_quantity"),
             energyQuantity = p.Head.Text("energy_quantity"), quantityUnit = p.Physical.Text("input_unit"),
             loadFrom = p.Head.Text("load_from"), loadTo = p.Head.Text("load_to"), dischargeFrom = p.Head.Text("discharge_from"), dischargeTo = p.Head.Text("discharge_to"),

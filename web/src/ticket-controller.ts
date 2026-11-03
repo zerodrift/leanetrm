@@ -326,7 +326,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   // cannot clear or overwrite a newer request owned by that same actor.
   if(!current())return;
   if(r.operationId!==command.operationId||r.revision!==1||typeof r.tradeId!=='string'){say('The booking response could not be reconciled with its request. Check its status.');return;}
-  pending.clear();retain();booked=r.tradeId;say(`Booked trade ${r.tradeId}.`);
+  pending.clear();retain();booked=r.tradeId;say('Trade booked.');
   entry!.booked({tradeId:r.tradeId});
  }
 

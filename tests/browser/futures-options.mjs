@@ -70,9 +70,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await check('the commodities are those the catalog lists on the exchange, and the underlying waits for one',
   `${values('commodity')}.join()===${q([...new Set(catalog.options.map(o=>o.commodity.code))].join())}&&${empty('underlying')}`);
  await set('#option-commodity',chosen.commodity.code);
- await check('the underlying futures are exactly those of the commodity\'s listed series, labelled with their delivery from the backend',
+ await check('the underlying futures are exactly those of the commodity\'s listed series, labelled with their delivery and product name from the backend',
   `${values('underlying')}.join()===${q([...new Set(catalog.options.filter(o=>o.commodity.code===chosen.commodity.code).map(o=>o.underlyingSeries))].join())}&&
-   [...document.querySelector('#option-underlying').options].some(o=>o.value===${q(chosen.underlyingSeries)}&&o.textContent==='Dec 2026 · '+${q(chosen.underlyingSeries)})&&${empty('right')}`);
+   [...document.querySelector('#option-underlying').options].some(o=>o.value===${q(chosen.underlyingSeries)}&&o.textContent==='Dec 2026 · '+${q(catalog.underlyings.find(u=>u.series===chosen.underlyingSeries).name)})&&${empty('right')}`);
  await set('#option-underlying',chosen.underlyingSeries);await set('#option-right','call');
  const strikes=[...new Set(catalog.options.filter(o=>o.underlyingSeries===chosen.underlyingSeries&&o.right==='call').map(o=>o.strike))];
  await check('call and put and then the strikes list only the chosen contract\'s series',
@@ -202,10 +202,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await popup.wait("document.querySelector('.option-lifecycle [role=status]').textContent.startsWith('Exercise recorded')",30000);
  const exercises=await popup.evaluate("window.windowCalls.filter(c=>c.path.endsWith('/options/exercise'))");
  const exercised=exercises[1];
- await check('the retry is the original request, answered with the one event it recorded, which names the linked future',
+ await check('the retry is the original request, answered with the one event it recorded, which says it booked a linked future',
   q(exercises.length===2&&exercises.every(c=>c.status===200&&c.answer.eventId===exercises[0].answer.eventId)&&JSON.stringify(exercises[0].body)===JSON.stringify(exercises[1].body)&&
    exercised.body.lots==='1'&&exercised.body.tradeId===receipt.tradeId&&exercised.body.knowledgeMode==='current'&&typeof exercised.answer.futuresTradeId==='string'&&
-   await popup.evaluate(`document.querySelector('.option-lifecycle [role=status]').textContent==='Exercise recorded for 1 lot · 1 lot open · linked future '+${q(exercised.answer.futuresTradeId)}+'.'`)));
+   await popup.evaluate(`document.querySelector('.option-lifecycle [role=status]').textContent==='Exercise recorded for 1 lot · 1 lot open · a linked futures trade was booked.'`)));
  await popup.evaluate("document.querySelector('#position-window-retry').click()");await popup.wait(ready,30000);
  await check('after the event the window offers no lifecycle action until the trade is opened again from the Blotter, and says so once',q(await popup.evaluate(
   "[...document.querySelectorAll('.option-lifecycle button, .option-lifecycle input')].every(n=>n.disabled)&&document.querySelector('.option-lifecycle-reason').textContent.startsWith('An event was recorded here')&&document.querySelector('#position-window-context').textContent.split('An event was recorded').length===2")));
@@ -245,7 +245,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await evaluate("[...document.querySelectorAll('#position-details [role=tab]')].find(t=>t.textContent==='Terms')?.click()");
  await wait("!!document.querySelector('#option-trade-vol-surface')&&"+idle,30000);
  const holdingRead=(await evaluate(`window.optionCalls.filter(c=>c.path==='holding'&&c.body.tradeId===${q(receipt.tradeId)}).at(-1)`)).body.context;
- await check('the option trade offers its product\'s volatility surface',`document.querySelector('#option-trade-vol-surface').textContent==='Volatility surface'&&${term('Product')}===${q(chosen.product)}`);
+ await check('the option trade offers its product\'s volatility surface',`document.querySelector('#option-trade-vol-surface').textContent==='Volatility surface'&&${term('Product')}===${q(chosen.name)}`);
  await evaluate("window.surfaceReads=[]");await click('#option-trade-vol-surface');
  await surfaceOpened('the trade\'s Volatility surface opens Vol surfaces on its product at the context the trade was read at',chosen.product,holdingRead);
 }

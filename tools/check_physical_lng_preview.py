@@ -54,7 +54,8 @@ def run_checks(url, query, manifest):
     assert loaded['terms']['incoterms'] == body['incoterms']
     assert loaded['terms']['conversionCode'] == body['conversionCode']
     assert Decimal(loaded['valuation']['presentValue']) == 49000
-    assert any(row['tradeId'] == booked['tradeId'] for row in client.call('lng/directory', context)['trades'])
+    listed = next(row for row in client.call('lng/directory', context)['trades'] if row['tradeId'] == booked['tradeId'])
+    assert listed['tradeReference'].startswith('TR-'), listed
     historical = {**context, 'knowledgeMode':'retained', 'contextId':value['context']['contextId']}
     assert not any(row['tradeId'] == booked['tradeId'] for row in client.call('lng/directory', historical)['trades'])
     client.call('lng/editor', {'context':historical, 'tradeId':booked['tradeId']}, expected=422)

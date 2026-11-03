@@ -23,6 +23,8 @@ export const noOptionPick:OptionPick=Object.freeze({exchange:'',commodity:'',und
 const valueOf:Record<OptionLevel,(s:OptionSeries)=>string>={exchange:s=>s.exchange.code,commodity:s=>s.commodity.code,underlying:s=>s.underlyingSeries,right:s=>s.right,strike:s=>s.strike};
 const rightLabel=(right:string)=>right.charAt(0).toUpperCase()+right.slice(1);
 
+/** An underlying future as a person names it: its delivery period and its product's name. */
+export const underlyingLabel=(deliveryFrom:string,deliveryTo:string,name:string)=>`${deliveryLabel(deliveryFrom,deliveryTo)} · ${name}`;
 function labelOf(catalog:OptionCatalog,level:OptionLevel,s:OptionSeries):string{
  switch(level){
   case 'exchange':return s.exchange.name;
@@ -32,7 +34,7 @@ function labelOf(catalog:OptionCatalog,level:OptionLevel,s:OptionSeries):string{
   case 'underlying':{
    const found=catalog.underlyings.filter(u=>u.series===s.underlyingSeries);
    if(found.length!==1)throw Error(`The option catalog does not describe the underlying future ${s.underlyingSeries} exactly once.`);
-   return `${deliveryLabel(found[0].deliveryFrom,found[0].deliveryTo)} · ${found[0].name}`;
+   return underlyingLabel(found[0].deliveryFrom,found[0].deliveryTo,found[0].name);
   }
  }
 }

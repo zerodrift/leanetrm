@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
@@ -152,8 +153,10 @@ public sealed partial class FuturesOptionStore(PreviewManifest manifest)
             "'events',coalesce(jsonb_agg(security.futures_option_event_outcome(e) ORDER BY e.publication_order) FILTER(WHERE e.id IS NOT NULL),'[]'))::text "+
             "FROM trading.futures_option_trade_revisions r LEFT JOIN trading.futures_option_events e ON(e.catalog_id,e.trade_id)=(r.catalog_id,r.trade_id) "+
             "WHERE(r.catalog_id,r.trade_id)=($1,$2) GROUP BY r.trade_id,r.lots",manifest.CatalogId,trade);
-        return await command.ExecuteScalarAsync(ct) is string held?JsonSerializer.Deserialize<JsonElement>(held)
-            :throw new MarketDataException("option_trade","Select an available option trade.");
+        if(await command.ExecuteScalarAsync(ct) is not string held)throw new MarketDataException("option_trade","Select an available option trade.");
+        var holding=JsonNode.Parse(held)!.AsObject();
+        foreach(var e in holding["events"]!.AsArray())await NameLinkedFuture(connection,e!.AsObject(),ct);
+        return holding;
     }
 
     // The refusal message of each lifecycle code the authorized operations raise.
@@ -194,6 +197,16 @@ public sealed partial class FuturesOptionStore(PreviewManifest manifest)
         await using var command=ScheduleStore.Command(connection,"SELECT security.record_futures_option_event($1,$2,$3,$4,$5::numeric,$6)::text",
             manifest.CatalogId,operation,trade,kind,lots is null?DBNull.Value:lots,at);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
+    }
+
+    // A read event that booked a future names it by its trade reference beside its key; one the reader cannot see is said to be so. The
+    // recording write does not read references, so its receipt carries the key alone and the holding read names it.
+    private async Task NameLinkedFuture(NpgsqlConnection connection,JsonObject outcome,CancellationToken ct)
+    {
+        if(outcome["futuresTradeId"]?.GetValue<string>() is not {} id)return;
+        await using var command=ScheduleStore.Command(connection,"SELECT reference_number FROM trading.trade_references WHERE(catalog_id,trade_id)=($1,$2)",manifest.CatalogId,Guid.Parse(id));
+        outcome["futuresTradeReference"]=await command.ExecuteScalarAsync(ct) is {} number and not DBNull
+            ?TradingReference.Trade(Convert.ToInt32(number,CultureInfo.InvariantCulture)):"A futures trade this account cannot read";
     }
 
     private static T Single<T>(IEnumerable<T> rows)=>rows.Take(2).ToArray() is [var row]?row

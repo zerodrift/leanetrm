@@ -10,7 +10,8 @@ test('connected graph receipts stay separate from materialization and from each 
   const lines=riskWorkDetails(report);
   assert.equal(lines.length,3,'One materialization line plus one unchanged receipt per backend market');
   assert.match(lines[0],/Materialization.*8.*2/);
-  assert.match(lines[1],/market-a.*31.*19.*11.*23.*2.*17/);
-  assert.match(lines[2],/market-b.*5.*4.*1.*3.*1.*5/);
+  assert.match(lines[1],/^Connected market 1 · 31.*19.*11.*23.*2.*17/);
+  assert.match(lines[2],/^Connected market 2 · 5.*4.*1.*3.*1.*5/);
+  assert.ok(lines.every(line=>!/market-[ab]/.test(line)),'a market is numbered, not shown by its revision key');
   assert.ok(lines.every(line=>!line.includes('all scenario preparation')));
 });

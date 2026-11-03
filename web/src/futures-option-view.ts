@@ -1,6 +1,6 @@
 import type {Holding} from './desk-model.js';
 import {trackEdits} from './edit-tracking.js';
-import {keepOffered,noOptionPick,optionChoices,optionLevels,optionTicketStatus,pickOption,type LifecycleWrites,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
+import {keepOffered,noOptionPick,optionChoices,optionLevels,optionTicketStatus,pickOption,underlyingLabel,type LifecycleWrites,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
 import {displayInstant,publicText} from './market-view.js';
 import {bookingAllowed} from './new-trade.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
@@ -120,7 +120,7 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
  }
  async function receipt(command:RequestCommand,r:Receipt){
   if(r.operationId!==command.operationId||typeof r.tradeId!=='string'){said.textContent='The booking response could not be reconciled with its request. Check its status.';return;}
-  pending.clear();retain();edits.clear();said.textContent=`Booked trade ${r.tradeId}.`;
+  pending.clear();retain();edits.clear();said.textContent='Trade booked.';
   await o.onBooked(r.tradeId);
  }
  form.onsubmit=event=>{
@@ -168,7 +168,7 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
   sync:refreshDisplay};
 }
 
-type Outcome={eventId:string;kind:string;lots:string|null;remainingLots:string;futuresTradeId:string|null;businessAt:string;outcome?:string|null};
+type Outcome={eventId:string;kind:string;lots:string|null;remainingLots:string;futuresTradeId:string|null;futuresTradeReference?:string|null;businessAt:string;outcome?:string|null};
 type HoldingRead={tradeId:string;lots:string;openLots:string;events:Outcome[]};
 const eventNames:Record<string,string>={exercise:'Exercise',assignment:'Assignment',expiry:'Expiry',exercise_instruction:'Exercise at expiry instruction',abandon_instruction:'Abandon instruction'};
 const lotsWord=(lots:string)=>`${lots} ${lots.replace(/^-/,'')==='1'?'lot':'lots'}`;
@@ -187,15 +187,16 @@ export async function readOptionView(api:Api,context:Record<string,unknown>&{sna
  const option=h.component==='option',writes=await host.writes();
  return {amend:{allowed:false,reason:'Option trades are not amended; exercise, assignment and expiry are recorded as their own events.'},view:zone=>{
   const terms:TermSection[]=[{title:'Futures option trade',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Exchange',h.exchange?.name??''],
-    ['Product',h.product??''],['Series',h.series??''],['Call / put',h.right??''],['Strike',h.strike??''],['Expiry',h.expiryAt?displayInstant(h.expiryAt,zone):''],['Underlying future',h.underlyingSeries??'']]},
+    ['Product',h.productName??''],['Call / put',h.right??''],['Strike',h.strike??''],['Expiry',h.expiryAt?displayInstant(h.expiryAt,zone):''],
+    ['Underlying future',h.underlyingName&&h.deliveryFrom&&h.deliveryTo?underlyingLabel(h.deliveryFrom,h.deliveryTo,h.underlyingName):'']]},
    {title:'Lots and lifecycle',rows:[['Booked lots',held.lots],['Open lots',held.openLots],['Lifecycle',publicText(h.lifecycleState??'')],
-    ['Linked futures trades',h.linkedFuturesTradeIds?.length?h.linkedFuturesTradeIds.join(', '):'None']]},
+    ['Linked futures trades',h.linkedFuturesTrades?.length?h.linkedFuturesTrades.join(', '):'None']]},
    option?{title:'From the backend',rows:[['Settlement price',h.settlement??'None'],['Value per contract',h.unitPresentValue?`${h.unitPresentValue} ${h.currency}`:'None'],
     ['Implied volatility',h.impliedVolatility??'None'],['Calibration mode',h.calibrationMode??'None'],['Numerical policy',h.numericalPolicy??'None'],['Value measure','Option value excluding settled premium cash']]}
     :{title:'Premium paid up front',rows:[['Premium',h.premium??''],['Premium cash',`${h.premiumAmount} ${h.currency}`],['Payment date',h.premiumPaymentDate??''],['Cash state',h.cashState??'']]}];
   const history:TermSection[]=[{title:`Revision ${h.revision}`,rows:[['Booked',displayInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]},
    ...held.events.map(e=>({title:eventNames[e.kind]??publicText(e.kind),rows:[['Recorded for',displayInstant(e.businessAt,zone)],['Lots',e.lots??'Open lots at expiry'],['Open lots after',e.remainingLots],
-    ['Linked future',e.futuresTradeId??'None'],...(e.outcome?[['Outcome',publicText(e.outcome)] as const]:[])] as const}))];
+    ['Linked future',e.futuresTradeReference??'None'],...(e.outcome?[['Outcome',publicText(e.outcome)] as const]:[])] as const}))];
   const surface=host.surface,product=h.product;
   return {terms,history,...(option&&h.actions?{schedules:(box:HTMLElement)=>lifecycle(box,api,context.snapshotId,h,writes,host)}:{}),
    ...(surface&&product?{actions:[{id:'option-trade-vol-surface',label:'Volatility surface',run:()=>surface(product)}]}:{})};
@@ -242,7 +243,7 @@ function lifecycle(host:HTMLElement,api:Api,snapshotId:string,h:Holding,writes:L
    const now=await o.writes();if(!now.enabled){writes=now;said.textContent=now.reason;return;}
    uncertain=pending.sending();transport.write(pending.command);said.textContent='Recording…';
    const r=await api<Outcome>(command.path,{...command.body,operationId:command.operationId});pending.clear();transport.write(undefined);recorded=true;
-   const note=`${eventNames[r.kind]??publicText(r.kind)} recorded${r.lots?` for ${lotsWord(r.lots)}`:''} · ${lotsWord(r.remainingLots)} open${r.futuresTradeId?` · linked future ${r.futuresTradeId}`:''}.`;
+   const note=`${eventNames[r.kind]??publicText(r.kind)} recorded${r.lots?` for ${lotsWord(r.lots)}`:''} · ${lotsWord(r.remainingLots)} open${r.futuresTradeId?' · a linked futures trade was booked':''}.`;
    said.textContent=note;o.recorded(note);
   }catch(error){
    if(uncertain===null){said.textContent=publicText(`Not sent: ${reason(error)} Retry the request once events may be recorded.`);return;}

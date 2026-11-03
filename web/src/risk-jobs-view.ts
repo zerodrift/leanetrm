@@ -36,10 +36,12 @@ export function setupRiskJobs(options:{api:<T>(path:string)=>Promise<T>;act:(wor
    recent=jobs;const root=get('risk-jobs-list');root.replaceChildren();
    if(!jobs.length)root.textContent='No recent risk jobs are visible to this account.';
    const table=document.createElement('table'),head=document.createElement('tr');
-   for(const title of ['Run','Job','State','Market as of','Finished','Report'])head.append(cell('th',title));
+   for(const title of ['Run','Kind','State','Market as of','Finished','Report'])head.append(cell('th',title));
+   // A run of several parts is numbered by its place in this list, so its parts read together; no key is shown.
+   const runs=[...new Set(jobs.flatMap(j=>j.run?[j.run.id]:[]))];
    const thead=document.createElement('thead');thead.append(head);table.append(thead);const body=document.createElement('tbody');
    for(const job of jobs){
-    const row=document.createElement('tr');for(const text of [job.run?`${job.run.id} · part ${job.run.part}/${job.run.parts}`:'Single job',job.id,job.state,job.asOf?options.instant(job.asOf):'Not recorded',job.finishedAt?options.instant(job.finishedAt):'—'])row.append(cell('td',text));
+    const row=document.createElement('tr');for(const text of [job.run?`Run ${runs.indexOf(job.run.id)+1} · part ${job.run.part} of ${job.run.parts}`:'Single run',job.kind==='parametric'?'Parametric VaR / ES':'Sensitivities',job.state,job.asOf?options.instant(job.asOf):'Not recorded',job.finishedAt?options.instant(job.finishedAt):'—'])row.append(cell('td',text));
     const action=cell('td',''),button=cell('button','View details / report') as HTMLButtonElement;button.type='button';button.className='secondary';button.dataset.riskJob=job.id;button.onclick=()=>void options.act(()=>report(job.id));action.append(button);row.append(action);body.append(row);
    }
    table.append(body);const wrap=cell('div','');wrap.className='table-wrap';wrap.append(table);root.append(wrap);await archive(version);

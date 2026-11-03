@@ -57,7 +57,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  // An identical double activation is serialized and never starts a second operation.
  await evaluate("document.querySelector('#ppa-submit').click();document.querySelector('#ppa-submit').click()");await wait(idle);await manageSaved();
  await check('physical booking opens one retained trade and its original binding',"!document.querySelector('#ppa-inspection').hidden&&document.querySelectorAll('#ppa-bindings tbody tr').length===1&&document.querySelector('#error').hidden",text('error'));
- const physical=await evaluate("document.querySelector('#ppa-trade-title').textContent.match(/Trade ([a-f0-9-]+)/)[1]");
+ const physical=await evaluate("document.querySelector('#ppa-trade-title').dataset.tradeId");
  await check('double submission creates only revision one',`${text('ppa-trade-title')}.includes('revision 1')&&document.querySelectorAll('#ppa-history tbody tr').length===1`);
  const physicalReference=await evaluate(`window.ppaShared.find(p=>p.tradeId===${JSON.stringify(physical)}).tradeReference`);
  await command('Page.reload');await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await captureFrames();await click('#nav-futures');await set('#blotter-filters .table-search',physicalReference);await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&"+idle);await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!!document.querySelector('#ppa-manage')&&"+idle);await click('#ppa-manage');if(await evaluate("document.querySelector('#ppa-inspection').hidden"))await chooseFrame(fixture.baseFrameAt);

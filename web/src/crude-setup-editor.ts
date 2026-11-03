@@ -1,7 +1,8 @@
+import {setupVersionLabels} from './setup-versions.js';
 import {crudeChoices,type CrudeReferenceData} from './crude-selection.js';
 import type {ClockRow} from './market-view.js';
 type Configuration={code:string;deliveryReferenceCatalogId:string;deliveryReferenceRevisionId:string;commodity:string;grade:string;facility:string;custodyPoint:string;clock:string;definitionRevisionId:string;curve:string;validFrom:string;validTo:string;quantityPolicy:string};
-type Version={id:string;state:'draft'|'published';base_setup_id:string|null;configuration:Configuration};
+type Version={id:string;state:'draft'|'published';base_setup_id:string|null;publication_order:number|null;configuration:Configuration};
 type Catalog={deliveryReferences:CrudeReferenceData;sources:{definitionRevisionId:string;curve:string;name:string}[];clocks:ClockRow[];quantityPolicies:{code:string;label:string}[];versions:Version[];canSave:boolean;canPublish:boolean};
 type Pending={path:string;body:Record<string,unknown>;uncertain:boolean};
 
@@ -44,13 +45,13 @@ export function setupCrudeConfiguration(o:{api:<T>(path:string,body?:unknown)=>P
   get<HTMLSelectElement>('cs-source').value=c?sourceKey(c):'';
   for(const [id,key] of [['cs-clock','clock'],['cs-policy','quantityPolicy'],['cs-from','validFrom'],['cs-to','validTo']] as const)get<HTMLInputElement|HTMLSelectElement>(id).value=c?.[key]??'';
   if(!sameReferences)get<HTMLSelectElement>('cs-clock').value='';
-  get('cs-version-state').textContent=version?`${revise?'Revision of':version.state} · ${version.id}`:'New binding · choose every term explicitly.';
-  get('cs-status').textContent=sameReferences?'':`Saved delivery references: ${c!.deliveryReferenceCatalogId} / ${c!.deliveryReferenceRevisionId}; ${c!.commodity}, ${c!.grade}, ${c!.facility}, ${c!.custodyPoint}, ${c!.clock}. Revising into the current masters requires choosing each physical field again.`;get('cs-value').textContent='';sync();
+  get('cs-version-state').textContent=version?`${revise?'Revision of ':''}${setupVersionLabels(catalog?.versions??[]).get(version.id)??'a saved setup not listed here'}`:'New binding · choose every term explicitly.';
+  get('cs-status').textContent=sameReferences?'':`This setup was saved against an earlier delivery reference revision (${c!.commodity}, ${c!.grade}, ${c!.facility}, ${c!.custodyPoint}, ${c!.clock}). Revising it into the current masters requires choosing each physical field again.`;get('cs-value').textContent='';sync();
  }
  async function refresh(id?:string){
   const e=epoch,actor=o.actor(),c=await o.api<Catalog>('crude-setup/catalog');if(e!==epoch||actor!==o.actor())return;
   catalog=c;
-  get<HTMLSelectElement>('cs-version').replaceChildren(new Option('Choose a saved version…',''),...c.versions.map(v=>new Option(`${v.configuration.code} · ${v.state} · ${v.id}`,v.id)));
+  const named=setupVersionLabels(c.versions);get<HTMLSelectElement>('cs-version').replaceChildren(new Option('Choose a saved version…',''),...c.versions.map(v=>new Option(`${v.configuration.code} · ${named.get(v.id)}`,v.id)));
   const physicalChoices=crudeChoices(c.deliveryReferences,c.clocks);
   for(const key of ['commodity','grade','facility','custodyPoint'] as const)
    get<HTMLSelectElement>('cs-'+key).replaceChildren(new Option('Choose…',''),...physicalChoices[key].map(r=>new Option(r.label,r.value)));

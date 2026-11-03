@@ -29,6 +29,9 @@ internal sealed record FuturesOptionPosition(JsonElement Head,JsonElement Book,J
     internal ExactDecimal OpenLots=>Long?BookedLots-ClosedLots:BookedLots+ClosedLots;
     private ExactDecimal ClosedLots=>ExactDecimal.Parse(Head.Text("closed_lots"));
     internal ImmutableArray<Guid> LinkedFutures=>[..Head.GetProperty("linked_futures").EnumerateArray().Select(v=>v.GetGuid())];
+    // Each linked futures trade by its reference; one the reader cannot see is said to be so rather than shown by its key.
+    internal ImmutableArray<string> LinkedFuturesReferences=>[..Head.GetProperty("linked_futures_references").EnumerateArray()
+        .Select(v=>v.ValueKind==JsonValueKind.Number?TradingReference.Trade(v.GetInt32()):"A futures trade this account cannot read")];
     internal string LifecycleState=>OpenLots==default?(Head.GetProperty("expired").GetBoolean()?"expired":"closed"):
         ClosedLots==default?"open":"partially_closed";
     // The premium cash the trade holds, in units of its currency: negative for a long holding, which pays it.
@@ -79,10 +82,10 @@ internal sealed record FuturesOptionPosition(JsonElement Head,JsonElement Book,J
         contractId=Head.Id("contract_id"),definitionRevisionId=Definition,curve=Series.Text("curve_code"),projectionCurves=new[]{Series.Text("curve_code")},
         marketKey=JsonSerializer.Serialize(new[]{Series.Text("curve_code")}),marketLabel=Series.Text("curve_name"),
         commodity=new{code=Series.Text("commodity_code"),name=Series.Text("commodity_name")},exchange=new{code=Series.Text("exchange_code"),name=Series.Text("exchange_name")},
-        product=Series.Text("product_code"),series=SeriesKey.Code,right=Series.Text("option_right"),strike=Series.Text("strike"),
-        expiryAt=Series.Instant("expiry_at").ToString("O",CultureInfo.InvariantCulture),underlyingSeries=Series.Text("underlying_series_code"),
+        product=Series.Text("product_code"),productName=Series.Text("product_name"),series=SeriesKey.Code,right=Series.Text("option_right"),strike=Series.Text("strike"),
+        expiryAt=Series.Instant("expiry_at").ToString("O",CultureInfo.InvariantCulture),underlyingSeries=Series.Text("underlying_series_code"),underlyingName=Series.Text("underlying_product_name"),
         deliveryFrom=Series.Text("delivery_from"),deliveryTo=Series.Text("delivery_to"),
-        lots=Head.Text("lots"),openLots=OpenLots.ToString(),lifecycleState=LifecycleState,linkedFuturesTradeIds=LinkedFutures,actions=option?Actions:null,closableLots=option?ClosableLots:null,
+        lots=Head.Text("lots"),openLots=OpenLots.ToString(),lifecycleState=LifecycleState,linkedFuturesTradeIds=LinkedFutures,linkedFuturesTrades=LinkedFuturesReferences,actions=option?Actions:null,closableLots=option?ClosableLots:null,
         quantity=option?OpenLots.ToString():Head.Text("premium_quantity"),unit=Series.Text(option?"unit":"currency"),quantitySpecification=option?LotQuantity:Currency,
         currency=Series.Text("currency"),currencyReference=Currency,quoteMultiplier=Series.Text("multiplier"),
         premium=Head.Text("premium"),premiumAmount=Head.Text("premium_quantity"),premiumPaymentDate=Head.Text("premium_payment_date"),cashState=(string?)null,
@@ -117,7 +120,7 @@ internal static class FuturesOptionPositions
               p.reference_catalog_id premium_reference_catalog_id,p.reference_revision_id premium_reference_revision_id,
               tr.reference_number trade_reference,oi.reference_number option_instrument_reference,pi.reference_number premium_instrument_reference,
               f.trade_date,f.booker_id,f.booker_name,f.booker_login,f.executed_at,f.implementation booking_implementation,f.label_captured_at,
-              e.name legal_entity,cp.name counterparty,trim_scale(coalesce(v.closed,0))::text closed_lots,coalesce(v.expired,false) expired,coalesce(v.linked,'[]') linked_futures
+              e.name legal_entity,cp.name counterparty,trim_scale(coalesce(v.closed,0))::text closed_lots,coalesce(v.expired,false) expired,coalesce(v.linked,'[]') linked_futures,coalesce(v.linked_references,'[]') linked_futures_references
              FROM trading.futures_option_trade_revisions r
              LEFT JOIN trading.futures_option_references o ON(o.catalog_id,o.instrument_id)=(r.catalog_id,r.option_instrument_id)
              LEFT JOIN trading.cash_payment_instruments p ON(p.catalog_id,p.instrument_id)=(r.catalog_id,r.premium_instrument_id)
@@ -128,8 +131,10 @@ internal static class FuturesOptionPositions
              LEFT JOIN trading.legal_entities e ON(e.catalog_id,e.id,e.revision)=(r.catalog_id,r.legal_entity_id,r.legal_entity_revision)
              LEFT JOIN trading.counterparties cp ON(cp.catalog_id,cp.id,cp.revision)=(r.catalog_id,r.counterparty_id,r.counterparty_revision)
              LEFT JOIN LATERAL(SELECT sum(lots) FILTER(WHERE kind IN('exercise','assignment','expiry')) closed,bool_or(kind='expiry') expired,
-               jsonb_agg(futures_trade_id ORDER BY publication_order) FILTER(WHERE futures_trade_id IS NOT NULL) linked
-              FROM trading.futures_option_events v WHERE(v.catalog_id,v.trade_id)=(r.catalog_id,r.trade_id))v ON true
+               jsonb_agg(v.futures_trade_id ORDER BY v.publication_order) FILTER(WHERE v.futures_trade_id IS NOT NULL) linked,
+               jsonb_agg(fr.reference_number ORDER BY v.publication_order) FILTER(WHERE v.futures_trade_id IS NOT NULL) linked_references
+              FROM trading.futures_option_events v LEFT JOIN trading.trade_references fr ON(fr.catalog_id,fr.trade_id)=(v.catalog_id,v.futures_trade_id)
+              WHERE(v.catalog_id,v.trade_id)=(r.catalog_id,r.trade_id))v ON true
              WHERE r.catalog_id=$1 AND r.book_id=ANY($2::uuid[]) AND($3::uuid IS NULL OR r.trade_id=$3) AND($4::uuid[] IS NULL OR r.trade_id=ANY($4::uuid[])) ORDER BY tr.reference_number,r.trade_id)x
             """,[manifest.CatalogId,selected.Keys.ToArray(),(object?)position?.TradeId??DBNull.Value,(object?)trades?.ToArray()??DBNull.Value],ct);
         if(position is not null)position.Require(heads.SelectMany(h=>new[]{Binding(h,"option_instrument_id"),Binding(h,"premium_instrument_id")}));
@@ -139,7 +144,7 @@ internal static class FuturesOptionPositions
         var series=await PreviewDatabase.Rows(connection,"""
             SELECT row_to_json(x)::text FROM(
              SELECT k.id contract_id,k.revision_id definition_revision_id,s.catalog_id reference_catalog_id,s.revision_id reference_revision_id,s.code series_code,
-              s.option_right,trim_scale(s.strike)::text strike,s.underlying_series_code,s.expiry_at,pr.code product_code,trim_scale(pr.multiplier)::text multiplier,
+              s.option_right,trim_scale(s.strike)::text strike,s.underlying_series_code,s.expiry_at,pr.code product_code,pr.name product_name,fp.name underlying_product_name,trim_scale(pr.multiplier)::text multiplier,
               pr.lot_quantity_code,ex.code exchange_code,ex.name exchange_name,co.code commodity_code,co.name commodity_name,q.currency_code,cu.display_code currency,
               pr.contrary_instructions_allowed,u.symbol unit,us.delivery_from,us.delivery_to,c.code curve_code,c.name curve_name
              FROM market_data.contracts k
@@ -152,6 +157,7 @@ internal static class FuturesOptionPositions
              JOIN ref_data.quantity_specifications n ON(n.catalog_id,n.revision_id,n.code)=(pr.catalog_id,pr.revision_id,pr.lot_quantity_code)
              JOIN ref_data.units u ON(u.catalog_id,u.revision_id,u.code)=(n.catalog_id,n.revision_id,n.unit_code)
              JOIN ref_data.futures_series us ON(us.catalog_id,us.revision_id,us.code)=(s.catalog_id,s.revision_id,s.underlying_series_code)
+             JOIN ref_data.futures_products fp ON(fp.catalog_id,fp.revision_id,fp.code)=(us.catalog_id,us.revision_id,us.product_code)
              JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(k.catalog_id,k.revision_id,k.id)
              JOIN market_data.curves c ON(c.catalog_id,c.revision_id,c.code)=(m.catalog_id,m.revision_id,m.curve_code)
              WHERE k.catalog_id=$1 AND k.id=ANY($2::uuid[]) ORDER BY k.id)x

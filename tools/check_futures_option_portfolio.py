@@ -82,6 +82,11 @@ def run_checks(url, query, manifest, *, run_worker):
     # One lot of the short LO put is assigned at the last close: earlier closes still hold it open, without the future it booked.
     assigned = c.call('options/assignment', {'operationId': str(uuid4()), **current, 'convention': OPTION, 'tradeId': held['lo'][0]['tradeId'], 'lots': '1'})
     open_lots = {'on': 2, 'lo': -1, 'deep': 1}
+    exercised_trade = held['on'][0]['tradeId']
+    linked = c.call('options/holding', {'context': {**booking, 'convention': OPTION}, 'tradeId': exercised_trade})['events']
+    named = [e['futuresTradeReference'] for e in linked if e.get('futuresTradeId') == exercised['futuresTradeId']]
+    check('the holding\'s events name the future an exercise booked by its trade reference',
+          len(named) == 1 and named[0].startswith('TR-'), (exercised, linked))
 
     def blotter(context):
         view = dict(mode='trades', bookIds=[book], portfolioIds=[], groupBy=[], measures=[], pivotConvention=None)
@@ -95,6 +100,9 @@ def run_checks(url, query, manifest, *, run_worker):
         booked = held[key][0]
         return rows[(booked['tradeId'], booked['optionInstrumentId'])]
 
+    check('the exercised option\'s row lists the futures trade it booked by its reference',
+          option_row('on')['linkedFuturesTrades'] == named, option_row('on'))
+
     def premium_row(key):
         booked = held[key][0]
         return rows[(booked['tradeId'], booked['premiumInstrumentId'])]
@@ -105,6 +113,8 @@ def run_checks(url, query, manifest, *, run_worker):
         check(f'the {key} option values at settlement × multiplier × its {open_lots[key]} open lots, within half an increment per lot',
               row['unavailableReason'] is None and abs(Fraction(row['presentValue']) - expected) <= multiplier * increment / 2 * abs(open_lots[key]),
               (row['presentValue'], expected))
+        check(f'the {key} option row names its product and its underlying future by name, not by code',
+              bool(row['productName']) and row['productName'] != row['product'] and row['underlyingName'] == described[option['underlyingSeries']]['name'], row)
         check(f'the {key} option row shows its series terms, booked lots, settlement and lifecycle from the backend',
               (row['instrumentType'], row['right'], row['strike'], row['expiryAt'], row['underlyingSeries'], row['lots'], row['settlement']) ==
               ('futures_option', option['right'], option['strike'], option['expiryAt'], option['underlyingSeries'], str(lots), option['settlementPrice']), row)

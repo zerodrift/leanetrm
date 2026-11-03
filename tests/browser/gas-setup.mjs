@@ -18,7 +18,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/gas-setup/publish')&&response.ok)throw new TypeError('Synthetic lost publication response');return response;};}`);
  await click('#gs-publish');await check('an uncertain publication retains the original command',"!document.querySelector('#gs-retry').hidden&&document.querySelector('#gs-tab').disabled");
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await click('#nav-gas-setup');await click('#gs-retry');
- await check('reload and exact retry recover the single published version',`document.querySelector('#gs-active').textContent.includes(${JSON.stringify(draft)})&&document.querySelector('#gs-retry').hidden&&document.querySelector('#gs-status').textContent.includes('Version published')`);
+ await check('reload and exact retry recover the single published version',`document.querySelector('#gs-active').dataset.setupId===${JSON.stringify(draft)}&&document.querySelector('#gs-active').textContent.startsWith('Current setup: Published setup')&&document.querySelector('#gs-retry').hidden&&document.querySelector('#gs-status').textContent.includes('Version published')`);
  await check('the configuration editor fits its viewport',"document.documentElement.scrollWidth<=innerWidth");
  await shot('gas-delivery-setup');
 }

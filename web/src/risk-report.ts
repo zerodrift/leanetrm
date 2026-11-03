@@ -34,6 +34,6 @@ export function sensitivityFactors(report:{factors?:RiskFactorResult[];joint?:un
 export function riskWorkDetails(report:RiskWorkReport){
   return [
     `Materialization · ${report.work.rebuiltCurveNodes} curve nodes evaluated · ${report.work.reusedCurveNodes} reused.`,
-    ...report.connectedScenarios.map(m=>`Market revision ${m.definitions.revisionId} · ${m.work.evaluatedNodes} graph nodes evaluated · ${m.work.reusedReads} reused reads · ${m.work.affectedNodes} affected nodes · ${m.work.traversedAffectedEdges} affected edges traversed · ${m.preparation.sourceCompilations} source compilations · ${m.preparation.declaredSourceNodes} declared source nodes.`),
+    ...report.connectedScenarios.map((m,i)=>`Connected market ${i+1} · ${m.work.evaluatedNodes} graph nodes evaluated · ${m.work.reusedReads} reused reads · ${m.work.affectedNodes} affected nodes · ${m.work.traversedAffectedEdges} affected edges traversed · ${m.preparation.sourceCompilations} source compilations · ${m.preparation.declaredSourceNodes} declared source nodes.`),
   ];
 }

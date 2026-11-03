@@ -40,7 +40,8 @@ def run_checks(url, query, manifest):
     loaded=c.call('crude/editor',{'context':context,'tradeId':booked['tradeId']})
     assert loaded['valuation']=={key:value[key] for key in loaded['valuation']}
     assert loaded['terms']['considerationDirection']=='pay' and loaded['terms']['handlingFeeDirection']=='receive'
-    assert any(row['tradeId']==booked['tradeId'] for row in c.call('crude/directory',context)['trades'])
+    listed=next(row for row in c.call('crude/directory',context)['trades'] if row['tradeId']==booked['tradeId'])
+    assert listed['tradeReference'].startswith('TR-'), listed
     prior={**context,'knowledgeMode':'retained','contextId':value['context']['contextId']}
     assert not any(row['tradeId']==booked['tradeId'] for row in c.call('crude/directory',prior)['trades']), 'A context captured before booking cannot see a later publication'
     c.call('crude/editor',{'context':prior,'tradeId':booked['tradeId']},expected=422)

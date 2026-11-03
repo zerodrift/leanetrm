@@ -15,7 +15,7 @@ export async function runJointChecks({command,evaluate,wait,click,set,check,shot
   `(()=>{const r=${JSON.stringify(report)},root=document.querySelector('#risk-workspace-results');return r.joint.samples.length===2&&r.joint.request.scenarios.scenarios[0].shifts.length===2&&root.textContent.includes('2 named scenarios')&&!!root.querySelector('[data-exact]')&&r.joint.samples[0].totals.every(t=>root.textContent.includes(t.values.display.loss));})()`);
  await set('#risk-workspace-results select[aria-label="Joint risk graphic"]','heatmap');
  await check('joint scenarios have a graphical heatmap and trade/instrument binding drill-through',
-  "!!document.querySelector('#risk-workspace-results [data-chart-kind=heatmap] canvas')&&document.querySelector('#risk-workspace-results .risk-factor-detail').textContent.includes('Trade and instrument bindings')");
+  "!!document.querySelector('#risk-workspace-results [data-chart-kind=heatmap] canvas')&&document.querySelector('#risk-workspace-results .risk-factor-detail').textContent.includes('Trades and instruments')");
  await evaluate("document.querySelector('#risk-workspace-results').scrollIntoView({block:'start'});true");await shot('risk-joint-scenarios');
  await evaluate('window.__hideWorkspaceHistory=false;true');await click('#workspace-risk-queue');await wait(idle);
  const scenarioJob=await evaluate("window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk/jobs'&&r.data?.id).data.id");
@@ -39,7 +39,7 @@ export async function runJointChecks({command,evaluate,wait,click,set,check,shot
   `(()=>{const r=${JSON.stringify(greek)},root=document.querySelector('#risk-workspace-results');return r.joint.derivatives.length===5&&r.joint.request.derivatives.mixed.length===1&&root.textContent.includes('Half step')&&root.textContent.includes('Double step')&&root.textContent.includes('Step agreement')&&r.joint.derivatives[0].totals.every(t=>root.textContent.includes(t.values.display.nominal));})()`);
  await click('#risk-workspace-results [data-joint-metric=mixedGamma]');await set('#risk-workspace-results select[aria-label="Joint risk graphic"]','heatmap');
  await check('cross-gamma has its own native-unit graphic, exact table and trade contribution detail',
-  "!!document.querySelector('#risk-workspace-results [data-chart-kind=heatmap] canvas')&&document.querySelector('#risk-workspace-results').textContent.includes('Cross-gamma')&&document.querySelector('#risk-workspace-results .risk-factor-detail').textContent.includes('Trade and instrument bindings')");
+  "!!document.querySelector('#risk-workspace-results [data-chart-kind=heatmap] canvas')&&document.querySelector('#risk-workspace-results').textContent.includes('Cross-gamma')&&document.querySelector('#risk-workspace-results .risk-factor-detail').textContent.includes('Trades and instruments')");
  await evaluate("document.querySelector('#risk-workspace-results').scrollIntoView({block:'start'});true");await shot('risk-joint-cross-gamma');
  await click('#workspace-risk-queue');await wait(idle);const greekJob=await evaluate("window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk/jobs'&&r.data?.id).data.id");
  await wait(`window.__workspaceRiskReads.some(r=>r.data?.id===${JSON.stringify(greekJob)}&&r.data?.state==='completed'&&r.data?.result?.joint)&&${idle}`,60000);

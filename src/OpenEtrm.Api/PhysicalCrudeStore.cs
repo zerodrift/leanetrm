@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Crude;
@@ -234,11 +235,13 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   try{await command.ExecuteNonQueryAsync(ct);}catch(PostgresException e)when(e.MessageText=="crude_portfolio_scope")
   {throw new MarketDataException("crude_close_scope","Automated closes do not yet support physical crude obligations. Use the common blotter and portfolio risk for contractual valuation.");}
  }
- public async Task<object> Directory(NpgsqlConnection c,CancellationToken ct)=>new{trades=await PreviewDatabase.Rows(c,"""
-  SELECT json_build_object('tradeId',r.trade_id,'revision',r.revision,'instrumentId',r.instrument_id,'bookId',r.book_id,'bookName',b.name,
+ // Each booking by its trade reference beside its key, which stays the identity that opens it.
+ public async Task<object> Directory(NpgsqlConnection c,CancellationToken ct)=>new{trades=(await PreviewDatabase.Rows(c,"""
+  SELECT json_build_object('tradeId',r.trade_id,'trade_reference',tr.reference_number,'revision',r.revision,'instrumentId',r.instrument_id,'bookId',r.book_id,'bookName',b.name,
   'direction',CASE WHEN r.direction=1 THEN 'receive' ELSE 'deliver' END,'quantity',r.quantity::text,'quantityUnit',u.symbol,
   'deliveryFrom',i.delivery_from,'deliveryTo',i.delivery_to,'gradeName',g.name,'facilityName',f.name,'custodyPointName',p.name)::text
   FROM trading.crude_trade_revisions r JOIN trading.crude_instruments i USING(catalog_id,instrument_id)
+  JOIN trading.trade_references tr ON(tr.catalog_id,tr.trade_id)=(r.catalog_id,r.trade_id)
   JOIN trading.books b ON(b.catalog_id,b.id)=(r.catalog_id,r.book_id)
   JOIN market_data.crude_valuation_assignments a ON(a.catalog_id,a.revision_id,a.code)=(i.catalog_id,i.definition_revision_id,i.assignment_code)
   JOIN ref_data.crude_grades g ON(g.catalog_id,g.revision_id,g.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.grade_code)
@@ -249,5 +252,5 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   JOIN ref_data.quantity_specifications q ON(q.catalog_id,q.revision_id,q.code)=(quote.catalog_id,quote.revision_id,quote.quantity_code)
   JOIN ref_data.units u ON(u.catalog_id,u.revision_id,u.code)=(q.catalog_id,q.revision_id,q.unit_code)
   WHERE r.catalog_id=$1 ORDER BY r.publication_order DESC LIMIT 256
-  """,[Catalog],ct)};
+  """,[Catalog],ct)).Select(row=>{var named=JsonNode.Parse(row.GetRawText())!.AsObject();named.Remove("trade_reference");named["tradeReference"]=TradingReference.Trade(row);return named;}).ToArray()};
 }
