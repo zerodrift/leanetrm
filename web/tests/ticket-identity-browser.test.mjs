@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {browserAvailable,withBrowserPage} from './browser-page.mjs';
+import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
 async function fixture(work){
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><div id="host" style="width:1100px"></div>',async evaluate=>{
@@ -41,7 +41,7 @@ async function fixture(work){
  });
 }
 
-test('a late gas booking receipt leaves its original request recoverable without changing the new actor or navigating',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a late gas booking receipt leaves its original request recoverable without changing the new actor or navigating',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async evaluate=>{
   await evaluate(`(async()=>{
    await open();const field=document.querySelector('[data-field=reference] input');field.value='Original actor';field.onchange();
@@ -54,7 +54,7 @@ test('a late gas booking receipt leaves its original request recoverable without
  });
 });
 
-for(const outcome of ['resolve','reject'])test(`an abandoned booking ${outcome} cannot replace the same actor's newer retained request`,{skip:!browserAvailable,timeout:30000},async()=>{
+for(const outcome of ['resolve','reject'])test(`an abandoned booking ${outcome} cannot replace the same actor's newer retained request`,{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async evaluate=>{
   await evaluate(`(async()=>{
    const book=async value=>{const field=document.querySelector('[data-field=reference] input');field.value=value;field.onchange();await until(()=>document.querySelector('.ticket-status')?.dataset.kind==='current');document.querySelector('.ticket-book').click();};
@@ -67,7 +67,7 @@ for(const outcome of ['resolve','reject'])test(`an abandoned booking ${outcome} 
  });
 });
 
-test('booked gas day-entry state belongs to its actor when the same trade is reopened',{skip:!browserAvailable,timeout:30000},async()=>{
+test('booked gas day-entry state belongs to its actor when the same trade is reopened',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async evaluate=>{
   await evaluate("(async()=>{await open(true);await day();const cell=document.querySelector('.ticket-cell-input');cell.value='990';cell.dispatchEvent(new Event('change'));await until(()=>!!document.querySelector('.ticket-record'));ticket.destroy();actor='actor-b';await open(true);await day();})()");
   assert.equal(await evaluate("document.querySelector('.ticket-record')===null"),true);
@@ -76,7 +76,7 @@ test('booked gas day-entry state belongs to its actor when the same trade is reo
  });
 });
 
-test('read-only gas tickets offer no writable day cells even when the account may record elsewhere',{skip:!browserAvailable,timeout:30000},async()=>{
+test('read-only gas tickets offer no writable day cells even when the account may record elsewhere',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async evaluate=>{
   await evaluate("(async()=>{await open(true,true);const level=document.querySelector('.ticket-level');level.value='day';level.onchange();document.querySelector('.ticket-tab[data-tab=\"physical-1\"]').click();await new Promise(resolve=>setTimeout(resolve,100));})()");
   assert.equal(await evaluate("document.querySelectorAll('.ticket-cell-input').length"),0);
@@ -84,7 +84,7 @@ test('read-only gas tickets offer no writable day cells even when the account ma
  });
 });
 
-test('a late day-record reply leaves the reopened ticket able to check its original outcome',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a late day-record reply leaves the reopened ticket able to check its original outcome',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async evaluate=>{
   await evaluate(`(async()=>{
    await open(true);await day();const cell=document.querySelector('.ticket-cell-input');cell.value='990';cell.dispatchEvent(new Event('change'));await until(()=>!!document.querySelector('.ticket-record'));

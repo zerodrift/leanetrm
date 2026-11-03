@@ -7,10 +7,11 @@ import {tmpdir} from 'node:os';
 import {join,resolve,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {waitForBrowserPage,stopOwnedBrowserGroup} from '../../tests/browser/owned-browser.mjs';
+import {browserTestTimeout} from './browser-page.mjs';
 
 const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const available=await access(browser).then(()=>true,()=>false);
-test('assistant authorization and page prompts require explicit human controls',{skip:!available,timeout:30000},async()=>{
+test('assistant authorization and page prompts require explicit human controls',{skip:!available,timeout:browserTestTimeout},async()=>{
   const root=fileURLToPath(new URL('../dist/',import.meta.url));
   const server=createServer(async(req,res)=>{
     try{

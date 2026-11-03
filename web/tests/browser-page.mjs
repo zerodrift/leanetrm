@@ -8,6 +8,9 @@ import {fileURLToPath} from 'node:url';
 import {waitForBrowserPage,stopOwnedBrowserGroup} from '../../tests/browser/owned-browser.mjs';
 
 const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// A browser test's limit covers the owned browser's 60 s startup deadline, so a slow start fails with that deadline's own reason
+// rather than as a test timeout.
+export const browserTestTimeout=90000;
 export const browserAvailable=await access(browser).then(()=>true,()=>false);
 
 // A disposable headless browser and a static server of web/dist draw `page`; `body` evaluates expressions in it.

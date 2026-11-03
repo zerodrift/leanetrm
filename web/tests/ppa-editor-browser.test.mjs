@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {browserAvailable,withBrowserPage} from './browser-page.mjs';
+import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
 // Exercise the real PPA controls against a deterministic API double. Financial
 // results are returned by the double; the browser only selects and displays them.
@@ -44,7 +44,7 @@ async function fixture(work){
  });
 }
 
-test('PPA book valuation cannot repaint after its pending-actuals selection changes',{skip:!browserAvailable,timeout:30000},async()=>{
+test('PPA book valuation cannot repaint after its pending-actuals selection changes',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async evaluate=>{
   await evaluate("hold='ppa/preview';document.querySelector('#ppa-book-value').click();new Promise(resolve=>{const poll=()=>window.release?resolve():setTimeout(poll,5);poll();})");
   await evaluate("set('ppa-pending-actuals','estimate_until_actual_v1');release();action");
@@ -53,7 +53,7 @@ test('PPA book valuation cannot repaint after its pending-actuals selection chan
  });
 });
 
-test('PPA detail selectors discard an earlier in-flight month response',{skip:!browserAvailable,timeout:30000},async()=>{
+test('PPA detail selectors discard an earlier in-flight month response',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async evaluate=>{
   await evaluate("(async()=>{await inspectTrade();await click('ppa-value-trade');set('ppa-detail-binding','binding-a');set('ppa-detail-side','side-a');set('ppa-detail-month','2031-11');hold='ppa/inspect';document.querySelector('#ppa-detail-show').click();await new Promise(resolve=>{const poll=()=>window.release?resolve():setTimeout(poll,5);poll();});})()");
   await evaluate("set('ppa-detail-month','2031-12');release();action");
@@ -62,14 +62,14 @@ test('PPA detail selectors discard an earlier in-flight month response',{skip:!b
  });
 });
 
-test('PPA changing the selected book resets both directory page controls',{skip:!browserAvailable,timeout:30000},async()=>{
+test('PPA changing the selected book resets both directory page controls',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async evaluate=>{
   await evaluate("(async()=>{await click('ppa-list');await click('ppa-list-next');set('ppa-book-filter','book-b');})()");
   assert.deepEqual(await evaluate("['ppa-list-prev','ppa-list-next'].map(id=>document.getElementById(id).disabled)"),[true,true]);
  });
 });
 
-test('PPA termination offset choices invalidate an already reviewed boundary',{skip:!browserAvailable,timeout:30000},async()=>{
+test('PPA termination offset choices invalidate an already reviewed boundary',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async evaluate=>{
   await evaluate("(async()=>{await inspectTrade();await click('ppa-terminate-open');set('ppa-termination-at','2031-11-02T01:00','input');set('ppa-termination-reason','Synthetic correction','input');await click('ppa-terminate-review');const offset=document.querySelector('#ppa-termination-at + select');offset.value='2031-11-02T05:00:00Z';offset.dispatchEvent(new Event('change',{bubbles:true}));await click('ppa-terminate-review');document.querySelector('#ppa-termination-confirm').checked=true;document.querySelector('#ppa-termination-confirm').dispatchEvent(new Event('change'));offset.value='2031-11-02T06:00:00Z';offset.dispatchEvent(new Event('change',{bubbles:true}));})()");
   assert.equal(await evaluate("document.querySelector('#ppa-terminate').disabled"),true);

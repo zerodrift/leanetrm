@@ -7,12 +7,13 @@ import {tmpdir} from 'node:os';
 import {join,resolve,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {waitForBrowserPage,stopOwnedBrowserGroup} from '../../tests/browser/owned-browser.mjs';
+import {browserTestTimeout} from './browser-page.mjs';
 
 const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const available=await access(browser).then(()=>true,()=>false);
 // A disposable browser and static server exercise the actual chart dependency with synthetic server answers.
 // No application runtime, account or database is attached.
-test('time chart and overlay controls in the real chart library',{skip:!available,timeout:30000},async()=>{
+test('time chart and overlay controls in the real chart library',{skip:!available,timeout:browserTestTimeout},async()=>{
  const root=fileURLToPath(new URL('../dist/',import.meta.url));
  const server=createServer(async(req,res)=>{
   try{

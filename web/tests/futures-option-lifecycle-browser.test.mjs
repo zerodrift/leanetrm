@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {browserAvailable,withBrowserPage} from './browser-page.mjs';
+import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
-test('an open option ticket refreshes its clock without changing edits or an uncertain booking',{skip:!browserAvailable,timeout:30000},async()=>{
+test('an open option ticket refreshes its clock without changing edits or an uncertain booking',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"><div id="option-page"></div></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {setupOptionTicket}=await import('/futures-option-view.js'),{displayInstant}=await import('/market-view.js');
@@ -54,7 +54,7 @@ test('an open option ticket refreshes its clock without changing edits or an unc
 
 // A lifecycle request asks its host again whether events may be recorded before it is sent. While that question is open the request is
 // being sent, so it is not sent twice; when the question fails, the request is not sent and the status line says why.
-test('an exercise whose recording authority cannot be read again is not sent, says why and is sent only once',{skip:!browserAvailable,timeout:30000},async()=>{
+test('an exercise whose recording authority cannot be read again is not sent, says why and is sent only once',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {readOptionView}=await import('/futures-option-view.js');

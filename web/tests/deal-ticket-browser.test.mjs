@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {browserAvailable,withBrowserPage} from './browser-page.mjs';
+import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
 // The ticket draws a synthetic in-delivery schedule view in the real grid dependency: the backend's delivered, remaining and total rows,
 // pinned in that order, and the strip's delivered count.
-test('a ticket in delivery shows the delivered count and the delivered, remaining and total rows above the pinned total',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a ticket in delivery shows the delivered count and the delivered, remaining and total rows above the pinned total',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {renderTicket}=await import('/deal-ticket.js'),{newTicket}=await import('/ticket-model.js');
@@ -35,7 +35,7 @@ test('a ticket in delivery shows the delivered count and the delivered, remainin
 
 // The ticket keeps the rows the person opened or closed across a redraw, and draws a side added since the last preview only once a
 // preview holds it: until then the instrument grid shows the sides the schedule has and the new side's tab says it is not previewed.
-test('a redraw keeps the person\'s open and closed rows and leaves out a side the schedule does not hold yet',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a redraw keeps the person\'s open and closed rows and leaves out a side the schedule does not hold yet',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {renderTicket}=await import('/deal-ticket.js'),{newTicket,addSide}=await import('/ticket-model.js');
@@ -66,7 +66,7 @@ test('a redraw keeps the person\'s open and closed rows and leaves out a side th
 
 // In booked mode a side's tab makes the day cells of a column the description enters in that mode inputs; a change opens that day's
 // record. The Quantity links tab draws each link's receipt, delivery and fuel from the backend's exact text.
-test('a booked side tab enters day quantities and the links tab draws the backend links',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a booked side tab enters day quantities and the links tab draws the backend links',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {renderTicket}=await import('/deal-ticket.js'),{newTicket}=await import('/ticket-model.js');
@@ -110,7 +110,7 @@ test('a booked side tab enters day quantities and the links tab draws the backen
 });
 
 // A late answer that changes nothing on screen leaves the drawn ticket standing, so the person keeps their place in its schedule.
-test('a lookup answer that changes nothing leaves the drawn schedule standing',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a lookup answer that changes nothing leaves the drawn schedule standing',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {setupTicket}=await import('/ticket-controller.js');
@@ -143,7 +143,7 @@ test('a lookup answer that changes nothing leaves the drawn schedule standing',{
 });
 
 // Lookup answers dropped because the draft changed leave that draft unread, so returning to it reads its lookups again.
-test('a draft whose lookup answers were dropped reads them again when the person returns to it',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a draft whose lookup answers were dropped reads them again when the person returns to it',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {setupTicket}=await import('/ticket-controller.js');
@@ -174,7 +174,7 @@ test('a draft whose lookup answers were dropped reads them again when the person
 
 // A slow field read must not send every other field into the server's session
 // lock, and edits/closing must release obsolete reads.
-test('ticket field reads are bounded and superseded or closed reads are cancelled',{skip:!browserAvailable,timeout:30000},async()=>{
+test('ticket field reads are bounded and superseded or closed reads are cancelled',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {setupTicket}=await import('/ticket-controller.js');
@@ -213,7 +213,7 @@ test('ticket field reads are bounded and superseded or closed reads are cancelle
 
 // Cancellation is an optimization as well as a lifetime boundary: a transport
 // that still delivers an old answer must not win after A -> B -> A edits.
-test('cancelled lookup and preview answers cannot return through the same draft',{skip:!browserAvailable,timeout:30000},async()=>{
+test('cancelled lookup and preview answers cannot return through the same draft',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {setupTicket}=await import('/ticket-controller.js');
@@ -253,7 +253,7 @@ test('cancelled lookup and preview answers cannot return through the same draft'
 });
 
 // Slow reference reads must not accumulate a request for every intermediate ticket shape.
-test('ticket reference reads are bounded and queued choices follow only the latest sides',{skip:!browserAvailable,timeout:30000},async()=>{
+test('ticket reference reads are bounded and queued choices follow only the latest sides',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {setupTicket}=await import('/ticket-controller.js');
@@ -291,7 +291,7 @@ test('ticket reference reads are bounded and queued choices follow only the late
  });
 });
 
-test('returning to an earlier draft cannot apply a partially superseded lookup batch',{skip:!browserAvailable,timeout:30000},async()=>{
+test('returning to an earlier draft cannot apply a partially superseded lookup batch',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {setupTicket}=await import('/ticket-controller.js');
@@ -322,7 +322,7 @@ test('returning to an earlier draft cannot apply a partially superseded lookup b
  });
 });
 
-test('late booked choice labels preserve an editable day cell and its unsent quantity',{skip:!browserAvailable,timeout:30000},async()=>{
+test('late booked choice labels preserve an editable day cell and its unsent quantity',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {setupTicket}=await import('/ticket-controller.js');
@@ -361,7 +361,7 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
 
 // A local date-time is booked only as the instant it resolved to: while its resolution is out, or after the clock refused it, the earlier
 // instant is not booked in its place; and an earlier entry's late answer never replaces a later one's.
-test('a local time still resolving or refused blocks booking, and a late answer for an earlier entry is ignored',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a local time still resolving or refused blocks booking, and a late answer for an earlier entry is ignored',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {setupTicket}=await import('/ticket-controller.js');

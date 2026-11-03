@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {browserAvailable,withBrowserPage} from './browser-page.mjs';
+import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
 // A disposable browser and static server draw a synthetic schedule view in the real grid dependency; no application runtime is attached.
-test('a schedule draws as a tree with coloured header groups, decorations and the backend totals',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a schedule draws as a tree with coloured header groups, decorations and the backend totals',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {scheduleGridData}=await import('/schedule-grid.js'),{renderDataGrid}=await import('/data-grid.js');
@@ -34,7 +34,7 @@ test('a schedule draws as a tree with coloured header groups, decorations and th
  });
 });
 
-test('a coming-soon column draws greyed with a Coming soon tag and its hover text, and holds no values',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a coming-soon column draws greyed with a Coming soon tag and its hover text, and holds no values',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:900px"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {scheduleGridData}=await import('/schedule-grid.js'),{renderDataGrid}=await import('/data-grid.js');

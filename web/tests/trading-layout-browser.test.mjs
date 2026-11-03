@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {browserAvailable,withBrowserPage} from './browser-page.mjs';
+import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
 const index=readFileSync(new URL('../src/index.html',import.meta.url),'utf8');
 
-test('a narrow desktop risk pane keeps its radio choices and labels inside their borders',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a narrow desktop risk pane keeps its radio choices and labels inside their borders',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<meta charset="utf-8"><link rel="stylesheet" href="/app.css"><main style="width:1100px;margin:0;padding:0"><div id="host" class="dock-panels" style="width:430px"><div class="details-form"></div></div></main>',async(evaluate,command)=>{
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
   await evaluate(`(()=>{const source=new DOMParser().parseFromString(${JSON.stringify(index)},'text/html'),report=source.querySelector('#risk-report');report.hidden=false;document.querySelector('.details-form').append(report);})()`);
@@ -18,7 +18,7 @@ test('a narrow desktop risk pane keeps its radio choices and labels inside their
  });
 });
 
-test('a narrow position pane stacks its summary even on a wide desktop',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a narrow position pane stacks its summary even on a wide desktop',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage(`<meta charset="utf-8"><link rel="stylesheet" href="/app.css"><main style="width:1100px;margin:0;padding:0"><div id="host" class="dock-panels" style="width:430px"><section class="details-pane"><div id="position-details-head">
   <p class="side-panel-kicker">Synthetic trade</p><h2 class="side-panel-title">Scheduled financial swap</h2><p class="side-panel-meta">Revision 2 · amendment</p>
   <div class="side-panel-value"><div class="side-panel-figure"><span>Present value</span><div class="kpi-value">12,345,678.900 <small>USD</small></div></div><div class="side-panel-delta"><span>Largest risk move</span><b>−9,876,543.210 USD</b></div></div>
@@ -33,7 +33,7 @@ test('a narrow position pane stacks its summary even on a wide desktop',{skip:!b
  });
 });
 
-test('a reduced desktop workspace wraps the Blotter search and action buttons inside the toolbar',{skip:!browserAvailable,timeout:30000},async()=>{
+test('a reduced desktop workspace wraps the Blotter search and action buttons inside the toolbar',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<meta charset="utf-8"><link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><main style="width:320px;margin:0;padding:0"><div id="host"></div></main>',async(evaluate,command)=>{
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
   await evaluate(`(async()=>{

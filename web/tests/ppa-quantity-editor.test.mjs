@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {browserAvailable,withBrowserPage} from './browser-page.mjs';
+import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
-test('reopening an independently composed fee preserves reversed links and sources through a no-change review',{skip:!browserAvailable,timeout:30000},async()=>{
+test('reopening an independently composed fee preserves reversed links and sources through a no-change review',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<section id="side"><p class="ppa-link"></p></section>',async evaluate=>{
   await evaluate(`(async()=>{
    const {ppaQuantityEditor}=await import('/ppa-quantity-editor.js');

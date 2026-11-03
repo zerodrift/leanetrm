@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {browserAvailable,withBrowserPage} from './browser-page.mjs';
+import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
 // Draw the real page and presentation modules without attaching an application,
 // account or database. The API double supplies only a synthetic dashboard layout
@@ -77,7 +77,7 @@ async function fixture(work){
  });
 }
 
-test('market controls use the available workspace width beside a wide assistant',{skip:!browserAvailable,timeout:30000},async()=>{
+test('market controls use the available workspace width beside a wide assistant',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async({evaluate,size})=>{
   for(const width of [1440,1425]){
    await size(width,592);
@@ -92,7 +92,7 @@ test('market controls use the available workspace width beside a wide assistant'
  });
 });
 
-test('schedule editors fill the available workspace and place the calendar below',{skip:!browserAvailable,timeout:30000},async()=>{
+test('schedule editors fill the available workspace and place the calendar below',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async({evaluate,size})=>{
   await size(1440,592);
   await evaluate("showLayoutPage('schedules-page')");
@@ -105,7 +105,7 @@ test('schedule editors fill the available workspace and place the calendar below
  });
 });
 
-test('curve-builder libraries leave usable editor widths beside the assistant',{skip:!browserAvailable,timeout:30000},async()=>{
+test('curve-builder libraries leave usable editor widths beside the assistant',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async({evaluate,size})=>{
   await size(1440,592);
   await evaluate("showLayoutPage('custom-curves-page')");
@@ -115,7 +115,7 @@ test('curve-builder libraries leave usable editor widths beside the assistant',{
  });
 });
 
-test('sticky schedule actions stay clear of the shared header date controls',{skip:!browserAvailable,timeout:30000},async()=>{
+test('sticky schedule actions stay clear of the shared header date controls',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async({evaluate,size})=>{
   await size(1440,576); // The widest dock preserves a 640-pixel main area.
   await evaluate("showLayoutPage('schedules-page')");
@@ -132,7 +132,7 @@ test('sticky schedule actions stay clear of the shared header date controls',{sk
  });
 });
 
-test('job date inputs stay inside a narrow workspace',{skip:!browserAvailable,timeout:30000},async()=>{
+test('job date inputs stay inside a narrow workspace',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async({evaluate,size})=>{
   await size(1440,720); // The previous maximum-width dock left 432 content pixels.
   await evaluate("showLayoutPage('jobs-page')");
@@ -140,7 +140,7 @@ test('job date inputs stay inside a narrow workspace',{skip:!browserAvailable,ti
  });
 });
 
-test('delivery filters do not create an overflowing implicit second column',{skip:!browserAvailable,timeout:30000},async()=>{
+test('delivery filters do not create an overflowing implicit second column',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async({evaluate,size})=>{
   await size(1100,660); // Exercise the one-column filter fallback as well.
   await evaluate("showLayoutPage('delivery-page')");
@@ -150,7 +150,7 @@ test('delivery filters do not create an overflowing implicit second column',{ski
  });
 });
 
-test('dashboard widgets stack before their controls need horizontal scrolling',{skip:!browserAvailable,timeout:30000},async()=>{
+test('dashboard widgets stack before their controls need horizontal scrolling',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async({evaluate,size})=>{
   await size(1440,592);
   await evaluate("showLayoutPage('dashboard-page');for(const details of document.querySelectorAll('.dashboard-arrange'))details.open=true");
@@ -165,7 +165,7 @@ test('dashboard widgets stack before their controls need horizontal scrolling',{
  });
 });
 
-test('phone schedule, reference and delivery controls fit without the assistant',{skip:!browserAvailable,timeout:30000},async()=>{
+test('phone schedule, reference and delivery controls fit without the assistant',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await fixture(async({evaluate,size})=>{
   await size(375);
   for(const [page,scope] of [['schedules-page','.schedule-workspace-editor'],['reference-page','#reference-page'],['delivery-page','.delivery-filter-fields']]){
