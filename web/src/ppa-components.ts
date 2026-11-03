@@ -4,7 +4,7 @@ import {friendly} from './market-view.js';
 import type {Catalog,Member,Quantity,Side,Template,DataRow,PriceSettlement,Slot} from './ppa-contract.js';
 import type {PaymentInput} from './swap-contract.js';
 import {decorateSideCard} from './side-card.js';
-import {ppaSideLabel} from './ppa-side-label.js';
+import {ppaSideLabel,ppaSideName,quantityChoices} from './ppa-side-label.js';
 export const code=(r:DataRow,key='code')=>String(r[key]??'');
 export const choices=(rows:DataRow[])=>rows.map(r=>({value:code(r),label:code(r,'name')||friendly(code(r))}));
 export function readSettlementChoice(curveKind:string,mode:string,index:string):PriceSettlement|null{
@@ -58,11 +58,11 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  const value=(name:string)=>{const v=field(name).value;if(!v)throw Error(`Complete ${ppaSideLabel(template.role)}: ${friendly(name)}.`);return v;};
  host.querySelector('h3')!.textContent=ppaSideLabel(template.role);
  decorateSideCard(host,host.querySelector('h3')!,ppaSideLabel(template.role),template.sideKind==='energy'?'gas':template.sideKind==='fixed'?'cash':'fee');
- host.querySelector('.ppa-link')!.textContent=template.linkedSlots.length?`Quantity follows ${template.linkedSlots.map(s=>ppaSideLabel(s.role)+' '+s.ordinal).join(', ')}. Positive quantities retain their units; direction signs the value.`:'Uses the explicitly selected delivery quantity. Direction signs the value.';
+ host.querySelector('.ppa-link')!.textContent=template.linkedSlots.length?`Quantity follows ${template.linkedSlots.map(s=>ppaSideName(s.role,s.ordinal)).join(', ')}. Positive quantities retain their units; direction signs the value.`:'Uses the explicitly selected delivery quantity. Direction signs the value.';
  host.querySelectorAll<HTMLInputElement>('input,select,textarea').forEach(n=>{n.id=prefix+'-'+n.dataset.field;n.autocomplete='off';});
  const pick=(name:string,rows:{value:string;label:string}[])=>selectChoices(field(name) as HTMLSelectElement,rows);
  const enums=(name:string,values:string[])=>pick(name,values.map(value=>({value,label:friendly(value)})));
- pick('location',choices(catalog.references.locations));pick('price-quantity',choices([...catalog.references.quantityGroups.energy,...catalog.references.quantityGroups.certificate,...catalog.references.quantityGroups.capacity]));pick('attribute-quantity',choices(template.sideKind==='certificate'?catalog.references.quantityGroups.certificate:catalog.references.quantityGroups.capacity));
+ pick('location',choices(catalog.references.locations));pick('price-quantity',quantityChoices([...catalog.references.quantityGroups.energy,...catalog.references.quantityGroups.certificate,...catalog.references.quantityGroups.capacity],catalog.references.units));pick('attribute-quantity',choices(template.sideKind==='certificate'?catalog.references.quantityGroups.certificate:catalog.references.quantityGroups.capacity));
  enums('quantity-choice',['retained','selected']);field('quantity-choice').value=initial?'retained':'selected';if(initial&&!template.linkedSlots.length){host.querySelector<HTMLElement>('.ppa-retained-quantity')!.hidden=false;host.querySelector('.ppa-retained-quantity pre')!.textContent=JSON.stringify(initial.side.quantity,null,2);}
  enums('side-kind',template.sideKinds);field('side-kind').value=initial?.side.kind??(template.sideKinds.length===1?template.sideKinds[0]:'');
  enums('price-kind',catalog.priceKinds.filter(k=>k!=='indexed'));pick('curve',choices(catalog.definitionsMetadata.priceCurves));

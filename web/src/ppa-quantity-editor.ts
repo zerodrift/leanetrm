@@ -1,4 +1,4 @@
-import {ppaSideLabel} from './ppa-side-label.js';
+import {ppaSideLabel,quantityChoices} from './ppa-side-label.js';
 import type {Catalog,MemberTemplate,Quantity,Slot} from './ppa-contract.js';
 import {friendly} from './market-view.js';
 // The server publishes admitted quantity modes and link roles. This editor only
@@ -22,7 +22,7 @@ export function ppaQuantityEditor(host:HTMLElement,catalog:Catalog,template:Memb
  const rows=(values:Record<string,unknown>[])=>values.map(r=>({value:String(r.code),label:String(r.name??friendly(String(r.code)))}));
  const enums=(key:string,values:string[])=>offer(key,values.map(value=>({value,label:friendly(value)})));
  enums('kind',template.quantityKinds);enums('stage',catalog.authoringPolicies.quantityStages);enums('membership',catalog.authoringPolicies.hourMemberships);
- offer('capacity',rows(catalog.references.quantityGroups.contract));offer('energy',rows(catalog.references.quantityGroups.energy));offer('calendar',rows(catalog.references.calendars));
+ offer('capacity',quantityChoices(catalog.references.quantityGroups.contract,catalog.references.units));offer('energy',quantityChoices(catalog.references.quantityGroups.energy,catalog.references.units));offer('calendar',rows(catalog.references.calendars));
  let retainedSlots=initial?.slots.map(s=>JSON.stringify(s));
  function refreshChoices(){const d=delivery();
   offer('sources',rows(catalog.definitionsMetadata.volumeSources.filter(r=>r.clock_code===d.clock&&String(r.interval_minutes)===d.cadence)));

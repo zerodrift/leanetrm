@@ -1,13 +1,16 @@
 import type {Catalog} from './ppa-contract.js';
-import {timeLabels} from './market-view.js';
+import {displayInstant,timeLabels} from './market-view.js';
+import {amountText} from './amount-display.js';
 import {PendingCommand,type RequestCommand} from './pending-command.js';
 export type Exact={numerator:string;denominator:string};
 export const exactText=(value:Exact|null|undefined):string=>value==null?'Unavailable':value.denominator==='1'?value.numerator:`${value.numerator}/${value.denominator}`;
+// An exact amount at the display precision once the read's amounts are prepared; its exact fraction until then.
+export const shownExact=(value:Exact|null|undefined,kind:'money'|'price'|'quantity')=>value==null?'Unavailable':amountText(exactText(value),kind);
 export type Measures={valueExcludingOverdue:Exact;completePv:Exact|null;unavailableReason:string|null;overdueKnownBalance:Exact;overdueEstimated:Exact;classes?:{kind:string;amount:Exact}[];coverages?:{kind:string;amount:Exact}[]};
 export function measureRows(m:Measures):string[][]{return [
- ['Complete PV',m.completePv===null?`Unavailable · ${m.unavailableReason}`:exactText(m.completePv)],
- ['Value excl. overdue cash (undue PV + holdings)',exactText(m.valueExcludingOverdue)],
- ['Overdue balance (known)',exactText(m.overdueKnownBalance)],['Overdue (estimated)',exactText(m.overdueEstimated)]];}
+ ['Complete PV',m.completePv===null?`Unavailable · ${m.unavailableReason}`:shownExact(m.completePv,'money')],
+ ['Value excl. overdue cash (undue PV + holdings)',shownExact(m.valueExcludingOverdue,'money')],
+ ['Overdue balance (known)',shownExact(m.overdueKnownBalance,'money')],['Overdue (estimated)',shownExact(m.overdueEstimated,'money')]];}
 /** The words a label gives its field: its own text and that of its other children, never the choices or value of the control inside it. */
 type LabelNode={nodeName:string;textContent:string|null;childNodes?:ArrayLike<LabelNode>};
 const controls=new Set(['INPUT','SELECT','TEXTAREA']);
@@ -19,12 +22,13 @@ export function quantityLabel(reference:Reference,catalog:Pick<Catalog,'referenc
  if(reference.revision?.catalogId!==catalog.reference.catalogId||reference.revision?.revisionId!==catalog.reference.revisionId)throw Error('The displayed quantity requires a different exact reference revision.');
  const spec=catalog.references.quantitySpecs.find(s=>s.code===reference.code),unit=catalog.references.units.find(u=>u.code===spec?.unit_code);
  if(!spec||!unit||!unit.symbol)throw Error('The exact quantity unit is unavailable in this catalog.');
- return `${unit.symbol} [${reference.code}]`;
+ return String(unit.symbol);
 }
 export type InspectionRow={interval:{start:string;end:string};quantity:Exact;quantitySpecification?:Reference;currency?:{code:string};amount:Exact;presentValue?:Exact|null;kind:string;quantityState:string;economicClass:string;coverage:string;valueAt:string;priceComponents?:{price:Exact&{unit?:{currency:{code:string};quantity:Reference;multiplier:string}};state:string}[]};
 export function inspectionRows(rows:InspectionRow[],zone:string,label:(reference:Reference)=>string=r=>r.code):string[][]{
  const labels=timeLabels(rows.flatMap(r=>[r.interval.start,r.interval.end]),zone);
- return rows.map((r,i)=>[labels[i*2],labels[i*2+1],r.kind,exactText(r.quantity)+(r.quantitySpecification?' '+label(r.quantitySpecification):''),r.quantityState,(r.priceComponents??[]).map(p=>`${exactText(p.price)}${p.price.unit?` ${p.price.unit.currency.code.toUpperCase()} / ${label(p.price.unit.quantity)} (quote multiplier ${p.price.unit.multiplier})`:''} · ${p.state}`).join('; '),exactText(r.amount)+(r.currency?' '+r.currency.code.toUpperCase():''),exactText(r.presentValue)+(r.currency?' '+r.currency.code.toUpperCase():''),r.economicClass,r.coverage,r.valueAt]);
+ const unitOf=(u:{currency:{code:string};quantity:Reference;multiplier:string})=>`${u.multiplier==='1'?'':u.multiplier+' '}${u.currency.code.toUpperCase()} / ${label(u.quantity)}`;
+ return rows.map((r,i)=>[labels[i*2],labels[i*2+1],r.kind,shownExact(r.quantity,'quantity')+(r.quantitySpecification?' '+label(r.quantitySpecification):''),r.quantityState,(r.priceComponents??[]).map(p=>`${shownExact(p.price,'price')}${p.price.unit?' '+unitOf(p.price.unit):''} · ${p.state}`).join('; '),shownExact(r.amount,'money')+(r.currency?' '+r.currency.code.toUpperCase():''),shownExact(r.presentValue,'money')+(r.currency?' '+r.currency.code.toUpperCase():''),r.economicClass,r.coverage,displayInstant(r.valueAt,zone)]);
 }
 export function refusalText(error:{code?:string;message?:string;scope?:unknown;selectedBundle?:unknown;affectedBindings?:unknown}):string{
  return [error.code,error.message,error.scope===undefined?'':`Requested scope: ${JSON.stringify(error.scope)}`,error.selectedBundle===undefined?'':`Selected revisions: ${JSON.stringify(error.selectedBundle)}`,error.affectedBindings===undefined?'':`Affected bindings: ${JSON.stringify(error.affectedBindings)}`].filter(Boolean).join('\n');

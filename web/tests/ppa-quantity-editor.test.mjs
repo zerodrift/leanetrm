@@ -7,7 +7,7 @@ test('reopening an independently composed fee preserves reversed links and sourc
   await evaluate(`(async()=>{
    const {ppaQuantityEditor}=await import('/ppa-quantity-editor.js');
    const row=code=>({code,name:code,clock_code:'clock',interval_minutes:'60'});
-   const catalog={references:{quantityGroups:{contract:[row('mw')],energy:[row('mwh')]},calendars:[row('calendar')]},authoringPolicies:{quantityStages:['generated'],hourMemberships:['all']},definitionsMetadata:{volumeSources:[row('source-a'),row('source-b')],generationAssets:[row('asset-a'),row('asset-b')]},touVersions:[]};
+   const catalog={references:{quantityGroups:{contract:[{...row('mw'),unit_code:'megawatt'}],energy:[{...row('mwh'),unit_code:'megawatt_hour'}]},units:[{code:'megawatt',symbol:'MW'},{code:'megawatt_hour',symbol:'MWh'}],calendars:[row('calendar')]},authoringPolicies:{quantityStages:['generated'],hourMemberships:['all']},definitionsMetadata:{volumeSources:[row('source-a'),row('source-b')],generationAssets:[row('asset-a'),row('asset-b')]},touVersions:[]};
    window.links=[];window.initial={kind:'slots',slots:[{role:'energy_delivery',ordinal:1},{role:'energy_delivery',ordinal:0}],sources:[],stage:null,capacity:null,energy:null,hours:null,assets:[]};
    window.editor=ppaQuantityEditor(document.querySelector('#side'),catalog,{role:'fixed_charge',quantityKinds:['volume','profile','accredited','slots'],linkRoles:['energy_delivery']},'fee',()=>({clock:'clock',cadence:'60'}),()=>links,initial);
    links=[{role:'energy_delivery',ordinal:0},{role:'energy_delivery',ordinal:1}];editor.sync();

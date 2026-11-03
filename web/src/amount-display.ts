@@ -14,14 +14,19 @@ const rendered=new Map<string,string>();let precision=initialDisplayPrecision();
 export function selectDisplayPrecision(value:DisplayPrecision){precision=displayPrecision(value);rendered.clear();}
 const key=(value:string,kind:Kind,tick?:string,policy=precision)=>JSON.stringify([value,policy[kind],tick??null,kind!=='money']);
 export function amountText(value:string,kind:Kind,tick?:string,policy=precision){return rendered.get(key(value,kind,tick,policy))??value;}
-const money=new Set(['tradeCashAmount','tradePresentValue','presentValue','instrumentPresentValue','cashAmount','contribution','cashContribution','executionPnl','upPnl','downPnl','basePv','upPv','downPv','change','base']);
+const money=new Set(['valueExcludingOverdue','completePv','overdueKnownBalance','overdueEstimated','amount','tradeCashAmount','tradePresentValue','presentValue','instrumentPresentValue','cashAmount','contribution','cashContribution','executionPnl','upPnl','downPnl','basePv','upPv','downPv','change','base']);
 const prices=new Set(['price','fixedPrice','executionPrice','mark','markMinusPrice','value','annualRate',...priceMeasureChoices.map(c=>c[0])]);
 const quantities=new Set(['resolvedQuantity','quantity','physicalQuantity','totalQuantity','weight']);
 const factors=new Set(['discountFactor','factor','multiplier','delta','gamma']);
 /** The part of an API read whose amounts a page shows, by the read's path; undefined for a read whose amounts no page shows. A workspace
  *  read's report and its desk summaries are both shown, its catalog is not; a curve's points are, and so is a risk report or retained job. */
+// An exact amount a read states as {numerator,denominator}, as the rational text the backend formats; null for anything else.
+export function rationalText(value:unknown):string|null{
+ const v=value as {numerator?:unknown;denominator?:unknown};
+ return v&&typeof v==='object'&&typeof v.numerator==='string'&&typeof v.denominator==='string'?(v.denominator==='1'?v.numerator:`${v.numerator}/${v.denominator}`):null;
+}
 export function shownAmounts(path:string,payload:unknown):unknown{
- if(!/^(trading\/(blotter|workspace|position)|swaps\/(preview|editor)|futures\/(holdings|editor|amend-preview)|crude\/(preview|editor)|evaluate|history|power\/preview|portfolio\/risk(\/jobs\/[^/]+)?)$/.test(path))return undefined;
+ if(!/^(trading\/(blotter|workspace|position)|swaps\/(preview|editor)|futures\/(holdings|editor|amend-preview)|crude\/(preview|editor)|ppa\/(preview|inspect|break-even)|evaluate|history|power\/preview|portfolio\/risk(\/jobs\/[^/]+)?)$/.test(path))return undefined;
  const read=payload as {blotter?:unknown;summaries?:unknown;points?:unknown};
  return path==='trading/workspace'?{blotter:read.blotter,summaries:read.summaries}:path==='evaluate'||path==='history'?{points:read.points}:payload;
 }
@@ -33,9 +38,10 @@ export async function prepareAmountDisplay(payload:unknown,format:(body:Request[
   const row=value as Record<string,unknown>,priceTick=typeof row.priceTick==='string'?row.priceTick:tick,policy=row.amountFormat?displayPrecision(row.amountFormat):inherited;
   for(const [field,raw] of Object.entries(row)){
    const kind:Kind|undefined=money.has(field)?'money':prices.has(field)?'price':quantities.has(field)?'quantity':factors.has(field)?'factor':undefined;
-   if(kind&&typeof raw==='string'&&exactNumber(raw)){
-    const selectedTick=kind==='price'?(['mark','markMinusPrice'].includes(field)&&typeof row.markTick==='string'?row.markTick:priceTick):undefined,selectedPolicy=field==='fixedPrice'&&row.fixedAmountFormat?displayPrecision(row.fixedAmountFormat):policy,k=key(raw,kind,selectedTick,selectedPolicy);
-    if(!rendered.has(k))requests.set(k,{value:raw,decimalPlaces:selectedPolicy[kind],tick:selectedTick??null,trimTrailingZeros:kind!=='money'});
+   const text=typeof raw==='string'?raw:rationalText(raw);
+   if(kind&&text!==null&&exactNumber(text)){
+    const selectedTick=kind==='price'?(['mark','markMinusPrice'].includes(field)&&typeof row.markTick==='string'?row.markTick:priceTick):undefined,selectedPolicy=field==='fixedPrice'&&row.fixedAmountFormat?displayPrecision(row.fixedAmountFormat):policy,k=key(text,kind,selectedTick,selectedPolicy);
+    if(!rendered.has(k))requests.set(k,{value:text,decimalPlaces:selectedPolicy[kind],tick:selectedTick??null,trimTrailingZeros:kind!=='money'});
    }else visit(raw,priceTick,policy);
   }
  }

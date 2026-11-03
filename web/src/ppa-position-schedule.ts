@@ -1,8 +1,8 @@
-import {ppaSideLabel} from './ppa-side-label.js';
+import {ppaSideName} from './ppa-side-label.js';
 import type {Preview,Terms} from './ppa-contract.js';
 import type {Holding} from './desk-model.js';
-import {publicText} from './market-view.js';
-import {exactText,inspectionRows,refusalText,type InspectionRow} from './ppa-view.js';
+import {displayInstant,publicText} from './market-view.js';
+import {shownExact,inspectionRows,refusalText,type InspectionRow} from './ppa-view.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Row=InspectionRow&{discount?:{factor:string;source:string}|null};
@@ -36,7 +36,7 @@ export function mountPpaPositionSchedule(host:HTMLElement,api:Api,context:Record
  function selected(){
   generation++;detail.replaceChildren();pager.hidden=true;offset=0;more=false;
   const selected=binding()?.sides.find(s=>s.sideId===side.value),periods=selected?.measures.periods.filter(p=>p.month===month.value)??[];
-  table(monthly,'Selected month',['Delivery month','Quantity','Value date','Amount','PV','Economic class','Price coverage'],periods.map(p=>[p.month,`${exactText(p.quantity)} [${p.quantitySpecification.code}]`,p.valueAt,exactText(p.amount),exactText(p.presentValue),p.economicClass,p.coverage]),[1,3,4]);sync();
+  table(monthly,'Selected month',['Delivery month','Quantity','Value date','Amount','PV','Economic class','Price coverage'],periods.map(p=>[p.month.slice(0,7),shownExact(p.quantity,'quantity'),displayInstant(p.valueAt,zone),shownExact(p.amount,'money'),shownExact(p.presentValue,'money'),p.economicClass,p.coverage]),[1,3,4]);sync();
  }
  async function page(start:number){
   if(!side.value||!month.value||reading)return;reading=true;sync();const at=++generation;note.textContent='Loading selected month…';
@@ -58,8 +58,8 @@ export function mountPpaPositionSchedule(host:HTMLElement,api:Api,context:Record
    const value=await api<Preview>('ppa/preview',request([]));if(!alive)return;
    if(!Array.isArray(value.bindings))throw Error(refusalText(value as unknown as {code?:string;message?:string}));result=value;
    const held=binding();if(!held||held.instrumentId!==h.contractId)throw Error('The PPA position changed. Refresh the Blotter.');
-   table(totals,`Side totals · ${value.currency.code.toUpperCase()}`,['Side','Coefficient','Value excluding overdue cash','Complete PV'],held.sides.map(s=>[`${ppaSideLabel(s.role)} ${s.ordinal+1}`,s.coefficient,exactText(s.measures.valueExcludingOverdue),exactText(s.measures.completePv)]),[1,2,3]);
-   side.replaceChildren(new Option('Choose a side…',''),...held.sides.map(s=>new Option(`${ppaSideLabel(s.role)} ${s.ordinal+1}`,s.sideId)));
+   table(totals,`Side totals · ${value.currency.code.toUpperCase()}`,['Side','Coefficient','Value excluding overdue cash','Complete PV'],held.sides.map(s=>[ppaSideName(s.role,s.ordinal),s.coefficient,shownExact(s.measures.valueExcludingOverdue,'money'),shownExact(s.measures.completePv,'money')]),[1,2,3]);
+   side.replaceChildren(new Option('Choose a side…',''),...held.sides.map(s=>new Option(ppaSideName(s.role,s.ordinal),s.sideId)));
    const months=[...new Set(held.sides.flatMap(s=>s.measures.periods.map(p=>p.month)))].sort();
    month.replaceChildren(new Option('Choose a month…',''),...months.map(m=>new Option(m.slice(0,7),m)));controls.hidden=false;
    note.textContent=`Side values in ${value.currency.code.toUpperCase()}, under this Blotter's close and knowledge cutoff. Choose one side and month for bounded interval detail.`;sync();

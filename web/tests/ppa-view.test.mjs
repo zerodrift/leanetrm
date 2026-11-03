@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {prepareAmountDisplay,selectDisplayPrecision,initialDisplayPrecision} from '../dist/amount-display.js';
 import {exactText,measureRows,inspectionRows,refusalText,ReviewedPpaCommand,componentQuantity,quantityLabel,labelText} from '../dist/ppa-view.js';
 const q=(numerator,denominator='1')=>({numerator,denominator});
 test('PPA measures preserve exact fractions and unavailable PV beside holdings and overdue amounts',()=>{
@@ -40,7 +41,7 @@ test('amendment retains each independent quantity source and stage until explici
 
 test('inspection resolves physical unit labels only within the exact reference revision',()=>{
  const catalog={reference:{catalogId:'c',revisionId:'r'},references:{quantitySpecs:[{code:'energy',unit_code:'mwh'}],units:[{code:'mwh',symbol:'MWh'}]}};
- assert.equal(quantityLabel({revision:{catalogId:'c',revisionId:'r'},code:'energy'},catalog),'MWh [energy]');
+ assert.equal(quantityLabel({revision:{catalogId:'c',revisionId:'r'},code:'energy'},catalog),'MWh');
  assert.throws(()=>quantityLabel({revision:{catalogId:'c',revisionId:'other'},code:'energy'},catalog),/revision/);
  assert.throws(()=>quantityLabel({revision:{catalogId:'c',revisionId:'r'},code:'missing'},catalog),/unit/);
 });
@@ -50,4 +51,12 @@ test('a field is named by its label\'s own words, never by the choices of the co
  assert.equal(labelText(pending),'Pending delivered actuals');
  assert.equal(labelText(node('LABEL',text('Termination boundary · '),node('SPAN',text('America/Chicago')),node('INPUT'))),'Termination boundary · America/Chicago','words in the label beside the control are kept');
  assert.equal(labelText(node('LABEL',text('  Memo  '),node('TEXTAREA',text('draft')))),'Memo');
+});
+test('PPA measures and inspected rows show prepared amounts at the display precision, and value dates in the user zone',async()=>{
+ selectDisplayPrecision(initialDisplayPrecision());
+ const pv=q('28407490050852804298252338129','200000000000000000000000'),row={interval:{start:'2027-01-01T05:00:00Z',end:'2027-01-01T06:00:00Z'},quantity:q('1895','2'),amount:q('85275','2'),presentValue:q('42000'),kind:'Payment',quantityState:'Projected',economicClass:'Unrealised',coverage:'Discounted',valueAt:'2027-02-22T17:00:00Z',priceComponents:[{price:q('45'),state:'Fixed'}]};
+ await prepareAmountDisplay({valueExcludingOverdue:pv,rows:[row]},async body=>body.map(r=>({'28407490050852804298252338129/200000000000000000000000':'142,037.450','1895/2':'947.5','85275/2':'42,637.500','42000':'42,000.000','45':'45'})[r.value]));
+ assert.equal(measureRows({valueExcludingOverdue:pv,completePv:pv,unavailableReason:null,overdueKnownBalance:q('0'),overdueEstimated:q('0')})[0][1],'142,037.450');
+ const shown=inspectionRows([row],'America/New_York');
+ assert.deepEqual([shown[0][3],shown[0][5],shown[0][6],shown[0][7],shown[0][10]],['947.5','45 · Fixed','42,637.500','42,000.000','Feb 22, 2027, 12:00 PM']);
 });
