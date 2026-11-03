@@ -21,14 +21,18 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('#risk-history-minimum','1000');await click('#risk-history-run');await wait(idle,60000);await click('#risk-parametric-run');await wait(idle,60000);
  await check('unavailable statistical coverage retains diagnostics without successful risk cards or graphics',"document.querySelector('#risk-workspace-results').textContent.includes('Parametric risk unavailable')&&!document.querySelector('#risk-workspace-results .parametric-stat')&&!document.querySelector('#risk-workspace-results canvas')");
  await set('#risk-history-minimum','200');await click('#risk-history-run');await wait(idle,60000);
- await evaluate('window.__loseStatResponse=true');await click('#risk-parametric-queue');await wait(idle,60000);
- await check('a lost queue response retains one original statistical command for reconciliation',"window.__statCommands.length===1&&Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.risk.workspace.submission.')&&sessionStorage.getItem(k).includes('dated_factor_delta_normal_v1'))&&document.querySelector('#workspace-risk-job-status').textContent.includes('unknown')");
- await command('Page.reload');await wait(idle);await click('#nav-risk');await wait(idle,60000);
- await wait("document.querySelector('#workspace-risk-job-status').textContent.includes('Completed')&&document.querySelectorAll('#risk-workspace-results .risk-result-chart').length===5&&document.querySelectorAll('#risk-workspace-results canvas').length>=5&&"+idle,60000);
- await check('reload reconciles the committed command and restores the captured statistical report',"document.querySelector('#workspace-risk-job-status').textContent.includes('Completed')&&document.querySelectorAll('#risk-workspace-results .risk-result-chart').length===5&&document.querySelectorAll('#risk-workspace-results canvas').length>=5",undefined,60000);
+ // Exercise submitted-policy adoption while the original request is still on this page.
+ // Reload can reopen a fully reconciled job as a retained-only read instead.
+ await click('#risk-parametric-queue');await wait("document.querySelector('#workspace-risk-job-status').textContent.includes('Completed')&&document.querySelectorAll('#risk-workspace-results .risk-result-chart').length===5&&"+idle,60000);
  await evaluate('window.__wrongKnownJob=true');await click('#workspace-risk-job-refresh');await wait(idle,60000);
  await check('a known queued result must match its original submitted statistical policy before adoption',"!document.querySelector('#risk-workspace-results .parametric-stat')&&document.querySelector('#risk-workspace-results').textContent.includes('inconsistent captured inputs')");
  await click('#workspace-risk-job-refresh');await wait(idle,60000);
+ const previousCommands=await evaluate('window.__statCommands.length');
+ await evaluate('window.__loseStatResponse=true');await click('#risk-parametric-queue');await wait(idle,60000);
+ await check('a lost queue response retains one original statistical command for reconciliation',`window.__statCommands.length===${previousCommands+1}&&Object.keys(sessionStorage).some(k=>k.startsWith('openetrm.risk.workspace.submission.')&&sessionStorage.getItem(k).includes('dated_factor_delta_normal_v1'))&&document.querySelector('#workspace-risk-job-status').textContent.includes('unknown')`);
+ await command('Page.reload');await wait(idle);await click('#nav-risk');await wait(idle,60000);
+ await wait("document.querySelector('#workspace-risk-job-status').textContent.includes('Completed')&&document.querySelectorAll('#risk-workspace-results .risk-result-chart').length===5&&document.querySelectorAll('#risk-workspace-results canvas').length>=5&&"+idle,60000);
+ await check('reload reconciles the committed command and restores the captured statistical report',"document.querySelector('#workspace-risk-job-status').textContent.includes('Completed')&&document.querySelectorAll('#risk-workspace-results .risk-result-chart').length===5&&document.querySelectorAll('#risk-workspace-results canvas').length>=5",undefined,60000);
  await click('#risk-jobs-refresh');await wait(idle);
  await check('completed statistical reports are discoverable in the paged archive',"document.querySelector('#risk-parametric-archive')?.textContent.includes('0.99')&&document.querySelector('#risk-parametric-archive button[data-risk-job]')");
  await set('#risk-workspace-trade-mode','all');await wait(idle);await check('changing the parent trade scope clears the captured statistical setup',"document.querySelector('#risk-parametric-form').hidden&&document.querySelector('#risk-history-export').disabled");
