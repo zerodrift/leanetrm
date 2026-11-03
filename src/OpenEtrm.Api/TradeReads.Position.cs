@@ -82,7 +82,8 @@ public sealed partial class TradeReads
                 throw new MarketDataException("position_revision","The selected context does not contain the requested crude revision.");
             return new{head=position.Head,physical=position.Physical,profileName=CrudeProfileName(position)};
         },ct);
-    static string CrudeProfileName(CrudePosition position)=>PhysicalCrudeStore.ProfileName(position.Head.GetProperty("request").GetProperty("profile").GetString());
+    static string CrudeProfileName(CrudePosition position)=>PhysicalCrudeStore.ProfileName(
+        position.Head.TryGetProperty("request",out var request)&&request.TryGetProperty("profile",out var profile)?profile.GetString():null);
     public Task<object> GasTrade(NpgsqlConnection connection,TradingView view,TradePositionReadRequest request,CancellationToken ct)
     {
         var selected=TradePositionSelection.From(request);

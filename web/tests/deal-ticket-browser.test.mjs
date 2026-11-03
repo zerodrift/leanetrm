@@ -358,3 +358,44 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
   await evaluate('ticket.destroy()');
  });
 });
+
+// A local date-time is booked only as the instant it resolved to: while its resolution is out, or after the clock refused it, the earlier
+// instant is not booked in its place; and an earlier entry's late answer never replaces a later one's.
+test('a local time still resolving or refused blocks booking, and a late answer for an earlier entry is ignored',{skip:!browserAvailable,timeout:30000},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {setupTicket}=await import('/ticket-controller.js');
+   const f=(id,over={})=>({id,label:id,meaning:'',type:'text',unit:null,state:'editable',required:false,band:null,choices:null,dependsOn:[],lookup:null,soon:null,rule:null,...over});
+   const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[f('pay',{type:'datetime'})],sideLimits:[],levels:['month'],modes:['new'],tabs:[],tradeColumns:[],sides:[]};
+   window.inspections=[];window.bookings=[];window.previewed=[];
+   const api=async(path,body)=>{
+    if(path==='tickets/description')return d;
+    if(path==='time/inspect')return new Promise(resolve=>inspections.push({resolve,body}));
+    if(path==='tickets/preview'){previewed.push(body.draft);return {schedule:null,summaries:[],scheduleRefusal:{code:'schedule_view',message:'Not drawn here.'},quantityUnit:'MMBtu',links:[]};}
+    if(path==='tickets/book'){bookings.push(body);return new Promise(()=>{});}
+    throw Error('Unexpected '+path);
+   };
+   window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:'synthetic_flow',instant:at=>at,zone:()=>'America/Chicago',actor:()=>'local-time',booked:()=>{}});
+   window.until=async test=>{for(let i=0;i<300&&!test();i++)await new Promise(r=>setTimeout(r,10));if(!test())throw Error('timed out');};
+   window.enter=value=>{const input=document.querySelector('[data-field=pay] input');input.value=value;input.onchange();};
+   window.pay=()=>JSON.stringify(previewed.at(-1)??null);
+   await until(()=>!!document.querySelector('[data-field=pay] input'));
+   enter('2026-03-07T04:00');await until(()=>inspections.length===1);
+   inspections[0].resolve({candidates:[{instant:'2026-03-07T10:00:00Z'}]});await until(()=>pay().includes('2026-03-07T10:00:00Z'));
+   await new Promise(r=>setTimeout(r,400));
+   enter('2026-03-08T02:30');await until(()=>inspections.length===2);
+   document.querySelector('.ticket-book').click();await new Promise(r=>setTimeout(r,50));
+   window.whilePending=bookings.length;
+   inspections[1].resolve({candidates:[]});await new Promise(r=>setTimeout(r,400));
+   document.querySelector('.ticket-book').click();await new Promise(r=>setTimeout(r,50));
+   window.afterRefusal=bookings.length;
+   enter('2026-03-09T04:00');enter('2026-03-10T04:00');await until(()=>inspections.length===4);
+   inspections[3].resolve({candidates:[{instant:'2026-03-10T09:00:00Z'}]});await until(()=>pay().includes('2026-03-10T09:00:00Z'));
+   inspections[2].resolve({candidates:[{instant:'2026-03-09T09:00:00Z'}]});await new Promise(r=>setTimeout(r,400));
+  })()`);
+  assert.equal(await evaluate('whilePending'),0);
+  assert.equal(await evaluate('afterRefusal'),0);
+  assert.equal(await evaluate("pay().includes('2026-03-10T09:00:00Z')&&!pay().includes('2026-03-09T09:00:00Z')"),true);
+  await evaluate('ticket.destroy()');
+ });
+});

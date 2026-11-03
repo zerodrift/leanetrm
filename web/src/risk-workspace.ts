@@ -36,8 +36,13 @@ export function setupRiskWorkspace(o:Options){
   try{if(command)sessionStorage.setItem(storedKey(),JSON.stringify(command));else sessionStorage.removeItem(storedKey());}
   catch{if(command)get('risk-workspace-note').textContent='This browser could not retain the unconfirmed submission across reload. Keep this page open and reconcile it.';}
  }
- // Risk shows its reports' amounts at the display precision, so its own reads of them prepare that text before they are drawn.
- const reportApi=async<T>(path:string,body?:unknown):Promise<T>=>{const value=await o.api<T>(path,body);if(riskReportRead(path))await prepareAmountDisplay(value,request=>o.api<string[]>('amounts/display',request));return value;};
+ // Risk shows its reports' amounts at the display precision, so its own reads of them prepare that text before they are drawn. A report
+ // whose display text cannot be prepared is still drawn, with its exact amounts: formatting never hides a result.
+ const reportApi=async<T>(path:string,body?:unknown):Promise<T>=>{
+  const value=await o.api<T>(path,body);
+  if(riskReportRead(path))await prepareAmountDisplay(value,request=>o.api<string[]>('amounts/display',request)).catch(()=>undefined);
+  return value;
+ };
  function changed(){
   if(!engine)return;retain();const run=engine.current();
   const idsOfJobs=run?.retained?run.parts.flatMap(p=>p.job?.id?[p.job.id]:[]):[];

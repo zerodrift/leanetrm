@@ -65,6 +65,8 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  let drawnKey='',drawnSchedules:[ScheduleView|null,ScheduleView|null]=[null,null];
  let panel:SchedulePanel={schedule:null,quantityUnit:null,previous:null,summaries:[],links:[],errors:{},status:{kind:'current',text:entry?'Not previewed yet. The ticket previews the trade after each change.':'Reading the booked trade…'}};
  const choices:Record<string,TicketChoice[]>={},choiceErrors:Record<string,string>={},lookupErrors:Record<string,string>={},asked=new Map<string,number>();
+ // Local date-times whose resolution is out or was refused, by field, with the latest entry's number: none may be booked as an earlier instant.
+ const unresolved=new Set<string>(),entered=new Map<string,number>();
  const lifetime=new AbortController(),choiceReads=new Map<string,AbortController>();
  let fieldReads:Promise<void>=Promise.resolve(),lookupRead:AbortController|undefined,previewRead:AbortController|undefined;
  // Field reads share a server session lock. Dispatch one at a time so queued
@@ -204,13 +206,15 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   edit:(side,field,value)=>change(s=>setValue(s,side,field,value),side===null?'all':[...dependents(side,field),...retry()]),
   // A local date-time is resolved in the user's zone by the managed resolver; a time the clock repeats or skips is refused, not guessed.
   editLocal:(side,field,local)=>{
-   const key=keyOf(side,field),zone=o.zone();delete lookupErrors[key];
-   if(!local){on.edit(side,field,'');return;}
+   const key=keyOf(side,field),zone=o.zone(),n=(entered.get(key)??0)+1;entered.set(key,n);delete lookupErrors[key];
+   if(!local){unresolved.delete(key);on.edit(side,field,'');return;}
+   unresolved.add(key);draw();
+   const latest=()=>current()&&zone===o.zone()&&entered.get(key)===n;
    void o.api<{candidates:{instant:string}[]}>('time/inspect',{localTime:local,timeZone:zone}).then(result=>{
-    if(!current()||zone!==o.zone())return;
-    if(result.candidates.length===1){on.edit(side,field,result.candidates[0].instant);return;}
+    if(!latest())return;
+    if(result.candidates.length===1){unresolved.delete(key);on.edit(side,field,result.candidates[0].instant);return;}
     lookupErrors[key]=result.candidates.length===0?`${local} does not occur in ${zone}; the clock skips it.`:`${local} occurs twice in ${zone}; choose a time the clock does not repeat.`;draw();
-   },error=>{if(current()){lookupErrors[key]=reasonOf(error);draw();}});
+   },error=>{if(latest()){lookupErrors[key]=reasonOf(error);draw();}});
   },
   accept:(side,field)=>change(s=>acceptOffer(s,side,field),[]),
   selectSide:code=>{selectedSide=tab=code;draw();},
@@ -221,6 +225,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   removeSide:code=>{
    if(selectedSide===code)selectedSide=null;if(tab===code)tab='instrument';
    for(const read of [choices,choiceErrors,lookupErrors])for(const key of Object.keys(read))if(key.startsWith(`${code}.`))delete read[key];
+   for(const key of [...unresolved])if(key.startsWith(`${code}.`))unresolved.delete(key);
    for(const [key,controller] of choiceReads)if(key.startsWith(`${code}.`)){controller.abort();choiceReads.delete(key);}
    change(s=>removeSide(s,code),'all');
   },
@@ -295,6 +300,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  function retain(){transport!.write(pending.command);}
  async function book(){
   if(!state||blocked())return;
+  if(unresolved.size){say('Book once every local time you entered resolves to one instant.');return;}
   if(settling!==undefined||bookable!==sent()){say('Book once the preview of your latest change is up to date.');return;}
   pending.begin('tickets/book',{context:o.context(),draft:draft()});retain();
   await send();
