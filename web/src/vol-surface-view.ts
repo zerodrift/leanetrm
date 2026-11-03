@@ -227,8 +227,10 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  const views=el('div','vol-views');views.append(heat,readout,surface3d,smiles);
  root.replaceChildren(controls,fitBar,error,views);
 
+ // The generations of the reads under way: only a read of the current product and context stands for the next one.
+ const reading:number[]=[];
  let products:{code:string;name:string}[]=[],product='',shown:SurfaceRead|undefined,drawn:View[]=[],cells:HeatCell[]=[],drawnFor:VolSurfaceResult|undefined,drawnRevision='';
- let generation=0,reading=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='';
+ let generation=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='';
  const expiryLabel=(e:SurfaceExpiry)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',year:'numeric',timeZone:o.zone()}).format(new Date(e.expiryAt));
  const instant=(at:string)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZone:o.zone()}).format(new Date(at));
 
@@ -247,7 +249,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  async function read(number:number){
   const context=o.context(),scope=scopeOf();
   let answer:SurfaceRead;
-  reading++;try{answer=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model});}finally{reading--;}
+  reading.push(number);try{answer=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model});}finally{reading.splice(reading.indexOf(number),1);}
   if(number!==generation)return;
   if(answer.model!==model||answer.snapshotId!==context.snapshotId||(answer.state==='fitted')!==!!answer.surface||answer.surface&&answer.surface.modelId!==model)
    throw Error('The surface read does not match the selected product, model and context. Refresh and try again.');
@@ -298,7 +300,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  // A hidden page stops checking back; shown again, it reads at once unless a read is already under way.
  document.addEventListener('visibilitychange',()=>{
   if(document.hidden){stop();return;}
-  if(!root.hidden&&!reading&&active(shown?.job??null)){const number=generation;void read(number).catch(error=>{if(number===generation)failed(error);});}
+  if(!root.hidden&&!reading.includes(generation)&&active(shown?.job??null)){const number=generation;void read(number).catch(error=>{if(number===generation)failed(error);});}
  });
 
  function render(){
