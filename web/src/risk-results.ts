@@ -1,5 +1,5 @@
 import type {ChartSpec} from './chart-view.js';
-import {sensitivityFactors,type RiskSensitivityReport,type ExcludedPosition} from './risk-report.js';
+import {sensitivityFactors,type RiskFactorResult,type RiskSensitivityReport,type ExcludedPosition} from './risk-report.js';
 import type {RunView,RiskJob} from './risk-view.js';
 import {runExclusions,runGaps,type RunGap} from './risk-lens.js';
 import {sameRiskScope,sameTradeSelection,type RiskScope} from './risk-scope.js';
@@ -12,6 +12,10 @@ export type ReportPresentation={state:'complete'|'incomplete'|'running'|'unavail
  factors:RiskSensitivityReport['factors'];charts:{key:string;spec:ChartSpec}[];joint?:JointReport;parametric?:ParametricView};
 const canonical=(value:unknown):string=>JSON.stringify(value,(_key,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 
+// The book measures a factor moves: a total whose delta, gamma and up and down P&L are all exactly zero is left out of rows and graphics.
+const zero=(exact:string)=>/^-?0+(?:\.0+)?(?:\/\d+)?$/.test(exact);
+export const moved=(v:{delta:string;gamma:string;upPnl:string;downPnl:string})=>![v.delta,v.gamma,v.upPnl,v.downPnl].every(zero);
+export const movedTotals=(f:Pick<RiskFactorResult,'totals'>)=>f.totals.filter(t=>moved(t.values));
 /** Presentation of server values only. Factors overlap; there is deliberately no sum across rows or report parts. */
 export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset:number;limit:number}):ReportPresentation{
  const gaps=runGaps(run),empty={excluded:[],gaps,factors:[],charts:[]};
@@ -40,7 +44,7 @@ export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset
  const drawn=window?factors.slice(window.offset,window.offset+window.limit):factors;
  for(const f of drawn){
   const seen=new Set<string>();
-  for(const total of f.totals){
+  for(const total of movedTotals(f)){
    const v=total.values,unit=metric==='delta'?v.deltaUnit:metric==='gamma'?v.gammaUnit:v.currency;
    const key=canonical([total.measure,v.currencyReference,unit,f.factor.coordinate]);
    const group=groups.get(key)??{unit,measure:total.measureLabel,coordinate:f.factor.coordinate,books:new Map()};groups.set(key,group);

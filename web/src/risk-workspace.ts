@@ -80,6 +80,8 @@ export function setupRiskWorkspace(o:Options){
   if(!await leave())return;
   if(!engine!.unconfirmed()){engine!.reset();selectedJob=undefined;window.history.replaceState(null,'',location.pathname+location.search);}
   editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));await engine!.open();
+  // The run setup sits below the report; bring it to the person who asked for it.
+  editor.scrollIntoView({block:'start',behavior:'smooth'});editor.querySelector<HTMLElement>('summary')?.focus({preventScroll:true});
  }
  async function openJob(id:string,anchor?:RiskJob){
   const version=epoch;if(!await leave()||version!==epoch)return;

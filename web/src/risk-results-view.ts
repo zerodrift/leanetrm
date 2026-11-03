@@ -3,7 +3,7 @@ import {renderJointResults,newJointView} from './joint-risk-results-view.js';
 import {renderParametric,newParametricView} from './parametric-risk-view.js';
 import {renderChart,clearChart} from './chart-view.js';
 import {signOf} from './desk-model.js';
-import {reportPresentation,riskMetricLabels,type RiskMetric} from './risk-results.js';
+import {moved,movedTotals,reportPresentation,riskMetricLabels,type RiskMetric} from './risk-results.js';
 import type {RunView} from './risk-view.js';
 import type {RiskFactorResult,RiskValues} from './risk-report.js';
 import {publicText,displayInstant} from './market-view.js';
@@ -22,9 +22,10 @@ export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:
  function clear(){for(const plot of plots)clearChart(plot);plots.length=0;host.replaceChildren();}
  function detail(target:HTMLElement,factor:RiskFactorResult){
   target.replaceChildren(node('h3',factor.factor.label),node('p',`Independent ±${factor.bump} ${factor.factor.unit} shock · ${factor.factor.coordinate==='market_quote'?'Shared market factor':'Computed output'}`));
-  target.append(table(['Book','Measure','Currency','Base','Up P&L','Down P&L','Delta','Delta unit','Gamma','Gamma unit'],factor.totals.map(t=>[t.book,t.measureLabel,t.values.currency,shown(t.values,'base'),shown(t.values,'upPnl'),shown(t.values,'downPnl'),shown(t.values,'delta'),t.values.deltaUnit,shown(t.values,'gamma'),t.values.gammaUnit])));
-  const positions=node('details'),title=node('summary',`Position and side bindings · ${factor.positions.length}`);positions.append(title);
-  positions.append(table(['Trade','Instrument / side binding','Book','Measure','Base','Up P&L','Down P&L','Delta','Gamma','Currency / sensitivity units'],factor.positions.map(p=>[p.tradeReference,`${p.instrumentReference} · ${p.bindingId}`,p.book,p.measureLabel,shown(p.values,'base'),shown(p.values,'upPnl'),shown(p.values,'downPnl'),shown(p.values,'delta'),shown(p.values,'gamma'),`${p.values.currency} · ${p.values.deltaUnit} · ${p.values.gammaUnit}`])));
+  target.append(table(['Book','Measure','Currency','Base','Up P&L','Down P&L','Delta','Delta unit','Gamma','Gamma unit'],movedTotals(factor).map(t=>[t.book,t.measureLabel,t.values.currency,shown(t.values,'base'),shown(t.values,'upPnl'),shown(t.values,'downPnl'),shown(t.values,'delta'),t.values.deltaUnit,shown(t.values,'gamma'),t.values.gammaUnit])));
+  if(!movedTotals(factor).length)target.append(node('p','This shock moves no book measure.'));
+  const held=factor.positions.filter(p=>moved(p.values)),positions=node('details'),title=node('summary',`Positions this shock moves · ${held.length}`);positions.append(title);
+  positions.append(table(['Trade','Instrument','Book','Measure','Base','Up P&L','Down P&L','Delta','Gamma','Currency / sensitivity units'],held.map(p=>[p.tradeReference,p.instrumentReference,p.book,p.measureLabel,shown(p.values,'base'),shown(p.values,'upPnl'),shown(p.values,'downPnl'),shown(p.values,'delta'),shown(p.values,'gamma'),`${p.values.currency} · ${p.values.deltaUnit} · ${p.values.gammaUnit}`])));
   if(!factor.positions.length)positions.append(node('p','This report retains book totals only. Position detail was not requested.'));
   target.append(positions);
  }
@@ -56,11 +57,13 @@ export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:
   if(view.charts.length>1){const label=node('label','Measure and native unit '),choose=node('select');choose.setAttribute('aria-label','Risk measure and native unit');choose.append(...view.charts.map(c=>new Option(`${c.spec.title} · ${c.spec.unit}`,c.key)));choose.value=groupKey??'';choose.onchange=()=>{groupKey=choose.value;bookPage=0;draw();};label.append(choose);controls.append(label);}
   const charts=node('div');charts.className='risk-report-charts';host.append(charts);
   if(group){const {spec}=group;if(bookPage*16>=spec.series.length)bookPage=0;if(spec.series.length>16)host.append(paging('books in graphic',bookPage,16,spec.series.length,page=>{bookPage=page;}));const plot=node('div');plot.className='chart risk-result-chart';charts.append(plot);plots.push(plot);renderChart(plot,{...spec,series:spec.series.slice(bookPage*16,bookPage*16+16),kind,onSelect:factor=>selectFactor(factor)});}
-  const evidence=node('details');evidence.open=true;evidence.className='risk-result-table';evidence.append(node('summary',`${riskMetricLabels[metric]} data · choose a factor for position detail`));
-  evidence.append(table(['Factor','Shock','Book','Measure','Value','Unit'],view.factors.slice(factorPage*64,factorPage*64+64).flatMap(f=>f.totals.map(t=>()=>{
-   const button=node('button',f.factor.label);button.type='button';button.className='text-button';button.dataset.riskFactor=f.factor.id;button.onclick=()=>selectFactor(f.factor.id);
-   return [button,`±${f.bump} ${f.factor.unit}`,t.book,t.measureLabel,shown(t.values,metric),metric==='delta'?t.values.deltaUnit:metric==='gamma'?t.values.gammaUnit:t.values.currency];
-  }))));host.append(evidence);
+  const evidence=node('details');evidence.open=true;evidence.className='risk-result-table';evidence.append(node('summary',`${riskMetricLabels[metric]} data · choose a factor for position detail · book measures a shock leaves unchanged are not listed`));
+  evidence.append(table(['Factor','Shock','Book','Measure','Value','Unit'],view.factors.slice(factorPage*64,factorPage*64+64).flatMap(f=>{
+   const factorButton=()=>{const button=node('button',f.factor.label);button.type='button';button.className='text-button';button.dataset.riskFactor=f.factor.id;button.onclick=()=>selectFactor(f.factor.id);return button;};
+   const totals=movedTotals(f);
+   if(!totals.length)return [()=>[factorButton(),`±${f.bump} ${f.factor.unit}`,'—','Moves no book measure','','']];
+   return totals.map(t=>()=>[factorButton(),`±${f.bump} ${f.factor.unit}`,t.book,t.measureLabel,shown(t.values,metric),metric==='delta'?t.values.deltaUnit:metric==='gamma'?t.values.gammaUnit:t.values.currency]);
+  })));host.append(evidence);
   const selectedHost=node('section');selectedHost.className='risk-factor-detail';selectedHost.tabIndex=-1;host.append(selectedHost);
   function selectFactor(id:string){const factor=view.factors.find(f=>f.factor.id===id);if(!factor)return;selected=id;detail(selectedHost,factor);selectedHost.focus({preventScroll:true});selectedHost.scrollIntoView({block:'nearest'});}
   const chosen=view.factors.find(f=>f.factor.id===selected)??view.factors[0];selected=chosen.factor.id;detail(selectedHost,chosen);

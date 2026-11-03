@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {reportPresentation,recentCompletedRuns,riskAddress,riskReportAddress} from '../dist/risk-results.js';
+import {reportPresentation,recentCompletedRuns,riskAddress,riskReportAddress,movedTotals} from '../dist/risk-results.js';
 
 const amounts={base:'100',up:'102',down:'98',upPnl:'2',downPnl:'-2',delta:'20/3',gamma:'0'};
 const values=(o={})=>({...amounts,display:{...amounts,delta:'6.666666666667'},currency:'USD',currencyReference:{revision:'r1',code:'usd'},deltaUnit:'USD / gas',gammaUnit:'USD / gas²',...o});
@@ -81,4 +81,13 @@ test('display windows bound graphics without changing report coverage or treatin
  const p=reportPresentation(r,'delta',{offset:64,limit:64});
  assert.equal(p.factors.length,130);assert.equal(p.charts[0].spec.series[0].points.length,64);assert.equal(p.charts[0].spec.series[0].points[0].x,'f64');
  assert.equal(reportPresentation({...r,scope:undefined},'delta').state,'incomplete');
+});
+test('a factor shows the book measures it moves: an unmoved total draws no row or graphic group, and a factor that moves none says so',()=>{
+ const still=values({upPnl:'0',downPnl:'0',delta:'0',gamma:'0',display:{...amounts,upPnl:'0',downPnl:'0',delta:'0',gamma:'0'}});
+ const moved=factor('gas',[total('A'),total('B',still,'crude')]),idle=factor('idle',[total('A',still),total('B',still,'crude')]);
+ assert.deepEqual(movedTotals(moved).map(t=>[t.book,t.measure]),[['A','pv']]);
+ assert.deepEqual(movedTotals(idle),[]);
+ const shown=reportPresentation(run([report([moved,idle])]),'delta');
+ assert.deepEqual(shown.charts.map(c=>c.spec.title),['Delta · pv · Market factors']);
+ assert.deepEqual(shown.charts[0].spec.series.map(s=>s.name),['A']);
 });

@@ -42,7 +42,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('the same report has a graphical heatmap with an accessible table and factor drill-through',
   "!!document.querySelector('#risk-workspace-results [data-chart-kind=heatmap] canvas')&&!!document.querySelector('#risk-workspace-results .risk-result-table table')&&!!document.querySelector('#risk-workspace-results [data-risk-factor]')");
  await click('#risk-workspace-results [data-risk-factor]');
- await check('a factor exposes book totals and its retained instrument-side bindings',"document.querySelector('#risk-workspace-results .risk-factor-detail').textContent.includes('Position and side bindings')&&document.querySelector('#risk-workspace-results .risk-factor-detail table')");
+ await check('a factor exposes book totals and the positions its shock moves',"document.querySelector('#risk-workspace-results .risk-factor-detail').textContent.includes('Positions this shock moves')&&document.querySelector('#risk-workspace-results .risk-factor-detail table')");
  await shot('risk-workspace-heatmap');
 
  await click('#nav-futures');await wait("!document.querySelector('#blotter-risk').disabled&&"+idle,60000);await click('#blotter-risk');await wait("!document.querySelector('#risk-fields').disabled&&"+idle);
