@@ -21,7 +21,7 @@ jobs:
       matrix:
         group: ["workspace", "standard", "assistant", "trading", "portfolio", "settlement", "ppa", "recovery"]
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ matrix.group == 'workspace' && 60 || 45 }}
+    timeout-minutes: 45
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
