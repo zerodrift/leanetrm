@@ -39,6 +39,15 @@ public sealed record HeldRiskTargets(ImmutableArray<string> Contracts,ImmutableA
 // resolved by the same managed plan that prices every instrument.
 internal static class CurveRiskAxes
 {
+    // A delivery period as a factor's name reads it: whole calendar months by month, one day by its date, any other span by its
+    // exclusive end. Names are presentation only; a factor's identity keeps its exact ISO dates.
+    internal static string PeriodLabel(DateOnly from,DateOnly to)
+    {
+        static string Month(DateOnly d)=>d.ToString("MMM yyyy",CultureInfo.InvariantCulture);
+        static string Day(DateOnly d)=>d.ToString("MMM d, yyyy",CultureInfo.InvariantCulture);
+        if(from.Day==1&&to.Day==1&&to>from)return to==from.AddMonths(1)?Month(from):$"{Month(from)} – {Month(to.AddMonths(-1))}";
+        return to==from.AddDays(1)?Day(from):$"{Day(from)} to {Day(to)}, exclusive";
+    }
     // Metadata belongs to the exact prepared object. Weak ownership prevents an
     // index from extending a job's lifetime; prices remain in its graph session.
     private static readonly ConditionalWeakTable<PortfolioValuation.MarketPartition,MarketIndex> MarketIndexes=new();
@@ -159,9 +168,9 @@ internal static class CurveRiskAxes
         };
         var label=target switch
         {
-            ContractCurveTarget=>FormattableString.Invariant($"{name} · {first.DeliveryFrom:yyyy-MM-dd} to {first.DeliveryTo:yyyy-MM-dd}"),
-            PointCurveTarget=>FormattableString.Invariant($"{name} · {first.DeliveryFrom:yyyy-MM-dd} to {first.DeliveryTo:yyyy-MM-dd} · {output}"),
-            DeliveryBucketCurveTarget bucket=>FormattableString.Invariant($"{name} · {bucket.From:yyyy-MM-dd} to {bucket.To:yyyy-MM-dd}"),
+            ContractCurveTarget=>$"{name} · {PeriodLabel(first.DeliveryFrom,first.DeliveryTo)}",
+            PointCurveTarget=>$"{name} · {PeriodLabel(first.DeliveryFrom,first.DeliveryTo)} · {output}",
+            DeliveryBucketCurveTarget bucket=>$"{name} · {PeriodLabel(bucket.From,bucket.To)}",
             _=>first.Expression is ConnectedRecipeProjection?$"{name} · all retained outputs":$"{name} · all retained contracts"
         };
         var sources=selected.Select(p=>p.Expression).OfType<ConnectedSource>().Select(s=>s.Input).Distinct().ToArray();
@@ -223,7 +232,7 @@ internal static class CurveRiskAxes
                     Public(point,CurveShockCoordinate.ComputedOutput)?CurveShockCoordinate.ComputedOutput:null;
                 if(published is not {} coordinate)
                 {
-                    contractGaps.Add(FormattableString.Invariant($"{Name(index,point)} · {point.DeliveryFrom:yyyy-MM-dd} to {point.DeliveryTo:yyyy-MM-dd}"));
+                    contractGaps.Add($"{Name(index,point)} · {PeriodLabel(point.DeliveryFrom,point.DeliveryTo)}");
                     curveGaps.Add(Name(index,point));
                     continue;
                 }

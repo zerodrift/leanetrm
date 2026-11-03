@@ -781,7 +781,7 @@ dialog label{margin-top:16px}
 /* Tabulator's own theme colors group header text; the desk's headers use the shared ink. */
 #desk-positions .tabulator-group span{margin-left:0;color:inherit}
 #desk-positions .tabulator-group span.desk-group-count{font-weight:500;color:var(--text-2)}
-#desk-positions .tabulator-group span.desk-group-totals{display:inline-flex;flex-wrap:wrap;gap:2px 14px;margin-left:auto;font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums}
+#desk-positions .tabulator-group span.desk-group-totals{display:inline-flex;flex-wrap:wrap;gap:2px 14px;margin-left:8px;font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums}
 .desk-group-totals b{font-weight:650}
 .desk-group:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 #desk-positions .tabulator-row .tabulator-cell{vertical-align:middle}
@@ -840,7 +840,7 @@ dialog label{margin-top:16px}
 .side-risk-shock h3{overflow-wrap:anywhere}.side-risk-shock .field-help{margin:0}
 .side-risk-shock .side-panel-facts{grid-template-columns:repeat(2,minmax(0,1fr))}
 .side-risk-shock b[data-sign=positive]{color:var(--gain-ink)}.side-risk-shock b[data-sign=negative]{color:var(--loss-ink)}
-@media(max-width:760px){.table-workspace-filters{flex-basis:100%}.table-workspace-filters .table-filters{justify-content:flex-start}#desk-positions .tabulator-group span.desk-group-totals{margin-left:8px}
+@media(max-width:760px){.table-workspace-filters{flex-basis:100%}.table-workspace-filters .table-filters{justify-content:flex-start}
   .desk-run{flex-wrap:wrap;align-items:flex-start}.desk-run-mark{display:none}.desk-run-actions{flex-basis:100%}}
 
 /* Side panel (blotter-desk.md, Side panel). Docked, it is a column beside the charts and the positions that keeps in view as they
@@ -2161,6 +2161,8 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .risk-result-table{margin:16px 0}.risk-factor-detail{margin-top:24px;outline:none}
 /* A risk table's last column names units; it wraps so the amounts stay in view. */
 :is(.risk-result-table,.risk-factor-detail) td:last-child{white-space:normal;min-width:140px}
+/* A factor's name wraps within its column so the book, measure and value columns stay in view. */
+.risk-result-table td:first-child [data-risk-factor]{white-space:normal;text-align:left;max-width:22rem}
 .risk-report-paging{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0;font-size:12px;color:var(--text-3)}
 .risk-report-library>summary,.risk-full-report>summary,#risk-workspace-editor>summary{font-weight:600;cursor:pointer;padding:4px 0}
 .risk-report-library .card-heading{margin-top:12px}.risk-full-report{margin:10px 0}

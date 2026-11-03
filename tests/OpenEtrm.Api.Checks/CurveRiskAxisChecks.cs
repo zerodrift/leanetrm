@@ -13,6 +13,11 @@ internal static class CurveRiskAxisChecks
     public static void Run(PreviewData data,InputFrame frame)
     {
         var snapshot=data.Snapshot(frame);var factor=data.Model.QuoteFactors(snapshot).First();
+        foreach(var (from,to,expected) in new[]{((2026,11,1),(2026,12,1),"Nov 2026"),((2026,11,1),(2027,2,1),"Nov 2026 – Jan 2027"),((2021,1,1),(2021,1,2),"Jan 1, 2021"),((2021,1,1),(2021,1,15),"Jan 1, 2021 to Jan 15, 2021, exclusive")})
+        {
+            var label=CurveRiskAxes.PeriodLabel(new(from.Item1,from.Item2,from.Item3),new(to.Item1,to.Item2,to.Item3));
+            if(label!=expected)throw new Exception($"A factor's delivery period reads as calendar dates: expected {expected}, got {label}.");
+        }
         var request=new CurveRequest(factor.Curves[0],factor.Contract);
         var previousCulture=CultureInfo.CurrentCulture;
         try
