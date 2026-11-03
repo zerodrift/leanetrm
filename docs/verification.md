@@ -3515,6 +3515,11 @@ and 85 Python checks pass on this integration. The fixed assistant browser suite
 passes all 288 checks, and the guided parametric SQL/worker suite and its 16
 browser checks pass.
 
+The exchange preview explicitly provisions its separate workspace policies before
+agent admission. Its scoped-policy check and full exchange/options HTTP,
+lifecycle, retained risk and 35 browser checks pass; missing configuration still
+refuses at runtime.
+
 Independent adversarial source review found no remaining material defect after
 these fixes. This is local implementation qualification. An attested Docker run
 with the selected prior image, paired configuration rollback and authenticated

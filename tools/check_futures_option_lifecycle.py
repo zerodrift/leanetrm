@@ -176,6 +176,11 @@ def check_agent_catalog(url, query, manifest, fake):
     frame = next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2026-10-16'))
     stamp = uuid4().hex[:8]
     c.call('profile', {'profile': 'admin'})
+    policies=c.call('settings/operating-policies')['policies']
+    assert {p['kind'] for p in policies}=={'assistant','access'} and all(
+        p['current']['version']==1 and p['current']['origin']=='carried_forward' for p in policies)
+    assert query(f"SELECT count(*) FROM security.operating_policy_versions WHERE tenant_id='{manifest['tenantId']}' AND workspace_id='{manifest['workspaceId']}';")=='2'
+    print('PASS the exchange workspace has its own explicitly provisioned assistant and access policies before agent admission',flush=True)
     administrator = query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://exchange-preview.invalid' AND subject='admin';")
     fixture = Fixture(c, query, manifest, administrator, stamp, 'option catalog')
     fixture.qualify()

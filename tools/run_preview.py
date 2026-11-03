@@ -452,6 +452,7 @@ def main():
             from exchange_fixture import fixture as exchange_fixture
             er,em,es,et,exchange_manifest=exchange_fixture(ROOT)
             query(er);query(em);query(es);query(et)
+            query(f"SELECT security.initialize_operating_policies('{exchange_manifest['tenantId']}','{exchange_manifest['workspaceId']}');")
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
             if args.exchange_check:
                 from check_futures_option_storage import run_checks as check_futures_option_storage
