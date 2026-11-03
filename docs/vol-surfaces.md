@@ -1,8 +1,8 @@
 # Volatility surfaces
 
 Status: local implementation, verified as recorded in
-[verification](verification.md#volatility-surfaces-d300). This is not a production
-activation record. The decision is [D300](decisions.md).
+[verification](verification.md#volatility-surfaces-d301). This is not a production
+activation record. The decision is [D301](decisions.md).
 
 A volatility surface shows, for one listed futures option product on one settlement
 date, the implied volatility of every series, a fitted smile per expiry, and how far
@@ -50,8 +50,7 @@ decimals, rounding half to even.
 An option trade's Details in the Blotter and the option ticket, once a series is
 chosen, link to **Volatility surface**. The link opens the page on that option's
 product through the same page change as the sidebar: it reads at the applied
-context, a changed but unapplied context is applied first, and unsaved ticket
-entries are asked about first. The Blotter's own window
+context, and unsaved ticket entries are asked about first. The Blotter's own window
 and a trade's own window offer no link, since the page lives in the main window.
 
 ## The vol model
@@ -106,12 +105,14 @@ positive value is rich and a negative one cheap.
 The exchange example's settlements come from a synthetic smile in log-moneyness and
 time to expiry, with fixed synthetic offsets on eight out-of-the-money series so that
 both products show rich and cheap points. Each product lists five expiries of seven
-strikes, each as a call and a put. None of these values is a market level.
+strikes, each as a call and a put: 70 series for LO, and 71 for ON, which also keeps
+its existing deep in-the-money call that settles at intrinsic. None of these values
+is a market level.
 
 ## Stored revisions
 
 A surface is stored as an immutable, bitemporal revision (migration
-`0172_vol_surfaces.sql`):
+`0180_vol_surfaces.sql`):
 
 - **Business key.** The exact product version (reference catalog, reference revision
   and code, by foreign key), the settlement business date and the vol model.
@@ -148,7 +149,7 @@ that context (`inputsRevised`); the read never refits.
 
 A fit is a background job of kind `vol_surface_fit_v1` on the retained risk-job
 queue (`risk.jobs`), next to portfolio risk, under the same lease, attempt,
-cancellation and security-generation rules (migration `0173_vol_surface_jobs.sql`).
+cancellation and security-generation rules (migration `0181_vol_surface_jobs.sql`).
 There is no separate queue, service or cache.
 
 - **`POST /api/vol-surfaces/fit`** takes `{requestId, snapshotId, product, model}`
@@ -182,8 +183,8 @@ is the trading read context the option operations use (`snapshotId`, convention
 `contextId`). It returns `snapshotId`, `model`, `solverPolicy`, `state` (`fitted` or
 `notFitted`), the `revision` (`id`, `knownFrom`, `actor`, `inputsRevised`), the
 caller's newest fit `job` for the key (`id`, `state`, `errorCode`), `canFit` and the
-`surface`. The business date is the context's own; a different date is refused with
-`vol_surface_context`.
+`surface`. The business date is always the context's own; the database refuses any
+other date with `vol_surface_context`.
 
 ## Permissions
 
@@ -242,9 +243,9 @@ The first build measured 11.7 s for one product with 30 series in a Debug build,
 which missed a 5 s synchronous budget, so fits became jobs. With the example's 70
 and 71 series per product, a Debug `--vol-surface-fit` check took 24.7 to 31.2 s per
 product across runs. A fit job took 18.3 to 22.6 s end to end in the preview, and
-the fit inside the risk worker took 16.5 to 22.2 s across runs. These are local
+the fit inside the risk worker took 15.9 to 20.9 s across runs. These are local
 observations, not a performance qualification; see
-[verification](verification.md#volatility-surfaces-d300).
+[verification](verification.md#volatility-surfaces-d301).
 
 ## Remaining work
 

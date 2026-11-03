@@ -55,7 +55,7 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
  const contract=section('Contract'),selects=Object.fromEntries(optionLevels.map(level=>[level,el('select')])) as Record<OptionLevel,HTMLSelectElement>;
  for(const level of optionLevels)contract.append(row(`option-${level}`,levelLabels[level],selects[level]));
  const expiry=fact('Expiry'),code=fact('Exchange contract'),series=fact('Series'),surface=el('button','secondary','Volatility surface');
- surface.type='button';surface.id='option-ticket-vol-surface';contract.append(expiry.line,code.line,series.line,surface);
+ surface.type='button';surface.id='option-ticket-vol-surface';surface.hidden=true;contract.append(expiry.line,code.line,series.line,surface);
  const execution=section('Execution'),side=el('select'),lots=el('input'),premium=el('input'),paid=el('input'),style=el('select');
  side.append(new Option('Choose…',''),new Option('Buy','buy'),new Option('Sell','sell'));lots.inputMode='numeric';premium.inputMode='decimal';paid.type='date';
  style.append(new Option('Choose…',''),new Option('Paid up front','premium_paid_up_front'));
@@ -141,7 +141,7 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
   catch(error){said.textContent=`The booking status could not be read: ${reason(error)}`;}
   finally{sync();}
  })();
- function reset(){catalog=undefined;pick={...noOptionPick};sending=false;pending.clear();form.reset();annotations.reset();edits.clear();said.textContent='';status.textContent='';sync();}
+ function reset(){catalog=undefined;pick={...noOptionPick};surface.hidden=true;surface.onclick=null;sending=false;pending.clear();form.reset();annotations.reset();edits.clear();said.textContent='';status.textContent='';sync();}
  return {root,reset,
   async begin(){
    reset();

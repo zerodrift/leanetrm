@@ -231,11 +231,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await wait("document.querySelector('#option-exchange').options.length>1&&"+idle);
  await set('#option-exchange','nymex');await pick(chosen);
  const ticketRead=(await evaluate("window.optionCalls.filter(c=>c.path==='catalog').at(-1)")).body;
+ // The person types the lots, which is an edit of the ticket that leaving would discard.
+ await evaluate("document.querySelector('#option-lots').focus()");await command('Input.insertText',{text:'1'});
  await evaluate("window.surfaceReads=[]");await click('#option-ticket-vol-surface');
  // Leaving the ticket's entries is the person's word, asked as any page change asks it.
  const discard="[...document.querySelectorAll('button')].find(b=>b.textContent==='Discard changes'&&b.getClientRects().length)";
  await wait(`!!${discard}||document.querySelector('#page-title').textContent==='Vol surfaces'`,30000);
- if(await evaluate(`!!${discard}`))await evaluate(`${discard}.click()`);
+ await check('leaving the ticket with typed entries asks first whether to discard them',`!!${discard}&&document.querySelector('#page-title').textContent!=='Vol surfaces'`);
+ await evaluate(`${discard}.click()`);
  await surfaceOpened('the ticket\'s Volatility surface opens Vol surfaces on the chosen series\' product at the ticket\'s context',chosen.product,ticketRead);
  await click('#nav-futures');await wait("document.querySelector('#page-title').textContent==='Blotter'&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&"+idle,60000);
  await find(receipt.tradeId);await details(row);

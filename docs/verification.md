@@ -1,16 +1,20 @@
 # Local verification and continuous integration
 
-## Volatility surfaces (D300)
+## Volatility surfaces (D301)
 
-Local runs on 2 November 2026 against the branch head, each in its own disposable
-PostgreSQL cluster with synthetic data. The capability is described in
+Local runs on 2 November 2026 against the branch head after the master merge that
+added physical LNG cargo booking (vol-surface migrations renumbered after 0179), each
+in its own disposable PostgreSQL cluster with synthetic data. The capability is described in
 [volatility surfaces](vol-surfaces.md).
 
 | Run | Result |
 | --- | --- |
 | MarketData checks `--vol-surface` | 16 PASS |
-| `npm test --prefix web` | 1,202 pass |
-| `run_preview.py --exchange-check --browser-check` | exit 0, 318 PASS, including 29 futures-option and 46 Vol surfaces browser checks |
+| `npm test --prefix web` | 1,236 pass |
+| `python3 -m unittest tests.test_migration_identity tests.test_release_deployment` | 33 OK |
+| `run_preview.py --exchange-check --browser-check` | exit 0, 320 PASS, including 30 futures-option and 46 Vol surfaces browser checks |
+| `run_preview.py --risk-jobs-check` | exit 0, 186 PASS |
+| `run_preview.py --connected-portfolio-check` | exit 0, 41 PASS |
 
 The managed checks are independent of the fit's algorithm: a smile generated from
 known parameters is recovered, rich/cheap equals an offset deliberately added to one
@@ -24,19 +28,21 @@ records a new revision while the old cutoff still reads the old one, a historica
 context cannot fit, and a fenced attempt records nothing. The browser checks cover the
 page's views, linking, fit states, hidden-page reads and historical view, and the
 Volatility surface links from the option ticket and an option trade's Details, each
-opening the page on the option's product at the context the option was read at.
+opening the page on the option's product at the context the option was read at;
+leaving a ticket with typed entries asks first whether to discard them.
 
 Measured fit runtime with 71 (ON) and 70 (LO) series per product, 70 solved each,
 in a Debug build: the `--vol-surface-fit` check took 27.4 and 28.0 s (ON) and 29.6
-and 31.2 s (LO) in two earlier runs, and 24.7 to 25.0 s (ON) and 25.9 to 26.8 s (LO)
-in this task's three runs. Earlier end-to-end fit jobs in the preview worker took
-18.3 to 22.6 s, with 0.14 to 0.21 s of queue wait; the worker's fit of ON took 16.5 to
-16.8 s in this task's runs. The first build, with about 30 series per product, took
+and 31.2 s (LO) in two earlier runs, and 24.7 to 25.2 s (ON) and 25.9 to 26.8 s (LO)
+in this task's four runs. Earlier end-to-end fit jobs in the preview worker took
+18.3 to 22.6 s, with 0.14 to 0.21 s of queue wait. The fit inside the risk worker
+took 15.9 to 20.9 s: 15.9 to 16.8 s for ON in this task's runs and 20.9 s in the
+latest earlier run. The first build, with about 30 series per product, took
 11.7 s per product, which missed the original 5 s synchronous budget.
 
 Environment: macOS 26.6.2 arm64, PostgreSQL 16, .NET 10.0.402 Debug build, Node
 24.22.0, Chrome, all components on one machine. These are local workload
-observations, not a performance qualification. Migrations 0172 and 0173 need a
+observations, not a performance qualification. The vol-surface migrations need a
 separately qualified schema release; nothing was deployed.
 
 ## Parametric risk and retained statistical reports

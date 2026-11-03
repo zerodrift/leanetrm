@@ -1,6 +1,8 @@
 # Volatility surface
 
-Status: proposed design. Nothing here is implemented yet.
+Status: implemented locally as [volatility surfaces](../../vol-surfaces.md), decision
+D301 in the [decision record](../../decisions.md). The design below is kept as
+written except where noted; the shipped behaviour is in those documents.
 
 ## Why
 
@@ -118,8 +120,9 @@ From AGENTS.md and the architecture, for this work:
     echoes it.
   - An unknown model or version raises `vol_model_unknown`. Nothing selects a model
     implicitly.
-- **Authorization.** The read needs `ReadMarketData`, the permission the Markets
-  pages use. It goes through one authorized business operation. A later agent tool
+- **Authorization.** The read needs `ReadMarketData` and `ReadTrades`
+  (implementation ruling: stored revisions ride the trading visibility protocol,
+  which requires `ReadTrades`). It goes through one authorized business operation. A later agent tool
   would call that same operation.
 - **Historical context.**
   - The read carries business date and knowledge cutoff, as other market reads do.
@@ -146,7 +149,7 @@ From AGENTS.md and the architecture, for this work:
 - **TDD.** Behaviour checks are written first and are independent of the algorithm.
   For example, a surface generated from known smile parameters is recovered, and
   rich/cheap equals an offset deliberately added to one series.
-- **Decision record.** A decision entry (next free number, currently D291) records the
+- **Decision record.** A decision entry (next free number, D301 after the master merges) records the
   vol-model contract, the first model, and view-only scope. docs/futures-options.md
   "Remaining work" is updated to match what ships.
 
