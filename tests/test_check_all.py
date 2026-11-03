@@ -188,14 +188,15 @@ class CheckAllTests(unittest.TestCase):
         # The longest workflows each take a job of their own so that the
         # slowest single check, not a queue of them, sets the wall-clock time.
         for name, flag in (('recovery', '--close-risk-lease-check'),
-                           ('settlement', '--scheduled-swap-check'),
-                           ('options', '--exchange-check')):
+                           ('settlement', '--scheduled-swap-check')):
             self.assertEqual(len(previews[name]), 1, name)
             self.assertIn(flag, previews[name][0])
-        self.assertEqual(len(previews['standard']), 1)
+        self.assertEqual(len(previews['standard']), 2)
         self.assertEqual(previews['standard'][0][-3:], ('--browser-check', '--browser', '/browser'))
         self.assertFalse(any(flag.endswith('-check') and flag not in ('--check', '--browser-check')
                              for flag in previews['standard'][0]))
+        self.assertEqual(group_of('--exchange-check'), 'standard')
+        self.assertFalse(any('--exchange-check' in command for command in previews['workspace']))
         self.assertEqual(group_of('--close-risk-check'), 'ppa')
         self.assertEqual(group_of('--assistant-check'), 'assistant')
         self.assertEqual(group_of('--risk-jobs-check'), 'assistant')

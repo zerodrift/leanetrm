@@ -1610,3 +1610,14 @@ per-row visibility checks for every combination of reference or schedule rows. T
 migration refuses an unexpected predecessor view or function and keeps owners and
 privileges. Results, refusals and visibility rules are unchanged; no rows are rewritten. See
 [verification](../docs/verification.md#facility-read-plans-2026-11-03-local).
+
+## Migration 0188: volatility-fit admission authority
+
+Native fit submission rechecks publication, trade-read and market-read authority
+before returning a new job, the request's retained outcome or a queued-job reuse.
+Token expiry during an advisory-lock wait refuses with `risk_job_denied`; any
+reuse alias in that transaction rolls back. Existing jobs, permissions and
+request outcomes are retained. The migration changes only the existing definer
+function, preserves its owner and privileges, and requires a qualified schema
+release. The owned stock PostgreSQL regression observes both advisory waits,
+expires the bound token naturally and also checks valid replay and reuse.

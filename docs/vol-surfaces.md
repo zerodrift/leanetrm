@@ -183,6 +183,9 @@ There is no separate queue, service or cache.
   model, the solver policy, the engine version and the actor.
 - The same request identity returns its first job. A queued or running job of the
   same person for the same key and pinned frame is returned instead of a second one.
+  Native admission rechecks all three required authorities before returning,
+  including after an advisory-lock wait. An expired token refuses with
+  `risk_job_denied` and records no reuse alias (migration `0188`).
 - A risk worker claims the job, rechecks the actor's authority, reads the pinned
   inputs, fits, and records the revision in the transaction that completes the job.
   That completion is fenced by the attempt's lease and rechecks the actor's
