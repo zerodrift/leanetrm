@@ -18,7 +18,7 @@ export async function runReferenceOnly(actions){
 
 export async function run(actions){
  const {command,evaluate,wait,set,check,persona,shot,idle,url}=actions;
- const {ticket,card,field,control,choose,current,until,tradeTerms,physicalTerms,cashTerms,addSide}=gasTicket(actions);
+ const {ticket,card,field,control,choose,current,until,tradeTerms,physicalTerms,cashTerms,setInstant,addSide}=gasTicket(actions);
  const listed=(code,id)=>`[...document.querySelectorAll(${q(control(code,id)+' option')})].map(o=>o.value).filter(Boolean)`;
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
  await blotterAt(actions,await decemberClose(evaluate));
@@ -51,7 +51,7 @@ export async function run(actions){
  await cashTerms('cash-1','cash','pay','physical-1','3');
  await addSide('Fee','fee-1');
  for(const [id,value] of [['fee_direction','pay'],['fee_source','physical-1'],['fee_stage','delivery']])await choose('fee-1',id,value);
- await set(control('fee-1','fee_payment_at'),'2021-02-05T00:00:00Z');
+ await setInstant('fee-1','fee_payment_at','2021-02-05T00:00:00Z');
  await until(`!!document.querySelector(${q(field('fee-1','fee_tariff')+' .ticket-chip')})&&`+current());
  await check('a delivery-stage fee is offered its usage tariff by name, and the schedule prices it',
   `document.querySelector(${q(field('fee-1','fee_tariff')+' .ticket-chip')}).textContent.includes('synthetic_gas_usage_a')&&!!document.querySelector(${q(card('fee-1')+' .ticket-summary')})`,

@@ -37,13 +37,20 @@ export function gasTicket({evaluate,wait,set},ticket=newTicket){
  // A payment or fee side charged on a physical side's delivery quantity at a manual price, paid on 5 February.
  const cashTerms=async(code,kind,direction,source,price)=>{
   for(const [id,value] of [['direction',direction],['source',source],['stage','delivery']])await choose(code,`${kind}_${id}`,value);
-  for(const [id,value] of [['price',price],['payment_at','2021-02-05T00:00:00Z']])await set(control(code,`${kind}_${id}`),value);
+  await set(control(code,`${kind}_price`),price);await setInstant(code,`${kind}_payment_at`,'2021-02-05T00:00:00Z');
+ };
+ // A date-time field takes a local time in the zone it names: the one the instant falls on there.
+ const setInstant=async(code,id,instant)=>{
+  const local=await evaluate(`(()=>{const zone=document.querySelector(${q(control(code,id))}).getAttribute('aria-label').split(' · ').pop();
+   const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:zone,hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).formatToParts(new Date(${q(instant)})).map(x=>[x.type,x.value]));
+   return p.year+'-'+p.month+'-'+p.day+'T'+p.hour+':'+p.minute;})()`);
+  await set(control(code,id),local);
  };
  const addSide=async(pill,code)=>{
   await evaluate(`[...document.querySelectorAll(${q(ticket+' .ticket-add-kind')})].find(b=>b.textContent===${q(pill)}).click()`);
   await wait(`!!document.querySelector(${q(card(code))})`);
  };
- return {ticket,card,field,control,choose,first,status,current,row,month,observed,until,tradeTerms,physicalTerms,cashTerms,addSide};
+ return {ticket,card,field,control,choose,first,status,current,row,month,observed,until,tradeTerms,physicalTerms,cashTerms,setInstant,addSide};
 }
 
 /** The 18 December 2020 close of the seeded workspace, which every gas scenario prices at. */

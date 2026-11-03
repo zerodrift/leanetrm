@@ -117,7 +117,7 @@ def run_checks(url, manifest, query, run_worker):
     # its month, which is no contract: Shock every held contract names it instead of shocking a contract in its place, and
     # Parallel shift moves the whole output curve, which moves the swap one for one.
     outputs = [t for t in risk_catalog['scenarioTargets'] if t['coordinate'] == 'computed_output' and t['kind'] == 'points'
-               and t['factor']['target']['curve']['code'] != 'base_forward' and '2021-01-01 to 2021-02-01' in t['label']]
+               and t['factor']['target']['curve']['code'] != 'base_forward' and ' · Jan 2021 · ' in t['label']]
     assert len(outputs) == 1 and risk_catalog['heldContractTargets'] == [] and risk_catalog['heldContractsWithoutTarget'] == [outputs[0]['label']], risk_catalog['heldContractsWithoutTarget']
     shifted = [t for t in risk_catalog['scenarioTargets'] if t['id'] in risk_catalog['heldCurveTargets']]
     assert len(shifted) == 1 == len(risk_catalog['heldCurveTargets']) and shifted[0]['kind'] == 'parallel' and shifted[0]['coordinate'] == 'computed_output' \
