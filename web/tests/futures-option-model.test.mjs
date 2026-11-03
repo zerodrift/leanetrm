@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {noOptionPick,optionChoices,pickOption,keepOffered,lifecycleWrites} from '../dist/futures-option-model.js';
+import {noOptionPick,optionChoices,pickOption,keepOffered,lifecycleWrites,optionTicketStatus} from '../dist/futures-option-model.js';
 
 // A synthetic catalog: two exchanges, two commodities on the first, the series in the backend's order.
 const named=(code,name)=>({code,name});
@@ -91,4 +91,9 @@ test('lifecycle events are offered only from working data at current knowledge, 
 
 test('lifecycle events are not offered while a changed historical context is unapplied, as booking is not',()=>{
  assert.deepEqual(lifecycleWrites({view:'working',canBook:true,reason:null,contextDirty:true,recorded:false}),{enabled:false,reason:'Apply the changed historical context first.'});
+});
+test('a catalog with no listed series says nothing can be booked at this close, rather than leaving every field disabled unexplained',()=>{
+ assert.equal(optionTicketStatus({...catalog,options:[],underlyings:[],canBook:true}),'No options are listed at this close, so none can be booked. Choose another close or publish listed series.');
+ assert.equal(optionTicketStatus({...catalog,canBook:true}),'Pick the listed series, then enter the execution.');
+ assert.equal(optionTicketStatus({...catalog,canBook:false,bookingUnavailableReason:'This account cannot book trades.'}),'This account cannot book trades.');
 });

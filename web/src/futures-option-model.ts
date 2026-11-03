@@ -1,6 +1,6 @@
 import {compareDecimalStrings} from './analytics-model.js';
 import {deliveryLabel} from './market-view.js';
-import {unappliedContext} from './new-trade.js';
+import {bookingAllowed,unappliedContext} from './new-trade.js';
 
 // The option ticket's selection of a listed series (D288): exchange and commodity, then the underlying future, then call or put, then
 // strike. Each list offers only what the catalog lists under the selections above it, in the catalog's order; nothing is chosen for the
@@ -94,4 +94,10 @@ export function lifecycleWrites(state:{view:'working'|'historical'|'live'|'read_
  if(state.view!=='working')return {enabled:false,reason:'Lifecycle events are recorded from working data at current knowledge. Return to working data to record one.'};
  if(!state.canBook)return {enabled:false,reason:state.reason??'Booking is not available in this view, and the backend did not say why.'};
  return {enabled:true,reason:null};
+}
+// What the option ticket says before a series is picked: why it cannot book, including when the close lists no series at all.
+export function optionTicketStatus(catalog:OptionCatalog&{canBook:boolean;bookingUnavailableReason?:string|null}):string{
+ const allowed=bookingAllowed(catalog);
+ if(!allowed.enabled)return allowed.reason;
+ return catalog.options.length?'Pick the listed series, then enter the execution.':'No options are listed at this close, so none can be booked. Choose another close or publish listed series.';
 }

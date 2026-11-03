@@ -1,6 +1,6 @@
 import type {Holding} from './desk-model.js';
 import {trackEdits} from './edit-tracking.js';
-import {keepOffered,noOptionPick,optionChoices,optionLevels,pickOption,type LifecycleWrites,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
+import {keepOffered,noOptionPick,optionChoices,optionLevels,optionTicketStatus,pickOption,type LifecycleWrites,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
 import {displayInstant,publicText} from './market-view.js';
 import {bookingAllowed} from './new-trade.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
@@ -149,7 +149,7 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
    const books=document.getElementById('option-book') as HTMLSelectElement;
    books.replaceChildren(new Option('Choose…',''),...read.books.map(b=>new Option(publicText(`${b.portfolio} · ${b.name}`),b.id)));
    annotations.populate(read.bookingActor,read);
-   const allowed=bookingAllowed(read);status.textContent=allowed.enabled?'Pick the listed series, then enter the execution.':allowed.reason;
+   status.textContent=optionTicketStatus(read);
    // A booking whose outcome is unknown is shown as it was sent, to be checked or retried, never edited.
    const saved=restoreTradeRequest(requests.read());
    if(saved?.path==='options/book'){
