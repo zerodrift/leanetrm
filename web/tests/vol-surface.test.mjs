@@ -81,3 +81,13 @@ test('a surface whose fitted grids disagree with their expiry status or order is
   assert.throws(()=>surfaceMesh(surfaceOf([fittedAt('2026-11-01T00:00:00Z',['1'],'vol_fit_nonpositive')])),/grid/);
   assert.throws(()=>surfaceMesh(surfaceOf([fittedAt('2026-12-01T00:00:00Z',['1']),fittedAt('2026-11-01T00:00:00Z',['1'])])),/order/);
 });
+
+test('the page reads each colour from the theme, and a token the theme does not define is refused rather than left empty',async()=>{
+  const {volTheme}=await import('../dist/vol-surface-theme.js');
+  const styled=values=>{globalThis.getComputedStyle=()=>({getPropertyValue:name=>values[name]??''});return {};};
+  const all=Object.fromEntries(['--surface','--surface-2','--surface-3','--border','--border-strong','--text','--text-2','--text-3','--accent','--vol-rich','--vol-cheap','--font'].map(n=>[n,` ${n}-value `]));
+  try{
+    assert.equal(volTheme(styled(all)).rich,'--vol-rich-value');
+    assert.throws(()=>volTheme(styled({...all,'--vol-cheap':' '})),/does not define --vol-cheap/);
+  }finally{delete globalThis.getComputedStyle;}
+});

@@ -299,6 +299,15 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
    "window.volObservers.size===document.querySelectorAll('#vol-surfaces-page .vol-chart').length+document.querySelectorAll('#vol-surface-3d canvas').length",
    "[window.volObservers.size,document.querySelectorAll('#vol-surfaces-page .vol-chart').length]");
   await picture('vol-surface-gap');
+  // Leaving the page through the sidebar, with nothing else changed, releases its views; coming back draws them again.
+  await click('#nav-market');
+  await check('leaving Vol surfaces for another page releases its views and every resize observer they held',
+   "window.volObservers.size===0&&!document.querySelector('#vol-surface-3d canvas')","[window.volObservers.size,!!document.querySelector('#vol-surface-3d canvas')]");
+  await click('#nav-vol-surfaces');
+  await settled(`${ready}==='fitted'&&!!${canvas3d}&&${idle}`,30000);
+  await check('coming back draws the surface again, with one resize observer for each chart shown and one for the 3D view',
+   "window.volObservers.size===document.querySelectorAll('#vol-surfaces-page .vol-chart').length+1&&document.querySelectorAll('#vol-surface-3d canvas').length===1",
+   "[window.volObservers.size,document.querySelectorAll('#vol-surfaces-page .vol-chart').length]");
   // At phone width nothing scrolls sideways and the views stack.
   await command('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:2,mobile:true});
   await wait(idle,10000);await new Promise(resolve=>setTimeout(resolve,500));

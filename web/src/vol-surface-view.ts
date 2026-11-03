@@ -5,6 +5,7 @@ import {PendingCommand} from './pending-command.js';
 import {valuationReason,type ValuationReason} from './valuation-status.js';
 import {surfaceLink,type SurfaceLink} from './vol-surface-link.js';
 import {drawSurface3d,levelRange} from './vol-surface-3d.js';
+import {volTheme} from './vol-surface-theme.js';
 
 // Vol surfaces (Markets): the stored volatility surface of one option product at the selected context, fitted by a job on the
 // risk queue, shown as a rich/cheap heat map, a rotatable 3D surface and one smile per expiry. Every value, fit, rich/cheap and reason
@@ -87,14 +88,6 @@ const rightLabel=(right:Right)=>right==='call'?'Call':'Put';
 const codeOf=(error:unknown)=>(error as {code?:string}).code;
 const messageOf=(error:unknown)=>error instanceof Error?error.message:String(error);
 
-// The page's colours, read from the theme's tokens each time it draws.
-type Palette=Record<'surface'|'surface2'|'surface3'|'border'|'borderStrong'|'text'|'text2'|'text3'|'accent'|'rich'|'cheap'|'font',string>;
-function palette(node:Element):Palette{
- const css=getComputedStyle(node),token=(name:string)=>css.getPropertyValue(name).trim();
- return {surface:token('--surface'),surface2:token('--surface-2'),surface3:token('--surface-3'),border:token('--border'),borderStrong:token('--border-strong'),text:token('--text'),
-  text2:token('--text-2'),text3:token('--text-3'),accent:token('--accent'),rich:token('--vol-rich'),cheap:token('--vol-cheap'),font:token('--font')};
-}
-
 /** A drawn view of the surface: it highlights the linked series and is released when the surface is drawn again. */
 type View={highlight(code:string|null):void;dispose():void};
 // A chart in its host, resized with it; `draw` is called again whenever the host's width changes.
@@ -108,7 +101,7 @@ const hovered=(link:SurfaceLink)=>(event:{name?:string})=>{if(event.name)link.se
 
 // The rich/cheap heat map: a row per expiry and a column per strike of the backend's axis, each split into its call and put half.
 function heatMap(host:HTMLElement,surface:VolSurfaceResult,cells:HeatCell[],label:(e:SurfaceExpiry)=>string,extent:number,link:SurfaceLink):View{
- const colors=palette(host),halves=surface.strikeAxis.flatMap(k=>[`${k}|call`,`${k}|put`]);
+ const colors=volTheme(host),halves=surface.strikeAxis.flatMap(k=>[`${k}|call`,`${k}|put`]);
  const rows=surface.expiries.map(e=>label(e)+(e.status==='fitted'?'':'\nnot fitted'));
  const x=(cell:HeatCell)=>halves.indexOf(`${cell.strike}|${cell.right}`);
  const values=cells.filter(c=>c.kind==='value'),gaps=cells.filter(c=>c.kind==='gap'),unlisted=cells.filter(c=>c.kind==='unlisted');
@@ -157,7 +150,7 @@ function heatMap(host:HTMLElement,surface:VolSurfaceResult,cells:HeatCell[],labe
 
 // One expiry's smile: its fitted grid line, its market points shaped by right (hollow where not fitted) and its rich/cheap bars below.
 function smile(host:HTMLElement,expiry:SurfaceExpiry,members:SurfaceSeries[],extent:number,link:SurfaceLink):View{
- const colors=palette(host),solved=members.filter(s=>s.series.marketVolatility!==null);
+ const colors=volTheme(host),solved=members.filter(s=>s.series.marketVolatility!==null);
  const strikes=members.map(s=>plotNumber(s.series.strike)),low=Math.min(...strikes),high=Math.max(...strikes),room=(high-low||1)*.06;
  const span={min:low-room,max:high+room};
  const byRight=(right:Right)=>solved.filter(s=>s.series.right===right);
@@ -230,9 +223,11 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  head3d.append(el('h3',undefined,'Surface'),tools3d);
  const canvasHost=el('div','vol-3d-canvas'),levelScale=el('span','vol-3d-levels');
  const legend3d=el('p','vol-3d-legend');
- legend3d.append(el('span','vol-key-row'),' Rows: the fitted smile at each expiry, shaded by volatility level ',levelScale,
-  ' · ',el('span','vol-key-join'),' Straight panels between expiries: a visual join, not a fit · Stalks: from the fitted smile to the market’s implied volatility, ',
-  el('span','vol-key-rich'),' rich above, ',el('span','vol-key-cheap'),' cheap below');
+ // Each key item keeps its swatch with its own words when the legend wraps.
+ const item=(...parts:(Node|string)[])=>{const span=el('span','vol-3d-key');span.append(...parts);return span;};
+ legend3d.append(item(el('span','vol-key-row'),'Rows: the fitted smile at each expiry'),
+  item(el('span','vol-key-join'),'Straight panels between expiries: a visual join, not a fit, shaded by volatility level',levelScale),
+  item('Stalks: from the fitted smile to the market’s implied volatility,',el('span','vol-key-rich'),'rich above,',el('span','vol-key-cheap'),'cheap below'));
  surface3d.append(head3d,canvasHost,legend3d);
  const smiles=el('section','vol-smiles');smiles.id='vol-smiles';
  const views=el('div','vol-views');views.append(heat,readout,surface3d,smiles);
@@ -425,6 +420,8 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  return {
   refresh,
   async open(code:string){product=code;await refresh();},
+  // Left for another page: what was drawn is released, and no read or check-back under way draws it again while away.
+  leave(){restart();clearViews();},
   reset(){restart();state('idle','Apply the selected context to see its surfaces.');},
  };
 }

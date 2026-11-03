@@ -264,6 +264,8 @@ async function setPage(next:string){
   if(page==='futures'&&next!=='futures')futures.leavePage();
   // The Dashboard releases its widgets, and any run a widget follows, when left; it is read afresh when opened again.
   if(page==='dashboard'&&next!=='dashboard')dashboard.leave();
+  // Vol surfaces releases its views, and stops checking on a fit, when left; it is read afresh when opened again.
+  if(page==='vol-surfaces'&&next!=='vol-surfaces')volSurfaces.leave();
   // Only the reference page has an address; another page leaves none behind.
   if(next!=='reference'&&location.hash.startsWith('#reference'))window.history.replaceState(null,'',location.pathname+location.search);
   if(next!=='risk'&&location.hash.startsWith('#risk'))window.history.replaceState(null,'',location.pathname+location.search);

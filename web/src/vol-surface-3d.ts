@@ -1,5 +1,6 @@
 import {plotNumber} from './plot-number.js';
 import type {SurfaceLink} from './vol-surface-link.js';
+import {themeToken,volTheme} from './vol-surface-theme.js';
 import type {SurfaceExpiry,VolSurfaceResult} from './vol-surface-view.js';
 
 // The fitted volatility surface in 3D, drawn on a canvas by this module: strike across, expiry in depth and volatility up. It places
@@ -237,16 +238,14 @@ function segmentDistance(x:number,y:number,a:Screen,b:Screen){
  return Math.hypot(a.x+t*dx-x,a.y+t*dy-y);
 }
 
-// The theme's colours where the canvas is, read each time it draws. The shading's ends are mixed, so they are read as RGB through
-// the canvas's own colour parsing; a token the theme does not define is refused rather than drawn in some other colour.
+// The theme's colours where the canvas is, with the ends of the shading, which are mixed, read as RGB through the canvas's own colour
+// parsing.
 function palette(node:Element,ctx:CanvasRenderingContext2D){
- const css=getComputedStyle(node),token=(name:string)=>{const value=css.getPropertyValue(name).trim();if(!value)throw Error(`The theme does not define ${name}.`);return value;};
  const channels=(name:string):Rgb=>{
-  ctx.fillStyle='#000';ctx.fillStyle=token(name);const parsed=String(ctx.fillStyle);
+  ctx.fillStyle='#000';ctx.fillStyle=themeToken(node,name);const parsed=String(ctx.fillStyle);
   const hex=/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(parsed),functional=/^rgba?\((\d+), (\d+), (\d+)/.exec(parsed),found=hex?hex.slice(1).map(h=>parseInt(h,16)):functional?.slice(1).map(Number);
   if(!found)throw Error(`The theme's ${name} is not a colour the 3D view can shade.`);
   return found as Rgb;
  };
- return {surface:token('--surface'),surface2:token('--surface-2'),border:token('--border'),borderStrong:token('--border-strong'),text:token('--text'),text2:token('--text-2'),
-  text3:token('--text-3'),accent:token('--accent'),rich:token('--vol-rich'),cheap:token('--vol-cheap'),low:channels('--vol-level-low'),high:channels('--vol-level-high'),font:token('--font')};
+ return {...volTheme(node),low:channels('--vol-level-low'),high:channels('--vol-level-high')};
 }
