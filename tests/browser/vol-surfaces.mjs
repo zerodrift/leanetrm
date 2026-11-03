@@ -137,7 +137,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await check('shown again, the page reads at once and checks back on the job',`${calls('vol-surfaces/read')}.find(c=>c.sent>=${shownAt}).sent-${shownAt}<500`,
    `${calls('vol-surfaces/read')}.map(c=>[Math.round(c.sent-${shownAt}),c.answer?.job?.state])`);
   await evaluate("delete document.hidden;delete document.visibilityState");
-  await settled(`${ready}==='fitted'&&${calls('vol-surfaces/read')}.at(-1).answer.state==='fitted'`,60000);
+  // The served worker allows a fit 300 s, which a slow hosted runner can need most of.
+  await settled(`${ready}==='fitted'&&${calls('vol-surfaces/read')}.at(-1).answer.state==='fitted'`,300000);
   await check('the page went on checking back until the job finished and then showed its surface',`${calls('vol-surfaces/read')}.at(-1).answer.job?.state==='completed'&&${calls('vol-surfaces/read')}.at(-1).answer.job.id===${q(submitted.answer.jobId)}`);
   const before=await evaluate(`${calls('vol-surfaces/read')}.length`);
   await new Promise(resolve=>setTimeout(resolve,3500));

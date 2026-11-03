@@ -1035,9 +1035,9 @@ def main():
                     # the trader submits and a served risk worker runs.
                     from check_vol_surface_api import grant_browser_fitter
                     grant_browser_fitter(query,exchange_manifest)
-                    risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=prepare_risk_worker(exchange_manifest,'exchange_browser_worker'),start_new_session=True)
+                    risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=prepare_risk_worker(exchange_manifest,'exchange_browser_worker',timeout=300),start_new_session=True)
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--futures-options'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
-                    if browser_process.wait(timeout=420):raise RuntimeError('Owned futures option browser checks failed')
+                    if browser_process.wait(timeout=720):raise RuntimeError('Owned futures option browser checks failed')
             elif args.party_check:
                 from check_party_editors import run_checks as check_parties
                 check_parties(url)
