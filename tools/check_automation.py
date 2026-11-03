@@ -371,11 +371,11 @@ def main():
                     assert query("SELECT count(*) FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id WHERE r.code='synthetic_external_executor' AND p.permission='RunJobs';") == '0', 'Existing custom roles must not silently acquire scheduling authority'
             def worker_once():
                 connection = root/'worker.connection'
-                connection.write_text(f'Host={root};Port=55439;Database=postgres;Username=automation_test_worker;SSL Mode=Disable')
+                connection.write_text(f'Host={root};Port=55439;Database=postgres;Username=automation_test_worker;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2')
                 connection.chmod(0o600)
                 if not hasattr(worker_once,'host_checked'):
                     unsafe=root/'mixed-host.connection'
-                    unsafe.write_text(f'Host={root},192.0.2.1;Port=55439;Database=postgres;Username=automation_test_worker;SSL Mode=Disable')
+                    unsafe.write_text(f'Host={root},192.0.2.1;Port=55439;Database=postgres;Username=automation_test_worker;SSL Mode=Disable;Timeout=5;Command Timeout=5;Maximum Pool Size=2')
                     unsafe.chmod(0o600)
                     rejected=subprocess.run([str(args.dotnet.resolve()),str(ROOT/'src/OpenEtrm.Worker/bin/Debug/net10.0/OpenEtrm.Worker.dll'),'--once'],cwd=ROOT,env={**environment,'OPENETRM_WORKER_CONNECTION_FILE':str(unsafe),'OPENETRM_WORKER_POLL_SECONDS':'1','OPENETRM_WORKER_LEASE_SECONDS':'20'},text=True,capture_output=True,timeout=20)
                     assert rejected.returncode!=0 and 'single explicit PostgreSQL host' in rejected.stderr,rejected.stderr

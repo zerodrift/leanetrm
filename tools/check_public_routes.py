@@ -2,6 +2,7 @@
 """Qualify the public gateway template with owned nginx and a synthetic upstream."""
 import argparse
 import http.client
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import re
@@ -17,28 +18,7 @@ from urllib.parse import urlsplit
 from owned_process import stop_owned_group
 
 ROOT = Path(__file__).resolve().parents[1]
-VARIABLES = {'PUBLIC_HOST', 'CERTIFICATE_CHAIN', 'CERTIFICATE_KEY', 'UPSTREAM_ADDRESS',
-             'UPSTREAM_PORT', 'LANDING_ROOT', 'LANDING_HEADERS'}
-
-
-def render_template(template, values):
-    """Replace only the seven operator placeholders; preserve nginx variables."""
-    if set(values) != VARIABLES:
-        raise ValueError('Supply every explicit gateway placeholder.')
-    for name, value in values.items():
-        if name == 'UPSTREAM_PORT':
-            valid = str(value).isdigit() and 1 <= int(value) <= 65535
-        elif name in {'PUBLIC_HOST', 'UPSTREAM_ADDRESS'}:
-            valid = bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]*', str(value)))
-        else:
-            valid = bool(re.fullmatch(r'/[A-Za-z0-9_./-]+', str(value))) and '..' not in str(value).split('/')
-        if not valid:
-            raise ValueError('Unsupported gateway placeholder: ' + name)
-    def replace(match):
-        if match[1] not in VARIABLES:
-            raise ValueError('Unknown gateway placeholder: ' + match[1])
-        return str(values[match[1]])
-    return re.sub(r'\$\{([A-Z_]+)\}', replace, template)
+from gateway_configuration import render_template, render_gateway
 
 
 def available_port():
@@ -130,7 +110,8 @@ def run_checks(nginx):
                   'CERTIFICATE_KEY': key, 'UPSTREAM_ADDRESS': '127.0.0.1',
                   'UPSTREAM_PORT': upstream.server_port, 'LANDING_ROOT': site,
                   'LANDING_HEADERS': site / 'headers.inc'}
-        servers = render_template((ROOT / 'deploy/nginx.conf.template').read_text(), values)
+        limits = json.loads((ROOT / 'deploy/process-limits.example.json').read_text())
+        servers = render_gateway((ROOT / 'deploy/nginx.conf.template').read_text(), values, limits)
         servers = servers.replace('listen 80;', f'listen 127.0.0.1:{http_port};')
         servers = servers.replace('listen 443 ssl;', f'listen 127.0.0.1:{https_port} ssl;')
         (temporary / 'nginx.conf').write_text(

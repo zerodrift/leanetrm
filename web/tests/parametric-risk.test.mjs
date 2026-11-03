@@ -63,3 +63,25 @@ test('deleting a whole native partition or book cannot turn missing FD exposure 
  w.finiteDifference.estimates.push({...w.finiteDifference.estimates[0],bookId:'hedge'});w.result.partitions[0].books.push({...w.result.partitions[0].books[0],id:'hedge'});validateParametric(book);
  w.finiteDifference.estimates.pop();w.result.partitions[0].books.pop();assert.throws(()=>validateParametric(book),/parametric|coverage|consistent/i);
 });
+
+test('covariance heatmap carries exact backend cells and both native units',()=>{
+ const sample=report();const view=validateParametric(sample);const chart=parametricCharts(view,0,'valueAtRisk',0,0,'covariance').at(-1);
+ assert.equal(chart.title,'Factor covariance');assert.equal(chart.series[0].points[0].y,view.result.calibration.covariance[0][0]);
+ assert.ok(chart.series[0].points[0].text.includes(view.factors[0].factor.unit+' × '+view.factors[0].factor.unit));
+});
+
+test('retained parametric reports refuse incomplete EOD price provenance',()=>{
+ const make=()=>{
+  const r=report(),h=r.parametric.history;h.policy={...h.policy,alignment:'daily_latest_visible_session_end_v1',regimes:'ordered_price_types_fixed_series_source_unit_contract_v1',priceTypes:['official_close_v1']};
+  r.parametric.request.history.policy=structuredClone(h.policy);
+  const marks=['9','10','10','9'].map((value,i)=>({observation:{id:'mark'+i},value}));
+  h.sessions=marks.map((_,i)=>({date:'day'+i,close:'close'+i}));
+  h.evidence=marks.map((m,i)=>({observation:{key:m.observation,source:{code:'close'},value:m.value,role:2,state:2,observedAt:'2026-01-0'+(i+1)+'T16:00:00Z'}}));
+  for(const [i,s] of h.samples.entries()){s.from={at:h.sessions[i].close,marks:[marks[i]]};s.to={at:h.sessions[i+1].close,marks:[marks[i+1]]};}
+  h.dayPrices=h.sessions.map(s=>({at:s.close,choices:[{selectedType:'official_close_v1',officialCloseStatus:'available',availableTypes:['official_close_v1']}]}));return r;
+ };
+ validateParametric(make());
+ for(const edit of [r=>{delete r.parametric.history.dayPrices;r.parametric.history.policy={...r.parametric.history.policy,alignment:'exact_session_close_v1',regimes:'exact_source_role_state_unit_contract_v1'};delete r.parametric.history.policy.priceTypes;},r=>delete r.parametric.history.evidence[0].observation.observedAt,r=>delete r.parametric.history.evidence[0].observation.source,r=>delete r.parametric.history.dayPrices,r=>r.parametric.history.dayPrices[0].choices=[],r=>r.parametric.history.dayPrices[0].choices[0].availableTypes=[],r=>r.parametric.history.policy.priceTypes=['trader_mark_final_v1']]){
+  const r=make();edit(r);assert.throws(()=>validateParametric(r),/price|provenance/i);
+ }
+});

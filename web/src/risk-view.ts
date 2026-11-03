@@ -2,8 +2,8 @@ import {projectionPolicyLabels} from './projection-policy.js';
 // The risk report of the Blotter desk (blotter-desk.md, Side panel: Risk report), drawn in the side panel's Risk report mode. It offers
 // Shock every held contract and Parallel shift, which shock the targets the catalog names for what the books hold, and the custom
 // scenario lab with nested stresses; it runs a report now or queues it as jobs and keeps the retained job history. A run's results come
-// back inline in the desk (D222), which reads the run on screen from `current`. A run of more than sixteen shocks is split into parts of
-// at most sixteen at the one retained context of its catalog, run one after another or queued as one job each, which states the run it
+// back inline in the desk (D222), which reads the run on screen from `current`. A run exceeding the catalog’s per-request limit is split into parts of
+// that size at the one retained context of its catalog, run one after another or queued as one job each, which states the run it
 // is a part of, and shown as one run. Each factor's results are its own, so no arithmetic combines parts, and a part that fails is said to
 // have failed. What the report holds outlives the panel's other modes; a new read of the Blotter clears it.
 import {riskContextLabel} from './risk-time.js';
@@ -11,7 +11,7 @@ import {riskWorkDetails,type ExcludedPosition,type RiskReport} from './risk-repo
 import {PendingCommand} from './pending-command.js';
 import {publicText,timeLabels} from './market-view.js';
 import {scenarioShift,knownRiskRejection,type ScenarioTarget,type ScenarioShift} from './risk-scenarios.js';
-import {presetGaps,presetRequest,presetTargets,runParts,sizesByUnit,splitBumps,type Preset} from './risk-presets.js';
+import {presetGaps,presetRequest,presetTargets,runParts,sizesByUnit,splitBumps,riskLimits,type RiskLimits,type Preset} from './risk-presets.js';
 import {valuationReason} from './valuation-status.js';
 import {trackEdits} from './edit-tracking.js';
 import type {SidePanel} from './side-panel.js';
@@ -23,7 +23,7 @@ import {reportPresentation} from './risk-results.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 export type FinancialContext={contextId:string;effectiveOn:string;knownAt?:string;knownThrough:number};
-type Catalog={pricingPolicy:unknown;scenarioTargets:ScenarioTarget[];heldContractTargets:string[];heldCurveTargets:string[];
+type Catalog={limits:RiskLimits;pricingPolicy:unknown;scenarioTargets:ScenarioTarget[];heldContractTargets:string[];heldCurveTargets:string[];
   heldContractsWithoutTarget:string[];heldCurvesWithoutTarget:string[];excludedPositions:ExcludedPosition[];bumpConvention:string;stressConvention:string;
   convention:string;numericalPolicy:string;context:FinancialContext;asOf:string;joint?:JointCapabilities};
 type Scope={context:unknown;bookIds:string[];portfolioIds:string[];tradeIds?:string[]|null};
@@ -82,8 +82,6 @@ const failure=(error:unknown,fallback:string)=>error instanceof Error&&error.mes
 const code=(error:unknown)=>(error as {code?:string}|undefined)?.code;
 const plural=(count:number,word:string)=>`${count} ${word}${count===1?'':'s'}`;
 const partsText=(indexes:number[],total:number)=>`${indexes.length===1?'part':'parts'} ${indexes.map(i=>i+1).join(', ')} of ${total}`;
-/** The most parts a queued run takes, as the job store admits them: sixteen shocks to a part, 4,096 in all. */
-const queuedParts=256;
 const presetText:Record<Preset,{label:string;noun:string;none:string;each:string;gaps:string;complete:string;left:string}>={
   held:{label:'Shock every held contract',noun:'held contract',none:'The selected books hold no contract this preset can shock.',each:'each shocked up and down on its own',
     gaps:'No whole-contract scenario target covers these held prices, so this preset does not shock them:',complete:'every held price shocked',
@@ -226,9 +224,9 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
   function drawPreset(kind:Preset){
     const shown=preset(kind),text=presetText[kind],targets='error' in shown?[]:shown.targets,gaps='error' in shown?[]:shown.gaps;
-    const parts=splitBumps(targets).length;
+    const parts=catalog?splitBumps(targets,catalog.limits.maxHoldingsBumps).length:0;
     get('risk-preset-summary').textContent='error' in shown?shown.error:!targets.length?text.none
-      :`${plural(targets.length,text.noun)}, ${text.each} by the size entered for its price unit.${parts>1?` The run is made in ${parts} parts of at most 16 shocks, at one market context.`:''}`;
+      :`${plural(targets.length,text.noun)}, ${text.each} by the size entered for its price unit.${parts>1?` The run is made in ${parts} parts of at most ${catalog!.limits.maxHoldingsBumps} shocks, at one market context.`:''}`;
     get('risk-preset-gaps').hidden=!gaps.length;get('risk-preset-gaps').textContent=gaps.length?publicText(`${text.gaps} ${gaps.join('; ')}.`):'';
     get('risk-sizes').replaceChildren(...sizesByUnit(targets).map((unit,index)=>{
       const entry=sizes.get(unit)??{value:'',prefilled:false};sizes.set(unit,entry);
@@ -261,7 +259,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
       const loaded=await call<Catalog>('portfolio/risk/catalog',scope);if(version!==generation)return;
       // A catalog that does not say which positions a run leaves out is refused, never read as saying none.
       if(!Array.isArray(loaded.excludedPositions))throw Error('The risk catalog is inconsistent. Reload it.');
-      catalog=loaded;
+      catalog={...loaded,limits:riskLimits(loaded.limits)};
       scope={...scope,context:{...(scope.context as Record<string,unknown>),knowledgeMode:'retained',contextId:catalog.context.contextId}};
       offer();
       if(carried)restore(carried);
@@ -345,13 +343,13 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   get('risk-stress-add').onclick=event=>void options.act(async()=>{
     if(!catalog||!stressFactor.value||!stressSize.value)throw Error('Choose a scenario target and enter a signed absolute shift.');
     const target=catalog.scenarioTargets.find(f=>f.id===stressFactor.value);if(!target)throw Error('Choose an available scenario target.');
-    if(stress.length>=16)throw Error('A scenario supports at most sixteen nested stresses.');
+    if(stress.length>=catalog.limits.maxStress)throw Error(`A scenario supports at most ${catalog.limits.maxStress} nested stresses.`);
     const shift=scenarioShift(target,stressSize.value,catalog.stressConvention,bucket('risk-stress'));
     chose(event);edit();stress=[...stress,{id:target.id,shift,label:target.label+(target.kind==='delivery_bucket'?` · ${shift.factor.target.from} to ${shift.factor.target.to} (exclusive)` :''),unit:target.unit}];stressSize.value='';renderStress();
   });
   get('risk-stress-parent').onclick=event=>{chose(event);edit();stress=stress.slice(0,-1);renderStress();};
   get('risk-stress-clear').onclick=event=>{chose(event);edit();stress=[];renderStress();};
-  /** The requests of the chosen report, in parts of at most sixteen shocks, what it was set up as, and the sizes a preset was entered with. */
+  /** The requests of the chosen report, in parts of the catalog’s admitted size, what it was set up as, and the sizes a preset was entered with. */
   function requests():{parts:Request[];setup:RunSetup;sizes?:Record<string,string>}{
     if(!catalog||!scope)throw Error('Read the risk catalog for the selected scope first.');
     options.scope(); // Revalidate the owning screen's source fence before reusing the captured catalog.
@@ -368,7 +366,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const targets=presetTargets(catalog,choice),withoutTarget=presetGaps(catalog,choice);
     if(!targets.length)throw Error(presetText[choice].none);
     const entered=Object.fromEntries(sizesByUnit(targets).map(unit=>[unit,sizes.get(unit)?.value.trim()??'']));
-    const parts=splitBumps(presetRequest(targets,entered,catalog.bumpConvention)).map(part=>structuredClone({...base,bumps:part,stress:[]}));
+    const parts=splitBumps(presetRequest(targets,entered,catalog.bumpConvention),catalog.limits.maxHoldingsBumps).map(part=>structuredClone({...base,bumps:part,stress:[]}));
     return {parts,setup:{report:choice,label:presetText[choice].label,sizes:entered,withoutTarget:[...withoutTarget]},sizes:entered};
   }
 
@@ -441,7 +439,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   }
   form.onsubmit=event=>{event.preventDefault();const queued=(event as SubmitEvent).submitter?.id===prefix+'risk-queue';void options.act(async()=>{
     const plan=requests();
-    if(queued&&plan.parts.length>queuedParts)throw Error(`A queued run takes at most ${queuedParts} parts of sixteen shocks. Choose fewer, or run it now.`);
+    if(queued&&plan.parts.length>catalog!.limits.maxParts)throw Error(`A queued run takes at most ${catalog!.limits.maxParts} parts of ${catalog!.limits.maxHoldingsBumps} shocks. Choose fewer, or run it now.`);
     forgetRun();const version=++generation;
     // What was run is no longer an edit: the run answers it, and the setup it was carried over in is the run's.
     edits.clear();get('risk-carried').hidden=true;
@@ -654,7 +652,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     const runnable=options.canRun(),reason=get('risk-run-note');
     reason.hidden=runnable;reason.textContent=runnable?'':riskDenied;
     for(const id of ['risk-run','risk-queue']){const button=get<HTMLButtonElement>(id);button.disabled=locked||!runnable;if(runnable)button.removeAttribute('aria-describedby');else button.setAttribute('aria-describedby',reason.id);}
-    get<HTMLButtonElement>('risk-stress-parent').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-clear').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-add').disabled=locked||stress.length>=16;
+    get<HTMLButtonElement>('risk-stress-parent').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-clear').disabled=locked||!stress.length;get<HTMLButtonElement>('risk-stress-add').disabled=locked||!!catalog&&stress.length>=catalog.limits.maxStress;
     get<HTMLSelectElement>('risk-job-history').disabled=options.busy();get<HTMLButtonElement>('risk-reload').disabled=options.busy();
     for(const id of ['risk-job-refresh','risk-job-retry','risk-job-cancel','risk-job-return','risk-job-discard'])get<HTMLButtonElement>(id).disabled=options.busy();
     options.onChange();

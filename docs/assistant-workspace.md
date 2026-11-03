@@ -1,8 +1,10 @@
 # Workspace assistant operations and page guidance
 
 D284 extends the assistant with discovery, reads, previews and human-approved
-commands over the application's existing operations. Runtime `turns_v11`
-requires migrations 0162–0164 and matching API/browser assets. This local
+commands over the application's existing operations. Runtime `turns_v12`
+requires the workspace operations in 0162–0164, operating settings in 0181–0183,
+and matching API/browser assets. New turns retain the admitted operating policy;
+older binaries cannot admit new work they cannot enforce. This local
 implementation does not qualify a hosted schema or deployment.
 
 ## Configuration

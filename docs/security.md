@@ -830,3 +830,13 @@ and never runs under a delegated context, so an agent never reads usage
 - **Records:** row triggers refuse any update or delete of an export record, even from
   the owner; the runtime holds no privilege on the audit and executes none of the
   report's internal helpers.
+
+
+D302 operating-policy saves require current undelegated human authority under
+exclusive administrative admission, rechecked after waits and before publication.
+Personal presentation has no business capability: the server derives its scoped
+owner and compares an opaque owner binding before replay or write. Neither API
+accepts caller-supplied tenant/workspace authority. New assistant admissions pin
+the exact policy and require a compatible runtime; current access policy governs
+new sign-in/enrollment facts without extending old expiries. See
+[the implemented settings contract](operational-limits.md#implemented-consumers-d302).

@@ -47,7 +47,7 @@
   - Commit with `git commit -s`, and end each commit message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
   - Never push without the user's approval.
 - **TDD.** Each behaviour check is written first and fails for the right reason before the code exists.
-- **Migration** `db/migrations/0180_vol_surfaces.sql` follows master's `0179_lng_portfolio_scope.sql` (renumbered from 0172 at the master merge). Renumber it again if master moves on before merge.
+- **Migration** `db/migrations/0184_vol_surfaces.sql` follows master's `0183_access_policy_consumers.sql` (renumbered from 0172, then 0180, at the master merges). Renumber it again if master moves on before merge.
 - **Fits are background jobs.** A fit runs as job kind `vol_surface_fit_v1` on the existing retained risk-job queue (`risk.jobs`, `src/OpenEtrm.Api/RiskWorker.cs`), under its lease, attempt, cancellation and security-generation rules. Add no new queue, service or cache. Fit runtime is measured and recorded (series, solves, elapsed); no budget is enforced.
 
 ## Review Focus
@@ -163,7 +163,7 @@
 ### Task 4: Bitemporal storage of surface revisions
 
 **Files:**
-- Create: `db/migrations/0180_vol_surfaces.sql`
+- Create: `db/migrations/0184_vol_surfaces.sql`
 - Create: `tools/check_vol_surface_storage.py`, run from `tools/run_preview.py` next to `check_futures_option_storage`
 - Modify: `tests/test_migration_identity.py` only if it pins the migration list
 

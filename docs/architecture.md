@@ -6,6 +6,13 @@ See [decisions](decisions.md) for the distinction between agreed requirements,
 proposals and choices that still need evidence. See [the delivery plan](plan.md)
 for implementation scope and exit criteria.
 
+D301 makes [VaR setup](risk-factor-history.md#guided-var-setup-d301) a guided
+calculation with visible editable starting settings, automatic aligned-history
+preparation and singleton calendar selection. Captured local-day windows and
+explicit ordered price types support end-of-day calibration; official daily
+closes are selected initially. Coverage grids and correlation/covariance graphics
+retain exact source/knowledge evidence and preserve the existing exact-close path.
+
 D299 adds [parametric VaR and expected shortfall](parametric-risk.md), using the
 complete held-factor history, ordinary native PV finite differences and one
 retained statistical job. Reports include signed book/factor contributions and
@@ -17,6 +24,16 @@ backend-derived valuation and saved Incoterms edition/rule/named place. Its
 local qualification covers native booking, retained trading views and shared
 interactive/queued scenario valuation. Incoterms do not supply
 title events, pricing rules or freight charges.
+
+D302 shares the retained-program execution mechanism for gas and crude within
+`OpenEtrm.MarketData`; commodity terms, units, assignments and source policies stay
+in that domain. `OpenEtrm.Shared` supplies credential-free connection-budget
+validation to the API and worker. Exact reference symbols supply quantity labels.
+Current assistant/access settings have immutable workspace revisions and scoped
+receipts; new admissions pin their policy while retries preserve their outcome.
+Human presentation preferences are separately owned and cannot choose financial
+context. Process settings are explicit private configuration. See
+[operating configuration](operational-limits.md#implemented-consumers-d302).
 
 D284 extends the assistant across existing page operations, with explicit human
 approval of every proposed business command and separately delegated, versioned
@@ -409,8 +426,10 @@ Profile customization is presentation state, never a source of authorization,
 market-input selection policy or contractual clock conventions. Blotter layouts persist in the database for the current human account and
 workspace, with current trading-read authority and optimistic version checks.
 They retain no market snapshots, historical coordinates, permissions or results.
-Other preview preferences remain browser-local; production authentication and
-broader account profile synchronization remain part of identity integration.
+D302 stores the closed display-preference contract per authenticated human,
+workspace and example, with exact owner binding and optimistic/idempotent saves.
+It does not migrate arbitrary browser state or change financial inputs. Broader
+profile fields and cross-window live synchronization remain outside that contract.
 
 Modules have explicit contracts. The domain and numerical core do not depend on
 web frameworks, persistence libraries, model-provider SDKs or browser state.

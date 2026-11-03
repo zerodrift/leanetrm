@@ -188,7 +188,7 @@ def run_checks(query, manifest):
     print('PASS reference metadata: immutable rows, compatibility proof, stale/revoked retries, workspace/history isolation and expiry after locks', flush=True)
 
 
-def main():
+def main(checks=run_checks, before_migration=None):
     import argparse
     import os
     from pathlib import Path
@@ -227,11 +227,12 @@ def main():
             run([binaries/'pg_ctl','-D',directory/'data','-l',directory/'postgres.log','-w','-o',
                  shlex.join(['-k',str(directory),'-h','','-p','55439','-c','track_commit_timestamp=on']),'start'])
             for migration in sorted((root/'db/migrations').glob('*.sql')):
+                if before_migration is not None:before_migration(query,migration)
                 query(migration.read_text())
             reference,market,security,manifest=fixture(root)
             for sql in (reference,market,security):
                 query(sql)
-            run_checks(query,manifest)
+            checks(query,manifest)
         finally:
             run([binaries/'pg_ctl','-D',directory/'data','-w','-m','fast','stop'])
             safe_to_remove=True

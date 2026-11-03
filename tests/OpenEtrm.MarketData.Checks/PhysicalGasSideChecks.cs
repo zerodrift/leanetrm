@@ -57,6 +57,8 @@ internal static class PhysicalGasSideChecks
             [new(from, to, clock.Boundary(to).AddDays(2), new(System.Numerics.BigInteger.Parse(allocation), 1), null)]);
         var purchase = new PhysicalGasInstrument(Guid.NewGuid(), physical, Cash("3"), [Cash("0.1")], ExactDecimal.Parse("1"), ExactDecimal.Parse("-1"));
         Equal(purchase.PV(context).PresentValue.Scale(ExactDecimal.Parse("1000")), "100");
+        RetainedPortfolio(f, purchase, assignment, market);
+
         var pointB=Location(R("delivery_b"));
         var assignmentB=new GasValuationAssignment(R("gas_value_b"),pointB,assignment.Product,from,to,lookup.Settlement,f.Quote,new(lookup.Market,lookup.Contract),lookup.Fixing,new(ExactDecimal.Parse("-0.1"),f.Quote));
         var physicalB=new PhysicalGasSide(Guid.NewGuid(),pointB,assignment.Product,quantity,[assignmentB]);
@@ -112,6 +114,8 @@ internal static class PhysicalGasSideChecks
         Equal(composition.PV(Context(shocks.Down,[assignment,assignmentB])).PresentValue.Scale(composition.BaseQuantity),"62");
         Equal(purchase.PV(Context(shocks.Down, [assignment])).PresentValue.Scale(ExactDecimal.Parse("1000")), "0");
         Equal(purchase.PV(context).PresentValue.Scale(ExactDecimal.Parse("1000")), "100");
+        RetainedPortfolio(f, purchase, assignment, market);
+
 
         var adjusted = Assignment(assignment.Point, assignment.Product, new(ExactDecimal.Parse("0.05"), f.Quote));
         var adjustedSide = Side(quantity, [adjusted]);
@@ -169,6 +173,35 @@ internal static class PhysicalGasSideChecks
         try { ScheduleDefinitionCompiler.Generate(physical, canceled); throw new Exception("Canceled generation succeeded."); }
         catch (OperationCanceledException) { }
         Console.WriteLine("PASS physical gas side: executable noncash schedule, assignment qualification, independent cash, exact PV and symmetric shocks");
+    }
+    private static void RetainedPortfolio(CommodityLookupFixture fixture, PhysicalGasInstrument purchase, GasValuationAssignment assignment, CurveBuild market)
+    {
+        var ratios = new OpenEtrm.Shared.Numerics.ExactRatio[] { new(1,3), new(2,3), new(3,2) };
+        var members = purchase.Sides.Select((member, slot) => new RetainedGasMember(member.Side.Id, member.Coefficient,
+            ratios[slot], BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(member.Side)))).ToImmutableArray();
+        var instrument = new RetainedGasInstrument(purchase.Id, members, [assignment]);
+        RetainedInstrumentContractChecks.Gas(instrument);
+        var book = Guid.NewGuid();
+        Trade Holding(string quantity) => new(Guid.NewGuid(), book, [new(Guid.NewGuid(), instrument, new(ExactDecimal.Parse(quantity), instrument.UnitQuantity.Specification))]);
+        var portfolio = ValuationPortfolio.FromTrades([Holding("12"), Holding("24")], new(ValuationMeasure.PresentValue,
+            ImmutableDictionary<Guid,FuturesMarketBinding>.Empty, new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted)));
+        var dependencies = portfolio.Declare(market.Snapshot).SelectMany(c => c.Dependencies).Distinct().ToImmutableArray();
+        var exported = fixture.Model.Compile(market.Snapshot, dependencies, false, market.Graph.Plan.Context);
+        var bindings = dependencies.ToImmutableDictionary(r => r, r => exported.Points[(r,InputUse.Variable)]);
+        var prepared = RiskEngine.PrepareConnected(OpenEtrm.MarketData.Calculation.ConnectedValuation.Prepare(market.Graph,market.Snapshot),
+            bindings,[portfolio],market);
+        var source = market.Graph.Plan.Primitives.Single(p => p.Source.Input == fixture.Selection(0,false).Input).Source.Request;
+        var bump = new ConnectedRiskBump(OpenEtrm.MarketData.Calculation.CurveShockCoordinate.MarketQuote,
+            new OpenEtrm.MarketData.Calculation.ContractCurveTarget(source.Curve,source.Contract),PriceUnit.FromQuote(assignment.Quote),
+            ExactDecimal.Parse("1"),ConnectedRiskBump.Convention);
+        var result = RiskEngine.CalculateExact(prepared,[bump],RiskEngine.ExactNumericalPolicy,detail:RiskDetail.Holdings);
+        var group = result.Groups.Single();
+        // Unit value = 3.2/3 - 3*(2/3) - 0.1*(3/2) = -13/12.
+        // Two external quantities sum to 36; a unit quote shock contributes 36/3.
+        Equal(group.BaseValues.Single().Value,"-39");
+        Equal(group.Factors.Single().Totals.Single().Values.Up,"-27");
+        Equal(group.Factors.Single().Totals.Single().Values.Down,"-51");
+        if(result.Work.UniqueValuations!=1||result.Work.PositionCount!=2)throw new Exception("Retained gas holdings must share one exact unit calculation.");
     }
     private static void Equal(ExactMoney value, string expected)
     { if (value.ToExactString() != expected) throw new Exception($"Expected {expected}; received {value.ToExactString()}."); }

@@ -1,4 +1,4 @@
-import type {HistoryRequest,HistoryManifest} from './factor-history.js';
+import {validateHistoryPrices,type HistoryRequest,type HistoryManifest} from './factor-history.js';
 import type {RiskFactor,ExcludedPosition} from './risk-report.js';
 import type {ChartSpec} from './chart-view.js';
 import {exactNumber} from './exact-number.js';
@@ -6,7 +6,7 @@ import {sameTradeSelection} from './risk-scope.js';
 
 export type ParametricPolicy={convention:string;numericalPolicy:string;estimator:string;centering:string;drift:string;horizon:string;tail:string;confidence:string};
 export type ParametricRequest={history:HistoryRequest;policy:ParametricPolicy;finiteDifference:{convention:string;tradingTicks:number;deltaTolerance:{absolute:string;relative:string}}};
-export type ParametricCapabilities={profile:Omit<ParametricPolicy,'confidence'|'drift'>;drifts:{zero:string;sample:string};finiteDifference:string;limits:{maxFactors:number;maxProducts:number;maxExposures:number}};
+export type ParametricCapabilities={defaults:{confidence:string;drift:string;tradingTicks:number;deltaTolerance:{absolute:string;relative:string}};profile:Omit<ParametricPolicy,'confidence'|'drift'>;drifts:{zero:string;sample:string};finiteDifference:string;limits:{maxFactors:number;maxProducts:number;maxExposures:number}};
 type Contribution={id:string;mean:string;varianceCross:string;valueAtRisk:string;expectedShortfall:string};
 export type ParametricPartition={measure:string;currency:unknown;mean:string;variance:string;standardDeviation:string;valueAtRisk:string;expectedShortfall:string;
  books:Contribution[];factors:Contribution[];density:{score:string;loss:string;density:string}[];linearizedLosses:{sample:string;loss:string}[];varReconciliation:string;esReconciliation:string};
@@ -33,6 +33,7 @@ export function validateParametric(report:ParametricContainer,expected?:Parametr
   view.factors.some((f,i)=>f.id!==c.columns[i]||!f.factor?.unit)||!Array.isArray(view.books)||new Set(view.books.map(b=>b.id)).size!==view.books.length||
   !Array.isArray(r.partitions)||!Array.isArray(view.partitions)||!Array.isArray(r.unavailableReasons)||
   c.rank<0||c.rank>c.columns.length||!Number.isInteger(c.rank))throw bad();
+ validateHistoryPrices(h,request.history.policy);
  const d=c.columns.length;
  if(c.samples>=2&&(c.means.length!==d||c.means.some(v=>!number(v))||c.covariance.length!==d||c.covariance.some(row=>row.length!==d||row.some(v=>!number(v)))||
   c.correlation.length!==d||c.correlation.some(row=>row.length!==d||row.some(v=>v!==null&&!number(v)))))throw bad();
@@ -62,7 +63,7 @@ export function validateParametric(report:ParametricContainer,expected?:Parametr
  if(r.available&&(nativeBooks.size!==seen.size||[...nativeBooks.keys()].some(key=>!seen.has(key)))||labels.size!==view.partitions.length||seen.size!==labels.size)throw bad();
  return view;
 }
-export function parametricCharts(view:ParametricView,partition:number,metric:'valueAtRisk'|'expectedShortfall'='valueAtRisk',rows=0,columns=0):ChartSpec[]{
+export function parametricCharts(view:ParametricView,partition:number,metric:'valueAtRisk'|'expectedShortfall'='valueAtRisk',rows=0,columns=0,matrix:'correlation'|'covariance'='correlation'):ChartSpec[]{
  const p=view.result.partitions[partition];if(!view.result.available||!p)return [];
  const label=view.partitions.find(v=>pair(v.measure,v.currencyReference)===pair(p.measure,p.currency))!;
  const currency=label.currency,charts:ChartSpec[]=[],risk=metric==='valueAtRisk'?'VaR':'ES';
@@ -74,7 +75,7 @@ export function parametricCharts(view:ParametricView,partition:number,metric:'va
  charts.push({title:'In-sample linearized losses',subtitle:'Current local deltas applied to the calibration changes. These are not full-repricing historical simulation or out-of-sample outcomes.',axis:'category',unit:currency,kind:'line',
   reference:{value:p.valueAtRisk,label:'Gaussian VaR'},series:[{name:'Linearized loss',points:p.linearizedLosses.map(s=>({x:s.sample,label:s.sample,y:s.loss,text:s.loss}))}]});
  const ids=view.result.calibration.columns,r=ids.slice(rows,rows+32),c=ids.slice(columns,columns+32);
- charts.push({title:'Factor correlation',subtitle:`Rows ${rows+1}–${rows+r.length}, columns ${columns+1}–${columns+c.length} of ${ids.length}. Display window only; calibration retains every factor. A constant column has undefined correlation.`,axis:'category',unit:'Correlation',kind:'heatmap',
-  series:r.map((id,i)=>({id,name:view.factors.find(f=>f.id===id)!.factor.label,points:c.map((column,j)=>({x:column,label:view.factors.find(f=>f.id===column)!.factor.label,y:view.result.calibration.correlation[rows+i][columns+j]}))}))});
+ charts.push({title:matrix==='correlation'?'Factor correlation':'Factor covariance',subtitle:`Rows ${rows+1}–${rows+r.length}, columns ${columns+1}–${columns+c.length} of ${ids.length}. Display window only; calibration retains every factor. ${matrix==='correlation'?'A constant column has undefined correlation.':'Covariance uses row × column native units; it is not standardized.'}`,axis:'category',unit:matrix==='correlation'?'Correlation':'Row × column native units',kind:'heatmap',
+  series:r.map((id,i)=>({id,name:view.factors.find(f=>f.id===id)!.factor.label,points:c.map((column,j)=>({x:column,label:view.factors.find(f=>f.id===column)!.factor.label,y:view.result.calibration[matrix][rows+i][columns+j],text:matrix==='covariance'?view.result.calibration.covariance[rows+i][columns+j]+' · '+view.factors.find(f=>f.id===id)!.factor.unit+' × '+view.factors.find(f=>f.id===column)!.factor.unit:undefined}))}))});
  return charts;
 }

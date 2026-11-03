@@ -40,7 +40,8 @@ test('trade readers start on the Blotter; market readers on curves; others by pe
 test('each first page needs every permission its navigation entry needs',()=>{
  // The Blotter lists trades valued against market data, so trades alone do not open it.
  assert.equal(firstPage(['ReadTrades']),null);
- assert.equal(firstPage(['ManageAccess']),null);
+ assert.equal(firstPage(['ManageAccess']),'admin');
+ assert.equal(pageAvailable('admin',['ManageAccess']),true,'access policy administration must not require identity administration');
  assert.equal(firstPage(['ManageIdentities']),null);
  assert.equal(firstPage(['ReadTradeParties','RunJobs']),null);
 });

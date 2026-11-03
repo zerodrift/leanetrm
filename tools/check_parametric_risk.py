@@ -100,6 +100,8 @@ def run_checks(url, manifest, query, run_worker):
     assert [r['id'] for r in final_page['items']]==[mixed_job['id']] and final_page['next'] is None
     c.call('portfolio/risk/parametric/archive?limit=0',expected=422)
     print('PASS parametric archive: authorized completed reports are discoverable beyond the bounded recent directory', flush=True)
+    from check_day_end_risk import run_checks as check_day_end
+    check_day_end(c,query,scope,catalog,history,request,run_worker)
     from check_parametric_risk_db import run_checks as check_db
     check_db(query, manifest, job['id'],run_worker)
     c.call('profile', {'profile': 'viewer'})

@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0179_lng_portfolio_scope.sql`. It includes reference/market data, certified
+`0183_access_policy_consumers.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
@@ -47,6 +47,12 @@ Recent schema groups and their contracts:
 
 - 0175: immutable statistical history/clock receipts, lease-fenced source reads and
   authorized completed-report archive ([parametric risk](../docs/parametric-risk.md)).
+- 0180: guided end-of-day history windows, ordered price types and retained
+  endpoint coverage ([aligned history](../docs/risk-factor-history.md#guided-var-setup-d301)).
+- 0181–0183: [current operating policies, personal presentation and hosted access
+  admission](../docs/operational-limits.md#implemented-consumers-d302), with immutable
+  revisions, exact policy pins and retained command receipts.
+
 
 Apply migrations in order. Some deliberately refuse incompatible retained data;
 existing installations require the separately qualified schema/rebooking procedure.
@@ -1562,3 +1568,20 @@ runs known at a context's cutoff, and only to the definition's owner with
 under the publication lock; contention with concurrent context captures is not yet
 measured (docs/verification.md). As a new migration it stops automatic hosted
 updates until the operator qualifies a new baseline (D135).
+
+
+## 0181–0183: operating policy and personal presentation
+
+0181 adds scoped immutable assistant/access operating revisions and receipts,
+exact policy pins for new turns, agent versions and grants, and fail-closed helper
+body/owner/ACL guards. New asks require runtime `turns_v12`; retries keep their
+original result. 0182 adds human/workspace/example presentation revisions, owner
+binding and idempotent optimistic saves, without financial context fields. 0183
+uses current access policy at sign-in/enrollment/invitation admission and retains
+session/invitation/login lineage. Old rows keep their recorded identity and expiry;
+no prior policy is invented. The four-argument invitation claim is closed.
+
+These migrations stop automatic hosted updates until the operator qualifies the
+schema, API, explicit process/connection configuration and gateway together. See
+[operating configuration](../docs/operational-limits.md#implemented-consumers-d302)
+and [the hosted transition](../docs/hosted-pilot.md#operating-configuration-transition-d302).

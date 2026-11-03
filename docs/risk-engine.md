@@ -474,7 +474,7 @@ EVT and rolling backtesting remain subsequent work.
 Queueing writes to PostgreSQL. A separately configured managed risk worker claims
 compatible work; submitting a request does not provision a worker. The queue
 carries a second job kind, `vol_surface_fit_v1`, which fits and records a
-[volatility surface](vol-surfaces.md#fit-jobs) (D301) under the same lease, attempt,
+[volatility surface](vol-surfaces.md#fit-jobs) (D303) under the same lease, attempt,
 cancellation and security-generation rules; its actor needs `PublishMarketData`,
 `ReadTrades` and `ReadMarketData` instead of `RunScenario`. `GET
 /api/portfolio/risk/jobs` and the Risk page list portfolio risk jobs by convention,
@@ -487,3 +487,13 @@ Real Swarm deployment and recovery remain unqualified here.
 The page assistant has no general Python interpreter tool. A future code sandbox
 needs a separately agreed execution and isolation contract; the existing managed
 risk worker is not a general code execution service.
+
+### Guided statistical runs (D301)
+
+**Parametric VaR** uses the same portfolio/book/trade scope. Its visible starting
+profile and end-of-day price-type controls are documented in the
+[VaR walkthrough](risk-factor-history.md#guided-var-setup-d301). A Run click prepares
+aligned history automatically and reuses only an exact matching prepared input.
+Official closes are initially required; approved alternatives are explicit and
+flagged per endpoint. Saved reports include the same bounded factor grid and
+correlation/covariance display, independently of the current setup.

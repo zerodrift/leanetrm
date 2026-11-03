@@ -1,16 +1,58 @@
 # Operational limits
 
-Status: proposal (P42), not implementation evidence. Nothing here is implemented.
+Status: D302 implements the consumers below locally. The inventory farther down
+records the original P42 proposal and remaining work; it is not a claim that every
+listed limit is configurable or that a release has been qualified.
 
-On 2026-10-27 a hosted close that pins 1,066 prices wrote about 86 KB of pin JSON.
-`assistant.pin_turn` refused anything above 64 KiB, so every page-assistant turn over
-that close failed `turn_input` before its model was called. Raising the bound needed a
-database hotfix and then a migration (D256), because the bound was a literal in a SQL
-function. Many other operational limits are literals in SQL, C#, TypeScript and the
-deploy files, and some are stated in several places that must agree. The hosted
-sign-in's 30 minutes is both the cookie's lifetime and the session row's `expires_at`.
-The 32 KiB body and 20-second read timeout are each in both the API and the gateway.
-This record inventories every limit and proposes where each should live.
+## Implemented consumers (D302)
+
+- `security.operating_policy_versions` stores complete assistant/access policies
+  per tenant/workspace. Current undelegated humans save assistant policy with
+  `ManageAgents` and access policy with `ManageAccess`. Bounds and field metadata
+  come from the same SQL contract. Saves require an expected version and request
+  UUID; retries return their first result and identical facts add no revision.
+- New assistant turns retain pin bytes, workspace concurrency, context reserve and
+  tool rows/bytes at ask time. Pin/start/output consumers use that revision even
+  after policy changes. New agent versions and grants retain their policy revision;
+  their explicit grant duration stays unchanged. Prior rows retain their original
+  runtime provenance without invented historical pins. `turns_v12` is required for
+  new asks; legacy request replay remains available.
+- New hosted sessions use configured duration, with the cookie taking the stored
+  expiry. Failed-login requests are idempotent and retain policy lineage. New
+  lockouts, invitations and enrollment use current policy; invitation retries and
+  existing sessions retain expiry. Enrollment rechecks policy after password work.
+  Existing password verification is independent of a stricter enrollment minimum.
+- `presentation.user_preference_versions` stores a closed presentation contract
+  for an active human/workspace/example. An opaque server owner binding fences
+  account changes. Ordered writes retain uncertain requests; conflicts require
+  reload. Financial context, permissions and values cannot be preference fields.
+  An unsupported browser time zone is explained and requires explicit selection
+  before saving a replacement. Old local-storage preferences are not imported.
+- Required `limits` in `host.json` uses `bounded_process_limits_v1`.
+  [The example](../deploy/process-limits.example.json) states the synthetic
+  baseline explicitly. API request/body/session/sign-in/hash/agent/provider
+  consumers use it. Bootstrap supplies client request deadlines and the semantic
+  SHA-256 configuration identity. A fixed startup guard precedes bootstrap only.
+  Page admission is atomic; logout releases capacity and a full hosted registry
+  reclaims only sign-ins verified ended by the database.
+- Protected connection files require explicit `Timeout`, `Command Timeout` and
+  `Maximum Pool Size`. API/worker preserve selected values within their qualified
+  ceilings using `OpenEtrm.Shared.Configuration.ConnectionBudget`. UTC remains a
+  transport contract. Agent reads separately retain the supported read deadline.
+- `tools/gateway_configuration.py` renders body limits, matching structured
+  refusals and read timeout from the same host limits. A fixed 20-second stream
+  protocol minimum keeps the existing heartbeat valid even at smaller request
+  budgets. Operator host/certificate/
+  upstream/site values remain separate explicit inputs. Risk UI dimensions come
+  from catalog metadata. Power quantity display symbols come from exact reference
+  rows; supported algorithm unit codes remain part of their financial contract.
+
+Verification covers revision/no-op/replay/conflict behavior, ownership, configured
+access durations, duplicate failed attempts, prior-fact migration preservation,
+helper body/owner/ACL drift, custom reference symbols, retained instrument
+identity/numerical oracles, process-budget bounds and live owned gateway routes.
+Hosted/assistant/browser qualification is recorded only after those suites pass.
+An attested Docker prior-image rollback has not been run for this increment.
 
 ## Principle
 
@@ -56,7 +98,7 @@ Rules for every configured value:
 | Job terms or command settings | The job's owner, or the operator for a command | Per-run values already saved with each job or read from a command's configuration file | Saving the job, or editing the command's configuration | The job revision or run (already recorded) |
 | Fixed | Release review | Ceilings, contract constants and guards | A reviewed release (and migration) | The code version, runtime set or operation version |
 
-## Complete inventory
+## P42 inventory and remaining work
 
 How it was made: every numeric literal in `src/` (C#), `web/src/` (TypeScript, not
 tests) and `deploy/`, and every bound in the current definitions of all SQL functions
@@ -183,78 +225,45 @@ of server limits that the page should read from the API instead of restating:
 
 ## Recording the value used
 
-- **Agent version.** The turn records its agent version; nothing new.
-- **Installation settings.** Each revision table has an id. `assistant.turns` gains
-  `limits_revision`, set at ask and pin, and `security.hosted_sessions` gains
-  `policy_revision`, set at sign-in. Each refusal names its bound and value, as
-  `limit_tool_read` does. A row recorded before the migration carries the first
-  revision only when that revision holds the value it actually ran under. Turns pinned
-  before 0122 ran under 64 KiB, so the pins bound's first revision must not be
-  backdated to them. Those rows keep `NULL`, which the decision defines as "before
-  installation limits", checked by a constraint on their `asked_at`.
-- **Hosted configuration.** At start the API logs the configuration's SHA-256 and the
-  limits it applies, once, and refuses to start without them. The release record for
-  each hosted deploy keeps the same digest, so the values in force at any instant are
-  known from the deploy history. No new table: there is no consumer for per-request
-  rows yet.
-- **The page.** The page stops owning a request timeout. The API serves the request
-  deadline it applies (one per route class) in the `access` response the page already
-  reads at start, and the page waits that long plus a fixed transport margin. The page
-  refuses to send requests until it has those values, rather than falling back to 20
-  seconds. Today the page waits 20 seconds for routes the API stops at 15.
+| Consumer | Exact policy/configuration identity |
+| --- | --- |
+| New assistant turn | `assistant.turn_operating_pins`; start metadata carries the admitted values |
+| New agent version | `assistant.agent_version_operating_pins` |
+| New granted delegation | `assistant.grant_operating_pins` |
+| New hosted session | `security.hosted_session_policy_pins`; stored expiry governs the cookie |
+| New invitation | `security.hosted_invitation_policy_pins`; replay preserves original expiry |
+| Failed/successful login request | `security.hosted_login_requests`; known decisive admissions retain the access revision |
+| Personal presentation | `presentation.user_preference_versions`; namespace and authenticated owner are part of the key |
+| Process configuration | Canonical semantic SHA-256 in private startup output and bootstrap; the existing deployment baseline separately binds the complete host-file hash |
 
-## Migrations and changes
+Rows predating these admissions keep their original runtime/identity/expiry.
+Migration does not attach an invented policy to old turns, grants or sessions.
+A retried command keeps its first receipt after settings change; a new operation
+selects current policy under the applicable authorization fence. General
+historical business reads do not substitute these current administration policies
+for their pinned financial contracts or historical authority.
 
-1. **0122** (D256, done separately): pins bound 262,144 bytes, matching the pilot hotfix.
-2. **Assistant installation limits**: `assistant.installation_limit_revisions`
-   (revision id, pins bytes, workspace turns, retained-context reserve, longest grant
-   days, recorded at, by, operation id), typed columns with `CHECK`s at the ceilings,
-   immutable and append-only. First revision carries 262,144 / 4 / 64 / 90.
-   `assistant.save_installation_limits(operation, expected_revision, …)` under
-   `ManageAgents`, idempotent by operation id (D238). `pin_turn` and `ask_turn` read the
-   revision in force and record it on the turn. New runtime set `turns_v8` without the
-   moved values.
-3. **Sign-in policy**: `security.sign_in_policy_revisions` (lifetime minutes, failed
-   attempts, lockout minutes, minimum password length, invitation hours) under
-   `ManageAccess`; first revision carries 30 / 5 / 10 / 15 / 24. `finish_hosted_login`
-   and invitation issue read it and record the revision. The cookie's expiry is set
-   from the session's `expires_at`, so the lifetime is stated once; the page session
-   ends with it.
-4. **Tool result bounds on the agent version**: `agent_versions.tool_result_rows` and
-   `tool_result_bytes`, saved and checked like `history_turns` (0121); versions saved
-   earlier take 500 and 65,536.
-5. **Hosted configuration** (no migration): a required `limits` object in
-   `HostedConfiguration` with request deadlines, body sizes, pools, timeouts and
-   `max_connections`, the sign-in rate, page sessions, heartbeats and polls,
-   infrastructure freshness and provider transport, each range-checked against the
-   others (pools below `max_connections`, heartbeats below the gateway timeout, the
-   gateway timeout above the longest deadline). The API refuses to start without it.
-   `tools/provision_hosted.py` writes it and renders the gateway's body sizes and read
-   timeout from it; the release gate checks it. A configuration from before this has
-   none and is refused, with no shim. The power-collection and reference commands gain
-   their HTTP timeouts and deadlines in their own configuration files.
-6. **Limits served to the page**: each operation the page validates against serves its
-   limits with its other options, and the page's copies are removed.
-7. **Settings UI**: one page per owner showing the revision in force, its history and
-   an edit form, using the same operations as any other client.
-8. **One retained-context ceiling**: the 4,096 budget is read from one helper by every
-   function that captures a context.
+## Migrations and remaining work
 
-Each step is its own PR with its own failing checks first, and each migration that
-replaces a function pins the definition it replaces. On the pilot, 0122 accepts the
-hotfixed `pin_turn`, so the next schema window's "schema as expected" step should
-expect 0122's hash (`7b49e5dc…`) for that function once 0122 is applied, and either
-hash before.
+0181 installs the reviewed carried-forward policy baseline and current consumers;
+0182 adds personal presentation; 0183 binds access consumers. Each replacement of
+an existing privileged function checks its exact body, owner and ACL first. Owned
+upgrade checks retain completed turns, versions, grants and session identity/
+expiry, and refuse altered bodies or extra execution privileges. See
+[the operator transition](hosted-pilot.md#operating-configuration-transition-d302).
 
-## Open choices
+The remaining P42 targets include collection/reference-command transport settings,
+poll/heartbeat operating settings, more operation-specific presentation metadata,
+consolidating the retained-context ceiling and richer operational result evidence.
+They require named consumers and behavior checks. No larger financial, parser or
+resource ceiling is qualified by introducing configuration.
 
-1. Whether the hosted sign-in should slide with activity or keep a fixed lifetime
-   (today: fixed 30 minutes). This proposal keeps it fixed and configurable.
-2. Whether the pins bound belongs to the installation (proposed: it grows with the
-   installation's closes, not with any one agent) or to each agent version.
-3. The ceilings for the moved values, which need measurement before they are set:
-   pins (proposed 1 MiB), tool results (5,000 records, 1 MiB), sign-in lifetime
-   (5 minutes to 12 hours).
-4. Whether the sign-in rate limit is an operator value (proposed) or part of the
-   access administrator's sign-in policy.
-5. Whether workspace members (256) should become installation capacity.
+## Decisions and remaining choices
+
+D302 keeps sign-in lifetime fixed from admission, with the configured operating
+value; it does not slide with activity. Assistant pin/output budgets belong to the
+workspace operating policy and are pinned per turn. The sign-in rate stays an
+operator process value. Initial ceilings retain the previously supported bounds;
+this change does not qualify the larger exploratory ceilings in the inventory.
+Moving workspace-member capacity and the other remaining inventory requires
+named consumers and independent checks in a later increment.

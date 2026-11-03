@@ -86,7 +86,7 @@ public sealed partial class AgentTools
                     }
                 }
             }
-            var content=Bounded(value,CountRows(value))??throw new ToolRefusal("result_too_large");
+            var content=Bounded(value,CountRows(value),turn.OutputLimits)??throw new ToolRefusal("result_too_large");
             return new(tool,call.Operation.Id,input,null,at,access,content,ToolStepEnd.Result);
         }
         catch(Exception e)

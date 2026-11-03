@@ -1,4 +1,5 @@
 import {readLngView} from './lng-trade-view.js';
+import {requestDeadlines} from './request-deadline.js';
 import {readCrudeView} from './crude-trade-view.js';
 import {readOptionView} from './futures-option-view.js';
 import {lifecycleWrites} from './futures-option-model.js';
@@ -51,10 +52,10 @@ async function load(){
  const started=++generation;controller?.abort();const current=controller=new AbortController();clearTrade();error.textContent='';error.hidden=true;
  loading=true;retry.disabled=true;document.body.setAttribute('aria-busy','true');
  try{
-  selection=readPositionWindowUrl(location.href);const picked=selection,root=picked.example==='exchange'?'/examples/exchange/api/':'/api/';let csrf='';
+  selection=readPositionWindowUrl(location.href);const picked=selection,root=picked.example==='exchange'?'/examples/exchange/api/':'/api/';let csrf='';const deadlines=requestDeadlines();
   async function request<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
    const response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},
-    body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.any([current.signal,AbortSignal.timeout(20000),...signal?[signal]:[]])});
+    body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.any([current.signal,AbortSignal.timeout(deadlines.milliseconds(path)),...signal?[signal]:[]])});
    if(!response.ok){const refusal=await response.json().catch(()=>({}));const message=response.status===401?'Sign in to the workspace, then read this trade again.':refusal.message??'The retained trade could not be read.';
     if(started===generation&&(response.status===401||response.status===403))fail(message);
     throw Object.assign(Error(message),{code:refusal.code??'request_failed'});}
@@ -66,7 +67,8 @@ async function load(){
    if(path!=='amounts/display')await prepareAmountDisplay(value,body=>request<string[]>('amounts/display',body,signal));
    return value;
   };
-  const boot=await request<{csrfToken:string;profile:string|null}>('bootstrap?includeFrames=false&includeAccess=true');
+  const boot=await request<{requestDeadlines:unknown;csrfToken:string;profile:string|null}>('bootstrap?includeFrames=false&includeAccess=true');
+  deadlines.read(boot.requestDeadlines);
   if(!boot.profile||!boot.csrfToken)throw Error('Open this trade from an authorized Blotter session.');csrf=boot.csrfToken;
   const response=await api<{curveNames:unknown}>('trading/position',positionWindowRequest(picked));
   const read=readSelectedPosition(response,picked.context,picked.asOf,picked),h:Holding=read.holding;

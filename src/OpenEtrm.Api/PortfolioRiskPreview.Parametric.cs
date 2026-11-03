@@ -33,6 +33,7 @@ public sealed partial class PortfolioRiskPreview
     private static object ParametricCapabilities()=>new{
         profile=new{convention=ParametricRiskPolicy.Version1,numericalPolicy=ParametricRiskPolicy.Numerics,estimator=ParametricRiskPolicy.Sample,
             centering=ParametricRiskPolicy.Centered,horizon=ParametricRiskPolicy.Session,tail=ParametricRiskPolicy.Signed},
+        defaults=new{confidence="0.99",drift=ParametricRiskPolicy.Zero,tradingTicks=1,deltaTolerance=new{absolute="0",relative="0.0001"}},
         drifts=new{zero=ParametricRiskPolicy.Zero,sample=ParametricRiskPolicy.Mean},finiteDifference=ParametricFiniteDifference.Version1,
         limits=new{maxFactors=ParametricRisk.MaximumFactors,maxProducts=ParametricRisk.MaximumProducts,maxExposures=ParametricRisk.MaximumExposures}};
     internal static PortfolioRiskRequest StatisticalRequest(PortfolioParametricRequest body)

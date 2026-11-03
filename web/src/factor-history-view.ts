@@ -2,103 +2,139 @@ import type {ParametricRequest,ParametricCapabilities} from './parametric-risk.j
 import {node,table} from './risk-report-elements.js';
 import {renderChart,clearChart} from './chart-view.js';
 import {valuationReason} from './valuation-status.js';
+import {renderHistoryGrid,historyGridState,historyPriceLabels} from './risk-history-grid.js';
 import {validateFactorHistory,factorHistoryChart,type HistoryCapabilities,type HistoryScope,type HistoryRequest,type HistoryReport} from './factor-history.js';
 
-type Options={api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;scope:()=>HistoryScope;instant:(at:string)=>string;calculate:(request:ParametricRequest,metadata:{pricingPolicy:unknown;convention:string;numericalPolicy:string;context:HistoryReport['context'];asOf:string},queued:boolean)=>Promise<void>};
-const reasons:Record<string,string>={missing_mark:'Missing mark',stale_mark:'Stale mark · no carry',asynchronous_close:'Off-close mark',source_role:'Different source or role',
- publication_state:'Ineligible latest publication state',ambiguous_revision:'Conflicting revision heads',mapping_regime:'Changed source mapping or units'};
+type Options={api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;scope:()=>HistoryScope;instant:(at:string)=>string;unconfirmed:()=>boolean;calculate:(request:ParametricRequest,metadata:{pricingPolicy:unknown;convention:string;numericalPolicy:string;context:HistoryReport['context'];asOf:string},queued:boolean)=>Promise<void>};
+type Configuration={scope:HistoryScope;history:HistoryCapabilities;parametric:ParametricCapabilities;pricingPolicy:unknown;convention:string;numericalPolicy:string};
 
-/** Read-only history preparation; every financial selection comes from the backend profile and explicit form inputs. */
+/** Guided inputs materialize the visible server preset; calculation APIs still require every policy explicitly. */
 export function setupFactorHistory(o:Options){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const panel=get<HTMLDetailsElement>('risk-history-panel'),host=get('risk-history-body'),open=get<HTMLButtonElement>('risk-history-open');
- const form=node('form'),fields=node('fieldset'),grid=node('div'),message=node('p'),results=node('div'),actions=node('div');
- form.id='risk-history-form';fields.id='risk-history-fields';grid.className='factor-history-fields';results.id='risk-history-results';results.setAttribute('aria-live','polite');
- message.setAttribute('role','status');actions.className='actions';fields.append(grid);form.append(fields,message);host.append(form,results);
- const choose=(id:string,label:string)=>{const wrap=node('label',label),select=node('select');select.id='risk-history-'+id;select.required=true;select.append(new Option('Choose…',''));wrap.append(select);grid.append(wrap);return select;};
- const input=(id:string,label:string,type='text')=>{const wrap=node('label',label),control=node('input');control.id='risk-history-'+id;control.type=type;control.required=true;control.autocomplete='off';wrap.append(control);grid.append(wrap);return control;};
- const profile=choose('profile','History contract'),calendar=choose('calendar','Business-session calendar'),from=input('from','First session date · inclusive','date'),to=input('to','Window end date · exclusive','date'),
-  close=input('close','Local close time · HH:mm:ss'),minimum=input('minimum','Minimum complete session changes');
- close.pattern='[0-9]{2}:[0-9]{2}:[0-9]{2}';close.placeholder='HH:mm:ss';minimum.inputMode='numeric';minimum.pattern='[0-9]+';
- const clockNote=node('p');clockNote.className='field-help';fields.append(clockNote,node('p','The selected contract uses raw dated factors, visible correction heads and exact calendar closes. It retains common complete adjacent-session changes. No carry, interpolation, proxy or rolling-contract substitution is applied. Ambiguous and nonexistent closes refuse.'));
- const run=node('button','Prepare aligned history'),download=node('button','Export history manifest');run.id='risk-history-run';run.type='submit';download.id='risk-history-export';download.type='button';download.className='secondary';actions.append(run,download);fields.append(actions);
- let generation=0,allowed=false,owner='',plot:HTMLElement|undefined,result:HistoryReport|undefined,selectedColumn:string|undefined;
- let configuration:{scope:HistoryScope;pricingPolicy:unknown;history:HistoryCapabilities;parametric:ParametricCapabilities;convention:string;numericalPolicy:string}|undefined;
- const statistics=node('form'),statsFields=node('fieldset'),statsGrid=node('div');statistics.id='risk-parametric-form';statsFields.id='risk-parametric-fields';statsGrid.className='factor-history-fields';statsFields.append(node('legend','Parametric VaR / ES'),statsGrid);statistics.append(statsFields);host.append(statistics);
- const statSelect=(id:string,label:string)=>{const wrap=node('label',label),select=node('select');select.id='risk-parametric-'+id;select.required=true;select.append(new Option('Choose…',''));wrap.append(select);statsGrid.append(wrap);return select;};
- const statInput=(id:string,label:string)=>{const wrap=node('label',label),input=node('input');input.id='risk-parametric-'+id;input.required=true;input.autocomplete='off';input.inputMode='decimal';wrap.append(input);statsGrid.append(wrap);return input;};
- const estimator=statSelect('profile','Statistical contract'),drift=statSelect('drift','Forecast drift'),confidence=statInput('confidence','Confidence · greater than 0.5, up to 0.9999'),ticks=statInput('ticks','Native trading ticks · integer 1–1000'),absolute=statInput('absolute','Delta agreement · absolute native tolerance'),relative=statInput('relative','Delta agreement · relative tolerance');
- const statActions=node('div');statActions.className='actions';for(const [id,text] of [['run','Run VaR / ES now'],['queue','Queue VaR / ES job']]){const button=node('button',text);button.id='risk-parametric-'+id;button.type='submit';statActions.append(button);}
- statsFields.append(node('p','Equal-weight sample covariance, centered about the sample mean. A frozen portfolio over one adjacent business session; signed upper loss VaR and ES. Native half/nominal/double finite differences must agree within your explicit tolerances. Each currency and valuation measure stays separate.'),statActions);statistics.hidden=true;
- function clearResult(text:string){if(plot)clearChart(plot);plot=undefined;result=undefined;results.replaceChildren();message.textContent=text;sync();}
- function sync(available?:boolean){if(available!==undefined)allowed=available;open.disabled=o.busy()||!allowed;fields.disabled=o.busy()||!allowed||!configuration;download.disabled=o.busy()||!result;statistics.hidden=!result;statsFields.disabled=o.busy()||!allowed||!result;}
- function reset(){generation++;configuration=undefined;owner='';selectedColumn=undefined;panel.open=false;form.reset();statistics.reset();estimator.replaceChildren(new Option('Choose…',''));drift.replaceChildren(new Option('Choose…',''));profile.replaceChildren(new Option('Choose…',''));calendar.replaceChildren(new Option('Choose…',''));clockNote.textContent='';clearResult('Choose a scope, then configure its aligned history.');}
+ const form=node('form'),fields=node('fieldset'),grid=node('div'),message=node('p'),results=node('div');form.id='risk-parametric-form';fields.id='risk-parametric-fields';grid.className='factor-history-fields';fields.append(grid);form.append(fields,message);host.append(form,results);
+ message.setAttribute('role','status');results.id='risk-history-results';results.setAttribute('aria-live','polite');
+ const select=(parent:HTMLElement,id:string,label:string)=>{const wrap=node('label',label),control=node('select');control.id=id;control.required=true;wrap.append(control);parent.append(wrap);return control;};
+ const input=(parent:HTMLElement,id:string,label:string,type='text')=>{const wrap=node('label',label),control=node('input');control.id=id;control.type=type;control.required=true;control.autocomplete='off';wrap.append(control);parent.append(wrap);return control;};
+ const method=select(grid,'risk-parametric-profile','Method');
+ const lookback=select(grid,'risk-history-lookback','History window');lookback.append(new Option('3 months','three_months'),new Option('6 months','six_months'),new Option('1 year','one_year'),new Option('Custom dates','custom'));
+ const confidence=select(grid,'risk-parametric-confidence','Confidence level');confidence.append(new Option('95%','0.95'),new Option('97.5%','0.975'),new Option('99%','0.99'),new Option('99.9%','0.999'),new Option('Custom','custom'));
+ const customConfidence=input(grid,'risk-parametric-confidence-custom','Custom confidence · decimal greater than 0.5, at most 0.9999');customConfidence.parentElement!.hidden=true;customConfidence.required=false;
+ const calendar=select(grid,'risk-history-calendar','Business-day calendar');
+ const dates=node('div');dates.className='factor-history-fields';const from=input(dates,'risk-history-from','First date · inclusive','date'),to=input(dates,'risk-history-to','End date · exclusive','date');fields.append(dates);
+ const summary=node('p');summary.id='risk-parametric-preset';summary.className='risk-setup-summary';fields.append(summary);
+ const pricePanel=node('div'),priceList=node('ol'),priceActions=node('div');pricePanel.className='risk-price-policy';priceList.id='risk-history-price-types';priceActions.className='actions';
+ const addType=select(priceActions,'risk-history-price-type-add','Additional price type'),add=node('button','Allow as next fallback');add.type='button';add.className='secondary';priceActions.append(add);
+ pricePanel.append(node('h3','Allowed price types · priority order'),node('p','Official daily closes are selected initially. Alternatives are used only if listed here, in this order, and every use is flagged. Feed/source, dated contract and native units stay pinned. A price-type change between days is visible in the grid.'),priceList,priceActions);fields.append(pricePanel);
+ const advanced=node('details'),advancedGrid=node('div');advanced.id='risk-parametric-advanced';advancedGrid.className='factor-history-fields';advanced.append(node('summary','Advanced settings'),advancedGrid);fields.append(advanced);
+ const minimum=input(advancedGrid,'risk-history-minimum','Minimum complete daily changes','number');minimum.min='2';minimum.max='2048';minimum.step='1';
+ const drift=select(advancedGrid,'risk-parametric-drift','Forecast drift'),ticks=input(advancedGrid,'risk-parametric-ticks','Finite-difference step · trading ticks','number');ticks.min='1';ticks.max='1000';ticks.step='1';
+ const absolute=input(advancedGrid,'risk-parametric-absolute','Delta agreement · absolute native tolerance'),relative=input(advancedGrid,'risk-parametric-relative','Delta agreement · relative tolerance');absolute.inputMode=relative.inputMode='decimal';
+ advanced.append(node('p','One business-day horizon, equal-weight sample covariance (n−1), centered changes and signed loss tails. Finite differences use half, nominal and double steps. Each currency and valuation measure stays separate. No carry, interpolation, proxy or contract roll.'));
+ const actions=node('div');actions.className='actions';
+ for(const [id,label] of [['risk-parametric-run','Run VaR'],['risk-parametric-queue','Queue VaR job'],['risk-history-run','Preview price coverage'],['risk-history-export','Export aligned history']]){const button=node('button',label);button.id=id;button.type=id==='risk-history-export'?'button':'submit';if(id!=='risk-parametric-run')button.className='secondary';actions.append(button);}fields.append(actions);
+ let generation=0,allowed=false,owner='',configuration:Configuration|undefined,result:HistoryReport|undefined,cacheKey='',selectedColumn:string|undefined,priceTypes:string[]=[],plots:HTMLElement[]=[];
+ const gridState=historyGridState();
  const current=(version:number)=>version===generation&&owner===o.identity();
+ const sameScope=()=>!!configuration&&JSON.stringify(o.scope())===JSON.stringify(configuration.scope);
+ function clear(text:string){for(const plot of plots)clearChart(plot);plots=[];result=undefined;cacheKey='';results.replaceChildren();message.textContent=text;sync();}
+ function invalidate(){generation++;clear('Settings changed. Run VaR to prepare the matching price history automatically.');describe();}
+ function sync(available?:boolean){if(available!==undefined)allowed=available;open.disabled=o.busy()||!allowed;fields.disabled=o.busy()||!allowed||!configuration;get<HTMLButtonElement>('risk-history-export').disabled=o.busy()||!result;}
+ function reset(){generation++;configuration=undefined;owner='';selectedColumn=undefined;priceTypes=[];panel.open=false;form.reset();calendar.replaceChildren(new Option('Choose a calendar…',''));method.replaceChildren();drift.replaceChildren();priceList.replaceChildren();summary.textContent='';clear('Select the books or trades, then open VaR setup.');}
+ function describe(){
+  const c=configuration?.history.calendars.find(c=>JSON.stringify(c.reference)===calendar.value);
+  dates.hidden=lookback.value!=='custom';from.disabled=to.disabled=dates.hidden;
+  customConfidence.parentElement!.hidden=confidence.value!=='custom';customConfidence.required=confidence.value==='custom';
+  summary.textContent=configuration?`Starting settings: ${confidence.selectedOptions[0]?.textContent} confidence · one business day · ${lookback.selectedOptions[0]?.textContent} (${from.value||'choose dates'} to ${to.value||'choose dates'}, exclusive) · end of day${c?' in '+(c.clockRule.ianaZone??(c.clockRule.fixedOffsetSeconds===0?'UTC':c.clock)):''} · minimum ${minimum.value} common changes. All settings are sent explicitly and retained. Incomplete days after the selected market cutoff are omitted.`:'';
+ }
+ function windowDates(){
+  if(lookback.value==='custom'){describe();return;}
+  const c=configuration?.history.calendars.find(c=>JSON.stringify(c.reference)===calendar.value),window=c?.windows.find(w=>w.code===lookback.value);
+  from.value=window?.from??'';to.value=window?.to??'';describe();
+  if(c?.setupError)message.textContent=c.setupError;
+  else if(window&&!window.covered)message.textContent='This calendar does not cover the selected history window. Choose a shorter window or custom dates; the requested dates have not been shortened.';
+ }
+ function drawPriceTypes(){
+  priceList.replaceChildren();
+  for(const [i,code] of priceTypes.entries()){
+   const row=node('li'),label=node('span',`${i+1}. ${historyPriceLabels[code]??code}`);row.append(label);
+   for(const [text,enabled,action] of [ ['Move up',i>0,()=>{[priceTypes[i-1],priceTypes[i]]=[priceTypes[i],priceTypes[i-1]];}],['Move down',i<priceTypes.length-1,()=>{[priceTypes[i+1],priceTypes[i]]=[priceTypes[i],priceTypes[i+1]];}],['Remove',true,()=>{priceTypes.splice(i,1);}]] as [string,boolean,()=>void][]){
+    if(priceTypes.length===1&&text!=='Remove')continue;
+    const button=node('button',text);button.type='button';button.className='secondary';button.disabled=!enabled;button.setAttribute('aria-label',text+' '+(historyPriceLabels[code]??code));button.onclick=()=>{action();drawPriceTypes();invalidate();};row.append(button);
+   }priceList.append(row);
+  }
+  addType.replaceChildren(new Option('Choose an alternative…',''),...(configuration?.history.priceTypes??[]).filter(t=>!priceTypes.includes(t.code)).map(t=>new Option(t.label,t.code)));addType.required=false;if(addType.options.length===2)addType.selectedIndex=1;add.disabled=!addType.options[1];
+ }
  async function configure(){
-  const scope=structuredClone(o.scope());panel.open=true;if(configuration)return;
-  owner=o.identity();const version=++generation;clearResult('Reading held factors and available calendars…');
+  panel.open=true;if(configuration)return;
+  owner=o.identity();const scope=structuredClone(o.scope()),version=++generation;clear('Reading the held factors and available calendars…');
   try{
-   const catalog=await o.api<{history:HistoryCapabilities;parametric:ParametricCapabilities;pricingPolicy:unknown;convention:string;numericalPolicy:string;context:{contextId:string}}>('portfolio/risk/catalog',scope);
+   const catalog=await o.api<Configuration&{context:{contextId:string}}>('portfolio/risk/catalog',scope);
    if(!current(version))return;
-   if(!catalog.history?.profile||catalog.context.contextId!==scope.context.contextId)throw Error('This catalog does not offer aligned history for the captured scope. Refresh Risk.');
-   configuration={scope,history:catalog.history,pricingPolicy:catalog.pricingPolicy,parametric:catalog.parametric,convention:catalog.convention,numericalPolicy:catalog.numericalPolicy};
-   estimator.append(new Option('Delta-normal · sample n−1 covariance · one session',catalog.parametric.profile.convention));drift.append(new Option('Explicit zero drift',catalog.parametric.drifts.zero),new Option('Sample mean drift',catalog.parametric.drifts.sample));
-   profile.append(new Option('Raw dated factors · exact closes · common complete rows',catalog.history.profile.convention));
-   calendar.append(...catalog.history.calendars.map(c=>new Option(c.label+' · '+(c.clockRule.ianaZone??(c.clockRule.fixedOffsetSeconds===0?'UTC':c.clock)),JSON.stringify(c.reference))));
-   message.textContent='Choose every history input explicitly. No VaR or expected-shortfall estimator runs in this step.';
-  }catch(error){if(current(version))clearResult(error instanceof Error?error.message:'History configuration is unavailable.');throw error;}
-  finally{sync();}
+   if(!catalog.history?.guided||!catalog.parametric?.defaults||catalog.context.contextId!==scope.context.contextId)throw Error('Refresh Risk to load the supported VaR setup for this scope.');
+   configuration={...catalog,scope};const d=catalog.parametric.defaults,h=catalog.history;
+   method.replaceChildren(new Option('Parametric VaR / expected shortfall',catalog.parametric.profile.convention));method.value=catalog.parametric.profile.convention;
+   drift.replaceChildren(new Option('Zero drift',catalog.parametric.drifts.zero),new Option('Sample mean drift',catalog.parametric.drifts.sample));drift.value=d.drift;
+   confidence.value=d.confidence;ticks.value=String(d.tradingTicks);absolute.value=d.deltaTolerance.absolute;relative.value=d.deltaTolerance.relative;minimum.value=String(h.guided.minimumSamples);lookback.value=h.guided.lookback;priceTypes=[...h.guided.priceTypes];
+   calendar.replaceChildren(new Option('Choose a calendar…',''),...h.calendars.map(c=>new Option(c.label+' · '+(c.clockRule.ianaZone??(c.clockRule.fixedOffsetSeconds===0?'UTC':c.clock)),JSON.stringify(c.reference))));
+   if(h.calendars.length===1)calendar.selectedIndex=1;
+   drawPriceTypes();windowDates();message.textContent='Choose your scope, history window and confidence, then Run VaR. Price history is aligned automatically; Preview price coverage is optional.';
+  }catch(error){if(current(version))clear(error instanceof Error?error.message:'VaR setup is unavailable.');throw error;}finally{sync();}
  }
  function request():HistoryRequest{
-  if(!configuration||JSON.stringify(o.scope())!==JSON.stringify(configuration.scope)||owner!==o.identity())throw Error('The history scope or context changed. Refresh Risk and configure history again.');
-  if(profile.value!==configuration.history.profile.convention)throw Error('Choose the explicit history contract.');
+  if(!configuration||owner!==o.identity()||!sameScope())throw Error('The scope or market context changed. Refresh Risk and open VaR setup again.');
   const selected=configuration.history.calendars.find(c=>JSON.stringify(c.reference)===calendar.value),count=Number(minimum.value);
-  if(!selected||!minimum.value||!Number.isSafeInteger(count))throw Error('Choose an available calendar and enter an explicit integer minimum.');
-  return {scope:structuredClone(configuration.scope),pricingPolicy:configuration.pricingPolicy,policy:{...configuration.history.profile,minimumSamples:count},calendar:selected.reference,
-   from:from.value,to:to.value,closeTime:close.value.trim(),ambiguousTime:configuration.history.clockPolicy.ambiguousTime,invalidTime:configuration.history.clockPolicy.invalidTime};
+  if(!selected)throw Error('Choose a business-day calendar.');
+  if(!Number.isSafeInteger(count)||count<2||count>2048)throw Error('Minimum complete daily changes must be a whole number from 2 to 2048.');
+  if(!from.value||!to.value||from.value>=to.value)throw Error('Choose a history window with a first date before its end date.');
+  if(!priceTypes.length)throw Error('Allow at least one price type. Official daily close is the starting selection.');
+  return {scope:structuredClone(configuration.scope),pricingPolicy:configuration.pricingPolicy,policy:{...configuration.history.guided.profile,minimumSamples:count,priceTypes:[...priceTypes]},calendar:selected.reference,from:from.value,to:to.value,closeTime:configuration.history.guided.closeTime,ambiguousTime:configuration.history.clockPolicy.ambiguousTime,invalidTime:configuration.history.clockPolicy.invalidTime};
  }
  function draw(){
-  if(plot)clearChart(plot);plot=undefined;results.replaceChildren();if(!result)return;
-  const r=result,m=r.manifest,c=r.coverage;
-  const status=node('div');status.className='risk-coverage';status.dataset.state=c.available?'complete':'incomplete';status.setAttribute('role','status');
-  status.append(node('strong',c.available?'History ready for calibration':'History unavailable for calibration'),node('p',`${c.factors} dated factors · ${c.samples} complete session changes · ${c.rejected} rejected intervals · minimum ${c.minimumSamples}`));
-  if(!c.portfolioComplete)status.append(node('p','The captured portfolio has excluded positions. Its complete risk scope is unavailable.'));
-  results.append(node('h3','Aligned factor history'),node('p',`${o.instant(r.asOf)} · known at ${o.instant(m.forecast.knownAt)}`),
-   node('p',`Captured scope · ${r.scope.bookIds.length} books · ${r.scope.tradeIds==null?'all trades in those books':`${r.scope.tradeIds.length} selected trade${r.scope.tradeIds.length===1?'':'s'}`}. One adjacent business-session change uses the selected calendar and pinned local close.`),status);
-  if(r.excludedPositions.length){const list=node('ul');for(const p of r.excludedPositions)list.append(node('li',p.tradeReference+' · '+valuationReason(p.reason,p.instrumentType)));results.append(list);}
+  for(const p of plots)clearChart(p);plots=[];results.replaceChildren();if(!result)return;
+  const r=result,c=r.coverage,status=node('div');status.className='risk-coverage';status.dataset.state=c.available?'complete':'incomplete';
+  status.append(node('strong',c.available?'Aligned history ready':'Price coverage needs attention'),node('p',`${c.factors} dated factor${c.factors===1?'':'s'} · ${c.samples} common changes · ${c.rejected} rejected intervals · minimum ${c.minimumSamples}.`));
+  results.append(status,node('p',`${o.instant(r.asOf)} · known at ${o.instant(r.manifest.forecast.knownAt)} · ${r.scope.bookIds.length} books · ${r.scope.tradeIds==null?'all trades':r.scope.tradeIds.length+' selected trade'+(r.scope.tradeIds.length===1?'':'s')}`));
+  const omitted=(r.manifest.calendar?.businessDates.length??r.manifest.sessions.length)-r.manifest.sessions.length;if(omitted)results.append(node('p',`${omitted} unfinished business sessions omitted at the captured forecast cutoff.`));
+  if(r.excludedPositions.length)results.append(node('p','Excluded positions: '+r.excludedPositions.map(p=>p.tradeReference+' · '+valuationReason(p.reason,p.instrumentType)).join('; ')));
+  renderHistoryGrid(results,r.manifest,r.columns.map(c=>({id:c.id,label:c.factor.label,unit:c.factor.unit})),gridState,draw);
+  const details=node('details');details.append(node('summary','Individual factor history and rejected intervals'));
   if(!selectedColumn||!r.columns.some(c=>c.id===selectedColumn))selectedColumn=r.columns[0].id;
-  const label=node('label','Dated factor shown '),column=node('select');column.setAttribute('aria-label','History factor');column.append(...r.columns.map(c=>new Option(c.factor.label+' · '+c.factor.unit,c.id)));column.value=selectedColumn;
-  column.onchange=()=>{selectedColumn=column.value;draw();results.querySelector<HTMLSelectElement>('[aria-label="History factor"]')?.focus();};label.append(column);results.append(label);
-  const index=r.columns.findIndex(c=>c.id===selectedColumn),unit=r.columns[index].factor.unit;
-  if(m.samples.length){plot=node('div');plot.className='chart risk-result-chart';results.append(plot);renderChart(plot,factorHistoryChart(r,selectedColumn));}
-  else results.append(node('p','No complete interval is available. Missing or off-close inputs are not zero changes.'));
-  results.append(table(['From session','To session','From mark','To mark','Exact absolute change','Native unit'],m.samples.map(s=>[o.instant(s.from.at),o.instant(s.to.at),s.from.marks[index]!.value,s.to.marks[index]!.value,s.changes[index],unit])));
-  if(m.rejected.length)results.append(node('h4','Rejected interval diagnostics'),table(['Interval','Factor','Endpoint','Reason'],m.rejected.flatMap(s=>s.issues.map(i=>[s.id,r.columns.find(c=>c.id===i.factorId)!.factor.label,i.endpoint,reasons[i.reason]??i.reason]))));
-  results.append(node('p','The graphic and table show one factor. Coverage uses the entire captured factor universe. Exact observation lineage, source/unit mappings, calendar dates and resolved close evidence are retained in the exported manifest.'));
+  const choose=node('select');choose.setAttribute('aria-label','History factor');choose.append(...r.columns.map(c=>new Option(c.factor.label+' · '+c.factor.unit,c.id)));choose.value=selectedColumn;choose.onchange=()=>{selectedColumn=choose.value;draw();};details.append(choose);
+  if(r.manifest.samples.length){const plot=node('div');plot.className='chart risk-result-chart';details.append(plot);plots.push(plot);renderChart(plot,factorHistoryChart(r,selectedColumn));}
+  if(r.manifest.rejected.length)details.append(table(['Interval','Factor','Endpoint','Reason'],r.manifest.rejected.flatMap(s=>s.issues.map(i=>[s.id,r.columns.find(c=>c.id===i.factorId)!.factor.label,i.endpoint,i.reason.replaceAll('_',' ')]))));
+  results.append(details);
  }
- async function prepare(){
-  const body=request(),version=++generation;clearResult('Preparing the exact aligned sample manifest…');
-  try{const value=await o.api<HistoryReport>('portfolio/risk/history',body);if(!current(version))return;validateFactorHistory(value,body);if(value.manifest.forecast.contextId!==body.scope.context.contextId)throw Error('The history result does not match the requested context.');result=value;message.textContent='Captured history is shown below. Export rereads its inputs under current authority.';draw();}
-  catch(error){if(current(version))clearResult(error instanceof Error?error.message:'History preparation failed.');throw error;}
-  finally{sync();}
+ async function prepare():Promise<HistoryReport|undefined>{
+  const body=request(),key=JSON.stringify(body);if(result&&key===cacheKey)return result;
+  const version=++generation;clear('Step 1 of 2 · aligning end-of-day factor prices and checking coverage…');
+  try{const value=await o.api<HistoryReport>('portfolio/risk/history',body);if(!current(version)||!sameScope())return;
+   validateFactorHistory(value,body);result=value;cacheKey=key;message.textContent='History aligned. The grid shows official closes, approved alternatives and missing prices. Run VaR computes covariance and risk automatically.';draw();return value;
+  }catch(error){if(current(version))clear(error instanceof Error?error.message:'History preparation failed.');throw error;}finally{sync();}
  }
  async function exportManifest(){
-  if(!result)throw Error('Prepare history before exporting.');const captured=result,version=generation;
-  try{const value=await o.api<HistoryReport>('portfolio/risk/history',captured.request);if(!current(version))return;validateFactorHistory(value,captured.request);
-   if(value.manifest.id!==captured.manifest.id)throw Error('The reread history no longer matches the captured manifest. Prepare a new result.');
-   const blob=new Blob([JSON.stringify(value,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=node('a');link.href=url;link.download='leanetrm-factor-history.json';link.click();URL.revokeObjectURL(url);
-  }catch(error){if(current(version))clearResult(error instanceof Error?error.message:'The captured history could not be exported.');throw error;}
+  if(!result)throw Error('Run VaR or preview coverage first.');const captured=result,version=generation;
+  const value=await o.api<HistoryReport>('portfolio/risk/history',captured.request);if(!current(version)||!sameScope())return;
+  validateFactorHistory(value,captured.request);if(value.manifest.id!==captured.manifest.id)throw Error('The authorized inputs changed. Run a new calculation before export.');
+  const blob=new Blob([JSON.stringify(value,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=node('a');link.href=url;link.download='leanetrm-factor-history.json';link.click();URL.revokeObjectURL(url);
  }
- statistics.onsubmit=event=>{event.preventDefault();if(!statistics.reportValidity())return;void o.act(async()=>{
-  if(!result||!configuration||owner!==o.identity()||JSON.stringify(o.scope())!==JSON.stringify(configuration.scope))throw Error('Prepare aligned history for the current scope first.');
-  const config=configuration.parametric,count=Number(ticks.value);
-  if(estimator.value!==config.profile.convention||!Object.values(config.drifts).includes(drift.value)||!ticks.value||!Number.isSafeInteger(count))throw Error('Choose the statistical contract, drift and an explicit integer tick count.');
-  await o.calculate({history:structuredClone(result.request),policy:{...config.profile,drift:drift.value,confidence:confidence.value.trim()},finiteDifference:{convention:config.finiteDifference,tradingTicks:count,deltaTolerance:{absolute:absolute.value.trim(),relative:relative.value.trim()}}},
-   {pricingPolicy:configuration.pricingPolicy,convention:configuration.convention,numericalPolicy:configuration.numericalPolicy,context:result.context,asOf:result.asOf},(event as SubmitEvent).submitter?.id==='risk-parametric-queue');
+ form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity())return;const action=(event as SubmitEvent).submitter?.id;void o.act(async()=>{
+  if(action!=='risk-history-run'&&o.unconfirmed())throw Error('Reconcile the unconfirmed risk submission before running another VaR.');
+  const config=configuration;if(!config)throw Error('Open VaR setup first.');
+  const count=Number(ticks.value);if(!Number.isSafeInteger(count)||count<1||count>1000)throw Error('The trading-tick step must be a whole number from 1 to 1000.');
+  const policy={...config.parametric.profile,drift:drift.value,confidence:confidence.value==='custom'?customConfidence.value.trim():confidence.value},finiteDifference={convention:config.parametric.finiteDifference,tradingTicks:count,deltaTolerance:{absolute:absolute.value.trim(),relative:relative.value.trim()}};
+  const requestedKey=JSON.stringify(request());
+  const captured=await prepare(),version=generation;if(!captured||!current(version)||!sameScope()||configuration!==config||captured!==result||cacheKey!==requestedKey||JSON.stringify(request())!==requestedKey)return;
+  if(action==='risk-history-run')return;
+  message.textContent='Step 2 of 2 · calculating covariance, sensitivities, VaR and expected shortfall…';
+  await o.calculate({history:structuredClone(captured.request),policy,finiteDifference},{pricingPolicy:config.pricingPolicy,convention:config.convention,numericalPolicy:config.numericalPolicy,context:captured.context,asOf:captured.asOf},action==='risk-parametric-queue');
+  if(current(version))message.textContent='Calculation submitted. Its report retains the history, price-type choices and numerical settings.';
  });};
- open.onclick=()=>void o.act(configure);form.onsubmit=event=>{event.preventDefault();if(form.reportValidity())void o.act(prepare);};
- download.onclick=()=>void o.act(exportManifest);
- form.oninput=()=>{generation++;clearResult('History inputs changed. Prepare a new result.');};
- calendar.onchange=()=>{const c=configuration?.history.calendars.find(c=>JSON.stringify(c.reference)===calendar.value);clockNote.textContent=c?`Calendar clock: ${c.clockRule.ianaZone??(c.clockRule.fixedOffsetSeconds===0?'UTC':c.clock)} · coverage ${c.from} to ${c.to}, exclusive.`:'';};
+ panel.ontoggle=()=>{if(panel.open&&allowed&&!configuration&&!o.busy())void o.act(configure);};
+ open.onclick=()=>void o.act(configure);get('risk-history-export').onclick=()=>void o.act(exportManifest);
+ lookback.onchange=()=>{windowDates();invalidate();};calendar.onchange=()=>{windowDates();invalidate();};confidence.onchange=describe;
+ for(const control of [from,to,minimum])control.oninput=invalidate;
+ for(const control of [drift,ticks,absolute,relative,customConfidence])control.oninput=describe;
+ add.onclick=()=>{if(addType.value){priceTypes.push(addType.value);drawPriceTypes();invalidate();}};
  reset();return {reset,sync};
 }

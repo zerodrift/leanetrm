@@ -1,6 +1,6 @@
 # Local verification and continuous integration
 
-## Volatility surfaces (D301)
+## Volatility surfaces (D303)
 
 Local runs on 2 November 2026 against the branch head after the final review's fixes
 (a revision's inputs now include its valuation instant and the discount-curve points
@@ -1576,7 +1576,7 @@ fails. `tests/test_release_deployment.py` checks that a deployment verifies the 
 fence: an unchanged persisted file, the recorded rules live, and the ingress network's
 own bridge, refusing a network recreated with another. It also refuses a serving API
 that names a provider check endpoint. `tools/check_release_docker.py` starts the
-previous image with the host configuration it accepts (`--previous-credential-keys`)
+previous image with the host configuration it accepts (`--previous-credential-keys` and `--previous-process-limits`)
 and adds the key files' fields before the deployment, as an operator does. `tools/check_public_routes.py` checks that the gateway passes an event
 stream's first frame through before the application ends the response; a copy of the
 template with buffering on fails it.
@@ -3521,3 +3521,61 @@ Environment: macOS 26.6.2 arm64, Apple M4 Pro, 14 logical processors, PostgreSQL
 .NET 10.0.402 Debug build for the preview runs, Node 24.22.0, Chrome, all components
 on one machine. These are local workload observations, not a performance
 qualification. The digest check has not yet been observed on Linux for this change; CI is to confirm it.
+
+## D302 shared mechanisms and operating configuration
+
+Qualification on 2026-11-02 used isolated disposable stock PostgreSQL 16 and
+synthetic inputs. The complete increment was exercised on base `f026c3ec`;
+after integration with `5a6cd3e9`, the targeted checks below were rerun. The managed core's 656 checks pass with the retained gas/crude extraction;
+its explicit canonical identity and rational PV oracles also passed against the
+original concrete implementations before extraction. Shared utilities, API
+contracts and the worker build pass. Custom reference-unit symbols survive catalog
+presentation, and the reference-editing/integrity suite passes on the full schema.
+
+On the `f026c3ec` baseline, the frontend passed 1,225 checks and Python tooling
+passed 84. The complete standard preview passed its 1,213 browser checks and
+subsequent backend checks. Hosted HTTPS/browser checks passed, including
+capacity-one logout/re-login and SQL-verified revocation reclamation. Assistant
+admission/tool/stream/usage checks and 288 browser checks passed; a turn admitted before a policy change retains
+its old pin/reserve/output budgets, a new turn uses the new policy, and grant/save
+replays keep their original outcome after a cap reduction. Managed output checks
+consume actual SQL-admitted limits and refuse oversized complete results.
+
+Owned settings/upgrade checks pass current authority, ownership, exact replay,
+no-op revisions, optimistic conflicts, complete bounded input, access-only
+administration without market authority, exact session/lockout/invitation durations
+and duplicate failed-login handling. Altered privileged helper bodies/ACLs refuse;
+completed prior turns, versions, grants and session identity/expiry remain unchanged
+without invented policy lineage. Gas and crude HTTP/worker checks reproduce exact
+retained mixed-portfolio valuation and shock results. The public gateway passes
+38 live owned route checks, and custom process-budget rendering checks cover body
+sizes, refusals, longer deadlines and the fixed stream heartbeat margin.
+
+After integrating `5a6cd3e9` (D299 parametric risk), the combined tree passed 1,232 frontend
+checks, 84 Python checks, managed API contracts, and owned settings/upgrade SQL.
+The dedicated parametric SQL/HTTP/worker suite and its 11 browser checks passed.
+These targeted reruns do not represent a full combined-tree CI run.
+
+The subsequent integration onto `587fc183` preserves physical LNG (0176–0179,
+D300) and guided VaR (0180, D301); operating settings now occupy 0181–0183 and
+D302. A delayed-preference browser regression reproduces the pop-out account
+switch failure on the earlier implementation. Verification demands now retain a
+fresh following read, and delayed preferences are applied only after rechecking
+the same tied identity. The private import fixture explicitly selects connection
+budgets; six refusal checks verify that omitting any budget from either login
+records no import receipt. The owned import/upgrade suite, 1,242 frontend checks
+and 85 Python checks pass on this integration. The fixed assistant browser suite
+passes all 288 checks, and the guided parametric SQL/worker suite and its 16
+browser checks pass.
+
+The exchange preview explicitly provisions its separate workspace policies before
+agent admission. Its scoped-policy check and full exchange/options HTTP,
+lifecycle, retained risk and 35 browser checks pass; missing configuration still
+refuses at runtime.
+
+Independent adversarial source review found no remaining material defect after
+these fixes. This is local implementation qualification. An attested Docker run
+with the selected prior image, paired configuration rollback and authenticated
+service-recovery checks remains outstanding; the current rollback smoke covers
+public authentication-page availability and anonymous denial only. See the
+[operator transition](hosted-pilot.md#operating-configuration-transition-d302).

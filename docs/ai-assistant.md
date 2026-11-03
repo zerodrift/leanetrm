@@ -1,7 +1,8 @@
 # Page assistant, phase 1: local-preview core
 
 Current extension: [workspace operations and page guidance](assistant-workspace.md)
-(D284, `turns_v11`, migrations 0162–0164). It supersedes the unsupported-page
+(D284, runtime `turns_v12`, workspace migrations 0162–0164 and D302 settings
+migrations 0181–0183). It supersedes the unsupported-page
 inventory and D260's direct curve-save exception. Business commands require the
 human's separate authorization; configurable page prompts are pinned to questions.
 The phase record below remains the provider/grant/runtime foundation.
@@ -122,6 +123,12 @@ Phase 1 brings a bounded slice of [Milestone 5](plan.md) forward. It does not sa
 Milestone 5's acceptance criteria. [architecture.md](architecture.md) §9–§12 and the
 agreed decisions in [decisions.md](decisions.md) apply unless §14 records a change.
 
+D302 adds [current operating policies](operational-limits.md#implemented-consumers-d302):
+`ManageAgents` controls pin bytes, workspace turns, context reserve, grant duration
+and tool-output rows/bytes. Each new turn pins one revision; changes do not alter
+that turn's budget. `ManageAccess` separately controls new sign-ins, lockouts,
+enrollment and invitations. Process limits remain explicit operator configuration.
+
 ## 1. Intent and success
 
 A trader on the blotter asks which trades drive a book's execution P&L as of the
@@ -181,9 +188,10 @@ Facts the body relies on and does not restate:
 
 - **Host.** The API runs in one mode (`Program.cs`); `--local-preview` requires the
   loopback peer, Host `127.0.0.1` with the port and a matching Origin when sent. The
-  first middleware rejects bodies over 32 KB and cancels requests after 15 seconds; a
-  semaphore serializes each session's requests. In-memory sessions end 30 minutes
-  after creation and do not survive a restart. Two scopes, `/api` and
+  middleware enforces the explicit process body/deadline configuration within its
+  qualified bounds; a semaphore serializes each session's requests. Local preview
+  sessions end 30 minutes after creation; hosted page sessions take the sign-in
+  row's expiry. In-memory page sessions do not survive a restart. Two scopes, `/api` and
   `/examples/exchange/api`, each have their own manifest, pools, sessions, cookie and
   anti-forgery scope over one database. Request records reject unlisted JSON members.
   The CSP allows scripts and connections only from the application origin.
@@ -1178,8 +1186,8 @@ connection limit and firewall rule below in the same window.
   access appear by permission, as in the preview.
 - **Sessions.** An application session belongs to the sign-in session it was opened
   under: it names itself to the database by that session's digest and ends when that
-  session does, at most 30 minutes after sign-in, and one opened under an earlier
-  sign-in is never used again. Turns and streams bind it (§7.2, §8), and the database
+  session does, using the access-policy duration pinned at sign-in (within the
+  current 30-minute ceiling). One opened under an earlier sign-in is never reused. Turns and streams bind it (§7.2, §8), and the database
   refuses a hosted ask (`turn_input`) whose binding names another sign-in session or
   ends after the one its request context was issued for. Revoking a sign-in session,
   which signing out, a password reset and disabling the account or its membership all

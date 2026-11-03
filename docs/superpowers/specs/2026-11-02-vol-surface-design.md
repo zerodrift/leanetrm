@@ -1,7 +1,7 @@
 # Volatility surface
 
 Status: implemented locally as [volatility surfaces](../../vol-surfaces.md), decision
-D301 in the [decision record](../../decisions.md). The design below is kept as
+D303 in the [decision record](../../decisions.md). The design below is kept as
 written except where noted; the shipped behaviour is in those documents.
 
 ## Why
@@ -152,7 +152,7 @@ From AGENTS.md and the architecture, for this work:
 - **TDD.** Behaviour checks are written first and are independent of the algorithm.
   For example, a surface generated from known smile parameters is recovered, and
   rich/cheap equals an offset deliberately added to one series.
-- **Decision record.** A decision entry (next free number, D301 after the master merges) records the
+- **Decision record.** A decision entry (next free number, D303 after the master merges) records the
   vol-model contract, the first model, and view-only scope. docs/futures-options.md
   "Remaining work" is updated to match what ships.
 
