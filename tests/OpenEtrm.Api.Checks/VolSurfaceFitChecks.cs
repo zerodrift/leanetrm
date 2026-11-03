@@ -22,8 +22,9 @@ internal static class VolSurfaceFitChecks
         var model=VolModels.Require(VolModels.QuadraticLogMoneyness);
         var catalog=database.Manifest.CatalogId;
         var ct=CancellationToken.None;
-        // Each database step runs in its own short request context, whose lease outlasts one fit but not the whole check.
-        Task<T> Session<T>(Func<Npgsql.NpgsqlConnection,Task<T>> step)=>database.WithIdentity("trader","ReadTrades",(connection,_)=>step(connection),ct);
+        // Each database step runs in its own request context. A fit runs in one context, as it does in a fit job; a job renews
+        // its lease while it runs, so this context takes the longest local lease to cover one fit on a slow runner.
+        Task<T> Session<T>(Func<Npgsql.NpgsqlConnection,Task<T>> step)=>database.WithIdentity("trader","ReadTrades",(connection,_)=>step(connection),ct,leaseSeconds:300);
         Task<Market> Read(InputFrame frame)=>Session(async connection=>
         {
             var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);

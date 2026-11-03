@@ -186,15 +186,17 @@ public sealed class PreviewDatabase : IAsyncDisposable
             NpgsqlDataSource.Create(app));
     }
 
-    public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, Admission admission=Admission.Shared)
+    // A local context lasts leaseSeconds (at most 300); a hosted context lasts what its sign-in session issues.
+    public async Task<T> WithIdentity<T>(string profile, string? permission, Func<NpgsqlConnection, CancellationToken, Task<T>> operation, CancellationToken ct, Admission admission=Admission.Shared,
+        int leaseSeconds=60)
     {
         if(authenticator is null)throw new InvalidOperationException("This direct reader has no identity-issuing capability.");
         if (string.IsNullOrWhiteSpace(profile) || profile.Length>48) throw new PreviewDeniedException();
         var invocation=AssistantRequest?.Invoke();
         var issuer=invocation?.ReadLimit is not null?agentAuthenticator??authenticator:authenticator;
         var source=invocation?.ReadLimit is not null?agentRuntime??runtime:runtime;
-        await using var issue = issuer.CreateCommand(hostedSession is null?"SELECT security.issue_context($1,$2,$3,$4,$5,NULL,$6::name,60)":"SELECT security.issue_hosted_context($1,$2::name)");
-        foreach (var value in hostedSession is null?new object[] { Manifest.IdentityIssuer, profile, "human_interactive", Manifest.TenantId, Manifest.WorkspaceId, runtimeLogin }:new object[]{hostedSession(),runtimeLogin})
+        await using var issue = issuer.CreateCommand(hostedSession is null?"SELECT security.issue_context($1,$2,$3,$4,$5,NULL,$6::name,$7)":"SELECT security.issue_hosted_context($1,$2::name)");
+        foreach (var value in hostedSession is null?new object[] { Manifest.IdentityIssuer, profile, "human_interactive", Manifest.TenantId, Manifest.WorkspaceId, runtimeLogin, leaseSeconds }:new object[]{hostedSession(),runtimeLogin})
             issue.Parameters.Add(new NpgsqlParameter { Value = value });
         Guid token;
         // A hosted request whose sign-in session was revoked or ended since it was authenticated (docs/ai-assistant.md §11).
