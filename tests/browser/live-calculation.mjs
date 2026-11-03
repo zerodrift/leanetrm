@@ -50,7 +50,9 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  // A refresh that fails while a curve read is still waiting must not leave the kept desk loading for ever.
  const shapesLoading="document.querySelectorAll('#desk-positions .sparkline-loading').length";
  await evaluate('window.holdShapes=true');await correct('base','3.35');
- await wait(`typeof window.releaseShapes==='function'&&${shapesLoading}>0&&document.querySelector('#live-status').dataset.state==='live'&&`+idle);
+ // The correction is recomputed on the server before the page reads the curves again, which on a shared runner can take longer than
+ // an ordinary action's wait.
+ await wait(`typeof window.releaseShapes==='function'&&${shapesLoading}>0&&document.querySelector('#live-status').dataset.state==='live'&&`+idle,30000);
  await evaluate('window.failLiveWorkspace=true');await correct('base','3.36');
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
  await check('a refresh that fails while the curves are being read leaves each unavailable with the reason, not loading',"(()=>{const lines=[...document.querySelectorAll('#desk-positions svg.sparkline')],rows=document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)');return rows.length>0&&lines.length===rows.length&&document.querySelectorAll('#desk-positions .sparkline-loading').length===0&&lines.every(s=>s.classList.contains('sparkline-unavailable')&&s.querySelector('title').textContent.includes('refresh'));})()","[...document.querySelectorAll('#desk-positions .desk-cell:has(.sparkline), #desk-positions .sparkline-loading')].map(n=>n.className+' '+n.textContent).slice(0,3)");

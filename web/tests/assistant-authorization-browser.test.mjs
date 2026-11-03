@@ -26,7 +26,10 @@ test('assistant authorization and page prompts require explicit human controls',
   try{
     ws=new WebSocket(await waitForBrowserPage(directory,chrome));await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
     let id=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)(m);pending.delete(m.id);}};
-    const command=(method,params={})=>new Promise(r=>{pending.set(++id,r);ws.send(JSON.stringify({id,method,params}));});
+    // A command the browser does not answer fails by its name and expression, so a stalled step says which it is.
+    const command=(method,params={})=>new Promise((r,j)=>{const n=++id;
+      const stalled=setTimeout(()=>{pending.delete(n);j(Error(`Browser command ${method} gave no reply in 10 s${params.expression?`: ${String(params.expression).slice(0,160)}`:''}`));},10000);
+      pending.set(n,m=>{clearTimeout(stalled);r(m);});ws.send(JSON.stringify({id:n,method,params}));});
     const evaluate=async expression=>{const reply=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});assert.ok(!reply.error&&!reply.result.exceptionDetails,JSON.stringify(reply));return reply.result.result.value;};
     await command('Page.enable');await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
     for(let n=0;n<100&&!await evaluate('!!document.querySelector("#ai-prompt-form")');n++)await new Promise(r=>setTimeout(r,20));
