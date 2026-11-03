@@ -257,8 +257,17 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
 
   // A pop-out whose session no longer holds the main window's account stops showing values, and hands the Blotter back.
   const mismatched=await popOut();
-  await mismatched.evaluate("(async()=>{const boot=await(await fetch('/api/bootstrap?includeFrames=false')).json();await fetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify({profile:'editor'})});document.querySelector('#futures-refresh').click();})()");
-  await mismatched.wait(`${endedText}.startsWith('This window’s account is not the main window’s')`,30000);
+  // Hold a complete preference response after the old account was read. Refreshing after the switch must demand a fresh
+  // verification, and releasing this old response must never apply it under the changed account.
+  await mismatched.evaluate("{const send=window.fetch;window.__preferencesHeld=false;window.fetch=async(...args)=>{const response=await send(...args);if(String(args[0])==='/api/settings/preferences'&&(!args[1]?.method||args[1].method==='GET')&&!window.__preferencesHeld){window.__preferencesHeld=true;await new Promise(resolve=>window.__releasePreferences=resolve);}return response;};}");
+  await mismatched.wait("(()=>{if(window.__preferencesHeld)return document.body.getAttribute('aria-busy')==='false';if(document.body.getAttribute('aria-busy')==='false')document.querySelector('#futures-refresh').click();return false;})()",30000);
+  const switched=await mismatched.evaluate("(async()=>{const boot=await(await fetch('/api/bootstrap?includeFrames=false')).json();const response=await fetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify({profile:'editor'})});return {status:response.status,body:await response.json()};})()");
+  if(switched.status!==200||switched.body.profile!=='editor')throw Error('The synthetic account switch was refused: '+JSON.stringify(switched));
+  await mismatched.evaluate("document.querySelector('#futures-refresh').click()");
+  await mismatched.wait(idle,30000);
+  await mismatched.evaluate("window.__releasePreferences()");
+  await mismatched.wait(`${endedText}.startsWith('This window’s account is not the main window’s')`,30000).catch(async error=>{
+    throw Error(error.message+' · popup '+JSON.stringify(await mismatched.evaluate("({ended:document.querySelector('#blotter-window-ended').textContent,error:document.querySelector('#error').textContent,busy:document.body.getAttribute('aria-busy')})")));});
   await check('a pop-out that finds another account than the main window\'s shows no figures',JSON.stringify(await mismatched.evaluate(blank)));
   await wait(`${q('#blotter-away')}.hidden`,30000);
   await check('and hands the Blotter back to the main window',`${q('#blotter-away')}.hidden`);

@@ -66,10 +66,9 @@ async function api<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
   return payload;
 }
 const savedPreferences=preferenceSession(transport,notice);
-let checking=false;
 function checkAccount(){
-  if(checking||ended||!started)return;
-  checking=true;void verify().then(report,error=>{if(!ended)failed(error);}).finally(()=>{checking=false;});
+  if(ended||!started)return;
+  void verify.afterCurrent().then(report,error=>{if(!ended)failed(error);});
 }
 
 function syncControls(){
@@ -91,19 +90,30 @@ async function act(work:()=>Promise<void>){
 const whenIdle=(work:()=>void)=>{if(busy)setTimeout(()=>whenIdle(work),50);else work();};
 
 // The account, workspace and permissions of this window's session, which must be those the main window named.
-const verify=coalescedRead(async()=>{
+function refuseAccount():never{
+  end('This window’s account is not the main window’s, so it shows no values');
+  throw Error('This window’s account is not the main window’s, so it acts on nothing here.');
+}
+async function readAccount(){
   const boot=await transport<{requestDeadlines:unknown;mode:string;csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;access:{profile:string;permissions:string[]}|null}>('bootstrap?includeFrames=false&includeAccess=true');
   // The workspace's mode decides how a refusal is worded, as the main window's does; an unknown one is refused.
   if(boot.mode!=='hosted-pilot'&&boot.mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Close this window and pop the Blotter out again.');
   deadlines.read(boot.requestDeadlines);hosted=boot.mode==='hosted-pilot';
   const identity=[boot.runId,boot.tenantId,boot.workspaceId,boot.profile].join(':');
   if(!boot.profile||!boot.csrfToken||!boot.access||boot.access.profile!==boot.profile||!Array.isArray(boot.access.permissions))throw Error('This window could not verify its account. Close it and pop the Blotter out again.');
-  if(identity!==latest?.profile){end('This window’s account is not the main window’s, so it shows no values');throw Error('This window’s account is not the main window’s, so it acts on nothing here.');}
-  profile=boot.profile;
+  if(identity!==latest?.profile)refuseAccount();
+  return {profile:boot.profile,csrf:boot.csrfToken,permissions:boot.access.permissions,identity};
+}
+const verify=coalescedRead(async()=>{
+  const {identity}=await readAccount();
   const priorZone=prefs.timeZone;
-  prefs=await savedPreferences.load(identity,Intl.DateTimeFormat().resolvedOptions().timeZone);
-  if(priorZone!==prefs.timeZone&&started)futures.refreshDisplay();
-  csrf=boot.csrfToken;scope=identity;permissions=[...boot.access.permissions];
+  const loaded=await savedPreferences.load(identity,Intl.DateTimeFormat().resolvedOptions().timeZone);
+  // Preference I/O can outlive a shared-cookie account change. Recheck before installing its result or redrawing values.
+  const current=await readAccount();
+  if(current.identity!==identity)refuseAccount();
+  profile=current.profile;prefs=loaded;
+  csrf=current.csrf;scope=identity;permissions=[...current.permissions];
+  if(priorZone!==prefs.timeZone&&started&&!ended)futures.refreshDisplay();
 });
 // The market navigation this window reads, which must name the close and the knowledge the main window selects.
 async function readNavigation(context:BlotterContext){

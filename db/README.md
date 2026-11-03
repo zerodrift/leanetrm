@@ -47,6 +47,8 @@ Recent schema groups and their contracts:
 
 - 0175: immutable statistical history/clock receipts, lease-fenced source reads and
   authorized completed-report archive ([parametric risk](../docs/parametric-risk.md)).
+- 0180: guided end-of-day history windows, ordered price types and retained
+  endpoint coverage ([aligned history](../docs/risk-factor-history.md#guided-var-setup-d301)).
 - 0181–0183: [current operating policies, personal presentation and hosted access
   admission](../docs/operational-limits.md#implemented-consumers-d302), with immutable
   revisions, exact policy pins and retained command receipts.
@@ -1574,7 +1576,7 @@ updates until the operator qualifies a new baseline (D135).
 exact policy pins for new turns, agent versions and grants, and fail-closed helper
 body/owner/ACL guards. New asks require runtime `turns_v12`; retries keep their
 original result. 0182 adds human/workspace/example presentation revisions, owner
-binding and idempotent optimistic saves, without financial context fields. 0178
+binding and idempotent optimistic saves, without financial context fields. 0183
 uses current access policy at sign-in/enrollment/invitation admission and retains
 session/invitation/login lineage. Old rows keep their recorded identity and expiry;
 no prior policy is invented. The four-argument invitation claim is closed.

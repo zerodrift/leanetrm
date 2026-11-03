@@ -3498,11 +3498,22 @@ retained mixed-portfolio valuation and shock results. The public gateway passes
 38 live owned route checks, and custom process-budget rendering checks cover body
 sizes, refusals, longer deadlines and the fixed stream heartbeat margin.
 
-After integrating `5a6cd3e9` (D299 parametric risk), migrations were renumbered
-0181–0183 and this increment became D302. The combined tree passed 1,232 frontend
+After integrating `5a6cd3e9` (D299 parametric risk), the combined tree passed 1,232 frontend
 checks, 84 Python checks, managed API contracts, and owned settings/upgrade SQL.
 The dedicated parametric SQL/HTTP/worker suite and its 11 browser checks passed.
 These targeted reruns do not represent a full combined-tree CI run.
+
+The subsequent integration onto `587fc183` preserves physical LNG (0176–0179,
+D300) and guided VaR (0180, D301); operating settings now occupy 0181–0183 and
+D302. A delayed-preference browser regression reproduces the pop-out account
+switch failure on the earlier implementation. Verification demands now retain a
+fresh following read, and delayed preferences are applied only after rechecking
+the same tied identity. The private import fixture explicitly selects connection
+budgets; six refusal checks verify that omitting any budget from either login
+records no import receipt. The owned import/upgrade suite, 1,242 frontend checks
+and 85 Python checks pass on this integration. The fixed assistant browser suite
+passes all 288 checks, and the guided parametric SQL/worker suite and its 16
+browser checks pass.
 
 Independent adversarial source review found no remaining material defect after
 these fixes. This is local implementation qualification. An attested Docker run
