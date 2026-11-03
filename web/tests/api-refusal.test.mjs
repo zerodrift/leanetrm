@@ -12,3 +12,9 @@ test('a known first 4xx refusal permits editing while an uncertain retry remains
  const pending=new PendingCommand(code=>code==='lng_input');pending.begin('lng/book',{},()=> 'first');pending.failed(error.code,pending.sending());assert.equal(pending.command,undefined);
  pending.begin('lng/book',{},()=> 'unknown');pending.sending();pending.failed(error.code,pending.sending());assert.equal(pending.command.operationId,'unknown');
 });
+test('missing market data is not blamed on a curve, since a discount rate can be what is missing',async()=>{
+ const error=await apiRefusal('swaps/price',new Response(JSON.stringify({code:'missing_observation',message:'A selected rate sample is missing.'}),{status:422}),false);
+ assert.equal(error.code,'missing_observation');
+ assert.doesNotMatch(error.message,/for this curve/);
+ assert.match(error.message,/price or discount rate/);
+});
