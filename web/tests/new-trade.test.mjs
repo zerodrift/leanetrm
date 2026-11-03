@@ -56,7 +56,7 @@ test('a retained request holds New trade back, ahead of every other reason, beca
 
 test('one New trade product choice includes futures, futures options, swaps, PPAs, physical gas and crude',async()=>{
  const {newTradeProducts}=await import('../dist/new-trade.js');
- assert.deepEqual(newTradeProducts.map(([key])=>key),['futures','options','swaps','ppa','gas','crude']);
+ assert.deepEqual(newTradeProducts.map(([key])=>key),['futures','options','swaps','ppa','gas','crude','lng']);
 });
 
 test('Transport, Park and loan and Storage are listed as coming soon: greyed, disabled, tagged and with their hover text',async()=>{

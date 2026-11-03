@@ -9,8 +9,11 @@ and the existing physical PPA consumer. Crude entry has individual master fields
 and derives its unique pricing mapping in the backend. Missing or overlapping
 mappings refuse; retained trades keep their admitted source. Migration 0173 adds
 the final booking guard and needs a separately qualified release. Standalone
-physical power dimensions, LNG/cargo, saved Incoterms and fee catalogs remain
-subsequent work. See [the entry contract](crude-delivery-setups.md#physical-reference-entry).
+physical power dimensions and fee catalogs remain subsequent work. The next
+[physical LNG cargo and saved Incoterms slice](physical-lng.md) is authorized and
+implemented and locally qualified; schema release and production mapping
+activation remain separate. See
+[the entry contract](crude-delivery-setups.md#physical-reference-entry).
 
 D289 adds the [Risk results workspace](risk-workspace.md): Risk-owned setup,
 shared sensitivity ladders/heatmaps and drill-through, visible incomplete coverage,

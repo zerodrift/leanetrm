@@ -2,7 +2,7 @@ import type {FactsContext} from './position-facts.js';
 import {validTimeZone} from './preferences.js';
 
 export type PositionWindowSelection={snapshotId:string;context:FactsContext;asOf:string;tradeId:string;bindingId:string;revision:number;
- instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas'|'physical_crude'|'futures_option';zone:string;example:'baseline'|'exchange';
+ instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas'|'physical_crude'|'physical_lng'|'futures_option';zone:string;example:'baseline'|'exchange';
  /** Whether the opener was working data at current knowledge, from which option lifecycle events may be recorded. */
  lifecycle:'working'|'read_only'};
 const invalid='This trade window needs its exact position and retained market context. Open it again from the Blotter.';
@@ -18,7 +18,7 @@ export function requirePositionWindowSelection(selection:PositionWindowSelection
  if(!selection||!selection.context||![selection.snapshotId,selection.context.contextId,selection.tradeId,selection.bindingId].every(v=>typeof v==='string'&&guid(v))||
    !/^\d{4}-\d{2}-\d{2}$/.test(selection.context.effectiveOn)||!instant(selection.context.knownAt)||!instant(selection.asOf)||
    selection.asOf.slice(0,10)!==selection.context.effectiveOn||!Number.isInteger(selection.revision)||selection.revision<1||selection.revision>256||
-   !['future','financial_swap','heat_rate','ppa','physical_gas','physical_crude','futures_option'].includes(selection.instrumentType)||!validTimeZone(selection.zone)||!['baseline','exchange'].includes(selection.example)||!['working','read_only'].includes(selection.lifecycle))throw Error(invalid);
+   !['future','financial_swap','heat_rate','ppa','physical_gas','physical_crude','physical_lng','futures_option'].includes(selection.instrumentType)||!validTimeZone(selection.zone)||!['baseline','exchange'].includes(selection.example)||!['working','read_only'].includes(selection.lifecycle))throw Error(invalid);
  return selection;
 }
 

@@ -3,7 +3,7 @@
 import {idle} from './owned-browser.mjs';
 
 // The form each product opens, and the head the panel then shows.
-const forms={futures:{form:'#futures-new-trade',head:'New future'},options:{form:'#option-page',head:'New futures option'},swaps:{form:'#swap-editing',head:'New swap'},ppa:{form:'#ppa-page',head:'New PPA'},gas:{form:'#gas-page',head:'New physical gas trade'},crude:{form:'#crude-page',head:'New physical crude trade'}};
+const forms={futures:{form:'#futures-new-trade',head:'New future'},options:{form:'#option-page',head:'New futures option'},swaps:{form:'#swap-editing',head:'New swap'},ppa:{form:'#ppa-page',head:'New PPA'},gas:{form:'#gas-page',head:'New physical gas trade'},crude:{form:'#crude-page',head:'New physical crude trade'},lng:{form:'#lng-page',head:'New physical LNG cargo'}};
 
 /** Presses New trade and waits for the panel to offer its switch. */
 export async function startNewTrade({click,wait}){

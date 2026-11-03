@@ -4,6 +4,7 @@ using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Crude;
+using OpenEtrm.MarketData.Lng;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -21,6 +22,7 @@ public static partial class ScheduleDefinitionCompiler
             case IntervalSideSchedule native:builder.Native(native);break;
             case PhysicalGasSchedule gas:builder.Gas(gas);break;
             case PhysicalCrudeSchedule crude:builder.Crude(crude);break;
+            case PhysicalLngCargoSchedule lng:builder.Lng(lng);break;
             default:throw ScheduleDefinition.Error("The selected Side has no supported complete schedule generator.");
         }
         return builder.Finish();
@@ -135,7 +137,7 @@ public static partial class ScheduleDefinitionCompiler
             var terms=native?null:Digest(new{plan.DeliveryWindow,plan.Currency,Quantity=Closure(quantity:cash)});
             var guard=Row(key+"/value","root","output_guard","money",plan,currency:plan.Currency,
                 parameters:P(("measure",native?"value_excluding_overdue_v1":"present_value_v1"),
-                    ("lifecycle",native?side switch {PhysicalGasSide=>"future_gas_delivery_v1",PhysicalCrudeSide=>"future_crude_delivery_v1",CertificateDeliverySide=>"certificate_holding_v1",FixedSide or FloatingSide=>"interval_payment_v1",_=>"interval_delivery_v1"}:"undue_payment_v1"),
+                    ("lifecycle",native?side switch {PhysicalGasSide=>"future_gas_delivery_v1",PhysicalCrudeSide=>"future_crude_delivery_v1",PhysicalLngCargoSide=>"future_lng_cargo_v1",CertificateDeliverySide=>"certificate_holding_v1",FixedSide or FloatingSide=>"interval_payment_v1",_=>"interval_delivery_v1"}:"undue_payment_v1"),
                     ("pricePolicy","selected_context_v1"),
                     ("averaging",native?"none":plan.Averaging?.ToString()??"none"),
                     ("firstFixingAt",native?"none":plan.FirstFixingAt?.ToString("O",System.Globalization.CultureInfo.InvariantCulture)??"none"),
@@ -149,7 +151,7 @@ public static partial class ScheduleDefinitionCompiler
                 Edge(total,"input",guard);contributions.Add(total);activeGrid=selected;
             }
             else contributions.Add(guard);
-            roots.Add(new(key+(side is PhysicalGasSide or PhysicalCrudeSide?"/delivery-value":"/cash"),cash,side is PhysicalGasSide or PhysicalCrudeSide?"physical_value":"contractual_amount"));roots.Add(new(key+"/pv",guard,"contribution_pv"));
+            roots.Add(new(key+(side is PhysicalGasSide or PhysicalCrudeSide or PhysicalLngCargoSide?"/delivery-value":"/cash"),cash,side is PhysicalGasSide or PhysicalCrudeSide or PhysicalLngCargoSide?"physical_value":"contractual_amount"));roots.Add(new(key+"/pv",guard,"contribution_pv"));
             // Only price literals are shared with a later obligation. The full
             // rows/edges remain retained; digest traversal scratch can be reused.
             inputs.Clear();sources.Clear();termsHashes.Clear();return guard;
@@ -229,6 +231,23 @@ public static partial class ScheduleDefinitionCompiler
                 for(var n=0;n<applications.Count;n++)Edge(average,"input",applications[n],n);
                 Complete(prefix,Money(prefix+"/amount",quantity,average,plan),plan,false);
             }
+        }
+        public void Lng(PhysicalLngCargoSchedule schedule)
+        {
+            var plan = schedule.Rows[0]; var assignment = schedule.Side.Assignment; const string prefix = "lng/0";
+            var price = Lookup(prefix + "/market", assignment.Lookup, plan);
+            Binding(price, "lng", "lng_assignment", reference: assignment.Key, coordinate: DefinitionIdentity.For(assignment).Canonical,
+                definitions: assignment.Lookup.Market.Curve.Revision, code: assignment.Key.Code);
+            Binding(price, "lng_terminal", "location", reference: assignment.DischargeFacility);
+            Binding(price, "lng_custody", "location", reference: assignment.DischargeCustody);
+            Binding(price, "lng_product", "lng_product", reference: assignment.Product);
+            var grid = ScheduleDefinitionGrid.Capture(grids.Count, prefix + "/cargo", assignment.Clock,
+                new(schedule.Side.DateFrom.Year, schedule.Side.DateFrom.Month, 1), 0, [plan.Interval!]);
+            grids.Add(grid); activeGrid = grid.Ordinal;
+            var quantity = Quantity(prefix + "/quantity", plan.AllocatedQuantity, plan);
+            roots.Add(new(prefix + "/quantity", quantity, "schedule_quantity"));
+            Complete(prefix, Money(prefix + "/amount", quantity, price, plan), plan, true);
+            activeGrid = null;
         }
         public void Crude(PhysicalCrudeSchedule schedule)
         {
@@ -418,7 +437,7 @@ public static partial class ScheduleDefinitionCompiler
             var sum=Row("side/pv","root","sum","money",null,currency:currency);
             for(var n=0;n<contributions.Count;n++)Edge(sum,"input",contributions[n],n);
             roots.Add(new("pv",sum,"pv"));
-            return new(side.Id,side switch {PhysicalGasSide=>"gas",PhysicalCrudeSide=>"crude",FixedSide=>"fixed",FloatingSide=>"floating",PowerPhysicalSide=>"power",CertificateDeliverySide=>"certificate",CapacityDeliverySide=>"capacity",_=>throw ScheduleDefinition.Error("Unknown Side family.")},
+            return new(side.Id,side switch {PhysicalGasSide=>"gas",PhysicalCrudeSide=>"crude",PhysicalLngCargoSide=>"lng",FixedSide=>"fixed",FloatingSide=>"floating",PowerPhysicalSide=>"power",CertificateDeliverySide=>"certificate",CapacityDeliverySide=>"capacity",_=>throw ScheduleDefinition.Error("Unknown Side family.")},
                 DefinitionIdentity.For(side).Canonical,side.PricingBindingIdentity?.Canonical??"",ScheduleDefinition.CurrentSchema,ScheduleDefinition.CurrentGenerator,
                 rows,edges,bindings,roots,ports,grids);
         }

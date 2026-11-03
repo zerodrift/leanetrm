@@ -127,10 +127,10 @@ static class ToolResults
     public static ToolResult Trade(object editor,string instrumentType,Dictionary<string,DealAmountFormats.Selection>? formats)
     {
         var read=Node(editor).AsObject();
-        if(instrumentType=="physical_crude")
+        if(instrumentType is "physical_crude" or "physical_lng")
         {
             var head=JsonSerializer.SerializeToElement(read["head"]);
-            read["instrumentType"]="physical_crude";
+            read["instrumentType"]=instrumentType;
             read["state"]=Node(new{tradeId=head.Id("trade_id"),revision=int.Parse(head.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),tradeReference=TradingReference.Trade(head)});
             return new(read,1,false,References(new JsonArray(read["physical"]!.DeepClone())));
         }

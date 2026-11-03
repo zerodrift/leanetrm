@@ -130,6 +130,8 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/tou-products") => (409,"tou_conflict","This TOU product changed or its code already exists. Reload before editing."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="ppa_conflict" => (409,p.MessageText,"The trade or operation changed. Reconcile its original request or current head."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("ppa_",StringComparison.Ordinal) => (422,p.MessageText,"The PPA operation does not meet its explicit terms, pins, coverage or limits."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="lng_conflict" => (409,p.MessageText,"This LNG operation already belongs to different terms or ownership."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("lng_",StringComparison.Ordinal) => (422,p.MessageText,"The LNG operation requires compatible exact physical, pricing, quantity and Incoterms terms. Preview the complete current terms again."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="crude_conflict" => (409,p.MessageText,"This crude operation already belongs to different terms or ownership."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("crude_",StringComparison.Ordinal) => (422,p.MessageText,"The crude operation requires complete compatible terms and retained schedules."),
     PostgresException p when p.MessageText is "gas_conflict" or "gas_setup_conflict" or "gas_quantity_conflict" => (409,p.MessageText,"This operation already belongs to different terms or ownership."),
@@ -1104,6 +1106,7 @@ api.MapGet("/dashboard/layout",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,ses
 api.MapPost("/dashboard/layout",(HttpContext c,SaveDashboardLayout body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>Results.Ok(await DashboardLayouts.Save(connection,body,ct)),c.RequestAborted)));
 var futuresStore=new FuturesStore(database.Manifest);
+var lngStore=new PhysicalLngStore(database);
 // Trading pages name their knowledge: current knowledge, captured now at the working frame's date;
 // a context captured earlier, re-read over a working frame; or the selected historical view's own.
 Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession session,FuturesReadRequest body,InputFrame frame,CancellationToken ct)
@@ -1111,12 +1114,17 @@ Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession session,F
 // How trading reads publish their results: camel-case members, exact decimals as exact text.
 var tradingJson=new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase,Converters={new ExactDecimalJsonConverter()}};
 // Trading pages without a read operation of their own run their store's read on the shared trading read path.
-Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,Guid? gasTrade=null,Guid? crudeTrade=null,Guid? crudeSetup=null,bool gasReferenceChoices=false)=>
+Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,Guid? gasTrade=null,Guid? crudeTrade=null,Guid? crudeSetup=null,bool gasReferenceChoices=false,Guid? lngTrade=null)=>
     TradingRead(c,body,(connection,view,ct)=>gasReferenceChoices&&view.Working&&expectedConvention==PhysicalGasStore.Convention
         ?tradeReads.ReadBound(connection,view,async()=>{
             var revision=database.Manifest.GasMarket?.RevisionId??database.Manifest.RevisionId;
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],observationScope:ObservationReadScope.ExactPins);
             return await read(connection,data,view.CalculationFrame,ct);
+        },ct)
+        :expectedConvention==PhysicalLngStore.Convention
+        ?tradeReads.ReadBound(connection,view,async()=>{
+            var selected=await PhysicalMarketSelection.Lng.Read(database,connection,view.CalculationFrame,ct,lngTrade);
+            return await read(connection,selected.Data,selected.Frame,ct);
         },ct)
         :expectedConvention==PhysicalCrudeStore.Convention
         ?tradeReads.ReadBound(connection,view,async()=>{
@@ -1129,7 +1137,7 @@ Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
             return await read(connection,selected.Data,selected.Frame,ct);
         },ct)
         :tradeReads.Read(connection,view,data=>read(connection,data,view.CalculationFrame,ct),ct),scenario,headTrade,amendmentPreview,expectedConvention,dealRisk,
-        publicationCheck:gasReferenceChoices?async(connection,view,ct)=>{
+        publicationCheck:expectedConvention==PhysicalLngStore.Convention?(connection,view,ct)=>lngTrade is {} selectedTrade?lngStore.RecheckScope(connection,selectedTrade,ct):lngStore.RecheckReferences(connection,ct):gasReferenceChoices?async(connection,view,ct)=>{
             if(!view.Working)return;
             await using var authority=ScheduleStore.Command(connection,"""
                 SELECT security.market_access($1,'ReadMarketData') AND EXISTS(
@@ -1200,7 +1208,8 @@ TradingReadSelection Capture(PreviewSession session,FuturesReadRequest body)=>Tr
     session.LivePin(body.SnapshotId)?.RequireFrame()??Frame(session,body.SnapshotId));
 void RequireConvention(FuturesReadRequest body,string? expected)
 {
-    if(expected==PhysicalCrudeStore.Convention){if(body.Convention!=expected)throw new MarketDataException("crude_context","Select the explicit supported physical crude valuation convention.");}
+    if(expected==PhysicalLngStore.Convention){if(body.Convention!=expected)throw new MarketDataException("lng_context","Select the explicit supported LNG cargo valuation convention.");}
+    else if(expected==PhysicalCrudeStore.Convention){if(body.Convention!=expected)throw new MarketDataException("crude_context","Select the explicit supported physical crude valuation convention.");}
     else if(expected is SwapStore.Convention or PhysicalGasStore.Convention or TradingBlotter.Convention){if(body.Convention!=expected)throw new MarketDataException("swap_context","Select the explicit supported swap valuation convention.");}
     else if(expected==FuturesOptionStore.Convention)FuturesOptionStore.RequireConvention(body.Convention);
     else FuturesStore.Convention(body.Convention);
@@ -1289,6 +1298,40 @@ api.MapPost("/futures/amend",(HttpContext c,FuturesAmendRequest body)=>Locked(c,
 api.MapPost("/futures/blotter",(HttpContext c,FuturesBlotterRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),(connection,data,frame,ct)=>futuresStore.Blotter(connection,data,frame,body.View,ct)));
 api.MapPost("/futures/holdings",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,futuresStore.Holdings));
 var swapStore=new SwapStore(database);
+api.MapPost("/lng/references",(HttpContext c,FuturesReadRequest body)=>TradingRead(c,body,
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>view.Working?lngStore.References(connection,ct):
+  throw new MarketDataException("historical_read_only","Use current knowledge to choose LNG trade references."),ct),
+ expectedConvention:PhysicalLngStore.Convention,publicationCheck:(connection,view,ct)=>lngStore.RecheckReferences(connection,ct)));
+api.MapPost("/lng/resolve",(HttpContext c,LngResolveRequest body)=>TradingRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>view.Working?lngStore.ResolveReference(connection,view.CalculationFrame,body,ct):
+  throw new MarketDataException("historical_read_only","Use current knowledge to resolve a new LNG cargo."),ct),
+ expectedConvention:PhysicalLngStore.Convention,publicationCheck:(connection,view,ct)=>lngStore.RecheckReferences(connection,ct)));
+api.MapPost("/lng/preview",(HttpContext c,PhysicalLngWriteRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
+ (connection,data,frame,ct)=>lngStore.Preview(connection,data,frame,body,ct),expectedConvention:PhysicalLngStore.Convention));
+api.MapPost("/lng/directory",(HttpContext c,FuturesReadRequest body)=>TradingRead(c,body,
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>lngStore.Directory(connection,ct),ct),
+ expectedConvention:PhysicalLngStore.Convention,publicationCheck:(connection,view,ct)=>lngStore.RecheckScope(connection,null,ct)));
+api.MapPost("/lng/editor",(HttpContext c,PhysicalLngEditorRequest body)=>FuturesRead(c,body.Context,
+ (connection,data,frame,ct)=>lngStore.Editor(connection,data,frame,body.TradeId,ct),expectedConvention:PhysicalLngStore.Convention,lngTrade:body.TradeId));
+api.MapPost("/lng/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",
+ async(connection,ct)=>Results.Ok(await lngStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
+api.MapPost("/lng/book",(HttpContext c,PhysicalLngWriteRequest body)=>Locked(c,async session=>
+{
+ if(session.MarketContext is not null||body.KnowledgeMode!="current")throw new MarketDataException("historical_read_only","Return to working data to book.");
+ var profile=Profile(session);var frame=Frame(session,body.SnapshotId);var retained=new RetainedScheduleStore(database);
+ var terms=await database.WithIdentity(profile,"BookTrade",async(connection,ct)=>{
+  var status=await lngStore.Status(connection,body.OperationId,ct);
+  return status.TryGetProperty("tradeId",out _)?null:await lngStore.Prepare(connection,frame,body,ct);
+ },c.RequestAborted);
+ if(terms is not null)await retained.Stage(profile,body.OperationId,body,"BookTrade",null,null,terms.Generate(c.RequestAborted),c.RequestAborted);
+ return await database.WithIdentity(profile,"BookTrade",async(connection,ct)=>{
+  if(terms is not null)await retained.Lock(connection,body.OperationId,ct);
+  var result=await lngStore.Save(connection,frame,body,ct);
+  if(terms is not null)await retained.Publish(connection,body.OperationId,ct);
+  return Results.Ok(result);
+ },c.RequestAborted);
+}));
+
 var crudeStore=new PhysicalCrudeStore(database);
 api.MapPost("/crude/references",(HttpContext c,FuturesReadRequest body)=>TradingRead(c,body,
  (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>
@@ -1436,6 +1479,8 @@ api.MapPost("/trading/gas",(HttpContext c,TradePositionReadRequest body)=>Tradin
     (connection,view,ct)=>tradeReads.GasTrade(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/trading/crude",(HttpContext c,TradePositionReadRequest body)=>TradingRead(c,body.Context,
     (connection,view,ct)=>tradeReads.CrudeTrade(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
+api.MapPost("/trading/lng",(HttpContext c,TradePositionReadRequest body)=>TradingRead(c,body.Context,
+    (connection,view,ct)=>tradeReads.LngTrade(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/trading/position",(HttpContext c,TradePositionReadRequest body)=>TradingRead(c,
  body.Context??throw new MarketDataException("position_context","Supply the selected context."),
  (connection,view,ct)=>tradeReads.Position(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));

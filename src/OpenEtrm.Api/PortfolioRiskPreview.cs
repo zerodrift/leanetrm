@@ -221,7 +221,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     private static string Displayed(ExactMoney value)=>Display.FormatFraction(BigInteger.Parse(value.Numerator,CultureInfo.InvariantCulture),BigInteger.Parse(value.Denominator,CultureInfo.InvariantCulture));
     private static string MeasureLabel(string measure)=>measure switch{
         PortfolioValuation.FuturesMeasure=>"Futures execution P&L",PortfolioValuation.SwapMeasure=>"Present value",PortfolioValuation.PpaMeasure=>"Value excluding overdue cash",
-        CrudePositions.Measure=>"Crude contractual PV",FuturesOptionPositions.Measure=>FuturesOptionPositions.MeasureLabel,
+        CrudePositions.Measure=>"Crude contractual PV",LngPositions.Measure=>"LNG contractual PV",FuturesOptionPositions.Measure=>FuturesOptionPositions.MeasureLabel,
         GasPositions.Measure=>"Gas contractual PV",
         _=>throw new MarketDataException("valuation_measure","The report requires an explicit valuation measure label.")};
     private static string Currency(ImmutableArray<PreviewData> markets,ReferenceKey key)=>Reference(markets,"currencies",key).Text("display_code");

@@ -26,6 +26,14 @@ internal sealed class PhysicalMarketSelection
         WHERE(r.catalog_id,r.trade_id)=($1,$2) ORDER BY r.revision DESC LIMIT 1
         """);
 
+    internal static PhysicalMarketSelection Lng { get; } = new(
+        "lng", PrimaryMarketUse.RequireIndependent, m => m.LngMarket, m => m.RetainedLngMarkets ?? [],
+        """
+        SELECT json_build_object('definition_revision_id',i.definition_revision_id)::text
+        FROM trading.lng_trade_revisions r JOIN trading.lng_instruments i USING(catalog_id,instrument_id)
+        WHERE(r.catalog_id,r.trade_id)=($1,$2) ORDER BY r.revision DESC LIMIT 1
+        """);
+
     private readonly string product;
     private readonly PrimaryMarketUse primaryMarketUse;
     private readonly Func<PreviewManifest, PreviewPhysicalMarket?> current;
@@ -50,6 +58,7 @@ internal sealed class PhysicalMarketSelection
     internal async Task<(PreviewData Data, InputFrame Frame)> Read(PreviewDatabase database,
         NpgsqlConnection connection, InputFrame frame, CancellationToken ct, Guid? trade = null, Guid? setup = null)
     {
+        if(setup is not null && product != "crude") throw Invalid("A crude setup cannot select another physical product's market.");
         Guid? revision = null;
         if (trade is {} id)
         {

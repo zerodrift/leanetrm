@@ -1,15 +1,20 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0175_parametric_risk_history.sql`. It includes reference/market data, certified
+`0179_lng_portfolio_scope.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
-Side programs, dashboard layouts and bounded physical gas/crude operations.
+Side programs, dashboard layouts, bounded physical gas/crude operations and
+pre-loading LNG cargo booking/valuation with saved Incoterms.
 The migration notes below include historical foundation checkpoints; statements
 about what an individual migration lacks describe that checkpoint, not the whole
 application. See [current implementation](../docs/implementation.md) and
 [verification](../docs/verification.md) for consumers and qualification.
 
 Recent schema groups and their contracts:
+
+- 0176–0179: [physical LNG cargo](../docs/physical-lng.md), separate physical masters,
+  saved Incoterms, exact discharge-energy conversion, native admission and retained
+  Blotter/portfolio/worker execution. Schema release and market activation are separate.
 
 - 0131–0138: [dated-contract observations](../docs/observation-price-scenarios.md),
   executable contract admission and retained worker reads.

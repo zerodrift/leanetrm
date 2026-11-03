@@ -218,6 +218,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             throw new MarketDataException("portfolio_context","Select explicit books and exact market frames under one certified effective context.");
         if(closePolicy is not null)
         {
+            if(!(await LngPositions.Read(connection,database.Manifest,bookIds,[],ct)).IsEmpty)
+                throw new MarketDataException("lng_close_scope","Generated close valuation for LNG is not qualified.");
             await PhysicalCrudeStore.RequireCloseScope(connection,database.Manifest.CatalogId,bookIds,[],ct);
             await PhysicalGasStore.RequirePortfolioScope(connection,database.Manifest.CatalogId,bookIds,[],ct);
         }
@@ -253,6 +255,14 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         foreach(var market in gas)
         {
             materialized.Add((market.Data,market.Frame,market.Snapshot,market.Portfolio,GasPositions.Measure));
+            evidence.AddRange(market.Evidence);
+        }
+        var lng=await LngPortfolio.Prepare(connection,database,frame,
+            await LngPositions.Read(connection,database.Manifest,bookIds,[],ct,trades:selection?.Ids),
+            [(data,frame),..supplemental.IsDefault?[]:supplemental],retainedGraphs is not null,ct);
+        foreach(var market in lng)
+        {
+            materialized.Add((market.Data,market.Frame,market.Snapshot,market.Portfolio,LngPositions.Measure));
             evidence.AddRange(market.Evidence);
         }
         var crude=await CrudePortfolio.Prepare(connection,database,frame,
@@ -332,6 +342,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             // the observations still needed by another holder of the same side.
             var activePrices=SwapPrices(swaps.Where(holding=>holding.Snapshot.Definitions==first.Snapshot.Definitions))
                 .AddRange(gas.Where(market=>market.Snapshot.Definitions==first.Snapshot.Definitions).SelectMany(market=>market.ActivePrices))
+                .AddRange(lng.Where(market=>market.Snapshot.Definitions==first.Snapshot.Definitions).SelectMany(market=>market.ActivePrices))
                 .AddRange(crude.Where(market=>market.Snapshot.Definitions==first.Snapshot.Definitions).SelectMany(market=>market.ActivePrices))
                 .Distinct().ToImmutableArray();
             var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,CustomCurves.MarketPreparation.ScenarioUniverse,ct,retained,activePrices,operation?.Histories);

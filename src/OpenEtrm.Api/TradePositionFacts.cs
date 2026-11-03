@@ -117,6 +117,8 @@ internal sealed class TradePositionFacts(PreviewManifest manifest)
         await RequireReferences(connection,references,ct);
         foreach(var gas in await GasPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.Add((Integer(gas.Head,"trade_reference"),gas.Fact()));
+        foreach(var lng in await LngPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(lng.Head,"trade_reference"),lng.Fact()));
         foreach(var crude in await CrudePositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.Add((Integer(crude.Head,"trade_reference"),crude.Fact()));
         foreach(var option in await FuturesOptionPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
@@ -134,6 +136,7 @@ internal sealed class TradePositionFacts(PreviewManifest manifest)
              AND NOT EXISTS(SELECT 1 FROM trading.swap_trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id))
              AND NOT EXISTS(SELECT 1 FROM trading.ppa_trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id))
              AND NOT EXISTS(SELECT 1 FROM trading.gas_trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id))
+             AND NOT EXISTS(SELECT 1 FROM trading.lng_trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id))
              AND NOT EXISTS(SELECT 1 FROM trading.crude_trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id))
              AND NOT EXISTS(SELECT 1 FROM trading.futures_option_trade_revisions r WHERE(r.catalog_id,r.trade_id)=(t.catalog_id,t.id)))
             """,manifest.CatalogId,books);

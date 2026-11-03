@@ -12,7 +12,9 @@ namespace OpenEtrm.Api;
 
 public sealed record PreviewManifest(string Mode, Guid CatalogId, Guid RevisionId, Guid ReferenceCatalogId,
     Guid ReferenceRevisionId, Guid TenantId, Guid WorkspaceId, PreviewSeedFrame[] Frames,PreviewExample? Example,
-    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",[property:System.Text.Json.Serialization.JsonRequired]string FuturesConvention="",PreviewReferenceCatalog? ReferenceCatalog=null,PreviewPhysicalMarket? GasMarket=null,PreviewPhysicalMarket[]? RetainedGasMarkets=null,PreviewPhysicalMarket? CrudeMarket=null,PreviewPhysicalMarket[]? RetainedCrudeMarkets=null);
+    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",[property:System.Text.Json.Serialization.JsonRequired]string FuturesConvention="",PreviewReferenceCatalog? ReferenceCatalog=null,PreviewPhysicalMarket? GasMarket=null,PreviewPhysicalMarket[]? RetainedGasMarkets=null,PreviewPhysicalMarket? CrudeMarket=null,PreviewPhysicalMarket[]? RetainedCrudeMarkets=null,PreviewPhysicalMarket? LngMarket=null,PreviewPhysicalMarket[]? RetainedLngMarkets=null,PreviewLngReferences? LngReferenceCatalog=null);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record PreviewLngReferences(Guid ReferenceRevisionId,Guid DefinitionRevisionId);
 public sealed record PreviewPhysicalMarket(Guid RevisionId,PreviewSeedFrame[] Frames);
 public sealed record PreviewReferenceCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId,ImmutableArray<string> Tables);
 public sealed record PreviewUnitCatalog(Guid ReferenceRevisionId,Guid DefinitionRevisionId);
@@ -91,6 +93,8 @@ public sealed class PreviewDatabase : IAsyncDisposable
         ("commodity_locations","commodity_code,location_code"), ("pipeline_zones","pipeline_code,zone_code"),
         ("pipeline_delivery_points","pipeline_code,zone_code,point_code"),
         ("crude_grades","code"), ("crude_delivery_points","commodity_code,grade_code,facility_code,custody_point_code"),
+        ("lng_products","code"), ("lng_custody_points","product_code,stage,facility_code,custody_point_code"),
+        ("lng_mass_energy_conversions","code"), ("incoterms_editions","code"), ("incoterms_rules","code"),
         ("gas_delivery_conventions","pipeline_code,zone_code,point_code,product_code"), ("gas_meter_assignments","code"), ("exchanges","code"), ("clearing_houses","code"),
         ("exchange_clearing_houses","exchange_code,clearing_house_code"), ("interest_rate_definitions","code"), ("price_index_definitions","code"),
         ("sources","code"), ("product_evidence","product_code,source_code,fact_group"), ("delivery_profiles","code"), ("settlement_targets","code"),
@@ -688,7 +692,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
         market.Frames.SingleOrDefault(f=>f.At==frame.At)?.ObservationIds.ToImmutableArray();
 
     // The main market revision or an explicitly allow-listed supplemental swap bundle.
-    private bool DeclaredBundle(Guid revision)=>revision==Manifest.RevisionId||revision==Manifest.CrudeMarket?.RevisionId||(Manifest.RetainedCrudeMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.GasMarket?.RevisionId||(Manifest.RetainedGasMarkets??[]).Any(m=>m.RevisionId==revision)||(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision);
+    private bool DeclaredBundle(Guid revision)=>revision==Manifest.RevisionId||revision==Manifest.CrudeMarket?.RevisionId||(Manifest.RetainedCrudeMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.LngMarket?.RevisionId||(Manifest.RetainedLngMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.GasMarket?.RevisionId||(Manifest.RetainedGasMarkets??[]).Any(m=>m.RevisionId==revision)||(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision);
 
     public async Task<Guid> Correct(NpgsqlConnection connection, Guid revision, Guid observationId, string value, CancellationToken ct)
     {

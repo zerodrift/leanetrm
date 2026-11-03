@@ -357,6 +357,7 @@ static class AgentToolChecks
             ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"financial_swap","revision":2}""","trades.trade_v1"),
             ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"heat_rate","revision":null}""","trades.trade_v1"),
             ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"physical_crude","revision":1}""","trades.trade_v1"),
+            ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"physical_lng","revision":1}""","trades.trade_v1"),
             ("read_trades",$$"""{"view":"trade",{{NoBlotter}},"tradeId":"{{Trade}}","instrumentType":"ppa","revision":null}""","trades.trade_v1"),
             ("read_trade_parties","""{"kind":"legal_entity"}""","trade_parties.versions_v1"),
             ("read_schedules","""{"view":"library"}""","schedules.library_v1"),
@@ -475,7 +476,7 @@ static class AgentToolChecks
             PageReports.Require(Json(report));
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
-        var unsupported=new[]{"blotter_new_ppa","blotter_new_gas","blotter_new_crude","blotter_new_option","gas_setup","physical_gas","physical_crude"};
+        var unsupported=new[]{"blotter_new_lng","blotter_new_ppa","blotter_new_gas","blotter_new_crude","blotter_new_option","gas_setup","physical_gas","physical_crude"};
         var workspace=new[]{"risk_jobs","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
                 .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs","ppa"}.Concat(workspace).Order()),

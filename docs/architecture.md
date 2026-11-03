@@ -11,6 +11,13 @@ complete held-factor history, ordinary native PV finite differences and one
 retained statistical job. Reports include signed book/factor contributions and
 correlation diagnostics; currencies and valuation measures remain separate.
 
+The authorized next [physical LNG cargo](physical-lng.md) slice retains separate
+loading/discharge references, explicit discharge-energy/conversion terms,
+backend-derived valuation and saved Incoterms edition/rule/named place. Its
+local qualification covers native booking, retained trading views and shared
+interactive/queued scenario valuation. Incoterms do not supply
+title events, pricing rules or freight charges.
+
 D284 extends the assistant across existing page operations, with explicit human
 approval of every proposed business command and separately delegated, versioned
 page guidance. Operational questions need no financial access or invented market

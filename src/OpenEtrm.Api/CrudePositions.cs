@@ -51,13 +51,6 @@ internal static class CrudePositions
  internal const string Type="physical_crude";
  internal const string Measure="crude_contractual_present_value";
  private static MarketDataException Missing()=>new("position_facts","Every retained crude position requires its exact visible grade, custody, booking and quote metadata.");
- internal static void RequireInventory(ImmutableArray<JsonElement> expected,ImmutableArray<JsonElement> actual)
- {
-  static (Guid Trade,Guid Binding,int Revision,Guid Book,Guid Definition,int Reference) Key(JsonElement row)=>
-   (row.Id("trade_id"),row.Id("binding_id"),int.Parse(row.Text("revision"),CultureInfo.InvariantCulture),row.Id("book_id"),row.Id("definition_revision_id"),int.Parse(row.Text("trade_reference"),CultureInfo.InvariantCulture));
-  if(expected.Select(Key).Distinct().Count()!=expected.Length||actual.Select(Key).Distinct().Count()!=actual.Length||
-   !expected.Select(Key).ToHashSet().SetEquals(actual.Select(Key)))throw Missing();
- }
  internal static async Task<ImmutableArray<CrudePosition>> Read(NpgsqlConnection connection,PreviewManifest manifest,
   ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null,Guid? trade=null,ImmutableHashSet<Guid>? trades=null)
  {
@@ -89,7 +82,7 @@ internal static class CrudePositions
     JOIN trading.counterparties p ON(p.catalog_id,p.id,p.revision)=(r.catalog_id,r.counterparty_id,r.counterparty_revision)
     WHERE r.book_id=ANY($2::uuid[]) AND($3::uuid IS NULL OR r.trade_id=$3) AND($4::uuid[] IS NULL OR r.trade_id=ANY($4::uuid[])) ORDER BY tr.reference_number,r.instrument_id)x
    """,[manifest.CatalogId,selected.Keys.ToArray(),(object?)selectedTrade??DBNull.Value,(object?)trades?.ToArray()??DBNull.Value],ct);
-  RequireInventory(inventory,heads);
+  PositionInventory.Require(inventory,heads,Missing);
   if(position is not null)position.Require(heads);
   if(heads.IsEmpty)return [];
   var physical=await PreviewDatabase.Rows(connection,"""

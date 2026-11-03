@@ -96,7 +96,7 @@ export function setupRiskWorkspace(o:Options){
  function drawTrades(){
   get<HTMLSelectElement>('risk-workspace-trade-mode').value=scope.tradeIds===null?'all':'selected';
   const groups=new Map<string,HTMLOptGroupElement>();
-  const products:Record<string,string>={future:'Futures',financial_swap:'Swap',ppa:'PPA',physical_gas:'Gas',physical_crude:'Crude',futures_option:'Futures option'};
+  const products:Record<string,string>={future:'Futures',financial_swap:'Swap',ppa:'PPA',physical_gas:'Gas',physical_crude:'Crude',physical_lng:'LNG',futures_option:'Futures option'};
   for(const trade of tradeChoices.values()){
    let group=groups.get(trade.bookId);
    if(!group){group=document.createElement('optgroup');const book=directory?.books.find(b=>b.id===trade.bookId);group.label=book?`${book.portfolio} · ${book.name}`:'Selected book';groups.set(trade.bookId,group);}

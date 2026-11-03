@@ -40,6 +40,14 @@ class CheckAllTests(unittest.TestCase):
         for argument in ('--gas-composition-check','--gas-setup-check','--browser-check','--browser'):
             self.assertIn(argument,gas[0])
 
+    def test_lng_booking_upgrade_recovery_and_worker_checks_run_in_trading_partition(self):
+        commands=[]
+        run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))
+        cargo=[c for c in commands if '--lng-cargo-check' in c]
+        self.assertEqual(len(cargo),1)
+        self.assertIn('--browser-check',cargo[0])
+        self.assertEqual(cargo[0][cargo[0].index('--browser')+1],'/browser executable')
+
     def test_physical_crude_lifecycle_and_recovery_are_qualified_in_trading_partition(self):
         commands=[]
         run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))

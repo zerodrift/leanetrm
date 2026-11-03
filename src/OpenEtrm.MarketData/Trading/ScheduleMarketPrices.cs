@@ -55,6 +55,13 @@ public sealed partial class ScheduleMarketSources
             throw Invalid("Gas price metadata must retain the complete qualified assignment lookup, including fixing time.");
         if(crudeAssignment is not null&&candidates[0]!=crudeAssignment.Lookup)
             throw Invalid("Crude metadata must retain the exact qualified quote, index, forward and fixing lookup.");
+        if(bindings.TryGetValue("lng",out var lng))
+        {
+            var matches=lngAssignments.Where(a=>a.Key==lng.Reference&&DefinitionIdentity.For(a).Canonical==lng.Coordinate&&
+                a.Lookup.Market.Curve.Revision==lng.Definitions&&a.DischargeFacility==bindings["lng_terminal"].Reference&&
+                a.DischargeCustody==bindings["lng_custody"].Reference&&a.Product==bindings["lng_product"].Reference&&a.Lookup==candidates[0]).ToArray();
+            if(matches.Length!=1)throw Invalid("The LNG mark requires its complete exact product/discharge custody assignment and price source.");
+        }
         var resolved=PeriodPriceSelector.Resolve(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default));
         RequireUnit(resolved.Price,row);
         return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected,new ScheduleDatedPriceEvidence(candidates[0],resolved));

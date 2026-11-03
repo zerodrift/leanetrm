@@ -149,7 +149,7 @@ public sealed partial class BookedSideProgram
             {
                 var lifecycle=row.Parameters["lifecycle"];
                 var dated=lifecycle=="undue_payment_v1";
-                if(lifecycle is not("undue_payment_v1" or "interval_payment_v1" or "interval_delivery_v1" or "certificate_holding_v1" or "future_gas_delivery_v1" or "future_crude_delivery_v1")||
+                if(lifecycle is not("undue_payment_v1" or "interval_payment_v1" or "interval_delivery_v1" or "certificate_holding_v1" or "future_gas_delivery_v1" or "future_crude_delivery_v1" or "future_lng_cargo_v1")||
                     row.ValueAt is not {} valueAt||!TradingInstant.IsSupported(valueAt)||row.Currency is null||
                     dated!=(row.Grid is null)||row.Parameters["measure"]!=(dated?"present_value_v1":"value_excluding_overdue_v1"))
                     throw Error("An output requires its explicit supported lifecycle, measure, value date and delivery shape.");
@@ -195,6 +195,13 @@ public sealed partial class BookedSideProgram
             for(var c=1;c<instruction.Consumers.Length;c++)
                 if(instruction.Consumers[c-1]>=instruction.Consumers[c])
                     throw Error("Executable value-use consumers require distinct ordered addresses.");
+        }
+        if(document.Family!="lng"&&instructions.Any(i=>i.Bindings.Any(b=>b.Kind is "lng_assignment" or "lng_product")||
+            i.Output.Operation=="output_guard"&&i.Output.Parameters["lifecycle"]=="future_lng_cargo_v1"))
+            throw Error("LNG source and lifecycle contracts require the explicit LNG program family.");
+        if(document.Family=="lng")
+        {
+            Lng.LngProgramContract.RequireCargo(document);
         }
         if(document.Family=="crude")
         {

@@ -43,6 +43,7 @@ internal static class RiskTradeScope
              SELECT trade_id,book_id,revision,'future' product FROM trading.trade_revisions WHERE catalog_id=$1
              UNION ALL SELECT trade_id,book_id,revision,'financial_swap' FROM trading.swap_trade_revisions WHERE catalog_id=$1
              UNION ALL SELECT trade_id,book_id,revision,'physical_gas' FROM trading.gas_trade_revisions WHERE catalog_id=$1
+             UNION ALL SELECT trade_id,book_id,revision,'physical_lng' FROM trading.lng_trade_revisions WHERE catalog_id=$1
              UNION ALL SELECT trade_id,book_id,revision,'physical_crude' FROM trading.crude_trade_revisions WHERE catalog_id=$1
              UNION ALL SELECT trade_id,book_id,revision,'futures_option' FROM trading.futures_option_trade_revisions WHERE catalog_id=$1
             ), heads AS(SELECT DISTINCT ON(product,trade_id) * FROM revisions ORDER BY product,trade_id,revision DESC)

@@ -1948,7 +1948,7 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 /* The same product form lives in the shared trade panel. */
 .embedded-trade{min-width:0}
 .embedded-trade > .card{margin:0 0 1rem}
-.embedded-trade #crude-book-directory,.embedded-trade #ppa-book-directory{display:none}
+.embedded-trade #lng-book-directory,.embedded-trade #crude-book-directory,.embedded-trade #ppa-book-directory{display:none}
 #side-panel .product-switch{flex-wrap:wrap}
 #side-panel .embedded-trade .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
 
@@ -2163,3 +2163,14 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 /* Retained Blotter values cannot appear before the server rechecks current access. */
 #futures-page.checking-cache>*{visibility:hidden}
 #risk-parametric-fields{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0 0;min-width:0}#risk-parametric-fields legend{font-weight:650;padding:0 8px}.parametric-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:12px;margin:16px 0}.parametric-stat{border:1px solid var(--border);border-radius:8px;padding:16px;display:grid;gap:8px;min-width:0}.parametric-stat span{font-size:12px;color:var(--text-muted)}.parametric-stat strong{font-size:21px;overflow-wrap:anywhere}.risk-result-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}.risk-result-controls label{display:grid;gap:6px;min-width:0;max-width:100%}.risk-result-controls select{max-width:100%}#risk-workspace-results p{overflow-wrap:anywhere}#risk-workspace-results details{min-width:0;max-width:100%}
+
+#lng-page,#lng-page .card,#lng-page label{min-width:0}
+#lng-page .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
+#lng-page input,#lng-page select{min-width:0;max-width:100%;box-sizing:border-box}
+#lng-page .table-wrap{max-width:100%;overflow-x:auto}
+#lng-page fieldset{border:1px solid var(--border);border-radius:8px;padding:16px;margin:20px 0;min-width:0}
+#lng-page legend{font-weight:600;padding:0 8px}
+#lng-page dl{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,2fr);gap:8px 16px;font-size:13px}
+#lng-page dt{color:var(--text-muted)}
+#lng-page dd{margin:0;overflow-wrap:anywhere}
+#lng-page.embedded-trade>.card:first-child{border:0;box-shadow:none;background:transparent;padding:0}

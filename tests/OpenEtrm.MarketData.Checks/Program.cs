@@ -6,6 +6,7 @@ using OpenEtrm.Security;
 if(args is ["--crude-inventory-sales"]){CrudeInventorySalesChecks.Run();return;}
 if(args is ["--crude-receipt-cash"]){CrudeReceiptCashChecks.Run();return;}
 if(args is ["--physical-crude-side"]){PhysicalCrudeSideChecks.Run();return;}
+if(args is ["--lng-cargo"]){LngCargoChecks.Run();return;}
 if(args is ["--gas-daily-quantities"]){GasDailyQuantityChecks.Run();return;}
 if(args is ["--physical-gas-quantities"]){PhysicalGasQuantityChecks.Run();return;}
 if(args is ["--physical-gas-side"]){PhysicalGasSideChecks.Run();return;}
@@ -106,6 +107,7 @@ if (args.Length > 0)
 CrudeReceiptCashChecks.Run();
 CrudeInventorySalesChecks.Run();
 PhysicalCrudeSideChecks.Run();
+LngCargoChecks.Run();
 await ScheduleInputBatchChecks.Run();
 BookedSideProgramChecks.Run();
 ScheduleMarketSourceChecks.Run();

@@ -209,7 +209,7 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
  {var r=await Resolve(c,data,body,frame.At,ct);return await Value(c,data,frame,body,r.Instrument,r.Assignment,r.Quantity,null,ct);}
  internal async Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,PhysicalCrudeWriteRequest body,CancellationToken ct)=>await TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{
   var r=await Resolve(c,data,body,pinned.At,ct);_=await Value(c,data,pinned,body,r.Instrument,r.Assignment,r.Quantity,null,ct);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,r.Instrument);
- },ct,crudeMarket:true,crudeSetup:body.CrudeSetupId);
+ },ct,physicalMarket:PhysicalMarketSelection.Crude,crudeSetup:body.CrudeSetupId);
  public async Task<JsonElement> Status(NpgsqlConnection c,Guid operation,CancellationToken ct)
  {await using var q=ScheduleStore.Command(c,"SELECT security.crude_operation_status($1,$2)::text",Catalog,operation);return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);}
  public async Task<JsonElement> Save(NpgsqlConnection c,InputFrame frame,PhysicalCrudeWriteRequest body,CancellationToken ct)

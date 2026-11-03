@@ -96,6 +96,9 @@ public sealed partial class BookedSideProgram
             if(guard.Parameters["lifecycle"]=="future_crude_delivery_v1"&&
                 Document.Grids[guard.Grid!.Value].Interval(0).Start<=context.ValuationAt)
                 throw new MarketDataException("crude_delivery_lifecycle","A started crude delivery requires a separately supported custody and actuals lifecycle.");
+            if(guard.Parameters["lifecycle"]=="future_lng_cargo_v1"&&
+                Document.Grids[guard.Grid!.Value].Interval(0).Start<=context.ValuationAt)
+                throw new MarketDataException("lng_delivery_lifecycle","A cargo whose loading has started requires a separately supported operational lifecycle.");
             for(var cell=0;cell<needed[guard.Ordinal].Length;cell++)
             {
                 cancellation.ThrowIfCancellationRequested();
