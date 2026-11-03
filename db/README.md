@@ -1598,3 +1598,15 @@ readers receive only their own allocation projection, without facility totals or
 global head identities. The operations and limits role presets are unassigned.
 No legacy rows are rewritten. Qualify this schema and matching API/roles together
 before any hosted activation; no automatic deployment is authorized by this increment.
+
+## Migration 0185: facility read plans
+
+The facility scope view reads its location, commodity, unit and legal-entity labels
+by each ledger's exact keys; foreign keys and the header trigger guarantee those
+rows, so the view returns the same rows. `security.facility_gas_target` selects the
+trade's latest visible revision once before matching the requested day's schedule
+rows. With partial statistics on small tables, the previous joins let the planner repeat
+per-row visibility checks for every combination of reference or schedule rows. The
+migration refuses an unexpected predecessor view or function and keeps owners and
+privileges. Results, refusals and visibility rules are unchanged; no rows are rewritten. See
+[verification](../docs/verification.md#facility-read-plans-2026-11-03-local).
