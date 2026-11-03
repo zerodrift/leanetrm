@@ -105,19 +105,20 @@ type Identity={label:string;code:string;revision:string;catalog?:string};
  * among them: their codes where these differ, and for one code in several revisions the start of each revision's id. A revision
  * id is its own: two references that share one are in different catalogs, and are named by the catalog's id and the revision's.
  */
-function distinct(entries:ReadonlyMap<string,Identity>,word:string):Map<string,string>{
+function distinct(entries:ReadonlyMap<string,Identity>,word:string|null):Map<string,string>{
   const sharing=new Map<string,string[]>();
   for(const [key,{label}] of entries)sharing.set(label,[...(sharing.get(label)??[]),key]);
   return new Map([...entries].map(([key,{label,code,revision}])=>{
     const colliding=sharing.get(label)!.map(k=>entries.get(k)!);if(colliding.length===1)return [key,label];
     const own=new Set(colliding.map(e=>e.revision)).size===colliding.length,identity=(e:Identity)=>own?e.revision:`${e.catalog}:${e.revision}`;
     const short=shortIds(colliding.map(identity));
-    return [key,[label,...(new Set(colliding.map(e=>e.code)).size>1?[code]:[]),...(colliding.filter(e=>e.code===code).length>1?[`${word} ${short.get(identity(entries.get(key)!))}`]:[])].join(' · ')];
+    return [key,[label,...(new Set(colliding.map(e=>e.code)).size>1?[code]:[]),...(word!==null&&colliding.filter(e=>e.code===code).length>1?[`${word} ${short.get(identity(entries.get(key)!))}`]:[])].join(' · ')];
   }));
 }
 // A reference is identified by its code in its catalog's revision; a key built from it has been validated by referenceKey.
 const referenceIdentity=(label:string,reference:unknown):Identity=>{const {code,revision}=reference as Reference;return {label,code,revision:revision.revisionId,catalog:revision.catalogId};};
-const currencyLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.currencyReference),referenceIdentity(text(g,'currency'),g.currencyReference)])),'revision');
+// A currency reads by its code in whichever reference revision it was booked under; amounts in each stay apart all the same (D98).
+const currencyLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.currencyReference),referenceIdentity(text(g,'currency'),g.currencyReference)])),null);
 const unitLabels=(groups:readonly PivotGroup[])=>distinct(new Map(groups.map(g=>[referenceKey(g.quantitySpecification),referenceIdentity(text(g,'unit'),g.quantitySpecification)])),'revision');
 const marketKey=(market:string,revision:string)=>`${market}|${revision}`;
 // The market a position is grouped under: its curve, or the several curves of a scheduled swap together as the backend keys them.
