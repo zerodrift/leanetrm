@@ -10,6 +10,7 @@ import {lookingAt,askKnowledge,changesContext,targetAction,NavigationHistory,ste
   lookingKey,agentChoice,preselect,conversationChoice,panelMessage,keptAsk,isUuid,type Place,type Names,type UsableAgent} from './assistant-pages.js';
 import {answerBlocks,renderBlocks} from './assistant-text.js';
 import {setupAssistantActions} from './assistant-actions.js';
+import {follow} from './conversation-follow.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Turn={id:string;conversationId:string;ordinal:number;agentId:string;version:number;question:string;state:string;askedAt:string};
@@ -104,12 +105,14 @@ export function setupAssistant(options:PanelOptions){
   }
 
   // The conversation: questions, collapsible steps, answers, targets, endings and usage.
-  function render(){
-    items.clear();
-    get('assistant-turns').replaceChildren(...views.map(view=>{const item=el('li','assistant-turn');items.set(view.id,item);fill(item,view);return item;}));
-    get('assistant-empty').hidden=views.length>0;
+  function render(always=false){
+    follow(get('assistant-conversation'),()=>{
+      items.clear();
+      get('assistant-turns').replaceChildren(...views.map(view=>{const item=el('li','assistant-turn');items.set(view.id,item);fill(item,view);return item;}));
+      get('assistant-empty').hidden=views.length>0;
+    },always);
   }
-  function update(view:TurnView){const item=items.get(view.id);if(item)fill(item,view);else render();}
+  function update(view:TurnView){const item=items.get(view.id);if(item)follow(get('assistant-conversation'),()=>fill(item,view));else render();}
   function fill(item:HTMLLIElement,view:TurnView){
     const parts:Node[]=[el('p','assistant-question',view.question)];
     if(view.steps.length){
@@ -322,7 +325,7 @@ export function setupAssistant(options:PanelOptions){
     conversation.version=turn.version;
     const after=lastSequence();
     if(!views.some(v=>v.id===turn.id))views.push(newTurnView(turn));
-    persist();render();openStream(after,true);
+    persist();render(true);openStream(after,true);
   }
   async function stop(){
     const view=latest();if(!view||view.ending||working)return;
