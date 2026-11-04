@@ -211,6 +211,7 @@ def check_assistant_reads(c,scope,request,direct,compared,paired,history,insuffi
     assert exact_amounts(c.call('portfolio/risk/historical/sample',{'request':compared,'sample':worst}))==drill
     current=deepcopy(uncaptured);current['history']['scope']['context']['knowledgeMode']='current';current['history']['scope']['context'].pop('contextId')
     assert c.call('portfolio/risk/historical/summary',current,expected=422)['code']=='risk_historical_scope'
+    assert c.call('portfolio/risk/historical/summary',{**request,'factors':[]},expected=422)['code']=='risk_historical_factors'
     assert c.call('portfolio/risk/historical/sample',{'request':current,'sample':worst},expected=422)['code']=='risk_historical_scope'
     unavailable=exact_amounts(c.call('portfolio/risk/historical/summary',insufficient))
     assert not unavailable['available'] and unavailable['unavailableReasons']==['insufficient_common_history'] and unavailable['partitions']==[]

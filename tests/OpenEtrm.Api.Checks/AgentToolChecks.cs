@@ -603,6 +603,9 @@ static class AgentToolChecks
         Require(JsonDocument.Parse(AgentTools.Refusal("trading_context")).RootElement.GetProperty("message").GetString()==
             "Name the trading workspace convention, trading_workspace_v1, in this read's context.",
             "a missing trading workspace convention is refused as that, so the assistant can name it rather than give up on a swap market");
+        foreach(var code in new[]{"risk_parametric_scope","risk_historical_scope","risk_historical_factors","risk_historical_sample","risk_historical_unavailable"})
+            Require(JsonDocument.Parse(AgentTools.Refusal(code)).RootElement.GetProperty("message").GetString()!=AgentTools.GenericText,
+                $"the statistical refusal {code} says what to change");
         var curve=AgentTools.Operation("market_data.curve_v1");
         var blotter=AgentTools.Operation("trades.blotter_v1");
         var trade=AgentTools.Operation("trades.trade_v1");

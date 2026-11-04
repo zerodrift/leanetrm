@@ -46,9 +46,10 @@ public sealed partial class PortfolioRiskPreview
             JsonSerializer.Serialize(body.History.PricingPolicy,RiskJobs.Json)!=JsonSerializer.Serialize(outer.PricingPolicy,RiskJobs.Json)||
             outer.Parametric is not null||outer.Joint is not null||outer.Detail!="holdings"||outer.Bumps.IsDefault||!outer.Bumps.IsEmpty||
             outer.Stress.IsDefault||!outer.Stress.IsEmpty||
-            !body.Factors.IsDefault&&(body.Factors.Length is <1 or >HistoricalRisk.MaximumFactors||body.Factors.Any(f=>f is null))||
             (outer.TradeIds is {} a?string.Join(',',a.Order()):null)!=(body.History.Scope.TradeIds is {} b?string.Join(',',b.Order()):null))
             throw new MarketDataException("risk_historical_scope","Historical simulation requires one complete captured holdings scope, no parent stress or FD bumps, and its own method envelope.");
+        if(!body.Factors.IsDefault&&(body.Factors.Length is <1 or >HistoricalRisk.MaximumFactors||body.Factors.Any(f=>f is null)))
+            throw new MarketDataException("risk_historical_factors","Omit factors to use the captured history's own, or name 1 to 128 of them.");
         if(body.Comparison is {} comparison)
         {
             ParametricRisk.ValidatePolicy(comparison.Policy);
