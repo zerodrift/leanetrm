@@ -42,9 +42,9 @@ block its current replacement. All runs use disposable
 resources and neutral test inputs. This is qualification coverage, not measured
 production throughput or proof about unpriced future paths.
 
-### Planned acceleration qualification
+### Planned hybrid Monte Carlo qualification
 
-The [acceleration acceptance gates](pca-hybrid-risk.md#acceptance-before-enabling-acceleration)
+The [hybrid Monte Carlo acceptance gates](pca-hybrid-risk.md#acceptance-before-enabling-hybrid-monte-carlo)
 are requirements for the next phase, not checks already executed or evidence of
 speedup. They cover independent full-reference accuracy/tail comparisons, finite
 validation-panel limitations, explicit fallback consent, retained/direct/worker

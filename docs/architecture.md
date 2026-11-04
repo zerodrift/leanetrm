@@ -6,9 +6,9 @@ covariance diagnostics, actual-direction delta-gamma fitting and every-path
 instrument/portfolio comparisons. Full PV remains the reference. Under D309,
 failed qualification stops the run unless the user explicitly permits full-PV fallback; an opted-in shared-fit
 failure falls back the whole portfolio. This mode adds measured work and does not
-accelerate execution.
+reduce full-PV work.
 
-The [planned accelerated hybrid mode](pca-hybrid-risk.md#planned-accelerated-hybrid-mode)
+The [planned hybrid Monte Carlo valuation](pca-hybrid-risk.md#planned-hybrid-monte-carlo-valuation)
 will require a separate approximate execution contract, independently qualified
 validation evidence and explicit fallback consent. Its remaining-work status and
 EVT/backtesting sequence are recorded in [the plan](plan.md#remaining-risk-delivery-sequence).

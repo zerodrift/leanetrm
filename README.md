@@ -107,8 +107,8 @@ for synthetic booking, graphical break-even pricing and settlement previews.
 ## What's not built yet
 
 Full futures settlement PV and variation margin, option products beyond the
-supported listed American futures options, accelerated PCA/hybrid VaR, EVT and broader physical settlement, general physical
-power booking, inventory costing,
+supported listed American futures options, hybrid Monte Carlo valuation, EVT,
+broader physical settlement, general physical power booking, inventory costing,
 post-delivery crude valuation, PPA accepted-cash accounting/payments, broader agent
 credential lifecycle and production qualification remain work. General swap/PPA
 portfolio execution directly from compact retained programs is still an integration

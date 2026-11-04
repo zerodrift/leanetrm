@@ -2178,10 +2178,11 @@ Authority, missing coverage and full-reference pricing failures remain fatal.
 
 The initial `full_reference_qualification_v1` mode (superseded by D309) ensured every
 generated path had a complete reference, with actual added work or an explicitly
-unmetered failed attempt. Do not claim acceleration or reuse a passing model
+unmetered failed attempt. Do not claim reduced full-PV work or reuse a passing model
 in another run.
 A finite unpriced-path panel cannot prove correctness of an arbitrary black-box
-pricer. True acceleration requires a separate approximate contract and evidence.
+pricer. Hybrid Monte Carlo valuation requires a separate approximate contract
+and evidence.
 Migration 0191 only extends strict private existing-job admission, guarded by the
 full predecessor definition/owner/ACL/search path. See [the executable contract](pca-hybrid-risk.md).
 
@@ -2204,5 +2205,5 @@ tables or grants. Existing completed reports under the legacy
 an explicit legacy label; the legacy policy cannot authorize new work, including
 old-policy API resubmissions. Existing report reads and database idempotence
 are unchanged.
-The full-PV reference remains required in both qualification modes; acceleration
-and production schema activation remain separate work.
+The full-PV reference remains required in both qualification modes; hybrid
+Monte Carlo valuation and production schema activation remain separate work.

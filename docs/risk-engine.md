@@ -474,7 +474,7 @@ submissions retain every original request identity before dispatch and reconcile
 after reload. Worker and calculation diagnostics are expandable.
 [Aligned history](risk-factor-history.md) and [delta-normal VaR/ES](parametric-risk.md)
 now add statistical calibration, native distribution/contribution diagnostics and
-a completed-report archive. Accelerated hybrid execution,
+a completed-report archive. Hybrid Monte Carlo valuation,
 EVT and rolling backtesting remain subsequent work.
 
 Queueing writes to PostgreSQL. A separately configured managed risk worker claims
@@ -511,8 +511,8 @@ to sample-mean delta-normal. Historical reports graph empirical probabilities an
 losses, expose book/trade quantile/tail allocation and drill through every sample's
 factor moves and native PV bindings. The completed archive discovers statistical methods;
 current authority is checked for report reads and export. Rates, time and current
-option calibration remain frozen. Historical repricing does not imply accelerated hybrid execution, EVT or an operating
-backtest workflow.
+option calibration remain frozen. Historical repricing does not imply hybrid
+Monte Carlo valuation, EVT or an operating backtest workflow.
 
 ## PCA / hybrid qualification (D308)
 
@@ -526,5 +526,5 @@ versus added fitting work. D309 starts **Allow full-PV fallback** unchecked.
 Failed qualification stops the run unless the user selects that option; an opted-in
 failed shared fitting batch falls back every valuation with its reason. The
 selected policy is retained through queue/replay and report export. This mode
-qualifies only the captured run and adds work; it does not enable accelerated
-execution or certify future tails.
+qualifies only the captured run and adds work; it does not enable hybrid
+Monte Carlo valuation or certify future tails.

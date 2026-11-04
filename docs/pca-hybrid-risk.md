@@ -4,7 +4,7 @@ Monte Carlo setup can include **PCA diagnostics and hybrid comparison**. This
 mode retains the complete full-PV reference and fits a black-box delta-gamma
 candidate against the same captured portfolio and native shocks. Every generated
 path receives full PV. This is qualification work with additional measured cost;
-it does not accelerate the run or certify future seeds, portfolios or tails.
+it does not reduce full-PV work or certify future seeds, portfolios or tails.
 
 ## Setup and report
 
@@ -163,8 +163,8 @@ It applies the existing complete value, PPA-row and option-tree budgets.
 Additional counters subtract shared parent-graph, materialization and cached volume
 work already charged to the reference; new fitting PV and quantity applications
 remain charged. Report size remains bounded at 30 MB. Calculation counters distinguish reference and
-additional work; no performance or net acceleration claim follows from these
-comparisons. True approximate acceleration, per-valuation isolation of fitting
+additional work; no performance benefit is claimed from these comparisons.
+Hybrid Monte Carlo valuation, per-valuation isolation of fitting
 domain failures, EWMA, EVT, broader shock types and operating rolling backtests
 remain separate work.
 
@@ -176,19 +176,27 @@ See [verification](verification.md) for the executing owned-database and browser
 checks.
 
 
-## Planned accelerated hybrid mode
+<a id="planned-accelerated-hybrid-mode"></a>
 
-Status: next implementation phase; no accelerated execution mode or measured
-speedup is implemented by D308/D309. The current qualification mode still prices
-every generated path through full PV. The following requirements describe the
+## Planned hybrid Monte Carlo valuation
+
+Status: next implementation phase; hybrid Monte Carlo valuation is not enabled
+by D308/D309, and no performance benefit has been demonstrated. The current
+qualification mode still prices every generated path through full PV. The following requirements describe the
 next phase and do not add an executable API policy or establish numerical
 eligibility.
 
 ### Selection and financial contract
 
-The user must explicitly select an approximate accelerated mode, separate from
-full-PV Monte Carlo and the current every-path qualification mode. Selecting fast
-execution does not authorize fallback. **Allow full-PV fallback** remains a
+Hybrid describes the valuation method. The same joint market-factor simulation
+feeds a fitted delta-gamma PV response; ordinary full PV supplies fitting,
+validation and any explicitly permitted full repricing. The shared shock model
+and residual factor exposure remain part of the calculation. Computational cost
+is measured separately from the method's accuracy and validation requirements.
+
+The user must explicitly select approximate hybrid Monte Carlo valuation,
+separate from full-PV Monte Carlo and the current every-path qualification mode. Selecting
+hybrid valuation does not authorize fallback. **Allow full-PV fallback** remains a
 separate choice, initially off, retained with the calculation and honored by the
 UI, API and worker. Failed model, holding, portfolio or fitting checks stop a
 no-fallback run with a visible reason. Only explicit fallback consent permits
@@ -230,7 +238,9 @@ and simulation work. Retained reports and exports must preserve this evidence
 and the selected policy. Direct and queued calculations must agree under the
 same source, clock, engine, authority, lease and cancellation fences.
 
-### Acceptance before enabling acceleration
+<a id="acceptance-before-enabling-acceleration"></a>
+
+### Acceptance before enabling hybrid Monte Carlo
 
 - Preserve the full native generator, residual exposure and shared factor/scenario
   behavior; test nonlinear residuals, low-variance spreads, kinks and opposing
@@ -250,5 +260,5 @@ same source, clock, engine, authority, lease and cancellation fences.
 
 After this phase, the planned sequence is EVT tail estimation and then operating
 daily reporting/rolling backtesting. EWMA is a separately selected calibration
-enhancement; neither accelerated valuation nor EVT implicitly selects it. See
-[the delivery sequence](plan.md#remaining-risk-delivery-sequence).
+enhancement; neither hybrid Monte Carlo valuation nor EVT implicitly selects it.
+See [the delivery sequence](plan.md#remaining-risk-delivery-sequence).

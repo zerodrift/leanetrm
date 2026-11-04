@@ -26,8 +26,8 @@ shared sensitivity ladders/heatmaps and drill-through, visible incomplete covera
 retained report links, and multipart submission recovery. The bounded recent-job
 directory remains separate from the D299 completed statistical-report archive.
 Delta-normal, full-PV historical and full-PV Monte Carlo VaR/ES are implemented
-below. PCA / hybrid qualification is implemented in D308; accelerated hybrid
-execution, EVT and an operating rolling-backtest workflow remain subsequent increments.
+below. PCA / hybrid qualification is implemented in D308; hybrid Monte Carlo
+valuation, EVT and an operating rolling-backtest workflow remain subsequent increments.
 
 D294 adds temporary maximize/restore to every Blotter pane, a shared searchable
 portfolio/book picker in Blotter and Risk, and personal saved-view sidebar pins
@@ -1830,7 +1830,7 @@ graphics and prefix convergence accompany a conditional 95% VaR sampling interva
 with explicit unbounded endpoints. Guided setup retains EOD official-close
 history and lowers its visible starting path count to the selected scope's work
 budget. One complete retained job reuses source/clock/engine/attempt custody;
-migration 0190 adds no raw grants or tables. Accelerated hybrid execution, EWMA, EVT
+migration 0190 adds no raw grants or tables. Hybrid Monte Carlo valuation, EWMA, EVT
 and the operating rolling-backtest service remain separate work. Production
 activation requires a separately qualified schema release.
 
@@ -1848,8 +1848,9 @@ comparison, residual, classification and actual extra-work widgets. Migrations
 0191–0192 retain the explicit optional policy and fallback consent on the
 existing job without new tables or grants.
 
-This increment qualifies candidate models and adds work. True acceleration is a
-separate explicitly approximate contract requiring further accuracy/cost evidence;
+This increment qualifies candidate models and adds work. Hybrid Monte Carlo
+valuation requires a separate explicitly approximate contract with further
+accuracy/cost evidence;
 a pass on one captured seed/run never establishes global eligibility. Per-valuation
 isolation of a failed shared FD batch, EWMA, EVT and operating rolling backtests
 remain subsequent work. Schema activation stays with the separate release process.
@@ -1863,13 +1864,13 @@ implemented in their documented bounded contracts. D309 makes full-PV fallback
 an explicit opt-in. Merged implementation and production activation remain
 separate statuses.
 
-1. **Finish R7: accelerated hybrid execution.** Implement a separately selected,
+1. **Finish R7: hybrid Monte Carlo valuation.** Implement a separately selected,
    explicitly approximate mode with native deltas/PCA curvature, full-PV validation
    work, visible error/coverage and measured complete cost. Fallback starts off
    and requires separate consent. Pin and independently qualify validation and
    approximation policies before enabling the mode. The current every-path
    qualification run remains the full-reference comparison, with no speed claim.
-   See [scope and acceptance gates](pca-hybrid-risk.md#planned-accelerated-hybrid-mode).
+   See [scope and acceptance gates](pca-hybrid-risk.md#planned-hybrid-monte-carlo-valuation).
 2. **R8: EVT tail risk.** Fit a separately selected unconditional peaks-over-threshold
    model to eligible retained historical portfolio losses. Show threshold and
    exceedance counts, tail fit/stability, uncertainty and VaR/ES where defined.
@@ -1885,5 +1886,5 @@ separate statuses.
 
 **EWMA calibration** remains a separate explicit estimator increment with its own
 weighting/initialization and qualification contract. It is not silently bundled
-into accelerated valuation or EVT. No implementation, benchmark, production
+into hybrid Monte Carlo valuation or EVT. No implementation, benchmark, production
 capability or deployment is claimed by these remaining-work entries.

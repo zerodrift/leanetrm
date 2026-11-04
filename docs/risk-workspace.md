@@ -109,7 +109,7 @@ native finite differences, sample covariance and drift/confidence/tail policies.
 Risk shares Gaussian density, signed book/factor contributions, in-sample linearized
 losses and correlation/covariance graphics, plus a paged archive of completed statistical
 reports. Unavailable scope/history or unstable deltas retain diagnostics without
-risk estimates. Accelerated hybrid execution, EVT and rolling
+risk estimates. Hybrid Monte Carlo valuation, EVT and rolling
 backtests remain subsequent increments. No production throughput is claimed.
 
 ## Guided parametric setup (D301)
@@ -138,8 +138,8 @@ to sample-mean delta-normal. Historical reports graph empirical probabilities an
 losses, expose book/trade quantile/tail allocation and drill through every sample's
 factor moves and native PV bindings. The completed archive discovers statistical methods;
 current authority is checked for report reads and export. Rates, time and current
-option calibration remain frozen. Historical repricing does not imply accelerated hybrid execution, EVT or an operating
-backtest workflow.
+option calibration remain frozen. Historical repricing does not imply hybrid
+Monte Carlo valuation, EVT or an operating backtest workflow.
 
 ## Full-PV Monte Carlo (D307)
 
@@ -164,5 +164,5 @@ versus added fitting work. D309 starts **Allow full-PV fallback** unchecked.
 Failed qualification stops the run unless the user selects that option; an opted-in
 failed shared fitting batch falls back every valuation with its reason. The
 selected policy is retained through queue/replay and report export. This mode
-qualifies only the captured run and adds work; it does not enable accelerated
-execution or certify future tails.
+qualifies only the captured run and adds work; it does not enable hybrid
+Monte Carlo valuation or certify future tails.

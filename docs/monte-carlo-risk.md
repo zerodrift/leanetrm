@@ -132,7 +132,7 @@ archives, current authority, cancellation, lease custody and missing source pins
 Browser checks cover setup, graphics, drilldown, export, archive, replay and phone
 layout. See [verification](verification.md) for the current qualification record.
 
-PCA/hybrid acceleration, EWMA, alternative innovation distributions, operating
+Hybrid Monte Carlo valuation, EWMA, alternative innovation distributions, operating
 rolling backtests, ES uncertainty and Monte Carlo page-assistant summaries remain
 separate increments. Production activation requires a separately qualified schema
 release; application implementation does not deploy the schema.
@@ -145,7 +145,7 @@ loadings/residual graphics and fits a candidate using all native deltas plus
 selected PC curvature. Complete path and native portfolio comparisons determine
 per-run qualification. D309 refuses failed checks by default; the user must
 select **Allow full-PV fallback** to permit substitution. Its work is additional
-qualification, with no acceleration claim.
+qualification, with no claimed reduction in full-PV work.
 The selected policy, actual fitting vectors/PVs and classification results travel
 with the original retained job; migrations 0191–0192 extend its strict private
 admission and retain explicit fallback consent.
