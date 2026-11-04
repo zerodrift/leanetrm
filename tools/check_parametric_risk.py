@@ -143,6 +143,8 @@ def check_compact_reads(c, scope, request, report, history):
     def size(value): return len(json.dumps(value, separators=(',', ':')).encode())
     catalog = c.call('portfolio/risk/catalog', scope)
     setup = c.call('portfolio/risk/statistical/setup', scope)
+    unnamed = {**scope, 'context': {k: v for k, v in scope['context'].items() if k != 'convention'}}
+    assert c.call('portfolio/risk/statistical/setup', unnamed, expected=422)['code'] == 'trading_context', 'A missing trading convention is refused as such'
     assert size(setup) <= ASSISTANT_RESULT_BYTES, size(setup)
     assert (setup['history'], setup['parametric'], setup['historical'], setup['pricingPolicy']) == (catalog['history'], catalog['parametric'], catalog['historical'], catalog['pricingPolicy'])
     assert {b['id']: b['name'] for b in setup['books']} == {b['id']: b['name'] for b in report['books']}

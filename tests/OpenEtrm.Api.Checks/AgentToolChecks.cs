@@ -600,6 +600,9 @@ static class AgentToolChecks
             &&shown.GetProperty("message").GetString()=="No curve with this code exists in the pinned market data."
             &&other.GetProperty("message").GetString()==AgentTools.GenericText,
             "a refusal carries only its code and the fixed text for it, or the fixed generic sentence for a code without one, never the read's own message");
+        Require(JsonDocument.Parse(AgentTools.Refusal("trading_context")).RootElement.GetProperty("message").GetString()==
+            "Name the trading workspace convention, trading_workspace_v1, in this read's context.",
+            "a missing trading workspace convention is refused as that, so the assistant can name it rather than give up on a swap market");
         var curve=AgentTools.Operation("market_data.curve_v1");
         var blotter=AgentTools.Operation("trades.blotter_v1");
         var trade=AgentTools.Operation("trades.trade_v1");

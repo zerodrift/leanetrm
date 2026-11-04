@@ -376,6 +376,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         ["swap_trade"]="This swap is unavailable at the pinned knowledge.",
         ["futures_definition"]="A held futures contract cannot be resolved at the pinned knowledge.",
         ["swap_context"]="A swap market this read needs is unavailable at the pinned As of frame.",
+        ["trading_context"]="Name the trading workspace convention, trading_workspace_v1, in this read's context.",
         ["clock_rule"]="A market clock this read needs is incomplete or unreadable.",
         ["clock_tzdb"]="A market clock this read needs declares a time-zone release other than the installed one.",
         ["power_calendar"]="A settlement index calendar does not cover a whole delivery period.",
