@@ -73,6 +73,19 @@ server {
         error_page 413 = @revision_too_large;
         proxy_pass http://$openetrm_backend;
     }
+    location = /examples/synthetic/api {
+        error_page 413 = @request_too_large;
+        proxy_pass http://$openetrm_backend;
+    }
+    location /examples/synthetic/api/ {
+        error_page 413 = @request_too_large;
+        proxy_pass http://$openetrm_backend;
+    }
+    location = /examples/synthetic/api/interval-series/revise {
+        client_max_body_size ${REVISION_BYTES};
+        error_page 413 = @revision_too_large;
+        proxy_pass http://$openetrm_backend;
+    }
     location @request_too_large {
         types { }
         default_type "application/json; charset=utf-8";

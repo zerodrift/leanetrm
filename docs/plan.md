@@ -1817,3 +1817,8 @@ chains, conservation and exact references. Metadata/clock revisions cannot mint
 capacity. Remaining slices include broader facility-to-point relationships, final
 allocation adoption, external source evidence and notification dispatch. Billing,
 fulfillment and cash remain governed by their existing contracts.
+
+
+D307 adds a separate [synthetic energy dataset](synthetic-energy.md) for hosted
+booking and risk under explicit fictional contract and pricing policies. Local
+qualification and approved production activation remain separate release gates.

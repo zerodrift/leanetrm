@@ -36,6 +36,8 @@ test('a pop-out URL names its session and example in the fragment only, and read
   const url=new URL(blotterWindowUrl('http://127.0.0.1:5173/?example=exchange#x',{session:SESSION,example:'exchange'}));
   assert.equal(url.pathname,'/blotter.html');assert.equal(url.search,'');
   assert.deepEqual(readBlotterWindowUrl(url.href),{session:SESSION,example:'exchange'});
+  assert.deepEqual(readBlotterWindowUrl(blotterWindowUrl('https://example.invalid/app',{session:SESSION,example:'synthetic'})),
+    {session:SESSION,example:'synthetic'});
   for(const bad of ['/blotter.html','/blotter.html?session='+SESSION+'#session='+SESSION+'&example=baseline','/blotter.html#session=nope&example=baseline',
     '/blotter.html#session='+SESSION,'/blotter.html#session='+SESSION+'&example=other','/blotter.html#session='+SESSION+'&example=baseline&extra=1',
     '/blotter.html#session='+SESSION+'&session='+SESSION+'&example=baseline'])

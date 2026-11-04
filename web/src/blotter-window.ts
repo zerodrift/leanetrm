@@ -1,3 +1,4 @@
+import {type DatasetId,datasetApi,datasetScope} from './dataset-address.js';
 import {coalescedRead} from './coalesced-read.js';
 import {requestDeadlines} from './request-deadline.js';
 import {preferenceSession} from './preference-session.js';
@@ -26,12 +27,12 @@ const text=(id:string,value:string)=>{$(id).textContent=publicText(value);};
 const ends:Record<Exclude<EndReason,'brought_back'>,string>={signed_out:'Signed out in the main window',account_changed:'The account changed in the main window',main_closed:'The main window was closed'};
 
 // The session and example come from the fragment, which is taken off the address at once: a reload or a copy of this window is not tied.
-let tied:{session:string;example:'baseline'|'exchange'}|undefined,untied:string|undefined;
+let tied:{session:string;example:DatasetId}|undefined,untied:string|undefined;
 try{tied=readBlotterWindowUrl(location.href);}catch(error){untied=(error as Error).message;}
 history.replaceState(null,'',location.pathname);
 if(tied&&!window.opener)untied='This Blotter window has no main window. Close it, and pop the Blotter out from the main window.';
 const deadlines=requestDeadlines();
-const apiRoot=tied?.example==='exchange'?'/examples/exchange/api/':'/api/';
+const apiRoot=datasetApi(tied?.example??'baseline');
 
 // `ended`: the tie is over and no value is shown; `retaining`: with the main window gone, only an unconfirmed trade request is kept, with its controls.
 let busy=false,ended=false,retaining=false,hosted=false,csrf='',permissions:string[]=[],profile='',scope='',navigation:MarketNavigation|undefined;
@@ -95,11 +96,12 @@ function refuseAccount():never{
   throw Error('This window’s account is not the main window’s, so it acts on nothing here.');
 }
 async function readAccount(){
-  const boot=await transport<{requestDeadlines:unknown;mode:string;csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;access:{profile:string;permissions:string[]}|null}>('bootstrap?includeFrames=false&includeAccess=true');
+  const boot=await transport<{requestDeadlines:unknown;mode:string;csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;catalogId:string;access:{profile:string;permissions:string[]}|null}>('bootstrap?includeFrames=false&includeAccess=true');
   // The workspace's mode decides how a refusal is worded, as the main window's does; an unknown one is refused.
   if(boot.mode!=='hosted-pilot'&&boot.mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Close this window and pop the Blotter out again.');
   deadlines.read(boot.requestDeadlines);hosted=boot.mode==='hosted-pilot';
-  const identity=[boot.runId,boot.tenantId,boot.workspaceId,boot.profile].join(':');
+  if(!tied)throw Error('This window has no dataset identity.');
+  const identity=datasetScope([boot.runId,boot.tenantId,boot.workspaceId].join(':'),tied.example,boot.catalogId)+':'+boot.profile;
   if(!boot.profile||!boot.csrfToken||!boot.access||boot.access.profile!==boot.profile||!Array.isArray(boot.access.permissions))throw Error('This window could not verify its account. Close it and pop the Blotter out again.');
   if(identity!==latest?.profile)refuseAccount();
   return {profile:boot.profile,csrf:boot.csrfToken,permissions:boot.access.permissions,identity};

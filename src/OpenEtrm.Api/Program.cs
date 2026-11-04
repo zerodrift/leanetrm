@@ -250,7 +250,7 @@ BlotterStreamWriter? OpenStream(HttpContext context)=>context.Response.HasStarte
 app.Use(async (context,next)=>
 {
     var origin=hosted?.PublicOrigin ?? $"http://127.0.0.1:{port}";
-    var apiPath=context.Request.Path.StartsWithSegments("/examples/exchange/api",out var suffix)?new PathString("/api"+suffix):context.Request.Path;
+    var apiPath=SyntheticDataset.ApiPath(context.Request.Path);
     if (hosted is null && (context.Connection.RemoteIpAddress is not {} remote || !IPAddress.IsLoopback(remote) ||
         context.Request.Host.Host!="127.0.0.1" || context.Request.Host.Port!=port ||
         context.Request.Headers.TryGetValue("Origin",out var supplied) && supplied!=origin)
@@ -317,7 +317,7 @@ app.Use(async (context,next)=>
 app.Use((context,next)=>
 {
     var size=context.Features.Get<IHttpMaxRequestBodySizeFeature>();
-    if(size is {IsReadOnly:false}&&context.Request.Path.Equals("/api/interval-series/revise",StringComparison.Ordinal))size.MaxRequestBodySize=processLimits.IntervalRevisionBytes;
+    if(size is {IsReadOnly:false}&&SyntheticDataset.ApiPath(context.Request.Path).Equals("/api/interval-series/revise",StringComparison.Ordinal))size.MaxRequestBodySize=processLimits.IntervalRevisionBytes;
     return next(context);
 });
 
@@ -349,15 +349,23 @@ app.Use(async(c,next)=>
     await next(c);
 });
 
-app.UseWhen(c=>c.Request.Method=="POST"&&c.Request.Path.Equals("/api/trading/workspace",StringComparison.Ordinal),branch=>branch.UseResponseCompression());
+app.UseWhen(c=>c.Request.Method=="POST"&&SyntheticDataset.ApiPath(c.Request.Path).Equals("/api/trading/workspace",StringComparison.Ordinal),branch=>branch.UseResponseCompression());
 
 await using var exchangeDatabase=hosted is null&&File.Exists(Path.Combine(root,"exchange-manifest.json"))?new PreviewDatabase(root,"exchange-manifest.json"):null;
+await using var syntheticDatabase=(hosted?.SyntheticDatasetManifest is not null||hosted is null&&File.Exists(Path.Combine(root,SyntheticDataset.ManifestName)))
+    ?SyntheticDataset.Open(root,database):null;
 await using var calculationChanges=new CalculationChanges(database);
 await using var exchangeCalculationChanges=exchangeDatabase is null?null:new CalculationChanges(exchangeDatabase);
+await using var syntheticCalculationChanges=syntheticDatabase is null?null:new CalculationChanges(syntheticDatabase);
 MapPreview(app.MapGroup("/api").WithMetadata(new PreviewScope("baseline")),database,hosted is null?"openetrm_preview":"__Host-openetrm_workspace","api",calculationChanges);
 if(exchangeDatabase is not null)MapPreview(app.MapGroup("/examples/exchange/api").WithMetadata(new PreviewScope("exchange")),exchangeDatabase,"openetrm_exchange_preview","exchange",exchangeCalculationChanges!);
-app.MapGet("/api/examples",()=>new[]{new {id="baseline",name=hosted is null?"Original synthetic example":"Private pilot workspace",url="/"},new {id="exchange",name="CME & ICE futures · synthetic prices",url="/?example=exchange"}}.Where(e=>e.id=="baseline"||exchangeDatabase is not null));
-void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName,string turnScope,CalculationChanges changes)
+if(syntheticDatabase is not null)MapPreview(app.MapGroup("/examples/synthetic/api").WithMetadata(new PreviewScope("synthetic")),syntheticDatabase,
+    hosted is null?"openetrm_synthetic_preview":"__Host-openetrm_synthetic_workspace","synthetic",syntheticCalculationChanges!,SyntheticDataset.DurableCloseLimit);
+app.MapGet("/api/examples",()=>new[]{new {id="baseline",name=hosted is null?"Original synthetic example":"Private pilot workspace",url=hosted is null?"/":"/app"},
+    new {id="exchange",name="CME & ICE futures · synthetic prices",url="/?example=exchange"},
+    new {id="synthetic",name="Synthetic energy · booking & risk",url=(hosted is null?"/":"/app")+"?example=synthetic"}}
+    .Where(e=>e.id=="baseline"||e.id=="exchange"&&exchangeDatabase is not null||e.id=="synthetic"&&syntheticDatabase is not null));
+void MapPreview(RouteGroupBuilder api,PreviewDatabase database,string cookieName,string turnScope,CalculationChanges changes,int durableCloseLimit=PreviewSession.MaximumFrames)
 {
 var sessions=new PageSessionRegistry(processLimits.PageSessions);
 pageRegistries.Add(sessions);
@@ -366,7 +374,8 @@ var scheduleReads=new ScheduleReads(database);
 var partyReads=new PartyReads(database);
 var tradeReads=new TradeReads(database);
 var liveContexts=new LiveContexts(database,changes,new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase});
-var assistantWorkspace=new AssistantWorkspace(database,turnScope,turnScope=="exchange"?"/examples/exchange/api":"/api",app.Services,
+var assistantPrefix=turnScope switch {"api"=>"/api","exchange"=>"/examples/exchange/api","synthetic"=>"/examples/synthetic/api",_=>throw new InvalidOperationException("Unknown assistant dataset scope.")};
+var assistantWorkspace=new AssistantWorkspace(database,turnScope,assistantPrefix,app.Services,
     ()=>((IEndpointRouteBuilder)app).DataSources.SelectMany(source=>source.Endpoints),app.Services.GetRequiredService<IHttpContextAccessor>());
 database.AssistantRequest=()=>app.Services.GetRequiredService<IHttpContextAccessor>().HttpContext?.Features.Get<AssistantInvocation>();
 async Task<string[]> CurrentPermissions(NpgsqlConnection connection,CancellationToken ct)
@@ -382,14 +391,14 @@ api.MapGet("/bootstrap",async (HttpContext context,IAntiforgery antiforgery,bool
         foreach(var digest in await hostedAuthentication.EndedSessions(sessions.ReclaimCandidates(),context.RequestAborted))sessions.Retire(digest);
     context.Request.Cookies.TryGetValue(cookieName,out var cookie);
     var admitted=sessions.GetOrCreate(cookie,existing=>hosted is null||existing.Digest==HostedAuthentication.SessionDigest(context),
-        ()=>new PreviewSession(database.Manifest,hosted is null?null:HostedAuthentication.SignIn(context)));
+        ()=>new PreviewSession(database.Manifest,hosted is null?null:HostedAuthentication.SignIn(context),durableCloseLimit));
     var session=admitted.Session;
     if(admitted.Created)context.Response.Cookies.Append(cookieName,admitted.Id,new CookieOptions {HttpOnly=true,SameSite=SameSiteMode.Strict,Secure=hosted is not null,MaxAge=session.Ends-DateTimeOffset.UtcNow,Path="/"});
     await session.Gate.WaitAsync(context.RequestAborted);
     try {
         var identity=hosted is null?null:HostedAuthentication.Current(context);
         if(identity is not null){if(session.Profile is not null&&session.Profile!=identity.Subject)throw new PreviewDeniedException();session.Profile=identity.Subject;}
-        object response=new {mode=database.Manifest.Mode,runId,notice=hosted is null?"Disposable synthetic workspace. Test identities are simulations, not production sign-in.":"Private pilot workspace. Financial capability is limited to the supported product conventions.",profiles=identity is null?profiles:profiles.Take(0).Append(new{id=identity.Subject,name=identity.Name,description="Signed-in account"}).ToArray(),
+        object response=new {mode=database.Manifest.Mode,runId,notice=turnScope=="synthetic"?"Synthetic energy demo. Prices, contract terms and expiry dates are fictional. For demonstrations and testing.":hosted is null?"Disposable synthetic workspace. Test identities are simulations, not production sign-in.":"Private pilot workspace. Financial capability is limited to the supported product conventions.",profiles=identity is null?profiles:profiles.Take(0).Append(new{id=identity.Subject,name=identity.Name,description="Signed-in account"}).ToArray(),
         requestDeadlines=processLimits.RequestDeadlines,processLimits=processLimits.Digest,profile=session.Profile,customProfiles=session.CustomProfiles.Select(p=>new{id=p.Key,name=p.Value}).ToArray(),csrfToken=antiforgery.GetAndStoreTokens(context).RequestToken,frames=includeFrames?session.PersistentFrames.Where(f=>f.PpaBundle is null && f.ContextId==session.MarketContext?.ContextId).OrderBy(f=>f.At).ToArray():[],
         catalogId=database.Manifest.CatalogId,tenantId=database.Manifest.TenantId,workspaceId=database.Manifest.WorkspaceId};
         if(includeAccess)
@@ -839,7 +848,9 @@ async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? s
     {
         var captured=await resolve(connection,ct);
         await MarketContextStore.Bind(connection,database.Manifest.CatalogId,captured.Context,ct);
-        var data=await database.Read(connection,ct);
+        var initialPins=session.InitialFrames.Select(id=>session.Frames[id]).Where(frame=>frame.PpaBundle is null)
+            .SelectMany(frame=>frame.ObservationIds).Distinct().ToImmutableArray();
+        var data=await database.Read(connection,ct,observationIds:initialPins);
         var aliases=session.SelectContextAliases(data,captured.Context);
         var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,database.Manifest.RevisionId,captured.Context.ContextId,ct,session.DurableLimit(aliases));
         return (captured,plan:session.PlanFrames(stored,captured.Context,aliases));
@@ -884,11 +895,18 @@ object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalo
         var source=PreviewDatabase.ReferenceSource(database.Manifest,table);
         return new {referenceRevision=source.Revision,definitionRevisionId=source.Definition};
     });
-    return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
+    return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":turnScope=="synthetic"?"visible_frame_fact_history":"all_visible",
         frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:context is null?session.InitialFrames:session.ContextAliases(context).Select(f=>f.Id).ToArray()};
 }
 Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=>
 {
+    if(turnScope=="synthetic")
+    {
+        await RefreshFrames(session,c.RequestAborted);
+        var pins=session.VisibleFrames.SelectMany(f=>f.ObservationIds).Distinct().ToImmutableArray();
+        var selected=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.Workspace(connection,Pin(session),catalogOnly,ct,pins),c.RequestAborted);
+        return Results.Ok(WorkspaceProjection(session,selected,catalogOnly));
+    }
     var read=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     {
         var workspace=await marketReads.Workspace(connection,Pin(session),catalogOnly,ct);
@@ -1021,7 +1039,8 @@ api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async sessi
     // unselected manual edits remain separate explicit input choices.
     var frames=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
     var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,policy,ct,
-        session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null),c.RequestAborted);
+        session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null,
+        session.Live is not null?[..session.InitialFrames.Select(id=>session.Frames[id]).Where(f=>f.PpaBundle is null)]:[]),c.RequestAborted);
     const string mode="exact_visible_close_history_with_selected_instant_v1";
     // The chart is the points returned, one per instant (HistoryChart), or the instant where different samples remain; overlays run over
     // the chart's points, so the pinned context and knowledge cutoff carry over, and a null value is a missing input. A conflicting series
@@ -1079,12 +1098,12 @@ api.MapPost("/select-observation",(HttpContext c,SelectionRequest body)=>Locked(
     var updated=await database.WithIdentity(Profile(session),"ReadMarketData",async (connection,ct)=>
     {
         // The chosen revision replaces the pin of the same source fact in the bundle that holds it (D172).
-        var data=await database.Read(connection,ct);
+        var data=await database.Read(connection,ct,observationIds:[..frame.ObservationIds.Append(body.ObservationId).Distinct()]);
         if(!data.HasObservation(body.ObservationId))
             foreach(var market in database.Manifest.SwapMarkets??[])
             {
                 if(database.SwapMarketPins(frame,market) is not {} pins||!await database.SwapMarketAvailable(connection,market,ct))continue;
-                var bundle=await database.Read(connection,ct,market.RevisionId);
+                var bundle=await database.Read(connection,ct,market.RevisionId,observationIds:[..pins.Append(body.ObservationId).Distinct()]);
                 if(bundle.HasObservation(body.ObservationId))
                     return frame.SelectSwapMarketRevision(market.RevisionId,pins,SameFact(bundle,pins,body.ObservationId),body.ObservationId,"Explicit revision selection");
             }
@@ -1315,7 +1334,9 @@ api.MapPost("/futures/amend",(HttpContext c,FuturesAmendRequest body)=>Locked(c,
     return await database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>
     {
         if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct)||!await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
-        return Results.Ok(await futuresStore.Amend(connection,await database.Read(connection,ct),Frame(session,body.SnapshotId),body,ct));
+        var frame=Frame(session,body.SnapshotId);
+        var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
+        return Results.Ok(await futuresStore.Amend(connection,data,frame,body,ct));
     },c.RequestAborted);
 }));
 api.MapPost("/futures/blotter",(HttpContext c,FuturesBlotterRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),(connection,data,frame,ct)=>futuresStore.Blotter(connection,data,frame,body.View,ct)));
@@ -1782,7 +1803,9 @@ api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,as
     return await database.WithIdentity(Profile(session),"BookTrade",async(connection,ct)=>
     {
         if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct))throw new PreviewDeniedException();
-        return Results.Ok(await futuresStore.Book(connection,await database.Read(connection,ct),Frame(session,body.SnapshotId),body,ct));
+        var frame=Frame(session,body.SnapshotId);
+        var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
+        return Results.Ok(await futuresStore.Book(connection,data,frame,body,ct));
     },c.RequestAborted);
 }));
 api.MapPost("/futures/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
@@ -2042,8 +2065,10 @@ public sealed partial class PreviewSession
     public PreviewShortcutLibrary Shortcuts {get;}=new();
     public DateWorkspace Dates {get;}=new();
     public Guid[] InitialFrames {get;}
-    public PreviewSession(PreviewManifest manifest,HostedSignIn? signIn=null)
+    public PreviewSession(PreviewManifest manifest,HostedSignIn? signIn=null,int durableCloseLimit=MaximumFrames)
     {
+        if(durableCloseLimit is <1 or >MaximumFrames)throw new ArgumentOutOfRangeException(nameof(durableCloseLimit));
+        this.durableCloseLimit=durableCloseLimit;
         Ends=signIn?.Ends??Created+Lifetime;
         Digest=signIn?.Digest??Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         foreach(var f in manifest.Frames) {

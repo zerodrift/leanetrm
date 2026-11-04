@@ -1,3 +1,4 @@
+import {selectedDataset,datasetApi,datasetScope} from './dataset-address.js';
 import {setupFacilityQuantities} from './facility-quantities-view.js';
 import {requestDeadlines} from './request-deadline.js';
 import {rememberPage,restoredPage} from './page-memory.js';
@@ -73,9 +74,8 @@ import {panelPlacement} from './side-panel.js';
 import {answeredOverlays,type OverlayCatalog,type OverlayRequest,type OverlaySeries} from './time-chart.js';
 import {type ContractHistory,type RevisionPolicy,revisionPolicies,historyBasis,historyChart,knownAtText,setupContractPanel} from './contract-panel.js';
 
-const exampleId=new URLSearchParams(location.search).get('example')??'baseline';
-if(!['baseline','exchange'].includes(exampleId))throw Error('Choose an available example.');
-const apiRoot=exampleId==='exchange'?'/examples/exchange/api/':'/api/';
+const exampleId=selectedDataset(location.search);
+const apiRoot=datasetApi(exampleId);
 const $=<T extends HTMLElement=HTMLElement>(id:string):T=>{const node=document.getElementById(id);if(!node)throw Error('This page could not load. Please refresh.');return node as T;};
 const select=(id:string)=>$<HTMLSelectElement>(id);
 const groupNode=(id:string)=>$<HTMLDetailsElement>('nav-group-'+id);
@@ -1054,7 +1054,7 @@ const tickets=productTickets({
  options:optionTicket,
 });
 async function ticketBooked(tradeId:string):Promise<void>{if(tickets.active())await futures.bookedExternal(tradeId);}
-const futures=setupFutures({volSurface:openVolSurface,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:error=>{text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');},failureCleared:()=>{$('error').hidden=true;if(!busy)text('status',pageStatus());},onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
+const futures=setupFutures({volSurface:openVolSurface,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',example:exampleId,open:(url,target,features)=>window.open(url,target,features)},failed:error=>{text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');},failureCleared:()=>{$('error').hidden=true;if(!busy)text('status',pageStatus());},onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
 // The contract panel beside the curve's chart and table: docked when the main area has the room and the assistant is closed, an overlay
 // otherwise, and on a phone a sheet over the page. Closing it returns focus to the contract's row, or else to what opened it.
 const contractPanel=setupContractPanel($('contract-panel'),{
@@ -1341,7 +1341,7 @@ function syncUnloadQuestion(){
 }
 let initialWorkspaceReady=false;
 void act(async()=>{
-const [examples,boot]=await Promise.all([transport<{id:string;name:string;url:string}[]>('examples',undefined,'/api/'),api<ProfileChoices & {csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;access?:StartupAccess|null}>(startupBootstrapPath)]);
+const [examples,boot]=await Promise.all([transport<{id:string;name:string;url:string}[]>('examples',undefined,'/api/'),api<ProfileChoices & {csrfToken:string;profile:string|null;runId:string;tenantId:string;workspaceId:string;catalogId:string;access?:StartupAccess|null}>(startupBootstrapPath)]);
 deadlines.read(boot.requestDeadlines);
 const chooser=select('example-dataset');chooser.replaceChildren(...examples.map(e=>new Option(e.name,e.id)));chooser.value=exampleId;chooser.onchange=()=>void (async()=>{
   const selected=examples.find(e=>e.id===chooser.value);
@@ -1350,7 +1350,7 @@ const chooser=select('example-dataset');chooser.replaceChildren(...examples.map(
   if(holdsEdits()&&(busy||!await mayLeave())){chooser.value=exampleId;return;}
   location.assign(selected.url);
 })();
-csrf=boot.csrfToken;administrationScope=[boot.runId,boot.tenantId,boot.workspaceId].join(':');setHostMode(boot.mode);
+csrf=boot.csrfToken;administrationScope=datasetScope([boot.runId,boot.tenantId,boot.workspaceId].join(':'),exampleId,boot.catalogId);setHostMode(boot.mode);
   // Synthetic sign-in is an explicit loopback preview facility only.
   $('example').hidden=hostedPilot;if(hostedPilot&&!boot.profile)throw Error('The signed-in account could not be verified.');
   if(boot.profile===null?boot.access!==null:typeof boot.profile!=='string'||!boot.profile||boot.access===undefined||boot.access===null)throw Error('The workspace access metadata is missing or inconsistent. Refresh and try again.');

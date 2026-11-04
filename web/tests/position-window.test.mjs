@@ -15,6 +15,10 @@ test('gas windows retain their instrument binding and exact context like other p
  assert.deepEqual(readPositionWindowUrl(positionWindowUrl('https://example.invalid/',gas)),gas);
  assert.deepEqual(positionWindowRequest(gas),{...positionWindowRequest(selection),instrumentType:'physical_gas'});
 });
+test('synthetic dataset trade windows retain their own API namespace selection',()=>{
+ const demo={...selection,example:'synthetic'};
+ assert.deepEqual(readPositionWindowUrl(positionWindowUrl('https://example.invalid/app?example=synthetic',demo)),demo);
+});
 test('opening requests a separate popup without an opener, and a null browser result never becomes a false blocked warning',()=>{
  const calls=[];assert.doesNotThrow(()=>openPositionWindow('https://example.invalid/',selection,(...args)=>{calls.push(args);return null;}));
  assert.equal(calls.length,1);assert.equal(calls[0][1],'_blank');

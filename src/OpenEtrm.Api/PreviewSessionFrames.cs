@@ -10,6 +10,7 @@ public sealed record SessionFramePlan(ImmutableArray<InputFrame> Frames,FrameCat
 public sealed partial class PreviewSession
 {
     public const int MaximumFrames=128;
+    private readonly int durableCloseLimit;
     private readonly HashSet<Guid> discoveredFrames=[];
     private Guid aliasNamespace=Guid.NewGuid();
     public FrameCatalogInfo FrameCatalog{get;private set;}=new("exact_recorded_close_pins_v1","preserved_session_plus_latest_visible_closes_v1",MaximumFrames,0,false);
@@ -51,7 +52,7 @@ public sealed partial class PreviewSession
     {
         var remaining=MaximumFrames-PersistentFrames.Length-aliases.Length;
         if(remaining<0)throw new MarketDataException("preview_limit","The retained session selections exceed the 128-frame catalog capacity.");
-        return remaining;
+        return Math.Min(remaining,durableCloseLimit);
     }
     // Planning reads existing cache identity only. Apply is called after the
     // authenticated database transaction, including its final checks, commits.

@@ -74,6 +74,7 @@ test('report links accept only exact retained job identities',()=>{
  assert.equal(riskReportAddress(id,{hosted:false,example:'exchange'}),'/?example=exchange#risk/job/'+id);
  assert.equal(riskReportAddress(id,{hosted:true,example:'exchange'}),'/app?example=exchange#risk/job/'+id);
  assert.equal(riskReportAddress(id,{hosted:true,example:'baseline'}),'/app#risk/job/'+id);
+ assert.equal(riskReportAddress(id,{hosted:true,example:'synthetic'}),'/app?example=synthetic#risk/job/'+id);
 });
 
 test('display windows bound graphics without changing report coverage or treating unrecorded scope as complete',()=>{

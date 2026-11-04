@@ -165,7 +165,7 @@ public sealed class HostedAuthentication : IAsyncDisposable
             await c.SignInAsync(Scheme, new ClaimsPrincipal(claims), new AuthenticationProperties { IsPersistent = false, ExpiresUtc=identity.Ends });
             return Results.Redirect("/");
         }).RequireRateLimiting("local-auth");
-        app.MapPost("/api/logout", async (HttpContext c) =>
+        async Task<IResult> Logout(HttpContext c)
         {
             var token = c.User.FindFirstValue("session") ?? throw new PreviewDeniedException();
             var digest = HostedAccess.TokenDigest(token);
@@ -173,7 +173,10 @@ public sealed class HostedAuthentication : IAsyncDisposable
             command.Parameters.AddWithValue(digest); await command.ExecuteNonQueryAsync(c.RequestAborted);
             SignedOut?.Invoke(digest, Current(c).Subject);
             await c.SignOutAsync(Scheme); c.Response.Cookies.Delete("__Host-openetrm_workspace",new CookieOptions{Secure=true,Path="/"}); return Results.Ok(new{signedOut=true});
-        }).WithMetadata(new PreviewScope("baseline"));
+        }
+        app.MapPost("/api/logout", (Func<HttpContext,Task<IResult>>)Logout).WithMetadata(new PreviewScope("baseline"));
+        if(settings.SyntheticDatasetManifest is not null)
+            app.MapPost("/examples/synthetic/api/logout", (Func<HttpContext,Task<IResult>>)Logout).WithMetadata(new PreviewScope("synthetic"));
     }
     async Task<System.Text.Json.JsonElement> AccessPolicy(CancellationToken ct,string? invitation=null)
     {

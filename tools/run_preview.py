@@ -339,6 +339,9 @@ def main():
             if args.physical_gas_check and migration.name=='0142_physical_gas_bookings.sql':
                 from check_gas_upgrade import run_checks as check_gas_upgrade
                 check_gas_upgrade(query,ROOT,[reference,market,security,trading_fixture(manifest['catalogId'])])
+            if args.check and migration.name=='0190_synthetic_dataset_namespace.sql':
+                from check_synthetic_namespace import run_checks as check_synthetic_namespace
+                check_synthetic_namespace(query,migration.read_text())
             query(migration.read_text())
         if args.check:
             from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema

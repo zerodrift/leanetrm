@@ -21,14 +21,14 @@ class PreviewClient:
     # The sessions clients open in each example's scope, which the preview caps (Program.cs): each new session cookie the
     # preview sets is one.
     sessions = collections.Counter()
-    COOKIES = {'baseline': 'openetrm_preview', 'exchange': 'openetrm_exchange_preview'}
+    COOKIES = {'baseline': 'openetrm_preview', 'exchange': 'openetrm_exchange_preview','synthetic':'openetrm_synthetic_preview'}
 
     def __init__(self, url, example='baseline'):
         address = urlsplit(url)
         if address.scheme != 'http' or address.hostname != '127.0.0.1' or not address.port or address.path not in ('', '/') or address.query or address.fragment or address.username or address.password:
             raise ValueError('An explicit loopback preview origin is required.')
-        if example not in ('baseline','exchange'):raise ValueError('Choose a configured preview example.')
-        self.api_prefix='/api/' if example=='baseline' else '/examples/exchange/api/'
+        if example not in ('baseline','exchange','synthetic'):raise ValueError('Choose a configured preview example.')
+        self.api_prefix='/api/' if example=='baseline' else '/examples/'+example+'/api/'
         self.example, self.session = example, None
         self.url = url.rstrip('/')
         self.jar = http.cookiejar.CookieJar()

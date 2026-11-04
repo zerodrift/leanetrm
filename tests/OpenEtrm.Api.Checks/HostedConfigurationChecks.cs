@@ -25,6 +25,11 @@ static class HostedConfigurationChecks
                 return HostedConfiguration.Read(file);
             }
             var read=Read(complete);
+            var demo=Read(new(complete){["syntheticDatasetManifest"]="synthetic-manifest.json"});
+            Require(JsonSerializer.SerializeToElement(demo).GetProperty("SyntheticDatasetManifest").GetString()=="synthetic-manifest.json",
+                "a hosted installation explicitly opts into its private synthetic dataset manifest");
+            foreach(var invalidManifest in new[]{"manifest.json","exchange-manifest.json","../synthetic-manifest.json","/tmp/synthetic-manifest.json",""})
+                Refused(()=>Read(new(complete){["syntheticDatasetManifest"]=invalidManifest}),"an unrecognized synthetic dataset manifest");
             var selected=read.Limits with {RequestSeconds=6,ExtendedRequestSeconds=11,ResponseGraceSeconds=3,PageSessions=8};
             selected.Validate();
             Require(JsonSerializer.SerializeToElement(selected.RequestDeadlines).GetProperty("normalMilliseconds").GetInt32()==9000
@@ -59,6 +64,28 @@ static class HostedConfigurationChecks
         finally{root.Delete(true);}
 
         var manifest=new PreviewManifest("hosted-pilot",Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),[],null,FuturesConvention:"contract_lot_execution_pnl_v2");
+        var synthetic=manifest with{CatalogId=Guid.NewGuid(),ReferenceCatalogId=Guid.NewGuid(),RevisionId=Guid.NewGuid(),ReferenceRevisionId=Guid.NewGuid(),
+            Frames=[new(DateTimeOffset.Parse("2026-11-03T21:00:00Z"),[Guid.NewGuid()],new(){["synthetic_ng"]=[Guid.NewGuid()]})]};
+        SyntheticDataset.Validate(manifest,synthetic);
+        var bounded=new PreviewSession(synthetic,durableCloseLimit:8);
+        Require(bounded.DurableLimit([])==8,"a synthetic page bounds its recent close directory independently of saved input capacity");
+        foreach(var invalid in new[]{synthetic with{TenantId=Guid.NewGuid()},synthetic with{WorkspaceId=Guid.NewGuid()},
+            synthetic with{CatalogId=manifest.CatalogId},synthetic with{ReferenceCatalogId=manifest.ReferenceCatalogId},
+            synthetic with{IdentityIssuer="https://other.synthetic.invalid"},synthetic with{FuturesConvention=""},
+            synthetic with{Frames=[]},synthetic with{Frames=[null!]},
+            synthetic with{Frames=[synthetic.Frames[0] with{CurveContracts=[]}]},
+            synthetic with{Frames=[synthetic.Frames[0] with{CurveContracts=null!}]},
+            synthetic with{Frames=Enumerable.Range(0,129).Select(i=>synthetic.Frames[0] with{At=synthetic.Frames[0].At.AddDays(i)}).ToArray()},
+            synthetic with{Frames=[synthetic.Frames[0],synthetic.Frames[0]]},
+            synthetic with{Frames=[synthetic.Frames[0] with{ObservationIds=[Guid.Empty]}]}})
+        {
+            try{SyntheticDataset.Validate(manifest,invalid);throw new Exception("An unqualified synthetic dataset scope was accepted.");}
+            catch(InvalidOperationException){}
+        }
+        Require(SyntheticDataset.ApiPath("/examples/synthetic/api/trading/workspace")=="/api/trading/workspace"&&
+            SyntheticDataset.ApiPath("/examples/exchange/api/interval-series/revise")=="/api/interval-series/revise"&&
+            SyntheticDataset.ApiPath("/examples/unconfigured/api/x")=="/examples/unconfigured/api/x",
+            "only configured API namespaces receive ordinary request budgets and failure handling");
         var digest=HostedAccess.TokenDigest(HostedAccess.NewToken());
         var signIn=new HostedSignIn(digest,DateTimeOffset.UtcNow.AddMinutes(12));
         var bound=new PreviewSession(manifest,signIn);

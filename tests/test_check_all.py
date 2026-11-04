@@ -89,7 +89,7 @@ class CheckAllTests(unittest.TestCase):
         schedule_commands = [c for c in commands if '--project' in c and 'Api.Checks' in c[c.index('--project') + 1]]
         self.assertEqual([c[-2:] for c in schedule_commands],
                          [['--', flag] for flag in ('--schedules', '--historical-risk', '--automation',
-                           '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility')])
+                           '--live-calculation', '--hosted-configuration', '--reference-intake', '--preview-data', '--side-observation-compatibility')])
         self.assertTrue(any('--historical-risk-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--reference-import-check' in c for c in commands))
         self.assertTrue(any('--live-calculation-check' in c and '--browser-check' in c for c in commands))

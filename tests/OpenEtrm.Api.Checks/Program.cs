@@ -75,6 +75,7 @@ if (args is ["--hosted-access"])
     HostedAccessChecks.Run();
     return;
 }
+if(args is ["--hosted-configuration"]){HostedConfigurationChecks.Run();return;}
 if(args is ["--power-collection"]){Environment.ExitCode=await PowerImportChecks.MalformedCollection();return;}
 if(args is ["--direct-reads",var readFixture]){await DirectReadChecks.Run(readFixture);return;}
 if(args is ["--stored-credentials",var credentialFixture]){CredentialCustodyChecks.Stored(credentialFixture);return;}

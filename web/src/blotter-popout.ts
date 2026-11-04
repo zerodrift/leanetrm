@@ -1,3 +1,4 @@
+import {type DatasetId,datasetId} from './dataset-address.js';
 // The tie between the main window and the Blotter popped out of it (docs/blotter-workbench.md, Pop-out Blotter), over the channel of
 // blotter-channel.ts. The main window opens the pop-out for a session of its own, adopts the first window that says it opened, hands it
 // the view and the context, and from then on hears only that window: what it shows, a position it asks about and, as it closes, its view.
@@ -25,7 +26,7 @@ export function retainedActions({trade,risk}:{trade:boolean;risk:boolean}){
 }
 type OpenChannel=typeof openBlotterChannel;
 type Channel=ReturnType<OpenChannel>;
-type Example='baseline'|'exchange';
+type Example=DatasetId;
 /** The pop-out's window as the main window holds it. */
 type Popup={readonly closed:boolean;close():void;focus():void};
 // Without each other's windows the two ends could not tell their own closing, nor bring the pop-out to the front.
@@ -42,8 +43,8 @@ export function readBlotterWindowUrl(href:string):{session:string;example:Exampl
   const url=new URL(href),values=new URLSearchParams(url.hash.slice(1)),keys=[...values.keys()];
   if(url.pathname!=='/blotter.html'||url.search||keys.length!==2||!values.has('session')||!values.has('example'))throw Error(untied);
   const session=values.get('session')!,example=values.get('example')!;
-  if(!uuid.test(session)||example!=='baseline'&&example!=='exchange')throw Error(untied);
-  return {session,example};
+  if(!uuid.test(session))throw Error(untied);
+  return {session,example:datasetId(example)};
 }
 
 /**

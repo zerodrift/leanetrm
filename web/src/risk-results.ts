@@ -86,6 +86,6 @@ export function riskAddress(hash:string):string|undefined{
  return /^#risk\/job\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(hash)?.[1];
 }
 export function riskReportAddress(id:string,where:{hosted:boolean;example:string}):string{
- if(!riskAddress('#risk/job/'+id)||!['baseline','exchange'].includes(where.example))throw Error('The retained report address is invalid.');
- return (where.hosted?'/app':'/')+(where.example==='exchange'?'?example=exchange':'')+'#risk/job/'+id;
+ if(!riskAddress('#risk/job/'+id)||!['baseline','exchange','synthetic'].includes(where.example))throw Error('The retained report address is invalid.');
+ return (where.hosted?'/app':'/')+(where.example==='baseline'?'':'?example='+where.example)+'#risk/job/'+id;
 }

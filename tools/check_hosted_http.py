@@ -23,7 +23,7 @@ from check_request_refusals import is_refusal, one_message_per_code, unreadable
 from fake_model_provider import FakeProvider, Trap
 
 
-def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, control_url=None, run_id=None, psql=None, psql_environment=None):
+def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, control_url=None, run_id=None, psql=None, psql_environment=None,synthetic_manifest=None):
     directory = root / 'hosted-check'
     directory.mkdir(mode=0o700)
     state, definitions = directory / 'state', directory / 'manifest'
@@ -69,17 +69,23 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
     thread = threading.Thread(target=proxy.serve_forever, daemon=True); thread.start()
     selected = {**manifest, 'mode': 'hosted-pilot', 'identityIssuer': origin + '/local'}
     (definitions / 'manifest.json').write_text(json.dumps(selected))
+    if synthetic_manifest is not None:
+        (definitions/'synthetic-manifest.json').write_text(json.dumps({**synthetic_manifest,'mode':'hosted-pilot','identityIssuer':origin+'/local'}))
     for name, variable in [('runtime', 'OPENETRM_PREVIEW_RUNTIME'), ('authenticator', 'OPENETRM_PREVIEW_AUTHENTICATOR')]:
         (directory / (name + '.connection')).write_text(environment[variable])
     # The two credential key files provisioning writes once per installation (docs/ai-assistant.md §5.2, §11).
     keys = [str(directory / name) for name in ('credential.key', 'credential-retry.key')]
-    for key in keys:
-        with os.fdopen(os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as file: file.write(secrets.token_bytes(32))
+    if synthetic_manifest is not None:
+        keys=[environment['OPENETRM_PREVIEW_CREDENTIAL_KEY'],environment['OPENETRM_PREVIEW_CREDENTIAL_RETRY_KEY']]
+    else:
+        for key in keys:
+            with os.fdopen(os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as file: file.write(secrets.token_bytes(32))
     installation = str(uuid4())
     config = {'installationId': installation, 'publicOrigin': origin, 'stateDirectory': str(state), 'webDirectory': str(root / 'web'),
               'manifestDirectory': str(definitions), 'runtimeConnectionFile': str(directory / 'runtime.connection'),
               'authenticatorConnectionFile': str(directory / 'authenticator.connection'), 'listenPort': api_port,
               'trustedProxyNetwork': '127.0.0.1/32', 'protectionCertificateFile': str(pfx), 'credentialKeyFile': keys[0], 'credentialRetryKeyFile': keys[1], 'limits':json.loads((Path(__file__).resolve().parents[1]/'deploy/process-limits.example.json').read_text())}
+    if synthetic_manifest is not None:config['syntheticDatasetManifest']='synthetic-manifest.json'
     configuration = directory / 'host.json'; configuration.write_text(json.dumps(config))
     # Model requests reach the loopback fake provider through the check endpoint, and every proxy setting names a trap that
     # no request may reach (docs/ai-assistant.md §5.2, §11).
@@ -262,6 +268,21 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         copied.call('/api/bootstrap', expected=401)
         copied.call('/api/bootstrap?includeFrames=false&includeAccess=true', expected=401)
         copied.call('/api/logout', {}, expected=401)
+        if synthetic_manifest is not None:
+            scoped=Client();scoped.login('admin_human',password)
+            primary_boot=scoped.bootstrap()
+            demo_boot,_=scoped.call('/examples/synthetic/api/bootstrap')
+            scoped.csrf=primary_boot['csrfToken']
+            scoped.call('/examples/synthetic/api/logout',{},expected=400)
+            scoped.call('/api/bootstrap')
+            retained=Client()
+            for cookie in scoped.cookies:retained.cookies.set_cookie(cookie)
+            scoped.csrf=demo_boot['csrfToken']
+            signed_out,_=scoped.call('/examples/synthetic/api/logout',{})
+            assert signed_out['signedOut']
+            retained.call('/api/bootstrap',expected=401)
+            retained.call('/examples/synthetic/api/bootstrap',expected=401)
+            print('PASS hosted synthetic logout rejects a foreign-scope token and revokes the shared sign-in across both datasets',flush=True)
         client.login('second_human', password)
         assert client.bootstrap()['profile'] == second
         query(f"UPDATE security.workspace_memberships SET enabled=false WHERE principal_id='{second}';UPDATE security.workspace_memberships SET enabled=true WHERE principal_id='{second}';")

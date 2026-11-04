@@ -9,7 +9,8 @@ namespace OpenEtrm.Api;
 public sealed record HostedConfiguration(Guid InstallationId, string PublicOrigin, string StateDirectory,
     string WebDirectory, string ManifestDirectory, string RuntimeConnectionFile,
     string AuthenticatorConnectionFile, int ListenPort, string TrustedProxyNetwork, string ProtectionCertificateFile,
-    string CredentialKeyFile, string CredentialRetryKeyFile, [property:JsonRequired] ProcessLimits Limits)
+    string CredentialKeyFile, string CredentialRetryKeyFile, [property:JsonRequired] ProcessLimits Limits,
+    string? SyntheticDatasetManifest=null)
 {
     public Uri Origin => new(PublicOrigin);
     public string IdentityIssuer => PublicOrigin + "/local";
@@ -24,6 +25,8 @@ public sealed record HostedConfiguration(Guid InstallationId, string PublicOrigi
     {
         if(Limits is null)throw new InvalidOperationException("Complete explicit limits are required.");
         Limits.Validate();
+        if(SyntheticDatasetManifest is not(null or "synthetic-manifest.json"))
+            throw new InvalidOperationException("The synthetic dataset must name synthetic-manifest.json in the private manifest directory.");
         if (InstallationId == Guid.Empty || !Uri.TryCreate(PublicOrigin, UriKind.Absolute, out var origin)
             || origin.Scheme != "https" || origin.AbsolutePath != "/" || origin.Query != "" || origin.Fragment != ""
             || origin.UserInfo != "" || PublicOrigin.EndsWith('/') || ListenPort is < 1024 or > 65535

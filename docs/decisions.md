@@ -2122,3 +2122,22 @@ custody/coverage/cancellation failures abort. Graphical consumers validate nativ
 coverage and captured business dates. Migration 0189 changes no historical rows or
 raw table grants. See [contract, limits and qualification](historical-risk.md).
 Monte Carlo/PCA/EVT and an operating rolling-backtest service remain separate work.
+
+## D307 — Separate synthetic energy booking and risk dataset
+
+A separately installed synthetic dataset uses the native booking and risk
+operations while retaining independent catalog, session and calculation
+identities. Its explicit manifest must match the authenticated tenant, workspace
+and issuer. See the [runtime contract](synthetic-energy.md).
+
+Migration 0190 retains distinct conversation, approval and preference namespaces.
+Browser command recovery includes the selected catalog. Queued risk requires a
+dedicated catalog worker. Exact frame membership controls the offered contract
+universe; missing selected inputs still refuse pricing. Bounded reads retain
+same-fact correction history and explicit knowledge policies.
+
+Generation, seeding profiles, owner imports and operational qualification tools
+are private assets outside the public source and build. The public repository
+contains the application adapter, schema migration and runtime regression checks.
+Private data qualification and an approved hosted release remain separate
+activation gates.

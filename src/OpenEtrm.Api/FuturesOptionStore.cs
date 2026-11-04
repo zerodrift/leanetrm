@@ -49,8 +49,14 @@ public sealed partial class FuturesOptionStore(PreviewManifest manifest)
         return new {kind="futures_options",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,convention=Convention,options,underlyings};
     }
 
-    // The listed option series whose expiry is after the frame.
-    private static IEnumerable<FuturesOptionSeriesSpecification> Listed(PreviewData data,InputFrame frame)=>data.FuturesOptionSeries.Where(s=>frame.At<s.Terms.ExpiryAt);
+    // Explicit frame membership defines this catalog's universe. A required
+    // settlement missing from a selected member still fails native pricing.
+    private static IEnumerable<FuturesOptionSeriesSpecification> Listed(PreviewData data,InputFrame frame)
+    {
+        var members=frame.CurveContracts.Values.SelectMany(ids=>ids).ToHashSet();
+        var series=data.Contracts.Where(c=>c.Kind==ContractKind.FutureOption&&members.Contains(c.Key.Id)).Select(c=>c.FuturesSeries).ToHashSet();
+        return data.FuturesOptionSeries.Where(s=>series.Contains(s.Key)&&frame.At<s.Terms.ExpiryAt);
+    }
 
     // Every listed option series whose expiry is after the frame, with its exchange, commodity and daily settlement at the
     // frame: read from the trading read's market data alone.

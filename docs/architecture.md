@@ -2682,3 +2682,8 @@ Crude entry projects separate facets of authorized exact valuation assignments.
 Actual instants use the selected user timezone; managed local-time resolution
 retains DST disambiguation, and operating dates retain their original meaning.
 See [decisions](decisions.md#d286--user-zone-instants-and-independent-ppa-composition).
+
+
+D307 adds a separate [synthetic energy dataset](synthetic-energy.md) for hosted
+booking and risk under explicit fictional contract and pricing policies. Local
+qualification and approved production activation remain separate release gates.

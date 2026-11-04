@@ -223,7 +223,8 @@ def run_checks(nginx):
         # The gateway keeps the API's body limits and refuses a larger API body as the API does, so a page can
         # tell that nothing was written.
         too_large = b'{"code":"request_too_large","message":"The request body exceeds its %d KiB limit."}'
-        for path, limit in [('/api', 32), ('/api/private', 32), ('/api/private.html', 32), ('/api/interval-series/revise', 8192)]:
+        for path, limit in [(prefix+suffix, limit) for prefix in ('/api','/examples/synthetic/api')
+                            for suffix,limit in [('',32),('/private',32),('/private.html',32),('/interval-series/revise',8192)]]:
             expect(f'API body at its {limit} KiB limit to {path}', path, 200, b'SYNTHETIC PRIVATE APPLICATION', method='POST',
                    body=b'x' * (limit * 1024), headers={**private, **untrusted})
             forwarded_as(f'API body to {path}', path)

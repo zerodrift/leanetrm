@@ -1,3 +1,4 @@
+import {datasetApi} from './dataset-address.js';
 import {readLngView} from './lng-trade-view.js';
 import {requestDeadlines} from './request-deadline.js';
 import {readCrudeView} from './crude-trade-view.js';
@@ -52,7 +53,7 @@ async function load(){
  const started=++generation;controller?.abort();const current=controller=new AbortController();clearTrade();error.textContent='';error.hidden=true;
  loading=true;retry.disabled=true;document.body.setAttribute('aria-busy','true');
  try{
-  selection=readPositionWindowUrl(location.href);const picked=selection,root=picked.example==='exchange'?'/examples/exchange/api/':'/api/';let csrf='';const deadlines=requestDeadlines();
+  selection=readPositionWindowUrl(location.href);const picked=selection,root=datasetApi(picked.example);let csrf='';const deadlines=requestDeadlines();
   async function request<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
    const response=await fetch(root+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':csrf},
     body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.any([current.signal,AbortSignal.timeout(deadlines.milliseconds(path)),...signal?[signal]:[]])});

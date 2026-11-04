@@ -1,3 +1,4 @@
+import type {DatasetId} from './dataset-address.js';
 import type {BlotterStreamRequest,BlotterStreamHandlers,BlotterStreamStart} from './blotter-stream.js';
 import {refreshAcceptedCrudeOperation,openCrudeOperationPanel} from './crude-operations-model.js';
 import {setupCrudeOperations} from './crude-operations.js';
@@ -123,7 +124,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // The window the Blotter is in (blotter-workbench.md, Pop-out Blotter): the main window, which pops it out into a window of its own that
   // `open` opens and brings it back; or that window, which `close`s to bring it back.
   // `example` is the example both windows read, which a position's own window reads too; a window that cannot say opens no position window.
-  window:({kind:'main';open:(url:string,target:string,features:string)=>Window|null}|{kind:'popout';close:()=>void})&{example:'baseline'|'exchange'|undefined}}){
+  window:({kind:'main';open:(url:string,target:string,features:string)=>Window|null}|{kind:'popout';close:()=>void})&{example:DatasetId|undefined}}){
   const {api,act,busy}=options;
   // A completed read stays in this window only. Its server version was sampled before the read began.
   let cachedRead:{key:string;version:string}|undefined;

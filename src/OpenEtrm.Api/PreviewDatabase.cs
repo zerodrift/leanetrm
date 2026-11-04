@@ -120,6 +120,14 @@ public sealed class PreviewDatabase : IAsyncDisposable
         Manifest=manifest;this.runtime=runtime;runtimeLogin="";ownsSources=false;
     }
 
+    internal PreviewDatabase(PreviewManifest manifest,PreviewDatabase primary)
+    {
+        Manifest=manifest;ownsSources=false;
+        authenticator=primary.authenticator;runtime=primary.runtime;calculationRuntime=primary.calculationRuntime;
+        agentAuthenticator=primary.agentAuthenticator;agentRuntime=primary.agentRuntime;
+        runtimeLogin=primary.runtimeLogin;hostedSession=primary.hostedSession;
+    }
+
     public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
     {
         var processLimits=hosted?.Limits??ProcessLimits.Read(Path.Combine(root,"process-limits.json"));
@@ -635,11 +643,13 @@ public sealed class PreviewDatabase : IAsyncDisposable
                 WHERE catalog_id=$1 AND definition_revision_id=$2 AND id=ANY($3::uuid[])
             )
             SELECT row_to_json(t)::text FROM (
-                SELECT o.* FROM market_data.observations o
-                WHERE o.catalog_id=$1 AND o.definition_revision_id=$2
-                  AND EXISTS(SELECT 1 FROM pins p WHERE
+                SELECT o.* FROM pins p CROSS JOIN LATERAL(
+                    SELECT o.* FROM market_data.observations o
+                    WHERE o.catalog_id=$1 AND o.definition_revision_id=$2 AND
                     (p.series_id,p.source_code,p.source_event_id,p.observed_at,p.role)=
-                    (o.series_id,o.source_code,o.source_event_id,o.observed_at,o.role))
+                    (o.series_id,o.source_code,o.source_event_id,o.observed_at,o.role)
+                    OFFSET 0
+                ) o
                 ORDER BY o.observed_at,o.received_at,o.id
             ) t
             """,[manifest.CatalogId,manifest.RevisionId,pins.ToArray()],ct);
