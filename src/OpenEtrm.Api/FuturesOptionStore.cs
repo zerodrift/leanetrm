@@ -50,7 +50,12 @@ public sealed partial class FuturesOptionStore(PreviewManifest manifest)
     }
 
     // The listed option series whose expiry is after the frame.
-    private static IEnumerable<FuturesOptionSeriesSpecification> Listed(PreviewData data,InputFrame frame)=>data.FuturesOptionSeries.Where(s=>frame.At<s.Terms.ExpiryAt);
+    private static IEnumerable<FuturesOptionSeriesSpecification> Listed(PreviewData data,InputFrame frame)
+    {
+        var members=frame.CurveContracts.SelectMany(pair=>pair.Value).ToHashSet();
+        var series=data.Contracts.Where(contract=>contract.Kind==ContractKind.FutureOption&&members.Contains(contract.Key.Id)).Select(contract=>contract.FuturesSeries).ToHashSet();
+        return data.FuturesOptionSeries.Where(option=>series.Contains(option.Key)&&frame.At<option.Terms.ExpiryAt);
+    }
 
     // Every listed option series whose expiry is after the frame, with its exchange, commodity and daily settlement at the
     // frame: read from the trading read's market data alone.

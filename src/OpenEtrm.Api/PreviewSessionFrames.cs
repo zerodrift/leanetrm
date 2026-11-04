@@ -11,6 +11,7 @@ public sealed partial class PreviewSession
 {
     public const int MaximumFrames=128;
     private readonly HashSet<Guid> discoveredFrames=[];
+    public bool HasDiscoveredFrames{get;private set;}
     private Guid aliasNamespace=Guid.NewGuid();
     public FrameCatalogInfo FrameCatalog{get;private set;}=new("exact_recorded_close_pins_v1","preserved_session_plus_latest_visible_closes_v1",MaximumFrames,0,false);
     public ImmutableArray<InputFrame> PersistentFrames=>[..Frames.Values.Where(frame=>!discoveredFrames.Contains(frame.Id)&&!IsLiveFrame(frame.Id))];
@@ -77,10 +78,11 @@ public sealed partial class PreviewSession
         foreach(var id in discoveredFrames)Frames.Remove(id);
         discoveredFrames.Clear();
         foreach(var frame in plan.Frames){Frames.Add(frame.Id,frame);discoveredFrames.Add(frame.Id);}
-        FrameCatalog=plan.Catalog;
+        FrameCatalog=plan.Catalog;HasDiscoveredFrames=true;
     }
     public void ForgetDiscoveredFrames(bool resetAliasIdentities=false)
     {
+        HasDiscoveredFrames=false;
         foreach(var id in discoveredFrames)Frames.Remove(id);
         discoveredFrames.Clear();
         if(resetAliasIdentities)aliasNamespace=Guid.NewGuid();

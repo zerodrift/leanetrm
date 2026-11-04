@@ -18,6 +18,7 @@ export function chartBody(config:{curve:string;contractId:string},market:Dashboa
   body.append(node('p','muted','Reading the price history…'));
   void (async()=>{
     const shape=(await shapes).get(config.curve);
+    if(disposed)return;
     if(shape===undefined||typeof shape==='string')throw Error(shape??'The curve read did not return this curve.');
     const contract=contractChoices(shape).find(c=>c.contractId===config.contractId);
     if(!contract||shape.unit===null)throw Error('This contract is not in the curve at this close.');

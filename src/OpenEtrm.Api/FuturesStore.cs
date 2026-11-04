@@ -73,7 +73,7 @@ public sealed partial class FuturesStore(PreviewManifest manifest)
 
     public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)
     {
-        var contracts=data.Definitions["curve_members"].Where(m=>data.ContractRows(m.Id("contract_id")).Any(c=>c.Kind==ContractKind.Future))
+        var contracts=data.Definitions["curve_members"].Where(m=>frame.CurveContracts.TryGetValue(m.Text("curve_code"),out var selected)&&selected.Contains(m.Id("contract_id"))&&data.ContractRows(m.Id("contract_id")).Any(c=>c.Kind==ContractKind.Future))
             .Select(m=>Binding(data,m.Text("curve_code"),m.Id("contract_id"),m.Id("contract_id"),manifest.FuturesConvention))
             .Where(s=>s.EligibleFrom<=frame.At&&frame.At<s.Contract.Expiry).OrderBy(s=>s.Contract.DeliveryFrom).ToArray();
         var prices=contracts.Length==0?null:data.Model.Build(data.Snapshot(frame),contracts.Select(s=>s.Market).ToImmutableArray()).Values.ToLookup(v=>v.Request);

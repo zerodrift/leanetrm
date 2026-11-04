@@ -25,6 +25,64 @@ internal static class DirectReadChecks
             Console.WriteLine($"Direct reads with {string.Join(" and ",disabled)} off");
             await Run(fixturePath,disabled);
         }
+        await StreamVisibility(fixturePath);
+    }
+
+    static async Task StreamVisibility(string fixturePath)
+    {
+        await using var database=new PreviewDatabase(Path.GetFullPath(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT")!));
+        using var fixture=JsonDocument.Parse(File.ReadAllText(fixturePath));
+        var view=new View(fixture.RootElement.GetProperty("views").EnumerateArray().Single(v=>v.GetProperty("context").ValueKind==JsonValueKind.Null));
+        var frames=view.Initial.OrderBy(frame=>frame.At).Take(2).ToImmutableArray();
+        if(frames.Length!=2||frames[1].ObservationIds.IsEmpty)throw new Exception("Stream checks require two independent exact frames.");
+        Guid correction=Guid.Empty;
+        await database.WithIdentity("viewer","ReadMarketData",async(connection,ct)=>
+        {
+            var metadata=await database.Read(connection,ct,observationIds:[]);
+            var all=await database.Read(connection,ct);
+            var group=all.Observations.GroupBy(row=>(row.Id("series_id"),row.Text("source_code"),row.Text("role")))
+                .First(rows=>rows.Select(row=>row.Instant("observed_at")).Distinct().Count()>=3).ToArray();
+            var first=group.Min(row=>row.Instant("observed_at"));var last=group.Max(row=>row.Instant("observed_at"));
+            var gap=group.First(row=>row.Instant("observed_at")>first&&row.Instant("observed_at")<last).Id("id");
+            var key=group[0];
+            var windows=new[]{first,last}.Select(at=>new ObservationWindow(key.Id("series_id"),key.Text("source_code"),key.Text("role"),at,at)).ToImmutableArray();
+            var subset=await database.ReadObservationWindows(connection,metadata,windows,ct,[gap]);
+            var expected=group.Where(row=>row.Instant("observed_at")==first||row.Instant("observed_at")==last||row.Id("id")==gap).Select(row=>row.Id("id")).ToHashSet();
+            if(!subset.Observations.Select(row=>row.Id("id")).ToHashSet().SetEquals(expected))
+                throw new Exception("Disjoint sample windows must retain their endpoint revisions and explicit pin, without hydrating gaps or unrelated series.");
+            Console.WriteLine("PASS disjoint source windows hydrate only their declared samples and explicit pins");
+            var anchors=await database.Read(connection,ct,observationIds:[frames[0].ObservationIds[0],frames[1].ObservationIds[0]],observationScope:ObservationReadScope.ExactPins);
+            var demand=anchors.Observations.Select(row=>row.Id("series_id")).Distinct().ToImmutableArray();
+            var count=0;
+            await foreach(var data in database.ReadFrameObservations(connection,metadata,frames,ObservationReadScope.FactHistory,ct,demand))
+            {
+                if(count++==0)
+                {
+                    correction=await database.WithIdentity("editor","ImportObservations",async(writer,cancel)=>
+                    {
+                        var original=await database.Read(writer,cancel,observationIds:[frames[1].ObservationIds[0]],observationScope:ObservationReadScope.ExactPins);
+                        var row=original.Observation(frames[1].ObservationIds[0]);
+                        return await database.Correct(writer,database.Manifest.RevisionId,row.Id("id"),(row.Number("value")+ExactDecimal.Parse("0.001")).ToString(),cancel);
+                    },ct);
+                }
+                else if(data.HasObservation(correction))throw new Exception("One history stream mixed corrections committed between its frames.");
+            }
+            var after=await database.Read(connection,ct,observationIds:[frames[1].ObservationIds[0]]);
+            if(!after.HasObservation(correction))throw new Exception("The concurrent correction did not commit independently.");
+            await foreach(var ignored in database.ReadFrameObservations(connection,metadata,frames,ObservationReadScope.ExactPins,ct))break;
+            await Execute(connection,"SELECT 1",ct);
+            using var cancelled=new CancellationTokenSource();
+            await Execute(connection,"SAVEPOINT cancelled_stream",ct);
+            try
+            {
+                await foreach(var ignored in database.ReadFrameObservations(connection,metadata,frames,ObservationReadScope.ExactPins,cancelled.Token))cancelled.Cancel();
+                throw new Exception("A cancelled history stream completed successfully.");
+            }
+            catch(OperationCanceledException){}
+            await Execute(connection,"ROLLBACK TO SAVEPOINT cancelled_stream;RELEASE SAVEPOINT cancelled_stream;SELECT 1",ct);
+            return true;
+        },CancellationToken.None);
+        Console.WriteLine("PASS one-statement history preserves visibility across concurrent corrections and releases readers on early exit and cancellation");
     }
 
     static async Task Run(string fixturePath,string[] disabled)
@@ -93,8 +151,15 @@ internal static class DirectReadChecks
             var shapes=view.Page("curveShapes")["curves"]!;
             Same($"{view.Name} curve shapes match their page",await Direct(view,"curve shapes",(c,ct)=>reads.CurveShapes(c,view.Pin(view.Selected),[..shapes.AsArray().Select(s=>s!["curve"]!.GetValue<string>())],ct)),shapes);
             var history=view.Page("history");
+            var beforeHistory=database.ObservationRowsRead;
             Same($"{view.Name} history matches its page",await Direct(view,"history",(c,ct)=>reads.History(c,view.Pin(view.Selected),view.Initial,history["curve"]!.GetValue<string>(),history["contractId"]!.GetValue<Guid>(),null,HistoryRevisionPolicy.ExactSnapshotPins,ct)),
                 history["response"]!["points"]);
+            if(database.ObservationRowsRead-beforeHistory>view.Initial.Sum(frame=>frame.ObservationIds.Length)*2L)
+                throw new Exception("A contract history read materialized unrelated observation history.");
+            var beforeSingle=database.ObservationRowsRead;
+            var single=await Direct(view,"one close history",(c,ct)=>reads.History(c,view.Pin(view.Selected),[],history["curve"]!.GetValue<string>(),history["contractId"]!.GetValue<Guid>(),null,HistoryRevisionPolicy.ExactSnapshotPins,ct));
+            if(single.Length!=1||single[0].At!=view.Selected.At||database.ObservationRowsRead-beforeSingle>view.Selected.ObservationIds.Length*2L)
+                throw new Exception("One close history must not materialize other dates' observations.");
             Same($"{view.Name} schedule library matches its page",await Direct(view,"schedule library",(c,ct)=>schedules.Library(c,view.Pin(),ct)),view.Page("schedules"),
                 "knownThrough","versions","canEdit","canPublish","calendars","contractDefinitions");
             await Matches($"{view.Name} TOU products match their page",()=>Direct(view,"TOU products",(c,ct)=>schedules.TouProducts(c,view.Pin(),ct)),view.Page("touProducts"));
@@ -107,6 +172,16 @@ internal static class DirectReadChecks
             }
             Console.WriteLine($"PASS {view.Name} reads bind exactly their pin");
         }
+        await Read(async(c,ct)=>
+        {
+            var empty=working.Selected with{CurveContracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty};
+            var data=await database.Read(c,ct,observationIds:empty.ObservationIds);
+            var catalog=JsonSerializer.SerializeToElement(await new FuturesStore(database.Manifest).Catalog(c,data,empty,ct),Json);
+            if(catalog.GetProperty("contracts").GetArrayLength()!=0||FuturesOptionStore.Series(data,empty).Length!=0)
+                throw new Exception("Booking catalogs must not price contracts outside the exact frame membership.");
+            return true;
+        },"trader");
+        Console.WriteLine("PASS booking catalogs honor the exact frame membership");
         // A party read binds exactly its view's cutoff: one known just before the parties were published lists none of them.
         var cutoff=working.Page("parties")["legal_entity"]!["context"].Deserialize<ScheduleContext>(Json)!;
         var first=working.Page("parties")["legal_entity"]!["versions"]!.AsArray().Min(v=>SchedulePreview.ParseAt(v!["knownAt"]!.GetValue<string>()));

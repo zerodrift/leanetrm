@@ -112,7 +112,7 @@ public static partial class CustomCurves
         var samples=ImmutableArray.CreateBuilder<ConnectedRecipeSample>();
         if(!recipeBindings.IsEmpty)
         {
-            var historyPins=retained is null?(ImmutableArray<Guid>?)null:retained.Samples.SelectMany(s=>s.Observations.Select(o=>o.Id))
+            var historyPins=retained is null?frame.ObservationIds:retained.Samples.SelectMany(s=>s.Observations.Select(o=>o.Id))
                 .Concat(frame.ObservationIds).Distinct().ToImmutableArray();
             var sourceData=await database.Read(connection,ct,data.DefinitionRevision.RevisionId,data,historyPins,
                 includeCalendarDays:false,observationScope:retained is null?ObservationReadScope.FactHistory:ObservationReadScope.ExactPins);
@@ -121,7 +121,7 @@ public static partial class CustomCurves
             // Overlapping historical projections must share the same admitted
             // sample frame, including when a version is also consumed directly.
             var demands=new Dictionary<(Guid,int),ImmutableHashSet<RecipeDelivery>?>();
-            var preparation=new RecipePreparation(connection,database,sourceData,frame,exact,resolved,saved,demands);
+            var preparation=new RecipePreparation(connection,database,sourceData,frame,exact,resolved,saved,demands,retained is not null);
             async Task Require(Guid id,int version,ImmutableHashSet<RecipeDelivery>? deliveries,int depth)
             {
                 if(depth>32||demands.Count>=256&&!demands.ContainsKey((id,version)))throw Invalid("Published source preparation supports 32 dependency edges and 256 exact versions.");

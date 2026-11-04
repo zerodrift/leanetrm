@@ -211,7 +211,7 @@ export function deskCells(rows:readonly DeskRow[],colors:ReadonlyMap<string,stri
         cell.append(figure,node('small','desk-sub',`${row.measure} · ${row.currency}`));return cell;}
       case 'curve':{
         const shown=curve(index);
-        if(shown===undefined){const waiting=node('span','sparkline-loading');waiting.setAttribute('role','img');waiting.setAttribute('aria-label','Loading curve shape');return waiting;}
+        if(shown===undefined){const waiting=node('span','sparkline-loading');waiting.dataset.shapeRow=String(index);waiting.setAttribute('role','img');waiting.setAttribute('aria-label','Loading curve shape');return waiting;}
         cell.append(sparklineSvg(shown,row,color));return cell;}
       default:return null;
     }

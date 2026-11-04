@@ -13,7 +13,8 @@ public static partial class CustomCurves
     // into a replacement market observation or fictitious contract.
     private sealed class RecipePreparation(NpgsqlConnection connection,PreviewDatabase database,
         PreviewData data,InputFrame frame,ScheduleContext context,ResolvedCalculationContext resolved,
-        ImmutableArray<CustomCurveVersion> versions,IReadOnlyDictionary<(Guid,int),ImmutableHashSet<RecipeDelivery>?>? demands=null)
+        ImmutableArray<CustomCurveVersion> versions,IReadOnlyDictionary<(Guid,int),ImmutableHashSet<RecipeDelivery>?>? demands=null,bool retainedObservations=false,InputFrame? sourceFrame=null,
+        Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null)
     {
         readonly Dictionary<(Guid,int),ConnectedRecipeGraph> completed=[];
         readonly HashSet<(Guid,int)> active=[];
@@ -23,6 +24,27 @@ public static partial class CustomCurves
         public ImmutableArray<ConnectedRecipeSample> Samples=>RetainSamples(samples);
         public int SourceCompilations{get;private set;}
         public int DeclaredSourceNodes{get;private set;}
+
+        public async Task CollectObservations(RecipeDefinition definition,
+            ImmutableDictionary<string,CurveSourceReference> sources,ImmutableDictionary<string,CalendarReference> calendars,
+            ImmutableDictionary<string,CurveScheduleReference> schedules,Action<InputFrame,ImmutableArray<CurveRequest>,bool> collect,CancellationToken ct)
+        {
+            var planned=new HashSet<(Guid,int)>();
+            await Collect(definition,sources,calendars,schedules);
+            async Task Collect(RecipeDefinition selected,ImmutableDictionary<string,CurveSourceReference> native,
+                ImmutableDictionary<string,CalendarReference> calendar,ImmutableDictionary<string,CurveScheduleReference> schedule)
+            {
+                foreach(var node in selected.Nodes.Where(node=>node.Kind=="published_source"))
+                {
+                    var reference=node.PublishedSource!;
+                    _=await Topology(reference,ct); // Exact publication, graph and native authority checks.
+                    if(!planned.Add((reference.CurveId,reference.Version)))continue;
+                    var version=versions.Single(version=>version.Id==reference.CurveId&&version.Version==reference.Version);
+                    await Collect(version.Definition,version.Sources,version.Calendars,version.Schedules);
+                }
+                _=await Inputs(connection,database,selected,data,frame,native,calendar,schedule,context,ct,collectObservations:collect,calendarReads:calendarReads);
+            }
+        }
 
         public async Task<RecipeTopology> Topology(PublishedRecipeReference reference,CancellationToken ct)
         {
@@ -38,7 +60,7 @@ public static partial class CustomCurves
                 await new CustomCurvesStore(database).RequirePublishedSource(connection,reference,data.DefinitionRevision.RevisionId,ct);
                 var parents=new Dictionary<string,RecipeTopology>();
                 foreach(var node in version.Definition.Nodes.Where(n=>n.Kind=="published_source"))parents.Add(node.Id,await Topology(node.PublishedSource!,ct));
-                var metadata=await Inputs(connection,database,version.Definition,data,frame,version.Sources,version.Calendars,version.Schedules,context,ct,topologyOnly:true);
+                var metadata=await Inputs(connection,database,version.Definition,data,frame,version.Sources,version.Calendars,version.Schedules,context,ct,topologyOnly:true,calendarReads:calendarReads);
                 var instants=metadata.Values.Dates.Values.SelectMany(d=>d).Append(metadata.Values.ContextDate).Distinct()
                     .ToImmutableDictionary(d=>d,d=>new DateTimeOffset(d.ToDateTime(TimeOnly.FromDateTime(frame.At.UtcDateTime),DateTimeKind.Utc)));
                 var result=RecipeEngine.Topology(version.Definition,metadata.Values,parents,instants,ct);topologies.Add(key,result);return result;
@@ -81,7 +103,7 @@ public static partial class CustomCurves
             foreach(var node in definition.Nodes.Where(n=>n.Kind=="published_source"))
                 published.Add(node.Id,await Published(node.PublishedSource!,ct));
             var topology=deliveries is null?null:await Topology(new(identity.CatalogId,identity.CurveId,identity.Version,definition.Output),ct);
-            var materialized=await Inputs(connection,database,definition,data,frame,sources,calendars,schedules,context,ct,deliveries,topology);
+            var materialized=await Inputs(connection,database,definition,data,frame,sources,calendars,schedules,context,ct,deliveries,topology,retainedObservations:retainedObservations,sourceFrame:sourceFrame,calendarReads:calendarReads);
             var graph=RecipeEngine.Connect(definition,materialized.Values,identity,materialized.Samples,resolved,ct,materialized.References,published,materialized.Demand);
             samples.AddRange(materialized.Samples);
             SourceCompilations+=graph.SourceCompilations;DeclaredSourceNodes+=graph.DeclaredSourceNodes;

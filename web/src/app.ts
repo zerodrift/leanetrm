@@ -66,7 +66,7 @@ import {pageReport,webPage,type PageState,type PageContext,type Place} from './a
 import {readPages,type Target,type TargetContext} from './assistant-events.js';
 import {readCurveShapes} from './curve-shapes.js';
 import type {CurveShape} from './desk-model.js';
-import {commodityIcon,librarySparkline,marketBoard,renderBoard,shapeReads} from './market-board.js';
+import {commodityIcon,librarySparkline,marketBoard,renderBoard} from './market-board.js';
 import {renderTile} from './tiles.js';
 import {kindBadge} from './curve-kinds.js';
 import {panelPlacement} from './side-panel.js';
@@ -300,7 +300,7 @@ function invalidateMarketDates(){
  marketDateGeneration++;marketDatesLoaded=false;
  marketCalendar.invalidate(contextDirty?'Apply the changed history and knowledge context first.':'Open the calendar to check available closes.');
 }
-type MarketDatesRequest={curve:string|null;timeZone:string;definition:unknown};
+type MarketDatesRequest={curve:string|null;timeZone:string;definition:unknown;maximumDates?:number};
 const datesMismatch=()=>Error('The available market dates do not match this workspace. Reload the calendar.');
 // What the calendar offers for one scope, checked as describing this workspace. It resolves to nothing when the
 // workspace or the scope changed while it loaded, since that answer no longer applies.
@@ -355,7 +355,7 @@ async function openMarketCalendar(date?:string):Promise<void>{
 // Opening working data on its newest close (D219, with D217's latest instant). The workspace-wide calendar's uniquely latest
 // close is selected as if the person had picked it, several closes at that instant ask, and none selects nothing. The page
 // that is showing then reads it.
-const workspaceDates=():MarketDatesRequest=>({curve:null,timeZone:prefs.timeZone,definition:null});
+const workspaceDates=():MarketDatesRequest=>({curve:null,timeZone:prefs.timeZone,definition:null,maximumDates:1});
 async function selectNewestClose():Promise<CloseChoice>{
  const catalog=await readMarketDates(workspaceDates());
  if(!catalog)return {kind:'none'};
@@ -422,20 +422,46 @@ function renderMarketBoard(){
   text('market-board-empty-help',contextDirty?'View the changed context, then choose a close in As of to see every curve at it.':'Pick a close in As of above to see every curve at that close, or choose a curve from the list.');
   if(shown&&close)renderBoard($('market-board-groups'),board(),chooseCurve,busy);else $('market-board-groups').replaceChildren();
 }
-// Reads the curve shapes of the listed curves at the selected close that have none the backend stated, at most 64 to a read, and draws
-// them on the board and in the library. A curve whose read failed shows why, and is read again by the next load. A read that a change of account, directory, close or context overtakes is refused, as build() refuses one.
+// Optional card and library sparklines read only after their element enters the viewport.
+// Every delayed reply is tied to the same account directory, close and context.
+let boardObserver:IntersectionObserver|undefined,observeBoard=()=>{};
+let boardLoading:{owner:object;generation:number;scope:string;reading:()=>boolean}|undefined;
 async function loadBoard(){
-  if(page!=='market'||contextDirty||!navigation||!select('snapshot').value)return;
-  const owner=directory(),started=marketGeneration,scope=boardScope(),known=readShapes(),reads=shapeReads(board());
-  if(reads.length){
-    const source={snapshotId:frame().id,context:historicalContext()};
-    const read=await Promise.all(reads.map(curves=>readCurveShapes(api,source,curves)));
-    if(navigation!==owner||started!==marketGeneration||scope!==boardScope())throw Error('The account or market selection changed. Reload before continuing.');
-    const shapes=new Map(known);
-    reads.forEach((curves,i)=>{for(const code of curves)shapes.set(code,read[i].get(code)??'Curve shape unavailable · the read did not return this curve');});
-    boardShapes={owner,scope,shapes};
+  if(page==='market'&&navigation&&boardLoading?.owner===navigation&&boardLoading.generation===marketGeneration&&boardLoading.scope===boardScope()&&boardLoading.reading()){
+    renderBrowse();renderMarketBoard();observeBoard();return;
   }
-  renderBrowse();renderMarketBoard();
+  boardObserver?.disconnect();boardObserver=undefined;
+  if(page!=='market'||contextDirty||!navigation||!select('snapshot').value)return;
+  const owner=directory(),started=marketGeneration,scope=boardScope(),source={snapshotId:frame().id,context:historicalContext()};
+  const attempted=new Set<string>(),pending=new Set<string>();let reading=false;
+  const current=()=>boardObserver===observer&&page==='market'&&!contextDirty&&navigation===owner&&started===marketGeneration&&scope===boardScope();
+  const observe=()=>{
+    observer.disconnect();if(!current())return;
+    for(const target of document.querySelectorAll<HTMLElement>('#curves .curve-button[data-curve],#market-board .market-card[data-curve]')){
+      const code=target.dataset.curve!,entry=owner.curves.find(c=>c.code===code);
+      if(!attempted.has(code)&&typeof readShapes().get(code)!=='object'&&entry?.marketType!=='rates')observer.observe(target);
+    }
+  };
+  async function flush(){
+    if(reading||!current())return;reading=true;
+    try{
+      while(pending.size&&current()){
+        const curves=[...pending].slice(0,64);for(const code of curves)pending.delete(code);
+        const read=await readCurveShapes(api,source,curves);if(!current())return;
+        const shapes=new Map(readShapes());for(const code of curves)shapes.set(code,read.get(code)??'Curve shape unavailable · the read did not return this curve');
+        boardShapes={owner,scope,shapes};renderBrowse();renderMarketBoard();observe();
+      }
+    }finally{reading=false;}
+  }
+  const observer=new IntersectionObserver(entries=>{
+    if(!current()){observer.disconnect();return;}
+    for(const entry of entries)if(entry.isIntersecting&&entry.target.isConnected){
+      const code=(entry.target as HTMLElement).dataset.curve!;
+      if(!attempted.has(code)){attempted.add(code);pending.add(code);}observer.unobserve(entry.target);
+    }
+    void flush();
+  });
+  boardObserver=observer;observeBoard=observe;boardLoading={owner,generation:started,scope,reading:()=>reading};renderBrowse();renderMarketBoard();observe();
 }
 function renderBrowse(){
   const categories=navigationCategories(directory()),commodities=categories.map(c=>c.code);
@@ -449,8 +475,9 @@ function renderBrowse(){
   $('curves').replaceChildren(...groups.map(group=>{const section=el('details'),key=prefs.browseBy+'|'+group.key;section.className='curve-group';section.open=!prefs.collapsedCurveGroups.includes(key);section.append(el('summary',group.name));
     section.ontoggle=()=>{if(!section.isConnected||navigation!==owner)return;const closed=prefs.collapsedCurveGroups.includes(key);if(closed===!section.open)return;prefs.collapsedCurveGroups=section.open?prefs.collapsedCurveGroups.filter(k=>k!==key):[...prefs.collapsedCurveGroups,key].slice(-64);persist();};
     // Named commodity and curve-kind icons distinguish identity; the sparkline is decorative.
-    group.cards.forEach(c=>{const button=el('button'),line=librarySparkline(c),commodity=commodityIcon(c);button.className='curve-button'+(c.curve===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.curve===curve));button.append(...commodity?[commodity]:[],kindBadge(c.curveKind),el('span',c.name),el('small',c.type),...(line?[line]:[]));button.onclick=()=>chooseCurve(c.curve);section.append(button);});return section;}));
+    group.cards.forEach(c=>{const button=el('button'),line=librarySparkline(c),commodity=commodityIcon(c);button.dataset.curve=c.curve;button.className='curve-button'+(c.curve===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.curve===curve));button.append(...commodity?[commodity]:[],kindBadge(c.curveKind),el('span',c.name),el('small',c.type),...(line?[line]:[]));button.onclick=()=>chooseCurve(c.curve);section.append(button);});return section;}));
   if(!groups.length)$('curves').append(el('p','No curves match these choices.'));
+  observeBoard();
 }
 function renderContext(){
   const example=directory().example;$('example').hidden=!example;text('example-help',example?`${curveName(example.curve)} · ${instant(example.at)}`:'No market inputs have been imported.');renderLayout();renderBrowse();renderMarketBoard();$('curve-detail').hidden=!curve||!workspace;

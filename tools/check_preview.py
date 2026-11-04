@@ -93,6 +93,18 @@ def run_checks(url,query,manifest,direct_reads,after_browser):
     check('original snapshot replays unchanged',replay==base)
     history=c.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':new,'curve':'local_power','contractId':result['points'][0]['contractId']})
     check('contract history uses exact dated pins and chosen revision',len(history['points'])==4 and history['points'][-1]['value']=='29.8')
+    # Admission checks every original pin even though the value read projects
+    # only the requested contract's declared dependency series.
+    hidden=changed['frame']['observationIds'][0]
+    query(f"CREATE POLICY synthetic_history_hidden_pin ON market_data.observations AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(id<>'{hidden}'::uuid);")
+    try:
+        for policy in ('exact_snapshot_pins_v1','as_known_at_cutoff_v1'):
+            refused=c.call('history',{'revisionPolicy':policy,'snapshotId':new,'curve':'local_power','contractId':result['points'][0]['contractId']},expected=422)
+            check('history refuses a hidden selected pin under '+policy,refused['code']=='ambiguous_reference')
+    finally:
+        query('DROP POLICY synthetic_history_hidden_pin ON market_data.observations;')
+    restored=c.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':new,'curve':'local_power','contractId':result['points'][0]['contractId']})
+    check('restoring pin visibility preserves the exact history',restored['points']==history['points'])
     c.call('corrections',body,expected=409);check('stale revision cannot fork correction chain')
     selected=c.call('select-observation',{'snapshotId':new,'observationId':obs})
     replay=c.call('evaluate',{'snapshotId':selected['frame']['id'],'curve':'local_power'})

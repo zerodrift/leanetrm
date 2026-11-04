@@ -839,7 +839,7 @@ async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? s
     {
         var captured=await resolve(connection,ct);
         await MarketContextStore.Bind(connection,database.Manifest.CatalogId,captured.Context,ct);
-        var data=await database.Read(connection,ct);
+        var data=await database.Read(connection,ct,observationIds:[..session.InitialFrames.SelectMany(id=>session.Frames[id].ObservationIds).Distinct()]);
         var aliases=session.SelectContextAliases(data,captured.Context);
         var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,database.Manifest.RevisionId,captured.Context.ContextId,ct,session.DurableLimit(aliases));
         return (captured,plan:session.PlanFrames(stored,captured.Context,aliases));
@@ -1015,13 +1015,14 @@ api.MapPost("/market/curve-shapes",(HttpContext c,CurveShapesRequest body)=>Lock
 api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async session=>
 {
     var policy=HistoryRevisionPolicy.Require(body.RevisionPolicy);
-    await RefreshFrames(session,c.RequestAborted);
+    if(!session.HasDiscoveredFrames)await RefreshFrames(session,c.RequestAborted);
     var pin=Pin(session,body.SnapshotId);
     // Current history includes initial inputs and every offered stored close;
     // unselected manual edits remain separate explicit input choices.
     var frames=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
     var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,policy,ct,
-        session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null),c.RequestAborted);
+        session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null,
+        session.Live is not null?[..session.InitialFrames.SelectMany(id=>session.Frames[id].ObservationIds).Distinct()]:null),c.RequestAborted);
     const string mode="exact_visible_close_history_with_selected_instant_v1";
     // The chart is the points returned, one per instant (HistoryChart), or the instant where different samples remain; overlays run over
     // the chart's points, so the pinned context and knowledge cutoff carry over, and a null value is a missing input. A conflicting series
@@ -1079,12 +1080,12 @@ api.MapPost("/select-observation",(HttpContext c,SelectionRequest body)=>Locked(
     var updated=await database.WithIdentity(Profile(session),"ReadMarketData",async (connection,ct)=>
     {
         // The chosen revision replaces the pin of the same source fact in the bundle that holds it (D172).
-        var data=await database.Read(connection,ct);
+        var data=await database.Read(connection,ct,observationIds:[..frame.ObservationIds.Append(body.ObservationId).Distinct()]);
         if(!data.HasObservation(body.ObservationId))
             foreach(var market in database.Manifest.SwapMarkets??[])
             {
                 if(database.SwapMarketPins(frame,market) is not {} pins||!await database.SwapMarketAvailable(connection,market,ct))continue;
-                var bundle=await database.Read(connection,ct,market.RevisionId);
+                var bundle=await database.Read(connection,ct,market.RevisionId,observationIds:[..pins.Append(body.ObservationId).Distinct()]);
                 if(bundle.HasObservation(body.ObservationId))
                     return frame.SelectSwapMarketRevision(market.RevisionId,pins,SameFact(bundle,pins,body.ObservationId),body.ObservationId,"Explicit revision selection");
             }
@@ -1315,7 +1316,7 @@ api.MapPost("/futures/amend",(HttpContext c,FuturesAmendRequest body)=>Locked(c,
     return await database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>
     {
         if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct)||!await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
-        return Results.Ok(await futuresStore.Amend(connection,await database.Read(connection,ct),Frame(session,body.SnapshotId),body,ct));
+        return Results.Ok(await futuresStore.Amend(connection,await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds,observationScope:ObservationReadScope.ExactPins),Frame(session,body.SnapshotId),body,ct));
     },c.RequestAborted);
 }));
 api.MapPost("/futures/blotter",(HttpContext c,FuturesBlotterRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),(connection,data,frame,ct)=>futuresStore.Blotter(connection,data,frame,body.View,ct)));
@@ -1654,7 +1655,7 @@ Task<IResult> SaveSwap(HttpContext c,SwapWriteRequest body,bool amend)=>Locked(c
  {
   var status=await swapStore.Status(connection,body.OperationId,ct);
   if(status.TryGetProperty("tradeId",out _))return (Terms:(RetainedScheduleTerms?)null,Command:(JsonElement?)null);
-  var prepared=await swapStore.PrepareScheduleTerms(connection,await database.Read(connection,ct),frame,body,ct);
+  var prepared=await swapStore.PrepareScheduleTerms(connection,await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins),frame,body,ct);
   return (Terms:(RetainedScheduleTerms?)prepared,Command:(JsonElement?)await swapStore.ScheduleCommand(connection,frame,body,prepared.Reference,ct));
  },c.RequestAborted);
  if(terms.Terms is not null)await retained.Stage(profile,body.OperationId,terms.Command!.Value,permission,body.TradeId,body.ExpectedRevision,terms.Terms.Generate(c.RequestAborted),c.RequestAborted);
@@ -1662,11 +1663,11 @@ Task<IResult> SaveSwap(HttpContext c,SwapWriteRequest body,bool amend)=>Locked(c
  {
   if(terms.Terms is not null)await retained.Lock(connection,body.OperationId,ct);
   await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(ct);
-  var receipt=await swapStore.Save(connection,await database.Read(connection,ct),frame,body,ct);
+  var receipt=await swapStore.Save(connection,await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins),frame,body,ct);
   if(terms.Terms is not null)
   {
    var instrument=await retained.Publish(connection,body.OperationId,ct);
-   await swapStore.VerifyPublishedPrograms(connection,await database.Read(connection,ct),frame,body.OperationId,instrument,ct);
+   await swapStore.VerifyPublishedPrograms(connection,await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins),frame,body.OperationId,instrument,ct);
   }
   return Results.Ok(receipt);
  },c.RequestAborted);
@@ -1793,7 +1794,7 @@ api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,as
     return await database.WithIdentity(Profile(session),"BookTrade",async(connection,ct)=>
     {
         if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct))throw new PreviewDeniedException();
-        return Results.Ok(await futuresStore.Book(connection,await database.Read(connection,ct),Frame(session,body.SnapshotId),body,ct));
+        return Results.Ok(await futuresStore.Book(connection,await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds,observationScope:ObservationReadScope.ExactPins),Frame(session,body.SnapshotId),body,ct));
     },c.RequestAborted);
 }));
 api.MapPost("/futures/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>

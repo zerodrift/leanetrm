@@ -116,7 +116,7 @@ public sealed partial class TradeReads
     // read that can answer without the frame's market data goes first, and falls back with null.
     internal Task<object> Read(NpgsqlConnection connection,TradingView view,Func<PreviewData,Task<object>> read,CancellationToken ct,Func<Task<object?>>? readWithoutMarket=null,
         ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,
-        ObservationReadScope observationScope=ObservationReadScope.FactHistory)
+        ObservationReadScope observationScope=ObservationReadScope.ExactPins)
         =>ReadBound(connection,view,async()=>
             (readWithoutMarket is null?null:await readWithoutMarket())??await read(await database.Read(connection,ct,
                 observationIds:view.Frame.ObservationIds,referenceScope:referenceScope,observationScope:observationScope)),ct);

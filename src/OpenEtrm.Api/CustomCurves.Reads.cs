@@ -49,7 +49,7 @@ public static partial class CustomCurves
         var store=new CustomCurvesStore(database);
         var context=pin.Context??throw Invalid("Recipe pricing requires its resolved financial context.");
         var frame=pin.RequireFrame() with{ContextId=context.ContextId};
-        var data=await database.Read(connection,ct,includeCalendarDays:false);
+        var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
         Validate(body.Definition);
         var references=await store.References(connection,body.Definition,data,ct);
         if((body.Id is null)!=(body.Version is null))throw Invalid("Supply both the saved curve identity and exact version.");

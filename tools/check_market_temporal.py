@@ -87,7 +87,10 @@ def run_checks(Client, check, after_browser):
             distinct = list(dict.fromkeys((p['at'], p['value']) for p in samples))
             return [(at, None if i == 0 or value is None or distinct[i-1][1] is None else (Decimal(value) + Decimal(distinct[i-1][1])) / 2)
                     for i, (at, value) in enumerate(distinct)]
+        offered=c.call('history',query)['points']
         c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': seed_frame['id'], 'name': 'Synthetic duplicate sample'})
+        check('history retains the offered directory until an explicit refresh',c.call('history',query)['points']==offered)
+        c.call('workspace/navigation')
         duplicated = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]})
         instants = [p['at'] for p in duplicated['points']]
         series = duplicated['overlays'][0]['series']['value']
@@ -97,6 +100,7 @@ def run_checks(Client, check, after_browser):
         check('the chart series holds identical samples at one instant once, as the overlays do',
               [p['at'] for p in duplicated['chart']['points']] == list(dict.fromkeys(instants)) and [v['at'] for v in series] == [p['at'] for p in duplicated['chart']['points']])
         c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': corrected_frame['id'], 'name': 'Synthetic differing sample'})
+        c.call('workspace/navigation')
         plain = c.call('history', query)
         conflict = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]})
         check('different samples at one instant are a stated chart conflict naming the instant, with every point kept and no overlays, never a chosen frame',

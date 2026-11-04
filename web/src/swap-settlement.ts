@@ -137,7 +137,7 @@ export function setupSwapSettlement(options:{api:Api;act:(work:()=>Promise<void>
   offer(reversal,new Option('Choose an original cash movement…',''),...result.cashMovements.filter(p=>p.canReverse).map(p=>new Option(`${p.reference} · ${p.amount} · ${displayInstant(p.effectiveAt,options.zone())}`,p.id)));
   table(cashHistory,'swap-settlement-cash',['Cash movement','Signed cash'],result.cashMovements.map(p=>{const movement=node('div');movement.className='swap-settlement-stack';
    movement.append(node('strong',p.reference),node('span',`${displayInstant(p.effectiveAt,options.zone())} · ${p.recordKind==='zero_net_discharge_v1'?'Noncash zero-net discharge':'Cash movement'}`),allocationEvidence(result,p.allocations));return[movement,p.amount];}),[1],[0]);
-  const workspace=await options.api<{frames:{id:string;at:string}[]}>('workspace');
+  const workspace=await options.api<{frames:{id:string;at:string}[]}>('workspace/navigation');
   if(version!==generation||scope!==key())return;
   offer(openingSnapshot,new Option('Choose…',''),...workspace.frames.map(f=>new Option(displayInstant(f.at,options.zone()),f.id)));
   openingLabel.textContent=opening&&opening.tradeId===tradeId?`Opening: ${displayInstant(opening.asOf,options.zone())} · retained knowledge context.`:'Capture a view, then select the closing financial context and refresh.';

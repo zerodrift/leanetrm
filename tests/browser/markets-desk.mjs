@@ -69,24 +69,29 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
   await check('while a newly chosen close is read, neither the board nor the library shows the previous close\'s figures or lines',
    `document.querySelector('#snapshot').value===${JSON.stringify(older)}&&document.querySelector('#market-board-status').textContent!==${JSON.stringify(shownAt)}&&[...document.querySelectorAll('.market-card')].every(c=>['unread','rates'].includes(c.dataset.state))&&${nothingShown}`,
    "[document.querySelector('#market-board-status').textContent,[...document.querySelectorAll('.market-card')].map(c=>c.dataset.state)]");
-  await evaluate('window.__releaseShapes()');await wait(idle);
+  await evaluate('window.__releaseShapes()');await wait(idle+"&&document.querySelectorAll('.market-card[data-state=priced]').length>0");
   await check('the newly chosen close then fills the board and the library from its own read',
    `window.__shapeReads.at(-1).snapshotId===${JSON.stringify(older)}&&document.querySelectorAll('.market-card[data-state=priced]').length>0&&document.querySelectorAll('.curve-button .sparkline').length===document.querySelectorAll('.market-card[data-state=priced]').length&&document.querySelector('#error').hidden`);
   // An unapplied context change puts away what the applied context showed.
   await evaluate("document.querySelector('#date-context-on').value='2020-12-17';document.querySelector('#date-context-on').dispatchEvent(new Event('input',{bubbles:true}))");
   await check('an unapplied context change shows no figures or lines of the applied context, and says to apply it',
    "!document.querySelector('#market-board-empty').hidden&&document.querySelector('#market-board-empty-title').textContent==='Apply the changed context'&&document.querySelector('#market-board-groups').hidden&&!document.querySelector('.market-card')&&!document.querySelector('.curve-button .sparkline')");
-  await click('#current-view-context');
+  await click('#current-view-context');await wait("document.querySelectorAll('.market-card[data-state=priced]').length>0");
   await check('returning to working data reads the newest close for the board again',
    `document.querySelector('#snapshot').value===${JSON.stringify(newest)}&&window.__shapeReads.at(-1).snapshotId===${JSON.stringify(newest)}&&document.querySelectorAll('.market-card[data-state=priced]').length>0&&document.querySelector('#error').hidden`);
   // A read that fails says so on each card it was for, draws nothing, and is read again by the next load of the board.
-  await evaluate('window.__failShapes=true');await set('#snapshot',older);await wait(idle);
+  await evaluate('window.__failShapes=true');await set('#snapshot',older);await wait(idle+"&&!!document.querySelector('.market-card[data-state=failed]')");
   await check('a curve-shapes read that fails says why on each of its cards, with no price or line',
-   "(()=>{const cards=[...document.querySelectorAll('.market-card')].filter(c=>c.dataset.state!=='rates');return cards.length>0&&cards.every(c=>c.dataset.state==='failed'&&c.querySelector('.market-card-reason').textContent==='Curve shape unavailable · the curve read failed'&&!c.querySelector('.kpi-figure,.sparkline'))&&!document.querySelector('.curve-button .sparkline');})()");
+   "(()=>{const cards=[...document.querySelectorAll('.market-card')].filter(c=>c.dataset.state!=='rates');return cards.length>0&&cards.every(c=>c.dataset.state==='unread'||c.dataset.state==='failed'&&c.querySelector('.market-card-reason').textContent==='Curve shape unavailable · the curve read failed'&&!c.querySelector('.kpi-figure,.sparkline'))&&!document.querySelector('.curve-button .sparkline');})()");
   const readsBeforeRetry=await evaluate('window.__shapeReads.length');
   await click('#nav-market');
+  for(let attempt=0;attempt<20&&await evaluate("!!document.querySelector('.market-card[data-state=failed]')");attempt++){
+    const code=await evaluate("(()=>{const card=document.querySelector('.market-card[data-state=failed]');card.scrollIntoView({block:'center'});return card.dataset.curve;})()");
+    await wait(`[...document.querySelectorAll('.market-card')].find(card=>card.dataset.curve===${JSON.stringify(code)}).dataset.state!=='failed'`);
+  }
+  await wait("!document.querySelector('.market-card[data-state=failed]')&&document.querySelectorAll('.market-card[data-state=priced]').length>0");
   await check('opening the board again reads the curves whose read failed, and draws them',
-   `window.__shapeReads.length===${readsBeforeRetry}+1&&window.__shapeReads.at(-1).shapes&&window.__shapeReads.at(-1).snapshotId===${JSON.stringify(older)}&&!document.querySelector('.market-card[data-state=failed]')&&document.querySelectorAll('.market-card[data-state=priced]').length>0`);
+   `window.__shapeReads.length>=${readsBeforeRetry}+1&&window.__shapeReads.at(-1).shapes&&window.__shapeReads.at(-1).snapshotId===${JSON.stringify(older)}&&!document.querySelector('.market-card[data-state=failed]')&&document.querySelectorAll('.market-card[data-state=priced]').length>0`);
   await evaluate("[...document.querySelectorAll('.market-card-open')].find(b=>b.textContent==='Local power forwards').click()");await wait(idle);
   await check('choosing a card opens its curve as the library does: one evaluate, the curve shown and selected in the library, the board put away',
    "window.__evaluates===1&&document.querySelector('#market-board').hidden&&!document.querySelector('#curve-detail').hidden&&document.querySelector('#curve-title').textContent==='Local power forwards'&&"+

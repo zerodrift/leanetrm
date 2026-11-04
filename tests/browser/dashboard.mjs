@@ -6,14 +6,20 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   // The curve-shapes reads the page makes, and the workspace calendar ending a date early while a check asks: showing that to the app stands
   // in for a close that becomes available during a session, as the market-dates check does. Every other reply is the backend's own.
-  await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.__shapeReads=[];const send=window.fetch;window.fetch=async(input,init)=>{
+  await command('Page.addScriptToEvaluateOnNewDocument',{source:`
+    window.__dashboardShapeRefs=[];window.__captureDashboardShapes=false;
+    window.__shapeReads=[];window.__dashboardHistories=0;const send=window.fetch;window.fetch=async(input,init)=>{
     const path=String(input);
     // A layout read the check asks to fail, as a lost connection would.
     if(path==='/api/dashboard/layout'&&!init?.body&&window.__failLayoutRead)return new Response(JSON.stringify({code:'request_failed',message:'Synthetic failed layout read.'}),{status:503,headers:{'Content-Type':'application/json'}});
+    if(path==='/api/history')window.__dashboardHistories++;
+    const shapeRead=path==='/api/market/curve-shapes'?{curves:JSON.parse(init.body).curves,shapes:[]}:null;if(shapeRead)window.__shapeReads.push(shapeRead);
     let response=await send(input,init);
-    if(path==='/api/market/curve-shapes'&&response.ok)window.__shapeReads.push({curves:JSON.parse(init.body).curves,shapes:(await response.clone().json()).curves});
+    if(shapeRead&&response.ok)shapeRead.shapes=(await response.clone().json()).curves;
+    if(path==='/api/market/curve-shapes'){const json=response.json.bind(response);response.json=async()=>{const data=await json();if(window.__captureDashboardShapes)for(const shape of data.curves??[])window.__dashboardShapeRefs.push(new WeakRef(shape));return data;};}
+    if(path==='/api/market/curve-shapes'&&window.__holdDashboardShapes){window.__holdDashboardShapes=false;await new Promise(resolve=>window.__releaseDashboardShapes=resolve);window.__dashboardShapesReleased=true;}
     if(path==='/api/market/dates'&&sessionStorage.getItem('hideNewestDate')&&response.ok){
-      const body=JSON.parse(init.body),data=await response.json();
+      const body=JSON.parse(init.body);if(body.maximumDates)response=await send(input,{...init,body:JSON.stringify({...body,maximumDates:body.maximumDates+1})});const data=await response.json();
       if(body.curve===null&&body.definition===null){data.dates.pop();data.maxDate=data.dates.at(-1)?.date??null;}
       response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
     }
@@ -29,18 +35,21 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const added=count=>wait(`document.querySelectorAll('#dashboard-widgets .dashboard-widget').length===${count}&&${idle}`);
   const positions="document.querySelector('.positions')";
   const read=`!!${positions}&&!${positions}.textContent.includes('Reading the latest run')`;
+  const reveal=title=>evaluate(`([...document.querySelectorAll('#dashboard-widgets .dashboard-widget')].find(card=>card.querySelector('h3').textContent===${JSON.stringify(title)})??document.querySelector('#dashboard-widgets')).scrollIntoView({block:'center'})`);
+  const revealAll=async()=>{for(const title of ['Latest levels','Price chart','Positions by month']){await reveal(title);await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');}};
+  const positionsReady=async()=>{await reveal('Positions by month');await wait(read);};
   const levels=['future','local_power'];
   await open();await set(kind,'latest_levels');
   await evaluate(`for(const box of document.querySelectorAll('#dashboard-add .dashboard-add-curve input'))box.checked=${JSON.stringify(levels)}.includes(box.value)`);
   await submit(add+' form');await added(1);
-  await wait("document.querySelectorAll('.level-tile').length===2");
+  await reveal('Latest levels');await wait("document.querySelectorAll('.level-tile').length===2");
   await check('Latest levels shows a tile for each chosen curve, in order, with the backend\'s front price and unit, and the close\'s freshness',
     `(()=>{const tiles=[...document.querySelectorAll('.level-tile')],shapes=new Map(window.__shapeReads.at(-1).shapes.map(s=>[s.curve,s]));return tiles.map(t=>t.dataset.curve).join()===${JSON.stringify(levels.join())}&&tiles.every(t=>t.querySelector('.kpi-figure')?.textContent===shapes.get(t.dataset.curve).front.price)&&/· Latest · Intraday not configured$/.test(document.querySelector('.level-tiles-footer').textContent);})()`,
     "document.querySelector('.level-tiles')?.innerText");
   await open();await set(kind,'price_chart');await set(add+' select[aria-label="Curve"]','local_power');
   await wait("document.querySelector('#dashboard-add select[aria-label=Contract]').options.length>0");
   await submit(add+' form');await added(2);
-  await wait("!!document.querySelector('.price-chart .contract-chart canvas')");
+  await reveal('Price chart');await wait("!!document.querySelector('.price-chart .contract-chart canvas')");
   await check('Price chart draws the chosen contract\'s history and states its basis and freshness',
     "(()=>{const text=document.querySelector('.price-chart').innerText;return text.includes('Each close with the prices it was saved with')&&/· Latest$/m.test(text);})()","document.querySelector('.price-chart').innerText");
   await open();await set(kind,'positions');
@@ -53,7 +62,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "[...document.querySelectorAll('.dashboard-add-sizes input')].every(i=>i.value===''&&i.getAttribute('aria-label').startsWith('Shock size for '))");
   await evaluate("for(const size of document.querySelectorAll('.dashboard-add-sizes input'))size.value='0.5'");
   await submit(add+' form');await added(3);
-  await wait(read);
+  await positionsReady();
   await check('the new definition starts with no completed run, and Run now is offered',
     `${positions}.textContent.includes('No completed run yet')&&!${positions}.querySelector('button.dashboard-edit').hidden`,`${positions}.innerText`);
   const kinds=await evaluate(widgets);
@@ -70,15 +79,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "window.__shapeReads.length===window.__readsBeforeArranging&&document.querySelectorAll('.level-tile').length===2&&!!document.querySelector('.price-chart .contract-chart canvas')");
   const saved=await evaluate("(async()=>(await(await fetch('/api/dashboard/layout')).json()))()");
   await command('Page.reload');await wait(idle);await evaluate('window.__readsBeforeOpening=window.__shapeReads.length');await click('#nav-dashboard');await added(3);
-  await wait("document.querySelectorAll('.level-tile').length===2");
+  await reveal('Latest levels');await wait("document.querySelectorAll('.level-tile').length===2");
   await check('after a reload the saved layout is shown: the same widgets, arrangement and version',
     `(async()=>{const now=await(await fetch('/api/dashboard/layout')).json();return now.version===${JSON.stringify(saved.version)}&&now.layout.arrangement==='board'&&JSON.stringify(now.layout.widgets)===${JSON.stringify(JSON.stringify(saved.layout.widgets))}&&${widgets}===${JSON.stringify(kinds)};})()`);
   await check('opening the Dashboard reads the curves of every Latest levels and Price chart widget in one curve-shapes read',
     // The market page behind it reads its own selected curve, so only the reads naming the chart's curve are the dashboard's.
-    "window.__shapeReads.slice(window.__readsBeforeOpening).filter(r=>r.curves.includes('local_power')).map(r=>r.curves.join()).join('|')==='future,local_power'","window.__shapeReads.map(r=>r.curves)");
+    "window.__shapeReads.slice(window.__readsBeforeOpening).filter(r=>r.curves.includes('local_power')).map(r=>[...r.curves].sort().join()).join('|')==='future,local_power'","window.__shapeReads.map(r=>r.curves)");
 
   // Run now queues the definition's run; the widget follows its parts and reads the run once the risk worker has finished them.
-  const runNow=async()=>{await wait(read);await evaluate(`[...${positions}.querySelectorAll('button')].find(b=>b.textContent==='Run now').click()`);
+  const runNow=async()=>{await positionsReady();await evaluate(`[...${positions}.querySelectorAll('button')].find(b=>b.textContent==='Run now').click()`);
     await wait(`/^The run is queued in \\d+ parts?\\./.test(${positions}.querySelector('[role=status]').textContent)`);
     await wait(`${positions}.querySelector('[role=status]').textContent===''&&${read}`,60000);};
   await runNow();
@@ -115,16 +124,42 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const withAbsent=await saveLayout([...layout.layout.widgets,...absent],layout.version);
   await click('#dashboard-reload');await added(5);
   const absentCard=index=>`document.querySelectorAll('#dashboard-widgets .dashboard-widget')[${3+index}]`;
-  await wait(`[0,1].every(i=>!/Reading the/.test(document.querySelectorAll('#dashboard-widgets .dashboard-widget')[3+i]?.textContent??'Reading the'))&&!!document.querySelector('.price-chart canvas')`,20000);
+  await check('offscreen dashboard widgets wait for the viewport',"!window.__shapeReads.some(read=>read.curves.includes('no_such_curve'))&&document.querySelectorAll('.dashboard-deferred').length===5");
+  await revealAll();await positionsReady();await evaluate(`${absentCard(0)}.scrollIntoView({block:'center'})`);
+  await wait(`${absentCard(0)}.querySelectorAll('.level-tile').length===2&&!!${absentCard(1)}.querySelector('.dashboard-refusal')&&!!document.querySelector('.price-chart canvas')`,20000);
   await check('a curve the catalog does not have is the backend\'s refusal in its own tile and in the chart, while every other widget renders',
-    `(()=>{const shape=window.__shapeReads.at(-1).shapes.find(s=>s.curve==='no_such_curve'),[absent,shown]=${absentCard(0)}.querySelectorAll('.level-tile');return !!shape&&shape.front==null&&absent.dataset.state==='refused'&&!absent.textContent.includes('did not return')&&absent.querySelector('.level-tile-reason').textContent.length>0&&shown.dataset.state!=='refused'&&${absentCard(1)}.querySelector('.dashboard-refusal').textContent.length>0&&document.querySelectorAll('.level-tile:not([data-state=refused])').length===3&&!!document.querySelector('.price-chart canvas')&&!!${positions}.querySelector('.positions-table');})()`,
-    `({shape:window.__shapeReads.at(-1).shapes.find(s=>s.curve==='no_such_curve'),widgets:document.querySelector('#dashboard-widgets').innerText})`);
-  await saveLayout(layout.layout.widgets,withAbsent);await click('#dashboard-reload');await added(3);await wait(read);
+    `(()=>{const shape=window.__shapeReads.flatMap(read=>read.shapes).find(s=>s.curve==='no_such_curve'),[absent,shown]=${absentCard(0)}.querySelectorAll('.level-tile');return !!shape&&shape.front==null&&absent.dataset.state==='refused'&&!absent.textContent.includes('did not return')&&absent.querySelector('.level-tile-reason').textContent.length>0&&shown.dataset.state!=='refused'&&${absentCard(1)}.querySelector('.dashboard-refusal').textContent.length>0&&document.querySelectorAll('.level-tile:not([data-state=refused])').length===3&&!!document.querySelector('.price-chart canvas')&&!!${positions}.querySelector('.positions-table');})()`,
+    `({shape:window.__shapeReads.flatMap(read=>read.shapes).find(s=>s.curve==='no_such_curve'),widgets:document.querySelector('#dashboard-widgets').innerText})`);
+  await saveLayout(layout.layout.widgets,withAbsent);await click('#dashboard-reload');await added(3);await positionsReady();
+
+  await click('#nav-market');await evaluate('window.__holdDashboardShapes=true');await click('#nav-dashboard');
+  await wait("typeof window.__releaseDashboardShapes==='function'");
+  await evaluate('window.__historiesBeforeLeaving=window.__dashboardHistories');await click('#nav-market');
+  await evaluate('window.__releaseDashboardShapes();window.__releaseDashboardShapes=null');
+  await wait('window.__dashboardShapesReleased');await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+  await check('leaving a dashboard during its shape read starts no stale chart history',"window.__dashboardHistories===window.__historiesBeforeLeaving");
+  await click('#nav-dashboard');await added(3);await positionsReady();
+
+  const beforeReaderDisposal=await evaluate("(async()=>(await(await fetch('/api/dashboard/layout')).json()))()");
+  const removeAll=async()=>{
+    while(await evaluate("document.querySelectorAll('#dashboard-widgets .dashboard-widget').length>0"))
+      await click('#dashboard-widgets .dashboard-widget-actions button[aria-label^="Remove"]');
+  };
+  await removeAll();await evaluate('window.__captureDashboardShapes=true');
+  for(let cycle=0;cycle<3;cycle++){
+    await open();await set(kind,'latest_levels');
+    await evaluate(`for(const box of document.querySelectorAll('#dashboard-add .dashboard-add-curve input'))box.checked=${JSON.stringify(levels)}.includes(box.value)`);
+    await submit(add+' form');await reveal('Latest levels');await wait("document.querySelectorAll('.level-tile').length===2");await removeAll();
+  }
+  await evaluate('window.__captureDashboardShapes=false');await command('HeapProfiler.collectGarbage');
+  await check('repeated widget add/remove releases completed shape data',"window.__dashboardShapeRefs.length>=6&&window.__dashboardShapeRefs.every(reference=>reference.deref()===undefined)",'window.__dashboardShapeRefs.map(reference=>reference.deref()!==undefined)');
+  const emptyLayout=await evaluate("(async()=>(await(await fetch('/api/dashboard/layout')).json()))()");
+  await saveLayout(beforeReaderDisposal.layout.widgets,emptyLayout.version);await click('#dashboard-reload');await added(3);await positionsReady();
 
   // The calendar first ends a date early, so the page opens on the close before the newest, which it calls the latest. A newer close
   // found when the window is focused again turns every close footer to Newer available without reading any widget again.
   await evaluate("sessionStorage.setItem('hideNewestDate','1')");await command('Page.reload');await wait(idle);await click('#nav-dashboard');await added(3);
-  await wait(`document.querySelectorAll('.level-tile').length===2&&!!document.querySelector('.price-chart .contract-chart canvas')&&${read}`);
+  await revealAll();await wait(`document.querySelectorAll('.level-tile').length===2&&!!document.querySelector('.price-chart .contract-chart canvas')&&${read}`);
   await check('at the close before the newest, which the calendar calls the latest, the close footers say Latest',
     "document.querySelector('#market-date-badge').textContent==='Latest close'&&/· Latest · Intraday not configured$/.test(document.querySelector('.level-tiles-footer').textContent)&&/· Latest$/m.test(document.querySelector('.price-chart').innerText)");
   await evaluate('window.__readsBeforeFocus=window.__shapeReads.length;sessionStorage.removeItem("hideNewestDate");window.dispatchEvent(new Event("focus"))');
@@ -144,7 +179,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `(()=>{const items=[...${positions}.querySelectorAll('.positions-tie li')].map(li=>li.firstChild.textContent),labels=[...${positions}.querySelectorAll('.positions-tie button')].map(b=>b.getAttribute('aria-label'));
       return ${positions}.textContent.includes('2 completed runs share the latest valuation time')&&items.length===2&&items.every((text,i)=>text.startsWith('Run '+(i+1)+' of 2 · version ')&&/ known .+:\\d\\d:\\d\\d/.test(text))
         &&new Set(items).size===2&&new Set(labels).size===2&&!${positions}.querySelector('.positions-table');})()`,`${positions}.innerText`);
-  await evaluate(`${positions}.querySelector('.positions-tie li:last-child button').click()`);await wait(read);
+  await evaluate(`${positions}.querySelector('.positions-tie li:last-child button').click()`);await positionsReady();
   await check('the run chosen from the tie is shown as the chosen run, never as Latest',
     `!!${positions}.querySelector('.positions-table tbody tr')&&/Risk run · .+ · Chosen run$/m.test(${positions}.innerText)&&!/· Latest$/m.test(${positions}.innerText)&&${positions}.textContent.includes('You chose this run')`,`${positions}.innerText`);
 
@@ -156,7 +191,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "!document.querySelector('#error').hidden&&document.querySelectorAll('#dashboard-widgets .level-tile,#dashboard-widgets .price-chart,#dashboard-widgets .positions,#dashboard-widgets .fine-print').length===0",
     "({error:document.querySelector('#error').textContent,widgets:document.querySelector('#dashboard-widgets').innerText})");
   await evaluate('window.__failLayoutRead=false');await click('#dashboard-reload');
-  await wait(`document.querySelector('#market-date-badge').textContent==='Latest close'&&document.querySelectorAll('.level-tile').length===2&&${read}`);
+  await revealAll();await wait(`document.querySelector('#market-date-badge').textContent==='Latest close'&&document.querySelectorAll('.level-tile').length===2&&${read}`);
   await check('selecting the newer close reads every widget at it, and the run valued there is the latest again',
     `/· Latest · Intraday not configured$/.test(document.querySelector('.level-tiles-footer').textContent)&&/Risk run · .+ · Latest$/m.test(${positions}.innerText)`,`${positions}.innerText`);
   // A past effective date, applied, is a historical context with no close chosen yet: every widget says so rather than reading another close.
@@ -166,13 +201,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "[...document.querySelectorAll('#dashboard-widgets .dashboard-widget')].every(w=>w.querySelector('.dashboard-refusal')?.textContent==='Choose a market date above.')&&document.querySelectorAll('#dashboard-widgets .dashboard-widget').length===3&&document.querySelector('#error').hidden",
     "document.querySelector('#dashboard-widgets').innerText");
   await evaluate(`(()=>{const s=document.querySelector('#snapshot');s.value=[...s.options].filter(o=>o.value).at(-1).value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await wait(idle);
-  await wait(`document.querySelectorAll('.level-tile').length===2&&!!document.querySelector('.price-chart .contract-chart canvas')&&${read}`);
+  await revealAll();await wait(`document.querySelectorAll('.level-tile').length===2&&!!document.querySelector('.price-chart .contract-chart canvas')&&${read}`);
   await check('a past context is read only: Run now is not offered and no layout control can be used',
     `document.querySelector('#dashboard-scope').textContent.startsWith('Read only')&&[...${positions}.querySelectorAll('button')].every(b=>b.textContent!=='Run now'||b.hidden)&&[...document.querySelectorAll('#dashboard-page .dashboard-edit')].every(c=>c.disabled)&&document.querySelector('#dashboard-board').disabled&&document.querySelector('#dashboard-morning').disabled`,
     `({scope:document.querySelector('#dashboard-scope').textContent,shown:[...${positions}.querySelectorAll('button')].filter(b=>!b.hidden).map(b=>b.textContent),enabled:[...document.querySelectorAll('#dashboard-page .dashboard-edit,#dashboard-board,#dashboard-morning')].filter(c=>!c.disabled).map(c=>c.outerHTML.slice(0,60))})`);
   await check('the widgets state the historical freshness of the past context',
     "/· Historical · Intraday not configured$/.test(document.querySelector('.level-tiles-footer').textContent)&&/· Historical$/m.test(document.querySelector('.price-chart').innerText)","document.querySelector('#dashboard-widgets').innerText");
   await click('#current-view-context');
+  await revealAll();await positionsReady();
   await wait("document.querySelector('#dashboard-scope').textContent.startsWith('Your dashboard')&&document.querySelectorAll('.level-tile').length===2");
   await check('returning to working data offers Run now again',`[...${positions}.querySelectorAll('button')].some(b=>b.textContent==='Run now'&&!b.hidden&&!b.disabled)`);
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});

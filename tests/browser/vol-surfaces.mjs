@@ -39,6 +39,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
     const response=await send(input,init),page=await response.json();
     return new Response(JSON.stringify({...page,rows:page.rows.filter(row=>row.code!==window.unlistedProduct)}),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
+   if(/[/]reference[/]catalog[?]table=futures_option_products/.test(path)&&window.__productPaging){
+    const response=await send(input,init),data=await response.json(),offset=Number(new URL(path,location.href).searchParams.get('offset'));
+    window.__productPages=(window.__productPages??[]).concat(offset);
+    if(offset>0&&window.__holdProductPage){window.__holdProductPage=false;await new Promise(resolve=>window.__releaseProductPage=resolve);window.__productPageReleased=true;}
+    return new Response(JSON.stringify({...data,hasMore:true}),{status:response.status,headers:{'Content-Type':'application/json'}});
+   }
    if(!call)return send(input,init);
    const record={path:call[1],body:init?.body?JSON.parse(init.body):null,sent:performance.now()};window.surfaceCalls.push(record);
    let response=await send(input,init);
@@ -72,7 +78,18 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await persona('risk');
   await check('the page is listed in Markets for a reader of market data and trades',listed);
   await click('#example');await click('#nav-vol-surfaces');
+ await evaluate("window.__productPaging=true;window.__productPages=[]");await evaluate("[...document.querySelectorAll('.vol-field button')].find(button=>button.textContent==='Search').click()");await wait(idle);
+ await wait("[...document.querySelectorAll('.vol-field button')].some(button=>button.textContent==='More products'&&!button.hidden&&!button.disabled)");
+ await check('option products read only the first page until More is requested',"JSON.stringify(window.__productPages)==='[0]'");
+ await evaluate("window.__holdProductPage=true;[...document.querySelectorAll('.vol-field button')].find(button=>button.textContent==='More products').click()");
+ await wait("typeof window.__releaseProductPage==='function'");
+ await set('#vol-product','nymex_on');await wait(idle);
+ await evaluate('window.__releaseProductPage();window.__releaseProductPage=null');await wait('window.__productPageReleased');
+ await check('changing product during a page read leaves More usable',"![...document.querySelectorAll('.vol-field button')].find(button=>button.textContent==='More products').disabled");
+ await evaluate("window.__productPaging=false");await evaluate("[...document.querySelectorAll('.vol-field button')].find(button=>button.textContent==='Search').click()");await wait(idle);
+
   await settled(`document.querySelector('#vol-product').options.length>1&&${idle}`,30000);
+  await set('#vol-product','');
   await check('the page is titled Vol surfaces under Markets, with a product picker that chooses nothing and the read-only model',
    `document.querySelector('#page-title').textContent==='Vol surfaces'&&document.querySelector('#page-section').textContent==='MARKETS'&&
     [...document.querySelector('#vol-product').options].map(o=>o.value).filter(Boolean).sort().join()==='nymex_lo,nymex_on'&&document.querySelector('#vol-product').value===''&&

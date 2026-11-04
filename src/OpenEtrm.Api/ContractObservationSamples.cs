@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Npgsql;
+using System.Text.Json;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
 
@@ -11,14 +12,15 @@ internal static class ContractObservationSamples
     // that operation's transaction and permission fence.
     internal sealed class History
     {
-        private readonly Dictionary<(DefinitionRevision Revision,ScheduleContext Context,DateTimeOffset At),PreviewData> histories=[];
+        private readonly Dictionary<(DefinitionRevision Revision,ScheduleContext Context,DateTimeOffset At,string Demand),PreviewData> histories=[];
         internal async Task<PreviewData> Read(DefinitionRevision revision,InputFrame frame,ScheduleContext context,
-            bool retained,Func<Task<PreviewData>> load)
+            bool retained,ImmutableArray<ContractObservationLookup> lookups,Func<Task<PreviewData>> load)
         {
             var exact=PinnedContext.Exact(context);
             if(frame.ContextId!=exact.ContextId)throw Invalid("Source history requires the bound certified context.");
             if(retained)return await load();
-            var key=(revision,exact,frame.At);
+            var demand=JsonSerializer.Serialize(new{frame.Id,frame.ObservationIds,lookups=lookups.Select(lookup=>JsonSerializer.Serialize(lookup,RiskJobs.Json)).Distinct().Order(StringComparer.Ordinal)},RiskJobs.Json);
+            var key=(revision,exact,frame.At,demand);
             if(histories.TryGetValue(key,out var history))return history;
             history=await load();
             histories.Add(key,history);
@@ -35,11 +37,23 @@ internal static class ContractObservationSamples
         if(frame.ContextId!=exact.ContextId)throw Invalid("Source samples require the bound certified knowledge context.");
         // The calling operation already bound this exact context. RLS supplies
         // only facts committed by its certified knowledge cutoff.
-        var pins=retained is null?(ImmutableArray<Guid>?)null:retained.Samples.Where(sample=>sample.Kind=="contract_observation")
-            .SelectMany(sample=>sample.Observations.Select(observation=>observation.Id)).Concat(frame.ObservationIds).Distinct().ToImmutableArray();
-        Task<PreviewData> Load()=>database.Read(connection,ct,data.DefinitionRevision.RevisionId,data,pins,
-            includeCalendarDays:false,observationScope:retained is null?ObservationReadScope.FactHistory:ObservationReadScope.ExactPins);
-        var history=histories is null?await Load():await histories.Read(data.DefinitionRevision,frame,exact,retained is not null,Load);
+        async Task<PreviewData> Load()
+        {
+            if(retained is not null)
+            {
+                var pins=retained.Samples.Where(sample=>sample.Kind=="contract_observation").SelectMany(sample=>sample.Observations.Select(observation=>observation.Id))
+                    .Concat(frame.ObservationIds).Distinct().ToImmutableArray();
+                return await database.Read(connection,ct,data.DefinitionRevision.RevisionId,data,pins,includeCalendarDays:false,observationScope:ObservationReadScope.ExactPins);
+            }
+            var windows=lookups.Distinct().Where(lookup=>lookup.FixingAt<=frame.At||frame.At>=lookup.Contract.Expiry).Select(lookup=>
+            {
+                lookup.Validate();var at=lookup.FixingAt<frame.At?lookup.FixingAt:frame.At;var carry=at>=lookup.Contract.Expiry;
+                return new ObservationWindow(lookup.Series.Id,lookup.Source.Code,PreviewData.RoleCode(carry?ObservationRole.FinalContractSettlement:lookup.Role),
+                    carry?lookup.Contract.Expiry:lookup.FixingAt,at);
+            }).ToImmutableArray();
+            return await database.ReadObservationWindows(connection,data,windows,ct,frame.ObservationIds);
+        }
+        var history=histories is null?await Load():await histories.Read(data.DefinitionRevision,frame,exact,retained is not null,lookups,Load);
         return [..lookups.Distinct().Select(lookup=>{
             ConnectedSampleEvidence? evidence=null;
             if(retained is not null)

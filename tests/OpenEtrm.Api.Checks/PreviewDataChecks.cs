@@ -33,6 +33,21 @@ internal static class PreviewDataChecks
             Reject("history_conflict",()=>HistoryRevisionPolicy.OnePerInstant([Sample("1.5",early),Sample(null,early,"source_expired")]).ToArray());
         });
         var data=Data();
+        Check("contract history projects declared inputs only after whole-frame pin visibility",()=>
+        {
+            var contract=data.Contracts[0].Key.Id;
+            var demand=data.HistorySeries("future",contract,null).ToHashSet();
+            var projected=data.WithObservations([..fixture.Observations.Where(row=>demand.Contains(row.Id("series_id")))]);
+            var frame=projected.HistoryFrame(fixture.Frame);
+            if(frame.ObservationIds.Length!=1||projected.HistoryValue(frame,"future",contract,null).Value!=data.HistoryValue(fixture.Frame,"future",contract,null).Value)
+                throw new Exception("A demanded history price must preserve its independently computed full-frame value.");
+            Reject("ambiguous_reference",()=>data.WithObservations(projected.Observations,false).HistoryFrame(fixture.Frame));
+            var duplicated=fixture.Frame with{ObservationIds=fixture.Frame.ObservationIds.Add(fixture.Frame.ObservationIds[0])};
+            Reject("snapshot_inputs",()=>projected.HistoryFrame(duplicated));
+            var frozen=fixture.Frame with{FrozenObservationIds=[fixture.Frame.ObservationIds[0]]};
+            if(!projected.HistoryFrame(frozen).FrozenObservationIds.SequenceEqual(frozen.FrozenObservationIds))
+                throw new Exception("History projection lost an explicit frozen pin.");
+        });
         Check("base valuation prepares only declared curve dependencies",()=>
         {
             using var source=Npgsql.NpgsqlDataSource.Create("Host=127.0.0.1;Database=synthetic_unopened;Username=synthetic");
@@ -506,9 +521,9 @@ internal static class PreviewDataChecks
             session.Frames.Add(fixture.Frame.Id,fixture.Frame);
             var identity=Guid.NewGuid();var stored=fixture.Frame with{Id=identity,OriginCloseId=identity,FrozenObservationIds=[fixture.Observations[0].Id("id")]};
             var plan=session.PlanFrames(new([stored],127,false),null,[]);
-            if(session.Frames.Count!=1||session.Frames.ContainsKey(identity))throw new Exception("An uncommitted discovery changed session state.");
+            if(session.HasDiscoveredFrames||session.Frames.Count!=1||session.Frames.ContainsKey(identity))throw new Exception("An uncommitted discovery changed session state.");
             session.ApplyFrames(plan);
-            if(session.PersistentFrames.Length!=1||session.VisibleFrames.Length!=2||!session.Frames[identity].FrozenObservationIds.SequenceEqual(stored.FrozenObservationIds))
+            if(!session.HasDiscoveredFrames||session.PersistentFrames.Length!=1||session.VisibleFrames.Length!=2||!session.Frames[identity].FrozenObservationIds.SequenceEqual(stored.FrozenObservationIds))
                 throw new Exception("A discovery replaced manual inputs or frozen uses.");
             session.ApplyFrames(session.PlanFrames(new([],127,false),null,[]));
             if(session.Frames.Count!=1||session.Frames[fixture.Frame.Id]!=fixture.Frame)throw new Exception("Refreshing visible stored closes removed a manual selection.");
@@ -526,6 +541,7 @@ internal static class PreviewDataChecks
             var replay=session.PlanFrames(new(stored,128,false),context,[]);
             if(replay.Frames.Any(frame=>retained[frame.OriginCloseId!.Value]!=frame.Id))throw new Exception("Refreshing one retained context changed its explicit frame identities.");
             session.ForgetDiscoveredFrames();
+            if(session.HasDiscoveredFrames)throw new Exception("A forgotten directory cannot remain admitted.");
             if(session.PlanFrames(new(stored,128,false),context,[]).Frames.Any(frame=>retained[frame.OriginCloseId!.Value]!=frame.Id))
                 throw new Exception("Returning to a stored context changed its exact close alias identity.");
         });

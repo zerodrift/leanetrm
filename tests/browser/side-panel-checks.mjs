@@ -509,7 +509,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   // A newer close arriving while a form is open is offered, and taking it asks first. The calendar's newest date is held back until the window is
   // focused again, as a close that becomes available during a session is.
   await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{const path=typeof input==='string'?input:input.url;let response=await send(input,init);
-    if(window.__hideNewestDate&&path.endsWith('/market/dates')&&response.ok&&JSON.parse(init.body).curve===null){const data=await response.json();data.dates.pop();data.maxDate=data.dates.at(-1)?.date??null;response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}
+    if(window.__hideNewestDate&&path.endsWith('/market/dates')&&response.ok&&JSON.parse(init.body).curve===null){const body=JSON.parse(init.body);if(body.maximumDates)response=await send(input,{...init,body:JSON.stringify({...body,maximumDates:body.maximumDates+1})});const data=await response.json();data.dates.pop();data.maxDate=data.dates.at(-1)?.date??null;response=new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});}
     return response;};})()`);
   await evaluate('window.__hideNewestDate=true');await persona('trader');await wait(redrawn(idle));
   const olderClose=await evaluate("document.querySelector('#snapshot').value"),olderReference=await evaluate(`${rowsRead}.find(holding=>holding.instrumentType==='future').tradeReference`);
@@ -518,10 +518,11 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await evaluate(`(()=>{const send=window.fetch;window.__snapshotsSent=[];window.fetch=async(input,init)=>{const path=typeof input==='string'?input:input.url;try{const body=JSON.parse(init?.body??'null');if(body?.snapshotId)window.__snapshotsSent.push([path,body.snapshotId]);}catch{}return send(input,init);};})()`);
   const closeLabel="document.querySelector('#market-date-open').textContent",labelBefore=await evaluate(closeLabel);
   const chosenClose=closes.find(close=>close!==olderClose&&close!==closeNow);
-  const chosenDate=await evaluate(`window.__futuresResponses.filter(r=>r.path==='/api/market/dates').at(-1).data.dates.find(group=>group.frames.some(frame=>frame.id===${JSON.stringify(chosenClose)})).date`);
   await amend(olderReference);await typeInto('#trade-lots','5');
   const readsBeforeChoice=await evaluate(workspaceReads);
-  await click('#market-date-open');await click(`#market-date-grid button[data-date="${chosenDate}"]`);await asks();
+  await click('#market-date-open');
+  const chosenDate=await evaluate(`window.__futuresResponses.filter(r=>r.path==='/api/market/dates').at(-1).data.dates.find(group=>group.frames.some(frame=>frame.id===${JSON.stringify(chosenClose)})).date`);
+  await click(`#market-date-grid button[data-date="${chosenDate}"]`);await asks();
   // The calendar closes as the close is chosen, and its closing comes after the question has taken the focus: the question keeps it.
   await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
   await check('the question a close chosen in the calendar asks keeps the focus once the calendar has closed',`${prompt}.contains(document.activeElement)&&!document.querySelector('#market-date-dialog').open`,

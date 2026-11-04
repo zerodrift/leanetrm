@@ -2209,6 +2209,26 @@ The full-PV reference remains required in both qualification modes; hybrid
 Monte Carlo valuation and production schema activation remain separate work.
 
 
+
+## D310 — Demand-driven UI reads with exact financial scope
+
+Read navigation metadata separately from executable observations. Optional charts,
+widgets, hidden settings tabs and later metadata pages wait for the corresponding
+view demand. Preserve the existing close directory and all stored history; do not
+reduce availability to make a read smaller.
+
+A contract-history request verifies original-pin visibility in one SQL snapshot,
+then hydrates only its declared dependency series and their full same-fact
+revision candidates. The managed calculation retains exact selection, frozen
+inputs, expiry and numerical policy. Reuse offered immutable frame coordinates
+until the directory is refreshed, with first-use discovery and invalidation on
+profile/context/live transitions. Every operation still checks native authority.
+
+Portfolio totals, risk and opened booking catalogs retain their complete explicit
+scope. Delayed UI work must reject obsolete replies, cancel dependent reads after
+disposal and resume demand readers when cached pages reopen. See the
+[read contract](ui-read-demand.md) for concrete consumers and remaining boundaries.
+
 ## D311 — Explicit Hybrid Monte Carlo valuation with sampled full-PV validation
 
 Keep the complete R6 joint Gaussian generator, native shocks and source custody.

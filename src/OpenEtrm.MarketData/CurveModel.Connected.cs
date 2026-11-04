@@ -5,6 +5,28 @@ namespace OpenEtrm.MarketData;
 
 public sealed partial class CurveModel
 {
+    // A read demand describes dependencies only. It selects no observations,
+    // applies no expiry fallback and assigns no market exposure.
+    public ImmutableHashSet<SeriesKey> RequiredSeries(ImmutableArray<CurveRequest> requests)
+    {
+        if(requests.IsDefault||requests.Distinct().Count()!=requests.Length)Fail("request","Supply distinct explicit output requests.");
+        var result=ImmutableHashSet.CreateBuilder<SeriesKey>();
+        var visited=new HashSet<CurveRequest>();var pending=new Stack<CurveRequest>(requests);
+        while(pending.TryPop(out var request))
+        {
+            if(!visited.Add(request))continue;
+            if(!curves.TryGetValue(request.Curve,out var curve)||!curveMembers[curve.Key].Contains(request.Contract))
+                throw new MarketDataException("request_member","Requested curve constituent is absent.");
+            if(curve.Rule==CurveRule.Direct)result.Add(priceSeries[(request.Contract,curve.Quote)]);
+            else
+            {
+                if(curve.Multiplier?.Series is {} numeric)result.Add(numeric);
+                foreach(var input in curve.Inputs)pending.Push(new(input.Source,mappingSources[(request.Curve,input.Slot,request.Contract)]));
+            }
+        }
+        return result.ToImmutable();
+    }
+
     // Compile exact domain relationships and selected observations. No numerical
     // evaluation occurs here; ordinary curves and recipes share the graph engine.
     public ConnectedCurveExport Compile(MarketSnapshot snapshot,ImmutableArray<CurveRequest> requests,

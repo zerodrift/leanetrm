@@ -964,6 +964,7 @@ def main():
             elif args.market_dates_check:
                 from check_market_dates import run_checks as check_market_dates
                 check_market_dates(url,query,manifest)
+                subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--market-calendar-demand'],cwd=ROOT,env=app_env,check=True,timeout=120)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

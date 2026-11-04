@@ -67,8 +67,10 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
 public enum Admission { Shared, Administration, Agents, Grants, OperatingAgents, OperatingAccess }
 public sealed class PreviewDeniedException : Exception;
 
-public sealed class PreviewDatabase : IAsyncDisposable
+public sealed partial class PreviewDatabase : IAsyncDisposable
 {
+    private long observationRowsRead;
+    public long ObservationRowsRead=>Interlocked.Read(ref observationRowsRead);
     private readonly NpgsqlDataSource? authenticator;
     private readonly NpgsqlDataSource runtime;
     private readonly NpgsqlDataSource? calculationRuntime;
@@ -352,6 +354,7 @@ public sealed class PreviewDatabase : IAsyncDisposable
             ObservationReadScope.FactHistory => Rows(connection, "SELECT row_to_json(t)::text FROM (SELECT * FROM market_data.observations WHERE catalog_id=$1 AND definition_revision_id=$2 ORDER BY observed_at,received_at,id) t", [selectedManifest.CatalogId, selectedManifest.RevisionId], ct),
             _ => throw new ArgumentOutOfRangeException(nameof(observationScope))
         });
+        Interlocked.Add(ref observationRowsRead,observations.Length);
         await RequireSharedReferenceAccess();
         return new PreviewData(selectedManifest, definitions, references, observations,Calculations){CalendarDaysRead=includeCalendarDays};
     }
@@ -739,7 +742,8 @@ public sealed class PreviewData
 {
     private readonly PreviewManifest manifest;
     private readonly Dictionary<(string Table,string Field),ILookup<string,JsonElement>> referenceRows,definitionRows;
-    private readonly ILookup<Guid,JsonElement> observationRows,contractDefinitions;
+    private readonly ILookup<Guid,JsonElement> observationRows,observationSeriesRows,contractDefinitions;
+    private readonly ILookup<(Guid? Contract,string? Quote),JsonElement> quotedSeriesRows;
     private readonly ILookup<Guid?,JsonElement> correctionRows;
     private readonly ILookup<Guid,MarketContract> contractRows;
     private readonly ILookup<string,QuoteSpecification> quoteRows;
@@ -760,6 +764,23 @@ public sealed class PreviewData
     public DefinitionRevision DefinitionRevision => revision;
     private readonly ReferenceRevision reference;
     public ReferenceRevision ReferenceRevision=>reference;
+    // One authorized operation may reuse immutable model metadata while reading
+    // different input selections. No observation or correction index is shared.
+    internal PreviewData WithObservations(ImmutableArray<JsonElement> observations,bool completePins=true)=>new(this,observations,completePins);
+    internal bool CompletePins{get;}=true;
+    private PreviewData(PreviewData metadata,ImmutableArray<JsonElement> observations,bool completePins)
+    {
+        CompletePins=completePins;manifest=metadata.manifest;Definitions=metadata.Definitions;References=metadata.References;
+        ExecutionPolicies=metadata.ExecutionPolicies;Model=metadata.Model;CalendarDaysRead=metadata.CalendarDaysRead;
+        Contracts=metadata.Contracts;Quotes=metadata.Quotes;FuturesSeries=metadata.FuturesSeries;FuturesOptionSeries=metadata.FuturesOptionSeries;
+        revision=metadata.revision;reference=metadata.reference;
+        referenceRows=metadata.referenceRows;definitionRows=metadata.definitionRows;contractDefinitions=metadata.contractDefinitions;
+        contractRows=metadata.contractRows;quoteRows=metadata.quoteRows;curveMembers=metadata.curveMembers;
+        quotedSeriesRows=metadata.quotedSeriesRows;
+        Observations=observations;observationRows=observations.ToLookup(row=>row.Id("id"));
+        observationSeriesRows=observations.ToLookup(row=>row.Id("series_id"));
+        correctionRows=observations.ToLookup(row=>row.OptionalId("corrects_id"));
+    }
     private ReferenceKey R(string code) => new(reference, code);
     private ContractKey K(Guid id) => new(revision, id);
     private SeriesKey S(Guid id) => new(revision, id);
@@ -782,8 +803,10 @@ public sealed class PreviewData
             ("curve_inputs","curve_code"),("rate_curves","code"),("rate_curve_points","curve_code"),
             ("curve_blocks","curve_code"),("shaped_curves","code"),("shaped_curve_blocks","shaped_curve_code")]);
         contractDefinitions=Definitions["contracts"].ToLookup(row=>row.Id("id"));
+        quotedSeriesRows=Definitions["series"].ToLookup(row=>(row.OptionalId("contract_id"),row.OptionalText("quote_code")));
         curveMembers=Definitions["curve_members"].Select(row=>(row.Text("curve_code"),row.Id("contract_id"))).ToHashSet();
         observationRows=observations.ToLookup(row=>row.Id("id"));
+        observationSeriesRows=observations.ToLookup(row=>row.Id("series_id"));
         correctionRows=observations.ToLookup(row=>row.OptionalId("corrects_id"));
         revision=new(manifest.CatalogId,manifest.RevisionId); reference=new(manifest.ReferenceCatalogId,manifest.ReferenceRevisionId);
         var quantities=references["quantity_specifications"].Select(q => new QuantitySpecification(R(q.Text("code")),R(q.Text("commodity_code")),R(q.Text("basis_code")),R(q.Text("unit_code")),R(q.Text("dimension_code")))).ToImmutableArray();
@@ -895,6 +918,8 @@ public sealed class PreviewData
     public static CurveRule ParseRule(string rule) => rule switch {"direct"=>CurveRule.Direct,"add"=>CurveRule.Add,"scale_add"=>CurveRule.ScaleAdd,_=>throw Unsupported()};
     // The kind of a stored market curve from its rule and direct role.
     public static string CurveKind(string rule,string? directRole)=>CurveKinds.Of(ParseRule(rule),directRole is null?null:ParseRole(directRole));
+    internal static string RoleCode(ObservationRole role)=>role switch
+    {ObservationRole.TraderMark=>"trader_mark",ObservationRole.DailySettlement=>"daily_settlement",ObservationRole.FinalContractSettlement=>"final_contract_settlement",ObservationRole.Parameter=>"parameter",ObservationRole.IndexFixing=>"index_fixing",_=>throw Unsupported()};
     public static ObservationRole ParseRole(string role) => role switch {"trader_mark"=>ObservationRole.TraderMark,"daily_settlement"=>ObservationRole.DailySettlement,"final_contract_settlement"=>ObservationRole.FinalContractSettlement,"parameter"=>ObservationRole.Parameter,"index_fixing"=>ObservationRole.IndexFixing,_=>throw Unsupported()};
     // An option series' terms from its exact series and product rows; its expiry is the product's configured close on the
     // series' expiry date, which the stored series and contract must both carry.
@@ -930,6 +955,8 @@ public sealed class PreviewData
     private static T Single<T>(IEnumerable<T> source)
     { var values=source.Take(2).ToArray(); return values.Length==1?values[0]:throw new MarketDataException("ambiguous_reference","A required exact reference is missing or ambiguous."); }
     public JsonElement Observation(Guid id)=>Single(observationRows[id]);
+    internal IEnumerable<JsonElement> SeriesObservations(Guid series)=>observationSeriesRows[series];
+    internal IEnumerable<JsonElement> QuotedSeries(Guid contract,string quote)=>quotedSeriesRows[(contract,quote)];
     public bool HasObservation(Guid id)=>observationRows.Contains(id);
     public InputFrame SelectPinned(InputFrame frame)
     {
@@ -990,6 +1017,27 @@ public sealed class PreviewData
     }
     public ZeroRateBuild BuildRates(InputFrame frame,string code) => new ZeroRateCurve(RateDefinition(code)).Build(Snapshot(frame));
     public bool IsRateCurve(string code)=>DefinitionRows("rate_curves","code",code).Any();
+    internal ImmutableArray<Guid> HistorySeries(string code,Guid? contract,Guid? series)
+    {
+        if(IsRateCurve(code))
+        {
+            if(contract is not null||series is null)throw new MarketDataException("history_request","Select an exact rate sample.");
+            return [..RateDefinition(code).Pillars.Select(point=>point.Series.Id)];
+        }
+        if(series is not null||contract is null)throw new MarketDataException("history_request","Select an exact market contract.");
+        return [..Model.RequiredSeries([new(new(revision,code),K(contract.Value))]).Select(key=>key.Id)];
+    }
+    internal InputFrame HistoryFrame(InputFrame frame)
+    {
+        if(!CompletePins)throw new MarketDataException("ambiguous_reference","A selected frame pin is unavailable under the authorized context.");
+        if(frame.ObservationIds.Distinct().Count()!=frame.ObservationIds.Length)
+            throw new MarketDataException("snapshot_inputs","A frame must name each native observation once.");
+        return frame with
+        {
+            ObservationIds=[..frame.ObservationIds.Where(HasObservation)],
+            FrozenObservationIds=frame.FrozenObservationIds.IsDefault?[]:[..frame.FrozenObservationIds.Where(HasObservation)]
+        };
+    }
     public (string Value,Guid[] Inputs) HistoryValue(InputFrame frame,string code,Guid? contract,Guid? series)
     {
         if(IsRateCurve(code))

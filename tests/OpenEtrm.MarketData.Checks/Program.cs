@@ -160,6 +160,11 @@ var fixture = new Fixture();
 var model = fixture.Model();
 var request = ImmutableArray.Create(new CurveRequest(fixture.C("local_power"), fixture.K(5)));
 var original = fixture.Snapshot();
+Check("read demand follows declared curve inputs, including numeric multipliers",()=>
+{
+    Equal(model.RequiredSeries(request).SetEquals(Enumerable.Range(1,6).Select(fixture.S)),true);
+    Equal(model.RequiredSeries([new(fixture.C("bridge_basis"),fixture.K(2))]).Single(),fixture.S(2));
+});
 Check("five layers: future -> gas forwards -> power forwards", () =>
 {
     var result = model.Build(original, request);

@@ -189,20 +189,31 @@ public sealed class MarketReads(PreviewDatabase database)
     // each frame follows its pins to their latest revision visible at the pinned context's cutoff (the resolver certified contexts use),
     // then samples at one instant collapse when identical and are refused when they still differ (D238, D237).
     public async Task<ImmutableArray<HistorySample>> History(NpgsqlConnection connection,PinnedContext pin,ImmutableArray<InputFrame> frames,
-        string curve,Guid? contractId,Guid? seriesId,string revisionPolicy,CancellationToken ct,Func<PreviewData,ImmutableArray<InputFrame>>? resolveFrames=null)
+        string curve,Guid? contractId,Guid? seriesId,string revisionPolicy,CancellationToken ct,Func<PreviewData,ImmutableArray<InputFrame>>? resolveFrames=null,ImmutableArray<Guid>? resolutionAnchors=null)
     {
         var current=pin.RequireFrame();
-        var data=await Data(connection,pin,ct);
-        var selected=(resolveFrames?.Invoke(data)??frames).Select(pin.Require).Where(frame=>frame.At!=current.At).Append(current).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id).ToArray();
-        var samples=selected.Select(f=>
+        var metadata=await Data(connection,pin,ct,[]);
+        if(resolveFrames is not null)
         {
-            try {
+            if(pin.Context is null||resolutionAnchors is null)throw new ArgumentException("Live history requires its exact context and original frame anchors.");
+            var aliases=await database.Read(connection,ct,observationIds:resolutionAnchors);
+            frames=resolveFrames(aliases);
+        }
+        var selected=frames.Select(pin.Require).Where(frame=>frame.At!=current.At).Append(current).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id).ToImmutableArray();
+        var demand=metadata.HistorySeries(curve,contractId,seriesId);
+        var samples=new List<HistorySample>();var index=0;
+        await foreach(var data in database.ReadFrameObservations(connection,metadata,selected,ObservationReadScope.FactHistory,ct,demand))
+        {
+            var selectedFrame=selected[index++];
+            try
+            {
+                var f=data.HistoryFrame(selectedFrame);
                 var value=data.HistoryValue(revisionPolicy==HistoryRevisionPolicy.AsKnownAtCutoff?data.SelectPinned(f):f,curve,contractId,seriesId);
-                return new HistorySample(f.At,value.Value,f.Id,value.Inputs,null);
+                samples.Add(new(f.At,value.Value,f.Id,value.Inputs,null));
             }
             catch(MarketDataException error) when(ValuationStatus.PositionSpecific(error))
-            { return new HistorySample(f.At,null,f.Id,[],error.Code); }
-        }).ToArray();
+            {samples.Add(new(selectedFrame.At,null,selectedFrame.Id,[],error.Code));}
+        }
         var knowledge=await KnownAt(connection,samples.SelectMany(s=>s.ObservationIds).Distinct().ToArray(),ct);
         var known=samples.Select(s=>s with{KnownAt=s.ObservationIds.Length>0&&s.ObservationIds.All(knowledge.ContainsKey)?s.ObservationIds.Max(id=>knowledge[id]):null});
         return revisionPolicy==HistoryRevisionPolicy.AsKnownAtCutoff?[..HistoryRevisionPolicy.OnePerInstant(known)]:[..known];

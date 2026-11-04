@@ -34,7 +34,7 @@ public static class PilotCloseJobs
     {
         if(pin.Context is not null)throw new MarketDataException("historical_read_only","Configure generated pilot jobs in the current workspace.");
         foreach(var permission in Permissions)if(!await PreviewDatabase.HasPermission(connection,permission,ct))throw new PreviewDeniedException();
-        var data=await database.Read(connection,ct,includeCalendarDays:false);
+        var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
         var closeRows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT id,name,at,kind FROM market_data.market_closes WHERE catalog_id=$1 AND definition_revision_id=$2 ORDER BY at DESC,id LIMIT 128)t",[database.Manifest.CatalogId,database.Manifest.RevisionId],ct);
         await using var clock=ScheduleStore.Command(connection,"SELECT clock_timestamp()");
         var observed=new DateTimeOffset((DateTime)(await clock.ExecuteScalarAsync(ct))!);

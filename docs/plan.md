@@ -1891,3 +1891,14 @@ contract, not arbitrary future portfolios or tail accuracy. See the
 weighting/initialization and qualification contract. It is not silently bundled
 into hybrid Monte Carlo valuation or EVT. No implementation, benchmark, production
 capability or deployment is claimed by these remaining-work entries.
+
+### UI read demand increment (D310)
+
+Separate exact navigation metadata from observations and optional visual reads.
+Scope contract history and source samples to declared input demand while retaining
+same-statement visibility, correction branches, frozen pins and final authority.
+Load optional board, dashboard and Blotter charts by visibility; settings by tab;
+product directories by explicit page/search. Preserve whole-portfolio valuation
+and risk. The [read contract](ui-read-demand.md) states the intentional directory
+and portfolio boundaries. Database paging of all position-fact product adapters
+remains a later increment; current response paging is not that qualification.

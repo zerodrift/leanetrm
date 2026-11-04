@@ -1,5 +1,9 @@
 # Architecture and domain contracts
 
+D310 defines [UI read demand](ui-read-demand.md): exact navigation metadata,
+selected observations and optional views load separately while financial scope,
+revision policy and native authorization remain explicit.
+
 D308 adds optional [PCA / hybrid qualification](pca-hybrid-risk.md) over the same
 full native Monte Carlo shocks: deterministic scaled decomposition, ideal residual
 covariance diagnostics, actual-direction delta-gamma fitting and every-path

@@ -210,6 +210,9 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  const link=surfaceLink(),pending=new PendingCommand(definite);
  const productSelect=el('select');productSelect.id='vol-product';
  const productRow=el('div','vol-field'),productLabel=el('label',undefined,'Option product');productLabel.htmlFor='vol-product';productRow.append(productLabel,productSelect);
+ const productSearch=el('input');productSearch.type='search';productSearch.setAttribute('aria-label','Search option products');
+ const searchProducts=el('button','secondary','Search'),moreProducts=el('button','secondary','More products');searchProducts.type=moreProducts.type='button';moreProducts.hidden=true;
+ productRow.append(productSearch,searchProducts,moreProducts);
  const modelRow=el('div','vol-field'),modelValue=el('code','vol-model',model);modelValue.id='vol-model';modelRow.append(el('span','vol-field-label','Vol model'),modelValue);
  const legend=el('p','vol-legend','Rich: the market’s implied volatility is above the fitted smile. Cheap: below it. On the smile: exactly on it. In volatility points.');legend.id='vol-legend';
  const controls=el('div','vol-controls');controls.append(productRow,modelRow,legend);
@@ -282,7 +285,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   },checkBackMs);
  }
  // A newly chosen product or context: what was shown and any read or check-back under way are given up.
- function restart(){stop();generation++;pending.clear();fitMessage='';shown=undefined;return generation;}
+ function restart(){stop();generation++;moreProducts.disabled=false;pending.clear();fitMessage='';shown=undefined;return generation;}
  async function readProduct(){
   const number=restart();
   if(!products.length){state('noProducts','No option products in the reference data at this date.');return;}
@@ -290,34 +293,46 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   state('loading');
   try{await read(number);}catch(error){if(number===generation)failed(error);}
  }
- // The option products of the reference data in force at the context, every page of them. A product's surface is read whether or not it
- // lists series at the close; the read says when none is fitted.
- async function optionProducts(){
-  const found:{code:string;name:string}[]=[];
-  for(let offset=0;;){
-   const page=await o.api<{rows:Record<string,string|number|null>[];offset:number;pageSize:number;hasMore:boolean}>('reference/catalog?'+new URLSearchParams({table:'futures_option_products',offset:String(offset)}));
-   found.push(...page.rows.map(row=>({code:String(row.code),name:String(row.name)})));
-   if(!page.hasMore)return found;
-   offset=page.offset+page.pageSize;
+ // Product metadata is paged too; another page requires an explicit search or More.
+ let nextProductOffset:number|null=null,productQuery='';
+ type ProductPage={rows:Record<string,string|number|null>[];offset:number;pageSize:number;hasMore:boolean};
+ async function productPage(offset:number,code?:string){
+  const params=new URLSearchParams({table:'futures_option_products',offset:String(offset),search:code?'':productQuery});
+  if(code)params.set('code',code);
+  return o.api<ProductPage>('reference/catalog?'+params);
+ }
+ function showProducts(){
+  productSelect.replaceChildren(new Option(products.length?'Choose…':'No option products',''),...products.map(p=>new Option(publicText(`${p.name} · ${p.code}`),p.code)));
+  productSelect.disabled=!products.length;productSelect.value=product;moreProducts.hidden=nextProductOffset===null;moreProducts.disabled=false;
+ }
+ async function listProducts(number:number,offset:number){
+  const page=await productPage(offset);if(number!==generation)return;
+  const rows=page.rows.map(row=>({code:String(row.code),name:String(row.name)}));
+  products=offset===0?rows:[...products,...rows.filter(row=>!products.some(kept=>kept.code===row.code))];
+  nextProductOffset=page.hasMore?page.offset+page.pageSize:null;
+  if(product&&!products.some(row=>row.code===product)){
+   const exact=await productPage(0,product);if(number!==generation)return;
+   const row=exact.rows.find(row=>row.code===product);
+   if(!row){showProducts();throw Error(`Option product ${product} is not in the reference data at this context.`);}
+   products.push({code:String(row.code),name:String(row.name)});
   }
+  showProducts();
  }
  async function refresh(){
-  const number=restart();state('loading');
+  const number=restart();state('loading');nextProductOffset=null;moreProducts.hidden=true;productSelect.disabled=true;productSelect.replaceChildren(new Option('Reading products…',''));
   try{
    o.context(); // an unapplied context reads nothing
-   const listed=await optionProducts();
-   if(number!==generation)return;
-   products=listed;
-   productSelect.replaceChildren(new Option(products.length?'Choose…':'No option products',''),...products.map(p=>new Option(publicText(`${p.name} · ${p.code}`),p.code)));
-   productSelect.disabled=!products.length;
-   // A product asked for, or chosen before, that the context does not list is said, never swapped for another or for none.
-   const missing=product&&!products.some(p=>p.code===product)?product:'';
-   if(missing)product='';
-   productSelect.value=product;
-   if(missing){failed(Error(`Option product ${missing} is not in the reference data at this context.`));return;}
+   await listProducts(number,0);if(number!==generation)return;
    await readProduct();
   }catch(error){if(number===generation)failed(error);}
  }
+ searchProducts.onclick=()=>{productQuery=productSearch.value.trim();void refresh();};
+ productSearch.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();searchProducts.click();}};
+ moreProducts.onclick=()=>{
+  if(nextProductOffset===null||moreProducts.disabled)return;
+  const number=generation,offset=nextProductOffset;moreProducts.disabled=true;
+  void listProducts(number,offset).catch(error=>{if(number===generation)failed(error);}).finally(()=>{if(number===generation)moreProducts.disabled=false;});
+ };
  productSelect.onchange=()=>{product=productSelect.value;void readProduct();};
  // A hidden page stops checking back; shown again, it reads at once unless a read is already under way.
  document.addEventListener('visibilitychange',()=>{
@@ -436,6 +451,6 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   async open(code:string){product=code;await refresh();},
   // Left for another page: what was drawn is released, and no read or check-back under way draws it again while away.
   leave(){restart();clearViews();},
-  reset(){restart();state('idle','Apply the selected context to see its surfaces.');},
+  reset(){restart();products=[];nextProductOffset=null;moreProducts.hidden=true;productSelect.disabled=true;productSelect.replaceChildren(new Option('Apply the selected context',''));state('idle','Apply the selected context to see its surfaces.');},
  };
 }

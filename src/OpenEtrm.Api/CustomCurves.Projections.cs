@@ -41,7 +41,7 @@ public static partial class CustomCurves
         var saved=versions.Where(v=>v.State=="published"&&v.EngineVersion==RecipeEngine.Version&&
             v.Sources.Values.All(s=>s.CatalogId==data.DefinitionRevision.CatalogId&&s.RevisionId==data.DefinitionRevision.RevisionId)).ToArray();
         if(saved.Length==0)return [];
-        var sourceData=await database.Read(connection,ct,data.DefinitionRevision.RevisionId,data,includeCalendarDays:false,observationScope:ObservationReadScope.FactHistory);
+        var sourceData=data;
         var choices=ImmutableArray.CreateBuilder<PublishedProjectionChoice>();
         var resolved=CalculationContext(frame,data.DefinitionRevision,context);
         var preparation=new RecipePreparation(connection,database,sourceData,frame,context,resolved,versions);

@@ -9,7 +9,7 @@ using OpenEtrm.Shared.Temporal;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record MarketDatesRequest([property:JsonRequired] string? Curve,[property:JsonRequired] string TimeZone,RecipeDefinition? Definition=null);
+public sealed record MarketDatesRequest([property:JsonRequired] string? Curve,[property:JsonRequired] string TimeZone,RecipeDefinition? Definition=null,int? MaximumDates=null);
 public sealed record MarketDateFrame(Guid Id,DateTimeOffset At,string Name,string BusinessDateUTC);
 public sealed record MarketDateChoice(string Date,ImmutableArray<MarketDateFrame> Frames);
 public sealed record UnavailableMarketDate(string Date,string Reason);
@@ -17,6 +17,7 @@ public sealed record MarketDatesResponse(ScheduleContext? Context,string? Curve,
     ImmutableArray<MarketDateChoice> Dates,ImmutableArray<UnavailableMarketDate> Unavailable,string? MinDate,string? MaxDate)
 {
     public FrameCatalogInfo? FrameCatalog{get;init;}
+    public bool HasMoreCandidates{get;init;}
 }
 public delegate Task<IResult> MarketDatesOperation(HttpContext context,
     Func<NpgsqlConnection,PinnedContext,ImmutableArray<InputFrame>,FrameCatalogInfo,CancellationToken,Task<IResult>> work);
@@ -45,12 +46,9 @@ public static class MarketDates
         foreach(var frame in frames)_=pin.Require(frame);
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
         await RequireAccess(database,connection,ct);
-        // Built-in curves consume every offered frame's exact snapshot pins.
-        // Custom recipes retain their broader historical correction policy.
-        var data=request.Definition is null&&!frames.IsEmpty
-            ?await database.Read(connection,ct,observationIds:[..frames.SelectMany(frame=>frame.ObservationIds).Distinct()],
-                includeCalendarDays:false,observationScope:ObservationReadScope.ExactPins)
-            :await database.Read(connection,ct,observationIds:request.Definition is not null&&pin.Context is null?[]:null,includeCalendarDays:false);
+        if(request.MaximumDates is <1 or >128)throw new MarketDataException("market_dates_input","Request from one to 128 dates explicitly.");
+        var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
+        var metadata=data;
         var curveCodes=data.Definitions["curves"].Select(row=>row.Text("code")).ToHashSet(StringComparer.Ordinal);
         var rateCodes=data.Definitions["rate_curves"].Select(row=>row.Text("code")).ToHashSet(StringComparer.Ordinal);
         if(request.Curve is {} curve&&!curveCodes.Contains(curve)&&!rateCodes.Contains(curve))
@@ -63,6 +61,14 @@ public static class MarketDates
             var period=data.Definitions["revision_periods"].Single();
             var from=DateWorkspace.Date(period.Text("effective_from"));var to=DateWorkspace.Date(period.Text("effective_to"));
             var contexts=new Dictionary<DateOnly,ScheduleContext>();
+            var planningErrors=new Dictionary<Guid,Exception>();
+            var retainedSamples=false;
+            var exactSeries=new HashSet<Guid>();
+            var exactSamples=new Dictionary<Guid,PreviewData>();
+            // Exact immutable reference calendars stay inside this authorized
+            // operation; each candidate still binds and checks its own context.
+            var calendarReads=new Dictionary<CalendarReference,ReferenceCalendar>();
+            var sampledHistory=data;
             ScheduleContext? knowledge=pin.Context;
             if(pin.Context is null)
             {
@@ -76,13 +82,54 @@ public static class MarketDates
                     contexts.Add(Day(anchor),knowledge);
                     (data,references)=await AtContext(knowledge,async()=>
                     {
-                        var captured=await database.Read(connection,ct,includeCalendarDays:false);
+                        var captured=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
                         return(captured,await new CustomCurvesStore(database).References(connection,definition,captured,ct));
                     });
                 }
             }
+            async Task<ScheduleContext> Context(DateOnly day)
+            {
+                if(contexts.TryGetValue(day,out var selected))return selected;
+                selected=pin.Context??(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
+                    new(day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),knowledge!.KnownAt,"at"),ct)).Context;
+                contexts.Add(day,selected);return selected;
+            }
+            if(knowledge is not null&&request.MaximumDates is null)
+            {
+                var windows=new HashSet<ObservationWindow>();
+                var bounded=true;
+                foreach(var frame in frames)
+                {
+                    var day=Day(frame);
+                    if(day<from||day>=to||pin.Context is {} retained&&day!=DateWorkspace.Date(retained.EffectiveOn))continue;
+                    var selected=await Context(day);
+                    try
+                    {
+                        var demand=await AtContext(selected,()=>CustomCurves.ObservationDemand(connection,database,definition,data,
+                            frame with{ContextId=selected.ContextId},references.Sources,references.Calendars,references.Schedules,selected,ct,calendarReads));
+                        windows.UnionWith(demand.Windows);
+                        exactSeries.UnionWith(demand.ExactSeries);
+                        if(windows.Count>PreviewDatabase.MaximumObservationWindows){bounded=false;break;}
+                    }
+                    catch(MarketDataException error){planningErrors.Add(frame.Id,error);}
+                    catch(TemporalException error){planningErrors.Add(frame.Id,error);}
+                }
+                if(bounded)
+                {
+                    sampledHistory=windows.Count==0?data:await AtContext(knowledge,()=>database.ReadObservationWindows(connection,data,[..windows],ct));
+                    if(exactSeries.Count>0)await AtContext(knowledge,async()=>
+                    {
+                        var index=0;
+                        await foreach(var selected in database.ReadFrameObservations(connection,data,frames,ObservationReadScope.ExactPins,ct,[..exactSeries]))
+                            exactSamples.Add(frames[index++].Id,selected);
+                        return true;
+                    });
+                    retainedSamples=true;
+                }
+            }
             qualify=async(frame,cancellation)=>
             {
+                if(planningErrors.TryGetValue(frame.Id,out var error))throw error;
                 if(pin.Context is {} retained)
                 {
                     _=await Evaluate(frame,retained,cancellation);return;
@@ -90,17 +137,25 @@ public static class MarketDates
                 var day=Day(frame);
                 if(knowledge is null||day<from||day>=to)
                     throw new MarketDataException("custom_curve_definition","The snapshot must lie within its exact source definition's effective period.");
-                if(!contexts.TryGetValue(day,out var selected))
-                {
-                    selected=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
-                        new(day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),knowledge.KnownAt,"at"),cancellation)).Context;
-                    contexts.Add(day,selected);
-                }
+                var selected=await Context(day);
                 _=await AtContext(selected,()=>Evaluate(frame with{ContextId=selected.ContextId},selected,cancellation));
             };
-            Task<RecipeResult> Evaluate(InputFrame frame,ScheduleContext selected,CancellationToken cancellation)=>
-                CustomCurves.EvaluateDefinition(connection,database,definition,data,frame,
-                    references.Sources,references.Calendars,references.Schedules,selected,cancellation);
+            async Task<RecipeResult> Evaluate(InputFrame frame,ScheduleContext selected,CancellationToken cancellation)
+            {
+                var samples=data;
+                InputFrame? sourceFrame=null;
+                if(retainedSamples)
+                {
+                    samples=sampledHistory;
+                    if(exactSamples.TryGetValue(frame.Id,out var current))
+                    {
+                        sourceFrame=current.HistoryFrame(frame);
+                        samples=sampledHistory.WithObservations([..sampledHistory.Observations.Concat(current.Observations).DistinctBy(row=>row.Id("id"))]);
+                    }
+                }
+                return await CustomCurves.EvaluateDefinition(connection,database,definition,samples,frame,
+                    references.Sources,references.Calendars,references.Schedules,selected,cancellation,retainedObservations:retainedSamples,sourceFrame:sourceFrame,calendarReads:calendarReads);
+            }
         }
         else qualify=(frame,cancellation)=>
         {
@@ -116,13 +171,14 @@ public static class MarketDates
         };
         var available=new List<(string Date,MarketDateFrame Frame)>();
         var unavailable=new List<UnavailableMarketDate>();
-        foreach(var frame in frames.OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id))
+        var processed=0;
+        async Task Qualify(InputFrame frame)
         {
             ct.ThrowIfCancellationRequested();
             var date=DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(frame.At,zone).DateTime).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
             var businessDate=DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
             if(pin.Context is {} context&&businessDate!=context.EffectiveOn)
-            {unavailable.Add(new(date,"market_date"));continue;}
+            {unavailable.Add(new(date,"market_date"));return;}
             try
             {
                 await qualify(frame,ct);
@@ -131,13 +187,26 @@ public static class MarketDates
             catch(MarketDataException error){unavailable.Add(new(date,error.Code));}
             catch(TemporalException error){unavailable.Add(new(date,error.Code));}
         }
+        foreach(var batch in CandidateBatches(frames,zone,request.MaximumDates is not null))
+        {
+            if(request.Definition is null)
+            {
+                var index=0;
+                await foreach(var selected in database.ReadFrameObservations(connection,metadata,batch,ObservationReadScope.ExactPins,ct))
+                {
+                    data=selected;await Qualify(batch[index++]);processed++;
+                }
+            }
+            else foreach(var frame in batch){await Qualify(frame);processed++;}
+            if(request.MaximumDates is {} maximum&&available.Select(item=>item.Date).Distinct().Count()>=maximum)break;
+        }
         var dates=available.GroupBy(row=>row.Date,StringComparer.Ordinal).OrderBy(group=>group.Key,StringComparer.Ordinal)
-            .Select(group=>new MarketDateChoice(group.Key,[..group.Select(row=>row.Frame)])).ToImmutableArray();
+            .Select(group=>new MarketDateChoice(group.Key,[..group.Select(row=>row.Frame).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)])).ToImmutableArray();
         var validDates=dates.Select(day=>day.Date).ToHashSet(StringComparer.Ordinal);
         await RequireAccess(database,connection,ct);
         return new(pin.Context,request.Curve,zone.Id,SelectionPolicy,dates,
             [..unavailable.Where(day=>!validDates.Contains(day.Date)).Distinct().OrderBy(day=>day.Date,StringComparer.Ordinal).ThenBy(day=>day.Reason,StringComparer.Ordinal)],
-            dates.IsEmpty?null:dates[0].Date,dates.IsEmpty?null:dates[^1].Date);
+            dates.IsEmpty?null:dates[0].Date,dates.IsEmpty?null:dates[^1].Date){HasMoreCandidates=processed<frames.Length};
 
         static DateOnly Day(InputFrame frame)=>DateOnly.FromDateTime(frame.At.UtcDateTime);
         async Task<T> AtContext<T>(ScheduleContext context,Func<Task<T>> read)
@@ -155,6 +224,12 @@ public static class MarketDates
                 await restore.ExecuteNonQueryAsync(CancellationToken.None);
             }
         }
+    }
+    internal static IEnumerable<ImmutableArray<InputFrame>> CandidateBatches(ImmutableArray<InputFrame> frames,TimeZoneInfo zone,bool limited)
+    {
+        if(!limited){yield return [..frames.OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)];yield break;}
+        foreach(var day in frames.GroupBy(frame=>DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(frame.At,zone).DateTime)).OrderByDescending(group=>group.Key))
+            yield return [..day.OrderByDescending(frame=>frame.At).ThenBy(frame=>frame.Id)];
     }
     static async Task RequireAccess(PreviewDatabase database,NpgsqlConnection connection,CancellationToken ct)
     {

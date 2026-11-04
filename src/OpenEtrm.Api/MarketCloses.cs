@@ -61,28 +61,29 @@ public static class MarketCloses
         var ids=headers.Select(row=>row.Id("id")).ToArray();
         var parts=await Parts(connection,catalog,ids,contextId,ct);
         var frames=headers.Select(header=>CreateFrame(header.Id("id"),header.Text("name"),header.Instant("at"),
-            parts[header.Id("id")].Pins,parts[header.Id("id")].Members,contextId)).ToImmutableArray();
+            parts[header.Id("id")],contextId)).ToImmutableArray();
         return new(frames,limit,rows.Length>limit);
     }
     public static async Task<InputFrame> Frame(NpgsqlConnection connection,Guid catalog,Guid close,Guid? contextId,CancellationToken ct)
     {
         var header=await Read(connection,catalog,close,ct);
         var parts=(await Parts(connection,catalog,[close],contextId,ct))[close];
-        return CreateFrame(close,header.Name,header.At,parts.Pins,parts.Members,contextId);
+        return CreateFrame(close,header.Name,header.At,parts,contextId);
     }
-    private static async Task<Dictionary<Guid,(ImmutableArray<JsonElement> Pins,ImmutableArray<JsonElement> Members)>> Parts(NpgsqlConnection connection,Guid catalog,Guid[] ids,Guid? contextId,CancellationToken ct)
+    private sealed record CloseParts(ImmutableArray<Guid> Pins,ImmutableDictionary<string,ImmutableArray<Guid>> Members,ImmutableArray<Guid> Frozen);
+    private static async Task<Dictionary<Guid,CloseParts>> Parts(NpgsqlConnection connection,Guid catalog,Guid[] ids,Guid? contextId,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"SELECT security.read_market_close_parts($1,$2,$3::uuid)::text",catalog,ids,(object?)contextId??DBNull.Value);
         using var json=JsonDocument.Parse((string)(await command.ExecuteScalarAsync(ct)??throw new PreviewDeniedException()));
-        return json.RootElement.EnumerateArray().ToDictionary(row=>row.Id("close_id"),row=>(
-            row.GetProperty("pins").EnumerateArray().Select(pin=>pin.Clone()).ToImmutableArray(),
-            row.GetProperty("members").EnumerateArray().Select(member=>member.Clone()).ToImmutableArray()));
+        return json.RootElement.EnumerateArray().ToDictionary(row=>row.Id("close_id"),row=>new CloseParts(
+            [..row.GetProperty("pins").EnumerateArray().Select(pin=>pin.Id("observation_id"))],
+            row.GetProperty("members").EnumerateArray().GroupBy(member=>member.Text("curve_code"),StringComparer.Ordinal)
+                .ToImmutableDictionary(group=>group.Key,group=>group.Select(member=>member.Id("contract_id")).ToImmutableArray(),StringComparer.Ordinal),
+            [..row.GetProperty("pins").EnumerateArray().Where(pin=>pin.Text("input_use")=="frozen").Select(pin=>pin.Id("observation_id"))]));
     }
-    private static InputFrame CreateFrame(Guid close,string name,DateTimeOffset at,ImmutableArray<JsonElement> pins,ImmutableArray<JsonElement> members,Guid? contextId)
+    private static InputFrame CreateFrame(Guid close,string name,DateTimeOffset at,CloseParts parts,Guid? contextId)
     {
-        if(pins.IsEmpty||members.IsEmpty)throw new MarketDataException("pilot_close_inputs","The retained close has no complete exact input selection.");
-        return new(close,name,at,[..pins.Select(p=>p.Id("observation_id"))],
-            members.GroupBy(p=>p.Text("curve_code"),StringComparer.Ordinal).ToImmutableDictionary(g=>g.Key,g=>g.Select(p=>p.Id("contract_id")).ToImmutableArray(),StringComparer.Ordinal),contextId,
-            [..pins.Where(p=>p.Text("input_use")=="frozen").Select(p=>p.Id("observation_id"))]){OriginCloseId=close};
+        if(parts.Pins.IsEmpty||parts.Members.IsEmpty)throw new MarketDataException("pilot_close_inputs","The retained close has no complete exact input selection.");
+        return new(close,name,at,parts.Pins,parts.Members,contextId,parts.Frozen){OriginCloseId=close};
     }
 }

@@ -11,7 +11,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
    // Before its newest date arrives, the workspace calendar ends one date earlier. Showing that to the app stands in for a
    // close that becomes available during a session; every other read, and every frame, is the backend's own.
    if(path.endsWith('/market/dates')&&window.hideNewestDate&&response.ok){
-    const body=JSON.parse(args[1].body),data=await response.json();
+    const body=JSON.parse(args[1].body);if(body.maximumDates)response=await original(args[0],{...args[1],body:JSON.stringify({...body,maximumDates:body.maximumDates+1})});const data=await response.json();
     if(body.curve===null&&body.definition===null){data.dates.pop();data.maxDate=data.dates.at(-1)?.date??null;}
     response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
