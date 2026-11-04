@@ -35,6 +35,7 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "const board=[...document.querySelectorAll('.market-board-group')].map(g=>[g.querySelector('h3').textContent,...[...g.querySelectorAll('.market-card-open')].map(b=>b.textContent)]);"+
    "return library.length>1&&JSON.stringify(board)===JSON.stringify(library);})()",
    "[...document.querySelectorAll('.market-board-group h3')].map(h=>h.textContent)");
+  await wait("document.querySelectorAll('.market-card[data-state=priced]').length>0");
   await check('the board reads the shapes of its listed curves at the close in one read per 64 curves, rates aside, and evaluates nothing before a curve is chosen',
    "(()=>{const shaped=[...document.querySelectorAll('.market-card')].filter(c=>c.dataset.state!=='rates').map(c=>c.dataset.curve),read=window.__shapeReads.flatMap(r=>r.curves);"+
    "return shaped.length>0&&window.__shapeReads.length===Math.ceil(shaped.length/64)&&window.__shapeReads.every(r=>r.curves.length<=64&&r.shapes)&&read.length===shaped.length&&shaped.every(c=>read.includes(c))&&window.__evaluates===0;})()",
