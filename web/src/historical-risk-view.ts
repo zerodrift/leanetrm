@@ -3,6 +3,7 @@ import {node,table} from './risk-report-elements.js';
 import {renderChart} from './chart-view.js';
 import {historicalCharts,historicalSampleLabel,type HistoricalView} from './historical-risk.js';
 import {newParametricView,renderParametric} from './parametric-risk-view.js';
+import {amountText} from './amount-display.js';
 
 export const newHistoricalView=()=>({partition:0,metric:'valueAtRisk' as 'valueAtRisk'|'expectedShortfall',book:'',sample:'',history:historyGridState(),comparison:newParametricView()});
 /** Shared Risk/Blotter report, using backend amounts and portfolio allocation weights. */
@@ -18,7 +19,7 @@ export function renderHistorical(host:HTMLElement,v:HistoricalView,state:ReturnT
  const select=node('select');select.setAttribute('aria-label','Historical native measure');select.append(...v.result.partitions.map((p,i)=>new Option(`${v.partitions.find(l=>l.measure===p.measure&&JSON.stringify(l.currencyReference)===JSON.stringify(p.currency))!.measureLabel} · ${v.partitions.find(l=>l.measure===p.measure&&JSON.stringify(l.currencyReference)===JSON.stringify(p.currency))!.currency}`,String(i))));select.value=String(state.partition);select.onchange=()=>{state.partition=Number(select.value);state.sample='';state.book='';redraw();};const wrap=node('label','Native measure and currency ');wrap.append(select);controls.append(wrap);
  for(const [metric,text] of [['valueAtRisk','VaR allocation'],['expectedShortfall','ES allocation']] as const){const button=node('button',text);button.type='button';button.className='secondary';button.setAttribute('aria-pressed',String(state.metric===metric));button.onclick=()=>{state.metric=metric;redraw();};controls.append(button);}
  const cards=node('div');cards.className='parametric-cards';
- for(const [key,text] of [['valueAtRisk','Value at risk'],['expectedShortfall','Expected shortfall'],['mean','Mean historical loss']] as const){const card=node('div');card.className='parametric-stat';const amount=node('strong',label.display[key]+' '+label.currency);amount.title=p[key];card.append(node('span',text),amount);cards.append(card);}host.append(cards,
+ for(const [key,text] of [['valueAtRisk','Value at risk'],['expectedShortfall','Expected shortfall'],['mean','Mean historical loss']] as const){const card=node('div');card.className='parametric-stat';const amount=node('strong',amountText(p[key],'money')+' '+label.currency);amount.title=p[key];card.append(node('span',text),amount);cards.append(card);}host.append(cards,
   node('p',`Tail contains ${p.tailSampleMass} sample-equivalents; ${p.quantileTies} sample${p.quantileTies===1?'':'s'} tie at VaR. Fractional boundary mass is shared uniformly across ties. Small tail counts provide limited historical evidence.`));
  if(p.histogram.length===1&&p.histogram[0].lower===p.histogram[0].upper)host.append(node('p','Point-mass distribution: every sample has the same portfolio loss.'));
  const graphics=node('div');graphics.className='risk-report-charts';host.append(graphics);

@@ -25,7 +25,9 @@ there is no product allowlist or Greek-based factor pruning.
    allocations. Inspect book/trade allocation tables, then select a historical
    sample to see its business-session dates, factor moves and every retained
    trade/Side binding's base PV, scenario PV and loss. Each native currency and
-   valuation measure is a separate partition. The grid retains source prices,
+   valuation measure is a separate partition. Risk cards use the selected money
+   display precision and retain exact values in their tooltips and JSON.
+   The grid retains source prices,
    price types, actual observation timestamps and captured knowledge evidence.
 5. Optionally select **Include matching parametric comparison** before running.
    The same job computes a sample-mean delta-normal comparison using the exact

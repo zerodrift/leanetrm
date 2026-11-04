@@ -36,7 +36,7 @@ rejected command; a previously uncertain command keeps its identity. Graphical
 consumers carry backend loss/probability/allocation values without calculating
 risk in TypeScript. Desktop/phone browser qualification covers guided automatic
 history, native samples/trades, export, comparison, retained archives and reports.
-The full frontend suite has 1,295 checks and the Python runner suite has 85 checks
+The full frontend suite has 1,297 checks and the Python runner suite has 85 checks
 at this increment. The existing parametric numerical/custody/16-browser suite
 remains a regression gate.
 
