@@ -2228,6 +2228,9 @@ Portfolio totals, risk and opened booking catalogs retain their complete explici
 scope. Delayed UI work must reject obsolete replies, cancel dependent reads after
 disposal and resume demand readers when cached pages reopen. See the
 [read contract](ui-read-demand.md) for concrete consumers and remaining boundaries.
+Share visibility subscriptions and keyed request batching across consumers;
+screens provide their current-context guard and presentation. Remove superseded
+local loops and unused utilities instead of retaining competing implementations.
 
 ## D311 — Explicit Hybrid Monte Carlo valuation with sampled full-PV validation
 

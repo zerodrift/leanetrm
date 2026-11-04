@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {marketBoard,renderBoard,shapeReads,commodityIcon} from '../dist/market-board.js';
+import {marketBoard,renderBoard,commodityIcon} from '../dist/market-board.js';
 import {curvePoints} from '../dist/desk-model.js';
 import {navigationGroups} from '../dist/market-navigation.js';
 import {setCurveNames} from '../dist/market-view.js';
@@ -80,20 +80,11 @@ test('a curve not read yet waits for its read, and a rates curve, which has no c
  assert.deepEqual(card(board,'usd_rates').figures,{state:'rates'});
 });
 
-test('a curve whose read failed is read again by the next read; one the backend stated a shape for, even an unavailable one, is not',()=>{
+test('the board distinguishes failed reads from backend shape results',()=>{
  const shapes=new Map([['gas_forward','Curve shape unavailable · the curve read failed'],['gas_futures',{...fixture.shapes[1],curve:'gas_futures'}],['power_forward',priced]]);
- assert.deepEqual(shapeReads(marketBoard(navigation,all,shapes)),[['gas_forward']]);
-});
-test('the board reads every listed curve it has not read, but no rates curve, in reads of at most 64 curves',()=>{
- const many=Array.from({length:130},(_,i)=>({code:`curve_${String(i).padStart(3,'0')}`,name:`Curve ${String(i).padStart(3,'0')}`,marketType:'forwards',category:{code:'test_gas',name:'Synthetic gas'}}));
- const wide={...navigation,curves:[...many,curves[3]],curveNames:[...many,curves[3]].map(({code,name})=>({code,name}))};
- setCurveNames(wide.curveNames);
- try{
-  const reads=shapeReads(marketBoard(wide,all,new Map([['curve_000',priced]])));
-  assert.deepEqual(reads.map(r=>r.length),[64,64,1]);
-  assert.deepEqual(reads.flat(),many.slice(1).map(c=>c.code),'each curve once, in the library\'s order, without the one already read or the rates curve');
-  assert.deepEqual(shapeReads(marketBoard({...wide,curves:[curves[3]]},all,new Map())),[],'a board of rates only makes no read');
- }finally{setCurveNames(navigation.curveNames);}
+ const board=marketBoard(navigation,all,shapes);
+ assert.equal(card(board,'gas_forward').figures.state,'failed');assert.equal(card(board,'power_forward').figures.state,'priced');
+ assert.ok(!['unread','failed'].includes(card(board,'gas_futures').figures.state));
 });
 
 // A minimal DOM for the board's cards: elements with a class, text, dataset, attributes, style properties and children.

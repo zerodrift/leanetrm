@@ -27,7 +27,9 @@ import {changeChart,changeScales,gapsText,lensCells,madeHere,noMoveText,position
   type LensCell,type ReadPlace,type RunGap} from './risk-lens.js';
 import {sensitivityFactors,type ExcludedPosition,type RiskReport} from './risk-report.js';
 import {setupFuturesBooking} from './futures-booking.js';
-import {draftShapes,otherRevision,readCurveShapes} from './curve-shapes.js';
+import {draftShapes,otherRevision,readCurveShapes,curvesPerRead} from './curve-shapes.js';
+import {batchReads} from './batch-reads.js';
+import {visibleReads} from './visible-read.js';
 import {newTradeControl,newTradeProducts,setupNewTrade,type NewProduct} from './new-trade.js';
 import {createTableWorkspace} from './table-workspace.js';
 import {setupBookScopePicker} from './scope-picker.js';
@@ -94,7 +96,6 @@ const rowGroupLabel=(group:RowGroup)=>group===null?'None':rowGroupLabels[group];
 // The trade fields an export of trade rows states, beside the desk's own: money is in its currency.
 const numericFields=['tradeCount','lots','quantity','executionPrice','mark','executionPnl','fixedPrice','presentValue','revision'];
 // At most this many curves are shaped in one read (market/curve-shapes).
-const curvesPerShapeRead=64;
 
 export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(body:BlotterStreamRequest,handlers:BlotterStreamHandlers,signal:AbortSignal)=>Promise<void>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
   riskReportUrl?:(id:string)=>string;
@@ -1372,33 +1373,19 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     let revision:string;
     try{revision=options.definitionRevision();}catch{noShapes('the market definitions of this close are not loaded');return;}
     const found=shapes&&'curves' in shapes&&shapes.revision===revision?new Map(shapes.curves):new Map<string,CurveShape|string>();
-    const pending=new Set<string>(),attempted=new Set(found.keys());let stopped=false,reading=false;
     shapes={revision,curves:found};
-    async function flush(){
-      if(reading||stopped||!current())return;reading=true;
-      try{
-        while(pending.size&&!stopped&&current()){
-          const curves=[...pending].slice(0,curvesPerShapeRead);for(const code of curves)pending.delete(code);
-          const read=await readCurveShapes(api,source,curves);if(stopped||!current())return;
-          for(const code of curves)found.set(code,read.get(code)??'Curve shape unavailable · the read did not return this curve');
-          redrawCurves();syncPositionDetails();
-        }
-      }finally{reading=false;}
-    }
+    const reader=batchReads<string,CurveShape|string>({maximum:curvesPerRead,current,read:curves=>readCurveShapes(api,source,curves),
+      received:(read,curves)=>{for(const code of curves)found.set(code,read.get(code)??'Curve shape unavailable · the read did not return this curve');redrawCurves();syncPositionDetails();}});
     requestShape=h=>{
-      if(stopped||!current()||h.definitionRevisionId!==revision||projectsFromSeveralCurves(h)||attempted.has(h.curve))return;
-      attempted.add(h.curve);pending.add(h.curve);if(!reading)shapesRead=flush();
+      if(!current()||h.definitionRevisionId!==revision||projectsFromSeveralCurves(h)||found.has(h.curve)||reader.has(h.curve))return;
+      void reader.get([h.curve]);shapesRead=reader.idle();
     };
-    const observer=new IntersectionObserver(entries=>{
-      if(!current()){observer.disconnect();return;}
-      for(const entry of entries)if(entry.isIntersecting&&entry.target.isConnected){
-        const h=holdings?.holdings[Number((entry.target as HTMLElement).dataset.shapeRow)];if(h)requestShape?.(h);
-        observer.unobserve(entry.target);
-      }
+    const observer=visibleReads(current,target=>{
+      const h=holdings?.holdings[Number((target as HTMLElement).dataset.shapeRow)];if(h)requestShape?.(h);
     });
-    const observe=()=>{if(!stopped&&current())for(const cell of get('futures-page').querySelectorAll('.sparkline-loading[data-shape-row]'))observer.observe(cell);};
+    const observe=()=>observer.reset(get('futures-page').querySelectorAll('.sparkline-loading[data-shape-row]'));
     const mutations=new MutationObserver(observe);mutations.observe(get('futures-page'),{childList:true,subtree:true});observe();
-    stopShapeReads=()=>{stopped=true;pending.clear();observer.disconnect();mutations.disconnect();};
+    stopShapeReads=()=>{reader.cancel();observer.cancel();mutations.disconnect();};
     syncPositionDetails();
   }
   async function loadChart(reportRequest:{context:unknown;view:unknown},started:number,scope:string){

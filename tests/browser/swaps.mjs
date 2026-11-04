@@ -382,6 +382,7 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
   "document.querySelector('#position-details .side-panel-sub').textContent.includes('Receive fixed')&&document.querySelector('#position-details .side-panel-delta .side-panel-label').textContent==='Mark − fixed'&&!document.querySelector('#side-panel-open-curve').disabled&&document.querySelector('#side-panel-open-curve-note').hidden&&!document.querySelector('#side-panel-open-curve').hasAttribute('aria-describedby')",
   "document.querySelector('#position-details-head').innerText");
  const receiveMarket=await evaluate("document.querySelector('#side-panel-title').textContent");
+ await click('#position-details-tabs-curve');await wait("!!document.querySelector('#position-details-body .chart canvas')");
  await click('#side-panel-open-curve');
  await wait("document.querySelector('#nav-market').classList.contains('active')&&!document.querySelector('#contract-panel').hidden&&!!document.querySelector('#history-values tbody tr')");
  await check('a swap\'s Open curve lands on its curve with its contract open in the panel, so the contract\'s point was found',

@@ -1,6 +1,7 @@
 // The Latest levels widget: a tile for each configured curve with the front contract, price and unit the backend's curve shapes state at
 // the session's close. Nothing here picks a front, prices or judges freshness; it presents the backend's strings and the close's badge.
-import {curvesPerRead,figures} from './market-board.js';
+import {figures} from './market-board.js';
+import {curvesPerRead} from './curve-shapes.js';
 import {curveName,deliveryLabel} from './market-view.js';
 import {drawSparkline} from './mini-chart-view.js';
 import {kpi,node} from './tiles.js';

@@ -64,7 +64,9 @@ import {navigationGroups as sidebarGroups,pageGroup,pageAvailable,firstPage} fro
 import {setupAssistant} from './assistant-panel.js';
 import {pageReport,webPage,type PageState,type PageContext,type Place} from './assistant-pages.js';
 import {readPages,type Target,type TargetContext} from './assistant-events.js';
-import {readCurveShapes} from './curve-shapes.js';
+import {readCurveShapes,curvesPerRead} from './curve-shapes.js';
+import {batchReads} from './batch-reads.js';
+import {visibleReads} from './visible-read.js';
 import type {CurveShape} from './desk-model.js';
 import {commodityIcon,librarySparkline,marketBoard,renderBoard} from './market-board.js';
 import {renderTile} from './tiles.js';
@@ -424,44 +426,32 @@ function renderMarketBoard(){
 }
 // Optional card and library sparklines read only after their element enters the viewport.
 // Every delayed reply is tied to the same account directory, close and context.
-let boardObserver:IntersectionObserver|undefined,observeBoard=()=>{};
+let boardObserver:{cancel:()=>void;reset:(targets:Iterable<Element>)=>void}|undefined,observeBoard=()=>{};
 let boardLoading:{owner:object;generation:number;scope:string;reading:()=>boolean}|undefined;
 async function loadBoard(){
   if(page==='market'&&navigation&&boardLoading?.owner===navigation&&boardLoading.generation===marketGeneration&&boardLoading.scope===boardScope()&&boardLoading.reading()){
     renderBrowse();renderMarketBoard();observeBoard();return;
   }
-  boardObserver?.disconnect();boardObserver=undefined;
+  boardObserver?.cancel();boardObserver=undefined;
   if(page!=='market'||contextDirty||!navigation||!select('snapshot').value)return;
   const owner=directory(),started=marketGeneration,scope=boardScope(),source={snapshotId:frame().id,context:historicalContext()};
-  const attempted=new Set<string>(),pending=new Set<string>();let reading=false;
   const current=()=>boardObserver===observer&&page==='market'&&!contextDirty&&navigation===owner&&started===marketGeneration&&scope===boardScope();
+  const reader=batchReads<string,CurveShape|string>({maximum:curvesPerRead,current,read:curves=>readCurveShapes(api,source,curves),
+    received:(read,curves)=>{
+      const shapes=new Map(readShapes());for(const code of curves)shapes.set(code,read.get(code)??'Curve shape unavailable · the read did not return this curve');
+      boardShapes={owner,scope,shapes};renderBrowse();renderMarketBoard();observe();
+    }});
+  const visibility=visibleReads(current,target=>{void reader.get([(target as HTMLElement).dataset.curve!]);});
+  const observer={reset:visibility.reset,cancel:()=>{reader.cancel();visibility.cancel();}};
   const observe=()=>{
-    observer.disconnect();if(!current())return;
+    const targets:HTMLElement[]=[];
     for(const target of document.querySelectorAll<HTMLElement>('#curves .curve-button[data-curve],#market-board .market-card[data-curve]')){
       const code=target.dataset.curve!,entry=owner.curves.find(c=>c.code===code);
-      if(!attempted.has(code)&&typeof readShapes().get(code)!=='object'&&entry?.marketType!=='rates')observer.observe(target);
+      if(!reader.has(code)&&typeof readShapes().get(code)!=='object'&&entry?.marketType!=='rates')targets.push(target);
     }
+    observer.reset(targets);
   };
-  async function flush(){
-    if(reading||!current())return;reading=true;
-    try{
-      while(pending.size&&current()){
-        const curves=[...pending].slice(0,64);for(const code of curves)pending.delete(code);
-        const read=await readCurveShapes(api,source,curves);if(!current())return;
-        const shapes=new Map(readShapes());for(const code of curves)shapes.set(code,read.get(code)??'Curve shape unavailable · the read did not return this curve');
-        boardShapes={owner,scope,shapes};renderBrowse();renderMarketBoard();observe();
-      }
-    }finally{reading=false;}
-  }
-  const observer=new IntersectionObserver(entries=>{
-    if(!current()){observer.disconnect();return;}
-    for(const entry of entries)if(entry.isIntersecting&&entry.target.isConnected){
-      const code=(entry.target as HTMLElement).dataset.curve!;
-      if(!attempted.has(code)){attempted.add(code);pending.add(code);}observer.unobserve(entry.target);
-    }
-    void flush();
-  });
-  boardObserver=observer;observeBoard=observe;boardLoading={owner,generation:started,scope,reading:()=>reading};renderBrowse();renderMarketBoard();observe();
+  boardObserver=observer;observeBoard=observe;boardLoading={owner,generation:started,scope,reading:reader.busy};renderBrowse();renderMarketBoard();observe();
 }
 function renderBrowse(){
   const categories=navigationCategories(directory()),commodities=categories.map(c=>c.code);

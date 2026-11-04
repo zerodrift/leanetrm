@@ -2,6 +2,7 @@
 // before booking draws its markets' curves from. The desk reads the curves of the positions it holds; a draft is for a market that
 // is held or not, and is drawn from the desk's read when it has the curve and from one read of its own when it has not.
 import type {CurveShape} from './desk-model.js';
+export const curvesPerRead=64;
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 const unavailable=(why:string)=>`Curve shape unavailable · ${why}`;

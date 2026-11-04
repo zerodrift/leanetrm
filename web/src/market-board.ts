@@ -9,8 +9,6 @@ import {drawSparkline} from './mini-chart-view.js';
 import {kpi,node} from './tiles.js';
 import {kindBadge,type CurveKind} from './curve-kinds.js';
 
-/** The most curves one curve-shapes read names (the backend's limit). */
-export const curvesPerRead=64;
 type BoardFilters={by:'commodity'|'marketType';commodity:string|null;type:string};
 /**
  * What a card shows of its curve at the close: nothing yet, before the board reads it; that its read failed, and why, until a later read
@@ -60,16 +58,6 @@ export function marketBoard(navigation:MarketNavigation,filters:BoardFilters,sha
   const colors=commodityColors(navigation.curves.flatMap(c=>c.category?[c.category.code]:[]));
   return navigationGroups(navigation,filters.by,filters.commodity,filters.type).map(({key,name,curves})=>({key,name,cards:curves.map(c=>card(c,colors,shapes.get(c.code)))}));
 }
-/**
- * The curve-shapes reads the board still needs: each listed curve with no shape the backend stated, because it is not read yet or its read
- * failed, in the library's order, at most 64 to a read.
- */
-export function shapeReads(groups:readonly BoardGroup[]):string[][]{
-  const unread=groups.flatMap(g=>g.cards.filter(c=>c.figures.state==='unread'||c.figures.state==='failed').map(c=>c.curve)),reads:string[][]=[];
-  for(let i=0;i<unread.length;i+=curvesPerRead)reads.push(unread.slice(i,i+curvesPerRead));
-  return reads;
-}
-
 /** Commodity identity uses a named shape as well as colour. Rates retain their existing curve-kind icon. */
 export function commodityIcon(card:Pick<BoardCard,'commodity'|'color'>){
  if(!card.commodity)return null;

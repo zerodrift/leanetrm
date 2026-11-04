@@ -63,6 +63,12 @@ Delayed visual reads belong to their account, directory, selected close and
 context. Replaced or hidden content releases its observers, and obsolete replies
 cannot dispatch dependent history reads or publish into the current view. A new
 load can retry a failed shape; one generation does not retry itself indefinitely.
+Shared `visibleReads` / `whenVisible` helpers own subscriptions and disposal;
+`batchReads` owns keyed coalescing, serial bounded requests, cached results and
+cancellation. Market, Dashboard and Blotter callers supply their context guard
+and rendering. The curve-shape request limit has one shared definition. These
+helpers replace the screens' separate queue loops and the unused whole-board
+batch planner.
 
 Complete portfolio valuation, totals and risk retain their full selected scope.
 Trading reads load the exact selected observation pins; revision inspection and
@@ -71,7 +77,7 @@ the corresponding booking form opens. These calculations are not viewport
 subsets. The position-facts response remains paged after scoped fact assembly;
 this increment does not claim database paging for every portfolio product.
 
-Verification passed 1,312 web tests, 657 managed core checks, 40 API data checks
+Verification passed 1,316 web tests, 657 managed core checks, 40 API data checks
 and preparation reuse, the 1,223-check standard owned-browser suite, 89 exchange /
 options / volatility browser checks, 198 custom-curve browser checks and 47
 calendar browser checks. Native HTTP checks cover hidden original pins, correction

@@ -1,12 +1,12 @@
 import {whenVisible} from './visible-read.js';
+import {batchReads} from './batch-reads.js';
 import type {CurveShape} from './desk-model.js';
 import {PendingCommand} from './pending-command.js';
-import {readCurveShapes} from './curve-shapes.js';
+import {readCurveShapes,curvesPerRead} from './curve-shapes.js';
 import {setupAddWidget} from './dashboard-add.js';
 import {setupPositions} from './dashboard-positions.js';
 import {chartBody} from './dashboard-chart.js';
 import {levelsBody,refusalNote,type DashboardMarket,type SharedShapes} from './dashboard-levels.js';
-import {curvesPerRead} from './market-board.js';
 import {addWidget,newWidget,arrange,removeWidget,moveToSection,moveOnBoard,nudged,configuredCurves,morningSections,endOfSection,
   type Arrangement,type DashboardLayout,type DashboardWidget,type Nudge,type Section,type WidgetKind} from './dashboard-layout.js';
 
@@ -46,35 +46,11 @@ export function setupDashboard(options:{api:<T>(path:string,body?:unknown)=>Prom
 
   function sharedShapes(market:DashboardMarket){
     const started=generation;
-    type Entry={promise:SharedShapes;resolve:(shapes:ReadonlyMap<string,CurveShape|string>)=>void;sent:boolean};
-    const pending=new Map<string,Entry>();let scheduled=false,draining=false,stopped=false;
-    const cancel=()=>{stopped=true;shapeReaders.delete(cancel);for(const [curve,value] of pending)value.resolve(new Map([[curve,'Curve shape unavailable · the dashboard read changed']]));};
-    async function flush(){
-      scheduled=false;if(draining||stopped)return;draining=true;
-      try{
-        while(!stopped&&started===generation){
-          const batch=[...pending].filter(([,value])=>!value.sent).slice(0,curvesPerRead);
-          if(!batch.length)return;
-          for(const [,value] of batch)value.sent=true;
-          const codes=batch.map(([curve])=>curve),shapes=await readCurveShapes(options.api,{snapshotId:market.snapshotId,context:market.navigation.context??undefined},codes);
-          if(stopped||started!==generation){cancel();return;}
-          for(const [,value] of batch)value.resolve(shapes);
-        }
-      }finally{draining=false;shapeReaders.delete(cancel);}
-    }
-    return (widget:DashboardWidget):SharedShapes=>{
-      const values=configuredCurves([widget]).map(curve=>{
-        let value=pending.get(curve);
-        if(!value){
-          let resolve!:Entry['resolve'];
-          const promise:SharedShapes=new Promise(done=>{resolve=done;});value={promise,resolve,sent:false};pending.set(curve,value);
-          shapeReaders.add(cancel);
-          if(!scheduled&&!draining){scheduled=true;setTimeout(()=>void flush(),0);}
-        }
-        return value.promise;
-      });
-      return Promise.all(values).then(maps=>new Map(maps.flatMap(map=>[...map])));
-    };
+    const cancel=()=>reader.cancel();
+    const reader=batchReads<string,CurveShape|string>({maximum:curvesPerRead,current:()=>started===generation,
+      read:curves=>readCurveShapes(options.api,{snapshotId:market.snapshotId,context:market.navigation.context??undefined},curves),
+      active:reading=>{if(reading)shapeReaders.add(cancel);else shapeReaders.delete(cancel);}});
+    return (widget:DashboardWidget):SharedShapes=>reader.get(configuredCurves([widget]));
   }
 
   // The body of one widget, reading the market now on screen; shapes come from the render's shared read.
