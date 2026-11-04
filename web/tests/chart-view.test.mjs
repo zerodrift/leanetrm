@@ -113,6 +113,9 @@ test('a line chart emphasizes the points it marks and draws a reference line at 
  assert.ok(reaching({min:3.1,max:3.15},3.1,3.5));
  assert.ok(reaching({min:3.8,max:4},3.5,4));
  assert.ok(o.yAxis.max({min:3.5,max:3.5})>o.yAxis.min({min:3.5,max:3.5}),'a line on the only value still has room around it');
+ // Those reaching ends are not round numbers, so the axis labels only its round interval ticks.
+ assert.equal(o.yAxis.axisLabel.showMinLabel,false);assert.equal(o.yAxis.axisLabel.showMaxLabel,false);
+ assert.equal(chartOptions({...spec,reference:undefined}).yAxis.axisLabel.showMaxLabel,undefined,'a data axis keeps its own labels');
 });
 test('a chart without marks or a reference line draws neither, and its axis is the data axis',()=>{
  const o=chartOptions({title:'Gas forward',axis:'delivery',unit:'USD/MMBtu (IT)',kind:'line',series:[{name:'Curve',points:[{x:'jan',y:'3.1'},{x:'feb',y:'3.15'}]}]});

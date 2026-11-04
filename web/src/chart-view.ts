@@ -91,7 +91,9 @@ export function chartOptions(spec:ChartSpec,size?:{width:number}){
     // Diverging bars keep zero in the middle, so a gain and a loss of one size are drawn alike, between round axis ends.
     ...(horizontal&&spec.kind==='bar'?{min:(v:{min:number;max:number})=>-axisEnd(v),max:axisEnd}:{}),
     // A reference line is part of the picture: the axis reaches it however far the data lies from it.
-    ...(reference!==undefined?{min:(v:{min:number;max:number})=>reach(v,reference).low,max:(v:{min:number;max:number})=>reach(v,reference).high}:{}),
+    // The ends that reach a reference line are not round numbers, so only the axis's round interval ticks are labelled.
+    ...(reference!==undefined?{min:(v:{min:number;max:number})=>reach(v,reference).low,max:(v:{min:number;max:number})=>reach(v,reference).high,
+      axisLabel:{color:'#6c7e63',fontSize:10,showMinLabel:false,showMaxLabel:false}}:{}),
     // A horizontal chart's caption states its unit, so the axis has no name. Bars with their values listed beside them
     // need no tick labels; others keep a few, apart from each other.
     ...(horizontal?{name:'',splitNumber:4,axisLabel:texts?{show:false}:{color:'#6c7e63',fontSize:10,hideOverlap:true}}:{})};
