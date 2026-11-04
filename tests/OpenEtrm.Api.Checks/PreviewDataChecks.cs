@@ -505,12 +505,12 @@ internal static class PreviewDataChecks
             var session=new PreviewSession(fixture.Manifest);
             session.Frames.Add(fixture.Frame.Id,fixture.Frame);
             var identity=Guid.NewGuid();var stored=fixture.Frame with{Id=identity,OriginCloseId=identity,FrozenObservationIds=[fixture.Observations[0].Id("id")]};
-            var plan=session.PlanFrames(new([stored],127,false),null,[]);
+            var plan=session.PlanFrames(new([stored],8,false),null,[]);
             if(session.Frames.Count!=1||session.Frames.ContainsKey(identity))throw new Exception("An uncommitted discovery changed session state.");
             session.ApplyFrames(plan);
             if(session.PersistentFrames.Length!=1||session.VisibleFrames.Length!=2||!session.Frames[identity].FrozenObservationIds.SequenceEqual(stored.FrozenObservationIds))
                 throw new Exception("A discovery replaced manual inputs or frozen uses.");
-            session.ApplyFrames(session.PlanFrames(new([],127,false),null,[]));
+            session.ApplyFrames(session.PlanFrames(new([],8,false),null,[]));
             if(session.Frames.Count!=1||session.Frames[fixture.Frame.Id]!=fixture.Frame)throw new Exception("Refreshing visible stored closes removed a manual selection.");
         });
         Check("same-instant durable closes retain separate origins and stable exact historical aliases",()=>
@@ -519,31 +519,31 @@ internal static class PreviewDataChecks
             var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
             var first=Guid.NewGuid();var second=Guid.NewGuid();
             var stored=new[]{first,second}.Select(id=>fixture.Frame with{Id=id,OriginCloseId=id,ContextId=context.ContextId}).ToImmutableArray();
-            var plan=session.PlanFrames(new(stored,128,false),context,[]);session.ApplyFrames(plan);
+            var plan=session.PlanFrames(new(stored,8,false),context,[]);session.ApplyFrames(plan);
             var retained=plan.Frames.ToDictionary(frame=>frame.OriginCloseId!.Value,frame=>frame.Id);
             if(retained.Count!=2||retained.Any(pair=>pair.Key==pair.Value)||plan.Frames.Any(frame=>!frame.ObservationIds.SequenceEqual(fixture.Frame.ObservationIds)))
                 throw new Exception("Historical close aliases collided or changed recorded inputs.");
-            var replay=session.PlanFrames(new(stored,128,false),context,[]);
+            var replay=session.PlanFrames(new(stored,8,false),context,[]);
             if(replay.Frames.Any(frame=>retained[frame.OriginCloseId!.Value]!=frame.Id))throw new Exception("Refreshing one retained context changed its explicit frame identities.");
             session.ForgetDiscoveredFrames();
-            if(session.PlanFrames(new(stored,128,false),context,[]).Frames.Any(frame=>retained[frame.OriginCloseId!.Value]!=frame.Id))
+            if(session.PlanFrames(new(stored,8,false),context,[]).Frames.Any(frame=>retained[frame.OriginCloseId!.Value]!=frame.Id))
                 throw new Exception("Returning to a stored context changed its exact close alias identity.");
         });
         Check("initial certified aliases survive context replay without adopting manual current variants",()=>
         {
             var session=Seeded(fixture.Frame);
             var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
-            var plan=session.PlanFrames(new([],126,false),context,session.SelectContextAliases(data,context));
+            var plan=session.PlanFrames(new([],8,false),context,session.SelectContextAliases(data,context));
             session.ApplyFrames(plan);var identity=plan.Frames.Single().Id;
             session.ForgetDiscoveredFrames();
-            var replay=session.PlanFrames(new([],126,false),context,session.SelectContextAliases(data,context));
+            var replay=session.PlanFrames(new([],8,false),context,session.SelectContextAliases(data,context));
             if(replay.Frames.Single().Id!=identity)throw new Exception("An exact certified replay lost its original frame identity.");
             var correction=Change(Change(Change(fixture.Observations[0],"id",Guid.NewGuid()),"corrects_id",fixture.Observations[0].Id("id")),"value","111.001");
             var updated=Data([..fixture.Observations,correction]);
-            if(session.PlanFrames(new([],126,false),context,session.SelectContextAliases(updated,context)).Frames.Single().Id==identity)
+            if(session.PlanFrames(new([],8,false),context,session.SelectContextAliases(updated,context)).Frames.Single().Id==identity)
                 throw new Exception("A changed resolved pin reused an earlier snapshot identity.");
             session.ForgetDiscoveredFrames(resetAliasIdentities:true);
-            if(session.PlanFrames(new([],126,false),context,session.SelectContextAliases(data,context)).Frames.Single().Id==identity)
+            if(session.PlanFrames(new([],8,false),context,session.SelectContextAliases(data,context)).Frames.Single().Id==identity)
                 throw new Exception("Changing identity retained the previous user's alias map.");
             var manual=fixture.Frame.SelectRevision(fixture.Observations[0].Id("id"),correction.Id("id"),"Explicit synthetic revision");
             session.Frames.Add(manual.Id,manual);
@@ -555,9 +555,9 @@ internal static class PreviewDataChecks
             var seed=new PreviewSeedFrame(fixture.Frame.At,fixture.Frame.ObservationIds.ToArray(),fixture.Frame.CurveContracts.ToDictionary(pair=>pair.Key,pair=>pair.Value.ToArray()));
             var session=new PreviewSession(fixture.Manifest with{Frames=[seed with{At=seed.At.AddDays(-1)},seed]});
             var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
-            session.ApplyFrames(session.PlanFrames(new([],124,false),context,session.SelectContextAliases(data,context)));
+            session.ApplyFrames(session.PlanFrames(new([],8,false),context,session.SelectContextAliases(data,context)));
             var initial=session.ContextAliases(context).Select(frame=>frame.Id).ToArray();
-            session.ApplyFrames(session.PlanFrames(new([],124,false),context,session.ContextAliases(context)));
+            session.ApplyFrames(session.PlanFrames(new([],8,false),context,session.ContextAliases(context)));
             if(!session.ContextAliases(context).Select(frame=>frame.Id).SequenceEqual(initial))
                 throw new Exception("Refreshing an unchanged context reordered its initial snapshot directory.");
         });
