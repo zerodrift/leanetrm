@@ -47,7 +47,7 @@ public sealed partial class PortfolioRiskPreview
     {
         ParametricRisk.ValidatePolicy(body.Policy);
         if(body.History?.Scope?.Context is not {} context||context!=outer.Context||body.History.ExpectedManifestId?.Length!=64||
-            JsonSerializer.Serialize(body.History.PricingPolicy,RiskJobs.Json)!=JsonSerializer.Serialize(outer.PricingPolicy,RiskJobs.Json)||outer.Joint is not null||outer.Detail!="books"||outer.Stress.IsDefault||!outer.Stress.IsEmpty||
+            JsonSerializer.Serialize(body.History.PricingPolicy,RiskJobs.Json)!=JsonSerializer.Serialize(outer.PricingPolicy,RiskJobs.Json)||outer.Joint is not null||outer.MonteCarlo is not null||outer.Detail!="books"||outer.Stress.IsDefault||!outer.Stress.IsEmpty||
             (outer.TradeIds is {} a?string.Join(',',a.Order()):null)!=(body.History.Scope.TradeIds is {} b?string.Join(',',b.Order()):null))
             throw new MarketDataException("risk_parametric_scope","Parametric risk uses the exact captured history, common retained holdings and an unstressed books-detail portfolio.");
         ValidateParametricFiniteDifference(body.FiniteDifference);

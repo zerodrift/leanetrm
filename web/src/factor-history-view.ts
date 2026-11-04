@@ -17,6 +17,7 @@ export function setupFactorHistory(o:Options){
  const select=(parent:HTMLElement,id:string,label:string)=>{const wrap=node('label',label),control=node('select');control.id=id;control.required=true;wrap.append(control);parent.append(wrap);return control;};
  const input=(parent:HTMLElement,id:string,label:string,type='text')=>{const wrap=node('label',label),control=node('input');control.id=id;control.type=type;control.required=true;control.autocomplete='off';wrap.append(control);parent.append(wrap);return control;};
  const method=select(grid,'risk-parametric-profile','Method');
+ const paths=input(grid,'risk-monte-carlo-paths','Simulation paths','number'),seed=input(grid,'risk-monte-carlo-seed','Reproducible random seed');paths.min='2';paths.max='16384';paths.step='1';seed.inputMode='numeric';
  const comparisonLabel=node('label','Include matching parametric comparison '),comparison=node('input');comparison.type='checkbox';comparison.id='risk-historical-comparison';comparisonLabel.append(comparison);grid.append(comparisonLabel);
  const lookback=select(grid,'risk-history-lookback','History window');lookback.append(new Option('3 months','three_months'),new Option('6 months','six_months'),new Option('1 year','one_year'),new Option('Custom dates','custom'));
  const confidence=select(grid,'risk-parametric-confidence','Confidence level');confidence.append(new Option('95%','0.95'),new Option('97.5%','0.975'),new Option('99%','0.99'),new Option('99.9%','0.999'),new Option('Custom','custom'));
@@ -46,10 +47,11 @@ export function setupFactorHistory(o:Options){
   const c=configuration?.history.calendars.find(c=>JSON.stringify(c.reference)===calendar.value);
   dates.hidden=lookback.value!=='custom';from.disabled=to.disabled=dates.hidden;
   customConfidence.parentElement!.hidden=confidence.value!=='custom';customConfidence.required=confidence.value==='custom';
-  const historical=method.value===configuration?.historical.profile.convention,fd=!historical||comparison.checked;
+  const historical=method.value===configuration?.historical.profile.convention,simulation=method.value===configuration?.monteCarlo?.profile.convention,fd=!simulation&&(!historical||comparison.checked);
+  for(const c of [paths,seed]){c.parentElement!.hidden=!simulation;c.disabled=!simulation;}
   comparisonLabel.hidden=!historical;drift.parentElement!.hidden=historical;drift.disabled=historical;
   for(const c of [ticks,absolute,relative]){c.parentElement!.hidden=!fd;c.disabled=!fd;}
-  methodHelp.textContent=historical?'Equal-weight full-PV repricing of joint absolute changes. Time, holdings, fixings, rates and current option calibration stay frozen. Signed empirical quantile and fractional tail mass; no carry, interpolation, proxy or contract roll.':'Equal-weight sample covariance (n−1), centered changes and signed normal loss tails. Finite differences use half, nominal and double steps. Each currency and valuation measure stays separate.';
+  methodHelp.textContent=simulation?'Joint additive Gaussian changes, equal-weight sample covariance (n−1), full PV repricing and a reproducible seeded sample set. Time and nonfactor pricing inputs stay frozen; negative simulated prices may refuse the complete run.':historical?'Equal-weight full-PV repricing of joint absolute changes. Time, holdings, fixings, rates and current option calibration stay frozen. Signed empirical quantile and fractional tail mass; no carry, interpolation, proxy or contract roll.':'Equal-weight sample covariance (n−1), centered changes and signed normal loss tails. Finite differences use half, nominal and double steps. Each currency and valuation measure stays separate.';
   summary.textContent=configuration?`Starting settings: ${confidence.selectedOptions[0]?.textContent} confidence · one business day · ${lookback.selectedOptions[0]?.textContent} (${from.value||'choose dates'} to ${to.value||'choose dates'}, exclusive) · end of day${c?' in '+(c.clockRule.ianaZone??(c.clockRule.fixedOffsetSeconds===0?'UTC':c.clock)):''} · minimum ${minimum.value} common changes. All settings are sent explicitly and retained. Incomplete days after the selected market cutoff are omitted.`:'';
  }
  function windowDates(){
@@ -78,7 +80,7 @@ export function setupFactorHistory(o:Options){
    if(!current(version))return;
    if(!catalog.history?.guided||!catalog.parametric?.defaults||!catalog.historical?.defaults||catalog.context.contextId!==scope.context.contextId)throw Error('Refresh Risk to load the supported VaR setup for this scope.');
    configuration={...catalog,scope};const d=catalog.parametric.defaults,h=catalog.history;
-   method.replaceChildren(new Option('Parametric VaR / expected shortfall',catalog.parametric.profile.convention),new Option('Historical simulation VaR / expected shortfall',catalog.historical.profile.convention));method.value=catalog.parametric.profile.convention;comparison.checked=catalog.historical.defaults.compareParametric;
+   method.replaceChildren(new Option('Parametric VaR / expected shortfall',catalog.parametric.profile.convention),new Option('Historical simulation VaR / expected shortfall',catalog.historical.profile.convention));if(catalog.monteCarlo){method.append(new Option('Monte Carlo VaR / expected shortfall',catalog.monteCarlo.profile.convention));paths.value=String(catalog.monteCarlo.defaults.paths);paths.max=String(catalog.monteCarlo.limits.scopeMaxPaths??catalog.monteCarlo.limits.maxPaths);seed.value=catalog.monteCarlo.defaults.seed;}method.value=catalog.parametric.profile.convention;comparison.checked=catalog.historical.defaults.compareParametric;
    drift.replaceChildren(new Option('Zero drift',catalog.parametric.drifts.zero),new Option('Sample mean drift',catalog.parametric.drifts.sample));drift.value=d.drift;
    confidence.value=d.confidence;ticks.value=String(d.tradingTicks);absolute.value=d.deltaTolerance.absolute;relative.value=d.deltaTolerance.relative;minimum.value=String(h.guided.minimumSamples);lookback.value=h.guided.lookback;priceTypes=[...h.guided.priceTypes];
    calendar.replaceChildren(new Option('Choose a calendar…',''),...h.calendars.map(c=>new Option(c.label+' · '+(c.clockRule.ianaZone??(c.clockRule.fixedOffsetSeconds===0?'UTC':c.clock)),JSON.stringify(c.reference))));
@@ -126,14 +128,15 @@ export function setupFactorHistory(o:Options){
  form.onsubmit=event=>{event.preventDefault();if(!form.reportValidity())return;const action=(event as SubmitEvent).submitter?.id;void o.act(async()=>{
   if(action!=='risk-history-run'&&o.unconfirmed())throw Error('Reconcile the unconfirmed risk submission before running another VaR.');
   const config=configuration;if(!config)throw Error('Open VaR setup first.');
-  const historical=method.value===config.historical.profile.convention;
-  const count=Number(ticks.value);if((!historical||comparison.checked)&&(!Number.isSafeInteger(count)||count<1||count>1000))throw Error('The trading-tick step must be a whole number from 1 to 1000.');
+  const historical=method.value===config.historical.profile.convention,simulation=method.value===config.monteCarlo?.profile.convention;
+  const pathCount=Number(paths.value);if(simulation&&(!Number.isSafeInteger(pathCount)||pathCount<2||pathCount>(config.monteCarlo?.limits.scopeMaxPaths??config.monteCarlo?.limits.maxPaths??0)||!/^(0|[1-9][0-9]{0,19})$/.test(seed.value)||BigInt(seed.value)>18446744073709551615n))throw Error('Choose an admitted whole simulation count and an unsigned 64-bit seed.');
+  const count=Number(ticks.value);if(!simulation&&(!historical||comparison.checked)&&(!Number.isSafeInteger(count)||count<1||count>1000))throw Error('The trading-tick step must be a whole number from 1 to 1000.');
   const policy={...config.parametric.profile,drift:historical?config.historical.defaults.comparisonDrift:drift.value,confidence:confidence.value==='custom'?customConfidence.value.trim():confidence.value},finiteDifference={convention:config.parametric.finiteDifference,tradingTicks:count,deltaTolerance:{absolute:absolute.value.trim(),relative:relative.value.trim()}};
   const requestedKey=JSON.stringify(request());
   const captured=await prepare(),version=generation;if(!captured||!current(version)||!sameScope()||configuration!==config||captured!==result||cacheKey!==requestedKey||JSON.stringify(request())!==requestedKey)return;
   if(action==='risk-history-run')return;
-  message.textContent=historical?'Step 2 of 2 · repricing every joint historical change and calculating VaR and expected shortfall…':'Step 2 of 2 · calculating covariance, sensitivities, VaR and expected shortfall…';
-  const body:StatisticalRequest=historical?{historical:{history:structuredClone(captured.request),policy:{...config.historical.profile,confidence:policy.confidence},...(comparison.checked?{comparison:{policy,finiteDifference}}:{})}}:{parametric:{history:structuredClone(captured.request),policy,finiteDifference}};
+  message.textContent=simulation?'Step 2 of 2 · generating correlated factor moves and repricing every simulation path…':historical?'Step 2 of 2 · repricing every joint historical change and calculating VaR and expected shortfall…':'Step 2 of 2 · calculating covariance, sensitivities, VaR and expected shortfall…';
+  const body:StatisticalRequest=simulation?{monteCarlo:{history:structuredClone(captured.request),policy:{...config.monteCarlo!.profile,confidence:policy.confidence,drift:drift.value,paths:pathCount,seed:seed.value}}}:historical?{historical:{history:structuredClone(captured.request),policy:{...config.historical.profile,confidence:policy.confidence},...(comparison.checked?{comparison:{policy,finiteDifference}}:{})}}:{parametric:{history:structuredClone(captured.request),policy,finiteDifference}};
   await o.calculate(body,{pricingPolicy:config.pricingPolicy,convention:config.convention,numericalPolicy:config.numericalPolicy,context:captured.context,asOf:captured.asOf},action==='risk-parametric-queue');
   if(current(version))message.textContent='Calculation submitted. Its report retains the history, price-type choices and numerical settings.';
  });};

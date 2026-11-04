@@ -46,7 +46,7 @@ public static class RiskJobs
         if(body.RequestId==Guid.Empty||body.Request?.Context is not {KnowledgeMode:"retained",ContextId:{} contextId})
             throw new MarketDataException("risk_job_context","Queue an exact retained financial context with a stable request identity.");
         var run=body.Run is {} part?RunFrame(part):null;
-        if((body.Request.Joint is not null||body.Request.Parametric is not null||body.Request.Historical is not null)&&run is not null)throw new MarketDataException("risk_job_run","A joint or statistical request is one complete job; independent sensitivity parts do not combine complete results.");
+        if((body.Request.Joint is not null||body.Request.Parametric is not null||body.Request.Historical is not null||body.Request.MonteCarlo is not null)&&run is not null)throw new MarketDataException("risk_job_run","A joint or statistical request is one complete job; independent sensitivity parts do not combine complete results.");
         var prepared=await calculator.Prepare(connection,data,frame,body.Request,ct);
         var request=prepared.Request with {BookIds=prepared.BookIds,PortfolioIds=[],
             Detail=prepared.Detail==OpenEtrm.MarketData.Risk.RiskDetail.Books?"books":"holdings",
@@ -153,6 +153,7 @@ public static class RiskJobs
     {
         var sql=method switch{
             "parametric"=>"SELECT risk.archive_parametric($1,$2,$3::timestamptz,$4::uuid)::text",
+            "monte_carlo"=>"SELECT risk.archive_monte_carlo($1,$2,$3::timestamptz,$4::uuid)::text",
             "historical"=>"SELECT risk.archive_historical($1,$2,$3::timestamptz,$4::uuid)::text",
             "statistical"=>"SELECT risk.archive_statistical($1,$2,$3::timestamptz,$4::uuid)::text",
             _=>throw new MarketDataException("risk_archive_input","Choose a supported statistical report method.")};

@@ -31,7 +31,7 @@ recovery identity retain the selected catalog. Authenticated connection pools
 are shared; ordinary native booking and risk authority checks still apply.
 Queued risk requires a dedicated worker login registered to that catalog.
 
-Migration 0190 adds a distinct namespace for conversations, approvals and
+Migration 0191 adds a distinct namespace for conversations, approvals and
 personal preferences. Exact definition, owner, grant and constraint guards
 refuse an unexpected prior schema. Assistant page operations use the selected
 API namespace. Signing out revokes the authenticated login across both datasets;

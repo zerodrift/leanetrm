@@ -98,14 +98,14 @@ internal static class ParametricRiskChecks
     private static void Near(string actual,double expected,double tolerance)
     {if(Math.Abs(double.Parse(actual,System.Globalization.CultureInfo.InvariantCulture)-expected)>tolerance)throw new Exception($"Expected {expected:R}, got {actual}");}
     private static void Reject(string code,Action action){try{action();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception("Expected "+code);}
-    private sealed class Fixture
+    internal sealed class Fixture
     {
         internal readonly AlignedFactorHistory History;
         internal readonly ReferenceKey Currency;
         internal readonly PriceUnit Unit;
         internal readonly ParametricRiskPolicy Policy=new(ParametricRiskPolicy.Version1,ParametricRiskPolicy.Numerics,ParametricRiskPolicy.Sample,
             ParametricRiskPolicy.Centered,ParametricRiskPolicy.Zero,ParametricRiskPolicy.Session,ParametricRiskPolicy.Signed,"0.99");
-        internal Fixture(string[]? gasPrices=null,string[]? powerPrices=null)
+        internal Fixture(string[]? gasPrices=null,string[]? powerPrices=null,string[]? thirdPrices=null)
         {
             gasPrices??=["10","12","12","10"];powerPrices??=["20","21","24","20"];
             var revision=new DefinitionRevision(Guid.NewGuid(),Guid.NewGuid());var reference=new ReferenceRevision(Guid.NewGuid(),Guid.NewGuid());
@@ -118,17 +118,19 @@ internal static class ParametricRiskChecks
             var rows=ImmutableArray.CreateBuilder<RiskHistoryObservation>();
             RiskHistoryFactor Factor(string code,string[] prices)
             {
-                var series=new SeriesKey(revision,Guid.Parse(code=="gas"?"00000000-0000-0000-0000-000000000001":"00000000-0000-0000-0000-000000000002"));
+                var series=new SeriesKey(revision,Guid.Parse(code=="gas"?"00000000-0000-0000-0000-000000000001":code=="power"?"00000000-0000-0000-0000-000000000002":"00000000-0000-0000-0000-000000000003"));
                 var contract=new ContractKey(revision,Guid.NewGuid());var quote=new ReferenceKey(reference,code);
+                var unit=code=="third"?new PriceUnit(Currency,new(reference,"other_energy"),ExactDecimal.Parse("1")):Unit;
                 for(var n=0;n<prices.Length;n++)rows.Add(new(new(new(revision.CatalogId,Guid.NewGuid()),series,new(reference,"close"),ObservationRole.TraderMark,
-                    PublicationState.Final,clock.ResolvedCloses[n].Instant,ExactDecimal.Parse(prices[n])),quote,Unit,contract,null,n+1,clock.ResolvedCloses[n].Instant.AddMinutes(1)));
+                    PublicationState.Final,clock.ResolvedCloses[n].Instant,ExactDecimal.Parse(prices[n])),quote,unit,contract,null,n+1,clock.ResolvedCloses[n].Instant.AddMinutes(1)));
                 var last=rows[^1].Observation;
-                return new(new(new(series,InputUse.Variable),quote,Unit,contract,last.Key,last.Source,last.Role,last.Value,[new(revision,code)],ExactDecimal.Parse("0.01")),PublicationState.Final);
+                return new(new(new(series,InputUse.Variable),quote,unit,contract,last.Key,last.Source,last.Role,last.Value,[new(revision,code)],ExactDecimal.Parse("0.01")),PublicationState.Final);
             }
             var gas=Factor("gas",gasPrices);var power=Factor("power",powerPrices);
             var policy=new RiskHistoryPolicy(RiskHistoryPolicy.Version1,CurveModel.NumericalPolicy,RiskHistoryPolicy.Raw,RiskHistoryPolicy.Heads,
                 RiskHistoryPolicy.ExactCloses,RiskHistoryPolicy.Absolute,RiskHistoryPolicy.Complete,RiskHistoryPolicy.Fixed,2);
-            History=FactorHistory.Align(forecast,policy,calendar,clock,[gas,power],rows.ToImmutable());
+            var factors=ImmutableArray.Create(gas,power);if(thirdPrices is not null)factors=factors.Add(Factor("third",thirdPrices));
+            History=FactorHistory.Align(forecast,policy,calendar,clock,factors,rows.ToImmutable());
         }
         internal ParametricExposure Exposure(string id,string[] deltas)=>new(id,Guid.NewGuid(),"contractual_pv",Currency,
             [..History.Columns.Select((c,n)=>new ParametricDelta(c.Id,c.Mapping.Factor.Unit,deltas[n],true))]);

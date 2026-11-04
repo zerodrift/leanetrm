@@ -55,6 +55,15 @@ public static partial class RiskEngine
         return CalculateScenarioSet(prepared,set,numericalPolicy,cancellation,detail,HistoricalRisk.MaximumSamples,HistoricalRisk.MaximumFactors);
     }
 
+    public static ConnectedScenarioRiskRun CalculateMonteCarloScenarios(PreparedConnectedPortfolioRisk prepared,
+        ConnectedRiskScenarioSet set,string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Holdings)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if(set is null||set.Version!=MonteCarloRiskPolicy.Version1||set.Id is null||set.Id.Length!=64||!set.Id.All(char.IsAsciiHexDigitLower))
+            throw Error("risk_monte_carlo_policy","Monte Carlo repricing requires its captured study identity and selected implementation.");
+        return CalculateScenarioSet(prepared,set,numericalPolicy,cancellation,detail,MonteCarloRisk.MaximumPaths,MonteCarloRisk.MaximumFactors);
+    }
+
     private static ConnectedScenarioRiskRun CalculateScenarioSet(PreparedConnectedPortfolioRisk prepared,
         ConnectedRiskScenarioSet set,string numericalPolicy,CancellationToken cancellation,RiskDetail detail,int maximumScenarios,int maximumShifts)
     {

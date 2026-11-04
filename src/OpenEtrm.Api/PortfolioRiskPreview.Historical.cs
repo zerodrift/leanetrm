@@ -44,7 +44,7 @@ public sealed partial class PortfolioRiskPreview
         HistoricalRisk.ValidatePolicy(body.Policy);
         if(body.History?.Scope?.Context is not {} context||context!=outer.Context||body.History.ExpectedManifestId?.Length!=64||
             JsonSerializer.Serialize(body.History.PricingPolicy,RiskJobs.Json)!=JsonSerializer.Serialize(outer.PricingPolicy,RiskJobs.Json)||
-            outer.Parametric is not null||outer.Joint is not null||outer.Detail!="holdings"||outer.Bumps.IsDefault||!outer.Bumps.IsEmpty||
+            outer.Parametric is not null||outer.Joint is not null||outer.MonteCarlo is not null||outer.Detail!="holdings"||outer.Bumps.IsDefault||!outer.Bumps.IsEmpty||
             outer.Stress.IsDefault||!outer.Stress.IsEmpty||
             !body.Factors.IsDefault&&(body.Factors.Length is <1 or >HistoricalRisk.MaximumFactors||body.Factors.Any(f=>f is null))||
             (outer.TradeIds is {} a?string.Join(',',a.Order()):null)!=(body.History.Scope.TradeIds is {} b?string.Join(',',b.Order()):null))
@@ -128,39 +128,9 @@ public sealed partial class PortfolioRiskPreview
         PortfolioValuationResult nominal;HistoricalRiskReport result;
         if(eligible)
         {
-            var run=PortfolioJointCalculation.Calculate(prepared.Portfolio,prepared.Joint!,[],RiskDetail.Holdings,ct,historical:true);
-            // Expected native holdings come from preparation, independently of scenario output. A model cannot omit or rename one.
-            var expected=HistoricalHoldings(prepared.Portfolio);
-            if(expected.Distinct().Count()!=expected.Length)throw new MarketDataException("risk_historical_exposures","Prepared native holdings contain duplicate identities.");
-            var basis=run.Partitions.SelectMany(p=>p.Run.Groups.SelectMany((g,n)=>g.Positions.Select(v=>(Key:HistoricalKey(p.Market.Measures[n],v),Value:v)))).ToArray();
-            if(basis.Length!=expected.Length||basis.Select(v=>v.Key).Distinct().Count()!=expected.Length||!basis.Select(v=>v.Key).ToHashSet().SetEquals(expected))
-                throw new MarketDataException("risk_historical_exposures","The frozen base must account for every prepared native holding exactly once.");
-            var bases=basis.ToDictionary(v=>v.Key,v=>v.Value.Value);
-            exposures=[..basis.Select(v=>new HistoricalExposure(HistoricalExposureId(v.Key),v.Key.BookId,v.Key.TradeId,v.Key.BindingId,v.Key.Measure,v.Key.Currency,v.Value.Value.ToExactString()))
-                .OrderBy(e=>e.Id,StringComparer.Ordinal)];
-            observations=[..run.Samples.Select(sample=>
-            {
-                ct.ThrowIfCancellationRequested();
-                var cells=sample.Positions.Select(v=>
-                {
-                    var p=v.Position;var key=new HistoricalPositionKey(p.BookId,p.TradeId,p.BindingId,v.Measure,p.Values.Base.Currency);
-                    if(!bases.TryGetValue(key,out var current)||current.ToExactString()!=p.Values.Base.ToExactString()||
-                        p.Values.Value.Currency!=key.Currency||p.Values.Loss.ToExactString()!=current.Subtract(p.Values.Value).ToExactString())
-                        throw new MarketDataException("risk_historical_exposures","A scenario changed its frozen base, native currency or complete position identity.");
-                    return new HistoricalScenarioValue(HistoricalExposureId(key),p.Values.Value.ToExactString());
-                }).ToImmutableArray();
-                return new HistoricalObservation(sample.Id,cells);
-            })];
+            var run=EvaluateFullPvSamples(prepared,HistoricalRiskPolicy.Version1,ct);
+            exposures=run.Exposures;observations=run.Observations;nominal=run.Nominal;
             result=HistoricalRisk.Calculate(history.Id,[..history.Samples.Select(s=>s.Id)],spec.Policy,exposures,observations,ct);
-            nominal=new(prepared.Portfolio.SnapshotId,prepared.Portfolio.Context,prepared.Portfolio.Policy,
-                PortfolioValuation.ModelContracts(run.Partitions.SelectMany(p=>p.Run.Groups).SelectMany(g=>g.Contracts)),prepared.Portfolio.Positions,[],run.BaseTotals,[],run.Work)
-            {
-                Detail=RiskDetail.Holdings,BasePositions=[..basis.Select(v=>new PortfolioHoldingValue(v.Key.Measure,v.Value))],
-                ConnectedScenarios=[..run.Partitions.Select(p=>new PortfolioConnectedScenario(p.Market.Snapshot.Definitions,p.Run.BaseScenario.ManifestId,p.Run.BaseScenario.Id,
-                    p.Run.BaseScenario.ParentId,p.Run.BaseScenario.Depth,p.Run.GraphWork,p.Market.Preparation))],
-                DiscountInputs=prepared.Portfolio.DiscountInputs,PpaReceipt=prepared.Portfolio.Ppa?.Receipt,
-                PpaMeasures=[..run.Partitions.SelectMany(p=>p.Run.Groups.SelectMany((g,i)=>p.Market.Measures[i]==PortfolioValuation.PpaMeasure?g.Measures:ImmutableArray<OpenEtrm.MarketData.Trading.BookValueMeasures>.Empty))]
-            };
         }
         else
         {
@@ -169,6 +139,43 @@ public sealed partial class PortfolioRiskPreview
                 [..new[]{history.Available?null:"insufficient_common_history",prepared.Portfolio.Excluded.IsEmpty?null:"incomplete_portfolio"}.OfType<string>()]);
         }
         return new(spec,history,eligible,before,exposures,observations,nominal,result);
+    }
+    private sealed record FullPvSamples(ImmutableArray<HistoricalExposure> Exposures,ImmutableArray<HistoricalObservation> Observations,PortfolioValuationResult Nominal);
+    private static FullPvSamples EvaluateFullPvSamples(Prepared prepared,string method,CancellationToken ct)
+    {
+        var run=PortfolioJointCalculation.Calculate(prepared.Portfolio,prepared.Joint!,[],RiskDetail.Holdings,ct,statisticalMethod:method);
+        // Expected native holdings come from preparation, independently of scenario output. A model cannot omit or rename one.
+        var expected=HistoricalHoldings(prepared.Portfolio);
+        if(expected.Distinct().Count()!=expected.Length)throw new MarketDataException("risk_historical_exposures","Prepared native holdings contain duplicate identities.");
+        var basis=run.Partitions.SelectMany(p=>p.Run.Groups.SelectMany((g,n)=>g.Positions.Select(v=>(Key:HistoricalKey(p.Market.Measures[n],v),Value:v)))).ToArray();
+        if(basis.Length!=expected.Length||basis.Select(v=>v.Key).Distinct().Count()!=expected.Length||!basis.Select(v=>v.Key).ToHashSet().SetEquals(expected))
+            throw new MarketDataException("risk_historical_exposures","The frozen base must account for every prepared native holding exactly once.");
+        var bases=basis.ToDictionary(v=>v.Key,v=>v.Value.Value);
+        ImmutableArray<HistoricalExposure> exposures=[..basis.Select(v=>new HistoricalExposure(HistoricalExposureId(v.Key),v.Key.BookId,v.Key.TradeId,v.Key.BindingId,v.Key.Measure,v.Key.Currency,v.Value.Value.ToExactString()))
+            .OrderBy(e=>e.Id,StringComparer.Ordinal)];
+        ImmutableArray<HistoricalObservation> observations=[..run.Samples.Select(sample=>
+        {
+            ct.ThrowIfCancellationRequested();
+            var cells=sample.Positions.Select(v=>
+            {
+                var p=v.Position;var key=new HistoricalPositionKey(p.BookId,p.TradeId,p.BindingId,v.Measure,p.Values.Base.Currency);
+                if(!bases.TryGetValue(key,out var current)||current.ToExactString()!=p.Values.Base.ToExactString()||
+                    p.Values.Value.Currency!=key.Currency||p.Values.Loss.ToExactString()!=current.Subtract(p.Values.Value).ToExactString())
+                    throw new MarketDataException("risk_historical_exposures","A scenario changed its frozen base, native currency or complete position identity.");
+                return new HistoricalScenarioValue(HistoricalExposureId(key),p.Values.Value.ToExactString());
+            }).ToImmutableArray();
+            return new HistoricalObservation(sample.Id,cells);
+        })];
+        var nominal=new PortfolioValuationResult(prepared.Portfolio.SnapshotId,prepared.Portfolio.Context,prepared.Portfolio.Policy,
+            PortfolioValuation.ModelContracts(run.Partitions.SelectMany(p=>p.Run.Groups).SelectMany(g=>g.Contracts)),prepared.Portfolio.Positions,[],run.BaseTotals,[],run.Work)
+        {
+            Detail=RiskDetail.Holdings,BasePositions=[..basis.Select(v=>new PortfolioHoldingValue(v.Key.Measure,v.Value))],
+            ConnectedScenarios=[..run.Partitions.Select(p=>new PortfolioConnectedScenario(p.Market.Snapshot.Definitions,p.Run.BaseScenario.ManifestId,p.Run.BaseScenario.Id,
+                p.Run.BaseScenario.ParentId,p.Run.BaseScenario.Depth,p.Run.GraphWork,p.Market.Preparation))],
+            DiscountInputs=prepared.Portfolio.DiscountInputs,PpaReceipt=prepared.Portfolio.Ppa?.Receipt,
+            PpaMeasures=[..run.Partitions.SelectMany(p=>p.Run.Groups.SelectMany((g,i)=>p.Market.Measures[i]==PortfolioValuation.PpaMeasure?g.Measures:ImmutableArray<OpenEtrm.MarketData.Trading.BookValueMeasures>.Empty))]
+        };
+        return new(exposures,observations,nominal);
     }
     private static string HistoricalStudyId(Prepared prepared,HistoricalRun run)=>Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{
         prepared.Portfolio.Context,prepared.Portfolio.SnapshotId,prepared.Portfolio.Policy,prepared.Portfolio.Positions,

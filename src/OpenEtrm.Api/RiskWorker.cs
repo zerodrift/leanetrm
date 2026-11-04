@@ -252,7 +252,7 @@ public static class RiskWorker
             throw new MarketDataException("risk_job_context","The retained job must list the positions its submission left out.");
         var historyPlan=job["frame"]!["factorHistory"]?.Deserialize<RetainedFactorHistory>(RiskJobs.Json);
         var historical=ImmutableArray<RiskHistoryObservation>.Empty;
-        if(request.Parametric is not null||request.Historical is not null)
+        if(request.Parametric is not null||request.Historical is not null||request.MonteCarlo is not null)
         {
             if(historyPlan is null)throw new MarketDataException("risk_parametric_history","A statistical job must retain its complete history input plan.");
             var values=await PreviewDatabase.Rows(connection,"SELECT risk.history_inputs($1,$2)::text",[id,lease],ct);
@@ -267,7 +267,7 @@ public static class RiskWorker
         if(job["frame"]!["optionCalibrations"] is not JsonArray calibrations||
             !JsonNode.DeepEquals(calibrations,JsonSerializer.SerializeToNode(prepared.Portfolio.OptionCalibrations,RiskJobs.Json)))
             throw new MarketDataException("risk_option_calibration","The replayed option calibrations differ from the receipts the job retained.");
-        if(request.Parametric is not null||request.Historical is not null)
+        if(request.Parametric is not null||request.Historical is not null||request.MonteCarlo is not null)
         {
             await using var authority=ScheduleStore.Command(connection,"SELECT risk.check_history($1,$2)",id,lease);
             await authority.ExecuteScalarAsync(ct);

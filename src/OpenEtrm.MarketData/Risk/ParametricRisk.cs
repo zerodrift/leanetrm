@@ -74,22 +74,10 @@ public static class ParametricRisk
         if(!portfolioComplete)reasons.Add("incomplete_portfolio");
         if(ordered.Any(e=>e.Deltas.Any(v=>!v.Stable)))reasons.Add("unstable_delta");
         if(n<2)return new(policy,new(history.Id,n,ids,[],[],0,[],0,"unavailable",null),[],false,reasons.ToImmutable());
+        var calibration=CalibrateCaptured(history,cancellation);
         var samples=history.Samples.Select(s=>s.Changes.Select(v=>Number(v.ToString())).ToArray()).ToArray();
-        var sums=Enumerable.Range(0,d).Select(i=>SignedRatio.Sum(samples.Select(s=>s[i]))).ToArray();
-        var means=sums.Select(s=>s/n).ToArray();var covariance=new SignedRatio[d][];
-        for(var i=0;i<d;i++)covariance[i]=new SignedRatio[d];
-        for(var i=0;i<d;i++)for(var j=i;j<d;j++)
-        {
-            cancellation.ThrowIfCancellationRequested();
-            var cross=SignedRatio.Sum(samples.Select(s=>s[i]*s[j]));
-            covariance[i][j]=covariance[j][i]=Bound((cross-sums[i]*sums[j]/n)/(n-1));
-        }
-        var rank=Rank(covariance,cancellation);var constant=ids.Where((_,i)=>covariance[i][i].Numerator.IsZero).ToImmutableArray();
-        var condition=rank==d?Condition(covariance):null;
-        var calibration=new ParametricCalibration(history.Id,n,ids,[..means.Select(Text)],[..covariance.Select(row=>row.Select(Text).ToImmutableArray())],rank,
-            constant,(long)n*d*d,rank<d?"rank_deficient":condition is null?"unresolved":condition>1e12?"poorly_conditioned":"full_rank",condition is {} k?Real(k):null)
-            {Correlation=[..covariance.Select((row,i)=>row.Select((value,j)=>covariance[i][i].Numerator.IsZero||covariance[j][j].Numerator.IsZero?null:
-                Real(Real(value)/(Math.Sqrt(Real(covariance[i][i]))*Math.Sqrt(Real(covariance[j][j]))))).ToImmutableArray())]};
+        var means=calibration.Means.Select(Number).ToArray();
+        var covariance=calibration.Covariance.Select(row=>row.Select(Number).ToArray()).ToArray();
         if(reasons.Count>0)return new(policy,calibration,[],false,reasons.ToImmutable());
         var confidence=Real(Number(policy.Confidence));var z=NormalQuantile(confidence);var tail=Density(z)/(1-confidence);
         var partitions=ImmutableArray.CreateBuilder<ParametricPartition>();
@@ -118,6 +106,37 @@ public static class ParametricRisk
                 Real(valueAtRisk-books.Sum(b=>double.Parse(b.ValueAtRisk,CultureInfo.InvariantCulture))),Real(es-books.Sum(b=>double.Parse(b.ExpectedShortfall,CultureInfo.InvariantCulture)))));
         }
         return new(policy,calibration,partitions.ToImmutable(),true,[]);
+    }
+    // Shared captured common-row calibration; simulation and delta-normal consume the same exact moments.
+    public static ParametricCalibration Calibrate(AlignedFactorHistory history,CancellationToken cancellation=default)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if(history is null)throw Error("risk_parametric_history","Supply the complete captured history manifest.");
+        Admit(history.Columns.Length,history.Samples.Length);
+        history=FactorHistory.Replay(history,cancellation);
+        return CalibrateCaptured(history,cancellation);
+    }
+    private static ParametricCalibration CalibrateCaptured(AlignedFactorHistory history,CancellationToken cancellation)
+    {
+        var d=history.Columns.Length;var n=history.Samples.Length;var ids=history.Columns.Select(c=>c.Id).ToImmutableArray();
+        if(n<2)return new(history.Id,n,ids,[],[],0,[],0,"unavailable",null);
+        var samples=history.Samples.Select(s=>s.Changes.Select(v=>Number(v.ToString())).ToArray()).ToArray();
+        var sums=Enumerable.Range(0,d).Select(i=>SignedRatio.Sum(samples.Select(s=>s[i]))).ToArray();
+        var means=sums.Select(s=>s/n).ToArray();var covariance=new SignedRatio[d][];
+        for(var i=0;i<d;i++)covariance[i]=new SignedRatio[d];
+        for(var i=0;i<d;i++)for(var j=i;j<d;j++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var cross=SignedRatio.Sum(samples.Select(s=>s[i]*s[j]));
+            covariance[i][j]=covariance[j][i]=Bound((cross-sums[i]*sums[j]/n)/(n-1));
+        }
+        var rank=Rank(covariance,cancellation);var constant=ids.Where((_,i)=>covariance[i][i].Numerator.IsZero).ToImmutableArray();
+        var condition=rank==d?Condition(covariance):null;
+        var calibration=new ParametricCalibration(history.Id,n,ids,[..means.Select(Text)],[..covariance.Select(row=>row.Select(Text).ToImmutableArray())],rank,
+            constant,(long)n*d*d,rank<d?"rank_deficient":condition is null?"unresolved":condition>1e12?"poorly_conditioned":"full_rank",condition is {} k?Real(k):null)
+            {Correlation=[..covariance.Select((row,i)=>row.Select((value,j)=>covariance[i][i].Numerator.IsZero||covariance[j][j].Numerator.IsZero?null:
+                Real(Real(value)/(Math.Sqrt(Real(covariance[i][i]))*Math.Sqrt(Real(covariance[j][j]))))).ToImmutableArray())]};
+        return calibration;
     }
     public static void Admit(int factors,int samples)
     {

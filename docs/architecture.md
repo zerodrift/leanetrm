@@ -1,5 +1,11 @@
 # Architecture and domain contracts
 
+D307 adds [full-PV Monte Carlo VaR/ES](monte-carlo-risk.md): explicit additive
+Gaussian joint-factor generation, exact sample covariance/LDL, reproducible seeded
+native shocks, ordinary frozen portfolio PV, empirical tails, convergence and
+conditional sampling diagnostics. It shares retained source/worker custody and
+Risk/Blotter widgets; named and historical scenario limits remain unchanged.
+
 Status: baseline approved for implementation and publication on 2026-10-16.
 No implementation is implied by this document.
 See [decisions](decisions.md) for the distinction between agreed requirements,
@@ -2684,6 +2690,6 @@ retains DST disambiguation, and operating dates retain their original meaning.
 See [decisions](decisions.md#d286--user-zone-instants-and-independent-ppa-composition).
 
 
-D307 adds a separate [synthetic energy dataset](synthetic-energy.md) for hosted
+D308 adds a separate [synthetic energy dataset](synthetic-energy.md) for hosted
 booking and risk under explicit fictional contract and pricing policies. Local
 qualification and approved production activation remain separate release gates.

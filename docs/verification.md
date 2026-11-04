@@ -8,6 +8,43 @@ expires naturally, then refuse without recording a reuse alias. Valid creation,
 replay and reuse retain the same job. The regression failed against migration
 0187 and passes with 0188; it is included in the synthetic verification runner.
 
+## Monte Carlo full-PV risk (D307)
+
+[The Monte Carlo contract](monte-carlo-risk.md) is exercised by eight managed
+numerical/scenario groups and two API contract/setup groups. Independent Python
+oracles check fixed SHA/polar rejection vectors, exact hand-computed LDL,
+168 high-precision Gaussian shock pairs, seven exact native golden vectors and
+224 binomial count/confidence cases, including 18-place cutoff neighbors. Structural reader checks refuse deleted source
+change vectors, impossible covariance rank and ambiguous numeric seeds. Checks
+include signed Gaussian linear risk,
+singular/interior-zero/zero-rank covariance, unlike native units, nonzero native
+shock underflow, prefix/batch reproducibility, nonlinear sibling PV and an actual
+positive-forward option-tree domain failure without partial results or parent
+mutation. Existing full managed core and historical/parametric numerical checks
+remain green locally.
+
+Owned stock PostgreSQL and real worker checks compare every retained shock,
+scenario loss, empirical tail/allocation, prefix diagnostic and study identity
+between immediate and queued execution. Independent Fraction reducers cover
+selected and mixed native partitions; an ordinary joint scenario reproduces the
+MC native mapping. Qualification includes strict policy/seed/axis admission,
+method-separated/common archives, current access, immutable clock/source custody,
+active leases, cancellation, unchanged observation RLS and missing-source refusal.
+Migration 0190's body/ACL/owner/search-path guards refuse altered baselines.
+
+The 12 owned browser checks exercise guided EOD official-close preparation,
+visible scope-aware paths/seed, full-PV widgets, path drilldown, source reuse on
+reseed, rejected incomplete simulation evidence, reauthorized exact export,
+definite first-attempt queue refusal, queue/archive/reopen, phone width and the
+actual Blotter reader. Captures are
+visually inspected on desktop and phone. A chart regression failed before adding
+explicit simulation/loss category labels and bounded approximate tick labels;
+financial report values and tooltips stay exact. The frontend suite has 1,303
+passing checks and the Python runner has 85. These are local qualification
+results, not production throughput or deployment evidence. Generated qualification
+artifacts, operational logs and credentials remain
+outside the repository.
+
 ## Historical full-PV risk (D305)
 
 The [historical contract](historical-risk.md) has independent exact empirical

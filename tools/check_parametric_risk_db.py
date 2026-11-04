@@ -28,7 +28,7 @@ def run_checks(query, manifest, job_id, run_worker, method="parametric"):
         malformed=deepcopy(request)
         if field=='confidence':malformed[method]['policy'][field]=0.99
         else:malformed['parametric']['finiteDifference']['deltaTolerance'][field]=0
-        reject(lambda: submit(frame,malformed),'risk_'+method+'_input')
+        reject(lambda: submit(frame,malformed),'risk_'+('monte_carlo' if method=='monteCarlo' else method)+'_input')
     assert int(query(f"SELECT count(*) FROM risk.job_history_observations WHERE job_id='{job_id}';")) == len(plan['observations'])
     assert len(plan['observations']) >= 250
     for table in ('history_clock_captures', 'job_history', 'job_history_observations'):
@@ -86,8 +86,8 @@ def run_checks(query, manifest, job_id, run_worker, method="parametric"):
     reject(lambda: worker(f"BEGIN;SELECT risk.bind('{jid}','{lease}');"+read()+';COMMIT'), 'risk_job_cancelled')
     worker(f"SELECT risk.acknowledge_cancel('{jid}','{lease}')")
     plain_frame=deepcopy(frame);plain_frame.pop('factorHistory');plain_request=deepcopy(request);plain_request.pop(method)
-    if method=='historical':
-        plain_request['bumps']=[{'factor':request['historical']['factors'][0],'size':'0.01','convention':'absolute_curve_coordinate_symmetric_v1'}]
+    if method in ('historical','monteCarlo'):
+        plain_request['bumps']=[{'factor':request[method]['factors'][0],'size':'0.01','convention':'absolute_curve_coordinate_symmetric_v1'}]
     plain=submit(plain_frame,plain_request);pid=plain['jobId']
     ordinary=json.loads(worker(f"SELECT risk.claim(30,'{request['engineVersion']}')"));assert ordinary['jobId']==pid
     ordinary_visible=worker(f"BEGIN;SELECT risk.bind('{pid}','{ordinary['leaseToken']}');SELECT coalesce(jsonb_agg(id ORDER BY id),'[]'::jsonb) FROM market_data.observations WHERE catalog_id='{catalog}';COMMIT")

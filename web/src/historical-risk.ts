@@ -1,3 +1,4 @@
+import type {MonteCarloRequest,MonteCarloCapabilities} from './monte-carlo-risk.js';
 import {validateHistoryPrices,type HistoryRequest,type HistoryManifest} from './factor-history.js';
 import type {RiskFactor,ExcludedPosition} from './risk-report.js';
 import {validateParametric,type ParametricRequest,type ParametricCapabilities,type ParametricView} from './parametric-risk.js';
@@ -9,8 +10,8 @@ import {sameTradeSelection} from './risk-scope.js';
 export type HistoricalPolicy={convention:string;numericalPolicy:string;horizon:string;samplePolicy:string;quantilePolicy:string;tailPolicy:string;valuationPolicy:string;confidence:string};
 export type HistoricalRequest={history:HistoryRequest;policy:HistoricalPolicy;comparison?:Omit<ParametricRequest,'history'>;factors?:unknown[]};
 export type HistoricalCapabilities={profile:Omit<HistoricalPolicy,'confidence'>;defaults:{confidence:string;compareParametric:boolean;comparisonDrift:string};limits:{maxFactors:number;maxSamples:number;maxExposures:number;maxResultValues:number}};
-export type StatisticalRequest={parametric:ParametricRequest;historical?:never}|{historical:HistoricalRequest;parametric?:never};
-export type StatisticalCapabilities={parametric:ParametricCapabilities;historical:HistoricalCapabilities};
+export type StatisticalRequest={parametric:ParametricRequest;historical?:never;monteCarlo?:never}|{historical:HistoricalRequest;parametric?:never;monteCarlo?:never}|{monteCarlo:MonteCarloRequest;historical?:never;parametric?:never};
+export type StatisticalCapabilities={parametric:ParametricCapabilities;historical:HistoricalCapabilities;monteCarlo?:MonteCarloCapabilities};
 type Contribution={id:string;baseValue:string;valueAtRisk:string;expectedShortfall:string};
 type Exposure={id:string;bookId:string;tradeId:string;bindingId:string;measure:string;currency:unknown;baseValue:string;tradeReference:string;instrumentReference:string;instrumentType:string};
 type Partition={measure:string;currency:unknown;baseValue:string;mean:string;valueAtRisk:string;expectedShortfall:string;tailSampleMass:string;quantileTies:number;
@@ -24,7 +25,7 @@ export type HistoricalContainer={historical:HistoricalView;context:{contextId:st
 const canonical=(v:unknown)=>JSON.stringify(v,(_k,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.entries(x).sort(([a],[b])=>a.localeCompare(b))):x);
 const number=(v:unknown):v is string=>typeof v==='string'&&exactNumber(v)!==null;
 const distinct=(v:unknown[])=>new Set(v).size===v.length;
-const same=(a:unknown[],b:unknown[])=>a.length===b.length&&a.every(v=>b.includes(v));
+const same=(a:unknown[],b:unknown[])=>{const values=new Set(b);return a.length===b.length&&a.every(v=>values.has(v));};
 const pair=(measure:string,currency:unknown)=>canonical([measure,currency]);
 /** Receipt identity and complete native coverage only; all loss/tail/weight calculations belong to the backend. */
 export function validateHistorical(report:HistoricalContainer,expected?:HistoricalRequest):HistoricalView{
@@ -41,22 +42,9 @@ export function validateHistorical(report:HistoricalContainer,expected?:Historic
   h.samples.some(s=>s.changes.length!==h.columns.length||s.changes.some(x=>!number(x)))||!Array.isArray(v.factors)||v.factors.length!==h.columns.length||v.factors.some((f,i)=>f.id!==h.columns[i].id||!f.factor?.unit)||
   !Array.isArray(v.books)||!distinct(v.books.map(b=>b.id))||!Array.isArray(v.exposures)||!distinct(v.exposures.map(e=>e.id))||!v.matrix||!Array.isArray(v.matrix.columns)||!Array.isArray(v.matrix.rows)||
   !Array.isArray(r.partitions)||!Array.isArray(v.partitions)||!Array.isArray(r.unavailableReasons))throw bad();
- if(!r.available){if(r.partitions.length||v.partitions.length||v.exposures.length||v.matrix.rows.length||v.matrix.columns.length||!r.unavailableReasons.length||v.comparison!==null)throw bad();return v;}
- if(!h.available||report.excludedPositions.length||r.unavailableReasons.length||!v.exposures.length||!r.partitions.length||!report.inputs||!Array.isArray(report.inputs.positions))throw bad();
- const native=(e:{bookId:string;tradeId:string;bindingId:string;measure:string})=>canonical([e.bookId,e.tradeId,e.bindingId,e.measure]);
- if(!distinct(v.exposures.map(native))||!same(v.exposures.map(native),report.inputs.positions.map(native))||v.exposures.some(e=>!number(e.baseValue)||!v.books.some(b=>b.id===e.bookId))||
-  !same(v.matrix.columns,v.exposures.map(e=>e.id))||!distinct(v.matrix.columns)||!same(v.matrix.rows.map(row=>row.id),h.samples.map(s=>s.id))||!distinct(v.matrix.rows.map(row=>row.id))||
-  v.matrix.rows.some(row=>row.scenarioValues.length!==v.exposures.length||row.losses.length!==v.exposures.length||[...row.scenarioValues,...row.losses].some(x=>!number(x))))throw bad();
- const nativeGroups=[...new Set(v.exposures.map(e=>pair(e.measure,e.currency)))];
- if(!same(r.partitions.map(p=>pair(p.measure,p.currency)),nativeGroups)||!distinct(r.partitions.map(p=>pair(p.measure,p.currency)))||!same(v.partitions.map(p=>pair(p.measure,p.currencyReference)),nativeGroups)||!distinct(v.partitions.map(p=>pair(p.measure,p.currencyReference))))throw bad();
- for(const p of r.partitions){
-  const es=v.exposures.filter(e=>pair(e.measure,e.currency)===pair(p.measure,p.currency));
-  if(![p.baseValue,p.mean,p.valueAtRisk,p.expectedShortfall,p.tailSampleMass].every(number)||!Number.isInteger(p.quantileTies)||p.quantileTies<1||p.quantileTies>r.samples||
-   !Array.isArray(p.samples)||!same(p.samples.map(s=>s.id),h.samples.map(s=>s.id))||!distinct(p.samples.map(s=>s.id))||p.samples.some(s=>![s.value,s.loss,s.varWeight,s.esWeight].every(number))||
-   !Array.isArray(p.histogram)||!p.histogram.length||p.histogram.some(b=>![b.lower,b.upper,b.probability].every(number)||!Number.isInteger(b.count)||b.count<0)||
-   !Array.isArray(p.books)||!Array.isArray(p.trades)||!same(p.books.map(b=>b.id),[...new Set(es.map(e=>e.bookId))])||!same(p.trades.map(t=>t.id),[...new Set(es.map(e=>e.tradeId))])||
-   !distinct(p.books.map(b=>b.id))||!distinct(p.trades.map(t=>t.id))||[...p.books,...p.trades].some(c=>![c.baseValue,c.valueAtRisk,c.expectedShortfall].every(number)))throw bad();
- }
+ validateSampleCoverage(report,v,h.samples.map(s=>s.id));
+ if(!r.available){if(v.comparison!==null)throw bad();return v;}
+ if(!h.available)throw bad();
  if(q.comparison){
   const c=v.comparison;if(!c||c.studyId!==v.studyId)throw bad();
   if(c.report){const normal=validateParametric({...report,historical:undefined,parametric:c.report} as Parameters<typeof validateParametric>[0],{history:q.history,...q.comparison});
@@ -83,3 +71,25 @@ export function historicalCharts(v:HistoricalView,index:number,metric:'valueAtRi
   {title:`Book ${metric==='valueAtRisk'?'VaR':'ES'} allocation`,subtitle:'Portfolio quantile/tail weights applied to book losses. Allocations may be negative.',axis:'category',kind:'bar',unit,positiveTone:'loss',colorBySign:true,series:[{name:'Allocated loss',points:p.books.map(b=>({x:b.id,label:v.books.find(l=>l.id===b.id)!.name,y:b[metric],text:amountText(b[metric],'money')}))}]}
  ];
 }
+
+export type SampleRiskView=Pick<HistoricalView,'studyId'|'factors'|'books'|'exposures'|'partitions'|'matrix'>&{result:Omit<HistoricalView['result'],'policy'>};
+/** Shared native-PV coverage contract; each method validates its own capture and sample generator first. */
+export function validateSampleCoverage(report:Pick<HistoricalContainer,'excludedPositions'|'inputs'>,v:SampleRiskView,expectedSamples:string[]):void{
+ const r=v.result,bad=()=>Error('The sample risk report has incomplete native PV or allocation coverage. Reread the complete report.');
+ if(!r.available){if(r.partitions.length||v.partitions.length||v.exposures.length||v.matrix.rows.length||v.matrix.columns.length||!r.unavailableReasons.length)throw bad();return;}
+ if(!Array.isArray(report.excludedPositions)||report.excludedPositions.length||r.unavailableReasons.length||!v.exposures.length||!r.partitions.length||!report.inputs||!Array.isArray(report.inputs.positions))throw bad();
+ const native=(e:{bookId:string;tradeId:string;bindingId:string;measure:string})=>canonical([e.bookId,e.tradeId,e.bindingId,e.measure]);
+ if(!distinct(v.exposures.map(native))||!same(v.exposures.map(native),report.inputs.positions.map(native))||v.exposures.some(e=>!number(e.baseValue)||!v.books.some(b=>b.id===e.bookId))||
+  !same(v.matrix.columns,v.exposures.map(e=>e.id))||!distinct(v.matrix.columns)||!same(v.matrix.rows.map(row=>row.id),expectedSamples)||!distinct(v.matrix.rows.map(row=>row.id))||
+  v.matrix.rows.some(row=>row.scenarioValues.length!==v.exposures.length||row.losses.length!==v.exposures.length||[...row.scenarioValues,...row.losses].some(x=>!number(x))))throw bad();
+ const nativeGroups=[...new Set(v.exposures.map(e=>pair(e.measure,e.currency)))];
+ if(!same(r.partitions.map(p=>pair(p.measure,p.currency)),nativeGroups)||!distinct(r.partitions.map(p=>pair(p.measure,p.currency)))||!same(v.partitions.map(p=>pair(p.measure,p.currencyReference)),nativeGroups)||!distinct(v.partitions.map(p=>pair(p.measure,p.currencyReference))))throw bad();
+ for(const p of r.partitions){
+  const es=v.exposures.filter(e=>pair(e.measure,e.currency)===pair(p.measure,p.currency));
+  if(![p.baseValue,p.mean,p.valueAtRisk,p.expectedShortfall,p.tailSampleMass].every(number)||!Number.isInteger(p.quantileTies)||p.quantileTies<1||p.quantileTies>r.samples||
+   !Array.isArray(p.samples)||!same(p.samples.map(s=>s.id),expectedSamples)||!distinct(p.samples.map(s=>s.id))||p.samples.some(s=>![s.value,s.loss,s.varWeight,s.esWeight].every(number))||
+   !Array.isArray(p.histogram)||!p.histogram.length||p.histogram.some(b=>![b.lower,b.upper,b.probability].every(number)||!Number.isInteger(b.count)||b.count<0)||
+   !Array.isArray(p.books)||!Array.isArray(p.trades)||!same(p.books.map(b=>b.id),[...new Set(es.map(e=>e.bookId))])||!same(p.trades.map(t=>t.id),[...new Set(es.map(e=>e.tradeId))])||
+   !distinct(p.books.map(b=>b.id))||!distinct(p.trades.map(t=>t.id))||[...p.books,...p.trades].some(c=>![c.baseValue,c.valueAtRisk,c.expectedShortfall].every(number)))throw bad();
+ }
+ }

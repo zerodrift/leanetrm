@@ -195,14 +195,15 @@ No table or worker job is added for this bounded read/export consumer.
 [Parametric risk](parametric-risk.md) subsequently adds covariance, delta-normal
 VaR/ES and a durable statistical-report archive with trusted clock capture and
 separate source pins. D305 adds the separate full-PV historical estimator below;
-an operating rolling-backtest workflow, Monte Carlo/PCA/hybrid and EVT remain work.
+an operating rolling-backtest workflow, PCA/hybrid and EVT remain work. [Full-PV Monte Carlo](monte-carlo-risk.md)
+now consumes the same captured history through its separate D307 contract.
 
 D305 adds [full-PV historical VaR/ES](historical-risk.md) through this same captured
 scope/history/PV and retained-worker infrastructure. Guided setup selects the
 method, automatically aligns history, and optionally compares the identical study
 to sample-mean delta-normal. Historical reports graph empirical probabilities and
 losses, expose book/trade quantile/tail allocation and drill through every sample's
-factor moves and native PV bindings. The completed archive discovers both methods;
+factor moves and native PV bindings. The completed archive discovers statistical methods;
 current authority is checked for report reads and export. Rates, time and current
-option calibration remain frozen. Monte Carlo/PCA/EVT and an operating backtest
+option calibration remain frozen. PCA/hybrid/EVT and an operating backtest
 workflow are not implied.

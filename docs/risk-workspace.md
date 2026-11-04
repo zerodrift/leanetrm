@@ -109,7 +109,7 @@ native finite differences, sample covariance and drift/confidence/tail policies.
 Risk shares Gaussian density, signed book/factor contributions, in-sample linearized
 losses and correlation/covariance graphics, plus a paged archive of completed statistical
 reports. Unavailable scope/history or unstable deltas retain diagnostics without
-risk estimates. Historical full repricing, Monte Carlo, PCA/hybrid, EVT and rolling
+risk estimates. PCA/hybrid, EVT and rolling
 backtests remain subsequent increments. No production throughput is claimed.
 
 ## Guided parametric setup (D301)
@@ -136,7 +136,18 @@ scope/history/PV and retained-worker infrastructure. Guided setup selects the
 method, automatically aligns history, and optionally compares the identical study
 to sample-mean delta-normal. Historical reports graph empirical probabilities and
 losses, expose book/trade quantile/tail allocation and drill through every sample's
-factor moves and native PV bindings. The completed archive discovers both methods;
+factor moves and native PV bindings. The completed archive discovers statistical methods;
 current authority is checked for report reads and export. Rates, time and current
-option calibration remain frozen. Monte Carlo/PCA/EVT and an operating backtest
+option calibration remain frozen. PCA/hybrid/EVT and an operating backtest
 workflow are not implied.
+
+## Full-PV Monte Carlo (D307)
+
+VaR setup also offers [Monte Carlo](monte-carlo-risk.md), sharing automatic EOD
+history, explicit price-type priorities and the native report/archive workflow.
+Visible path/seed controls and selected drift accompany full-PV loss distribution,
+convergence, conditional sampling bounds, book/trade allocations, calibration
+matrices and indexed path/holding drilldown. Scope-aware starting paths include
+base, native result, option and PPA work. Reauthorized exports retain complete
+shocks and exact PV evidence; the shared Blotter renderer keeps statistical
+reports separate from factor up/down cells. Production schema rollout is separate.
