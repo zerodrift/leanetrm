@@ -64,9 +64,9 @@ public sealed class MarketReads(PreviewDatabase database)
         return await database.Read(connection,ct,observationIds:observationIds,referenceScope:referenceScope,includeCalendarDays:includeCalendarDays);
     }
 
-    public async Task<WorkspaceRead> Workspace(NpgsqlConnection connection,PinnedContext pin,bool catalogOnly,CancellationToken ct)
+    public async Task<WorkspaceRead> Workspace(NpgsqlConnection connection,PinnedContext pin,bool catalogOnly,CancellationToken ct,ImmutableArray<Guid>? observationIds=null)
     {
-        var data=await Data(connection,pin,ct,catalogOnly?ImmutableArray<Guid>.Empty:null,catalogOnly?ReferenceReadScope.DefinitionClosure:ReferenceReadScope.AllVisible);
+        var data=await Data(connection,pin,ct,catalogOnly?ImmutableArray<Guid>.Empty:observationIds,catalogOnly?ReferenceReadScope.DefinitionClosure:ReferenceReadScope.AllVisible);
         return await WorkspaceMetadata(connection,data,catalogOnly,ct);
     }
 
@@ -189,10 +189,13 @@ public sealed class MarketReads(PreviewDatabase database)
     // each frame follows its pins to their latest revision visible at the pinned context's cutoff (the resolver certified contexts use),
     // then samples at one instant collapse when identical and are refused when they still differ (D238, D237).
     public async Task<ImmutableArray<HistorySample>> History(NpgsqlConnection connection,PinnedContext pin,ImmutableArray<InputFrame> frames,
-        string curve,Guid? contractId,Guid? seriesId,string revisionPolicy,CancellationToken ct,Func<PreviewData,ImmutableArray<InputFrame>>? resolveFrames=null)
+        string curve,Guid? contractId,Guid? seriesId,string revisionPolicy,CancellationToken ct,Func<PreviewData,ImmutableArray<InputFrame>>? resolveFrames=null,
+        ImmutableArray<InputFrame> additionalAnchors=default)
     {
         var current=pin.RequireFrame();
-        var data=await Data(connection,pin,ct);
+        var anchors=frames.Append(current).Concat(additionalAnchors.IsDefault?[]:additionalAnchors);
+        var pins=anchors.SelectMany(f=>f.ObservationIds).Distinct().ToImmutableArray();
+        var data=await Data(connection,pin,ct,pins);
         var selected=(resolveFrames?.Invoke(data)??frames).Select(pin.Require).Where(frame=>frame.At!=current.At).Append(current).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id).ToArray();
         var samples=selected.Select(f=>
         {

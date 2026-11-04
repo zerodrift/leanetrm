@@ -2688,3 +2688,10 @@ Crude entry projects separate facets of authorized exact valuation assignments.
 Actual instants use the selected user timezone; managed local-time resolution
 retains DST disambiguation, and operating dates retain their original meaning.
 See [decisions](decisions.md#d286--user-zone-instants-and-independent-ppa-composition).
+
+
+D308 bounds ordinary workspace observations and history by explicit frame source
+facts. The recent-close directory offers eight entries with an explicit remaining
+indicator; saved selections retain their separate 128-frame capacity and prior
+closes remain accessible by historical date. Native permissions, exact pins and
+knowledge-time policies remain calculation inputs.

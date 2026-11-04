@@ -71,6 +71,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     def preview_check(label, command, *, suite='workspace'):
         check(label, command, suite=suite)
 
+    preview_check('ordinary anchored market reads',[*preview,'--pinned-market-read-check'])
     preview_check('integrated live calculation and browser',[*preview,'--live-calculation-check','--browser-check','--browser',str(browser)])
     preview_check('private inactive reference intake',[*preview,'--reference-import-check'])
     preview_check('standard preview and browser', [*preview, '--browser-check', '--browser', str(browser)], suite='standard')

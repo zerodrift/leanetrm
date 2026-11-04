@@ -2150,3 +2150,17 @@ endpoints where required, and is neither an ES interval nor model/calibration
 uncertainty. Migration 0190 extends private existing operations without new tables
 or raw grants. See [contracts and bounds](monte-carlo-risk.md). PCA/hybrid, EWMA,
 other innovation laws and operating backtesting require separate qualification.
+
+## D308 — Bound ordinary workspace reads to selected source facts
+
+Workspace observation reads use the initial and offered frame anchors, including
+their visible same-fact corrections. History also includes its explicit selected
+frame and eligible initial anchors. Context selection and observation revision
+selection retain their exact authorized inputs; booking reads exact frame pins.
+All reads retain the selected business date and knowledge cutoff.
+
+The recent-close directory offers up to eight stored closes, reports whether more
+exist and preserves the separate 128-selection capacity. Earlier closes remain
+available through the ordinary historical-date context. This bounds routine
+workspace materialization when a catalog contains years of observations. It adds
+no dataset categories, routes, pricing conventions or financial fallback.

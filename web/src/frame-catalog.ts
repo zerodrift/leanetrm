@@ -5,5 +5,5 @@ export function validFrameCatalog(value:FrameCatalog){return !!value&&value.dura
 export function frameCatalogNote(value:FrameCatalog|undefined){
  if(!value)return '';
  if(!validFrameCatalog(value))throw Error('The market navigation has an unsupported close-catalog policy. Refresh and try again.');
- return (value.hasMoreDurableCloses?`Showing recent saved closes within this session’s ${value.maximumFrames}-close limit. `:'')+'Stored closes retain their original inputs.';
+ return (value.hasMoreDurableCloses?`Showing up to ${value.durableLimit} recent saved closes. Select an earlier date for older closes. `:'')+'Stored closes retain their original inputs.';
 }

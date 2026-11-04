@@ -106,7 +106,9 @@ def main():
     parser.add_argument('--browser-check',action='store_true',help='Run checked-in browser scenarios in the newly owned standard fixture')
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
+    parser.add_argument('--pinned-market-read-check',action='store_true',help='Verify ordinary workspace reads over a subset of available source facts')
     args = parser.parse_args()
+    if args.pinned_market_read_check:args.check=True
     if args.assistant_browser_check:args.browser_check=True
     if args.assistant_workspace_check or args.assistant_runtime_check or args.assistant_browser_check:
         args.check=True
@@ -528,6 +530,7 @@ def main():
             # One owned test date deliberately has no admitted demo input frame.
             reference_demo['omittedAt']=max(f['at'] for f in reference_demo['frames'] if not f['at'].startswith('2020-12-18'))
             manifest['swapMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
+        if args.pinned_market_read_check:manifest['frames']=manifest['frames'][-2:]
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         # Freeze assets for this owned instance; a later web build must not change
         # another running preview's presentation while it is being used.
@@ -600,6 +603,10 @@ def main():
                 if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
                 return peak
             return run
+        if args.pinned_market_read_check:
+            from check_pinned_market_reads import run_checks as check_pinned_reads
+            check_pinned_reads(url,query,manifest)
+            return
         if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
             if not args.check and date_plan is not None:
                 from demo_date_plan import verify_instrument_dates

@@ -1833,3 +1833,10 @@ budget. One complete retained job reuses source/clock/engine/attempt custody;
 migration 0190 adds no raw grants or tables. PCA/hybrid approximation, EWMA, EVT
 and the operating rolling-backtest service remain separate work. Production
 activation requires a separately qualified schema release.
+
+
+D308 bounds ordinary workspace observations and history by explicit frame source
+facts. The recent-close directory offers eight entries with an explicit remaining
+indicator; saved selections retain their separate 128-frame capacity and prior
+closes remain accessible by historical date. Native permissions, exact pins and
+knowledge-time policies remain calculation inputs.

@@ -58,7 +58,7 @@ def run_checks(c, check, query, manifest):
     check('ordinary navigation declares its bounded exact stored-close discovery policy',
           navigation['frameCatalog']=={'durableSelection':'exact_recorded_close_pins_v1',
                                       'selectionPolicy':'preserved_session_plus_latest_visible_closes_v1',
-                                      'maximumFrames':128,'durableLimit':128-len(navigation['frames'])-ppa_frames,
+                                      'maximumFrames':128,'durableLimit':min(8,128-len(navigation['frames'])-ppa_frames),
                                       'hasMoreDurableCloses':False})
     check('working navigation supplies only its exact unapplied display-metadata identity',
           navigation['referenceDisplay'] == {'sourceRevision':navigation['referenceRevision'],
