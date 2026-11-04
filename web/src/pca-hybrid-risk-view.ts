@@ -1,5 +1,5 @@
 import {node,table} from './risk-report-elements.js';
-import {pcaCharts} from './pca-hybrid-risk.js';
+import {pcaCharts,pcaHybridProfile,pcaHybridLegacyPolicy} from './pca-hybrid-risk.js';
 import type {MonteCarloView} from './monte-carlo-risk.js';
 import {calibrationMatrix} from './parametric-risk.js';
 import {renderChart} from './chart-view.js';
@@ -10,9 +10,10 @@ const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
 export function renderPcaHybrid(host:HTMLElement,v:MonteCarloView,partition:number,rows:number,columns:number,plots:HTMLElement[]){
  const a=v.analysis;if(!a)return;
  const panel=node('details');panel.open=true;panel.append(node('summary','PCA and hybrid qualification'),
-  node('p','Full-reference qualification: every generated path is repriced through ordinary PV. The candidate uses all native factor deltas plus diagonal and mixed curvature in the selected PCA directions. A failed valuation uses full PV for every path; portfolio validation can fall back the complete portfolio. This mode adds calculation work. Eligibility belongs only to this captured run.'));
+  node('p','Full-reference qualification: every generated path is repriced through ordinary PV. The candidate uses all native factor deltas plus diagonal and mixed curvature in the selected PCA directions. Failed qualification stops a run unless its selected policy permits full-PV fallback for the affected valuation or complete portfolio. This mode adds calculation work. Eligibility belongs only to this captured run.'));
  host.append(panel);
  const c=a.pca;
+ panel.append(node('p',a.policy.valuationPolicy===pcaHybridLegacyPolicy?'Retained legacy policy: full-PV fallback was part of this historical calculation. This is not an opt-in selection for a new run.':a.policy.valuationPolicy===pcaHybridProfile.valuationPolicy?'Full-PV fallback: off. This report passed qualification without substitution.':'Full-PV fallback: explicitly allowed for this run.'));
  if(c)panel.append(node('p',`${a.policy.retainedComponents} curvature direction${a.policy.retainedComponents===1?'':'s'} · retained standardized market-variance share ${amountText(c.retainedVarianceShare,'factor')} · ${c.roundoffNegativeEigenvalues} roundoff-negative eigenvalues. Explained market variance does not establish portfolio risk coverage. All residual shocks remain in full PV and every factor remains in the linear term.`));
  if(!a.available)panel.append(node('p','The shared fitting attempt could not qualify the portfolio. Every valuation uses full PV for this run. '+a.unavailableReasons.map(r=>r.message).join(' ')),
   table(['Instrument / shared valuation','Applied method','Reason'],a.fallbackClassifications.map(c=>[

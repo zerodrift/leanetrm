@@ -43,7 +43,7 @@ internal static class MonteCarloRiskContractChecks
         var analysis=new PcaHybridPolicy(PcaHybridPolicy.Version1,PcaHybridPolicy.Decomposition,PcaHybridPolicy.Scaling,PcaHybridPolicy.Residual,
             PcaHybridPolicy.Qualification,PcaHybridPolicy.Directions,1,1,"0.0001","0","0.001");
         var selected=spec with{Analysis=analysis};PortfolioRiskPreview.ValidateMonteCarlo(outer with{MonteCarlo=selected},selected);
-        foreach(var invalid in new[]{analysis with{ValuationPolicy="panel_validation"},analysis with{RetainedComponents=0},analysis with{LossRelative="000.1"},analysis with{LossAbsolute="-1"}})
+        foreach(var invalid in new[]{analysis with{ValuationPolicy="panel_validation"},analysis with{ValuationPolicy="full_reference_qualification_v1"},analysis with{ValuationPolicy=null!},analysis with{RetainedComponents=0},analysis with{LossRelative="000.1"},analysis with{LossAbsolute="-1"}})
         {try{PortfolioRiskPreview.ValidateMonteCarlo(outer,spec with{Analysis=invalid});throw new Exception("Invalid PCA policy succeeded.");}catch(MarketDataException error)when(error.Code=="risk_pca_hybrid_policy"){}}
         PcaHybridRisk.ValidatePolicy(analysis with{LossAbsolute="-0.0",LossRelative="0.00100"});
         if(PortfolioRiskPreview.MonteCarloPathCapacity(2,0,50000,1,1+PcaHybridRisk.FittingScenarios(1,1))!=1986)
@@ -55,7 +55,24 @@ internal static class MonteCarloRiskContractChecks
             if(!PortfolioRiskPreview.PcaCandidateFailure(new(code,"Candidate-only numeric refusal")))throw new Exception("A candidate-only pricing refusal discarded the full reference.");
         Console.WriteLine("PASS PCA / hybrid fallback boundary: candidate numeric/domain refusal remains distinct from coverage, policy and authority failure");
         var priorWork=new RiskWork(2,2,1,3,6,0,0);
-        var failure=PortfolioRiskPreview.UnavailablePcaReport(analysis,null,[new("future","future"),new("option_a","option"),new("option_b","option")],priorWork,null,true,new("price_domain","A fitting direction is outside its declared domain."));
+        try
+        {
+            PortfolioRiskPreview.UnavailablePcaReport(analysis,null,[new("future","future")],priorWork,null,true,new("price_domain","Fitting refused."));
+            throw new Exception("A fitting failure substituted full PV without opt-in.");
+        }
+        catch(MarketDataException error)when(error.Code=="risk_pca_hybrid_qualification"){}
+        foreach(var code in new[]{"risk_pca_hybrid_numeric","risk_monte_carlo_numeric","price_domain","option_input","numeric_range","precision_loss"})
+        {
+            try
+            {
+                PortfolioRiskPreview.UnavailablePcaReport(analysis,null,[new("future","future")],priorWork,null,true,new(code,"Fitting refused."));
+                throw new Exception("Candidate-only failure returned a replacement without consent: "+code);
+            }
+            catch(MarketDataException error)when(error.Code=="risk_pca_hybrid_qualification"){}
+        }
+        var fallbackAnalysis=analysis with{ValuationPolicy=PcaHybridPolicy.FallbackQualification};
+        PcaHybridRisk.ValidatePolicy(fallbackAnalysis);
+        var failure=PortfolioRiskPreview.UnavailablePcaReport(fallbackAnalysis,null,[new("future","future"),new("option_a","option"),new("option_b","option")],priorWork,null,true,new("price_domain","A fitting direction is outside its declared domain."));
         var classifications=failure["fallbackClassifications"]!.AsArray();
         if(failure["available"]!.GetValue<bool>()||classifications.Count!=2||classifications.Any(c=>c!["method"]!.GetValue<string>()!="full_pv")||
             classifications.Sum(c=>c!["exposureIds"]!.AsArray().Count)!=3||!failure["cost"]!["attemptUnmetered"]!.GetValue<bool>())

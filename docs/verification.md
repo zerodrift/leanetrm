@@ -19,16 +19,22 @@ drift, nonsmooth derivatives, opposing shared bindings, whole-portfolio offset
 errors and exact collinear/mixed native directions. An independent standalone
 inverse-CDF/fractional-tail oracle and coprime-denominator arithmetic-limit case
 qualify the optional reduction boundary. A tiny native tick has an
-explicit fitting-only unavailable outcome rather than discarding full-PV risk.
+explicit fitting-only refusal without consent, or an unavailable-analysis
+full-PV receipt when the user opted in.
 
 The existing owned `--monte-carlo-risk-check` suite also exercises optional PCA
 policy/direct-worker parity, byte-identical reference generation/risk/matrix with
 analysis selected, complete added work admission, native SQL policy mutations and
-migration 0191 body/owner/ACL/search-path guards. Frontend readers require complete
+migration 0191–0192 body/owner/ACL/search-path guards. Consent checks cover
+default refusal of holding and portfolio error, fitting-failure refusal, opt-in
+substitution, separate study identities and direct/worker consent parity. Legacy
+new work refuses; immutable legacy reports remain readable with their policy label.
+Frontend readers require complete
 loading/projection/fitting/model/classification evidence and enforce the selected
 numerical residual bounds. Cash and PCA diagnostics use the shared backend amount
 formatter; exact receipts remain unchanged. The browser suite adds
-visible PCA defaults, actual comparison/residual graphics, measured work, retained
+visible unchecked fallback selection, explicit opt-in, comparison/residual
+graphics, measured work, retained
 queue/export/reopen and shared Blotter/phone checks. Fifteen Monte Carlo/PCA,
 fourteen historical and sixteen parametric owned browser checks pass. Held-display
 close and cached-navigation tests prove stale formatting cannot revive a report or

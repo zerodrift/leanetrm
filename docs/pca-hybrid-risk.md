@@ -1,4 +1,4 @@
-# PCA diagnostics and hybrid qualification (D308)
+# PCA diagnostics and hybrid qualification (D308, D309)
 
 Monte Carlo setup can include **PCA diagnostics and hybrid comparison**. This
 mode retains the complete full-PV reference and fits a black-box delta-gamma
@@ -16,6 +16,11 @@ request inputs. Users can select one to eight directions, bounded by the complet
 held factor count. The path limit includes both reference and fitting work;
 changing the selected directions can lower the visible allowed path count.
 History keeps the existing EOD and ordered price-type controls.
+
+**Allow full-PV fallback** starts unchecked. Without that selection, any failed
+qualification refuses the run with a structured error; it does not substitute
+full-PV values. The explicit choice is retained in the request, study identity,
+queued replay and report. A fresh setup or account reset starts unchecked.
 
 The report adds explained standardized market variance, factor loadings, ideal
 PCA residual norms, native residual/cross-covariance matrices, raw eigenvalues,
@@ -35,7 +40,8 @@ The optional request's `analysis` selects
 - `cyclic_jacobi_binary64_residual_checks_v1`;
 - `sample_sd_constant_unit_v1`;
 - `complete_native_shocks_all_factor_delta_v1`;
-- `full_reference_qualification_v1`;
+- `full_reference_no_fallback_qualification_v1`, or the user-selected
+  `full_reference_opt_in_full_pv_qualification_v1`;
 - `pc_0_01_native_17_places_collinear_v1`.
 
 The exact captured sample covariance remains authoritative. Nonconstant columns
@@ -105,7 +111,14 @@ shared 4096-bit transport.
 
 ## Qualification and fallback
 
-A failed derivative, holding loss or standalone VaR/ES comparison falls back the complete shared
+The no-fallback policy refuses a failed derivative, holding loss, standalone
+VaR/ES, portfolio comparison, or fitting numerical/domain check with
+`risk_pca_hybrid_qualification`. No successful hybrid report or substituted
+result is returned. The complete full-PV reference is still calculated for
+qualification, but it is not silently returned as a successful replacement.
+
+Only when the user explicitly selects fallback does a failed derivative, holding
+loss or standalone VaR/ES comparison fall back the complete shared
 unit-valuation identity across all its bindings, measures and currencies, for
 every path. Errors cannot disappear by netting opposing holdings first. The
 remaining hybrid portfolio is then checked path by path and at its empirical
@@ -114,14 +127,15 @@ Only full-reference quantile/ES tail membership defines the reported tail-error
 diagnostic; full-path comparisons remain required.
 
 Fitting currently executes as one shared portfolio batch. A numerical or
-pricing-domain failure in any fitting scenario therefore causes explicit full-PV
-fallback for every valuation in that portfolio; healthy candidates are not
+pricing-domain failure in any fitting scenario therefore refuses a no-fallback
+run. With explicit opt-in, it causes full-PV fallback for every valuation in that portfolio; healthy candidates are not
 separately qualified in that failed batch. Its report retains fallback identities
 and reasons. Completed fitting counters are retained; an interrupted fitting
 attempt without complete counters marks total work unavailable rather than
 reporting invented savings. Exact-arithmetic exhaustion in optional candidate,
-hybrid or standalone empirical reductions also falls back the optional comparison;
-it does not discard a successful full-PV reference. Missing holdings, changed scope/base, authority,
+hybrid or standalone empirical reductions also refuses a no-fallback run; with
+opt-in it falls back the optional comparison and retains the successful full-PV
+reference. Missing holdings, changed scope/base, authority,
 history and cancellation failures remain fatal. Any failure on a generated
 full-reference path still refuses the complete Monte Carlo run.
 
@@ -131,9 +145,15 @@ The optional typed policy belongs to the existing Monte Carlo request and study
 identity. Jobs retain it with the existing source/clock/engine/lease/attempt
 fences; direct and worker operations regenerate the same numerical analysis.
 Actual execution-cost counters can differ with warm versus fresh preparation
-caches. Migration 0191 guards the complete prior private retention helper definition, owner, ACL
-and search path, admits only the explicit complete policy and adds no table or
-raw grant. Old requests with no analysis retain their original numerical contract
+caches. Migrations 0191 and 0192 guard the complete prior private retention helper
+definition, owner, ACL and search path. Migration 0192 admits only the two new
+explicit qualification modes and adds no table or raw grant. The original
+`full_reference_qualification_v1` is read-only legacy evidence: existing
+completed reports retain their original policy and show a legacy-policy label. It
+is refused for new submissions and fresh queued calculations; requests and reports
+are never silently upgraded. Existing outcomes remain available through
+authorized report reads; an old-policy API resubmission is refused. Old requests
+with no analysis retain their original numerical contract
 and study identity. Authorized report export retains the full reference, actual
 fitting directions, fitting PVs, models and qualification results.
 

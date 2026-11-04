@@ -1840,11 +1840,13 @@ activation requires a separately qualified schema release.
 standardized PCA loadings/eigenvalues, ideal residual/cross covariance and complete
 native-vector reconstruction checks. Black-box half/nominal/double FD fits every
 native delta and selected actual-direction diagonal/mixed curvature. Every
-candidate path is compared with its complete full-PV reference; failures fall back
-whole valuations across bindings or the whole portfolio. Shared fitting-domain
-failure explicitly falls back every valuation. Risk/Blotter reports add comparison,
-residual, classification and actual extra-work widgets. Migration 0191 retains the
-explicit optional policy on the existing job without new tables or grants.
+candidate path is compared with its complete full-PV reference. D309 refuses
+failed qualification by default; explicit user opt-in permits fallback of whole
+valuations across bindings or the whole portfolio. With that opt-in, shared
+fitting-domain failure falls back every valuation. Risk/Blotter reports add
+comparison, residual, classification and actual extra-work widgets. Migrations
+0191–0192 retain the explicit optional policy and fallback consent on the
+existing job without new tables or grants.
 
 This increment qualifies candidate models and adds work. True acceleration is a
 separate explicitly approximate contract requiring further accuracy/cost evidence;

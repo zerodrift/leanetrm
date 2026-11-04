@@ -186,6 +186,7 @@ public static class RiskJobs
             "risk_timeout"=>"The calculation exceeded the configured worker timeout. Review the workload and worker limits before submitting a new run.",
             "risk_engine_version"=>"This run requires the exact engine version captured at submission.",
             "risk_job_authority_changed"=>"Authority changed after submission. Review current access before submitting a new run.",
+            "risk_pca_hybrid_qualification"=>"The hybrid model failed qualification and full-PV fallback was not selected. Review the model settings or explicitly allow full-PV fallback for a new run.",
             "price_domain"=>"A stressed or bumped quote is outside its permitted price range. Review the explicit shifts and bump sizes.",
             _=>"The risk job could not complete under its retained inputs and current authority."
         };

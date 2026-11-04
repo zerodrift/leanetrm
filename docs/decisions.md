@@ -2168,16 +2168,41 @@ under immutable sibling scenarios. Quantize each nominal PC vector once to 17
 places, form exact half/double vectors and combine mixed corners per native
 factor. Use standardized weighted least squares in the actual quantized basis.
 Preserve every residual delta and include full selected mean drift. All-path
-holding error/stability failures fall back the whole unit-valuation identity across
-bindings. Portfolio path/VaR/ES failure falls back the whole portfolio. A numerical
-or domain failure of the shared fitting batch takes the explicit coarser full-PV
-fallback for every valuation; it does not qualify healthy candidates separately.
+holding error/stability failures refuse by default under D309. With explicit user
+opt-in they fall back the whole unit-valuation identity across bindings. With the
+same opt-in, portfolio path/VaR/ES failure falls back the whole portfolio. A
+numerical or domain failure of the shared fitting batch takes the coarser full-PV
+fallback for every valuation only with opt-in; healthy candidates are not
+separately qualified.
 Authority, missing coverage and full-reference pricing failures remain fatal.
 
-Ship `full_reference_qualification_v1` first: every generated path has a complete
-reference, and the report shows actual added work or an explicitly unmetered failed
-attempt. Do not claim acceleration or reuse a passing model in another run.
+The initial `full_reference_qualification_v1` mode (superseded by D309) ensured every
+generated path had a complete reference, with actual added work or an explicitly
+unmetered failed attempt. Do not claim acceleration or reuse a passing model
+in another run.
 A finite unpriced-path panel cannot prove correctness of an arbitrary black-box
 pricer. True acceleration requires a separate approximate contract and evidence.
 Migration 0191 only extends strict private existing-job admission, guarded by the
 full predecessor definition/owner/ACL/search path. See [the executable contract](pca-hybrid-risk.md).
+
+
+## D309 — Hybrid full-PV fallback requires user opt-in
+
+The user chooses whether failed hybrid qualification may substitute full PV.
+New calculations require either `full_reference_no_fallback_qualification_v1`
+or `full_reference_opt_in_full_pv_qualification_v1`; guided setup selects the
+former and exposes an unchecked **Allow full-PV fallback** checkbox. Every
+holding/stability/portfolio failure and fitting-only numerical/domain failure
+refuses a no-fallback run with `risk_pca_hybrid_qualification`. No failure path
+may infer consent. The opt-in policy retains the existing all-binding,
+whole-valuation and whole-portfolio substitution rules and honest work counters.
+
+The policy is part of request/study identity and worker custody. Migration 0192
+guards the complete 0191 helper and admits only the two new modes without new
+tables or grants. Existing completed reports under the legacy
+`full_reference_qualification_v1` remain immutable, readable and exportable with
+an explicit legacy label; the legacy policy cannot authorize new work, including
+old-policy API resubmissions. Existing report reads and database idempotence
+are unchanged.
+The full-PV reference remains required in both qualification modes; acceleration
+and production schema activation remain separate work.

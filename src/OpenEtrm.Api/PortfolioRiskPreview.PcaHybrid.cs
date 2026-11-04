@@ -49,7 +49,7 @@ public sealed partial class PortfolioRiskPreview
             var comparison=PcaHybridRisk.Compare(generation,pca,plan,reference.Exposures,reference.Observations,fitted.Observations,identities,ct);
             return new(JsonSerializer.SerializeToNode(new{policy,pca,fit=new{plan.NativeSteps,plan.PcDirections,plan.Projection,plan.DirectionError,plan.ProjectionError,
                 scenarioCount=plan.Samples.Length},finiteDifferenceValues=fitted.Observations,comparison,available=true,unavailableReasons=Array.Empty<object>(),fallbackClassifications=Array.Empty<PcaClassification>(),
-                cost=new{mode=PcaHybridPolicy.Qualification,reference=reference.Nominal.Work,additional=work,attemptUnmetered=false}},RiskJobs.Json)!,work,false);
+                cost=new{mode=policy.ValuationPolicy,reference=reference.Nominal.Work,additional=work,attemptUnmetered=false}},RiskJobs.Json)!,work,false);
         }
         catch(MarketDataException error)when(PcaCandidateFailure(error))
         {
@@ -58,11 +58,15 @@ public sealed partial class PortfolioRiskPreview
         }
     }
     internal static JsonNode UnavailablePcaReport(PcaHybridPolicy policy,PcaCalibration? pca,ImmutableArray<PcaValuationIdentity> identities,
-        RiskWork reference,RiskWork? work,bool attempted,MarketDataException error)=>JsonSerializer.SerializeToNode(new{
+        RiskWork reference,RiskWork? work,bool attempted,MarketDataException error)
+    {
+        PcaHybridRisk.RequireFullPvFallback(policy,error.Message);
+        return JsonSerializer.SerializeToNode(new{
             policy,pca,fit=(object?)null,finiteDifferenceValues=Array.Empty<object>(),comparison=(object?)null,available=false,
             unavailableReasons=new[]{new{error.Code,error.Message}},
             fallbackClassifications=identities.GroupBy(i=>i.ValuationKey,StringComparer.Ordinal).OrderBy(g=>g.Key,StringComparer.Ordinal)
                 .Select(g=>new PcaClassification(g.Key,[..g.Select(i=>i.ExposureId).Order(StringComparer.Ordinal)],"full_pv",[error.Code])),
-            cost=new{mode=PcaHybridPolicy.Qualification,reference,additional=work,attemptUnmetered=attempted&&work is null}},RiskJobs.Json)!;
+            cost=new{mode=policy.ValuationPolicy,reference,additional=work,attemptUnmetered=attempted&&work is null}},RiskJobs.Json)!;
+    }
 
 }

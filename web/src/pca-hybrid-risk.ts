@@ -5,7 +5,7 @@ import type {MonteCarloContainer,MonteCarloView} from './monte-carlo-risk.js';
 import type {ChartSpec} from './chart-view.js';
 
 export type PcaHybridPolicy={convention:string;numericalPolicy:string;scalingPolicy:string;residualPolicy:string;valuationPolicy:string;directionPolicy:string;retainedComponents:number;tradingTicks:number;stabilityRelative:string;lossAbsolute:string;lossRelative:string};
-export type PcaHybridCapabilities={profile:Omit<PcaHybridPolicy,'retainedComponents'|'tradingTicks'|'stabilityRelative'|'lossAbsolute'|'lossRelative'>;defaults:Pick<PcaHybridPolicy,'retainedComponents'|'tradingTicks'|'stabilityRelative'|'lossAbsolute'|'lossRelative'>;capacities:{components:number;scopeMaxPaths:number}[]};
+export type PcaHybridCapabilities={profile:Omit<PcaHybridPolicy,'retainedComponents'|'tradingTicks'|'stabilityRelative'|'lossAbsolute'|'lossRelative'>;defaults:Pick<PcaHybridPolicy,'retainedComponents'|'tradingTicks'|'stabilityRelative'|'lossAbsolute'|'lossRelative'>;fallbackValuationPolicy:string;capacities:{components:number;scopeMaxPaths:number}[]};
 type Work={unitPricerCalls:number;scenarioCount:number;uniqueValuations:number;uniqueMarketContracts:number;quantityApplications:number;curveGraphEvaluatedNodes:number;rowEvaluations:number;volumeComputations:number};
 export type PcaHybridView={policy:PcaHybridPolicy;available:boolean;fallbackClassifications:{valuationKey:string;exposureIds:string[];method:string;reasons:string[]}[];unavailableReasons:{code:string;message:string}[];
  pca:null|{policy:PcaHybridPolicy;columns:string[];scales:string[];eigenvalues:string[];varianceShares:string[];loadings:string[][];residualCovariance:string[][];retainedResidualCovariance:string[][];matrixNorm:string;sweeps:number;roundoffNegativeEigenvalues:number;reconstructionError:string;orthogonalityError:string;eigenResidual:string;retainedVarianceShare:string;samples:{id:string;scores:string[];residualNorm:string;reconstructionError:string}[]};
@@ -15,7 +15,9 @@ export type PcaHybridView={policy:PcaHybridPolicy;available:boolean;fallbackClas
   partitions:{measure:string;currency:unknown;fullValueAtRisk:string;fullExpectedShortfall:string;candidateValueAtRisk:string;candidateExpectedShortfall:string;hybridValueAtRisk:string;hybridExpectedShortfall:string;maximumCandidateError:string;maximumCandidateTailError:string;portfolioFallback:boolean}[];
   candidate:MonteCarloView['result']['partitions'];hybrid:MonteCarloView['result']['partitions']};
  cost:{mode:string;reference:Work;additional:Work|null;attemptUnmetered:boolean}};
-export const pcaHybridProfile={convention:'correlation_pca_hybrid_qualification_v1',numericalPolicy:'cyclic_jacobi_binary64_residual_checks_v1',scalingPolicy:'sample_sd_constant_unit_v1',residualPolicy:'complete_native_shocks_all_factor_delta_v1',valuationPolicy:'full_reference_qualification_v1',directionPolicy:'pc_0_01_native_17_places_collinear_v1'};
+export const pcaHybridProfile={convention:'correlation_pca_hybrid_qualification_v1',numericalPolicy:'cyclic_jacobi_binary64_residual_checks_v1',scalingPolicy:'sample_sd_constant_unit_v1',residualPolicy:'complete_native_shocks_all_factor_delta_v1',valuationPolicy:'full_reference_no_fallback_qualification_v1',directionPolicy:'pc_0_01_native_17_places_collinear_v1'};
+export const pcaHybridFallbackPolicy='full_reference_opt_in_full_pv_qualification_v1';
+export const pcaHybridLegacyPolicy='full_reference_qualification_v1';
 const numeric=(v:unknown):v is string=>typeof v==='string'&&exactNumber(v)!==null;
 const nonnegative=(v:unknown)=>numeric(v)&&!v.startsWith('-');
 // Receipt validation only: compare declared numerical residuals with their
@@ -39,17 +41,17 @@ export function validatePcaHybrid(report:MonteCarloContainer,v:MonteCarloView){
  const a=v.analysis,p=v.request.analysis,d=v.factors.length,ids=v.generation.samples.map(s=>s.id),exposures=v.exposures.map(e=>e.id);
  const bad=()=>Error('The PCA / hybrid report has incomplete directions, qualification or reference evidence. Reread the complete report.');
  if(!p){if(a!=null)throw bad();return;}
- if(Object.entries(pcaHybridProfile).some(([k,value])=>p[k as keyof PcaHybridPolicy]!==value)||!Number.isInteger(p.retainedComponents)||p.retainedComponents<1||p.retainedComponents>Math.min(8,d)||
+ if(Object.entries(pcaHybridProfile).some(([k,value])=>k!=='valuationPolicy'&&p[k as keyof PcaHybridPolicy]!==value)||![pcaHybridProfile.valuationPolicy,pcaHybridFallbackPolicy,pcaHybridLegacyPolicy].includes(p.valuationPolicy)||!Number.isInteger(p.retainedComponents)||p.retainedComponents<1||p.retainedComponents>Math.min(8,d)||
   !Number.isInteger(p.tradingTicks)||p.tradingTicks<1||p.tradingTicks>1000||![p.stabilityRelative,p.lossAbsolute,p.lossRelative].every(policyNumber))throw bad();
  if(!v.result.available){if(a!=null)throw bad();return;}
  if(!a||!same(a.policy,p)||typeof a.available!=='boolean'||!Array.isArray(a.unavailableReasons)||!a.cost||a.cost.mode!==p.valuationPolicy||typeof a.cost.attemptUnmetered!=='boolean')throw bad();
  for(const work of [a.cost.reference,a.cost.additional].filter(x=>x!==null))if(!work||Object.values(work).some(n=>typeof n==='number'&&(!Number.isSafeInteger(n)||n<0))||!Number.isSafeInteger(work.unitPricerCalls)||!Number.isSafeInteger(work.scenarioCount))throw bad();
- const c=a.pca,k=p.retainedComponents;
+ const c=a.pca,k=p.retainedComponents,allowsFallback=p.valuationPolicy!==pcaHybridProfile.valuationPolicy;
  if(c&&(!same(c.policy,p)||!same(c.columns,v.generation.calibration.columns)||!vector(c.scales,d)||!c.scales.every(positive)||!bounded(c.matrixNorm,2n*BigInt(d))||!vector(c.eigenvalues,d)||!vector(c.varianceShares,d)||!c.varianceShares.every(x=>bounded(x,1000000000000n+BigInt(d),1000000000000n))||!matrix(c.loadings,d,d)||!matrix(c.residualCovariance,d,d)||!matrix(c.retainedResidualCovariance,d,d)||
   !Number.isInteger(c.sweeps)||c.sweeps<0||c.sweeps>=100||!Number.isInteger(c.roundoffNegativeEigenvalues)||c.roundoffNegativeEigenvalues<0||c.roundoffNegativeEigenvalues>d||
   !scaledNormBound(c.reconstructionError,c.matrixNorm)||!scaledNormBound(c.eigenResidual,c.matrixNorm)||!bounded(c.orthogonalityError,BigInt(d),1000000000000n)||!bounded(c.retainedVarianceShare,1000000000000n+BigInt(d),1000000000000n)||!Array.isArray(c.samples)||!covers(c.samples.map(s=>s.id),ids)||c.samples.some(s=>!vector(s.scores,k)||!nonnegative(s.residualNorm)||!bounded(s.reconstructionError,BigInt(d),1000000000000n))))throw bad();
  if(!Array.isArray(a.fallbackClassifications)||a.available&&a.fallbackClassifications.length)throw bad();
- if(!a.available){if(!covers(a.fallbackClassifications.flatMap(c=>c.exposureIds),exposures)||a.fallbackClassifications.some(c=>c.method!=='full_pv'||!c.valuationKey||!c.reasons.length)||a.comparison!==null||a.fit!==null||!a.unavailableReasons.length||a.finiteDifferenceValues.length||a.unavailableReasons.some(r=>typeof r.code!=='string'||!r.message))throw bad();return;}
+ if(!a.available){if(!allowsFallback||!covers(a.fallbackClassifications.flatMap(c=>c.exposureIds),exposures)||a.fallbackClassifications.some(c=>c.method!=='full_pv'||!c.valuationKey||!c.reasons.length)||a.comparison!==null||a.fit!==null||!a.unavailableReasons.length||a.finiteDifferenceValues.length||a.unavailableReasons.some(r=>typeof r.code!=='string'||!r.message))throw bad();return;}
  const fit=a.fit,q=a.comparison;
  if(!c||!fit||!q||a.unavailableReasons.length||a.cost.attemptUnmetered||!a.cost.additional||!vector(fit.nativeSteps,d)||!matrix(fit.pcDirections,k,d)||!matrix(fit.projection,k,d)||![fit.directionError,fit.projectionError].every(x=>bounded(x,1n,10000000000n))||fit.scenarioCount!==6*d+6*k*k)throw bad();
  const expected:string[]=[];
@@ -62,6 +64,7 @@ export function validatePcaHybrid(report:MonteCarloContainer,v:MonteCarloView){
    c.method==='pca_delta_gamma'&&(c.reasons.length||c.exposureIds.some(id=>!q.models.find(m=>m.exposureId===id)!.stable||!q.exposures.find(e=>e.exposureId===id)!.lossesPass))))throw bad();
  const partKey=(p:{measure:string;currency:unknown})=>canonical([p.measure,p.currency]);
  if(!Array.isArray(q.partitions)||!covers(q.partitions.map(partKey),v.result.partitions.map(partKey)))throw bad();
+ if(!allowsFallback&&(q.classifications.some(c=>c.method==='full_pv')||q.partitions.some(p=>p.portfolioFallback)||!same(q.candidate,q.hybrid)))throw bad();
  for(const partitions of [q.candidate,q.hybrid])validateSampleCoverage(report,{...v,result:{...v.result,partitions}},ids);
  for(const part of q.partitions){
   const full=v.result.partitions.find(x=>partKey(x)===partKey(part))!,candidate=q.candidate.find(x=>partKey(x)===partKey(part))!,hybrid=q.hybrid.find(x=>partKey(x)===partKey(part))!;
@@ -79,7 +82,7 @@ export function pcaCharts(v:MonteCarloView,partition:number,start=0):ChartSpec[]
  const p=v.result.partitions[partition],q=a.comparison;
  if(q&&p){const samePart=(x:{measure:string;currency:unknown})=>same([x.measure,x.currency],[p.measure,p.currency]);
   const candidate=q.candidate.find(samePart)!,hybrid=q.hybrid.find(samePart)!,unit=v.partitions.find(x=>same([x.measure,x.currencyReference],[p.measure,p.currency]))!.currency;
-  charts.push({title:'Same-path full PV / candidate / qualified hybrid',subtitle:'Every path has a full-PV reference. Failed valuations use full PV for the entire sample set.',axis:'category',kind:'line',unit,categoryTitle:'Simulation path',series:[{name:'Full PV',points:p.samples.map((s,i)=>({x:s.id,label:`Path ${i+1}`,y:s.loss}))},{name:'Candidate approximation',points:candidate.samples.map((s,i)=>({x:s.id,label:`Path ${i+1}`,y:s.loss}))},{name:'Qualified hybrid',points:hybrid.samples.map((s,i)=>({x:s.id,label:`Path ${i+1}`,y:s.loss}))}]});
+  charts.push({title:'Same-path full PV / candidate / qualified hybrid',subtitle:a.policy.valuationPolicy===pcaHybridProfile.valuationPolicy?'Every path has a full-PV reference. Qualification passed without full-PV substitution.':'Every path has a full-PV reference. The retained policy permits full-PV fallback for failed valuations.',axis:'category',kind:'line',unit,categoryTitle:'Simulation path',series:[{name:'Full PV',points:p.samples.map((s,i)=>({x:s.id,label:`Path ${i+1}`,y:s.loss}))},{name:'Candidate approximation',points:candidate.samples.map((s,i)=>({x:s.id,label:`Path ${i+1}`,y:s.loss}))},{name:'Qualified hybrid',points:hybrid.samples.map((s,i)=>({x:s.id,label:`Path ${i+1}`,y:s.loss}))}]});
  }
  return charts.map(c=>({...c,formatValueAxis:(x:number)=>x.toLocaleString('en-US',{maximumSignificantDigits:6})}));
 }

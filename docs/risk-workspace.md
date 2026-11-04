@@ -160,6 +160,9 @@ reconstruction diagnostics. All native factor delta exposure remains, including
 low-variance residuals. Actual quantized PC vectors define selected diagonal and
 mixed curvature; every generated path still receives full PV. Comparison widgets
 show native VaR/ES, path/tail error, whole-valuation fallback and measured reference
-versus added fitting work. A failed shared fitting batch falls back every valuation
-with its reason. This mode qualifies only the captured run and adds work; it does
-not enable accelerated execution or certify future tails.
+versus added fitting work. D309 starts **Allow full-PV fallback** unchecked.
+Failed qualification stops the run unless the user selects that option; an opted-in
+failed shared fitting batch falls back every valuation with its reason. The
+selected policy is retained through queue/replay and report export. This mode
+qualifies only the captured run and adds work; it does not enable accelerated
+execution or certify future tails.

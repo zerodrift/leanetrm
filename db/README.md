@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0191_pca_hybrid_risk.sql`. It includes reference/market data, certified
+`0192_pca_hybrid_fallback_consent.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
@@ -12,6 +12,10 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- 0192: hybrid fallback requires explicit user consent; strict or opt-in mode is
+  retained on each request. Legacy completed reports remain unchanged; legacy
+  policy cannot authorize new calculations. Full predecessor helper guard; no
+  new table or raw grant.
 - 0191: [PCA / hybrid qualification](../docs/pca-hybrid-risk.md), strict optional
   policy retention on the existing simulation job; complete private helper guard,
   no new table or raw grant.

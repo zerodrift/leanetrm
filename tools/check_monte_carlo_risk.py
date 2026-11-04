@@ -68,6 +68,18 @@ def run_checks(url,manifest,query,run_worker):
 
     from check_pca_hybrid_risk_db import admission_checks as check_pca_admission
     check_pca_admission(query,manifest,qualified_job['jobId'])
+    assert selected['analysis']['valuationPolicy']=='full_reference_no_fallback_qualification_v1'
+    opted_in={**selected,'analysis':{**selected['analysis'],'valuationPolicy':profile['analysis']['fallbackValuationPolicy']}}
+    opted_direct=c.call('portfolio/risk/monte-carlo',opted_in)['monteCarlo']
+    assert opted_direct['request']['analysis']['valuationPolicy']=='full_reference_opt_in_full_pv_qualification_v1'
+    assert opted_direct['studyId']!=checked['monteCarlo']['studyId']
+    assert opted_direct['generation']==g and opted_direct['result']==r
+    opted_job=c.call('portfolio/risk/monte-carlo/jobs',{'requestId':str(uuid4()),'request':opted_in});run_worker()
+    opted_stored=c.call('portfolio/risk/jobs/'+opted_job['jobId']);assert opted_stored['state']=='completed',opted_stored
+    assert economic(opted_stored['result']['monteCarlo'])==economic(opted_direct)
+    legacy={**selected,'analysis':{**selected['analysis'],'valuationPolicy':'full_reference_qualification_v1'}}
+    c.call('portfolio/risk/monte-carlo',legacy,expected=422)
+    print('PASS PCA consent: default forbids substitution, opt-in changes retained study identity and survives worker replay; legacy new work refuses',flush=True)
     signed_zero={**selected,'policy':{**selected['policy'],'paths':2},'analysis':{**selected['analysis'],'lossAbsolute':'-0.0','lossRelative':'0.00100'}}
     zero_direct=c.call('portfolio/risk/monte-carlo',signed_zero)['monteCarlo']
     zero_job=c.call('portfolio/risk/monte-carlo/jobs',{'requestId':str(uuid4()),'request':signed_zero});run_worker()

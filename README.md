@@ -64,7 +64,8 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   [Monte Carlo](docs/monte-carlo-risk.md) adds explicit seeded correlated Gaussian
   shocks, full PV and convergence/sampling diagnostics. Optional
   [PCA / hybrid qualification](docs/pca-hybrid-risk.md) adds loadings, residual
-  diagnostics and every-path candidate comparisons with explicit fallback and cost. Full-PV
+  diagnostics and every-path candidate comparisons with user-selected fallback
+  and cost. Fallback starts off. Full-PV
   [historical simulation](docs/historical-risk.md) adds empirical loss distributions,
   signed book/trade allocations, sample PV drilldown and a matching normal comparison
 - **Scheduled swaps:** persistent booking, amendments and inspection of up to 120

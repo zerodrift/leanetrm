@@ -322,6 +322,9 @@ def main():
             if args.assistant_check and migration.name=='0120_agent_read_limit.sql':
                 from check_agent_administration import check_read_limit_upgrade
                 check_read_limit_upgrade(query,migration.read_text())
+            if args.monte_carlo_risk_check and migration.name=='0192_pca_hybrid_fallback_consent.sql':
+                from check_pca_hybrid_risk_db import upgrade_checks as check_pca_upgrade
+                check_pca_upgrade(query,migration.read_text(),consent=True)
             if args.monte_carlo_risk_check and migration.name=='0191_pca_hybrid_risk.sql':
                 from check_pca_hybrid_risk_db import upgrade_checks as check_pca_upgrade
                 check_pca_upgrade(query,migration.read_text())

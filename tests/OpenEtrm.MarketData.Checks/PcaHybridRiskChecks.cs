@@ -84,7 +84,15 @@ internal static class PcaHybridRiskChecks
             throw new Exception("Standalone holding risk differs from the independent 128-path inverse-CDF/fractional-tail oracle.");
         var truncated=PcaHybridRisk.Decompose(generation,Policy());
         var smallPlan=PcaHybridRisk.PrepareFit(truncated,[ExactDecimal.Parse("0.01"),ExactDecimal.Parse("0.01")]);
-        var fallback=PcaHybridRisk.Compare(generation,truncated,smallPlan,[exposure],reference,
+        try
+        {
+            PcaHybridRisk.Compare(generation,truncated,smallPlan,[exposure],reference,
+                smallPlan.Samples.Select(s=>Price(s.Id,s.Changes)).ToImmutableArray(),[new(exposure.Id,"valuation")]);
+            throw new Exception("An unqualified candidate silently used full PV without explicit user consent.");
+        }
+        catch(MarketDataException error)when(error.Code=="risk_pca_hybrid_qualification"){}
+        var optedIn=truncated with{Policy=truncated.Policy with{ValuationPolicy=PcaHybridPolicy.FallbackQualification}};
+        var fallback=PcaHybridRisk.Compare(generation,optedIn,smallPlan,[exposure],reference,
             smallPlan.Samples.Select(s=>Price(s.Id,s.Changes)).ToImmutableArray(),[new(exposure.Id,"valuation")]);
         if(fallback.Classifications.Single().Method!="full_pv"||fallback.Partitions.Single().HybridValueAtRisk!=fallback.Partitions.Single().FullValueAtRisk)
             throw new Exception("Omitted nonlinear residual risk did not fall back for the whole valuation on every path.");
@@ -124,7 +132,7 @@ internal static class PcaHybridRiskChecks
         // One bad binding falls back every binding of the shared valuation.
         var sibling=exposure with{Id="opposing",TradeId=Guid.NewGuid(),BindingId=Guid.NewGuid()};
         HistoricalObservation Opposing(HistoricalObservation row)=>row with{Values=[..row.Values,new(sibling.Id,ExactNumberText.Format(SignedRatio.Zero-Number(row.Values[0].Value)))]};
-        var opposed=PcaHybridRisk.Compare(generation,truncated,smallPlan,[exposure,sibling],reference.Select(Opposing).ToImmutableArray(),
+        var opposed=PcaHybridRisk.Compare(generation,optedIn,smallPlan,[exposure,sibling],reference.Select(Opposing).ToImmutableArray(),
             smallPlan.Samples.Select(s=>Opposing(Price(s.Id,s.Changes))).ToImmutableArray(),[new(exposure.Id,"shared"),new(sibling.Id,"shared")]);
         if(opposed.Classifications.Single().Method!="full_pv"||opposed.Classifications.Single().ExposureIds.Length!=2||opposed.Exposures.All(e=>e.LossesPass))
             throw new Exception("Netting hid an invalid unit model across opposing bindings.");
@@ -144,12 +152,26 @@ internal static class PcaHybridRiskChecks
             var a=Number(x[0].ToString());var b=Number(x[1].ToString());var large=a*new SignedRatio(1000000000000,1);
             return new(id,[new(exposure.Id,ExactNumberText.Format(large+b*b)),new(sibling.Id,ExactNumberText.Format(SignedRatio.Zero-large))]);
         }
-        var offset=PcaHybridRisk.Compare(generation,truncated,smallPlan,[exposure,sibling],generation.Samples.Select(s=>Offset(s.Id,s.Changes)).ToImmutableArray(),
+        try
+        {
+            PcaHybridRisk.Compare(generation,truncated,smallPlan,[exposure,sibling],generation.Samples.Select(s=>Offset(s.Id,s.Changes)).ToImmutableArray(),
+                smallPlan.Samples.Select(s=>Offset(s.Id,s.Changes)).ToImmutableArray(),[new(exposure.Id,"first"),new(sibling.Id,"second")]);
+            throw new Exception("Portfolio error silently triggered full PV without user consent.");
+        }
+        catch(MarketDataException error)when(error.Code=="risk_pca_hybrid_qualification"){}
+        var offset=PcaHybridRisk.Compare(generation,optedIn,smallPlan,[exposure,sibling],generation.Samples.Select(s=>Offset(s.Id,s.Changes)).ToImmutableArray(),
             smallPlan.Samples.Select(s=>Offset(s.Id,s.Changes)).ToImmutableArray(),[new(exposure.Id,"first"),new(sibling.Id,"second")]);
         if(offset.Exposures.Any(e=>!e.LossesPass)||!offset.Partitions.Single().PortfolioFallback||offset.Classifications.Any(c=>c.Method!="full_pv"))
             throw new Exception("Accumulated relative model errors escaped portfolio-level path / VaR / ES validation.");
         HistoricalObservation Kink(string id,ImmutableArray<ExactDecimal> x)=>new(id,[new(exposure.Id,ExactNumberText.Format(Abs(Number(x[0].ToString()))))]);
-        var kink=PcaHybridRisk.Compare(generation,truncated,smallPlan,[exposure],generation.Samples.Select(s=>Kink(s.Id,s.Changes)).ToImmutableArray(),
+        try
+        {
+            PcaHybridRisk.Compare(generation,truncated,smallPlan,[exposure],generation.Samples.Select(s=>Kink(s.Id,s.Changes)).ToImmutableArray(),
+                smallPlan.Samples.Select(s=>Kink(s.Id,s.Changes)).ToImmutableArray(),[new(exposure.Id,"kink")]);
+            throw new Exception("Unstable derivatives silently triggered full PV without user consent.");
+        }
+        catch(MarketDataException error)when(error.Code=="risk_pca_hybrid_qualification"){}
+        var kink=PcaHybridRisk.Compare(generation,optedIn,smallPlan,[exposure],generation.Samples.Select(s=>Kink(s.Id,s.Changes)).ToImmutableArray(),
             smallPlan.Samples.Select(s=>Kink(s.Id,s.Changes)).ToImmutableArray(),[new(exposure.Id,"kink")]);
         if(kink.Classifications.Single().Method!="full_pv"||!kink.Classifications.Single().Reasons.Contains("unstable_finite_differences"))
             throw new Exception("Nonsmooth gamma passed derivative stability checks.");

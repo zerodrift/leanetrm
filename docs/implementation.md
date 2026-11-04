@@ -259,7 +259,9 @@ exact empirical quantiles/fractional-tail ES, signed book/trade allocation,
 sample PV drilldown and matching same-job normal comparison. D308 adds
 [PCA diagnostics and hybrid qualification](pca-hybrid-risk.md), complete residual
 delta, same-path full-PV comparisons, fallback classifications and additional work
-counters. Accelerated hybrid execution, EVT and an operating backtest workflow
+counters. D309 refuses failed qualification by default and requires an explicit
+user selection before full-PV fallback; the choice survives retained worker
+replay. Accelerated hybrid execution, EVT and an operating backtest workflow
 remain work. D301 adds the guided
 [VaR walkthrough](risk-factor-history.md#guided-var-setup-d301): a visible six-month,
 99%, one-session starting profile, automatic history preparation, end-of-day local

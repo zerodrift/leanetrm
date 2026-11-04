@@ -3,7 +3,8 @@
 D308 adds optional [PCA / hybrid qualification](pca-hybrid-risk.md) over the same
 full native Monte Carlo shocks: deterministic scaled decomposition, ideal residual
 covariance diagnostics, actual-direction delta-gamma fitting and every-path
-instrument/portfolio comparisons. Full PV remains the reference; coarse shared-fit
+instrument/portfolio comparisons. Full PV remains the reference. Under D309,
+failed qualification stops the run unless the user explicitly permits full-PV fallback; an opted-in shared-fit
 failure falls back the whole portfolio. This mode adds measured work and does not
 accelerate execution.
 

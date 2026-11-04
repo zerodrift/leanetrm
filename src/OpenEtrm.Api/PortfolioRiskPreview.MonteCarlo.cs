@@ -50,7 +50,7 @@ public sealed partial class PortfolioRiskPreview
         analysis=new{profile=new{convention=PcaHybridPolicy.Version1,numericalPolicy=PcaHybridPolicy.Decomposition,scalingPolicy=PcaHybridPolicy.Scaling,
             residualPolicy=PcaHybridPolicy.Residual,valuationPolicy=PcaHybridPolicy.Qualification,directionPolicy=PcaHybridPolicy.Directions},
             defaults=new{retainedComponents=startingComponents,tradingTicks=1,stabilityRelative="0.0001",lossAbsolute="0",lossRelative="0.001"},
-            capacities=analysisCapacities}};
+            fallbackValuationPolicy=PcaHybridPolicy.FallbackQualification,capacities=analysisCapacities}};
     }
     internal static PortfolioRiskRequest MonteCarloRequest(PortfolioMonteCarloRequest body)
     {

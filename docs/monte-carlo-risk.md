@@ -143,6 +143,9 @@ Setup now offers an explicit optional [PCA / hybrid qualification](pca-hybrid-ri
 It retains the exact same complete native shocks and full-PV reference, adds
 loadings/residual graphics and fits a candidate using all native deltas plus
 selected PC curvature. Complete path and native portfolio comparisons determine
-per-run fallback. Its work is additional qualification, with no acceleration claim.
+per-run qualification. D309 refuses failed checks by default; the user must
+select **Allow full-PV fallback** to permit substitution. Its work is additional
+qualification, with no acceleration claim.
 The selected policy, actual fitting vectors/PVs and classification results travel
-with the original retained job; migration 0191 extends its strict private admission.
+with the original retained job; migrations 0191–0192 extend its strict private
+admission and retain explicit fallback consent.

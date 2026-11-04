@@ -192,6 +192,8 @@ public static partial class PcaHybridRisk
             if(diagnostics.Any(e=>members.Contains(e.ExposureId)&&!e.LossesPass))reasons.Add("holding_loss_or_tail_error");
             return new PcaClassification(group.Key,[..members.Order(StringComparer.Ordinal)],reasons.Count==0?"pca_delta_gamma":"full_pv",reasons.ToImmutable());
         }).OrderBy(c=>c.ValuationKey,StringComparer.Ordinal).ToImmutableArray();
+        if(classes.Any(c=>c.Method=="full_pv"))
+            RequireFullPvFallback(pca.Policy,"One or more shared valuations failed derivative stability or holding loss / VaR / ES checks.");
         var fallback=classes.Where(c=>c.Method=="full_pv").SelectMany(c=>c.ExposureIds).ToHashSet();
         var hybrid=candidate.Select(s=>new HistoricalObservation(s.Id,[..s.Values.Select(v=>fallback.Contains(v.ExposureId)?new HistoricalScenarioValue(v.ExposureId,Text(fullValues[s.Id][v.ExposureId])):v)])).ToImmutableArray();
         var hybridResult=ReduceQualification(generation.HistoryId,ids,generation.Policy.Confidence,exposures,hybrid,cancellation);
@@ -201,6 +203,7 @@ public static partial class PcaHybridRisk
         var portfolioFallback=reference.Partitions.Zip(hybridResult.Partitions).Any(pair=>!PartitionPass(pair.First,pair.Second));
         if(portfolioFallback)
         {
+            RequireFullPvFallback(pca.Policy,"The portfolio failed path loss / VaR / ES checks.");
             classes=[..classes.Select(c=>c with{Method="full_pv",Reasons=[..c.Reasons,"portfolio_validation_failed"]})];
             hybridResult=reference;
         }

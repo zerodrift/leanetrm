@@ -10,7 +10,7 @@ public sealed record PcaHybridPolicy(string Convention,string NumericalPolicy,st
 {
     public const string Version1="correlation_pca_hybrid_qualification_v1",Decomposition="cyclic_jacobi_binary64_residual_checks_v1",
         Scaling="sample_sd_constant_unit_v1",Residual="complete_native_shocks_all_factor_delta_v1",
-        Qualification="full_reference_qualification_v1",Directions="pc_0_01_native_17_places_collinear_v1";
+        Qualification="full_reference_no_fallback_qualification_v1",FallbackQualification="full_reference_opt_in_full_pv_qualification_v1",Directions="pc_0_01_native_17_places_collinear_v1";
 }
 public sealed record PcaSampleProjection(string Id,ImmutableArray<string> Scores,string ResidualNorm,string ReconstructionError);
 public sealed record PcaCalibration(PcaHybridPolicy Policy,ImmutableArray<string> Columns,ImmutableArray<string> Scales,
@@ -27,13 +27,20 @@ public static partial class PcaHybridRisk
     public static void ValidatePolicy(PcaHybridPolicy p,int? factors=null)
     {
         if(p is null||p.Convention!=PcaHybridPolicy.Version1||p.NumericalPolicy!=PcaHybridPolicy.Decomposition||
-            p.ScalingPolicy!=PcaHybridPolicy.Scaling||p.ResidualPolicy!=PcaHybridPolicy.Residual||p.ValuationPolicy!=PcaHybridPolicy.Qualification||
+            p.ScalingPolicy!=PcaHybridPolicy.Scaling||p.ResidualPolicy!=PcaHybridPolicy.Residual||p.ValuationPolicy is not (PcaHybridPolicy.Qualification or PcaHybridPolicy.FallbackQualification)||
             p.DirectionPolicy!=PcaHybridPolicy.Directions||p.RetainedComponents is <1 or >MaximumComponents||factors is {} d&&p.RetainedComponents>d||
             p.TradingTicks is <1 or >1000)
             throw Invalid("Select explicit PCA scaling, complete residual shocks, full-reference qualification, 1–8 retained components and 1–1000 trading ticks.");
         foreach(var text in new[]{p.StabilityRelative,p.LossAbsolute,p.LossRelative})
             try{if(ExactDecimal.Parse(text??"").CompareTo(default)<0)throw Invalid("Select explicit nonnegative stability and native loss-error tolerances.");}
             catch(MarketDataException e){throw Invalid(e.Message);}
+    }
+    public static void RequireFullPvFallback(PcaHybridPolicy policy,string reason)
+    {
+        ValidatePolicy(policy);
+        if(policy.ValuationPolicy!=PcaHybridPolicy.FallbackQualification)
+            throw new MarketDataException("risk_pca_hybrid_qualification",
+                $"Hybrid qualification failed: {reason} Full-PV fallback was not selected. Review the model settings or explicitly allow full-PV fallback.");
     }
     public static int FittingScenarios(int factors,int components)=>checked(6*factors+6*components*components);
     public static PcaCalibration Decompose(MonteCarloGeneration generation,PcaHybridPolicy policy,CancellationToken cancellation=default)
