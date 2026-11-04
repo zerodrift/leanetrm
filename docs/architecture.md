@@ -1,5 +1,11 @@
 # Architecture and domain contracts
 
+D307 adds [full-PV Monte Carlo VaR/ES](monte-carlo-risk.md): explicit additive
+Gaussian joint-factor generation, exact sample covariance/LDL, reproducible seeded
+native shocks, ordinary frozen portfolio PV, empirical tails, convergence and
+conditional sampling diagnostics. It shares retained source/worker custody and
+Risk/Blotter widgets; named and historical scenario limits remain unchanged.
+
 Status: baseline approved for implementation and publication on 2026-10-16.
 No implementation is implied by this document.
 See [decisions](decisions.md) for the distinction between agreed requirements,

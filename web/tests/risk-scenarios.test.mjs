@@ -45,3 +45,11 @@ test('historical SQL admission refusals clear only a definitely rejected first c
   const retry=new PendingCommand(knownRiskRejection);retry.begin('portfolio/risk/jobs',{request:{historical:{}}});retry.failed('transport',retry.sending());retry.failed(code,retry.sending());assert.ok(retry.command,code);
  }
 });
+
+test('Monte Carlo preparation refusals release fresh submissions and preserve previously uncertain requests',async()=>{
+ const {knownRiskRejection}=await import('../dist/risk-scenarios.js'),{PendingCommand}=await import('../dist/pending-command.js');
+ for(const code of ['risk_monte_carlo_policy','risk_monte_carlo_scope','risk_monte_carlo_history','risk_monte_carlo_capacity','risk_monte_carlo_covariance','risk_monte_carlo_numeric','risk_monte_carlo_exposures','risk_monte_carlo_input','risk_parametric_numeric','risk_result_limit']){
+  const fresh=new PendingCommand(knownRiskRejection);fresh.begin('portfolio/risk/jobs',{request:{monteCarlo:{}}});fresh.failed(code,fresh.sending());assert.equal(fresh.command,undefined,code);
+  const retry=new PendingCommand(knownRiskRejection);retry.begin('portfolio/risk/jobs',{request:{monteCarlo:{}}});const original=retry.command;retry.failed('transport',retry.sending());retry.failed(code,retry.sending());assert.equal(retry.command,original,code);assert.equal(retry.command.uncertain,true);
+ }
+});

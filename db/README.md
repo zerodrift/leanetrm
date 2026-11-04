@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0183_access_policy_consumers.sql`. It includes reference/market data, certified
+`0190_monte_carlo_risk.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
@@ -11,6 +11,11 @@ application. See [current implementation](../docs/implementation.md) and
 [verification](../docs/verification.md) for consumers and qualification.
 
 Recent schema groups and their contracts:
+
+- 0190: [full-PV Monte Carlo risk](../docs/monte-carlo-risk.md), with strict seeded
+  method admission, complete axes, shared source/clock custody and authorized
+  method/common archives. Existing private helpers retain guarded owner, ACL and
+  search-path contracts. No new tables or raw grants; rollout is separate.
 
 - 0176–0179: [physical LNG cargo](../docs/physical-lng.md), separate physical masters,
   saved Incoterms, exact discharge-energy conversion, native admission and retained

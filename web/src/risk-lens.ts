@@ -146,7 +146,7 @@ export function tileWords(o:{largest:number;gaps:readonly RunGap[];unknown:numbe
  * part the job history no longer lists states no count, so a run with one has none.
  */
 export function shockCount(run:Pick<RunView,'factors'|'parts'>):{known:number;total:number|null}{
-  const known=new Set(run.parts.flatMap(p=>p.report?.historical?p.report.historical.history.samples.map(s=>s.id):p.report?.parametric?p.report.parametric.result.calibration.columns:p.report?.joint?(p.report.joint.kind==='scenarios'?p.report.joint.samples.map(s=>s.id):p.report.joint.derivatives.map(d=>d.formula+'/'+d.id)):p.report?p.report.factors.map(f=>f.factor.id):[])).size,stated=run.parts.map(p=>p.job?.shocks);
+  const known=new Set(run.parts.flatMap(p=>p.report?.monteCarlo?p.report.monteCarlo.generation.samples.map(s=>s.id):p.report?.historical?p.report.historical.history.samples.map(s=>s.id):p.report?.parametric?p.report.parametric.result.calibration.columns:p.report?.joint?(p.report.joint.kind==='scenarios'?p.report.joint.samples.map(s=>s.id):p.report.joint.derivatives.map(d=>d.formula+'/'+d.id)):p.report?p.report.factors.map(f=>f.factor.id):[])).size,stated=run.parts.map(p=>p.job?.shocks);
   return {known,total:run.factors??(stated.every(count=>count!==undefined)?stated.reduce<number>((sum,count)=>sum+count!,0):null)};
 }
 /** A run's shock count as it is known: all of them, or how many are known, of how many when that is stated; never fewer than it ran. */

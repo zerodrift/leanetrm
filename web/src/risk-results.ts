@@ -1,3 +1,4 @@
+import {validateMonteCarlo,type MonteCarloView} from './monte-carlo-risk.js';
 import type {ChartSpec} from './chart-view.js';
 import {sensitivityFactors,type RiskFactorResult,type RiskSensitivityReport,type ExcludedPosition} from './risk-report.js';
 import type {RunView,RiskJob} from './risk-view.js';
@@ -10,7 +11,7 @@ import {validateParametric,type ParametricView} from './parametric-risk.js';
 export type RiskMetric='delta'|'gamma'|'upPnl'|'downPnl';
 export const riskMetricLabels:Record<RiskMetric,string>={delta:'Delta',gamma:'Gamma',upPnl:'Up P&L',downPnl:'Down P&L'};
 export type ReportPresentation={state:'complete'|'incomplete'|'running'|'unavailable';excluded:ExcludedPosition[];gaps:RunGap[];
- factors:RiskSensitivityReport['factors'];charts:{key:string;spec:ChartSpec}[];joint?:JointReport;parametric?:ParametricView;historical?:HistoricalView};
+ factors:RiskSensitivityReport['factors'];charts:{key:string;spec:ChartSpec}[];joint?:JointReport;parametric?:ParametricView;historical?:HistoricalView;monteCarlo?:MonteCarloView};
 const canonical=(value:unknown):string=>JSON.stringify(value,(_key,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 
 // The book measures a factor moves: a total whose delta, gamma and up and down P&L are all exactly zero is left out of rows and graphics.
@@ -29,6 +30,11 @@ export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset
  if(reports.some(r=>r.context.contextId!==run.context?.contextId||r.snapshotId!==first.snapshotId||canonical(r.scenario)!==canonical(first.scenario)))
   throw Error('The report parts do not share one retained context, close and scenario. Their results cannot be displayed together.');
  const excluded=runExclusions(reports);
+ if(reports.some(r=>r.monteCarlo)){
+  if(reports.length!==1||run.parts.length!==1||!first.monteCarlo)throw Error('A Monte Carlo report is one complete job and cannot be combined as sensitivity parts.');
+  const monteCarlo=validateMonteCarlo(first as Parameters<typeof validateMonteCarlo>[0]);
+  return {state:gaps.length||excluded.length||!run.scope?'incomplete':monteCarlo.result.available?'complete':'unavailable',excluded,gaps,factors:[],charts:[],monteCarlo};
+ }
  if(reports.some(r=>r.historical)){
   if(reports.length!==1||run.parts.length!==1||!first.historical)throw Error('A historical report is one complete job and cannot be combined as sensitivity parts.');
   const historical=validateHistorical(first as Parameters<typeof validateHistorical>[0]);

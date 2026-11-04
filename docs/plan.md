@@ -25,8 +25,9 @@ D289 adds the [Risk results workspace](risk-workspace.md): Risk-owned setup,
 shared sensitivity ladders/heatmaps and drill-through, visible incomplete coverage,
 retained report links, and multipart submission recovery. The bounded recent-job
 directory remains separate from the D299 completed statistical-report archive.
-Delta-normal and full-PV historical VaR/ES are implemented below. Monte Carlo/PCA/
-hybrid, EVT and an operating rolling-backtest workflow remain subsequent increments.
+Delta-normal, full-PV historical and full-PV Monte Carlo VaR/ES are implemented
+below. PCA/hybrid, EVT and an operating rolling-backtest workflow remain
+subsequent increments.
 
 D294 adds temporary maximize/restore to every Blotter pane, a shared searchable
 portfolio/book picker in Blotter and Risk, and personal saved-view sidebar pins
@@ -1777,8 +1778,8 @@ worker and authorized report operations. Migration 0189 extends private retentio
 contracts without new tables or broader observation grants.
 
 The bounded qualification includes two no-look-ahead frozen-forecast HPL fixtures;
-an operating rolling-backtest service remains work. Next is full Monte Carlo
-before PCA/hybrid approximation. EVT requires separate tail qualification.
+an operating rolling-backtest service remains work. Full Monte Carlo is the
+reference before PCA/hybrid approximation. EVT requires separate tail qualification.
 Production activation requires a separately qualified schema release.
 
 ### Shared physical lifecycle design (D303, P44)
@@ -1817,3 +1818,18 @@ chains, conservation and exact references. Metadata/clock revisions cannot mint
 capacity. Remaining slices include broader facility-to-point relationships, final
 allocation adoption, external source evidence and notification dispatch. Billing,
 fulfillment and cash remain governed by their existing contracts.
+
+### Monte Carlo risk increment (D307, R6)
+
+[Full-PV Monte Carlo](monte-carlo-risk.md) uses an explicit additive Gaussian
+model over the complete captured joint sample covariance. Exact singular-aware
+LDL, counter-addressed seeded normals and an explicit native rounding boundary
+supply reproducible full-factor shocks to the shared frozen PV loop. Empirical
+VaR/ES, signed native book/trade allocations, loss/path drilldown, covariance
+graphics and prefix convergence accompany a conditional 95% VaR sampling interval
+with explicit unbounded endpoints. Guided setup retains EOD official-close
+history and lowers its visible starting path count to the selected scope's work
+budget. One complete retained job reuses source/clock/engine/attempt custody;
+migration 0190 adds no raw grants or tables. PCA/hybrid approximation, EWMA, EVT
+and the operating rolling-backtest service remain separate work. Production
+activation requires a separately qualified schema release.

@@ -74,8 +74,12 @@ export function parametricCharts(view:ParametricView,partition:number,metric:'va
   series:[{name:`Component ${risk}`,points:p.factors.map(f=>({x:f.id,label:view.factors.find(v=>v.id===f.id)!.factor.label,y:f[metric],text:f[metric]}))}]});
  charts.push({title:'In-sample linearized losses',subtitle:'Current local deltas applied to the calibration changes. These are not full-repricing historical simulation or out-of-sample outcomes.',axis:'category',unit:currency,kind:'line',
   reference:{value:p.valueAtRisk,label:'Gaussian VaR'},series:[{name:'Linearized loss',points:p.linearizedLosses.map(s=>({x:s.sample,label:s.sample,y:s.loss,text:s.loss}))}]});
- const ids=view.result.calibration.columns,r=ids.slice(rows,rows+32),c=ids.slice(columns,columns+32);
- charts.push({title:matrix==='correlation'?'Factor correlation':'Factor covariance',subtitle:`Rows ${rows+1}–${rows+r.length}, columns ${columns+1}–${columns+c.length} of ${ids.length}. Display window only; calibration retains every factor. ${matrix==='correlation'?'A constant column has undefined correlation.':'Covariance uses row × column native units; it is not standardized.'}`,axis:'category',unit:matrix==='correlation'?'Correlation':'Row × column native units',kind:'heatmap',
-  series:r.map((id,i)=>({id,name:view.factors.find(f=>f.id===id)!.factor.label,points:c.map((column,j)=>({x:column,label:view.factors.find(f=>f.id===column)!.factor.label,y:view.result.calibration[matrix][rows+i][columns+j],text:matrix==='covariance'?view.result.calibration.covariance[rows+i][columns+j]+' · '+view.factors.find(f=>f.id===id)!.factor.unit+' × '+view.factors.find(f=>f.id===column)!.factor.unit:undefined}))}))});
+ charts.push(calibrationMatrix(view.result.calibration,view.factors,rows,columns,matrix));
  return charts;
+}
+
+export function calibrationMatrix(calibration:ParametricView['result']['calibration'],factors:ParametricView['factors'],rows=0,columns=0,matrix:'correlation'|'covariance'='correlation'):ChartSpec{
+ const ids=calibration.columns,r=ids.slice(rows,rows+32),c=ids.slice(columns,columns+32);
+ return {title:matrix==='correlation'?'Factor correlation':'Factor covariance',subtitle:`Rows ${rows+1}–${rows+r.length}, columns ${columns+1}–${columns+c.length} of ${ids.length}. Display window only; calibration retains every factor. ${matrix==='correlation'?'A constant column has undefined correlation.':'Covariance uses row × column native units; it is not standardized.'}`,axis:'category',unit:matrix==='correlation'?'Correlation':'Row × column native units',kind:'heatmap',
+  series:r.map((id,i)=>({id,name:factors.find(f=>f.id===id)!.factor.label,points:c.map((column,j)=>({x:column,label:factors.find(f=>f.id===column)!.factor.label,y:calibration[matrix][rows+i][columns+j],text:matrix==='covariance'?calibration.covariance[rows+i][columns+j]+' · '+factors.find(f=>f.id===id)!.factor.unit+' × '+factors.find(f=>f.id===column)!.factor.unit:undefined}))}))};
 }

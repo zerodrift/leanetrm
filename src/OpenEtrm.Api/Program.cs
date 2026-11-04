@@ -1702,6 +1702,16 @@ api.MapPost("/portfolio/risk/parametric",(HttpContext c,PortfolioParametricReque
     var request=PortfolioRiskPreview.StatisticalRequest(body);
     return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>portfolioRisk.Calculate(connection,data,frame,request,ct));
 });
+api.MapPost("/portfolio/risk/monte-carlo",(HttpContext c,PortfolioMonteCarloRequest body)=>
+{
+    var request=PortfolioRiskPreview.MonteCarloRequest(body);
+    return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>portfolioRisk.Calculate(connection,data,frame,request,ct));
+});
+api.MapPost("/portfolio/risk/monte-carlo/jobs",(HttpContext c,SubmitMonteCarloRiskJob body)=>
+{
+    var request=PortfolioRiskPreview.MonteCarloRequest(body.Request);
+    return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,new(body.RequestId,request),ct));
+});
 api.MapPost("/portfolio/risk/historical",(HttpContext c,PortfolioHistoricalRequest body)=>
 {
     var request=PortfolioRiskPreview.HistoricalRequest(body);
@@ -1746,6 +1756,7 @@ Task<IResult> StatisticalArchive(HttpContext c,string method)=>Locked(c,session=
         return Results.Ok(await RiskJobs.StatisticalArchive(connection,database.Manifest.CatalogId,limit,before.Length==0?null:SchedulePreview.ParseAt(before),cursor.Length==0?null:Guid.Parse(cursor),method,ct));
     },c.RequestAborted));
 api.MapGet("/portfolio/risk/parametric/archive",(Func<HttpContext,Task<IResult>>)(c=>StatisticalArchive(c,"parametric")));
+api.MapGet("/portfolio/risk/monte-carlo/archive",(Func<HttpContext,Task<IResult>>)(c=>StatisticalArchive(c,"monte_carlo")));
 api.MapGet("/portfolio/risk/historical/archive",(Func<HttpContext,Task<IResult>>)(c=>StatisticalArchive(c,"historical")));
 api.MapGet("/portfolio/risk/statistical/archive",(Func<HttpContext,Task<IResult>>)(c=>StatisticalArchive(c,"statistical")));
 api.MapPost("/portfolio/risk/jobs",(HttpContext c,SubmitPortfolioRiskJob body)=>PortfolioRead(c,

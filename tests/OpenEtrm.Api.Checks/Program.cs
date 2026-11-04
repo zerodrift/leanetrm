@@ -4,6 +4,7 @@ using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 if(args is ["--historical-risk"]){HistoricalRiskContractChecks.Run();return;}
+if(args is ["--monte-carlo-risk"]){MonteCarloRiskContractChecks.Run();return;}
 if(args is ["--lng-admission",var lngAdmission]){await LngAdmissionChecks.Run(lngAdmission);return;}
 if(args is ["--tool-output-limits",var toolOutputFile]){ToolOutputLimitChecks.Run(toolOutputFile);return;}
 if(args is ["--reference-presentation"]){ReferencePresentationChecks.Run();return;}

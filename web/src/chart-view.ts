@@ -15,7 +15,7 @@ export type ChartPoint={x:string;y:string|null;label?:string;color?:string;marke
  * dashed line across a vertical chart at an exact value, labeled with its own text, and the value axis always includes it.
  */
 export type ChartSpec={title:string;subtitle?:string;axis:'delivery'|'observation'|'maturity'|'category';categoryTitle?:string;axisName?:string;dense?:boolean;unit:string;exportImage?:(download:()=>void)=>void;kind?:'line'|'bar'|'heatmap';
-  onSelect?:(category:string)=>void;
+  onSelect?:(category:string)=>void;formatValueAxis?:(coordinate:number)=>string;
   orientation?:'vertical'|'horizontal';colorBySign?:boolean;positiveTone?:'gain'|'loss';marked?:string[];reference?:{value:string;label:string};series:{id?:string;name:string;points:ChartPoint[]}[]};
 // Validated categorical order. The last two sit under 3:1 contrast on white, so a chart that reaches them keeps its table view.
 export const palette=['#2f8a66','#2a78d6','#eb6834','#6250d6','#e87ba4','#eda100'];
@@ -87,7 +87,7 @@ export function chartOptions(spec:ChartSpec,size?:{width:number}){
   const seriesName=(index:number)=>publicText(spec.series[index].name)+(spec.series.filter(s=>s.name===spec.series[index].name).length>1?' · '+(index+1):'');
   const categoryAxis={type:'category' as const,name:spec.categoryTitle??spec.axisName??(spec.axis==='delivery'?'Delivery period':spec.axis==='maturity'?'Maturity date':spec.axis==='observation'?'Observation date':'Book'),nameLocation:'middle' as const,nameGap:32,nameTextStyle:{color:'#64776d',fontSize:11},data:categories,axisLine:{lineStyle:{color:'#cbd9d1'}},axisTick:{show:false},axisPointer:{label:{formatter:(p:{value:string})=>categoryLabel(String(p.value))}},
     axisLabel:{color:'#64776d',fontSize:11,hideOverlap:true,...bounded(labelShares[0]),formatter:markers.length?markedLabel:categoryLabel,...(markers.length?{rich:Object.fromEntries(markers.map((color,i)=>[`m${i}`,{color,fontSize:11}]))}:{})}};
-  const valueAxis={type:'value' as const,name:spec.unit,nameLocation:'end' as const,nameGap:18,scale:spec.kind!=='bar',nameTextStyle:{color:'#607457',align:'left' as const,fontSize:11},axisLabel:{color:'#6c7e63',fontSize:10},splitLine:{lineStyle:{color:'#e8eee3'}},
+  const valueAxis={type:'value' as const,name:spec.unit,nameLocation:'end' as const,nameGap:18,scale:spec.kind!=='bar',nameTextStyle:{color:'#607457',align:'left' as const,fontSize:11},axisLabel:{color:'#6c7e63',fontSize:10,...(spec.formatValueAxis?{formatter:spec.formatValueAxis}:{})},splitLine:{lineStyle:{color:'#e8eee3'}},
     // Diverging bars keep zero in the middle, so a gain and a loss of one size are drawn alike, between round axis ends.
     ...(horizontal&&spec.kind==='bar'?{min:(v:{min:number;max:number})=>-axisEnd(v),max:axisEnd}:{}),
     // A reference line is part of the picture: the axis reaches it however far the data lies from it.

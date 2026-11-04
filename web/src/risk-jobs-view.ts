@@ -21,8 +21,8 @@ export function setupRiskJobs(options:{api:<T>(path:string)=>Promise<T>;act:(wor
   async function page(){
    more.disabled=true;try{
     const loaded=await options.api<Archive>('portfolio/risk/statistical/archive?limit=25'+(cursor?'&before='+encodeURIComponent(cursor.createdAt)+'&id='+encodeURIComponent(cursor.id):''));if(version!==generation)return;
-    if(!Array.isArray(loaded.items)||loaded.items.some(j=>j.state!=='completed'||!['parametric','historical'].includes(j.kind??'')))throw Error('The statistical archive is inconsistent. Refresh Reports and runs.');
-    for(const job of loaded.items){const row=document.createElement('tr');for(const value of [job.kind==='historical'?'Historical simulation':'Parametric',job.asOf?options.instant(job.asOf):'Unavailable',job.confidence,job.calibrationAvailable?'Available':'Unavailable',job.historyId])row.append(cell('td',value));
+    if(!Array.isArray(loaded.items)||loaded.items.some(j=>j.state!=='completed'||!['parametric','historical','monte_carlo'].includes(j.kind??'')))throw Error('The statistical archive is inconsistent. Refresh Reports and runs.');
+    for(const job of loaded.items){const row=document.createElement('tr');for(const value of [job.kind==='monte_carlo'?'Monte Carlo':job.kind==='historical'?'Historical simulation':'Parametric',job.asOf?options.instant(job.asOf):'Unavailable',job.confidence,job.calibrationAvailable?'Available':'Unavailable',job.historyId])row.append(cell('td',value));
      const action=cell('td',''),button=cell('button','Open VaR / ES report') as HTMLButtonElement;button.type='button';button.dataset.riskJob=job.id;button.onclick=()=>void options.act(()=>report(job.id));action.append(button);row.append(action);body.append(row);}
     cursor=loaded.next;more.hidden=!cursor;note.textContent=body.rows.length?'Completed statistical reports under current authority. Each report retains its own scope and calibration.':'No completed statistical reports are visible to this account.';
    }catch(error){if(version===generation){body.replaceChildren();note.textContent='The statistical archive could not be read. Refresh Reports and runs.';more.hidden=true;}throw error;}finally{more.disabled=false;}
@@ -41,7 +41,7 @@ export function setupRiskJobs(options:{api:<T>(path:string)=>Promise<T>;act:(wor
    const runs=[...new Set(jobs.flatMap(j=>j.run?[j.run.id]:[]))];
    const thead=document.createElement('thead');thead.append(head);table.append(thead);const body=document.createElement('tbody');
    for(const job of jobs){
-    const row=document.createElement('tr');for(const text of [job.run?`Run ${runs.indexOf(job.run.id)+1} · part ${job.run.part} of ${job.run.parts}`:'Single run',job.kind==='parametric'?'Parametric VaR / ES':'Sensitivities',job.state,job.asOf?options.instant(job.asOf):'Not recorded',job.finishedAt?options.instant(job.finishedAt):'—'])row.append(cell('td',text));
+    const row=document.createElement('tr');for(const text of [job.run?`Run ${runs.indexOf(job.run.id)+1} · part ${job.run.part} of ${job.run.parts}`:'Single run',job.kind==='monte_carlo'?'Monte Carlo VaR / ES':job.kind==='historical'?'Historical VaR / ES':job.kind==='parametric'?'Parametric VaR / ES':'Sensitivities',job.state,job.asOf?options.instant(job.asOf):'Not recorded',job.finishedAt?options.instant(job.finishedAt):'—'])row.append(cell('td',text));
     const action=cell('td',''),button=cell('button','View details / report') as HTMLButtonElement;button.type='button';button.className='secondary';button.dataset.riskJob=job.id;button.onclick=()=>void options.act(()=>report(job.id));action.append(button);row.append(action);body.append(row);
    }
    table.append(body);const wrap=cell('div','');wrap.className='table-wrap';wrap.append(table);root.append(wrap);await archive(version);

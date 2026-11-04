@@ -1,3 +1,4 @@
+import type {MonteCarloView} from './monte-carlo-risk.js';
 import type {ProjectionPolicyReceipt} from './projection-policy.js';
 import type {ValuationReason} from './valuation-status.js';
 import type {JointReport} from './joint-risk.js';
@@ -26,10 +27,10 @@ export type RiskWorkReport={heldInstruments:number;work:{positionCount:number;un
 type ReportBase=RiskWorkReport&{projectionPolicies:ProjectionPolicyReceipt[];displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;tradeIds?:string[]|null;
   detail?:string;inputs?:{positions:{tradeId:string;bindingId:string;bookId:string;measure:string}[];markets:{definitions:{revisionId:string}}[]};excludedPositions?:ExcludedPosition[]};
 export type RiskFactorResult={factor:RiskFactor;bump:string;totals:RiskTotal[];positions:RiskPosition[]};
-export type RiskSensitivityReport=ReportBase&{joint?:undefined;parametric?:undefined;historical?:undefined;factors:RiskFactorResult[]};
-export type RiskReport=RiskSensitivityReport|(ReportBase&{joint:JointReport;parametric?:undefined;historical?:undefined;factors?:never})|(ReportBase&{parametric:ParametricView;joint?:undefined;historical?:undefined;factors?:never})|(ReportBase&{historical:HistoricalView;parametric?:undefined;joint?:undefined;factors?:never});
-export function sensitivityFactors(report:{factors?:RiskFactorResult[];joint?:unknown;parametric?:unknown;historical?:unknown}):RiskFactorResult[]{
- if(report.joint||report.parametric||report.historical||!Array.isArray(report.factors))throw Error('This report is not an independent sensitivity report. Open its complete scenario, Greek or statistical report.');
+export type RiskSensitivityReport=ReportBase&{monteCarlo?:undefined;joint?:undefined;parametric?:undefined;historical?:undefined;factors:RiskFactorResult[]};
+export type RiskReport=RiskSensitivityReport|(ReportBase&{monteCarlo?:undefined;joint:JointReport;parametric?:undefined;historical?:undefined;factors?:never})|(ReportBase&{monteCarlo?:undefined;parametric:ParametricView;joint?:undefined;historical?:undefined;factors?:never})|(ReportBase&{monteCarlo?:undefined;historical:HistoricalView;parametric?:undefined;joint?:undefined;factors?:never})|(ReportBase&{monteCarlo:MonteCarloView;historical?:undefined;parametric?:undefined;joint?:undefined;factors?:never});
+export function sensitivityFactors(report:{factors?:RiskFactorResult[];joint?:unknown;parametric?:unknown;historical?:unknown;monteCarlo?:unknown}):RiskFactorResult[]{
+ if(report.monteCarlo||report.joint||report.parametric||report.historical||!Array.isArray(report.factors))throw Error('This report is not an independent sensitivity report. Open its complete scenario, Greek or statistical report.');
  return report.factors;
 }
 export function riskWorkDetails(report:RiskWorkReport){

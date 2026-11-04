@@ -1,5 +1,11 @@
 # Risk scenarios and durable runs
 
+D307 adds [full-PV Monte Carlo VaR/ES](monte-carlo-risk.md): explicit additive
+Gaussian joint-factor generation, exact sample covariance/LDL, reproducible seeded
+native shocks, ordinary frozen portfolio PV, empirical tails, convergence and
+conditional sampling diagnostics. It shares retained source/worker custody and
+Risk/Blotter widgets; named and historical scenario limits remain unchanged.
+
 The API, UI and retained jobs use the same
 [connected calculation engine](connected-calculation.md) for ordinary curves,
 basis relationships and saved custom projections (D186). Scenarios explicitly
@@ -468,7 +474,7 @@ submissions retain every original request identity before dispatch and reconcile
 after reload. Worker and calculation diagnostics are expandable.
 [Aligned history](risk-factor-history.md) and [delta-normal VaR/ES](parametric-risk.md)
 now add statistical calibration, native distribution/contribution diagnostics and
-a completed-report archive. Historical full repricing, Monte Carlo, PCA/hybrid,
+a completed-report archive. PCA/hybrid,
 EVT and rolling backtesting remain subsequent work.
 
 Queueing writes to PostgreSQL. A separately configured managed risk worker claims
@@ -503,7 +509,7 @@ scope/history/PV and retained-worker infrastructure. Guided setup selects the
 method, automatically aligns history, and optionally compares the identical study
 to sample-mean delta-normal. Historical reports graph empirical probabilities and
 losses, expose book/trade quantile/tail allocation and drill through every sample's
-factor moves and native PV bindings. The completed archive discovers both methods;
+factor moves and native PV bindings. The completed archive discovers statistical methods;
 current authority is checked for report reads and export. Rates, time and current
-option calibration remain frozen. Monte Carlo/PCA/EVT and an operating backtest
+option calibration remain frozen. PCA/hybrid/EVT and an operating backtest
 workflow are not implied.

@@ -14,6 +14,7 @@ CHECK_PROJECTS = (
     ('tests/OpenEtrm.Shared.Checks/OpenEtrm.Shared.Checks.csproj', ()),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--schedules',)),
     ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--historical-risk',)),
+    ('tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj', ('--monte-carlo-risk',)),
 )
 
 
@@ -47,6 +48,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     for project, arguments in CHECK_PROJECTS:
         command = [str(dotnet), 'run', '--no-restore', '--project', project]
         check(' '.join((Path(project).stem, *arguments)), [*command, '--', *arguments] if arguments else command)
+    check('independent Monte Carlo generator and quantile intervals',[sys.executable,'tools/check_monte_carlo_numerics.py','--dotnet',str(dotnet)])
     worker_project='src/OpenEtrm.Worker/OpenEtrm.Worker.csproj'
     check('locked worker restore',[str(dotnet),'restore',worker_project,'--locked-mode'])
     check('independent worker build',[str(dotnet),'build',worker_project,'--no-restore'])
@@ -112,6 +114,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('additive reference demo and exact-version discounting',[*preview,'--reference-demo-check'])
     preview_check('isolated reference metadata editor',[*preview,'--reference-check','--browser-check','--browser',str(browser)])
     preview_check('isolated nested risk and durable workers', [*preview, '--risk-jobs-check', '--browser-check', '--browser', str(browser)], suite='assistant')
+    preview_check('Monte Carlo full-PV VaR/ES, seeded replay, custody and graphical reports', [*preview, '--monte-carlo-risk-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('historical full-PV VaR/ES, custody and graphical reports', [*preview, '--historical-risk-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('parametric VaR/ES, retained history custody and graphical reports', [*preview, '--parametric-risk-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('aligned held-factor history and graphical diagnostics', [*preview, '--factor-history-check', '--browser-check', '--browser', str(browser)], suite='assistant')

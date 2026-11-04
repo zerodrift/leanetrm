@@ -1,3 +1,4 @@
+import {validateMonteCarlo} from './monte-carlo-risk.js';
 import type {BlotterStreamRequest,BlotterStreamHandlers,BlotterStreamStart} from './blotter-stream.js';
 import {refreshAcceptedCrudeOperation,openCrudeOperationPanel} from './crude-operations-model.js';
 import {setupCrudeOperations} from './crude-operations.js';
@@ -808,13 +809,13 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const read=holdings!,parts=run.parts.flatMap(p=>p.report?[p.report]:[]);
     if(!readPlace||!madeHere(run,readPlace))return {key,state:'elsewhere'};
     try{
-      if(parts.some(p=>p.joint||p.parametric||p.historical)){
+      if(parts.some(p=>p.joint||p.parametric||p.historical||p.monteCarlo)){
         if(parts.length!==1)throw Error('A scenario or statistical report is one complete job.');
         const report=parts[0];
-        if(report.historical)validateHistorical(report);else if(report.parametric)validateParametric(report);else validateJoint(report);const excluded=runExclusions(parts),held=new Set(read.holdings.map(positionKey));
+        if(report.monteCarlo)validateMonteCarlo(report);else if(report.historical)validateHistorical(report);else if(report.parametric)validateParametric(report);else validateJoint(report);const excluded=runExclusions(parts),held=new Set(read.holdings.map(positionKey));
         const covered=new Set(parts[0].inputs!.positions.map(positionKey)),left=new Set(excluded.map(positionKey));
         if(read.holdings.some(h=>covered.has(positionKey(h))===(h.unavailableReason!==null)||left.has(positionKey(h))!==(h.unavailableReason!==null))||[...covered,...left].some(k=>!held.has(k)))throw Error('The joint report bindings do not match this retained Blotter read.');
-        return {key,state:report.historical||report.parametric?'statistical':'joint',excluded};
+        return {key,state:report.monteCarlo||report.historical||report.parametric?'statistical':'joint',excluded};
       }
       const excluded=runExclusions(parts),cells=lensCells(parts),held=new Set(read.holdings.map(positionKey)),left=new Set(excluded.map(positionKey));
       if(read.holdings.some(h=>cells.has(positionKey(h))===(h.unavailableReason!==null)||left.has(positionKey(h))!==(h.unavailableReason!==null))

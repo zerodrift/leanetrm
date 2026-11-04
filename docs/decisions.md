@@ -2122,3 +2122,31 @@ custody/coverage/cancellation failures abort. Graphical consumers validate nativ
 coverage and captured business dates. Migration 0189 changes no historical rows or
 raw table grants. See [contract, limits and qualification](historical-risk.md).
 Monte Carlo/PCA/EVT and an operating rolling-backtest service remain separate work.
+
+## D307 — Full-PV additive Gaussian Monte Carlo risk
+
+Use the complete captured common-row dated-factor history to calibrate exact
+sample means and covariance, then generate a seeded full-factor additive Gaussian
+reference model for the existing frozen one-session portfolio PV operation.
+Forecast drift, confidence, paths, unsigned 64-bit seed, generator, decomposition,
+rounding, empirical tail and sampling-uncertainty policies are explicit retained
+inputs. Visible UI starting values do not become API defaults.
+
+Exact PSD LDL admits zero pivots only with zero residual columns and verifies
+reconstruction without repair. Counter-addressed SHA256/polar draws are independent
+of batching; bounded binary64 generation crosses an explicit exact-to-18-place
+native rounding boundary. Actual shocks and numerical receipts remain available.
+Approximation at that boundary does not imply exact singular constraints in the
+generated native sample. A pricing-domain failure refuses the whole run without
+clipping or replacement.
+
+Reuse the shared exact empirical reducer and native portfolio-tail attribution,
+ordinary full-PV loop and retained source/clock/option/current-authority/attempt
+fences. A complete MC run is one job; its larger path bound does not widen named
+or historical endpoints. Show distributions, path PVs, allocations, calibration
+matrices and prefix convergence. The selected 95% binomial order-statistic VaR
+sampling interval is conditional on the fixed fitted model, includes unbounded
+endpoints where required, and is neither an ES interval nor model/calibration
+uncertainty. Migration 0190 extends private existing operations without new tables
+or raw grants. See [contracts and bounds](monte-carlo-risk.md). PCA/hybrid, EWMA,
+other innovation laws and operating backtesting require separate qualification.

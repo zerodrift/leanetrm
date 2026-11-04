@@ -121,6 +121,6 @@ Two bounded forecast/hypothetical-P&L fixtures exclude the following session fro
 calibration and apply that later move to frozen forecast holdings. They are an
 initial no-look-ahead oracle, not an operating backtest service. Rolling report
 storage, exceptions, coverage/independence tests and ES backtesting remain work.
-Full Monte Carlo is next before PCA/hybrid approximation; EVT requires separate
+[Full Monte Carlo](monte-carlo-risk.md) now supplies the reference before PCA/hybrid approximation; EVT requires separate
 tail qualification. Production activation requires a separately qualified schema
 release.

@@ -252,9 +252,11 @@ immutable scenario risk already separate market inputs from contractual cashflow
 Standalone physical forward booking, option products other than listed American
 futures options ([D288](futures-options.md)) remain unimplemented.
 [Parametric risk](parametric-risk.md) implements native sample covariance and
-one-session delta-normal VaR/ES. D305 adds [full-PV historical simulation](historical-risk.md),
+one-session delta-normal VaR/ES. D307 adds [full-PV Monte Carlo](monte-carlo-risk.md), with explicit seeded joint
+Gaussian shocks, ordinary PV repricing, empirical tails and sampling diagnostics.
+D305 adds [full-PV historical simulation](historical-risk.md),
 exact empirical quantiles/fractional-tail ES, signed book/trade allocation,
-sample PV drilldown and matching same-job normal comparison. Monte Carlo/PCA/EVT
+sample PV drilldown and matching same-job normal comparison. PCA/hybrid/EVT
 and an operating backtest workflow remain work. D301 adds the guided
 [VaR walkthrough](risk-factor-history.md#guided-var-setup-d301): a visible six-month,
 99%, one-session starting profile, automatic history preparation, end-of-day local
