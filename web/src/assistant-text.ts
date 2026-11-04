@@ -1,12 +1,12 @@
-// How the panel draws an answer (docs/ai-assistant.md §10.1, D191, D247): paragraphs, lists, tables, emphasis and code,
+// How the panel draws an answer (docs/ai-assistant.md §10.1, D191, D247): headings, paragraphs, lists, tables, emphasis and code,
 // built from text nodes only. Links, images and markup stay literal text, and URLs are never linked, so text injected
 // into an answer cannot carry data out.
 export type Inline={kind:'text'|'emphasis'|'strong'|'code';text:string};
-export type Block={kind:'paragraph';lines:Inline[][]}|{kind:'list';ordered:boolean;items:Inline[][]}|{kind:'code';text:string}
+export type Block={kind:'heading';line:Inline[]}|{kind:'paragraph';lines:Inline[][]}|{kind:'list';ordered:boolean;items:Inline[][]}|{kind:'code';text:string}
   |{kind:'table';header:Inline[][];rows:Inline[][][]};
 
 const bullet=/^ {0,3}[-*+][ \t]+(.*)$/,numbered=/^ {0,3}\d{1,9}[.)][ \t]+(.*)$/,fence=/^ {0,3}```/;
-const piped=/^ {0,3}\|.*\|[ \t]*$/,separator=/^:?-+:?$/;
+const piped=/^ {0,3}\|.*\|[ \t]*$/,separator=/^:?-+:?$/,heading=/^ {0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
 // A pipe-table line's cells, trimmed; the pipes at either end open and close the row.
 const cells=(line:string)=>line.trim().slice(1,-1).split('|').map(cell=>cell.trim());
 
@@ -24,6 +24,8 @@ export function answerBlocks(text:string):Block[]{
       blocks.push({kind:'code',text:code.join('\n')});continue;
     }
     if(!line.trim()){close();continue;}
+    const title=heading.exec(line);
+    if(title){close();blocks.push({kind:'heading',line:inlines(title[1])});continue;}
     // A table is a header row, a separator row of dashes for each column, and rows of the header's width; anything
     // else stays text.
     if(piped.test(line)&&piped.test(lines[i+1]??'')&&cells(lines[i+1]).every(cell=>separator.test(cell))&&cells(lines[i+1]).length===cells(line).length){
@@ -83,6 +85,7 @@ export function renderBlocks(blocks:Block[],document:Document){
     }
   };
   for(const block of blocks){
+    if(block.kind==='heading'){const h=document.createElement('h4');spans(h,block.line);fragment.append(h);continue;}
     if(block.kind==='code'){const pre=document.createElement('pre'),code=document.createElement('code');code.textContent=block.text;pre.append(code);fragment.append(pre);continue;}
     if(block.kind==='table'){
       const table=document.createElement('table'),head=document.createElement('thead'),body=document.createElement('tbody');

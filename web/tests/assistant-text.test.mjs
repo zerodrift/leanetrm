@@ -66,3 +66,11 @@ test('pipe lines without a separator row, or with a row of another width, stay l
   assert.deepEqual(answerBlocks('| a | b |\n| 1 | 2 |'),[{kind:'paragraph',lines:[[text('| a | b |')],[text('| 1 | 2 |')]]}]);
   assert.deepEqual(answerBlocks('| a | b |\n|---|---|\n| 1 |'),[{kind:'paragraph',lines:[[text('| a | b |')],[text('|---|---|')],[text('| 1 |')]]}]);
 });
+
+test('a line of one to six hashes and a space is a heading; anything else with a hash stays text',()=>{
+  assert.deepEqual(answerBlocks('## Historical simulation result\nThe **VaR** follows.\n### Worst day ##\n#hashtag\n####### seven'),[
+    {kind:'heading',line:[text('Historical simulation result')]},
+    {kind:'paragraph',lines:[[text('The '),{kind:'strong',text:'VaR'},text(' follows.')]]},
+    {kind:'heading',line:[text('Worst day')]},
+    {kind:'paragraph',lines:[[text('#hashtag')],[text('####### seven')]]}]);
+});

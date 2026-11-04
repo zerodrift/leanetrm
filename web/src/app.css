@@ -1370,6 +1370,7 @@ body.assistant-open.assistant-overlay main{margin-right:0}
 .assistant-question{margin:0 0 8px;padding:8px 10px;background:var(--surface-3);border-radius:var(--radius-sm);white-space:pre-wrap;overflow-wrap:anywhere}
 .assistant-answer{overflow-wrap:anywhere}
 .assistant-answer p,.assistant-answer ul,.assistant-answer ol{margin:0 0 8px}
+.assistant-answer h4{margin:12px 0 6px;font-size:13px;font-weight:600}
 .assistant-answer ul,.assistant-answer ol{padding-left:20px}
 .assistant-answer pre{margin:0 0 8px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;overflow-x:auto;white-space:pre}
 .assistant-answer code{font-family:var(--mono);font-size:12px}

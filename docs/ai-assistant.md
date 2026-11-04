@@ -1128,7 +1128,7 @@ credential entries read only "key replaced".
 - **Composer:** Enter sends, Shift+Enter adds a line, Send becomes Stop during a turn,
   and a failed send keeps the draft with Retry. On `grant_required` the consent of
   §7.1 appears.
-- **Formatting:** paragraphs, lists, pipe tables, emphasis and code, built from text
+- **Formatting:** headings, paragraphs, lists, pipe tables, emphasis and code, built from text
   nodes (D247). A table needs a header row, a separator row and rows of the header's
   width; anything else stays text. No HTML, links or images, and URLs are not linked,
   because rendered links let injected text carry data out. Charted values appear only
