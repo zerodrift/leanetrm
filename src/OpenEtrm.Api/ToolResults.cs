@@ -189,7 +189,7 @@ static partial class ToolAmountDisplay
 {
     public const string Implementation="tool_amount_display_v1";
     static readonly FrozenSet<string> Money=FrozenSet.ToFrozenSet(["presentValue","instrumentPresentValue","cashAmount","contribution","cashContribution",
-        "executionPnl","upPnl","downPnl","basePv","upPv","downPv","change"]);
+        "executionPnl","upPnl","downPnl","basePv","upPv","downPv","change","valueAtRisk","expectedShortfall","standardDeviation","mean","baseValue","loss","scenarioValue"]);
     static readonly FrozenSet<string> Prices=FrozenSet.ToFrozenSet(["price","fixedPrice","executionPrice","mark","value","annualRate"]);
     static readonly FrozenSet<string> Quantities=FrozenSet.ToFrozenSet(["quantity","physicalQuantity","totalQuantity","weight"]);
     static readonly FrozenSet<string> Factors=FrozenSet.ToFrozenSet(["discountFactor","factor","multiplier","delta","gamma"]);

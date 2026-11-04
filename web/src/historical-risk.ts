@@ -3,6 +3,7 @@ import type {RiskFactor,ExcludedPosition} from './risk-report.js';
 import {validateParametric,type ParametricRequest,type ParametricCapabilities,type ParametricView} from './parametric-risk.js';
 import type {ChartSpec} from './chart-view.js';
 import {exactNumber} from './exact-number.js';
+import {amountText} from './amount-display.js';
 import {sameTradeSelection} from './risk-scope.js';
 
 export type HistoricalPolicy={convention:string;numericalPolicy:string;horizon:string;samplePolicy:string;quantilePolicy:string;tailPolicy:string;valuationPolicy:string;confidence:string};
@@ -11,13 +12,13 @@ export type HistoricalCapabilities={profile:Omit<HistoricalPolicy,'confidence'>;
 export type StatisticalRequest={parametric:ParametricRequest;historical?:never}|{historical:HistoricalRequest;parametric?:never};
 export type StatisticalCapabilities={parametric:ParametricCapabilities;historical:HistoricalCapabilities};
 type Contribution={id:string;baseValue:string;valueAtRisk:string;expectedShortfall:string};
-type Exposure={id:string;bookId:string;tradeId:string;bindingId:string;measure:string;currency:unknown;baseValue:string;displayBase:string;tradeReference:string;instrumentReference:string;instrumentType:string};
+type Exposure={id:string;bookId:string;tradeId:string;bindingId:string;measure:string;currency:unknown;baseValue:string;tradeReference:string;instrumentReference:string;instrumentType:string};
 type Partition={measure:string;currency:unknown;baseValue:string;mean:string;valueAtRisk:string;expectedShortfall:string;tailSampleMass:string;quantileTies:number;
  books:Contribution[];trades:Contribution[];samples:{id:string;value:string;loss:string;varWeight:string;esWeight:string}[];histogram:{lower:string;upper:string;count:number;probability:string}[]};
 export type HistoricalView={studyId:string;request:HistoricalRequest;history:HistoryManifest;factors:{id:string;factor:RiskFactor}[];books:{id:string;name:string}[];exposures:Exposure[];
  result:{policy:HistoricalPolicy;historyId:string;samples:number;available:boolean;unavailableReasons:string[];partitions:Partition[]};
- partitions:{measure:string;measureLabel:string;currencyReference:unknown;currency:string;display:{base:string;mean:string;valueAtRisk:string;expectedShortfall:string};samples:{id:string;displayLoss:string}[];books:{id:string;valueAtRisk:string;expectedShortfall:string}[];trades:{id:string;valueAtRisk:string;expectedShortfall:string}[]}[];
- matrix:{columns:string[];rows:{id:string;values:string[];losses:string[];displayLosses:string[]}[]};
+ partitions:{measure:string;measureLabel:string;currencyReference:unknown;currency:string}[];
+ matrix:{columns:string[];rows:{id:string;scenarioValues:string[];losses:string[]}[]};
  comparison:{studyId:string;report:ParametricView|null;unavailableReason?:{code:string;message:string};request?:Omit<ParametricRequest,'history'>}|null};
 export type HistoricalContainer={historical:HistoricalView;context:{contextId:string};snapshotId:string;tradeIds?:string[]|null;excludedPositions?:ExcludedPosition[];inputs?:{positions:{bookId:string;tradeId:string;bindingId:string;measure:string}[]};parametric?:unknown;joint?:unknown;factors?:unknown};
 const canonical=(v:unknown)=>JSON.stringify(v,(_k,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.entries(x).sort(([a],[b])=>a.localeCompare(b))):x);
@@ -45,17 +46,16 @@ export function validateHistorical(report:HistoricalContainer,expected?:Historic
  const native=(e:{bookId:string;tradeId:string;bindingId:string;measure:string})=>canonical([e.bookId,e.tradeId,e.bindingId,e.measure]);
  if(!distinct(v.exposures.map(native))||!same(v.exposures.map(native),report.inputs.positions.map(native))||v.exposures.some(e=>!number(e.baseValue)||!v.books.some(b=>b.id===e.bookId))||
   !same(v.matrix.columns,v.exposures.map(e=>e.id))||!distinct(v.matrix.columns)||!same(v.matrix.rows.map(row=>row.id),h.samples.map(s=>s.id))||!distinct(v.matrix.rows.map(row=>row.id))||
-  v.matrix.rows.some(row=>row.values.length!==v.exposures.length||row.losses.length!==v.exposures.length||row.displayLosses.length!==v.exposures.length||[...row.values,...row.losses].some(x=>!number(x))))throw bad();
+  v.matrix.rows.some(row=>row.scenarioValues.length!==v.exposures.length||row.losses.length!==v.exposures.length||[...row.scenarioValues,...row.losses].some(x=>!number(x))))throw bad();
  const nativeGroups=[...new Set(v.exposures.map(e=>pair(e.measure,e.currency)))];
  if(!same(r.partitions.map(p=>pair(p.measure,p.currency)),nativeGroups)||!distinct(r.partitions.map(p=>pair(p.measure,p.currency)))||!same(v.partitions.map(p=>pair(p.measure,p.currencyReference)),nativeGroups)||!distinct(v.partitions.map(p=>pair(p.measure,p.currencyReference))))throw bad();
  for(const p of r.partitions){
-  const es=v.exposures.filter(e=>pair(e.measure,e.currency)===pair(p.measure,p.currency)),label=v.partitions.find(x=>pair(x.measure,x.currencyReference)===pair(p.measure,p.currency))!;
+  const es=v.exposures.filter(e=>pair(e.measure,e.currency)===pair(p.measure,p.currency));
   if(![p.baseValue,p.mean,p.valueAtRisk,p.expectedShortfall,p.tailSampleMass].every(number)||!Number.isInteger(p.quantileTies)||p.quantileTies<1||p.quantileTies>r.samples||
    !Array.isArray(p.samples)||!same(p.samples.map(s=>s.id),h.samples.map(s=>s.id))||!distinct(p.samples.map(s=>s.id))||p.samples.some(s=>![s.value,s.loss,s.varWeight,s.esWeight].every(number))||
    !Array.isArray(p.histogram)||!p.histogram.length||p.histogram.some(b=>![b.lower,b.upper,b.probability].every(number)||!Number.isInteger(b.count)||b.count<0)||
    !Array.isArray(p.books)||!Array.isArray(p.trades)||!same(p.books.map(b=>b.id),[...new Set(es.map(e=>e.bookId))])||!same(p.trades.map(t=>t.id),[...new Set(es.map(e=>e.tradeId))])||
-   !distinct(p.books.map(b=>b.id))||!distinct(p.trades.map(t=>t.id))||[...p.books,...p.trades].some(c=>![c.baseValue,c.valueAtRisk,c.expectedShortfall].every(number))||
-   !same(label.samples.map(s=>s.id),p.samples.map(s=>s.id))||!same(label.books.map(b=>b.id),p.books.map(b=>b.id))||!same(label.trades.map(t=>t.id),p.trades.map(t=>t.id)))throw bad();
+   !distinct(p.books.map(b=>b.id))||!distinct(p.trades.map(t=>t.id))||[...p.books,...p.trades].some(c=>![c.baseValue,c.valueAtRisk,c.expectedShortfall].every(number)))throw bad();
  }
  if(q.comparison){
   const c=v.comparison;if(!c||c.studyId!==v.studyId)throw bad();
@@ -76,10 +76,10 @@ export function historicalCharts(v:HistoricalView,index:number,metric:'valueAtRi
  const label=v.partitions.find(l=>pair(l.measure,l.currencyReference)===pair(p.measure,p.currency))!,unit=label.currency;
  const date=(id:string)=>historicalSampleLabel(v.history,id);
  return [
-  {title:'Empirical loss distribution',subtitle:'Equal probability per complete historical row. Repeated outcomes retain their probability mass.',axis:'category',kind:'bar',unit:'Probability',categoryTitle:`Loss interval · ${unit}`,series:[{name:'Empirical probability',points:p.histogram.map((b,i)=>({x:String(i),label:`${b.lower} to ${b.upper}`,y:b.probability,text:`${b.count} samples · probability ${b.probability}`}))}]},
+  {title:'Empirical loss distribution',subtitle:'Equal probability per complete historical row. Repeated outcomes retain their probability mass.',axis:'category',kind:'bar',unit:'Probability',categoryTitle:`Loss interval · ${unit}`,series:[{name:'Empirical probability',points:p.histogram.map((b,i)=>({x:String(i),label:`${amountText(b.lower,'money')} to ${amountText(b.upper,'money')}`,y:b.probability,text:`${b.count} samples · probability ${b.probability}`}))}]},
   {title:'Historical losses · VaR and ES',subtitle:'Every joint change reprices the same current frozen portfolio. Select a sample to inspect its factor moves and trade losses.',axis:'category',kind:'line',unit,reference:{value:p.valueAtRisk,label:'Empirical VaR'},series:[
-   {name:'Full-PV loss',points:v.history.samples.map(s=>{const loss=p.samples.find(l=>l.id===s.id)!;return {x:s.id,label:date(s.id),y:loss.loss,text:label.samples.find(l=>l.id===s.id)!.displayLoss};})},
+   {name:'Full-PV loss',points:v.history.samples.map(s=>{const loss=p.samples.find(l=>l.id===s.id)!;return {x:s.id,label:date(s.id),y:loss.loss,text:amountText(loss.loss,'money')};})},
    {name:'Expected shortfall',points:v.history.samples.map(s=>({x:s.id,label:date(s.id),y:p.expectedShortfall}))}]},
-  {title:`Book ${metric==='valueAtRisk'?'VaR':'ES'} allocation`,subtitle:'Portfolio quantile/tail weights applied to book losses. Allocations may be negative.',axis:'category',kind:'bar',unit,positiveTone:'loss',colorBySign:true,series:[{name:'Allocated loss',points:p.books.map(b=>({x:b.id,label:v.books.find(l=>l.id===b.id)!.name,y:b[metric],text:label.books.find(l=>l.id===b.id)![metric]}))}]}
+  {title:`Book ${metric==='valueAtRisk'?'VaR':'ES'} allocation`,subtitle:'Portfolio quantile/tail weights applied to book losses. Allocations may be negative.',axis:'category',kind:'bar',unit,positiveTone:'loss',colorBySign:true,series:[{name:'Allocated loss',points:p.books.map(b=>({x:b.id,label:v.books.find(l=>l.id===b.id)!.name,y:b[metric],text:amountText(b[metric],'money')}))}]}
  ];
 }

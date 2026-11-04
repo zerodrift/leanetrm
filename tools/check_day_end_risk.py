@@ -50,12 +50,13 @@ def run_checks(c, query, scope, catalog, original_history, statistical, run_work
     average = sum(moves) / len(moves)
     covariance = sum((m - average) ** 2 for m in moves) / (len(moves) - 1)
     assert Fraction(direct['result']['calibration']['covariance'][0][0]) == covariance
-    summary = c.call('portfolio/risk/parametric/summary', body)
+    from check_parametric_risk import exact_amounts
+    summary = exact_amounts(c.call('portfolio/risk/parametric/summary', body))
     assert [f['sessionPriceTypes'] for f in summary['factors']] == [{'trader_mark_final_v1': 1, 'official_close_v1': len(h['dayPrices']) - 1}]
     assert summary['partitions'][0]['valueAtRisk'] == direct['result']['partitions'][0]['valueAtRisk']
     historical = {'history': aligned['request'], 'policy': {**catalog['historical']['profile'], 'confidence': '0.95'}}
     assert c.call('portfolio/risk/historical/summary', historical)['factors'][0]['sessionPriceTypes'] == summary['factors'][0]['sessionPriceTypes']
-    first = c.call('portfolio/risk/historical/sample', {'request': historical, 'sample': h['samples'][0]['id']})['moves'][0]
+    first = exact_amounts(c.call('portfolio/risk/historical/sample', {'request': historical, 'sample': h['samples'][0]['id']}))['moves'][0]
     assert (first['fromPriceType'], first['toPriceType']) == ('trader_mark_final_v1', 'official_close_v1')
     job = c.call('portfolio/risk/parametric/jobs', {'requestId': str(uuid4()), 'request': body})
     run_worker()

@@ -186,7 +186,7 @@ public sealed partial class PortfolioRiskPreview
         var column=manifest.Columns.Select((c,i)=>(c.Id,i)).ToDictionary(c=>c.Id,c=>c.i,StringComparer.Ordinal);
         SignedRatio Size(string value)=>SignedRatio.TryParse(value,out var r)?r.CompareTo(SignedRatio.Zero)<0?SignedRatio.Zero-r:r:
             throw new MarketDataException("risk_parametric_numeric","Expected plain backend Gaussian output.");
-        return new{asOf=frame.At,contextId=portfolio.Context.ContextId,historyId=manifest.Id,run.Result.Available,run.Result.UnavailableReasons,
+        return Shown(new{asOf=frame.At,contextId=portfolio.Context.ContextId,historyId=manifest.Id,run.Result.Available,run.Result.UnavailableReasons,
             policy=run.Spec.Policy,history=new{run.Spec.History.Calendar,run.Spec.History.From,run.Spec.History.To,run.Spec.History.Policy},
             coverage=SummaryCoverage(manifest,portfolio),
             excludedPositions=portfolio.Excluded,
@@ -196,6 +196,6 @@ public sealed partial class PortfolioRiskPreview
             partitions=run.Result.Partitions.Select(p=>new{p.Measure,measureLabel=MeasureLabel(p.Measure),currency=Currency(markets,p.Currency),
                 p.Mean,p.StandardDeviation,p.ValueAtRisk,p.ExpectedShortfall,
                 books=p.Books.Select(b=>new{bookId=Guid.Parse(b.Id),b.ValueAtRisk,b.ExpectedShortfall}),
-                factors=p.Factors.OrderByDescending(f=>Size(f.ValueAtRisk)).Select(f=>new{factor=column[f.Id],f.ValueAtRisk,f.ExpectedShortfall})})};
+                factors=p.Factors.OrderByDescending(f=>Size(f.ValueAtRisk)).Select(f=>new{factor=column[f.Id],f.ValueAtRisk,f.ExpectedShortfall})})});
     }
 }

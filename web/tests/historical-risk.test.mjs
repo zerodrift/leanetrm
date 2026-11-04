@@ -12,7 +12,7 @@ test('historical graphics preserve backend histogram, loss, VaR/ES and allocatio
  assert.equal(losses.series[0].points[1].y,'10');assert.equal(losses.reference.value,'10');
 });
 test('historical reader refuses missing native holdings, sample PV cells, mixed methods and altered capture',()=>{
- for(const edit of [r=>r.historical.matrix.rows.pop(),r=>r.historical.matrix.columns=[],r=>r.historical.matrix.rows[0].values=[],r=>r.historical.result.partitions[0].samples.pop(),r=>r.historical.exposures=[],r=>r.historical.result.partitions=[],r=>r.historical.result.partitions[0].books=[],r=>r.historical.history.id='b'.repeat(64),r=>r.historical.request.policy={...r.historical.request.policy,confidence:'0.99'},r=>r.parametric={},r=>r.factors=[],r=>r.inputs.positions.push({...r.inputs.positions[0],bindingId:'missing'})]){
+ for(const edit of [r=>r.historical.matrix.rows.pop(),r=>r.historical.matrix.columns=[],r=>r.historical.matrix.rows[0].scenarioValues=[],r=>r.historical.result.partitions[0].samples.pop(),r=>r.historical.exposures=[],r=>r.historical.result.partitions=[],r=>r.historical.result.partitions[0].books=[],r=>r.historical.history.id='b'.repeat(64),r=>r.historical.request.policy={...r.historical.request.policy,confidence:'0.99'},r=>r.parametric={},r=>r.factors=[],r=>r.inputs.positions.push({...r.inputs.positions[0],bindingId:'missing'})]){
   const r=historicalReport();edit(r);assert.throws(()=>validateHistorical(r),/historical|coverage|captured|complete/i);
  }
 });
@@ -38,8 +38,8 @@ test('a matching comparison must cover the exact historical native exposure grou
  const substituted=withComparison(historicalReport());substituted.historical.comparison.report.exposures[0].bookId='different-book';substituted.historical.comparison.report.books=[{id:'different-book',name:'Other book'}];
  assert.throws(()=>validateHistorical(substituted),/historical|coverage|captured/i);
  const deleted=withComparison(historicalReport()),v=deleted.historical,e={...v.exposures[0],id:'second',bookId:'hedge',tradeId:'hedge-trade',bindingId:'hedge-binding'};
- v.exposures.push(e);deleted.inputs.positions.push(e);v.books=[...v.books,{id:'hedge',name:'Hedge'}];v.matrix.columns.push('second');for(const row of v.matrix.rows){row.values.push('100');row.losses.push('0');row.displayLosses.push('0');}
- const contribution={id:'hedge',baseValue:'100',valueAtRisk:'0',expectedShortfall:'0'};v.result.partitions[0].books.push(contribution);v.result.partitions[0].trades.push({...contribution,id:'hedge-trade'});v.partitions[0].books.push(contribution);v.partitions[0].trades.push({...contribution,id:'hedge-trade'});
+ v.exposures.push(e);deleted.inputs.positions.push(e);v.books=[...v.books,{id:'hedge',name:'Hedge'}];v.matrix.columns.push('second');for(const row of v.matrix.rows){row.scenarioValues.push('100');row.losses.push('0');}
+ const contribution={id:'hedge',baseValue:'100',valueAtRisk:'0',expectedShortfall:'0'};v.result.partitions[0].books.push(contribution);v.result.partitions[0].trades.push({...contribution,id:'hedge-trade'});
  assert.throws(()=>validateHistorical(deleted),/historical|coverage|captured/i);
 });
 test('historical sample labels use captured business dates across NY end-of-day DST, not UTC endpoint dates',()=>{

@@ -11,7 +11,7 @@ export function historicalReport(){
  return {context:{contextId:'context'},snapshotId:'snapshot',tradeIds:['trade'],excludedPositions:[],inputs:{positions:[{bookId:'book',tradeId:'trade',bindingId:'binding',measure:'present_value'}]},historical:{studyId:id,request,history,
   result:{policy,historyId:id,samples:2,available:true,unavailableReasons:[],partitions:[{measure:'present_value',currency,baseValue:'100',mean:'5',valueAtRisk:'10',expectedShortfall:'10',tailSampleMass:'1/2',quantileTies:1,books:[contribution],trades:[{...contribution,id:'trade'}],samples,histogram:[{lower:'0',upper:'10',count:2,probability:'1'}]}]},
   factors:[{id:'factor',factor:{id:'axis',label:'Gas January',unit:'USD / MMBtu',coordinate:'market_quote'}}],books:[{id:'book',name:'Gas trading'}],
-  exposures:[{id:'exposure',bookId:'book',tradeId:'trade',bindingId:'binding',measure:'present_value',currency,baseValue:'100',displayBase:'100',tradeReference:'Trade 1',instrumentReference:'Gas January',instrumentType:'future'}],
-  partitions:[{measure:'present_value',measureLabel:'Present value',currencyReference:currency,currency:'USD',display:{base:'100',mean:'5',valueAtRisk:'10',expectedShortfall:'10'},samples:samples.map(s=>({id:s.id,displayLoss:s.loss})),books:[contribution],trades:[{...contribution,id:'trade'}]}],
-  matrix:{columns:['exposure'],rows:[{id:'a',values:['100'],losses:['0'],displayLosses:['0']},{id:'b',values:['90'],losses:['10'],displayLosses:['10']}]},comparison:null}};
+  exposures:[{id:'exposure',bookId:'book',tradeId:'trade',bindingId:'binding',measure:'present_value',currency,baseValue:'100',tradeReference:'Trade 1',instrumentReference:'Gas January',instrumentType:'future'}],
+  partitions:[{measure:'present_value',measureLabel:'Present value',currencyReference:currency,currency:'USD',}],
+  matrix:{columns:['exposure'],rows:[{id:'a',scenarioValues:['100'],losses:['0']},{id:'b',scenarioValues:['90'],losses:['10']}]},comparison:null}};
 }

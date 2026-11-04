@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Npgsql;
 using OpenEtrm.MarketData;
@@ -212,6 +213,13 @@ public sealed partial class PortfolioRiskPreview
         manifest.Columns.Select((c,i)=>new{c.Id,axes[i].Label,unit=Unit(markets,axes[i].Unit),
             sessionPriceTypes=manifest.DayPrices.IsDefault?null:manifest.DayPrices.GroupBy(d=>d.Choices[i].SelectedType??"none")
                 .ToDictionary(g=>g.Key,g=>g.Count(),StringComparer.Ordinal)});
+    // A summary's amounts as the Risk page shows them: each becomes {value, display} at the default money precision (D114), exact values kept.
+    private static JsonObject Shown(object summary)
+    {
+        var node=JsonSerializer.SerializeToNode(summary,RiskJobs.Json)!.AsObject();
+        ToolAmountDisplay.Annotate(DisplayWalk.Viewer(node));
+        return node;
+    }
     private static object SummaryCoverage(AlignedFactorHistory manifest,PortfolioValuation.Prepared portfolio)=>new{
         available=manifest.Available&&portfolio.Excluded.IsEmpty,factors=manifest.Columns.Length,sessions=manifest.Sessions.Length,
         samples=manifest.Samples.Length,rejected=manifest.Rejected.Length,minimumSamples=manifest.Policy.MinimumSamples};

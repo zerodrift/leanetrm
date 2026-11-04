@@ -55,7 +55,7 @@ def run_checks(url, manifest, query, run_worker):
     unavailable = c.call('portfolio/risk/parametric', {**request, 'history': unavailable_history['request']})['parametric']
     assert not unavailable['result']['available'] and unavailable['result']['partitions'] == []
     assert not unavailable['finiteDifference']['evaluated'] and unavailable['finiteDifference']['estimates'] == []
-    compact = c.call('portfolio/risk/parametric/summary', {**request, 'history': unavailable_history['request']})
+    compact = exact_amounts(c.call('portfolio/risk/parametric/summary', {**request, 'history': unavailable_history['request']}))
     assert not compact['available'] and compact['partitions'] == [] and compact['unavailableReasons'] == unavailable['result']['unavailableReasons']
     assert not compact['coverage']['available'] and compact['coverage']['minimumSamples'] == 1000
     print('PASS parametric unavailable coverage: retained calibration diagnostics contain no fabricated sensitivities or risk estimates', flush=True)
@@ -121,6 +121,22 @@ def run_checks(url, manifest, query, run_worker):
 ASSISTANT_RESULT_BYTES = 65536
 
 
+def exact_amounts(read):
+    """An assistant read with each shown amount ({value, display} at money display precision) replaced by its exact value."""
+    import re
+    shown = []
+    def walk(node):
+        if isinstance(node, list): return [walk(v) for v in node]
+        if not isinstance(node, dict): return node
+        if set(node) == {'value', 'display'}:
+            assert re.fullmatch(r'-?[0-9]{1,3}(,[0-9]{3})*\.[0-9]{3}', node['display']), node
+            shown.append(node['value']); return node['value']
+        return {k: walk(v) for k, v in node.items()}
+    plain = walk(read)
+    assert shown or not read.get('partitions'), 'A read with results shows its amounts'
+    return plain
+
+
 def check_compact_reads(c, scope, request, report, history):
     """The assistant's statistical setup and parametric summary are bounded projections of the same catalog and calculation the Risk page uses."""
     import json
@@ -135,6 +151,7 @@ def check_compact_reads(c, scope, request, report, history):
     for body in (request, uncaptured):
         summary = c.call('portfolio/risk/parametric/summary', body)
         assert size(summary) <= ASSISTANT_RESULT_BYTES, size(summary)
+        summary = exact_amounts(summary)
         full = report['result']
         assert summary['available'] and summary['historyId'] == history['manifest']['id'] == full['calibration']['historyId']
         assert summary['policy'] == request['policy']
