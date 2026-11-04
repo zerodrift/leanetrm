@@ -261,8 +261,9 @@ sample PV drilldown and matching same-job normal comparison. D308 adds
 delta, same-path full-PV comparisons, fallback classifications and additional work
 counters. D309 refuses failed qualification by default and requires an explicit
 user selection before full-PV fallback; the choice survives retained worker
-replay. Accelerated hybrid execution, EVT and an operating backtest workflow
-remain work. D301 adds the guided
+replay. [Accelerated hybrid execution](pca-hybrid-risk.md#planned-accelerated-hybrid-mode),
+EVT and an operating backtest workflow remain work; see the
+[delivery sequence](plan.md#remaining-risk-delivery-sequence). D301 adds the guided
 [VaR walkthrough](risk-factor-history.md#guided-var-setup-d301): a visible six-month,
 99%, one-session starting profile, automatic history preparation, end-of-day local
 windows and explicitly ordered price types. Official daily closes are initially

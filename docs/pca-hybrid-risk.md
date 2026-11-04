@@ -174,3 +174,81 @@ spread delta, exact quadratic mixed curvature, drift, nonsmooth derivatives,
 opposing bindings, whole-portfolio error and exact collinear/mixed directions.
 See [verification](verification.md) for the executing owned-database and browser
 checks.
+
+
+## Planned accelerated hybrid mode
+
+Status: next implementation phase; no accelerated execution mode or measured
+speedup is implemented by D308/D309. The current qualification mode still prices
+every generated path through full PV. The following requirements describe the
+next phase and do not add an executable API policy or establish numerical
+eligibility.
+
+### Selection and financial contract
+
+The user must explicitly select an approximate accelerated mode, separate from
+full-PV Monte Carlo and the current every-path qualification mode. Selecting fast
+execution does not authorize fallback. **Allow full-PV fallback** remains a
+separate choice, initially off, retained with the calculation and honored by the
+UI, API and worker. Failed model, holding, portfolio or fitting checks stop a
+no-fallback run with a visible reason. Only explicit fallback consent permits
+whole-valuation or whole-portfolio replacement; isolated tail losses must never
+be patched into an otherwise approximate distribution.
+
+Reuse the complete shared market-factor identities, native joint shocks, frozen
+ordinary PV operation, native deltas and selected PCA curvature. Keep residual
+factor moves and their linear exposure. New instrument types enter through their
+ordinary PV, declared dependencies, retained materializer and supported
+shock/history inputs; there is no product allowlist or assumption that a zero
+local Greek proves a globally linear pricer. Eligibility belongs to the captured
+valuation and model checks, including all shared bindings.
+
+The new versioned calculation contract must state its approximation, fitting and
+validation policies, tolerances, scenario counts and work limits. Validation
+panel selection/size, sample independence and deterministic random-stream rules
+must be chosen and documented before implementation, then independently
+qualified before enabling the mode; this roadmap does not silently choose them. Missing policy must refuse. Changing
+scope, market inputs, model, history or seed cannot inherit an earlier passing
+result as an accuracy guarantee. Any later model-reuse contract needs its own
+qualification.
+
+### Execution, evidence and widgets
+
+Use the fitted model for eligible simulation paths and ordinary full PV for the
+explicit validation work and any user-authorized fallback. The report must label
+the result as approximate and identify which values were approximated or fully
+repriced, which validation paths were priced, and all failures or substitutions.
+Keep candidate and reference diagnostics separate. A finite validation panel
+cannot prove correctness on unpriced paths or certify their tail VaR/ES; observed
+panel errors must not be presented as whole-distribution bounds. Full-reference
+benchmark comparisons remain a separate accuracy check.
+
+Risk and Blotter should expose the selected mode and fallback consent, PCA and
+residual diagnostics, observed holding/portfolio validation errors, validation
+coverage, approximation/fallback classifications, and actual fitting, validation
+and simulation work. Retained reports and exports must preserve this evidence
+and the selected policy. Direct and queued calculations must agree under the
+same source, clock, engine, authority, lease and cancellation fences.
+
+### Acceptance before enabling acceleration
+
+- Preserve the full native generator, residual exposure and shared factor/scenario
+  behavior; test nonlinear residuals, low-variance spreads, kinks and opposing
+  bindings with independent pricing fixtures.
+- Compare approximate path losses and native portfolio/holding VaR/ES against
+  complete full-PV reference runs on qualified workloads, including tail failures
+  missed by a small panel. Do not treat one passing seed as general eligibility.
+- Prove no-fallback refusal and explicitly consented fallback across immediate,
+  queued and retained operations. Reject stale models and incomplete evidence.
+- Demonstrate repeatable direct/worker execution and complete work accounting.
+  Benchmark the same captured workloads, history, paths and seeds, recording
+  unique factors/valuations, fitting and validation PV calls, evaluated work,
+  elapsed time, memory and execution environment. Include setup/fallback cost;
+  claim speedup only where the complete measurement demonstrates it.
+- Verify the approximate/validation labels and consent controls in Risk, Blotter,
+  report reopen and export. Schema/release qualification remains separate.
+
+After this phase, the planned sequence is EVT tail estimation and then operating
+daily reporting/rolling backtesting. EWMA is a separately selected calibration
+enhancement; neither accelerated valuation nor EVT implicitly selects it. See
+[the delivery sequence](plan.md#remaining-risk-delivery-sequence).

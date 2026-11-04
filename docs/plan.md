@@ -1853,3 +1853,37 @@ separate explicitly approximate contract requiring further accuracy/cost evidenc
 a pass on one captured seed/run never establishes global eligibility. Per-valuation
 isolation of a failed shared FD batch, EWMA, EVT and operating rolling backtests
 remain subsequent work. Schema activation stays with the separate release process.
+
+
+### Remaining risk delivery sequence
+
+The report workspace, shared scenarios, aligned history, parametric VaR/ES,
+historical full-PV VaR/ES, full-PV Monte Carlo and PCA/hybrid qualification are
+implemented in their documented bounded contracts. D309 makes full-PV fallback
+an explicit opt-in. Merged implementation and production activation remain
+separate statuses.
+
+1. **Finish R7: accelerated hybrid execution.** Implement a separately selected,
+   explicitly approximate mode with native deltas/PCA curvature, full-PV validation
+   work, visible error/coverage and measured complete cost. Fallback starts off
+   and requires separate consent. Pin and independently qualify validation and
+   approximation policies before enabling the mode. The current every-path
+   qualification run remains the full-reference comparison, with no speed claim.
+   See [scope and acceptance gates](pca-hybrid-risk.md#planned-accelerated-hybrid-mode).
+2. **R8: EVT tail risk.** Fit a separately selected unconditional peaks-over-threshold
+   model to eligible retained historical portfolio losses. Show threshold and
+   exceedance counts, tail fit/stability, uncertainty and VaR/ES where defined.
+   Refuse insufficient data, failed fitting or invalid support; non-finite ES must
+   be reported as unavailable. Do not silently switch methods. Conditional
+   volatility filtering requires its own qualified extension.
+3. **R9: operating daily reports and rolling backtests.** Extend the existing
+   archive and frozen-forecast fixtures into an authorized forecast/history and
+   hypothetical-P&L workflow with matching horizons, visible exceptions and
+   retained exports. Preserve no-look-ahead holdings, observations and corrections;
+   report sample limitations. Recurring execution requires explicit configuration
+   through the existing automation boundary.
+
+**EWMA calibration** remains a separate explicit estimator increment with its own
+weighting/initialization and qualification contract. It is not silently bundled
+into accelerated valuation or EVT. No implementation, benchmark, production
+capability or deployment is claimed by these remaining-work entries.

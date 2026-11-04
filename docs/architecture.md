@@ -8,6 +8,11 @@ failed qualification stops the run unless the user explicitly permits full-PV fa
 failure falls back the whole portfolio. This mode adds measured work and does not
 accelerate execution.
 
+The [planned accelerated hybrid mode](pca-hybrid-risk.md#planned-accelerated-hybrid-mode)
+will require a separate approximate execution contract, independently qualified
+validation evidence and explicit fallback consent. Its remaining-work status and
+EVT/backtesting sequence are recorded in [the plan](plan.md#remaining-risk-delivery-sequence).
+
 D307 adds [full-PV Monte Carlo VaR/ES](monte-carlo-risk.md): explicit additive
 Gaussian joint-factor generation, exact sample covariance/LDL, reproducible seeded
 native shocks, ordinary frozen portfolio PV, empirical tails, convergence and
