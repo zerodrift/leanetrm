@@ -11,18 +11,19 @@ namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PortfolioMonteCarloRequest(PortfolioHistoryRequest History,MonteCarloRiskPolicy Policy,
-    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<CurveRiskAxisRequest> Factors=default);
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<CurveRiskAxisRequest> Factors=default,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PcaHybridPolicy? Analysis=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SubmitMonteCarloRiskJob(Guid RequestId,PortfolioMonteCarloRequest Request);
 
 public sealed partial class PortfolioRiskPreview
 {
-    internal static int MonteCarloPathCapacity(long width,long rows,long nodes,int factors)
+    internal static int MonteCarloPathCapacity(long width,long rows,long nodes,int factors,int extraScenarios=0)
     {
         var capacity=(long)MonteCarloRisk.MaximumPaths;
-        if(width>0)capacity=Math.Min(capacity,RiskEngine.MaxJointResultValues/width-1);
-        if(rows>0)capacity=Math.Min(capacity,CloseRiskAdmission.MaximumRowScenarios/rows-1);
-        if(nodes>0)capacity=Math.Min(capacity,PortfolioJointCalculation.MaximumOptionTreeNodes/nodes-1);
+        if(width>0)capacity=Math.Min(capacity,RiskEngine.MaxJointResultValues/width-1-extraScenarios);
+        if(rows>0)capacity=Math.Min(capacity,CloseRiskAdmission.MaximumRowScenarios/rows-1-extraScenarios);
+        if(nodes>0)capacity=Math.Min(capacity,PortfolioJointCalculation.MaximumOptionTreeNodes/nodes-1-extraScenarios);
         if(factors>0)capacity=Math.Min(capacity,MonteCarloRisk.MaximumShockValues/factors);
         return (int)Math.Max(0,capacity);
     }
@@ -32,6 +33,10 @@ public sealed partial class PortfolioRiskPreview
         var nodes=portfolio.Options?.Bindings.Values.Where(b=>b.Receipt.Mode==OpenEtrm.MarketData.Trading.FuturesOptionPricing.SolvedMode)
             .Sum(b=>checked((long)b.Policy.Steps*(b.Policy.Steps+1)/2))??0;
         var capacity=MonteCarloPathCapacity(width,portfolio.Ppa?.Rows??0,nodes,portfolio.Factors.Length);
+        var analysisCapacities=Enumerable.Range(1,Math.Min(PcaHybridRisk.MaximumComponents,portfolio.Factors.Length)).Select(k=>new{components=k,
+            scopeMaxPaths=MonteCarloPathCapacity(width,portfolio.Ppa?.Rows??0,nodes,portfolio.Factors.Length,1+PcaHybridRisk.FittingScenarios(portfolio.Factors.Length,k))}).ToArray();
+        var desiredComponents=Math.Min(3,portfolio.Factors.Length);
+        var startingComponents=analysisCapacities.Where(c=>c.components<=desiredComponents&&c.scopeMaxPaths>=2).Select(c=>c.components).DefaultIfEmpty(desiredComponents).Max();
         return new{
         profile=new{convention=MonteCarloRiskPolicy.Version1,numericalPolicy=MonteCarloRiskPolicy.Numerics,
             estimator=ParametricRiskPolicy.Sample,centering=ParametricRiskPolicy.Centered,horizon=ParametricRiskPolicy.Session,
@@ -41,7 +46,11 @@ public sealed partial class PortfolioRiskPreview
         defaults=new{confidence="0.99",paths=Math.Max(2,Math.Min(4096,capacity)),seed="1",drift=ParametricRiskPolicy.Zero},
         drifts=new{zero=ParametricRiskPolicy.Zero,sample=ParametricRiskPolicy.Mean},
         limits=new{maxFactors=MonteCarloRisk.MaximumFactors,maxPaths=MonteCarloRisk.MaximumPaths,scopeMaxPaths=capacity,maxShockValues=MonteCarloRisk.MaximumShockValues,
-            maxProducts=ParametricRisk.MaximumProducts,maxExposures=HistoricalRisk.MaximumExposures,maxResultValues=HistoricalRisk.MaximumValues}};
+            maxProducts=ParametricRisk.MaximumProducts,maxExposures=HistoricalRisk.MaximumExposures,maxResultValues=HistoricalRisk.MaximumValues},
+        analysis=new{profile=new{convention=PcaHybridPolicy.Version1,numericalPolicy=PcaHybridPolicy.Decomposition,scalingPolicy=PcaHybridPolicy.Scaling,
+            residualPolicy=PcaHybridPolicy.Residual,valuationPolicy=PcaHybridPolicy.Qualification,directionPolicy=PcaHybridPolicy.Directions},
+            defaults=new{retainedComponents=startingComponents,tradingTicks=1,stabilityRelative="0.0001",lossAbsolute="0",lossRelative="0.001"},
+            capacities=analysisCapacities}};
     }
     internal static PortfolioRiskRequest MonteCarloRequest(PortfolioMonteCarloRequest body)
     {
@@ -52,6 +61,7 @@ public sealed partial class PortfolioRiskPreview
     internal static void ValidateMonteCarlo(PortfolioRiskRequest outer,PortfolioMonteCarloRequest body)
     {
         MonteCarloRisk.ValidatePolicy(body.Policy);
+        if(body.Analysis is {} analysis)PcaHybridRisk.ValidatePolicy(analysis);
         if(body.History?.Scope?.Context is not {} context||context!=outer.Context||body.History.ExpectedManifestId?.Length!=64||
             JsonSerializer.Serialize(body.History.PricingPolicy,RiskJobs.Json)!=JsonSerializer.Serialize(outer.PricingPolicy,RiskJobs.Json)||
             outer.Parametric is not null||outer.Historical is not null||outer.Joint is not null||outer.Detail!="holdings"||
@@ -66,7 +76,9 @@ public sealed partial class PortfolioRiskPreview
         var holdings=HistoricalHoldings(portfolio);
         if(holdings.Length is <1 or >HistoricalRisk.MaximumExposures||holdings.Distinct().Count()!=holdings.Length)
             throw new MarketDataException("risk_monte_carlo_exposures","The complete native holding set requires 1–4096 distinct identities.");
-        var scenarios=history.Available&&portfolio.Excluded.IsEmpty?1L+request.Policy.Paths:1;
+        if(request.Analysis is {} analysis)PcaHybridRisk.ValidatePolicy(analysis,history.Columns.Length);
+        var scenarios=history.Available&&portfolio.Excluded.IsEmpty?1L+request.Policy.Paths+
+            (request.Analysis is {} selected?1L+PcaHybridRisk.FittingScenarios(history.Columns.Length,selected.RetainedComponents):0):1;
         var width=portfolio.Markets.Sum(m=>RiskEngine.ScenarioResultWidth(m.Connected,RiskDetail.Holdings));
         var rows=portfolio.Ppa is {} ppa?checked(ppa.Rows*scenarios):0;
         var nodes=portfolio.Options?.Bindings.Values.Where(b=>b.Receipt.Mode==OpenEtrm.MarketData.Trading.FuturesOptionPricing.SolvedMode)
@@ -95,12 +107,17 @@ public sealed partial class PortfolioRiskPreview
         var result=eligible?MonteCarloRisk.Calculate(generation,values.Exposures,values.Observations,ct):
             new MonteCarloRiskReport(spec.Policy,history.Id,0,[],[],false,
                 [..new[]{generation.Available?null:"insufficient_common_history",prepared.Portfolio.Excluded.IsEmpty?null:"incomplete_portfolio"}.OfType<string>()]);
+        var analysis=eligible&&spec.Analysis is not null?CalculatePcaHybrid(prepared,values,ct):null;
         var report=JsonSerializer.SerializeToNode(PresentSensitivity(prepared with{Bumps=[]},values.Nominal,before),RiskJobs.Json)!.AsObject();report.Remove("factors");
+        if(analysis?.AdditionalWork is {} extra)report["work"]=JsonSerializer.SerializeToNode(StatisticalWork(prepared.Portfolio,values.Nominal.Work,[values.Nominal.Work,extra],repeatedPreparation:false),RiskJobs.Json);
+        if(analysis?.AttemptUnmetered==true)report["workAccounting"]="reference_only_failed_fitting_attempt_unmetered_v1";
+        if(prepared.Portfolio.OptionWork is {} optionWork)report["optionWork"]=JsonSerializer.SerializeToNode(optionWork with{ScenarioTreePrices=prepared.Portfolio.Options!.TreePrices-before},RiskJobs.Json);
         var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
         var evidence=prepared.Portfolio.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
         var studyId=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{
             prepared.Portfolio.Context,prepared.Portfolio.SnapshotId,prepared.Portfolio.Policy,prepared.Portfolio.Positions,
             prepared.Portfolio.ConnectedMarkets,prepared.Portfolio.OptionCalibrations,history.Id,simulationPolicy=spec.Policy},RiskJobs.Json)));
+        if(spec.Analysis is not null)studyId=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{referenceStudy=studyId,analysisPolicy=spec.Analysis},RiskJobs.Json)));
         report["monteCarlo"]=JsonSerializer.SerializeToNode(new{studyId,request=spec,history,generation,result,
             factors=history.Columns.Select((c,i)=>new{c.Id,factor=Factor(markets,prepared.HistoricalAxes[i])}),
             books=prepared.Books.Where(b=>prepared.BookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name")}),
@@ -113,6 +130,7 @@ public sealed partial class PortfolioRiskPreview
                 return new{row.Id,scenarioValues=values.Exposures.Select(e=>byId[e.Id].Value),
                     losses=values.Exposures.Select(e=>ExactMoney.Parse(e.BaseValue,e.Currency).Subtract(ExactMoney.Parse(byId[e.Id].Value,e.Currency)).ToExactString())};
             })}},RiskJobs.Json);
+        if(analysis is not null)report["monteCarlo"]!.AsObject()["analysis"]=analysis.Report;
         if(System.Text.Encoding.UTF8.GetByteCount(report.ToJsonString(RiskJobs.Json))>30_000_000)
             throw new MarketDataException("risk_result_limit","Reduce the simulation count or scope: the complete report exceeds 30 MB.");
         ct.ThrowIfCancellationRequested();return report;

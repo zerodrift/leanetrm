@@ -1,3 +1,4 @@
+import {renderPcaHybrid} from './pca-hybrid-risk-view.js';
 import {node,table} from './risk-report-elements.js';
 import {monteCarloCharts,type MonteCarloView} from './monte-carlo-risk.js';
 import {calibrationMatrix} from './parametric-risk.js';
@@ -39,6 +40,7 @@ export function renderMonteCarlo(host:HTMLElement,v:MonteCarloView,state:ReturnT
  detail.append(node('p',`Path ${sample.index+1} · loss ${amountText(loss.loss,'money')} ${label.currency} · VaR weight ${loss.varWeight} · ES weight ${loss.esWeight}.`),
   table(['Factor','Absolute simulated move','Native unit'],v.factors.map((f,i)=>[f.factor.label,sample.changes[i],f.factor.unit])),
   table(['Book','Trade','Instrument','Base PV','Scenario PV','Loss','Currency'],v.exposures.filter(e=>key(e.measure,e.currency)===key(p.measure,p.currency)&&(!state.book||e.bookId===state.book)).map(e=>{const i=v.matrix.columns.indexOf(e.id);return [v.books.find(b=>b.id===e.bookId)!.name,e.tradeReference,e.instrumentReference,money(e.baseValue),money(row.scenarioValues[i]),money(row.losses[i]),label.currency];})));host.append(detail);
+ renderPcaHybrid(host,v,state.partition,state.rows,state.columns,plots);
  const matrix=node('details');matrix.append(node('summary','Calibration correlations and covariances'));
  const mode=node('select');mode.setAttribute('aria-label','Monte Carlo factor matrix');mode.append(new Option('Correlation','correlation'),new Option('Covariance','covariance'));mode.value=state.matrix;mode.onchange=()=>{state.matrix=mode.value as typeof state.matrix;redraw();};matrix.append(mode);
  for(const [field,title] of [['rows','Matrix rows'],['columns','Matrix columns']] as const){if(c.columns.length<=32)continue;const choose=node('select');choose.setAttribute('aria-label',title);for(let start=0;start<c.columns.length;start+=32)choose.append(new Option(`${start+1}–${Math.min(start+32,c.columns.length)}`,String(start)));choose.value=String(state[field]);choose.onchange=()=>{state[field]=Number(choose.value);redraw();};matrix.append(choose);}

@@ -44,10 +44,26 @@ public sealed record ConnectedBookRiskRun(Guid SnapshotId,string NumericalPolicy
 }
 public sealed record ConnectedGroupedRiskRun(Guid SnapshotId,ImmutableArray<ConnectedBookRiskRun> Groups,ConnectedRiskWork Work,GraphWork GraphWork);
 public sealed record ConnectedHoldingIdentity(int Group,Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ReferenceKey Currency);
+public sealed record ConnectedPreparationCounters(long EvaluatedNodes,long ReusedReads,int VolumeComputations);
 public sealed class PreparedConnectedPortfolioRisk
 {
     public ConnectedValuation Valuation{get;}
     public ConnectedScenario Scenario=>Valuation.Scenario;
+    // Cumulative prepared state, sampled by a subsequent operation to report
+    // its increment without charging prior shared work again.
+    public ConnectedPreparationCounters PreparationCounters
+    {
+        get
+        {
+            var evaluated=0L;var reused=0L;
+            for(var current=Scenario;current is not null;current=current.Parent)
+            {evaluated+=current.Work.EvaluatedNodes;reused+=current.Work.ReusedReads;}
+            var volumes=Portfolios.Select(p=>p.Setup.Interval).OfType<IntervalValuationInputs>()
+                .Distinct(ReferenceEqualityComparer.Instance).Cast<IntervalValuationInputs>().Sum(i=>i.VolumeComputations);
+            return new(evaluated,reused,volumes);
+        }
+    }
+
     private readonly ImmutableArray<QuoteFactor> baseFactors;
     private readonly Lazy<ImmutableArray<QuoteFactor>> factors;
     public ImmutableArray<QuoteFactor> Factors=>factors.Value;

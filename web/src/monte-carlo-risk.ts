@@ -1,3 +1,4 @@
+import {validatePcaHybrid,type PcaHybridPolicy,type PcaHybridCapabilities,type PcaHybridView} from './pca-hybrid-risk.js';
 import {validateHistoryPrices,type HistoryManifest,type HistoryRequest} from './factor-history.js';
 import {validateSampleCoverage,type SampleRiskView} from './historical-risk.js';
 import type {ParametricView} from './parametric-risk.js';
@@ -8,13 +9,13 @@ import {exactNumber} from './exact-number.js';
 import {amountText} from './amount-display.js';
 
 export type MonteCarloPolicy={convention:string;numericalPolicy:string;estimator:string;centering:string;drift:string;horizon:string;quantilePolicy:string;tailPolicy:string;valuationPolicy:string;confidence:string;distribution:string;randomGenerator:string;shockPolicy:string;seed:string;paths:number;samplingUncertainty:string};
-export type MonteCarloRequest={history:HistoryRequest;policy:MonteCarloPolicy;factors?:unknown[]};
-export type MonteCarloCapabilities={profile:Omit<MonteCarloPolicy,'confidence'|'drift'|'paths'|'seed'>;defaults:{confidence:string;paths:number;seed:string;drift:string};drifts:{zero:string;sample:string};limits:{maxFactors:number;maxPaths:number;scopeMaxPaths?:number;maxShockValues:number}};
+export type MonteCarloRequest={history:HistoryRequest;policy:MonteCarloPolicy;factors?:unknown[];analysis?:PcaHybridPolicy};
+export type MonteCarloCapabilities={profile:Omit<MonteCarloPolicy,'confidence'|'drift'|'paths'|'seed'>;defaults:{confidence:string;paths:number;seed:string;drift:string};drifts:{zero:string;sample:string};limits:{maxFactors:number;maxPaths:number;scopeMaxPaths?:number;maxShockValues:number};analysis?:PcaHybridCapabilities};
 type Sample={id:string;index:number;changes:string[]};
 type Diagnostic={measure:string;currency:unknown;convergence:{paths:number;valueAtRisk:string;expectedShortfall:string;tailSampleMass:string}[];valueAtRiskInterval:{confidence:string;lowerRank:number;upperRank:number;lower:string|null;upper:string|null}};
 export type MonteCarloView=Omit<SampleRiskView,'result'>&{request:MonteCarloRequest;history:HistoryManifest;
  generation:{historyId:string;policy:MonteCarloPolicy;calibration:ParametricView['result']['calibration'];lower:string[][];diagonal:string[];samples:Sample[];available:boolean;unavailableReasons:string[]};
- result:SampleRiskView['result']&{policy:MonteCarloPolicy;diagnostics:Diagnostic[]}};
+ result:SampleRiskView['result']&{policy:MonteCarloPolicy;diagnostics:Diagnostic[]};analysis?:PcaHybridView|null};
 export type MonteCarloContainer={monteCarlo:MonteCarloView;context:{contextId:string};snapshotId:string;tradeIds?:string[]|null;excludedPositions?:ExcludedPosition[];inputs?:{positions:{bookId:string;tradeId:string;bindingId:string;measure:string}[]};historical?:unknown;parametric?:unknown;joint?:unknown;factors?:unknown};
 const canonical=(v:unknown)=>JSON.stringify(v,(_k,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.entries(x).sort(([a],[b])=>a.localeCompare(b))):x);
 const numeric=(v:unknown):v is string=>typeof v==='string'&&exactNumber(v)!==null;
@@ -44,7 +45,7 @@ export function validateMonteCarlo(report:MonteCarloContainer,expected?:MonteCar
    g.lower.length!==d||g.lower.some(row=>row.length!==d||row.some(x=>!numeric(x)))||g.diagonal.length!==d||g.diagonal.some(x=>!numeric(x)))throw bad();
  }else if(g.samples.length||g.lower.length||g.diagonal.length||r.available)throw bad();
  try{validateSampleCoverage(report,v,g.samples.map(s=>s.id));}catch{throw bad();}
- if(!r.available){if(r.samples!==0||r.diagnostics.length)throw bad();return v;}
+ if(!r.available){if(r.samples!==0||r.diagnostics.length)throw bad();validatePcaHybrid(report,v);return v;}
  if(!g.available||r.samples!==p.paths||r.diagnostics.length!==r.partitions.length||!distinct(r.diagnostics.map(p=>key(p.measure,p.currency))))throw bad();
  for(const p of r.partitions){
   const diagnostic=r.diagnostics.find(x=>key(x.measure,x.currency)===key(p.measure,p.currency)),b=diagnostic?.valueAtRiskInterval,points=diagnostic?.convergence;
@@ -53,7 +54,7 @@ export function validateMonteCarlo(report:MonteCarloContainer,expected?:MonteCar
    !points?.length||points.some((x,i)=>!Number.isInteger(x.paths)||x.paths<2||x.paths>r.samples||i>0&&x.paths<=points[i-1].paths||![x.valueAtRisk,x.expectedShortfall,x.tailSampleMass].every(numeric))||
    points.at(-1)!.paths!==r.samples||points.at(-1)!.valueAtRisk!==p.valueAtRisk||points.at(-1)!.expectedShortfall!==p.expectedShortfall)throw bad();
  }
- return v;
+ validatePcaHybrid(report,v);return v;
 }
 export function monteCarloCharts(v:MonteCarloView,index:number):ChartSpec[]{
  const p=v.result.partitions[index];if(!v.result.available||!p)return [];

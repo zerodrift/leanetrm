@@ -136,3 +136,13 @@ PCA/hybrid acceleration, EWMA, alternative innovation distributions, operating
 rolling backtests, ES uncertainty and Monte Carlo page-assistant summaries remain
 separate increments. Production activation requires a separately qualified schema
 release; application implementation does not deploy the schema.
+
+## PCA and hybrid comparison (D308)
+
+Setup now offers an explicit optional [PCA / hybrid qualification](pca-hybrid-risk.md).
+It retains the exact same complete native shocks and full-PV reference, adds
+loadings/residual graphics and fits a candidate using all native deltas plus
+selected PC curvature. Complete path and native portfolio comparisons determine
+per-run fallback. Its work is additional qualification, with no acceleration claim.
+The selected policy, actual fitting vectors/PVs and classification results travel
+with the original retained job; migration 0191 extends its strict private admission.

@@ -109,7 +109,7 @@ native finite differences, sample covariance and drift/confidence/tail policies.
 Risk shares Gaussian density, signed book/factor contributions, in-sample linearized
 losses and correlation/covariance graphics, plus a paged archive of completed statistical
 reports. Unavailable scope/history or unstable deltas retain diagnostics without
-risk estimates. PCA/hybrid, EVT and rolling
+risk estimates. Accelerated hybrid execution, EVT and rolling
 backtests remain subsequent increments. No production throughput is claimed.
 
 ## Guided parametric setup (D301)
@@ -138,8 +138,8 @@ to sample-mean delta-normal. Historical reports graph empirical probabilities an
 losses, expose book/trade quantile/tail allocation and drill through every sample's
 factor moves and native PV bindings. The completed archive discovers statistical methods;
 current authority is checked for report reads and export. Rates, time and current
-option calibration remain frozen. PCA/hybrid/EVT and an operating backtest
-workflow are not implied.
+option calibration remain frozen. Historical repricing does not imply accelerated hybrid execution, EVT or an operating
+backtest workflow.
 
 ## Full-PV Monte Carlo (D307)
 
@@ -151,3 +151,15 @@ matrices and indexed path/holding drilldown. Scope-aware starting paths include
 base, native result, option and PPA work. Reauthorized exports retain complete
 shocks and exact PV evidence; the shared Blotter renderer keeps statistical
 reports separate from factor up/down cells. Production schema rollout is separate.
+
+## PCA / hybrid qualification (D308)
+
+The optional [Monte Carlo analysis](pca-hybrid-risk.md) displays standardized
+loadings, explained market variance, ideal residual/cross covariance and
+reconstruction diagnostics. All native factor delta exposure remains, including
+low-variance residuals. Actual quantized PC vectors define selected diagonal and
+mixed curvature; every generated path still receives full PV. Comparison widgets
+show native VaR/ES, path/tail error, whole-valuation fallback and measured reference
+versus added fitting work. A failed shared fitting batch falls back every valuation
+with its reason. This mode qualifies only the captured run and adds work; it does
+not enable accelerated execution or certify future tails.

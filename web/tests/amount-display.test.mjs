@@ -103,3 +103,14 @@ test('a PPA read shows its exact fractions: each is sent as a rational by its fi
  assert.deepEqual(requests.map(r=>[r.value,r.trimTrailingZeros]),[['28407490050852804298252338129/200000000000000000000000',false],['1895/2',true],['85275/2',false],['-7',false]]);
  assert.equal(amountText('1895/2','quantity'),'947.5');
 });
+test('PCA / hybrid comparison amounts and diagnostic arrays use the backend display policy',async()=>{
+ selectDisplayPrecision(initialDisplayPrecision());const requests=[];
+ const values={fullValueAtRisk:'1/3',fullExpectedShortfall:'2/3',candidateValueAtRisk:'4/3',candidateExpectedShortfall:'5/3',hybridValueAtRisk:'7/3',hybridExpectedShortfall:'8/3',maximumCandidateError:'1/7',maximumCandidateTailError:'2/7',maximumAbsoluteError:'3/7',maximumTailError:'4/7',maximumResidualLinearPnl:'1/100000000000000000000000',retainedVarianceShare:'11/13',reconstructionError:'1/1000000000000000',orthogonalityError:'1/1000000000000001',eigenResidual:'1/1000000000000002',eigenvalues:['17/13'],varianceShares:['19/23']};
+ const original=JSON.stringify(values);
+ await prepareAmountDisplay(values,async rows=>{requests.push(...rows);return rows.map(r=>r.decimalPlaces===3?'money formatted':'factor formatted');});
+ assert.equal(amountText(values.maximumResidualLinearPnl,'money'),'money formatted');
+ assert.equal(amountText(values.candidateValueAtRisk,'money'),'money formatted');
+ assert.equal(amountText(values.retainedVarianceShare,'factor'),'factor formatted');
+ assert.equal(amountText(values.eigenvalues[0],'factor'),'factor formatted');
+ assert.equal(requests.length,17);assert.equal(JSON.stringify(values),original);
+});

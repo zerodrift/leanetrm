@@ -8,6 +8,34 @@ expires naturally, then refuse without recording a reuse alias. Valid creation,
 replay and reuse retain the same job. The regression failed against migration
 0187 and passes with 0188; it is included in the synthetic verification runner.
 
+## PCA and hybrid qualification (D308)
+
+`--pca-hybrid-risk` in the managed checks exercises independent analytic
+2×2 eigenpairs, zero/singular/tied covariance, native-unit rescaling, complete
+covariance and every-shock reconstruction through 128 factors, large low-variance
+spread exposure,
+closed-form exact quadratic diagonal/mixed coefficients, genuinely nonzero mean
+drift, nonsmooth derivatives, opposing shared bindings, whole-portfolio offset
+errors and exact collinear/mixed native directions. An independent standalone
+inverse-CDF/fractional-tail oracle and coprime-denominator arithmetic-limit case
+qualify the optional reduction boundary. A tiny native tick has an
+explicit fitting-only unavailable outcome rather than discarding full-PV risk.
+
+The existing owned `--monte-carlo-risk-check` suite also exercises optional PCA
+policy/direct-worker parity, byte-identical reference generation/risk/matrix with
+analysis selected, complete added work admission, native SQL policy mutations and
+migration 0191 body/owner/ACL/search-path guards. Frontend readers require complete
+loading/projection/fitting/model/classification evidence and enforce the selected
+numerical residual bounds. Cash and PCA diagnostics use the shared backend amount
+formatter; exact receipts remain unchanged. The browser suite adds
+visible PCA defaults, actual comparison/residual graphics, measured work, retained
+queue/export/reopen and shared Blotter/phone checks. Fifteen Monte Carlo/PCA,
+fourteen historical and sixteen parametric owned browser checks pass. Held-display
+close and cached-navigation tests prove stale formatting cannot revive a report or
+block its current replacement. All runs use disposable
+resources and neutral test inputs. This is qualification coverage, not measured
+production throughput or proof about unpriced future paths.
+
 ## Monte Carlo full-PV risk (D307)
 
 [The Monte Carlo contract](monte-carlo-risk.md) is exercised by eight managed

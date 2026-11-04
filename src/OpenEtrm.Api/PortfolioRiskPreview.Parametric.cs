@@ -163,11 +163,11 @@ public sealed partial class PortfolioRiskPreview
             throw new MarketDataException("risk_result_limit","Reduce the explicit statistical scope or window: the complete report exceeds 30 MB.");
         return report;
     }
-    private static RiskWork StatisticalWork(PortfolioValuation.Prepared preparation,RiskWork basis,ImmutableArray<RiskWork> passes)=>basis with{
+    private static RiskWork StatisticalWork(PortfolioValuation.Prepared preparation,RiskWork basis,ImmutableArray<RiskWork> passes,bool repeatedPreparation=true)=>basis with{
                 ScenarioCount=passes.Sum(w=>w.ScenarioCount),UnitPricerCalls=passes.Sum(w=>w.UnitPricerCalls),
-                RebuiltCurveNodes=passes.Sum(w=>w.RebuiltCurveNodes)-(passes.Length-1)*preparation.MaterializationWork.RebuiltCurveNodes,
-                ReusedCurveNodes=passes.Sum(w=>w.ReusedCurveNodes)-(passes.Length-1)*preparation.MaterializationWork.ReusedCurveNodes,
-                PreparationScenarioCount=passes.Sum(w=>w.PreparationScenarioCount)-(passes.Length-1)*preparation.MaterializationScenarioCount,
+                RebuiltCurveNodes=passes.Sum(w=>w.RebuiltCurveNodes)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationWork.RebuiltCurveNodes,
+                ReusedCurveNodes=passes.Sum(w=>w.ReusedCurveNodes)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationWork.ReusedCurveNodes,
+                PreparationScenarioCount=passes.Sum(w=>w.PreparationScenarioCount)-(repeatedPreparation?passes.Length-1:0)*preparation.MaterializationScenarioCount,
                 QuantityApplications=passes.Sum(w=>w.QuantityApplications),CurveGraphEvaluatedNodes=passes.Sum(w=>w.CurveGraphEvaluatedNodes),
                 CurveGraphReusedReads=passes.Sum(w=>w.CurveGraphReusedReads),VolumeComputations=passes.Sum(w=>w.VolumeComputations),
                 UniqueSideCalculations=passes.Sum(w=>w.UniqueSideCalculations),RowEvaluations=passes.Sum(w=>w.RowEvaluations),

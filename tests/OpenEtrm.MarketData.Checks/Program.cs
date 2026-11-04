@@ -83,6 +83,7 @@ if(args is ["--aligned-factor-history"]){AlignedFactorHistoryChecks.Run();return
 if(args is ["--parametric-risk"]){ParametricRiskChecks.Run();return;}
 if(args is ["--historical-risk"]){HistoricalRiskChecks.Run();return;}
 if(args is ["--monte-carlo-risk"]){MonteCarloRiskChecks.Run();return;}
+if(args is ["--pca-hybrid-risk"]){PcaHybridRiskChecks.Run();return;}
 if(args is ["--monte-carlo-oracles",var mcOutput,var mcInput]){MonteCarloRiskChecks.ExportOracles(mcOutput,mcInput);return;}
 if(args is ["--monte-carlo-oracles",var monteCarloOracles]){MonteCarloRiskChecks.ExportOracles(monteCarloOracles);return;}
 if(args is ["--joint-scenario-risk"]){JointScenarioRiskChecks.Run();return;}
@@ -544,6 +545,7 @@ AlignedFactorHistoryChecks.Run();
 ParametricRiskChecks.Run();
 HistoricalRiskChecks.Run();
 MonteCarloRiskChecks.Run();
+PcaHybridRiskChecks.Run();
 passed += TemporalBindingChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");

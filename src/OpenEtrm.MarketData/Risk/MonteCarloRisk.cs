@@ -203,7 +203,7 @@ public static class MonteCarloRisk
             throw Error("risk_monte_carlo_numeric","The exact covariance decomposition exceeds its 16384-bit arithmetic bound.");
         return value;
     }
-    private static double Real(SignedRatio value)
+    internal static double Real(SignedRatio value)
     {
         if(value.Numerator.IsZero)return 0;
         var n=BigInteger.Abs(value.Numerator);var ns=(int)Math.Max(0,n.GetBitLength()-53);var ds=(int)Math.Max(0,value.Denominator.GetBitLength()-53);

@@ -26,8 +26,8 @@ shared sensitivity ladders/heatmaps and drill-through, visible incomplete covera
 retained report links, and multipart submission recovery. The bounded recent-job
 directory remains separate from the D299 completed statistical-report archive.
 Delta-normal, full-PV historical and full-PV Monte Carlo VaR/ES are implemented
-below. PCA/hybrid, EVT and an operating rolling-backtest workflow remain
-subsequent increments.
+below. PCA / hybrid qualification is implemented in D308; accelerated hybrid
+execution, EVT and an operating rolling-backtest workflow remain subsequent increments.
 
 D294 adds temporary maximize/restore to every Blotter pane, a shared searchable
 portfolio/book picker in Blotter and Risk, and personal saved-view sidebar pins
@@ -1830,6 +1830,24 @@ graphics and prefix convergence accompany a conditional 95% VaR sampling interva
 with explicit unbounded endpoints. Guided setup retains EOD official-close
 history and lowers its visible starting path count to the selected scope's work
 budget. One complete retained job reuses source/clock/engine/attempt custody;
-migration 0190 adds no raw grants or tables. PCA/hybrid approximation, EWMA, EVT
+migration 0190 adds no raw grants or tables. Accelerated hybrid execution, EWMA, EVT
 and the operating rolling-backtest service remain separate work. Production
 activation requires a separately qualified schema release.
+
+### PCA and hybrid qualification increment (D308, R7)
+
+[The optional Monte Carlo analysis](pca-hybrid-risk.md) supplies deterministic
+standardized PCA loadings/eigenvalues, ideal residual/cross covariance and complete
+native-vector reconstruction checks. Black-box half/nominal/double FD fits every
+native delta and selected actual-direction diagonal/mixed curvature. Every
+candidate path is compared with its complete full-PV reference; failures fall back
+whole valuations across bindings or the whole portfolio. Shared fitting-domain
+failure explicitly falls back every valuation. Risk/Blotter reports add comparison,
+residual, classification and actual extra-work widgets. Migration 0191 retains the
+explicit optional policy on the existing job without new tables or grants.
+
+This increment qualifies candidate models and adds work. True acceleration is a
+separate explicitly approximate contract requiring further accuracy/cost evidence;
+a pass on one captured seed/run never establishes global eligibility. Per-valuation
+isolation of a failed shared FD batch, EWMA, EVT and operating rolling backtests
+remain subsequent work. Schema activation stays with the separate release process.

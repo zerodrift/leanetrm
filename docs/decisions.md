@@ -2150,3 +2150,34 @@ endpoints where required, and is neither an ES interval nor model/calibration
 uncertainty. Migration 0190 extends private existing operations without new tables
 or raw grants. See [contracts and bounds](monte-carlo-risk.md). PCA/hybrid, EWMA,
 other innovation laws and operating backtesting require separate qualification.
+
+## D308 — PCA diagnostics and full-reference hybrid qualification
+
+Status: implemented as the optional `correlation_pca_hybrid_qualification_v1`
+Monte Carlo analysis; production schema activation remains separate.
+
+Keep the R6 complete native generator and full-PV reference unchanged. Decompose
+the sample-SD-scaled covariance with a bounded deterministic cyclic Jacobi solver,
+retain raw signed eigenpairs, explicit signs/ties and independent reconstruction
+checks. Roundoff-negative eigenvalues affect explained-variance diagnostics only.
+Retain ideal residual and retained/residual cross covariance. Explained market
+variance never authorizes removing portfolio exposures.
+
+Fit all native deltas plus selected diagonal/mixed PC curvature from ordinary PV
+under immutable sibling scenarios. Quantize each nominal PC vector once to 17
+places, form exact half/double vectors and combine mixed corners per native
+factor. Use standardized weighted least squares in the actual quantized basis.
+Preserve every residual delta and include full selected mean drift. All-path
+holding error/stability failures fall back the whole unit-valuation identity across
+bindings. Portfolio path/VaR/ES failure falls back the whole portfolio. A numerical
+or domain failure of the shared fitting batch takes the explicit coarser full-PV
+fallback for every valuation; it does not qualify healthy candidates separately.
+Authority, missing coverage and full-reference pricing failures remain fatal.
+
+Ship `full_reference_qualification_v1` first: every generated path has a complete
+reference, and the report shows actual added work or an explicitly unmetered failed
+attempt. Do not claim acceleration or reuse a passing model in another run.
+A finite unpriced-path panel cannot prove correctness of an arbitrary black-box
+pricer. True acceleration requires a separate approximate contract and evidence.
+Migration 0191 only extends strict private existing-job admission, guarded by the
+full predecessor definition/owner/ACL/search path. See [the executable contract](pca-hybrid-risk.md).

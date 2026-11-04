@@ -40,6 +40,40 @@ def run_checks(url,manifest,query,run_worker):
             assert sum(Fraction(t['expectedShortfall']) for t in p['trades'])==Fraction(p['expectedShortfall'])
             assert sum(b['count'] for b in p['histogram'])==n
     oracle(v)
+    selected={**request,'analysis':{**profile['analysis']['profile'],**profile['analysis']['defaults']}}
+    checked=c.call('portfolio/risk/monte-carlo',selected);analysis=checked['monteCarlo']['analysis']
+    assert checked['monteCarlo']['generation']==g and checked['monteCarlo']['result']==r and checked['monteCarlo']['matrix']==v['matrix']
+    assert analysis['available'] and analysis['pca']['columns']==g['calibration']['columns']
+    assert len(analysis['pca']['samples'])==256 and analysis['fit']['scenarioCount']==12
+    assert all(x['method']=='pca_delta_gamma' for x in analysis['comparison']['classifications'])
+    assert all(x['fullValueAtRisk']==x['hybridValueAtRisk']==x['candidateValueAtRisk'] for x in analysis['comparison']['partitions'])
+    assert analysis['cost']['additional']['unitPricerCalls']>0 and not analysis['cost']['attemptUnmetered']
+    assert checked['work']['unitPricerCalls']==analysis['cost']['reference']['unitPricerCalls']+analysis['cost']['additional']['unitPricerCalls']
+    assert checked['work']['scenarioCount']==256+12+2
+    qualified_job=c.call('portfolio/risk/monte-carlo/jobs',{'requestId':str(uuid4()),'request':selected});run_worker()
+    qualified=c.call('portfolio/risk/jobs/'+qualified_job['jobId']);assert qualified['state']=='completed',qualified
+    def differences(left,right,path=''):
+        if type(left) is not type(right):return [path+':type']
+        if isinstance(left,dict):return [p for k in left.keys()|right.keys() for p in ([path+'.'+k+':missing'] if k not in left or k not in right else differences(left[k],right[k],path+'.'+k))]
+        if isinstance(left,list):return [path+':length'] if len(left)!=len(right) else [p for i,(a,b) in enumerate(zip(left,right)) for p in differences(a,b,path+f'[{i}]')]
+        return [] if left==right else [path+':'+str(left)+' != '+str(right)]
+    def economic(study):
+        retained=deepcopy(study);retained['analysis'].pop('cost');return retained
+    assert economic(qualified['result']['monteCarlo'])==economic(checked['monteCarlo']),differences(economic(qualified['result']['monteCarlo']),economic(checked['monteCarlo']))[:20]
+    for report in (checked,qualified['result']):
+        cost=report['monteCarlo']['analysis']['cost']
+        for metric in ('unitPricerCalls','scenarioCount','quantityApplications','curveGraphEvaluatedNodes','curveGraphReusedReads','rebuiltCurveNodes','reusedCurveNodes','preparationScenarioCount'):
+            assert report['work'][metric]==cost['reference'][metric]+cost['additional'][metric],(metric,report['work'][metric],cost['reference'][metric],cost['additional'][metric])
+        assert cost['additional']['curveGraphEvaluatedNodes']==12 and cost['additional']['preparationScenarioCount']==0
+
+    from check_pca_hybrid_risk_db import admission_checks as check_pca_admission
+    check_pca_admission(query,manifest,qualified_job['jobId'])
+    signed_zero={**selected,'policy':{**selected['policy'],'paths':2},'analysis':{**selected['analysis'],'lossAbsolute':'-0.0','lossRelative':'0.00100'}}
+    zero_direct=c.call('portfolio/risk/monte-carlo',signed_zero)['monteCarlo']
+    zero_job=c.call('portfolio/risk/monte-carlo/jobs',{'requestId':str(uuid4()),'request':signed_zero});run_worker()
+    zero_stored=c.call('portfolio/risk/jobs/'+zero_job['jobId']);assert zero_stored['state']=='completed',zero_stored
+    assert economic(zero_stored['result']['monteCarlo'])==economic(zero_direct)
+    print('PASS PCA / hybrid HTTP-worker: exact unchanged reference, retained directions, all-path qualification and complete additional work',flush=True)
     print('PASS Monte Carlo HTTP: retained seeded shocks, every full-PV loss, exact fractional ES and native allocations',flush=True)
     sample=g['samples'][0]
     joint={**scope,'pricingPolicy':catalog['pricingPolicy'],'convention':catalog['convention'],'numericalPolicy':catalog['numericalPolicy'],'bumps':[],'stress':[],'detail':'holdings',
@@ -56,9 +90,13 @@ def run_checks(url,manifest,query,run_worker):
     mixed_spec={**request,'history':mixed_history['request'],'policy':{**request['policy'],'paths':32}}
     mixed=c.call('portfolio/risk/monte-carlo',mixed_spec)['monteCarlo'];oracle(mixed)
     assert mixed['result']['available'] and len(mixed['factors'])>1 and len(mixed['result']['partitions'])>1
-    mixed_job=c.call('portfolio/risk/monte-carlo/jobs',{'requestId':str(uuid4()),'request':mixed_spec});run_worker()
+    mixed_analysis_spec={**mixed_spec,'analysis':{**selected['analysis'],'retainedComponents':1}}
+    mixed_analysis=c.call('portfolio/risk/monte-carlo',mixed_analysis_spec)['monteCarlo'];assert mixed_analysis['analysis']['available']
+    assert mixed_analysis['generation']==mixed['generation'] and mixed_analysis['result']==mixed['result'] and mixed_analysis['matrix']==mixed['matrix']
+    assert len(mixed_analysis['analysis']['comparison']['partitions'])==len(mixed['result']['partitions'])
+    mixed_job=c.call('portfolio/risk/monte-carlo/jobs',{'requestId':str(uuid4()),'request':mixed_analysis_spec});run_worker()
     mixed_stored=c.call('portfolio/risk/jobs/'+mixed_job['jobId']);assert mixed_stored['state']=='completed',mixed_stored
-    assert mixed_stored['result']['monteCarlo']==mixed
+    assert economic(mixed_stored['result']['monteCarlo'])==economic(mixed_analysis)
     print('PASS Monte Carlo mixed portfolio: complete multi-factor native partitions, net-before-quantile oracles and exact direct/worker parity',flush=True)
     operation=str(uuid4());submission={'requestId':operation,'request':request};job=c.call('portfolio/risk/monte-carlo/jobs',submission)
     assert c.call('portfolio/risk/monte-carlo/jobs',submission)['jobId']==job['jobId']

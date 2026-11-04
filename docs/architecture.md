@@ -1,5 +1,12 @@
 # Architecture and domain contracts
 
+D308 adds optional [PCA / hybrid qualification](pca-hybrid-risk.md) over the same
+full native Monte Carlo shocks: deterministic scaled decomposition, ideal residual
+covariance diagnostics, actual-direction delta-gamma fitting and every-path
+instrument/portfolio comparisons. Full PV remains the reference; coarse shared-fit
+failure falls back the whole portfolio. This mode adds measured work and does not
+accelerate execution.
+
 D307 adds [full-PV Monte Carlo VaR/ES](monte-carlo-risk.md): explicit additive
 Gaussian joint-factor generation, exact sample covariance/LDL, reproducible seeded
 native shocks, ordinary frozen portfolio PV, empirical tails, convergence and

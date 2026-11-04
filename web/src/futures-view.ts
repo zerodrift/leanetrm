@@ -266,8 +266,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     return {context:{...(lastReadRequest as {context:Record<string,unknown>}).context},bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]};
   }});
   const fullReport=setupRiskResults(get('desk-risk-full-results'),options.zone,options.riskReportUrl),fullReportPanel=get<HTMLDetailsElement>('desk-risk-full');
-  let fullReportKey='';
-  fullReportPanel.ontoggle=()=>{fullReportKey='';if(fullReportPanel.open)showRunBar();else fullReport.reset();};
+  let fullReportKey='',fullReportVersion=0;
+  function resetFullReport(){fullReportVersion++;fullReportKey='';fullReport.reset();}
+  fullReportPanel.ontoggle=()=>{fullReportKey='';if(fullReportPanel.open)showRunBar();else resetFullReport();};
   get('blotter-risk').onclick=()=>void openRiskReport();
   // The run bar's Edit shocks opens the risk report with the run's choices, Export downloads its results and inputs, and Clear takes it off the desk.
   get('desk-run-edit').onclick=()=>void openRiskReport();
@@ -408,7 +409,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const guarded=(work:()=>Promise<void>,kept?:()=>void)=>guard({busy,leave,act},work,kept);
   const asked=(work:()=>Promise<void>,kept?:()=>void)=>void guarded(work,kept).catch(error=>{if((error as {shown?:boolean}).shown!==true)options.failed(error);});
   // Forms and pending reads are released; completed values remain hidden until current authority is checked again.
-  function leavePage(){cancelRead();dropForms();deskPanel.reset();get('futures-page').classList.add('checking-cache');}
+  function leavePage(){get('futures-page').classList.add('checking-cache');resetFullReport();cancelRead();dropForms();deskPanel.reset();}
   // A trade request whose outcome is not confirmed is owned by the window that sent it, which keeps its Check status and Retry.
   // A main window's unconfirmed requests stay with it; a pop-out's go back with the Blotter (handOver).
   const retainedStays=(move:string)=>{
@@ -785,9 +786,20 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function showRunBar(){
     const run=risk.current();
     fullReportPanel.hidden=!run||!holdings;
-    if(!run||!holdings){fullReport.reset();fullReportKey='';renderRunBar(get('desk-run'),null,busy());return;}
-    const fullKey=resultsKey(run)+':'+run.key+':'+run.running+':'+options.zone();
-    if(fullReportPanel.open&&fullReportKey!==fullKey){fullReportKey=fullKey;fullReport.show(run);}
+    if(!run||!holdings){resetFullReport();renderRunBar(get('desk-run'),null,busy());return;}
+    const reportKey=(r:RunView)=>resultsKey(r)+':'+r.key+':'+r.running+':'+options.zone()+':'+options.profile();
+    const fullKey=reportKey(run);
+    if(fullReportPanel.open&&!get('futures-page').classList.contains('checking-cache')&&fullReportKey!==fullKey){
+      fullReportKey=fullKey;const ticket=++fullReportVersion,started=generation,place=whereAmI(),profile=options.profile(),capturedRead=readPlace;
+      fullReport.reset();get('desk-risk-full-results').textContent='Preparing risk report display…';
+      const current=()=>{const now=risk.current();return ticket===fullReportVersion&&started===generation&&place!==undefined&&place===whereAmI()&&profile===options.profile()&&owner===profile&&capturedRead!==undefined&&readPlace===capturedRead&&
+        !get('futures-page').hidden&&!get('futures-page').classList.contains('checking-cache')&&fullReportPanel.open&&!fullReportPanel.hidden&&fullReportKey===fullKey&&!!now&&reportKey(now)===fullKey;};
+      // Format only an opened full report. Every batch and the final render
+      // retain the same read/account/run fence; closing the pane stops later batches.
+      void prepareAmountDisplay(run.parts.flatMap(p=>p.report?[p.report]:[]),body=>{
+        if(!current())throw Error('The risk report selection changed.');return api<string[]>('amounts/display',body);
+      }).catch(()=>undefined).then(()=>{if(current())fullReport.show(run);else if(ticket===fullReportVersion&&fullReportKey===fullKey)fullReportKey='';});
+    }
     const results=inline===undefined||inline.key!==resultsKey(run)?{state:'none' as const}:inline.state==='shown'?{state:view.mode==='pivot'?'pivot' as const:'shown' as const,excluded:inline.excluded}
       :inline.state==='failed'?{state:'failed' as const,reason:inline.reason}:(inline.state==='joint'||inline.state==='statistical')?{state:inline.state,excluded:inline.excluded}:{state:'elsewhere' as const};
     renderRunBar(get('desk-run'),{...runBar(run,{zone:options.zone(),knowledge:knowledgeWords[options.knowledge()],results}),setup:run.setupText},busy());
@@ -940,6 +952,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // Forgets the read on screen. A new read for the same account keeps what the page draws, its rows marked stale, so the read arriving
   // changes the grid in place and the person keeps their place in it; the panel closes as it does for any new read.
   function clearRead(keepGrid:boolean){
+    resetFullReport();fullReportPanel.open=false;fullReportPanel.hidden=true;
     cachedRead=undefined;
     kept=keepGrid?{strip:strip??kept?.strip}:undefined;strip=undefined;
     // A read again keeps the position the details show, which the read arriving draws again (deskPanel.sync) or, when it no longer holds it,
@@ -1658,7 +1671,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         else options.notice('Trade saved. Select its position binding in the Blotter to inspect it.');
       }catch(error){options.notice('The trade was saved. Refresh the Blotter to inspect its position.');options.failed(error);}
     },
-    refreshDisplay(){chartState=undefined;drawn=undefined;clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();crudeOperations.sync();captureFilters();render();},
+    refreshDisplay(){resetFullReport();chartState=undefined;drawn=undefined;clearChart(get('blotter-chart'));get('blotter-chart-card').hidden=true;risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();crudeOperations.sync();captureFilters();render();showRunBar();},
     refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();crudeOperations.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
     async openTrade(tradeId:string,instrumentType:TradeShown['instrumentType'],revision:number|null){

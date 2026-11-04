@@ -256,8 +256,11 @@ one-session delta-normal VaR/ES. D307 adds [full-PV Monte Carlo](monte-carlo-ris
 Gaussian shocks, ordinary PV repricing, empirical tails and sampling diagnostics.
 D305 adds [full-PV historical simulation](historical-risk.md),
 exact empirical quantiles/fractional-tail ES, signed book/trade allocation,
-sample PV drilldown and matching same-job normal comparison. PCA/hybrid/EVT
-and an operating backtest workflow remain work. D301 adds the guided
+sample PV drilldown and matching same-job normal comparison. D308 adds
+[PCA diagnostics and hybrid qualification](pca-hybrid-risk.md), complete residual
+delta, same-path full-PV comparisons, fallback classifications and additional work
+counters. Accelerated hybrid execution, EVT and an operating backtest workflow
+remain work. D301 adds the guided
 [VaR walkthrough](risk-factor-history.md#guided-var-setup-d301): a visible six-month,
 99%, one-session starting profile, automatic history preparation, end-of-day local
 windows and explicitly ordered price types. Official daily closes are initially
