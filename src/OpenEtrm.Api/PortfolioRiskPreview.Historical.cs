@@ -1,11 +1,15 @@
 using System.Collections.Immutable;
+using System.Globalization;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.Api;
 
@@ -17,6 +21,8 @@ public sealed record PortfolioHistoricalRequest(PortfolioHistoryRequest History,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<CurveRiskAxisRequest> Factors=default);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SubmitHistoricalRiskJob(Guid RequestId,PortfolioHistoricalRequest Request);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PortfolioHistoricalSampleRequest(PortfolioHistoricalRequest Request,string Sample);
 
 public sealed partial class PortfolioRiskPreview
 {
@@ -111,7 +117,10 @@ public sealed partial class PortfolioRiskPreview
         }
     }
 
-    private static object CalculateHistorical(Prepared prepared,CancellationToken ct)
+    // One historical evaluation: the frozen base, every scenario row and the empirical report, before presentation.
+    private sealed record HistoricalRun(PortfolioHistoricalRequest Spec,AlignedFactorHistory History,bool Eligible,int TreesBefore,
+        ImmutableArray<HistoricalExposure> Exposures,ImmutableArray<HistoricalObservation> Observations,PortfolioValuationResult Nominal,HistoricalRiskReport Result);
+    private static HistoricalRun EvaluateHistorical(Prepared prepared,CancellationToken ct)
     {
         var spec=prepared.Request.Historical!;var history=prepared.History??throw new MarketDataException("risk_historical_samples","Missing captured historical rows.");
         var eligible=history.Available&&prepared.Portfolio.Excluded.IsEmpty;var before=prepared.Portfolio.Options?.TreePrices??0;
@@ -159,19 +168,32 @@ public sealed partial class PortfolioRiskPreview
             result=new(spec.Policy,history.Id,history.Samples.Length,[],false,
                 [..new[]{history.Available?null:"insufficient_common_history",prepared.Portfolio.Excluded.IsEmpty?null:"incomplete_portfolio"}.OfType<string>()]);
         }
+        return new(spec,history,eligible,before,exposures,observations,nominal,result);
+    }
+    private static string HistoricalStudyId(Prepared prepared,HistoricalRun run)=>Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{
+        prepared.Portfolio.Context,prepared.Portfolio.SnapshotId,prepared.Portfolio.Policy,prepared.Portfolio.Positions,
+        prepared.Portfolio.ConnectedMarkets,prepared.Portfolio.OptionCalibrations,run.History.Id,run.Spec.Policy.Horizon,run.Spec.Policy.ValuationPolicy,run.Spec.Policy.Confidence},RiskJobs.Json)));
+    // The optional matching normal comparison over the same study; null when not selected or when history is ineligible.
+    private static JsonObject? RunHistoricalComparison(Prepared prepared,HistoricalRun run,string studyId,CancellationToken ct)
+    {
+        if(run.Spec.Comparison is not {} selected||!run.Eligible)return null;
+        var normal=new PortfolioParametricRequest(run.Spec.History,selected.Policy,selected.FiniteDifference);
+        var normalPrepared=prepared with{Request=StatisticalRequest(normal),Detail=RiskDetail.Books,Bumps=prepared.HistoricalComparisonBumps,Joint=null,HistoricalAxes=[]};
+        var compared=HistoricalComparison(()=>CalculateParametric(normalPrepared,ct),ct);
+        compared["studyId"]=studyId;compared["request"]=JsonSerializer.SerializeToNode(selected,RiskJobs.Json);return compared;
+    }
+
+    private static object CalculateHistorical(Prepared prepared,CancellationToken ct)
+    {
+        var run=EvaluateHistorical(prepared,ct);
+        var (spec,history,eligible,before,exposures,observations,nominal,result)=run;
         var report=JsonSerializer.SerializeToNode(PresentSensitivity(prepared with{Bumps=[]},nominal,before),RiskJobs.Json)!.AsObject();
         report.Remove("factors");
-        var studyId=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{
-            prepared.Portfolio.Context,prepared.Portfolio.SnapshotId,prepared.Portfolio.Policy,prepared.Portfolio.Positions,
-            prepared.Portfolio.ConnectedMarkets,prepared.Portfolio.OptionCalibrations,history.Id,spec.Policy.Horizon,spec.Policy.ValuationPolicy,spec.Policy.Confidence},RiskJobs.Json)));
-        JsonNode? comparison=null;
-        if(spec.Comparison is {} selected&&eligible)
+        var studyId=HistoricalStudyId(prepared,run);
+        var comparison=RunHistoricalComparison(prepared,run,studyId,ct);
+        if(comparison is not null)
         {
-            var normal=new PortfolioParametricRequest(spec.History,selected.Policy,selected.FiniteDifference);
-            var normalPrepared=prepared with{Request=StatisticalRequest(normal),Detail=RiskDetail.Books,Bumps=prepared.HistoricalComparisonBumps,Joint=null,HistoricalAxes=[]};
-            var compared=HistoricalComparison(()=>CalculateParametric(normalPrepared,ct),ct);
-            compared["studyId"]=studyId;compared["request"]=JsonSerializer.SerializeToNode(selected,RiskJobs.Json);comparison=compared;
-            if(compared["work"] is {} work)
+            if(comparison["work"] is {} work)
                 report["work"]=JsonSerializer.SerializeToNode(StatisticalWork(prepared.Portfolio,nominal.Work,[nominal.Work,work.Deserialize<RiskWork>(RiskJobs.Json)!]),RiskJobs.Json);
             else report["workAccounting"]= "completed_historical_only_comparison_attempt_unmetered_v1";
         }
@@ -201,5 +223,81 @@ public sealed partial class PortfolioRiskPreview
         if(System.Text.Encoding.UTF8.GetByteCount(report.ToJsonString(RiskJobs.Json))>30_000_000)
             throw new MarketDataException("risk_result_limit","Reduce the explicit historical scope or window: the complete report exceeds 30 MB.");
         ct.ThrowIfCancellationRequested();return report;
+    }
+
+    // The assistant's bounded historical reads (assistant-workspace.md): the Risk page's calculation, projected to exact and displayed
+    // estimates, allocations and the scenarios carrying the tail, then one scenario's factor moves and holding losses.
+    private async Task<(Prepared Prepared,ImmutableArray<PreviewData> Markets)> PrepareSummary(NpgsqlConnection connection,PreviewData data,
+        InputFrame frame,PortfolioHistoricalRequest? body,CancellationToken ct)
+    {
+        var history=await CapturedHistory(connection,data,frame,body?.History,"risk_historical_scope",ct);
+        var prepared=await Prepare(connection,data,frame,HistoricalRequest(body! with{History=history}),ct);
+        return (prepared,[..prepared.Portfolio.Markets.Select(m=>m.Data)]);
+    }
+    private static Dictionary<DateTimeOffset,DateOnly> SessionDates(AlignedFactorHistory history)=>history.Sessions.ToDictionary(s=>s.Close,s=>s.Date);
+    // Exact report text is a plain decimal or a reduced "n/d".
+    private static SignedRatio Exact(string text)=>text.Split('/') is [var n,var d]&&BigInteger.TryParse(n,CultureInfo.InvariantCulture,out var numerator)&&
+        BigInteger.TryParse(d,CultureInfo.InvariantCulture,out var denominator)&&denominator>0?new(numerator,denominator):
+        SignedRatio.TryParse(text,out var value)?value:throw new MarketDataException("risk_historical_numeric","Expected exact historical output.");
+    private static object DisplayedPair(HistoricalContribution c,ReferenceKey currency)=>new{
+        valueAtRisk=Displayed(ExactMoney.Parse(c.ValueAtRisk,currency)),expectedShortfall=Displayed(ExactMoney.Parse(c.ExpectedShortfall,currency))};
+    public async Task<object> HistoricalSummary(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioHistoricalRequest body,CancellationToken ct)
+    {
+        var (prepared,markets)=await PrepareSummary(connection,data,frame,body,ct);
+        var run=EvaluateHistorical(prepared,ct);var manifest=run.History;var portfolio=prepared.Portfolio;var dates=SessionDates(manifest);
+        var samples=manifest.Samples.ToDictionary(x=>x.Id,StringComparer.Ordinal);
+        var evidence=portfolio.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
+        var studyId=HistoricalStudyId(prepared,run);
+        var comparison=RunHistoricalComparison(prepared,run,studyId,ct);
+        var normal=comparison?["report"] is {} report?report["result"].Deserialize<ParametricRiskReport>(RiskJobs.Json)
+            ??throw new MarketDataException("risk_historical_comparison","The matching comparison returned no report."):null;
+        return new{asOf=frame.At,contextId=portfolio.Context.ContextId,historyId=manifest.Id,studyId,run.Result.Available,run.Result.UnavailableReasons,
+            policy=run.Spec.Policy,samples=run.Result.Samples,history=new{run.Spec.History.Calendar,run.Spec.History.From,run.Spec.History.To,run.Spec.History.Policy},
+            coverage=SummaryCoverage(manifest,portfolio),excludedPositions=portfolio.Excluded,
+            books=prepared.Books.Where(b=>prepared.BookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name")}),
+            trades=run.Exposures.GroupBy(e=>e.TradeId).Select(g=>(Exposure:g.First(),Evidence:evidence[(g.Key,g.First().BindingId)]))
+                .Select(t=>new{id=t.Exposure.TradeId,reference=t.Evidence.TradeReference,instrumentType=t.Evidence.InstrumentType,bookId=t.Exposure.BookId})
+                .OrderBy(t=>t.reference,StringComparer.Ordinal),
+            factors=SummaryFactors(manifest,prepared.HistoricalAxes,markets),
+            partitions=run.Result.Partitions.Select(p=>new{p.Measure,measureLabel=MeasureLabel(p.Measure),currency=Currency(markets,p.Currency),
+                p.BaseValue,p.Mean,p.ValueAtRisk,p.ExpectedShortfall,p.TailSampleMass,p.QuantileTies,
+                display=new{@base=Displayed(ExactMoney.Parse(p.BaseValue,p.Currency)),mean=Displayed(ExactMoney.Parse(p.Mean,p.Currency)),
+                    valueAtRisk=Displayed(ExactMoney.Parse(p.ValueAtRisk,p.Currency)),expectedShortfall=Displayed(ExactMoney.Parse(p.ExpectedShortfall,p.Currency))},
+                books=p.Books.Select(b=>new{bookId=b.Id,b.ValueAtRisk,b.ExpectedShortfall,display=DisplayedPair(b,p.Currency)}),
+                trades=p.Trades.Select(t=>new{tradeId=t.Id,t.ValueAtRisk,t.ExpectedShortfall,display=DisplayedPair(t,p.Currency)}),
+                // The scenarios carrying quantile or tail weight, largest loss first.
+                tail=p.Samples.Where(x=>Exact(x.VarWeight).CompareTo(SignedRatio.Zero)!=0||Exact(x.EsWeight).CompareTo(SignedRatio.Zero)!=0)
+                    .OrderByDescending(x=>Exact(x.Loss)).ThenBy(x=>x.Id,StringComparer.Ordinal)
+                    .Select(x=>new{sample=x.Id,from=dates[samples[x.Id].From.At],to=dates[samples[x.Id].To.At],loss=x.Loss,
+                        displayLoss=Displayed(ExactMoney.Parse(x.Loss,p.Currency)),x.VarWeight,x.EsWeight})}),
+            comparison=comparison is null?null:new{studyId,available=normal is not null,unavailableReason=comparison["unavailableReason"],
+                partitions=normal?.Partitions.Select(p=>new{p.Measure,currency=Currency(markets,p.Currency),p.Mean,p.StandardDeviation,p.ValueAtRisk,p.ExpectedShortfall})}};
+    }
+    // The scenario and the study's availability are checked before any scenario is priced; a requested comparison is not run.
+    public async Task<object> HistoricalSample(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioHistoricalSampleRequest body,CancellationToken ct)
+    {
+        if(body?.Request is not {} request)throw new MarketDataException("risk_historical_scope","Choose the captured history and exact retained holdings.");
+        var (prepared,markets)=await PrepareSummary(connection,data,frame,request with{Comparison=null},ct);
+        var manifest=prepared.History!;
+        var change=manifest.Samples.SingleOrDefault(x=>x.Id==body.Sample)
+            ??throw new MarketDataException("risk_historical_sample","Choose a scenario of this captured history.");
+        if(!manifest.Available||!prepared.Portfolio.Excluded.IsEmpty)
+            throw new MarketDataException("risk_historical_unavailable","Historical risk is unavailable for this study: "+string.Join("; ",
+                new[]{manifest.Available?null:"insufficient common history",prepared.Portfolio.Excluded.IsEmpty?null:"incomplete portfolio"}.OfType<string>())+".");
+        var run=EvaluateHistorical(prepared,ct);var dates=SessionDates(manifest);
+        var values=run.Observations.Single(o=>o.Id==change.Id).Values.ToDictionary(v=>v.ExposureId,v=>v.Value,StringComparer.Ordinal);
+        var evidence=prepared.Portfolio.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
+        var days=manifest.DayPrices.IsDefault?null:manifest.DayPrices.ToDictionary(d=>d.At);
+        return new{historyId=manifest.Id,studyId=HistoricalStudyId(prepared,run),sample=change.Id,from=dates[change.From.At],to=dates[change.To.At],
+            moves=change.Changes.Select((v,i)=>new{factor=i,from=change.From.Marks[i]!.Value,to=change.To.Marks[i]!.Value,change=v,
+                fromPriceType=days?[change.From.At].Choices[i].SelectedType,toPriceType=days?[change.To.At].Choices[i].SelectedType}),
+            partitions=run.Result.Partitions.Select(p=>(Partition:p,Loss:p.Samples.Single(x=>x.Id==change.Id).Loss))
+                .Select(p=>new{p.Partition.Measure,currency=Currency(markets,p.Partition.Currency),loss=p.Loss,displayLoss=Displayed(ExactMoney.Parse(p.Loss,p.Partition.Currency))}),
+            holdings=run.Exposures.Select(e=>
+            {
+                var loss=ExactMoney.Parse(e.BaseValue,e.Currency).Subtract(ExactMoney.Parse(values[e.Id],e.Currency));var held=evidence[(e.TradeId,e.BindingId)];
+                return new{held.TradeReference,held.InstrumentType,e.BookId,e.BindingId,e.Measure,currency=Currency(markets,e.Currency),
+                    e.BaseValue,scenarioValue=values[e.Id],loss=loss.ToExactString(),displayLoss=Displayed(loss)};
+            })};
     }
 }

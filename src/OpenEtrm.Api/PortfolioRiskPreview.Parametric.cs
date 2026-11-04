@@ -174,30 +174,12 @@ public sealed partial class PortfolioRiskPreview
                 ScheduleGraphEvaluatedNodes=passes.Sum(w=>w.ScheduleGraphEvaluatedNodes),ScheduleGraphReusedReads=passes.Sum(w=>w.ScheduleGraphReusedReads),
                 ResolvedCurveMonths=passes.Sum(w=>w.ResolvedCurveMonths),ReusedCurveMonths=passes.Sum(w=>w.ReusedCurveMonths),
                 CalibratedBlocks=passes.Sum(w=>w.CalibratedBlocks),ReusedBlocks=passes.Sum(w=>w.ReusedBlocks)};
-    // The assistant's bounded VaR reads (assistant-workspace.md). Setup is the catalog's statistical part for a scope; the
-    // summary is the same calculation as the Risk page's, projected to its exact estimates, coverage and contributions.
-    public async Task<object> ParametricSetup(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioRiskCatalogRequest body,CancellationToken ct)
-    {
-        var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,PricingPolicy,ct,tradeIds:body.TradeIds);
-        return new{pricingPolicy=PricingPolicy,history=HistoryCapabilities(portfolio),parametric=ParametricCapabilities(),
-            books=books.Where(b=>bookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name"),
-                valuedTrades=portfolio.Positions.Where(p=>p.BookId==b.Id("id")).Select(p=>p.TradeId).Distinct().Count(),
-                excludedTrades=portfolio.Excluded.Where(p=>p.BookId==b.Id("id")).Select(p=>p.TradeId).Distinct().Count()}),
-            measures=portfolio.Positions.Select(p=>p.Measure).Distinct().Order().Select(m=>new{measure=m,measureLabel=MeasureLabel(m)}),
-            factors=portfolio.Factors.Length,excludedPositions=portfolio.Excluded};
-    }
-    // A history without its captured manifest is captured first, under the same retained pins, exactly as the page's history read does.
+    // The parametric summary is the Risk page's calculation, projected to its exact estimates, coverage and contributions.
     // Partitions name books by id and factors by their position in `factors`, so each label appears once.
     public async Task<object> ParametricSummary(NpgsqlConnection connection,PreviewData data,InputFrame frame,PortfolioParametricRequest body,CancellationToken ct)
     {
-        if(body?.History is not {} history)throw new MarketDataException("risk_parametric_scope","Choose the exact captured history and retained trade scope.");
-        if(history.ExpectedManifestId is null)
-        {
-            if(history.Scope?.Context?.KnowledgeMode!="retained")
-                throw new MarketDataException("risk_parametric_scope","Capture statistical history under the retained context it will be calculated in.");
-            history=(await CaptureHistory(connection,data,frame,history,ct)).Captured;
-        }
-        var prepared=await Prepare(connection,data,frame,StatisticalRequest(body with{History=history}),ct);
+        var history=await CapturedHistory(connection,data,frame,body?.History,"risk_parametric_scope",ct);
+        var prepared=await Prepare(connection,data,frame,StatisticalRequest(body! with{History=history}),ct);
         var run=EvaluateParametric(prepared,ct);var manifest=run.History;var portfolio=prepared.Portfolio;
         var markets=portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
         var axes=manifest.Columns.Select(c=>CurveRiskAxes.Quote(portfolio,c.Mapping.Factor,ct)).ToImmutableArray();
@@ -206,14 +188,10 @@ public sealed partial class PortfolioRiskPreview
             throw new MarketDataException("risk_parametric_numeric","Expected plain backend Gaussian output.");
         return new{asOf=frame.At,contextId=portfolio.Context.ContextId,historyId=manifest.Id,run.Result.Available,run.Result.UnavailableReasons,
             policy=run.Spec.Policy,history=new{run.Spec.History.Calendar,run.Spec.History.From,run.Spec.History.To,run.Spec.History.Policy},
-            coverage=new{available=manifest.Available&&portfolio.Excluded.IsEmpty,factors=manifest.Columns.Length,sessions=manifest.Sessions.Length,
-                samples=manifest.Samples.Length,rejected=manifest.Rejected.Length,minimumSamples=manifest.Policy.MinimumSamples},
+            coverage=SummaryCoverage(manifest,portfolio),
             excludedPositions=portfolio.Excluded,
             books=prepared.Books.Where(b=>prepared.BookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name")}),
-            // Each session's selected price type by code; a session with no permitted price is "none".
-            factors=manifest.Columns.Select((c,i)=>new{c.Id,axes[i].Label,unit=Unit(markets,axes[i].Unit),
-                sessionPriceTypes=manifest.DayPrices.IsDefault?null:manifest.DayPrices.GroupBy(d=>d.Choices[i].SelectedType??"none")
-                    .ToDictionary(g=>g.Key,g=>g.Count(),StringComparer.Ordinal)}),
+            factors=SummaryFactors(manifest,axes,markets),
             calibration=new{run.Result.Calibration.Samples,run.Result.Calibration.Rank,run.Result.Calibration.Conditioning,run.Result.Calibration.CorrelationCondition},
             partitions=run.Result.Partitions.Select(p=>new{p.Measure,measureLabel=MeasureLabel(p.Measure),currency=Currency(markets,p.Currency),
                 p.Mean,p.StandardDeviation,p.ValueAtRisk,p.ExpectedShortfall,

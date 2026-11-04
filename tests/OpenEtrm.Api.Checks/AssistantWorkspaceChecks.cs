@@ -23,7 +23,7 @@ static class AssistantWorkspaceChecks
         foreach(var excluded in new[]{"futures.amend-preview_v1","swaps.preview_v1","swaps.scheduled-price_v1"})
             if(AssistantOperations.Find(excluded) is not null)
                 throw new Exception($"{excluded} cannot preserve this turn's financial context and must stay outside the catalog.");
-        foreach(var read in new[]{"portfolio.risk.parametric.setup_v1","portfolio.risk.parametric.summary_v1"})
+        foreach(var read in new[]{"portfolio.risk.statistical.setup_v1","portfolio.risk.parametric.summary_v1","portfolio.risk.historical.summary_v1","portfolio.risk.historical.sample_v1"})
         {
             var operation=AssistantOperations.Find(read);
             if(operation is not {Page:"risk_jobs",Method:"POST",RequiresApproval:false,CurrentOnly:false}||

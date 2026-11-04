@@ -53,6 +53,10 @@ def run_checks(c, query, scope, catalog, original_history, statistical, run_work
     summary = c.call('portfolio/risk/parametric/summary', body)
     assert [f['sessionPriceTypes'] for f in summary['factors']] == [{'trader_mark_final_v1': 1, 'official_close_v1': len(h['dayPrices']) - 1}]
     assert summary['partitions'][0]['valueAtRisk'] == direct['result']['partitions'][0]['valueAtRisk']
+    historical = {'history': aligned['request'], 'policy': {**catalog['historical']['profile'], 'confidence': '0.95'}}
+    assert c.call('portfolio/risk/historical/summary', historical)['factors'][0]['sessionPriceTypes'] == summary['factors'][0]['sessionPriceTypes']
+    first = c.call('portfolio/risk/historical/sample', {'request': historical, 'sample': h['samples'][0]['id']})['moves'][0]
+    assert (first['fromPriceType'], first['toPriceType']) == ('trader_mark_final_v1', 'official_close_v1')
     job = c.call('portfolio/risk/parametric/jobs', {'requestId': str(uuid4()), 'request': body})
     run_worker()
     completed = c.call('portfolio/risk/jobs/' + job['id'])

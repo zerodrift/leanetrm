@@ -1707,15 +1707,25 @@ api.MapPost("/portfolio/risk/historical",(HttpContext c,PortfolioHistoricalReque
     var request=PortfolioRiskPreview.HistoricalRequest(body);
     return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>portfolioRisk.Calculate(connection,data,frame,request,ct));
 });
+api.MapPost("/portfolio/risk/historical/summary",(HttpContext c,PortfolioHistoricalRequest body)=>
+{
+    var request=PortfolioRiskPreview.HistoricalRequest(body);
+    return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>portfolioRisk.HistoricalSummary(connection,data,frame,body,ct));
+});
+api.MapPost("/portfolio/risk/historical/sample",(HttpContext c,PortfolioHistoricalSampleRequest body)=>
+{
+    var request=PortfolioRiskPreview.HistoricalRequest(body?.Request!);
+    return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>portfolioRisk.HistoricalSample(connection,data,frame,body!,ct));
+});
 api.MapPost("/portfolio/risk/historical/jobs",(HttpContext c,SubmitHistoricalRiskJob body)=>
 {
     var request=PortfolioRiskPreview.HistoricalRequest(body.Request);
     return PortfolioRead(c,request.Context,(connection,data,frame,ct)=>
     {c.Items["risk_job_attempted"]=true;return RiskJobs.Submit(connection,database.Manifest,portfolioRisk,data,frame,new(body.RequestId,request),ct);});
 });
-api.MapPost("/portfolio/risk/parametric/setup",(HttpContext c,PortfolioRiskCatalogRequest body)=>PortfolioRead(c,
+api.MapPost("/portfolio/risk/statistical/setup",(HttpContext c,PortfolioRiskCatalogRequest body)=>PortfolioRead(c,
     body.Context??throw new MarketDataException("risk_context","Select the shared financial context."),
-    (connection,data,frame,ct)=>portfolioRisk.ParametricSetup(connection,data,frame,body,ct)));
+    (connection,data,frame,ct)=>portfolioRisk.StatisticalSetup(connection,data,frame,body,ct)));
 api.MapPost("/portfolio/risk/parametric/summary",(HttpContext c,PortfolioParametricRequest body)=>
 {
     var request=PortfolioRiskPreview.StatisticalRequest(body);

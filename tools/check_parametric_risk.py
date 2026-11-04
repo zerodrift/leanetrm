@@ -112,7 +112,7 @@ def run_checks(url, manifest, query, run_worker):
     c.call('portfolio/risk/jobs/' + job['id'], expected=403)
     c.call('portfolio/risk/parametric/archive?limit=1', expected=403)
     c.call('portfolio/risk/parametric', request, expected=403)
-    c.call('portfolio/risk/parametric/setup', scope, expected=403)
+    c.call('portfolio/risk/statistical/setup', scope, expected=403)
     c.call('portfolio/risk/parametric/summary', request, expected=403)
     c.call('profile', {'profile': 'risk'})
     print('PASS parametric authority: retained identity never grants a viewer calculation or report access', flush=True)
@@ -122,13 +122,13 @@ ASSISTANT_RESULT_BYTES = 65536
 
 
 def check_compact_reads(c, scope, request, report, history):
-    """The assistant's VaR setup and summary are bounded projections of the same catalog and calculation the Risk page uses."""
+    """The assistant's statistical setup and parametric summary are bounded projections of the same catalog and calculation the Risk page uses."""
     import json
     def size(value): return len(json.dumps(value, separators=(',', ':')).encode())
     catalog = c.call('portfolio/risk/catalog', scope)
-    setup = c.call('portfolio/risk/parametric/setup', scope)
+    setup = c.call('portfolio/risk/statistical/setup', scope)
     assert size(setup) <= ASSISTANT_RESULT_BYTES, size(setup)
-    assert (setup['history'], setup['parametric'], setup['pricingPolicy']) == (catalog['history'], catalog['parametric'], catalog['pricingPolicy'])
+    assert (setup['history'], setup['parametric'], setup['historical'], setup['pricingPolicy']) == (catalog['history'], catalog['parametric'], catalog['historical'], catalog['pricingPolicy'])
     assert {b['id']: b['name'] for b in setup['books']} == {b['id']: b['name'] for b in report['books']}
     assert sum(b['valuedTrades'] + b['excludedTrades'] for b in setup['books']) == c.call('portfolio/risk/scope', {**scope, 'offset': 0, 'limit': 1})['total']
     uncaptured = deepcopy(request); uncaptured['history'].pop('expectedManifestId')
