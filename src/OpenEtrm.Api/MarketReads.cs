@@ -127,7 +127,7 @@ public sealed class MarketReads(PreviewDatabase database)
     async Task<(InputFrame Frame,PreviewData Data)> Pinned(NpgsqlConnection connection,PinnedContext pin,CancellationToken ct)
     {
         var frame=pin.RequireFrame();
-        if(pin.Context is {} selected && DateOnly.FromDateTime(frame.At.UtcDateTime)!=DateWorkspace.Date(selected.EffectiveOn))
+        if(pin.Context is {} selected && PreviewSession.BusinessDay(frame)!=DateWorkspace.Date(selected.EffectiveOn))
             throw new MarketDataException("market_date","Choose inputs for the selected context date. No earlier market date is substituted.");
         return (frame,await Data(connection,pin,ct,frame.ObservationIds));
     }

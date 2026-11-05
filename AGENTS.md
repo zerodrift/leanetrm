@@ -97,6 +97,10 @@ choices. Update the decision record when a decision changes.
 - Historical context carries business/effective time and a resolved knowledge
   cutoff through every business read, join, calculation and agent operation.
   Never silently substitute current data or historical permissions.
+  Exception (D319): market closes are always latest. A historical view reads
+  the close in force for its session and business day, and that close's pinned
+  prices, even when they were recorded after the view's knowledge cutoff, and
+  says so; every other read keeps the cutoff.
 - Make every write idempotent (D238). Recording a fact that already exists
   (the same business key, value and effective time) is a no-op that returns
   the existing record, never a second row; this covers imports, scrapes,

@@ -49,7 +49,7 @@ public static class MarketDates
         // Only recorded closes of the named session are closes; a day lists the close in force alone (D319). A day whose close in
         // force this reader cannot see is unavailable, never answered with the close it replaced.
         var sessionCloses=frames.Where(frame=>frame.Close?.Session==request.Session).ToImmutableArray();
-        var hidden=sessionCloses.Where(frame=>frame.Close!.ReplacedBy is {} current&&sessionCloses.All(other=>other.Id!=current))
+        var hidden=sessionCloses.Where(frame=>frame.Close!.ReplacedBy is {} current&&sessionCloses.All(other=>(other.OriginCloseId??other.Id)!=current))
             .Select(frame=>frame.Close!.BusinessDate).ToHashSet();
         frames=[..sessionCloses.Where(frame=>frame.Close!.ReplacedBy is null)];
         foreach(var frame in frames)_=pin.Require(frame);

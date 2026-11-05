@@ -195,7 +195,7 @@ public static partial class CustomCurves
     internal static void RequireFrameContext(InputFrame frame,ScheduleContext context)
     {
         var exact=PinnedContext.Exact(context);
-        if(frame.ContextId!=exact.ContextId||DateOnly.FromDateTime(frame.At.UtcDateTime)!=DateWorkspace.Date(exact.EffectiveOn))
+        if(frame.ContextId!=exact.ContextId||PreviewSession.BusinessDay(frame)!=DateWorkspace.Date(exact.EffectiveOn))
             throw Invalid("The recipe frame must belong to its exact resolved knowledge context and effective date.");
     }
     static RecipeResult EvaluateGraph(ConnectedRecipeGraph graph,ResolvedCalculationContext resolved,PreviewDatabase database,CancellationToken ct)

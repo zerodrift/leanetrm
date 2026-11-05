@@ -69,13 +69,15 @@ public static class MarketCloses
     {
         if(limit is <0 or >128)throw new MarketDataException("preview_limit","The retained frame catalog is limited to 128 choices.");
         var rows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT id,name,at,session_code,session_version,business_date,"+
-            "security.close_in_force(catalog_id,session_code,business_date) in_force FROM market_data.market_closes WHERE catalog_id=$1 AND definition_revision_id=$2 ORDER BY at DESC,id DESC LIMIT $3)t",[catalog,definition,limit+1],ct);
+            "security.close_in_force(catalog_id,session_code,business_date) in_force,security.close_recorded_after_cutoff(catalog_id,id) recorded_after "+
+            "FROM market_data.market_closes WHERE catalog_id=$1 AND definition_revision_id=$2 ORDER BY at DESC,id DESC LIMIT $3)t",[catalog,definition,limit+1],ct);
         var headers=rows.Take(limit).OrderBy(row=>row.Instant("at")).ThenBy(row=>row.Id("id")).ToArray();
         if(headers.Length==0)return new([],limit,rows.Length>limit);
         var ids=headers.Select(row=>row.Id("id")).ToArray();
         var parts=await Parts(connection,catalog,ids,contextId,ct);
         var frames=headers.Select(header=>CreateFrame(header.Id("id"),header.Text("name"),header.Instant("at"),parts[header.Id("id")],contextId,
-            Close(header.Id("id"),header.Text("session_code"),int.Parse(header.Text("session_version"),CultureInfo.InvariantCulture),DateOnly.Parse(header.Text("business_date"),CultureInfo.InvariantCulture),header.Id("in_force")))).ToImmutableArray();
+            Close(header.Id("id"),header.Text("session_code"),int.Parse(header.Text("session_version"),CultureInfo.InvariantCulture),DateOnly.Parse(header.Text("business_date"),CultureInfo.InvariantCulture),header.Id("in_force"),
+            header.OptionalText("recorded_after") is {} after?after=="true":null))).ToImmutableArray();
         return new(frames,limit,rows.Length>limit);
     }
     public static async Task<InputFrame> Frame(NpgsqlConnection connection,Guid catalog,Guid close,Guid? contextId,CancellationToken ct)
@@ -95,7 +97,7 @@ public static class MarketCloses
                 .ToImmutableDictionary(group=>group.Key,group=>group.Select(member=>member.Id("contract_id")).ToImmutableArray(),StringComparer.Ordinal),
             [..row.GetProperty("pins").EnumerateArray().Where(pin=>pin.Text("input_use")=="frozen").Select(pin=>pin.Id("observation_id"))]));
     }
-    private static FrameClose Close(Guid id,string session,int version,DateOnly day,Guid inForce)=>new(session,version,day,inForce==id?null:inForce);
+    private static FrameClose Close(Guid id,string session,int version,DateOnly day,Guid inForce,bool? recordedAfter)=>new(session,version,day,inForce==id?null:inForce,recordedAfter);
     private static InputFrame CreateFrame(Guid close,string name,DateTimeOffset at,CloseParts parts,Guid? contextId,FrameClose session)
     {
         if(parts.Pins.IsEmpty||parts.Members.IsEmpty)throw new MarketDataException("pilot_close_inputs","The retained close has no complete exact input selection.");

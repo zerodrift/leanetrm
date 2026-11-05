@@ -43,8 +43,8 @@ public sealed partial class PreviewSession
     public Guid? ContextFrame(InputFrame? previous,SessionFramePlan plan,ScheduleContext context)
     {
         var day=DateWorkspace.Date(context.EffectiveOn);
-        var candidates=plan.Frames.Where(f=>DateOnly.FromDateTime(f.At.UtcDateTime)==day).ToArray();
-        if(previous is not null&&DateOnly.FromDateTime(previous.At.UtcDateTime)==day)
+        var candidates=plan.Frames.Where(f=>BusinessDay(f)==day).ToArray();
+        if(previous is not null&&BusinessDay(previous)==day)
         {
             if(previous.OriginCloseId is {} close)candidates=candidates.Where(f=>f.OriginCloseId==close).ToArray();
             else
@@ -56,6 +56,8 @@ public sealed partial class PreviewSession
         }
         return candidates.Length==1?candidates[0].Id:null;
     }
+    // A recorded close's business day is its session's; a working snapshot's is the UTC date of its instant (D319).
+    public static DateOnly BusinessDay(InputFrame frame)=>frame.Close?.BusinessDate??DateOnly.FromDateTime(frame.At.UtcDateTime);
     // Session-scoped identity only: no financial values, authority or read
     // results are cached, and different resolved selections get different IDs.
     private Guid AliasId(string sourceKind,Guid source,InputFrame frame)

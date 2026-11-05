@@ -341,10 +341,105 @@ BEGIN
   'replaced',coalesce((SELECT jsonb_agg(r) FROM jsonb_array_elements(rows)r WHERE NOT(r->>'inForce')::boolean),'[]'::jsonb));
 END;$$;
 
+-- Always latest (D319, a recorded exception to the knowledge cutoff): under a historical context the close in force for a
+-- session and business day is visible even if it, or its pins, became known after the context's cutoff. Its definition and
+-- reference revisions must still be visible, and its pins must lie in revision periods covering the context's date. Every
+-- other close keeps the exact knowledge rules of 0100.
+CREATE OR REPLACE FUNCTION security.market_close_visible(catalog uuid,close_id uuid) RETURNS boolean
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE selected market_data.market_closes;request security.request_contexts;
+ temporal market_data.temporal_contexts;known integer;latest boolean;
+BEGIN
+ SELECT * INTO request FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid()
+ AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user;
+ IF request.id IS NULL OR request.expires_at<=clock_timestamp() THEN RETURN false;END IF;
+ SELECT * INTO selected FROM market_data.market_closes s WHERE(s.catalog_id,s.id)=(market_close_visible.catalog,market_close_visible.close_id);
+ IF NOT FOUND THEN RETURN false;END IF;
+ IF security.market_fact_visible(catalog,selected.definition_revision_id,NULL) IS NOT TRUE
+ OR security.reference_version_visible(selected.reference_catalog_id,selected.reference_revision_id) IS NOT TRUE THEN RETURN false;END IF;
+ IF request.market_context_id IS NOT NULL THEN
+  SELECT * INTO temporal FROM market_data.temporal_contexts t WHERE(t.catalog_id,t.id)=(request.market_catalog_id,request.market_context_id);
+  IF NOT FOUND OR temporal.catalog_id IS DISTINCT FROM catalog THEN RETURN false;END IF;
+  SELECT m.known_through INTO known FROM market_data.market_contexts m WHERE(m.catalog_id,m.context_id)=(temporal.catalog_id,temporal.id);
+  IF NOT FOUND THEN RETURN false;END IF;
+  latest=selected.id=(SELECT s.id FROM market_data.market_closes s WHERE(s.catalog_id,s.session_code,s.business_date)=(selected.catalog_id,selected.session_code,selected.business_date)
+   ORDER BY s.publication_order DESC LIMIT 1);
+  IF latest THEN
+   IF EXISTS(SELECT 1 FROM market_data.market_close_pins p JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
+    WHERE(p.catalog_id,p.close_id)=(market_close_visible.catalog,market_close_visible.close_id) AND(o.observed_at>selected.at OR NOT EXISTS(SELECT 1 FROM market_data.revision_periods v
+     WHERE(v.catalog_id,v.revision_id)=(p.catalog_id,p.definition_revision_id) AND v.effective_from<=temporal.effective_on AND temporal.effective_on<v.effective_to)))
+   THEN RETURN false;END IF;
+  ELSE
+   IF NOT EXISTS(SELECT 1 FROM market_data.market_close_receipts r
+    WHERE(r.catalog_id,r.publication_order,r.publication_xid)=(selected.catalog_id,selected.publication_order,selected.publication_xid)
+    AND r.known_from<=temporal.known_at) THEN RETURN false;END IF;
+   IF EXISTS(SELECT 1 FROM market_data.market_close_pins p WHERE(p.catalog_id,p.close_id)=(market_close_visible.catalog,market_close_visible.close_id)
+    AND NOT EXISTS(SELECT 1 FROM market_data.knowledge_events e
+     JOIN market_data.market_knowledge_receipts k ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid)
+     JOIN market_data.revision_periods v ON(v.catalog_id,v.revision_id)=(e.catalog_id,e.revision_id)
+     JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
+     WHERE(e.catalog_id,e.revision_id,e.observation_id)=(p.catalog_id,p.definition_revision_id,p.observation_id)
+     AND e.event_order<=known AND k.known_from<=temporal.known_at
+     AND v.effective_from<=temporal.effective_on AND temporal.effective_on<v.effective_to
+     AND o.observed_at<((temporal.effective_on+1)::timestamp AT TIME ZONE 'UTC')))
+   THEN RETURN false;END IF;
+  END IF;
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM security.request_contexts q WHERE q.id=request.id AND q.backend_pid=pg_backend_pid()
+  AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user AND q.expires_at>clock_timestamp()
+  AND(q.market_catalog_id,q.market_context_id) IS NOT DISTINCT FROM(request.market_catalog_id,request.market_context_id))
+ OR security.market_fact_visible(catalog,selected.definition_revision_id,NULL) IS NOT TRUE
+ OR security.reference_version_visible(selected.reference_catalog_id,selected.reference_revision_id) IS NOT TRUE THEN RETURN false;END IF;
+ RETURN true;
+END;$$;
+-- The pinned observations of the closes in force for the context's date are visible whatever its knowledge cutoff: the
+-- prices "always latest" reads (D319). Every other observation keeps the 0158 rules exactly.
+CREATE OR REPLACE FUNCTION security.visible_observations() RETURNS TABLE(catalog uuid, revision uuid, observation uuid)
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE cut record;
+BEGIN
+ IF NOT EXISTS(
+  SELECT 1 FROM security.request_contexts c WHERE c.backend_pid=pg_backend_pid()
+   AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user AND c.market_context_id IS NOT NULL) THEN
+  RETURN QUERY SELECT o.catalog_id,o.definition_revision_id,o.id FROM market_data.observations o WHERE o.catalog_id IN(SELECT security.market_catalogs('ReadMarketData'));
+  RETURN;
+ END IF;
+ SELECT * INTO cut FROM security.request_market_cut();
+ IF cut.catalog IS NULL OR cut.catalog NOT IN(SELECT security.market_catalogs('ReadMarketData')) THEN RETURN;END IF;
+ RETURN QUERY SELECT DISTINCT e.catalog_id,e.revision_id,e.observation_id
+  FROM market_data.knowledge_events e
+  JOIN market_data.market_knowledge_receipts k ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid)
+  JOIN market_data.revision_periods p ON(p.catalog_id,p.revision_id)=(e.catalog_id,e.revision_id)
+  JOIN market_data.observations o ON(o.catalog_id,o.id)=(e.catalog_id,e.observation_id)
+  WHERE e.catalog_id=cut.catalog AND e.observation_id IS NOT NULL
+   AND e.event_order<=cut.known_through AND k.known_from<=cut.known_at
+   AND p.effective_from<=cut.effective_on AND cut.effective_on<p.effective_to
+   AND o.observed_at<((cut.effective_on+1)::timestamp AT TIME ZONE 'UTC')
+ UNION
+ SELECT s.catalog_id,s.definition_revision_id,p.observation_id
+  FROM market_data.market_closes s
+  JOIN market_data.market_close_pins p ON(p.catalog_id,p.close_id)=(s.catalog_id,s.id)
+  JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
+  JOIN market_data.revision_periods v ON(v.catalog_id,v.revision_id)=(s.catalog_id,s.definition_revision_id)
+  WHERE s.catalog_id=cut.catalog AND s.business_date=cut.effective_on AND o.observed_at<=s.at
+   AND v.effective_from<=cut.effective_on AND cut.effective_on<v.effective_to
+   AND s.id=(SELECT l.id FROM market_data.market_closes l WHERE(l.catalog_id,l.session_code,l.business_date)=(s.catalog_id,s.session_code,s.business_date)
+    ORDER BY l.publication_order DESC LIMIT 1);
+END$$;
+-- Whether the close was recorded after the bound historical context's knowledge cutoff; null in current working data.
+CREATE FUNCTION security.close_recorded_after_cutoff(catalog uuid,close_id uuid) RETURNS boolean
+ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+ SELECT CASE WHEN q.market_context_id IS NULL THEN NULL ELSE NOT EXISTS(SELECT 1 FROM market_data.market_closes s
+  JOIN market_data.market_close_receipts r ON(r.catalog_id,r.publication_order,r.publication_xid)=(s.catalog_id,s.publication_order,s.publication_xid)
+  JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(q.market_catalog_id,q.market_context_id)
+  WHERE(s.catalog_id,s.id)=(catalog,close_id) AND r.known_from<=t.known_at) END
+ FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid() AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user;
+$$;
+
 DO $$DECLARE f record;BEGIN
  FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security'
  AND p.proname IN('close_session_instant','close_in_force','can_record_close','close_session_json','close_session_catalog','save_close_session','publish_close_session',
- 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history') LOOP
+ 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history','market_close_visible','close_recorded_after_cutoff') LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f.signature);
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.signature);
   IF f.proname NOT IN('close_session_instant','close_session_json','close_grant_json','require_close_administration') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;

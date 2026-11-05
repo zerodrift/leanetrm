@@ -27,7 +27,7 @@ public sealed record TradingView
         return new(frame,(await store.Capture(connection,new(on,null,"current"),ct)).Context,true);
     }
     // The date working data is captured at for a frame: its instant's UTC date.
-    public static DateOnly WorkingDate(InputFrame frame)=>DateOnly.FromDateTime(frame.At.UtcDateTime);
+    public static DateOnly WorkingDate(InputFrame frame)=>PreviewSession.BusinessDay(frame);
     // Working data as of a context captured earlier. The read refuses a context effective on another date.
     public static TradingView Reread(InputFrame? frame,ScheduleContext context)=>
         frame is {ContextId:null}?new(frame,context,false):throw PinnedContext.Missing();

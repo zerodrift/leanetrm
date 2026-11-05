@@ -117,3 +117,24 @@ def run_checks(url, query, manifest):
     refused = viewer.call('evaluate', {'snapshotId': latest['id'], 'curve': 'future'}, expected=422)
     assert refused['code'] == 'close_replaced' and newer['id'] in refused['message'], refused
     print('PASS a close replaced after it was offered is refused for new work, naming the close in force', flush=True)
+
+    # Always latest (D319): a historical view reads the close in force for its business day even when it was recorded after the
+    # view's knowledge cutoff, and says so. Its business day, not the UTC date of its instant, matches the view's date.
+    historical = client(url, 'viewer')
+    historical.call('market/context', {'effectiveOn': '2020-12-18', 'knownAt': None, 'mode': 'current', 'selection': 'latest_correction'})
+    after = record(approver, 'test_utc_close', '2020-12-18', 'Synthetic after cutoff')
+    # A historical view offers closes under its own frame identities, each naming the close it reads.
+    closes = {f['originCloseId']: f for f in historical.call('workspace')['frames']}
+    assert after['id'] in closes and newer['id'] not in closes, sorted(closes)
+    assert closes[after['id']]['close']['recordedAfterCutoff'] is True, closes[after['id']]
+    assert historical.call('evaluate', {'snapshotId': closes[after['id']]['id'], 'curve': 'future'})['points']
+    day = next(d for d in historical.call('market/dates', {'curve': None, 'timeZone': 'UTC', 'session': 'test_utc_close'})['dates'] if d['date'] == '2020-12-18')
+    assert [f['id'] for f in day['frames']] == [closes[after['id']]['id']], day
+    late_view = client(url, 'viewer')
+    late_view.call('market/context', {'effectiveOn': '2020-12-17', 'knownAt': None, 'mode': 'current', 'selection': 'latest_correction'})
+    late_closes = {f['originCloseId']: f['id'] for f in late_view.call('workspace')['frames']}
+    assert late['id'] in late_closes, late_closes
+    assert late_view.call('evaluate', {'snapshotId': late_closes[late['id']], 'curve': 'future'})['points']
+    late_days = late_view.call('market/dates', {'curve': None, 'timeZone': 'UTC', 'session': 'test_late_close'})['dates']
+    assert [f['id'] for d in late_days if d['date'] == '2020-12-17' for f in d['frames']] == [late_closes[late['id']]], late_days
+    print('PASS historical views read the close in force recorded after their cutoff, matched by session business day', flush=True)

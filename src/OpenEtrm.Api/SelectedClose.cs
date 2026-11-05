@@ -15,11 +15,11 @@ public static class SelectedClose
         var frame=pin.RequireFrame();
         if(pin.Context is null)
         {
-            var captured=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,new(frame.At.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
+            var captured=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,new(PreviewSession.BusinessDay(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
             pin=PinnedContext.Retained(captured,frame with{ContextId=captured.ContextId});
             await pin.Bind(connection,database.Manifest.CatalogId,ct);
         }
-        if(DateOnly.FromDateTime(frame.At.UtcDateTime)!=DateWorkspace.Date(pin.Context!.EffectiveOn))
+        if(PreviewSession.BusinessDay(frame)!=DateWorkspace.Date(pin.Context!.EffectiveOn))
             throw new TemporalException("market_date","Choose a close on the selected effective date.");
         return pin;
     }
