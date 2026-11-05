@@ -42,11 +42,12 @@ def run_checks(Client, check, after_browser):
     check('historical view cannot evaluate a different unpinned context')
     # A recorded close stays exact (D172); the correction reaches a close only when it is recorded as that day's close
     # (D319), which every view of that session then reads. A test session keeps the built-in closes untouched.
-    approver = Client(); approver.bootstrap(); approver.call('profile', {'profile': 'approver'})
-    original = record(approver, next(f for f in approver.call('workspace')['frames'] if f['id'] == seed['id']), 'Synthetic original close')
-    approver.call('select-observation', {'snapshotId': seed['id'], 'observationId': changed['observationId']})
-    snapshot = next(f for f in approver.call('workspace')['frames'] if 'close' not in f and changed['observationId'] in f['observationIds'])
-    corrected = record(approver, snapshot, 'Synthetic corrected close')
+    c.call('profile', {'profile': 'approver'})
+    original = record(c, next(f for f in c.call('workspace')['frames'] if f['id'] == seed['id']), 'Synthetic original close')
+    c.call('select-observation', {'snapshotId': seed['id'], 'observationId': changed['observationId']})
+    snapshot = next(f for f in c.call('workspace')['frames'] if 'close' not in f and changed['observationId'] in f['observationIds'])
+    corrected = record(c, snapshot, 'Synthetic corrected close')
+    c.call('profile', {'profile': 'editor'})
     latest = c.call('market/context', request)
     current = c.call('workspace')
     newer = next(f for f in current['frames'] if f.get('originCloseId') == corrected['id'])

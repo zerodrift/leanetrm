@@ -39,7 +39,7 @@ def sql_session(query, manifest, code, calendar, cutoff, curves, logins, revisio
     INSERT INTO market_data.close_session_curves VALUES {curve_rows};{grants}""")
 
 
-_published, _granted = set(), set()
+_published, _granted, _clients = set(), set(), {}
 
 
 def record(who, frame, name, login='approver', request_id=None):
@@ -49,9 +49,13 @@ def record(who, frame, name, login='approver', request_id=None):
     cutoff = frame['at'][11:16]
     code = f"test_close_{cutoff.replace(':', '')}_{hashlib.sha256(','.join(curves).encode()).hexdigest()[:8]}"
     def client(profile):
-        value = PreviewClient(who.url); value.bootstrap(); value.call('profile', {'profile': profile}); return value
+        # One helper session per preview, switched between profiles: the preview caps the sessions a run may open.
+        if who.url not in _clients:
+            value = PreviewClient(who.url); value.bootstrap(); _clients[who.url] = value
+        value = _clients[who.url]; value.call('profile', {'profile': profile}); return value
     if (who.url, code) not in _published:
-        publish(client('editor'), client('approver'), draft(code, 'test_utc_every_day', cutoff, curves, ('2020-01-01', '2100-01-01')))
+        saved = client('editor').call('close-sessions/save', {'requestId': str(uuid4()), 'draft': draft(code, 'test_utc_every_day', cutoff, curves, ('2020-01-01', '2100-01-01'))})
+        client('approver').call('close-sessions/publish', {'requestId': str(uuid4()), **{k: saved[k] for k in ('code', 'version', 'generation')}})
         _published.add((who.url, code))
     if (who.url, code, login) not in _granted:
         grant_member(client('admin'), login, code)
