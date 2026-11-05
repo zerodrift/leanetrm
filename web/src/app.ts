@@ -965,11 +965,11 @@ async function loadIdentity(initialAccess?:unknown){
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
   if(unopened!==undefined)throw unopened;
 }
-select('close-session').onchange=()=>void (async()=>{
+select('close-session').onchange=()=>void act(async()=>{
  const chosen=select('close-session').value;if(!chosen)return;
  await api('close-sessions/choice',{session:chosen});closeSession=chosen;$('close-session-status').hidden=true;
  clearPrices();renderFrames('');await openNewestClose();
-})();
+});
 $('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was not switched'))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;futures.ended('account_changed');savedPreferences.invalidate();try{await api('profile',{profile:next});}catch(error){await blotterBack();throw error;}currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
 // A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
 function closeChanged(){

@@ -17,7 +17,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const press=async key=>{const codes={ArrowDown:40,ArrowUp:38,Enter:13,Escape:27};for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode:codes[key]});};
   // The trader can amend; the standard fixture holds the swaps the earlier suites booked beside its futures.
   await persona('trader');
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
+  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',frame);await wait(idle);
   await click('#nav-futures');
   await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`);

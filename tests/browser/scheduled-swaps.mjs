@@ -43,7 +43,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  if(await evaluate("document.querySelector('#position-details')?.hidden===false&&!document.querySelector('#position-details-head .side-panel-reference')?.textContent.includes("+JSON.stringify(reference)+")"))await closePanel(false);
  await openRow(reference);await amend();return reference;
  }
- const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
+ const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
  // Choosing the close reads that close's prices for every page; on a slower runner that outlasts a single action's wait.
  await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);await newTrade({click,wait},'swaps');
  await click('#swap-scheduled-open');await wait(ticket);await wait(idle);

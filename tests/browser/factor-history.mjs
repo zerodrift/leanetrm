@@ -2,7 +2,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1150,deviceScaleFactor:1,mobile:false});
  await command('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{const send=fetch;window.__factorHistoryReads=[];window.fetch=async(...args)=>{const r=await send(...args);if(String(args[0]).endsWith('/portfolio/risk/history')&&r.ok)window.__factorHistoryReads.push(await r.clone().json());return r;};})();`});
  await command('Page.navigate',{url});await wait(idle);await persona('risk');
- const frame=await evaluate("(async()=>{const b=await(await fetch('/api/bootstrap')).json();return b.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
+ const frame=await evaluate("(async()=>{const b=await(await fetch('/api/workspace')).json();return b.frames.find(f=>f.at.startsWith('2020-12-18')&&b.initialFrameIds.includes(f.id)).id;})()");
  await set('#snapshot',frame);await wait(idle);await click('#nav-risk');await wait(idle);
  await check('Risk offers aligned factor history beside its shared portfolio/book/trade scope',"!!document.querySelector('#risk-history-open')&&!document.querySelector('#risk-history-open').disabled");
  await set('#risk-workspace-trade-mode','selected');await wait(idle);

@@ -2,7 +2,7 @@
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,url}){
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('risk');
- const frame=await evaluate("(async()=>{const b=await(await fetch('/api/bootstrap')).json();return b.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
+ const frame=await evaluate("(async()=>{const b=await(await fetch('/api/workspace')).json();return b.frames.find(f=>f.at.startsWith('2020-12-18')&&b.initialFrameIds.includes(f.id)).id;})()");
  await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#blotter-books').options.length>0&&"+idle);
  await check('personal Blotter pins replace fixed physical-product shortcuts',"!document.querySelector('#nav-gas')&&!document.querySelector('#nav-crude')&&document.querySelector('#blotter-sidebar').parentElement.textContent.includes('Pin to sidebar')");
  await click('#blotter-scope>summary');await click('#blotter-portfolios-picker>summary');

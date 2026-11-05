@@ -14,7 +14,7 @@ export async function run(actions){
  })()`);
  const open=async id=>{
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#snapshot')&&"+idle);
-  const january=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:')).id;})()");
+  const january=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',january);await wait(idle);await click('#nav-futures');await wait(idle);
   for(let page=0;page<20;page++){
    if(await evaluate(`[...document.querySelectorAll('#crude-operation-facts button')].some(b=>b.dataset.tradeId===${JSON.stringify(id)})`))break;

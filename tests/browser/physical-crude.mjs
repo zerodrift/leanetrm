@@ -34,7 +34,7 @@ export async function run(actions){
  await check('the common crude position states contractual PV without unsupported settlement actions',"document.querySelector('#position-details').textContent.includes('Contractual PV')&&!document.querySelector('#position-details').querySelector('[data-action=settle]')");
  await check('crude bookings fit the viewport',fitsWidth);await shot('physical-crude-booking');
  // Contractual PV is unavailable in January; the authorized booked-facts path still opens operations.
- const january=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:')).id;})()`);
+ const january=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:')&&w.initialFrameIds.includes(f.id)).id;})()`);
  const capFacts=()=>evaluate(`{if(!window.crudeFactPages){window.crudeFactPages=[];const original=window.fetch;window.fetch=(path,init)=>{if(String(path).endsWith('/trading/positions')&&init?.body){const body=JSON.parse(init.body);body.limit=2;window.crudeFactPages.push(body);return original(path,{...init,body:JSON.stringify(body)});}return original(path,init);};}}`);
  const openFacts=async()=>{await evaluate("window.crudeFactPages=[window.crudeFactPages.findLast(p=>p.offset===0)]");for(let page=0;page<20;page++){
   if(await evaluate("[...document.querySelectorAll('#crude-operation-facts button')].some(b=>b.dataset.tradeId===JSON.parse(sessionStorage.getItem('crude-browser-receipt')).tradeId)"))break;

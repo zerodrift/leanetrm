@@ -18,7 +18,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  };})();`;
  await command('Page.addScriptToEvaluateOnNewDocument',{source:hook});
  await command('Page.navigate',{url});await wait(idle);await persona('risk');
- const frame=await evaluate("(async()=>{const b=await(await fetch('/api/bootstrap')).json();return b.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
+ const frame=await evaluate("(async()=>{const b=await(await fetch('/api/workspace')).json();return b.frames.find(f=>f.at.startsWith('2020-12-18')&&b.initialFrameIds.includes(f.id)).id;})()");
  await set('#snapshot',frame);await wait(idle);
  await evaluate('window.__hideWorkspaceHistory=true');
  await click('#nav-risk');await wait("!document.querySelector('#risk-page').hidden&&"+idle);

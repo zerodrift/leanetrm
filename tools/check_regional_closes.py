@@ -138,3 +138,17 @@ def run_checks(url, query, manifest):
     late_days = late_view.call('market/dates', {'curve': None, 'timeZone': 'UTC', 'session': 'test_late_close'})['dates']
     assert [f['id'] for d in late_days if d['date'] == '2020-12-17' for f in d['frames']] == [late_closes[late['id']]], late_days
     print('PASS historical views read the close in force recorded after their cutoff, matched by session business day', flush=True)
+
+    # A person's chosen session is remembered (D319); nothing chooses one for a new account.
+    created = admin.call('admin/create', {'operationId': str(uuid4()), 'login': 'session_chooser', 'name': 'Synthetic session chooser', 'kind': 'human', 'roles': ['trader']})
+    # A created account is offered only in the session that created it.
+    chooser = admin
+    chooser.call('profile', {'profile': 'session_chooser'})
+    assert chooser.call('close-sessions/choice')['session'] is None, 'A new account was given a session'
+    assert chooser.call('close-sessions/choice', {'session': 'test_utc_close'})['session'] == 'test_utc_close'
+    assert chooser.call('close-sessions/choice', {'session': 'test_utc_close'})['session'] == 'test_utc_close'
+    chooser.call('profile', {'profile': 'admin'}); chooser.call('profile', {'profile': 'session_chooser'})
+    assert chooser.call('close-sessions/choice')['session'] == 'test_utc_close', 'The choice was not remembered'
+    assert chooser.call('close-sessions/choice', {'session': 'not_a_session'}, expected=422)['code'] == 'close_session'
+    assert created['login'] == 'session_chooser'
+    print('PASS a new account has no close session until it chooses one, and its choice is remembered', flush=True)

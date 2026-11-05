@@ -14,7 +14,7 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  await check('live mode preserves the shared header and open price history',"document.querySelector('#workspace-mode-label').textContent.includes('Live corrections')&&!document.querySelector('#contract-panel').hidden&&document.querySelectorAll('#history-values tbody tr').length===window.liveResponses.filter(r=>r.path==='/api/history').at(-1).data.points.length&&document.querySelectorAll('#history-values tbody tr').length>=2&&document.querySelector('#error').hidden");
  const actor=await sideSession(url,'editor');
  async function correct(series,value){
-  const data=await actor.call('workspace');let frame=data.frames.find(f=>f.at.startsWith('2020-12-18'));
+  const data=await actor.call('workspace');let frame=data.frames.find(f=>f.at.startsWith('2020-12-18')&&data.initialFrameIds.includes(f.id));
   const seriesId=series==='base'?'60000000-0000-0000-0000-000000000001':data.definitions.series.find(s=>s.code===series).id;
   let fact=data.observations.find(o=>o.series_id===seriesId&&frame.observationIds.includes(o.id));
   if(!fact&&series==='base')fact=data.observations.find(o=>o.id==='70000000-0000-0000-0000-000000000001');

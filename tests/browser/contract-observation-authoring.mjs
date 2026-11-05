@@ -7,7 +7,7 @@ import {newTrade} from './new-trade.mjs';
 // and concrete contracts, and booking/reload must retain those exact choices.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
  await command('Page.navigate',{url});await wait(idle);await persona('trader');
- const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
+ const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
  await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);
  const catalog=await evaluate(`(async()=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;window.contractPost=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};const send=window.fetch;window.fetch=async(input,init)=>{const r=await send(input,init);if(String(input).endsWith('/api/swaps/book')&&r.ok)window.contractBooking={request:JSON.parse(init.body),result:await r.clone().json()};return r;};return window.contractPost('swaps/catalog',{snapshotId:${JSON.stringify(frame)},convention:'independent_side_financial_swap_v2',knowledgeMode:'current'});})()`);
  const source=catalog.contractObservationSources.find(s=>s.curve==='future');

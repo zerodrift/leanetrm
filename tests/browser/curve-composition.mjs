@@ -5,7 +5,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  // A tab of the curve's dock; Combine curves is in Configuration.
  const openView=view=>click('#custom-curves-dock-'+view);
  const actor=await sideSession(url,'editor'),directory=await actor.call('workspace/navigation');
- const frame=directory.frames.find(f=>f.at.startsWith('2020-12-18T16:00'));
+ const frame=directory.frames.find(f=>f.at.startsWith('2020-12-18T16:00')&&directory.initialFrameIds.includes(f.id));
  const template=(await actor.call('custom-curves')).templates.find(t=>t.code==='ng_prompt').definition;
  async function publish(code,source){
   await actor.call('profile',{profile:'editor'});const definition=structuredClone(template);definition.code=code;definition.name='Synthetic '+code;
