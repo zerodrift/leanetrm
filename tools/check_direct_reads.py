@@ -71,10 +71,24 @@ def trade_view(c):
     return recorded
 
 
-def run_checks(views, trades, dotnet, environment, directory):
+def run_checks(views, trades, dotnet, environment, directory, query):
     fixture = Path(directory) / 'direct-reads.json'
     fixture.write_text(json.dumps({'profile': PROFILE, 'views': views, 'trades': trades}))
-    subprocess.run([str(dotnet), 'run', '--project', 'tests/OpenEtrm.Api.Checks', '--',
-                    '--direct-reads', str(fixture)],
-                   cwd=Path(__file__).resolve().parents[1], env=environment, check=True,
-                   timeout=120)
+    # This restrictive fixture gate can only refuse a selected pin. It never grants
+    # access, and stays inactive outside the transaction that chooses its test pin.
+    query("""CREATE FUNCTION public.synthetic_frame_read_fault(id uuid) RETURNS boolean
+        LANGUAGE plpgsql VOLATILE SET search_path=pg_catalog AS $$BEGIN
+          IF id::text=current_setting('openetrm.synthetic_frame_read_fault',true) THEN
+            RAISE EXCEPTION 'synthetic_frame_read_fault' USING ERRCODE='P0001';
+          END IF;RETURN true;END$$;
+        REVOKE ALL ON FUNCTION public.synthetic_frame_read_fault(uuid) FROM PUBLIC;
+        GRANT EXECUTE ON FUNCTION public.synthetic_frame_read_fault(uuid) TO openetrm_runtime;
+        CREATE POLICY synthetic_frame_read_fault ON market_data.observations AS RESTRICTIVE
+          FOR SELECT TO openetrm_runtime USING(public.synthetic_frame_read_fault(id));""")
+    try:
+        subprocess.run([str(dotnet), 'run', '--project', 'tests/OpenEtrm.Api.Checks', '--',
+                        '--direct-reads', str(fixture)],
+                       cwd=Path(__file__).resolve().parents[1], env=environment, check=True,
+                       timeout=120)
+    finally:
+        query('DROP POLICY synthetic_frame_read_fault ON market_data.observations;DROP FUNCTION public.synthetic_frame_read_fault(uuid);')

@@ -79,6 +79,8 @@ public sealed partial class PreviewDatabase
             SELECT r.ordinal,coalesce(s.rows,'[]'::jsonb)::text,coalesce(s.visible,0)=jsonb_array_length(r.pins)
             FROM requested r LEFT JOIN samples s ON s.ordinal=r.ordinal ORDER BY r.ordinal
             """:"""
+            -- Sort the small request rows before evaluating their correlated payloads.
+            -- The barrier keeps a payload sort from buffering every frame before the first read.
             SELECT r.ordinal,coalesce((
                 WITH anchors AS MATERIALIZED(
                     SELECT r.ordinal,ARRAY(SELECT jsonb_array_elements_text(r.pins)::uuid) AS ids
@@ -89,7 +91,10 @@ public sealed partial class PreviewDatabase
                       AND o.id=ANY(a.ids) OFFSET 0
                 )o
             ),'[]'::jsonb)::text
-            FROM jsonb_to_recordset($3::jsonb)r(ordinal integer,pins jsonb) ORDER BY r.ordinal
+            FROM(
+                SELECT * FROM jsonb_to_recordset($3::jsonb)r(ordinal integer,pins jsonb)
+                ORDER BY r.ordinal OFFSET 0
+            )r ORDER BY r.ordinal
             """;
         object[] parameters=seriesIds is not null?
             [metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,requests,seriesIds!.Value.ToArray()]:

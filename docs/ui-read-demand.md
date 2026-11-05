@@ -48,8 +48,9 @@ observation or introduce an expiry fallback. The ordinary managed pricer still
 performs selection, expiry and numerical checks.
 
 A multi-close history uses one SQL visibility snapshot and reuses immutable model
-metadata only within its authorized operation. Observation and correction indices
-are replaced per close. A cancelled or partially consumed reader is disposed
+metadata only within its authorized operation. Full-pin reads sort request rows
+before evaluating their payloads, allowing the first frame to arrive before later
+frames are read. Observation and correction indices are replaced per close. A cancelled or partially consumed reader is disposed
 before another command uses the connection. Historical context and final native
 permission checks remain mandatory.
 
@@ -80,12 +81,12 @@ the corresponding booking form opens. These calculations are not viewport
 subsets. The position-facts response remains paged after scoped fact assembly;
 this increment does not claim database paging for every portfolio product.
 
-Verification passed 1,316 web tests, 657 managed core checks, 40 API data checks
-and preparation reuse, the 1,223-check standard owned-browser suite, 89 exchange /
-options / volatility browser checks, 198 custom-curve browser checks and 47
-calendar browser checks. Native HTTP checks cover hidden original pins, correction
-visibility, partial-reader cancellation, disjoint windows, per-operation calendar
-reuse and a qualifying candidate after the aggregate-window limit.
+Automated checks cover web and managed contracts, standard browser flows,
+exchange futures/options/volatility, custom curves and the close calendar.
+Native checks cover hidden original pins, correction visibility, partial-reader
+cancellation, disjoint windows, per-operation calendar reuse, a qualifying
+candidate after the aggregate-window limit and delivery of the first exact frame
+before a later frame's native read failure.
 
 One isolated development-overlay run used 1,219,392 synthetic observations, 522
 stored business-day closes and 36 monthly futures points per date for 29 markets,
@@ -95,18 +96,19 @@ and the isolated database had 2 CPUs / 2 GiB. Sequential responses measured:
 
 | Read | Workload | Elapsed |
 | --- | --- | --- |
-| Latest date | Newest eligible local-date group, including ties | 2.97 s |
-| Forward curve | 36 selected gas contracts | 1.52 s |
-| Contract history | One dated contract, all 127 offered frames | 2.38 s |
-| Full calendar | All offered exact frames | 8.90 s |
-| Custom prompt calendar | One live gas contract per frame | 8.08 s |
-| Historical custom calendar | 12 gas contracts × 20 prior business dates per frame | 9.61 s |
-| Blotter | 66 trades, 74 holdings, 66 priced contracts | 11.15 s |
-| Portfolio risk | 67 unique valuations, 60 native market contracts, 5 scenarios | 11.38 s |
+| Latest date | Newest eligible local-date group, including ties | 3.04 s |
+| Market board | 29 curves, 1,044 selected contracts | 1.75 s |
+| Forward curve | 36 selected gas contracts | 1.65 s |
+| Contract history | One dated contract, all 127 offered frames | 2.36 s |
+| Full calendar | All offered exact frames | 6.49 s |
+| Custom prompt calendar | One live gas contract per frame | 8.02 s |
+| Historical custom calendar | 12 gas contracts × 20 prior business dates per frame | 10.07 s |
+| Blotter | 66 trades, 74 holdings, 66 priced contracts | 10.38 s |
+| Portfolio risk | 67 unique valuations, 60 native market contracts, 5 scenarios | 11.41 s |
 
 Risk reported 79 unit-pricer calls among 335 candidates; the actual queued worker
 matched the interactive result. Prior-date futures and options were also read.
-Peak API container memory across this sequence was 803,811,328 bytes, including
+Peak API container memory across this sequence was 860,430,336 bytes, including
 repeated directory refreshes. Request and native SQL deadlines remained unchanged.
 These are measurements of one captured workload, not a general capacity claim or
 an attested-release deployment qualification.

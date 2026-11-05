@@ -1237,7 +1237,7 @@ def main():
                 from check_preview import run_checks
                 from check_direct_reads import run_checks as check_direct_reads
                 after_browser=[]
-                workspace=run_checks(url,query,manifest,lambda views,trades:check_direct_reads(views,trades,dotnet,app_env,temporary),after_browser)
+                workspace=run_checks(url,query,manifest,lambda views,trades:check_direct_reads(views,trades,dotnet,app_env,temporary,query),after_browser)
                 from check_table_views import run_checks as check_table_views
                 check_table_views(url,query)
                 # Preview sessions are capped, so the account checks below share two browser sessions, each switching them to its own users.

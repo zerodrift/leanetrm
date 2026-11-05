@@ -40,6 +40,35 @@ internal static class DirectReadChecks
         {
             var metadata=await database.Read(connection,ct,observationIds:[]);
             var all=await database.Read(connection,ct);
+            // A large first packet must be observable before a later pin's native
+            // read fails. This checks streaming behavior, not a query plan or clock.
+            var fault=all.Observations.Last().Id("id");
+            var packet=all.Observations.Where(row=>row.Id("id")!=fault).Take(256).ToArray();
+            if(packet.Sum(row=>System.Text.Encoding.UTF8.GetByteCount(row.GetRawText()))<=32768)
+                throw new Exception("The first-frame fixture must exceed the protocol output buffer.");
+            var ids=packet.Select(row=>row.Id("id")).ToImmutableArray();
+            var at=all.Observations.Max(row=>row.Instant("observed_at"));
+            var ordered=ImmutableArray.Create(frames[0] with{At=at,ObservationIds=ids},frames[1] with{At=at,ObservationIds=[fault]});
+            var yielded=0;var faulted=false;
+            await Execute(connection,"SAVEPOINT ordered_stream",ct);
+            try
+            {
+                await using(var choose=ScheduleStore.Command(connection,"SELECT set_config('openetrm.synthetic_frame_read_fault',$1,true)",[fault.ToString()]))
+                    await choose.ExecuteNonQueryAsync(ct);
+                try
+                {
+                    await foreach(var data in database.ReadFrameObservations(connection,metadata,ordered,ObservationReadScope.ExactPins,ct))
+                    {
+                        if(yielded++!=0||!data.Observations.Select(row=>row.Id("id")).ToHashSet().SetEquals(ids))
+                            throw new Exception("The first streamed frame changed its exact pins or order.");
+                    }
+                }
+                catch(PostgresException error) when(error is {SqlState:"P0001",MessageText:"synthetic_frame_read_fault"}){faulted=true;}
+            }
+            finally{await Execute(connection,"ROLLBACK TO SAVEPOINT ordered_stream;RELEASE SAVEPOINT ordered_stream;SELECT 1",ct);}
+            if(yielded!=1||!faulted)throw new Exception("The first frame must be yielded before a later frame's native read failure.");
+            Console.WriteLine("PASS exact frame payloads stream in request order before a later native read failure and release their reader");
+
             var group=all.Observations.GroupBy(row=>(row.Id("series_id"),row.Text("source_code"),row.Text("role")))
                 .First(rows=>rows.Select(row=>row.Instant("observed_at")).Distinct().Count()>=3).ToArray();
             var first=group.Min(row=>row.Instant("observed_at"));var last=group.Max(row=>row.Instant("observed_at"));
