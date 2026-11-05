@@ -13,6 +13,11 @@ The [assistant digest and walkthrough extension](assistant-walkthroughs.md)
 (D312–D315) is approved for local implementation. The bounded digest is locally
 qualified together with selection asks and bounded presentation walkthroughs;
 see the implementation contract for supported native controls and literal fills.
+D319 repairs native New trade/future/swap navigation and issues bounded workspace
+page handles under `turns_v14`/migration 0196. Entry discovery reuses existing
+operations; swap term filling and automated booking are not added. D320 releases
+busy ownership after a failed control refresh in main/live/pop-out actions and
+keeps walkthrough Stop available during native reads.
 Unsaved draft/close-out/request counts lack server-readable identities and remain
 explicitly unavailable; a concrete pointer-backed consumer must precede any store.
 Keep requires source-bound read artifacts and an exact existing Blotter/risk

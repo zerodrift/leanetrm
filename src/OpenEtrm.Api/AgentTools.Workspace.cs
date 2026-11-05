@@ -12,7 +12,7 @@ public sealed partial class AgentTools
         WalkthroughTool,
         Tool("read_page_digest","Read this first on a page question. Returns a bounded server-computed digest of the admitted page and selection at the turn's exact pin, with issued navigation handles. Never uses browser table values. Takes no input. Missing measures or browser-only draft state remain explicitly unavailable.",
             """{"type":"object","properties":{},"additionalProperties":false}""",[AssistantOperations.Permission]),
-        Tool("read_workspace_page","Inspects the page the user is on, including pages for risk, trade entry, delivery prices, interval data, administration and AI settings. Returns its available operations and current directory when there is one. Unsaved terms are not calculated values. Use discover_page_operations to inspect a request contract, read_page_operation for reads and previews, and propose_page_action for every save or other effect.",
+        Tool("read_workspace_page","Inspects the page the user is on, including pages for risk, trade entry, delivery prices, interval data, administration and AI settings. Returns its available operations and current directory when there is one. An authorized navigable page with available operations returns its own target handle; use it with navigate or a walkthrough go. Unsaved terms are not calculated values. Use discover_page_operations to inspect a request contract, read_page_operation for reads and previews, and propose_page_action for every save or other effect.",
             """{"type":"object","properties":{"page":{"type":"string"}},"required":["page"],"additionalProperties":false}""",[AssistantOperations.Permission]),
         Tool("discover_page_operations","Discovers the same authorized operations used by the application pages. Name a page or all; operation null lists its operations, an exact operation id returns its handler's input contract. Inputs are JSON with body and string-valued parameters. Missing financial terms require a question. No arbitrary URLs, credentials, SQL or execution are available.",
             """{"type":"object","properties":{"page":{"type":"string"},"operation":{"type":["string","null"]}},"required":["page","operation"],"additionalProperties":false}""",[AssistantOperations.Permission]),
@@ -91,8 +91,8 @@ public sealed partial class AgentTools
                     }
                 }
             }
-            var content=Bounded(value,CountRows(value),turn.OutputLimits)??throw new ToolRefusal("result_too_large");
-            return new(tool,call.Operation.Id,input,null,at,access,content,ToolStepEnd.Result){ProposalPage=arguments.Kind=="propose_page_action"?AssistantOperations.Find(arguments.Operation!)!.Page:null,ReadPages=arguments.Kind=="read_workspace_page"?[arguments.Page!]:arguments.Kind=="read_page_operation"?[AssistantOperations.RequireRead(arguments.Operation!).Page]:[]};
+            var (content,issued)=WorkspaceResult(value,arguments.Kind=="read_workspace_page"?arguments.Page:null,targets.Next,turn.OutputLimits);
+            return new(tool,call.Operation.Id,input,null,at,access,content,ToolStepEnd.Result){Issued=issued,ProposalPage=arguments.Kind=="propose_page_action"?AssistantOperations.Find(arguments.Operation!)!.Page:null,ReadPages=arguments.Kind=="read_workspace_page"?[arguments.Page!]:arguments.Kind=="read_page_operation"?[AssistantOperations.RequireRead(arguments.Operation!).Page]:[]};
         }
         catch(Exception e)
         {
@@ -100,6 +100,17 @@ public sealed partial class AgentTools
             if(e is ToolRefusal refusal){code=refusal.Code;end=ToolStepEnd.Refusal;}
             return new(tool,call.Operation.Id,input,code,at,access,end==ToolStepEnd.Refusal?Refusal(code!):null,end);
         }
+    }
+    internal static (string Content,ImmutableArray<IssuedTarget> Issued) WorkspaceResult(JsonObject value,string? page,int next,ToolOutputLimits limits)
+    {
+        ImmutableArray<IssuedTarget> issued=[];
+        if(page is not null&&PageReports.Opens(page)&&value["operations"]!.AsArray().Count>0)
+        {
+            var target=NavigationTargets.Page(page);var handle=NavigationTargets.Handle(next);
+            value["target"]=handle;value["targetLabel"]=target.Label;issued=[new(handle,target)];
+        }
+        var content=Bounded(value,CountRows(value),limits)??throw new ToolRefusal("result_too_large");
+        return(content,issued);
     }
     static int CountRows(JsonNode? node)=>node switch
     {JsonArray array=>(array.Any(n=>n is JsonObject)?array.Count:0)+array.Sum(CountRows),JsonObject obj=>obj.Sum(p=>CountRows(p.Value)),_=>0};

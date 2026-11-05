@@ -375,7 +375,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   apply:response=>{if((response.context as Context)?.contextId!==catalog?.context.contextId)throw Error('The observation choices belong to a different market context. Reload the editor.');selectedRequirements[side]=response.selectedSampling;observationOptions[side]=response;if(syncDeliveryDates(true,side)){deliveryRefreshNeeded=true;return;}indexChoices(side);projectionControls(side);syncDeliveryDates();},
  });
  let deliveryRefreshNeeded=false;
- async function refreshObservations(){const started=generation,source=key();for(const side of ['floating',...(floatingPair()?['first']:[])]){deliveryRefreshNeeded=false;await observations[side].refresh();if(started!==generation||source!==key())return;if(deliveryRefreshNeeded){await observations[side].refresh();if(started!==generation||source!==key())return;}}}
+ async function refreshObservations(signal?:AbortSignal){const started=generation,source=key();for(const side of ['floating',...(floatingPair()?['first']:[])]){if(signal?.aborted)return;deliveryRefreshNeeded=false;await observations[side].refresh();if(started!==generation||source!==key()||signal?.aborted)return;if(deliveryRefreshNeeded){await observations[side].refresh();if(started!==generation||source!==key()||signal?.aborted)return;}}}
  const retainedFloating=(side:string)=>detail?.state.terms.commodity===field(observationId(side,'commodity')).value?(side==='first'?detail.state.terms.firstFloating:detail.state.terms.floating):undefined;
  const activeSides=()=>[floatingPair()?'first':'fixed','floating'];
  function sideDateChoices(side:string){const source=side==='fixed'?'floating':side;return deliveryChoices(observationOptions[source]?.deliveryPeriods??[],field(observationId(source,'reset-frequency')).value,field(observationId(source,'averaging')).value,field(`swap-${side}-from`).value);}
@@ -593,15 +593,17 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   * Opens a new swap in the host once its catalog and observation choices are read, and says whether it did: another open, a reset or a
   * change of context while they were read leaves it closed. Booking is the backend's to allow, so where it does not, no field opens.
   */
- async function openNew():Promise<boolean>{
+ async function openNew(signal?:AbortSignal):Promise<boolean>{
+  signal?.throwIfAborted();
   reset();const started=generation,source=key();let opened=false;
   await safe(async()=>{
-   const response=await options.api<Catalog>('swaps/catalog',context());if(started!==generation||source!==key())return;
+   const response=await options.api<Catalog>('swaps/catalog',context());if(started!==generation||source!==key()||signal?.aborted)return;
    const control=bookingAllowed({canBook:response.canBook===true,bookingUnavailableReason:response.bookingUnavailableReason});
    if(!control.enabled)throw Error(control.reason);
-   catalog=response;populateCatalog();await refreshObservations();if(started!==generation||source!==key())return;
+   catalog=response;populateCatalog();await refreshObservations(signal);if(started!==generation||source!==key()||signal?.aborted)return;
    text('swap-mode','Choose a swap type and enter each independent side.');typeControls();get<HTMLInputElement>('swap-reason').required=false;sync();mount();opened=true;
   });
+  signal?.throwIfAborted();
   return opened;
  }
  /**
@@ -676,7 +678,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   void (async()=>{if(await options.leave())await options.act(()=>open(at,revision()));else kept();})();
  }
  get('swap-latest').onclick=()=>replacing(()=>null);
- return{open,openNew,openCloseOut,openSettlement,reset,sync,
+ return{open,openNew,openCloseOut,openSettlement,reset,sync,newTicketOpen:()=>mounted()&&!detail,
   // A live correction reads again what the panel's form part shows of a position: its settlement view, or its ticket at the revision shown.
   async liveRefresh(){
    if(settlement.isOpen()){await settlement.liveRefresh();return;}

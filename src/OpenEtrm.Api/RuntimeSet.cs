@@ -14,7 +14,8 @@ static class RuntimeSet
     // draft, whose step is recorded in its write's transaction (D260); turns_v10 has Read current page carry the Blotter's
     // layout its page report states (D271). turns_v8 is reserved for the installation limits (P42).
     // turns_v11 adds authorized workspace operations and ask-time page guidance (D284).
-    public const string Turns="turns_v13";
+    // turns_v14 adds bounded workspace-page target handles for native entry navigation (D319).
+    public const string Turns="turns_v14";
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;
     // The turns a workspace runs at once.

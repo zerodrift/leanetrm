@@ -179,3 +179,24 @@ no Keep wiring: prose tables lack operation/input source bindings.
 choices. Stop suppresses subsequent automatic plans/navigation for the same
 owner/conversation/turn. Narration persists across presentation steps and pauses;
 ticket setters scroll their native field into view before positioning the cursor.
+
+
+D319: workspace page reads issue fixed page handles after authorization and complete
+result bounds. `AssistantOperations.ForPage` supplies closed entry aliases without
+changing the underlying operation contracts. `app.ts` routes New trade/future/swap
+targets through `futures-view.ts` native entry methods; ordinary navigation and
+walkthrough `go` share this route. Swap opening checks AbortSignal, source and
+editor generation before mount; product opening guards fallback/focus work too.
+No presentation path invokes price, preview, booking or authorization. The owned
+assistant workspace browser suite covers native navigation, issued-handle go/pause,
+booking refusal and Stop while the catalog response is held. Runtime `turns_v14`
+and migration 0196 must ship with the matching API/browser assets.
+
+
+D320: `app.ts` and `blotter-window.ts` own busy state through initial control
+refresh and completion. A refresh failure follows the same error/stale path as
+other failed work and releases busy before refreshing controls again.
+`assistant-walkthroughs.ts` owns its HUD controls with `data-own-controls`; native
+page refresh cannot disable Stop while awaiting a read. The owned assistant and
+live-calculation browser suites qualify initial-refresh failures and subsequent
+native action/Retry, including the pop-out.

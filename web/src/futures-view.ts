@@ -612,11 +612,11 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     await panel.show(next,signal);signal?.throwIfAborted();booking.populate();booking.open();
     return true;
   }
-  async function openSwap(next:PanelMode){
+  async function openSwap(next:PanelMode,signal?:AbortSignal){
     // The person has said what the panel held may go: its forms are given up before the panel moves, which would otherwise ask again of a busy page.
-    resetForms();
-    await panel.show(next);
-    return swapEditor.openNew();
+    signal?.throwIfAborted();resetForms();
+    await panel.show(next,signal);signal?.throwIfAborted();
+    return swapEditor.openNew(signal);
   }
   async function openAdditional(product:TicketProduct,next:PanelMode){
     resetForms();await panel.show(next);await options.tickets.open(product,panel.element('form'));return true;
@@ -635,23 +635,27 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // A product is chosen: its form opens once what it needs has been read, in one action with the question asked first. The panel never holds a
   // product it has nothing to show for: when a product's form could not be opened it asks for a product again, with the failure said, whichever
   // product it was, and a page that is busy leaves the panel as it was.
-  async function chooseProduct(product:NewProduct,reconcile=false,inAction=false){
+  let productOpening=0;
+  async function chooseProduct(product:NewProduct,reconcile=false,inAction=false,signal?:AbortSignal):Promise<boolean>{
+    signal?.throwIfAborted();
     const next:PanelMode={kind:'new',product};
-    if(busy()&&!inAction||sameMode(panel.current(),next))return;
-    if(!reconcile&&(pending.command||options.tickets.pending().some(p=>p!==product))){options.notice('Reconcile the retained trade request before starting another.');return;}
-    if(!await panel.leave())return;
-    const at=whereAmI();let ran=false,opened=false;
+    if(busy()&&!inAction)return false;
+    if(sameMode(panel.current(),next))return product==='swaps'?swapEditor.newTicketOpen():product==='futures'?booking.isOpen():true;
+    if(!reconcile&&(pending.command||options.tickets.pending().some(p=>p!==product))){options.notice('Reconcile the retained trade request before starting another.');return false;}
+    if(!await panel.leave())return false;signal?.throwIfAborted();
+    const at=whereAmI(),requested=++productOpening,current=()=>requested===productOpening&&at!==undefined&&whereAmI()===at&&!signal?.aborted;let ran=false,opened=false;
     const open=async()=>{
       ran=true;
-      try{opened=product==='futures'?await openFuture(next):product==='swaps'?await openSwap(next):await openAdditional(product,next);}
-      catch(error){if(at!==undefined&&whereAmI()===at)await panel.show(newTrade);throw error;}
-      if(opened)showForm();else if(sameMode(panel.current(),next))await panel.show(newTrade);
+      try{opened=product==='futures'?await openFuture(next,signal):product==='swaps'?await openSwap(next,signal):await openAdditional(product,next);}
+      catch(error){if(current()&&sameMode(panel.current(),next))await panel.show(newTrade);throw error;}
+      signal?.throwIfAborted();if(!current())return;
+      if(opened&&sameMode(panel.current(),next))showForm();
     };
     if(inAction)await open();else await act(open);
     // A page that became busy while the person was asked does nothing: the panel is as it was, and the person is told, not left to wonder.
     if(!ran)options.notice(`${newTradeProducts.find(([key])=>key===product)![1]} was not opened because the page was busy. Choose it again.`);
     // The form takes focus once the page is no longer busy, which disables every control of it.
-    if(opened&&sameMode(panel.current(),next))panel.focusForm();
+    signal?.throwIfAborted();if(opened&&current()&&sameMode(panel.current(),next)){panel.focusForm();return true;}return false;
   }
   const selected=(id:string)=>Array.from(get<HTMLSelectElement>(id).selectedOptions,o=>o.value);
   function captureFilters(){if(!table)return;const state=table.state();view.query=state.query;view.columnFilters=Object.fromEntries(state.columns.flatMap((value,i)=>value===null||transientKeys.has(tableColumns[i])?[]:[[tableColumns[i],value]]));}
@@ -1762,6 +1766,15 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       }finally{patchValues=false;}
     },
     openProduct:(product:NewProduct)=>chooseProduct(product,false,true),
+    async openEntry(product:'futures'|'swaps'|null,signal?:AbortSignal){
+      signal?.throwIfAborted();
+      const control=bookingControl();if(!control.enabled)throw Error(control.reason);
+      if(editing())throw Error('Finish the unsaved form before opening a ticket.');
+      if(pending.command||options.tickets.pending().length)throw Error('Reconcile the retained trade request before starting another.');
+      if(product===null){if(!await panel.show(newTrade,signal))throw Error('New trade was not opened.');signal?.throwIfAborted();panel.reveal();return;}
+      if(!await chooseProduct(product,false,true,signal))throw Error('The requested trade ticket was not opened.');
+      signal?.throwIfAborted();if(product==='futures')booking.presentationBlank();
+    },
     async bookedExternal(tradeId:string){
       try{
         await load();

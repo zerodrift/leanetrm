@@ -2378,3 +2378,34 @@ Transient read failures retry from the last successfully applied version; a
 structured business refusal keeps previous values visibly stale and waits for a
 later head or explicit Refresh. Unknown command outcomes are never retried here.
 This change adds no persistence schema or external dependency.
+
+
+## D319 — Workspace page handles and native trade-entry navigation
+
+A successful authorized workspace page read issues its own fixed page target
+under the turn's shared handle sequence, after complete row/byte bounds succeed.
+Empty and refused reads issue none. Targets publish through the existing step
+and source-access lifecycle; plans still require a successfully read page.
+The changed result contract uses `turns_v14`; migration 0196 strictly updates
+admission and stored-plan guards without rewriting earlier migrations or grants.
+
+New trade, New futures trade and New swap targets open the existing native
+chooser/ticket through both navigation and walkthrough go. Opening is unsaved
+presentation only. Native permission/context/pending-request guards remain;
+Stop and source/editor generations fence late opens and focus/fallback work.
+Entry discovery aliases only existing catalog/booking operations with unchanged
+IDs, permissions, context policy and human approval. No new pane vocabulary,
+swap field fill, generic UI or booking automation is introduced.
+
+
+## D320 — Release busy ownership when control refresh fails
+
+Native main-window actions, live updates and pop-out actions include their initial
+control refresh inside the busy state's try/finally. A presentation exception
+reports through the existing failure path and releases busy ownership; work and
+business commands are never retried. The walkthrough owns its Continue/Stop
+controls, so a busy native read cannot disable cancellation. Native ticket and
+command controls keep their existing busy and authorization guards.
+Owned browser checks inject one failed control refresh and then perform the
+next native action. They establish recovery from this latch path, not which
+exception caused a reported production input lock.

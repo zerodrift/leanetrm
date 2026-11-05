@@ -1,5 +1,16 @@
 # Local verification and continuous integration
 
+D319 regression qualification uses the owned `--assistant-workspace-check --browser-check`
+suite. It covers New swap operation discovery, page handles and shared numbering,
+empty/bounded reads, native navigation, walkthrough go/pause, booking refusal and
+Stop during an outstanding catalog read. `--assistant-runtime-check` separately
+checks v14 admission and v13 refusal; run it separately from the workspace flag.
+
+D320 adds injected initial-control-refresh failures to the owned assistant and
+`--live-calculation-check --browser-check` suites. They check main-window recovery,
+live Retry and pop-out recovery, plus native pointer Stop during a held catalog
+read. No production reproduction is implied by these synthetic regressions.
+
 D312–D315 page-digest, selection and walkthrough checks run with
 `python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/dotnet --assistant-workspace-check --browser-check --browser /path/to/chrome`.
 The managed `--assistant-workspace` checks run first; the owned HTTP fixture then

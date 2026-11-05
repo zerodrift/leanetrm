@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using OpenEtrm.Api;
 
 static class AssistantWorkspaceChecks
@@ -23,6 +24,31 @@ static class AssistantWorkspaceChecks
         foreach(var excluded in new[]{"futures.amend-preview_v1","swaps.preview_v1","swaps.scheduled-price_v1"})
             if(AssistantOperations.Find(excluded) is not null)
                 throw new Exception($"{excluded} cannot preserve this turn's financial context and must stay outside the catalog.");
+        foreach(var (page,product) in new[]{("blotter_new_future","futures"),("blotter_new_swap","swaps")})
+        {
+            var entry=AssistantOperations.ForPage(page).ToArray();
+            foreach(var suffix in new[]{"catalog","price","book"})
+            {
+                var operation=entry.Single(o=>o.Id==$"{product}.{suffix}_v1");
+                if(!ReferenceEquals(operation,AssistantOperations.Find(operation.Id)))throw new Exception("An entry alias changed its authorized operation.");
+            }
+            if(entry.Any(o=>o.RequiresApproval&&o.Id!=$"{product}.book_v1"))throw new Exception("New trade discovery exposed an unrelated command.");
+        }
+        var handles=new TurnTargets();
+        JsonObject PageValue()=>new(){["operations"]=new JsonArray(new JsonObject{["id"]="swaps.catalog_v1"},new JsonObject{["id"]="swaps.book_v1"})};
+        foreach(var limit in new[]{new ToolOutputLimits(1,65536),new ToolOutputLimits(500,32)})
+        {
+            try{AgentTools.WorkspaceResult(PageValue(),"blotter_new_swap",handles.Next,limit);throw new Exception("An oversized page read issued a successful handle.");}
+            catch(ToolRefusal e) when(e.Code=="result_too_large"){}
+        }
+        if(handles.Next!=1)throw new Exception("A refused page read consumed a handle.");
+        var empty=AgentTools.WorkspaceResult(new(){["operations"]=new JsonArray()},"blotter_new_swap",handles.Next,new(500,65536));
+        if(!empty.Issued.IsEmpty||JsonDocument.Parse(empty.Content).RootElement.TryGetProperty("target",out _))throw new Exception("A page without authorized operations issued a target.");
+        var pageResult=AgentTools.WorkspaceResult(PageValue(),"blotter_new_swap",handles.Next,new(500,65536));
+        if(pageResult.Issued is not [{Handle:"n1",Target:{Page:"blotter_new_swap",Selection:null,Kind:"page",Label:"New swap"}}])throw new Exception("A workspace page target must be its exact fixed page, without a selection.");
+        handles.Published(new("read_workspace_page","workspace.page_v1",null,null,DateTimeOffset.UtcNow,[],pageResult.Content,ToolStepEnd.Result){Issued=pageResult.Issued});
+        var next=AgentTools.WorkspaceResult(PageValue(),"blotter_new_future",handles.Next,new(500,65536));
+        if(next.Issued[0].Handle!="n2")throw new Exception("Workspace handles must follow the turn's published targets.");
         foreach(var read in new[]{"portfolio.risk.statistical.setup_v1","portfolio.risk.parametric.summary_v1","portfolio.risk.historical.summary_v1","portfolio.risk.historical.sample_v1"})
         {
             var operation=AssistantOperations.Find(read);

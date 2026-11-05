@@ -96,6 +96,20 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     admin.call(prompt_path + '/save', {**prompt, 'operationId': str(uuid4()), 'expectedVersion': 1, 'instructions': 'Synthetic next guidance.'})
     check('later prompt edits do not alter an admitted turn', query(f"SELECT version FROM assistant.turn_prompt_pins WHERE turn_id='{turn['id']}';") == '1')
 
+    _, entry_results, _ = ask([('read_workspace_page', {'page': 'blotter_new_swap'})], page='blotter_new_swap')
+    swap_operations = {op['id']: op for op in entry_results[0]['operations']}
+    check('New swap discovers its native catalog, pricing and human-approved booking operation',
+          {'swaps.catalog_v1', 'swaps.price_v1', 'swaps.book_v1'} <= swap_operations.keys()
+          and swap_operations['swaps.book_v1']['effect'] == 'requires_user_approval'
+          and not {'futures.book_v1', 'swaps.amend_v1', 'admin.update_v1'} & swap_operations.keys())
+    check('an authorized workspace page read issues its own page handle', entry_results[0].get('target') == 'n1')
+    _, empty_results, _ = ask([('read_workspace_page', {'page': 'blotter_risk_lens'}), ('read_workspace_page', {'page': 'blotter_new_swap'})], page='blotter_new_swap')
+    check('a page without available operations issues no handle and consumes no numbering', 'target' not in empty_results[0] and empty_results[1].get('target') == 'n1')
+    _, entry_plan_results, _ = ask([('read_workspace_page', {'page': 'blotter_new_swap'}),
+                                    ('present_walkthrough', {'planJson': json.dumps([{'kind': 'go', 'target': 'n1'}, {'kind': 'pause', 'page': 'blotter_new_swap'}])})],
+                                   page='blotter_new_swap')
+    check('a workspace-issued New swap handle can be presented without a command', entry_plan_results[1].get('status') == 'presented')
+
     command = {'operation': 'admin.update_v1', 'inputJson': json.dumps({'body': {'operationId': str(uuid4()), 'id': target['id'], 'expectedVersion': target['version'],
                 'name': 'Synthetic authorized prompt editor', 'enabled': True, 'roles': ['assistant_prompt_editor']}, 'parameters': {}})}
     refusal_turn, results, _ = ask([('read_page_operation', command)])
@@ -137,6 +151,9 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
           digest['operation'] == 'workspace.digest_v1' and 'Positions: future=1' in digest['result']['text']
           and digest['result']['text'].index('Book:') < digest['result']['text'].index('Largest:') < digest['result']['text'].index('Smallest:')
           and len(digest['result']['targets']) == 2 and len(digest['result']['text'].encode()) <= 4096)
+    _, numbered, _ = ask([('read_workspace_page', {'page': 'blotter_new_swap'}), ('read_page_digest', {}), ('read_workspace_page', {'page': 'blotter_new_future'})], report=digest_report)
+    check('workspace and digest reads share one turn-local target sequence', numbered[0]['target'] == 'n1'
+          and [t['handle'] for t in numbered[1]['result']['targets']] == ['n2', 'n3'] and numbered[2]['target'] == 'n4')
     plan = [{'kind': 'sort', 'page': 'blotter', 'column': 'presentValue', 'direction': 'desc'},
             {'kind': 'select', 'page': 'blotter', 'focus': {'tradeIds': [booked['tradeId']], 'pivotCell': None}},
             {'kind': 'say', 'page': 'blotter', 'message': 'review'}, {'kind': 'pause', 'page': 'blotter'}]

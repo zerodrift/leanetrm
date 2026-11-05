@@ -85,6 +85,19 @@ internal static class AssistantOperations
         return result.AsReadOnly();
     }
     public static AssistantOperation? Find(string id)=>Catalog.SingleOrDefault(o=>o.Id==id);
+    // Entry pages share their native catalog and booking handler with the Blotter. These are visibility aliases,
+    // not new operations: their identity, canonical page, permissions, temporal policy and approval remain intact.
+    public static IEnumerable<AssistantOperation> ForPage(string page)
+    {
+        ImmutableHashSet<string> shared=page switch
+        {
+            "blotter_new_trade"=>["futures/catalog","swaps/catalog"],
+            "blotter_new_future"=>["futures/catalog","futures/book"],
+            "blotter_new_swap"=>["swaps/catalog","swaps/quantity-schedule","swaps/scheduled-periods","swaps/contract-observation-preview","swaps/observation-options","swaps/book"],
+            _=>[]
+        };
+        return Catalog.Where(o=>page=="all"||o.Page==page||shared.Contains(o.Path));
+    }
     // These ordinary single-transaction commands predate request identities. Approval supplies their missing
     // atomic outcome receipt; every other command keeps its existing request-id protocol.
     public static bool NeedsApprovalReceipt(AssistantOperation operation)=>operation.Path is

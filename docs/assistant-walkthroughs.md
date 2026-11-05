@@ -2,9 +2,12 @@
 
 D312–D314 are implemented in the bounded contract below; D315 is deferred. This extends the existing
 [workspace assistant](assistant-workspace.md); it adds no independent agent loop.
-Runtime `turns_v13` is a single local compatibility increment, not a hosted release.
+The current runtime is `turns_v14` (D319); deployment requires matching schema,
+API and browser assets. A runtime increment alone does not qualify a hosted release.
 Migration 0194 is consumed by digest admission, tool consent and Looking at;
 0195 adds walkthrough admission and the stored event. Neither adds a table.
+Migration 0196 guards admission and walkthrough storage for workspace page handles;
+older v13 binaries cannot admit new work. Existing versions and grants are unchanged.
 
 ## Page digest
 
@@ -73,6 +76,12 @@ new tool. The tool takes `planJson`, an array of one to twelve steps; the entire
 plan validates before publication. Fixed instructions require walkthroughs for
 requests to show, find, explain or do something on screen when enabled.
 
+A successful `read_workspace_page` with available authorized operations returns
+its own `target` handle and fixed `targetLabel`. The target names that page with
+no selection. Handles join the same turn-local sequence as digest and legacy
+read targets, only after complete-result bounds and step publication succeed.
+An empty or refused page read issues none.
+
 The managed catalog admits `go`, `select`, `sort`, `filter`, `open`, `scroll_to`,
 `fill`, `say` and `pause`. Every named page must have a successful read in this
 turn. Go resolves only a handle this turn issued; trade selections resolve issued
@@ -83,7 +92,19 @@ No step names a selector, URL, code, Book, Save, job control or Authorize.
 
 Blotter adapters use native presentation operations for row selection, column
 sort/search/filter, details/charts, known widgets and an unsaved futures ticket.
-Opening the ticket leaves book, contract, lots and price unchosen. Other pages
+Opening the ticket leaves book, contract, lots and price unchosen.
+A `go` to an issued New trade, New futures trade or New swap page handle opens
+the native product chooser or ticket. Ordinary `navigate` uses the same route.
+The native catalog must allow booking; missing contexts, retained requests and
+unsaved edits refuse without changing to working data or discarding terms.
+Stop and stale source/generation checks prevent a late catalog from mounting
+a swap ticket or replacing a newer form. No price, preview or booking is sent
+by opening it. Swap term filling remains unsupported; the person enters terms
+and uses the ordinary booking controls.
+
+Entry-page discovery includes closed aliases of the existing native catalog and
+booking operations, preserving canonical IDs, permissions, context and approval.
+Amendment and settlement commands are excluded from new-ticket discovery. Other pages
 support issued navigation, the page widget, narration/pause and Review of a
 proposal on that page. An unavailable grid column, pane or widget stops with the
 failed ordinal. There is no general editor-field adapter or model-written UI.
@@ -113,8 +134,8 @@ tool step in the same transaction, with `(turn, step)` identity and a backend
 agent label. The existing publication/source fence and D190 owner-read hiding
 cover the entire plan. Plans fit a 16 KiB managed budget and ordinary admitted
 result bounds; storage also refuses oversized/unknown event vocabulary. Runtime
-`turns_v13` covers the full local tool/report/event contract; no intermediate v13
-binary is released.
+`turns_v14` covers workspace page target results and the existing tool/report/event
+contract. Migration 0196 refuses v13 admission and stored walkthrough writes.
 
 Eligible live asks in this tab can start a plan. History, reload, gaps and duplicate
 events never start one automatically. Start/Resume rechecks the owner's stored
@@ -177,3 +198,10 @@ independently rerun the suites. The complete release command in
 [verification.md](verification.md#required-tools) remains required before any
 release publication; it now includes the dedicated workspace browser gate.
 Targeted checks alone do not qualify production activation.
+
+
+D320 keeps walkthrough Continue/Stop under the runner's own control while a native
+page read is busy. Initial control-refresh errors in main actions, live updates
+and pop-out actions release busy ownership through their normal error paths;
+they never retry a command. Owned browser regressions qualify recovery from that
+failure path without attributing a production input lock to a specific exception.

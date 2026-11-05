@@ -26,6 +26,10 @@ static class AssistantWalkthroughChecks
         Refuses("""[{"kind":"pause","page":"jobs"}]""");
         var unread=new TurnTargets();unread.Issue([new("n1",new("jobs",null,"page","Jobs"))]);
         Refuses("""[{"kind":"go","target":"n1"}]""",issued:unread);
+        var swapEntry=new TurnTargets();
+        swapEntry.Published(new("read_workspace_page","workspace.page_v1",null,null,DateTimeOffset.UtcNow,[],"{}",ToolStepEnd.Result){ReadPages=["blotter_new_swap"],Issued=[new("n1",NavigationTargets.Page("blotter_new_swap"))]});
+        if(WalkthroughPlans.Validate(Json("""[{"kind":"go","target":"n1"},{"kind":"pause","page":"blotter_new_swap"}]"""),report,"Help open a swap ticket.",swapEntry,pin).Count!=2)
+            throw new Exception("The existing New swap page handle must support a presentation-only go and pause.");
         Refuses("""[{"kind":"select","page":"blotter","focus":{"tradeIds":["71000000-0000-4000-8000-000000000002"],"pivotCell":null}}]""");
         Refuses("""[{"kind":"sort","page":"blotter","column":"authorize","direction":"desc"}]""");
         Refuses("""[{"kind":"open","page":"blotter","pane":"review","target":null,"proposalStep":9}]""");

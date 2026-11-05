@@ -205,7 +205,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
     {
         var owner=await Reader(turn,ct);var permissions=await Permissions(owner,turn.ReadLimit,ct);
         var operations=new JsonArray();
-        foreach(var operation in AssistantOperations.Catalog.Where(o=>(page=="all"||o.Page==page)&&(id is null||o.Id==id)&&o.Permissions.All(permissions.Contains)))
+        foreach(var operation in AssistantOperations.ForPage(page).Where(o=>(id is null||o.Id==id)&&o.Permissions.All(permissions.Contains)))
         {
             RouteEndpoint endpoint;try{endpoint=Endpoint(operation);}catch(ToolRefusal){continue;}
             var item=new JsonObject{["id"]=operation.Id,["page"]=operation.Page,["effect"]=operation.RequiresApproval?"requires_user_approval":"read_or_preview",

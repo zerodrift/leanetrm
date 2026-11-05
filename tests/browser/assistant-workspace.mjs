@@ -1,10 +1,12 @@
 import {sideSession} from './side-session.mjs';
+import {press} from './blotter-window.mjs';
 
 // Real page selection -> admitted report -> pinned digest, in the owned synthetic workspace fixture.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url,provider}){
   const sendQuestion=async()=>{await wait("!document.querySelector('#assistant-send').disabled&&"+idle);await submit('#assistant-composer');};
   const control=new URL(provider);
   if(control.protocol!=='http:'||control.hostname!=='127.0.0.1'||!control.port)throw Error('Use the owned synthetic provider.');
+  const script=async answers=>{if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('Synthetic provider refused the script.');};
   const side=await sideSession(url);
   const agent=(await side.call('settings/ai/agents')).agents.find(a=>a.name.includes('workspace operations'));
   if(!agent)throw Error('The workspace fixture must publish its explicitly enabled guide.');
@@ -23,10 +25,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
       __selectionRequests.push({path:String(path),body:options?.body?JSON.parse(options.body):null});
       if(path==='/api/trading/changes')__selectionWaits++;
       const response=await send(path,options);
+      if(path==='/api/swaps/catalog'&&window.__denySwapOpen)return new Response(JSON.stringify({...await response.json(),canBook:false,bookingUnavailableReason:'Synthetic read-only ticket'}),{status:200,headers:{'content-type':'application/json'}});
       if(path==='/api/trading/changes'){__selectionWaits--;if(response.ok&&(await response.clone().json()).version!==JSON.parse(options.body).version)__selectionChangedHeads++;}
       if(path==='/api/assistant/grants/grant'&&window.__holdConsentGrant)await new Promise(resolve=>window.__releaseConsentGrant=resolve);
       if(path==='/api/assistant/agents'&&window.__holdConsentAgents)await new Promise(resolve=>window.__releaseConsentAgents=resolve);
       if(path==='/api/trading/workspace'&&window.__holdConsentPricing)await new Promise(resolve=>window.__releaseConsentPricing=resolve);
+      if(path==='/api/swaps/catalog'&&window.__holdSwapOpen)await new Promise(resolve=>window.__releaseSwapOpen=resolve);
       return response;
     };}`});
   await command('Page.navigate',{url});await wait(idle);await persona('admin');await click('#nav-ai');await click('#ai-tab-agents');
@@ -66,6 +70,44 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the server digest completes without a selection refusal',"document.querySelector('#assistant-turns .assistant-steps').textContent.includes('Read page digest')&&!document.querySelector('#assistant-turns .assistant-steps').textContent.includes('refused')");
   await shot('assistant-selection');
   const selected=await evaluate('__selectedTradeIds');
+  const swapPlan=[{kind:'go',target:'n1'},{kind:'pause',page:'blotter_new_swap'}];
+  const openSwap=async(walkthrough,tag)=>{
+    await script([{tools:[['toolu_'+tag+'_read','read_workspace_page',{page:'blotter_new_swap'}]]},
+      {tools:[[ 'toolu_'+tag+'_open',walkthrough?'present_walkthrough':'navigate',walkthrough?{planJson:JSON.stringify(swapPlan)}:{page:'blotter_new_swap',target:null}]]},
+      {text:'Synthetic swap ticket '+tag+'.'}]);
+    await set('#assistant-question','Help me open a swap ticket.');await sendQuestion();
+  };
+  await openSwap(false,'navigation');
+  await wait("document.querySelector('#swap-form')?.getBoundingClientRect().height>0");
+  await check('the assistant New swap navigation target opens the native swap ticket',"document.querySelector('#assistant-looking-shows').textContent.includes('new swap')&&document.querySelector('#swap-quantity').value===''&&document.querySelector('#swap-price').value===''");
+  await wait("document.querySelector('#assistant-send').textContent==='Send'&&"+idle);await click('#nav-futures');await wait(idle);
+  await evaluate('window.__denySwapOpen=true');await openSwap(false,'readonly');
+  await wait("!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.includes('Synthetic read-only ticket')");
+  await check('native booking refusal leaves swap fields closed without choosing a different context',"!document.querySelector('#swap-form')?.getBoundingClientRect().height&&__selectionRequests.filter(r=>r.path.endsWith('/assistant/turns/ask')).at(-1).body.knowledge.mode==='current'");
+  await evaluate('window.__denySwapOpen=false');await wait("document.querySelector('#assistant-send').textContent==='Send'&&"+idle);await click('#nav-futures');await wait(idle);
+  await openSwap(true,'walkthrough');
+  await wait("document.querySelector('#swap-form')?.getBoundingClientRect().height>0&&!document.querySelector('.assistant-walkthrough-continue').hidden");
+  await check('an issued New swap go opens the ticket and pauses without pricing or booking',"!__selectionRequests.some(r=>['/swaps/price','/swaps/preview','/swaps/draft-risk','/swaps/book','/assistant/actions/authorize'].some(path=>r.path.endsWith(path)))");
+  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await wait("document.querySelector('#assistant-send').textContent==='Send'&&"+idle);await click('#nav-futures');await wait(idle);
+  await evaluate('window.__holdSwapOpen=true');await openSwap(true,'stopped');
+  await wait("typeof window.__releaseSwapOpen==='function'");
+  await check('walkthrough Stop stays enabled during a native page read',"!document.querySelector('.assistant-walkthrough button:last-child').disabled");
+  await press({command,evaluate},'.assistant-walkthrough button:last-child');
+  await evaluate('window.__holdSwapOpen=false;window.__releaseSwapOpen()');await wait(idle);
+  await check('Stop prevents a delayed swap catalog from opening a ticket afterward',"!document.querySelector('#swap-form')?.getBoundingClientRect().height&&document.querySelector('.assistant-walkthrough-status').textContent.startsWith('Stopped')&&document.querySelector('#error').hidden");
+  await wait(idle);
+  // A presentation refresh can fail before the requested work starts. It must not retain
+  // the global busy flag, which would leave every subsequent native action disabled.
+  await evaluate(`(()=>{const control=document.querySelector('#profile-open'),disabled=Object.getOwnPropertyDescriptor(HTMLButtonElement.prototype,'disabled');
+    Object.defineProperty(control,'disabled',{configurable:true,get(){return disabled.get.call(this);},set(value){if(!value){disabled.set.call(this,value);return;}delete this.disabled;window.__controlRefreshThrown=true;throw Error('Synthetic control refresh failure');}});})()`);
+  await evaluate("document.querySelector('#nav-dashboard').click();new Promise(resolve=>setTimeout(resolve,100))");
+  await check('a control refresh failure releases busy state and reports its reason',"window.__controlRefreshThrown===true&&document.body.getAttribute('aria-busy')==='false'&&!document.querySelector('#nav-dashboard').disabled&&!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.includes('Synthetic control refresh failure')","({thrown:window.__controlRefreshThrown,busy:document.body.getAttribute('aria-busy'),disabled:document.querySelector('#nav-dashboard').disabled,error:document.querySelector('#error').textContent,prompt:document.querySelector('#position-details-prompt').textContent})");
+  await click('#nav-dashboard');await wait(idle);
+  await check('native navigation remains usable after a failed control refresh',"!document.querySelector('#dashboard-page').hidden&&document.querySelector('#error').hidden");
+  await click('#nav-futures');await wait(idle);
+  await evaluate(`(()=>{for(const row of document.querySelectorAll('#desk-positions .tabulator-row[data-row-key]')){
+    const wanted=__selectedTradeIds.includes(row.dataset.rowKey.split(':')[0]);if(wanted!==(row.getAttribute('aria-selected')==='true'))row.dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true}));}})()`);
   const stopPlan=[{kind:'pause',page:'blotter'}];
   const stopAnswers=[{tools:[['toolu_stop_digest','read_page_digest',{}],['toolu_stop_plan','present_walkthrough',{planJson:JSON.stringify(stopPlan)}]]},
     {hold:'walkthrough_later_plan',tools:[['toolu_later_plan','present_walkthrough',{planJson:JSON.stringify(stopPlan)}]]},{text:'Synthetic stopped walkthrough.'}];
@@ -87,7 +129,6 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     {kind:'fill',page:'blotter',field:'ticket.lots',value:'2'},
     {kind:'fill',page:'blotter',field:'ticket.executionPrice',value:'3.4'},
     {kind:'say',page:'blotter',message:'fill'},{kind:'pause',page:'blotter'}];
-  const script=async answers=>{if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('Synthetic provider refused the script.');};
   await set('#assistant-question','Fill unsaved futures ticket\nSet ticket.lots = "2"\nSet ticket.executionPrice = "3.4"');
   await script([{tools:[['toolu_walk_digest','read_page_digest',{}],['toolu_walk_plan','present_walkthrough',{planJson:JSON.stringify(plan)}]]},{text:'Synthetic walkthrough presented.'}]);
   await sendQuestion();

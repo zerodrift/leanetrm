@@ -39,6 +39,7 @@ import {setupFutures} from './futures-view.js';
 import {askAboutText,askSelectionText,askPivotText} from './blotter-row-menu.js';
 import {dockedGroupsFrom} from './dock-model.js';
 import {bookingFallback} from './new-trade.js';
+import {acting} from './blotter-operations.js';
 import {setupPowerView} from './power-view.js';
 import {setupAdministration} from './admin-view.js';
 import {setupAgentGrants} from './agent-grants.js';
@@ -188,8 +189,8 @@ const errorMessage=(error:unknown)=>error instanceof Error?error.message:'Someth
 async function act(work:()=>Promise<void>,{keepNotice=false}={}){
   // Context changes, writes and reads are serialized. Never retry a mutation.
   // Errors and notices describe the previous action; the next one starts clean.
-  if(busy)return;busy=true;syncControls();$('error').hidden=true;if(!keepNotice)$('notice').hidden=true;text('status','Loading…');
-  try{await work();text('status',pageStatus());}
+  if(busy)return;busy=true;
+  try{syncControls();$('error').hidden=true;if(!keepNotice)$('notice').hidden=true;text('status','Loading…');await work();text('status',pageStatus());}
   catch(error){text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');if(page==='custom-curves')await customCurves.recover().catch(()=>undefined);}
   finally{busy=false;syncControls();if(closeCheckDue){closeCheckDue=false;void recheckNewestClose();}}
 }
@@ -849,7 +850,7 @@ function connectLive(selection:LiveSelection){
  stopLive();liveSucceeded=previous;liveId=selection.id;showLiveStatus({state:'updating'});
  let cooldown=250;
  liveUpdates=new LiveUpdates({busy:()=>busy||document.hidden,schedule:work=>{const timer=setTimeout(work,cooldown);return()=>clearTimeout(timer);},status:showLiveStatus,
-  apply:async update=>{if(liveId!==update.live.id)throw Error('The live selection changed.');busy=true;const started=performance.now();syncControls();try{permissions=(await api<{permissions:string[]}>('access')).permissions;await refreshLiveScreen(update);}finally{cooldown=Math.max(250,Math.min(10000,(performance.now()-started)*2));busy=false;syncControls();}}});
+  apply:async update=>{if(liveId!==update.live.id)throw Error('The live selection changed.');busy=true;const started=performance.now();try{syncControls();permissions=(await api<{permissions:string[]}>('access')).permissions;await refreshLiveScreen(update);}finally{cooldown=Math.max(250,Math.min(10000,(performance.now()-started)*2));busy=false;syncControls();}}});
  const stream=liveStream=new EventSource(apiRoot+'market/live/events?selection='+encodeURIComponent(selection.id));
  stream.addEventListener('context',event=>{
   if(liveStream!==stream)return;
@@ -1242,6 +1243,13 @@ function unsaved(){
 async function showTarget(report:string,selection:Record<string,unknown>|null,kind?:Target['kind'],signal?:AbortSignal){
   signal?.throwIfAborted();
   const next=webPage(report);
+  if(report==='blotter_new_trade'||report==='blotter_new_future'||report==='blotter_new_swap'){
+    if(futures.poppedOut())throw Error('Bring the Blotter back to this window before opening a ticket here.');
+    if(unsaved()||futures.windowEdits())throw Error('Finish unsaved changes before opening a ticket.');
+    await setPage('futures');signal?.throwIfAborted();
+    await futures.load({background:false});signal?.throwIfAborted();
+    await futures.openEntry(report==='blotter_new_trade'?null:report==='blotter_new_future'?'futures':'swaps',signal);return;
+  }
   if(!selection)return showPage(next);
   // What a target names is checked before the page changes, so a target the page cannot show leaves it as it was.
   switch(report){
@@ -1345,7 +1353,8 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
     if(step.kind==='go'){
       if(navigation?.live)throw Error('Pause live data yourself before a walkthrough moves pages.');
       if(unsaved()||futures.windowEdits())throw Error('Finish unsaved changes before moving.');
-      await showTarget(step.target.page,step.target.selection,step.target.kind,signal);if(step.target.page.startsWith('blotter'))await futures.valued();signal.throwIfAborted();return main;
+      if(busy)throw Error('The page is busy.');
+      await acting(act,async()=>{try{await showTarget(step.target.page,step.target.selection,step.target.kind,signal);if(step.target.page.startsWith('blotter'))await futures.valued();signal.throwIfAborted();}catch(error){if(!signal.aborted)throw error;}});signal.throwIfAborted();return main;
     }
     const shown=pageReport(pageState()).page;
     if((shown.startsWith('blotter')?'blotter':shown)!==(step.page.startsWith('blotter')?'blotter':step.page))throw Error('The page changed.');

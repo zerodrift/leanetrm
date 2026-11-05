@@ -238,10 +238,10 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v13"&&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
+        Require(RuntimeSet.Turns=="turns_v14"&&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
             "The operating-policy runtime preserves the existing versioned read deadline ceiling.");
         Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
-            "require every member they state, and their permissions; turns_v13 retains admitted operating limits and bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
+            "require every member they state, and their permissions; turns_v14 retains admitted operating limits and bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";

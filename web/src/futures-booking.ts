@@ -102,6 +102,7 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
   },
   /** Puts the form in the panel's form part, empty of what an earlier one held. */
   open(){presentationRevision++;options.host().append(root);root.hidden=false;edits.clear();sync();},
+  isOpen:()=>!root.hidden&&root.parentElement===options.host(),
   /** Takes the form out of the panel and forgets everything it held: its values, its price and the person's edits. */
   reset(){presentationRevision++;shelf.append(root);root.hidden=true;instrument.clear();draft.reset();form.reset();edits.clear();selected='';closeOut.replaceChildren();closeOut.hidden=true;priceSource.clear();text('futures-terms','Select a dated contract to see its terms.');sync();},
   /**

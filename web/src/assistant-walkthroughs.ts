@@ -42,7 +42,7 @@ export function readWalkthrough(value:unknown,readTarget:(v:unknown)=>Target):Wa
 // The browser only performs a server plan through typed page adapters. It never invokes a business control.
 export function setupWalkthrough(options:{identity:()=>string;context:()=>string;verify:()=>Promise<boolean>;
   perform:(step:PresentationStep,signal:AbortSignal)=>Promise<HTMLElement>;takenOver?:()=>void;progress?:(index:number,status:string)=>void}){
-  const root=document.createElement('aside');root.className='assistant-walkthrough';root.hidden=true;root.setAttribute('aria-label','Assistant walkthrough');
+  const root=document.createElement('aside');root.className='assistant-walkthrough';root.dataset.ownControls='';root.hidden=true;root.setAttribute('aria-label','Assistant walkthrough');
   const cursor=document.createElement('div');cursor.className='assistant-walkthrough-cursor';cursor.hidden=true;cursor.setAttribute('aria-hidden','true');
   const label=document.createElement('strong');label.className='assistant-walkthrough-label';
   const status=document.createElement('p');status.className='assistant-walkthrough-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
