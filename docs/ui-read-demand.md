@@ -63,6 +63,9 @@ Delayed visual reads belong to their account, directory, selected close and
 context. Replaced or hidden content releases its observers, and obsolete replies
 cannot dispatch dependent history reads or publish into the current view. A new
 load can retry a failed shape; one generation does not retry itself indefinitely.
+A failed Blotter refresh preserves completed shapes and ends unresolved cells'
+waits with a reason. Models and Providers share one directory attempt per page
+load; switching tabs retains a failure until an explicit refresh or page reload.
 Shared `visibleReads` / `whenVisible` helpers own subscriptions and disposal;
 `batchReads` owns keyed coalescing, serial bounded requests, cached results and
 cancellation. Market, Dashboard and Blotter callers supply their context guard

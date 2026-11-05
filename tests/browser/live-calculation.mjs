@@ -1,3 +1,4 @@
+import {visibleCurveCellsReady} from './curve-cells.mjs';
 import {workspaceProbeScript} from './workspace-probe.mjs';
 import {sideSession} from './side-session.mjs';
 import {popOut} from './blotter-window.mjs';
@@ -53,13 +54,17 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  // The correction is recomputed on the server before the page reads the curves again, which on a shared runner can take longer than
  // an ordinary action's wait.
  await wait(`typeof window.releaseShapes==='function'&&${shapesLoading}>0&&document.querySelector('#live-status').dataset.state==='live'&&`+idle,30000);
+ const completedShapes=await evaluate("Object.fromEntries([...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].flatMap(row=>{const line=row.querySelector('svg.sparkline');return line?[[row.dataset.rowKey,line.outerHTML]]:[];}))");
  await evaluate('window.failLiveWorkspace=true');await correct('base','3.36');
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
- await check('a refresh that fails while the curves are being read leaves each unavailable with the reason, not loading',"(()=>{const lines=[...document.querySelectorAll('#desk-positions svg.sparkline')],rows=document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)');return rows.length>0&&lines.length===rows.length&&document.querySelectorAll('#desk-positions .sparkline-loading').length===0&&lines.every(s=>s.classList.contains('sparkline-unavailable')&&s.querySelector('title').textContent.includes('refresh'));})()","[...document.querySelectorAll('#desk-positions .desk-cell:has(.sparkline), #desk-positions .sparkline-loading')].map(n=>n.className+' '+n.textContent).slice(0,3)");
- await evaluate('window.releaseShapes()');
- await click('#live-retry');await wait(`document.querySelector('#live-status').dataset.state==='live'&&${shapesLoading}===0&&`+idle);
- // The curves are read after the rows are drawn, so wait for them before saying Retry read them.
- await wait(`document.querySelectorAll('#desk-positions svg.sparkline:not(.sparkline-unavailable)').length>0&&${shapesLoading}===0`);
+ const failedShapes=`(()=>{const completed=${JSON.stringify(completedShapes)},rows=[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')];return rows.length>0&&document.querySelectorAll('#desk-positions .sparkline-loading').length===0&&rows.every(row=>{const line=row.querySelector('svg.sparkline'),previous=completed[row.dataset.rowKey];return line&&(previous?line.outerHTML===previous:line.classList.contains('sparkline-unavailable')&&line.querySelector('title').textContent.includes('refresh'));});})()`;
+ await check('a failed refresh ends unresolved curve waits with a reason and preserves completed curves',failedShapes);
+ const shapeReplies=await evaluate("window.liveResponses.filter(r=>r.path==='/api/market/curve-shapes').length");
+ await evaluate('window.releaseShapes()');await wait(`window.liveResponses.filter(r=>r.path==='/api/market/curve-shapes').length>${shapeReplies}`);
+ await check('an interrupted curve reply cannot replace the failed refresh state',`document.querySelector('#live-status').dataset.state==='stale'&&${failedShapes}`);
+ await click('#live-retry');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
+ // Hidden rows wait for demand; every visible curve cell must finish its retry.
+ await wait(`document.querySelectorAll('#desk-positions svg.sparkline:not(.sparkline-unavailable)').length>0&&${visibleCurveCellsReady}`);
  await check('Retry reads the curves again',"document.querySelectorAll('#desk-positions svg.sparkline:not(.sparkline-unavailable)').length>0");
  // A read the desk refuses leaves the desk it had: its new totals and rows do not appear beside its old charts.
  // The injected read has new futures totals and prices, and a swap market held in a second quantity specification, which the charts refuse.

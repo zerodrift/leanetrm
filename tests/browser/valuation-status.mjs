@@ -1,3 +1,4 @@
+import {visibleCurveCells,visibleCurveCellsReady} from './curve-cells.mjs';
 import {setupWorkspaceProbe} from './workspace-probe.mjs';
 /** D220 at Dec 31, 2020, a close that values some positions and not others: every total says what it leaves out. */
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
@@ -38,9 +39,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     "[...document.querySelectorAll('#desk-positions .tabulator-group')].some(h=>/\\d+ not valued/.test(h.querySelector('.desk-group-totals').textContent))");
   await check('the swap PV chart notes what it leaves out, and the long and short chart, which counts booked quantity, claims nothing',
     `document.querySelector('#desk-chart-pv .chart-toolbar').textContent.includes(${note(own('financial_swap'))})&&!document.querySelector('#desk-chart-position').textContent.includes('Excludes')`);
-  await wait("document.querySelectorAll('#desk-positions .sparkline-loading').length===0");
+  await wait(visibleCurveCellsReady);
   await check('a curve the close cannot shape stays a quiet tooltip in its own row, and never blanks the positions',
-    "(()=>{const rows=document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)'),lines=document.querySelectorAll('#desk-positions svg.sparkline');return rows.length>0&&lines.length===rows.length&&[...document.querySelectorAll('#desk-positions svg.sparkline-unavailable title')].some(t=>t.textContent.startsWith('Curve shape unavailable'));})()");
+    `(()=>{const cells=${visibleCurveCells};return cells.length>0&&cells.every(cell=>cell.matches('svg.sparkline'))&&cells.some(cell=>cell.querySelector('title')?.textContent.startsWith('Curve shape unavailable'));})()`);
   await click('#blotter-export');await wait('!!window.__blotterCsv');
   await check('the export states its grouping, the positions it cannot value and why each value is missing',
     `(async()=>{const s=await window.__blotterCsv.text();return s.includes('"Grouping","Book"')&&s.includes('"Positions not valued at this close","'+${table}.unvaluedPositions+'"')&&s.includes('"Not valued · Contract expired · awaiting settlement"')&&s.includes('"Not valued · Missing published index fixing"');})()`);

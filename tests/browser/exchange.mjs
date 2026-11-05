@@ -1,3 +1,4 @@
+import {visibleCurveCellsReady} from './curve-cells.mjs';
 import {setupWorkspaceProbe} from './workspace-probe.mjs';
 import {chooseFutures} from './futures-selection.mjs';
 import {newTrade} from './new-trade.mjs';
@@ -11,7 +12,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await persona('trader');await click('#example');await click('#nav-futures');
  await check('exchange dataset is visibly selected and prices are identified as synthetic',"document.querySelector('#example-dataset').value==='exchange'&&document.querySelector('#example-dataset').selectedOptions[0].textContent.includes('synthetic prices')");
  await evaluate("(()=>{const grid=document.querySelector('#desk-positions'),holder=grid.querySelector('.tabulator-tableholder');grid.scrollIntoView({block:'center'});holder.scrollLeft=holder.scrollWidth;})()");
- await wait("document.querySelectorAll('#desk-positions svg.sparkline').length>0&&(()=>{const holder=document.querySelector('#desk-positions .tabulator-tableholder').getBoundingClientRect();return ![...document.querySelectorAll('#desk-positions .sparkline-loading')].some(node=>{const box=node.getBoundingClientRect();return box.width>0&&box.height>0&&box.left<holder.right&&box.right>holder.left&&box.top<holder.bottom&&box.bottom>holder.top&&box.top<innerHeight&&box.bottom>0;});})()");
+ await wait(`document.querySelectorAll('#desk-positions svg.sparkline').length>0&&${visibleCurveCellsReady}`);
  await check('the exchange dataset opens on the desk: its futures, their execution P&L tile and their curves',"document.querySelector('#error').hidden&&!document.querySelector('#desk').hidden&&!![...document.querySelectorAll('#blotter-strip .strip-item')].find(i=>i.querySelector('.strip-label').textContent==='Futures execution P&L')?.dataset.currency&&document.querySelectorAll('#desk-positions svg.sparkline').length>0&&[...document.querySelectorAll('#desk-positions .desk-pill')].every(p=>p.textContent==='FUT')");
  await click('#profile-open');await check('Profile does not expose deal amount precision',"!document.querySelector('#precision-money')&&!document.querySelector('#precision-price')");await click('#profile-close');
  await newTrade({click,wait},'futures');

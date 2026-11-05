@@ -95,8 +95,6 @@ const rowGroupLabels:Readonly<Record<NonNullable<RowGroup>,string>>={book:'Book'
 const rowGroupLabel=(group:RowGroup)=>group===null?'None':rowGroupLabels[group];
 // The trade fields an export of trade rows states, beside the desk's own: money is in its currency.
 const numericFields=['tradeCount','lots','quantity','executionPrice','mark','executionPnl','fixedPrice','presentValue','revision'];
-// At most this many curves are shaped in one read (market/curve-shapes).
-
 export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(body:BlotterStreamRequest,handlers:BlotterStreamHandlers,signal:AbortSignal)=>Promise<void>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
   riskReportUrl?:(id:string)=>string;
   // Opens an option product's volatility surface; null in a window with no Vol surfaces page.
@@ -1351,7 +1349,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         // A Blotter read whose values were not drawn says why, once the count read beside it is in, and keeps what the previous read drew.
         else if(!live&&bookingCatalog==='directory'&&!holdings){if(arrived.length&&!kept){arrived=[];table=undefined;workspace.clear();}await factsRead.catch(()=>undefined);if(started!==generation||get('futures-page').hidden)return;readFailed(error,error===countFailed?'count':'valuation');}
         else if(!live)clear();
-        else{get('futures-page').dataset.pricingState='failed';showCrudeFacts();if(shapes===undefined)noShapes('the refresh that interrupted their read failed');}
+        else{get('futures-page').dataset.pricingState='failed';showCrudeFacts();noShapes('the refresh that interrupted their read failed',true);}
         // A read in the background is said by its own handler below; it still fails, for whoever awaits the values (valued).
         throw error;
       }finally{if(pricingController===controller)pricingController=undefined;}
@@ -1361,8 +1359,14 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       void pricingRead.catch(error=>{if(started===generation&&whereAmI()===scope&&!get('futures-page').hidden)options.failed(error);});
     }else await pricingRead;
   }
-  // Every row's curve unavailable, with the reason.
-  function noShapes(why:string){shapes={unavailable:`Curve shape unavailable · ${why}`};redrawCurves();syncPositionDetails();}
+  // A failed refresh keeps completed shapes and ends every unresolved cell's wait.
+  function noShapes(why:string,preserveCompleted:boolean){
+    const reason=`Curve shape unavailable · ${why}`;
+    if(preserveCompleted&&shapes&&'curves' in shapes){
+      for(const h of holdings?.holdings??[])if(!shapes.curves.has(h.curve))shapes.curves.set(h.curve,reason);
+    }else shapes={unavailable:reason};
+    redrawCurves();syncPositionDetails();
+  }
   // The rows' curve cells, once their shapes are read; the Risk lens draws none.
   function redrawCurves(){const column=tableColumns.indexOf('curve');if(column>=0)table?.redrawCells(column);}
   // Optional curve cells request shapes only when visible. Opening position details
@@ -1371,7 +1375,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     stopShapeReads();shapesRead=Promise.resolve();
     const current=()=>{try{requireCurrentRead(started,scope);return !get('futures-page').hidden;}catch{return false;}};
     let revision:string;
-    try{revision=options.definitionRevision();}catch{noShapes('the market definitions of this close are not loaded');return;}
+    try{revision=options.definitionRevision();}catch{noShapes('the market definitions of this close are not loaded',false);return;}
     const found=shapes&&'curves' in shapes&&shapes.revision===revision?new Map(shapes.curves):new Map<string,CurveShape|string>();
     shapes={revision,curves:found};
     const reader=batchReads<string,CurveShape|string>({maximum:curvesPerRead,current,read:curves=>readCurveShapes(api,source,curves),

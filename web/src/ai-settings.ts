@@ -389,15 +389,18 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     render();sync();
   }
   // Each tab appears by its own permission and reads only its own directories.
+  const loadedTabs=new Set<AiTab>(),tabKey=(tab:AiTab)=>tab==='providers'?'models':tab;
   async function load(){
-    const tabs=options.tabs();
+    loadedTabs.clear();const tabs=options.tabs();
     for(const tab of aiTabNames)get('ai-tab-'+tab).hidden=!tabs.includes(tab);
     if(!tabs.some(tab=>!get('ai-'+tab).hidden))show(tabs[0]??'models');
     const selected=tabs.find(tab=>!get('ai-'+tab).hidden);
     if(selected)await loadTab(selected);
   }
   async function loadTab(tab:AiTab){
-    if(!options.tabs().includes(tab))return;
+    const key=tabKey(tab);
+    if(!options.tabs().includes(tab)||loadedTabs.has(key))return;
+    loadedTabs.add(key);
     switch(tab){
       case 'models':case 'providers':await loadModels();break;
       case 'usage':await usage.load();break;
@@ -444,6 +447,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
 
   for(const tab of aiTabNames)get('ai-tab-'+tab).onclick=()=>{
     if(options.busy()||!options.tabs().includes(tab))return;
+    if(loadedTabs.has(tabKey(tab))){show(tab);return;}
     void options.act(async()=>{show(tab);await loadTab(tab);});
   };
   for(const id of ['ai-models-refresh','ai-providers-refresh'])get(id).onclick=()=>void options.act(loadModels);
@@ -527,7 +531,7 @@ export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>P
     unconfirmed:()=>[pending,providerPending,keyPending,testPending].some(p=>!!p.command)||agents.unconfirmed()||usage.unconfirmed()||prompts.unconfirmed(),
     refresh(){for(const zoned of [priceFrom,priceTo,withdrawFrom,withdrawTo])zoned.refresh();render();sync();agents.refresh();usage.refresh();},
     reset(){
-      generation++;clearDirectories();selected=undefined;selectedVendor=undefined;statementPair='';
+      generation++;loadedTabs.clear();clearDirectories();selected=undefined;selectedVendor=undefined;statementPair='';
       for(const id of ['ai-model-form','ai-rename-form','ai-key-form','ai-terms-form','ai-attest-form','ai-test-form'])form(id).reset();resetModelForms();show('models');
       // This identity's unconfirmed requests stay offered whether or not its directories can be read.
       pending.command=stored(pending,c=>modelPaths.includes(c.path));

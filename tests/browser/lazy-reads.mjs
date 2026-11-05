@@ -26,6 +26,8 @@ export async function run({command,evaluate,wait,click,persona,check,idle,url}){
     await check('a position opened after cached Blotter reuse loads only its demanded curve',"window.__lazyDeskShapes.length===1&&window.__lazyDeskShapes[0].curves.length===1",'window.__lazyDeskShapes');
     await persona('admin');await evaluate('window.__lazyRequests=[]');await click('#nav-ai');
     await check('opening Models does not read hidden AI tabs',"!window.__lazyRequests.some(path=>['/api/settings/ai/usage','/api/settings/ai/agents','/api/settings/ai/page-prompts'].includes(path))",'window.__lazyRequests');
+    await click('#ai-tab-providers');await click('#ai-tab-models');
+    await check('Models and Providers reuse their shared directory without reading it again on a tab switch',"window.__lazyRequests.filter(path=>path==='/api/settings/ai/models').length===1&&window.__lazyRequests.filter(path=>path==='/api/settings/ai/providers').length===1",'window.__lazyRequests');
     await evaluate('window.__lazyRequests=[]');await click('#ai-tab-agents');
     await check('opening Agents reads its own directory',"window.__lazyRequests.filter(path=>path==='/api/settings/ai/agents').length===1&&!window.__lazyRequests.includes('/api/settings/ai/usage')",'window.__lazyRequests');
   }finally{await persona('viewer');await click('#nav-market');await command('Page.removeScriptToEvaluateOnNewDocument',{identifier});}
