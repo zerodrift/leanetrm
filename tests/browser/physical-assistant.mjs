@@ -11,6 +11,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate(`window.__physicalAsks=[];{const send=window.fetch;window.fetch=async(path,options)=>{if(String(path).endsWith('/assistant/turns/ask'))window.__physicalAsks.push(JSON.parse(options.body));return send(path,options);};}`);
  const frames=await evaluate("(async()=>{const w=await(await fetch('/api/workspace/navigation')).json();return w.frames;})()");
  const before=frames.find(f=>f.at.startsWith('2020-12-18')),after=frames.find(f=>f.at.startsWith('2021-01-15T08:'));
+ if(before.close){await set('#close-session',before.close.session);await wait(idle);}
  await set('#snapshot',before.id);await wait(idle);await open('gas-setup');
  await click('#assistant-launcher');await wait("!document.querySelector('#assistant-panel').hidden");
  await wait(`[...document.querySelector('#assistant-agent').options].some(o=>o.value===${JSON.stringify(agent.id+':1')})`);
@@ -18,6 +19,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await script([{hold:'physical_old_navigation',tools:[['physical_nav','navigate',{page:'gas_setup',target:null}]]},{text:'Synthetic earlier setup answer.'}]);
  await set('#assistant-question','Open this gas setup.');await submit('#assistant-composer');await wait("!document.querySelector('#assistant-consent').hidden");await click('#assistant-allow');
  await wait("document.querySelector('#assistant-send').textContent==='Stop'");
+ // A close of another session is offered once that session is chosen (D328).
+ if(after.close&&after.close.session!==before.close?.session){await set('#close-session',after.close.session);await wait(idle);}
  await set('#snapshot',after.id);await wait(idle);await open('facilities');await set('#facility-ledger',fixture.ledgerId);await wait(idle);
  await fetch(new URL('/release/physical_old_navigation',control),{method:'POST'});
  await wait("document.querySelector('#assistant-turns').textContent.includes('Synthetic earlier setup answer.')&&document.querySelector('#assistant-send').textContent==='Send'");

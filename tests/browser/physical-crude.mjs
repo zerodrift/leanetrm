@@ -34,13 +34,15 @@ export async function run(actions){
  await check('the common crude position states contractual PV without unsupported settlement actions',"document.querySelector('#position-details').textContent.includes('Contractual PV')&&!document.querySelector('#position-details').querySelector('[data-action=settle]')");
  await check('crude bookings fit the viewport',fitsWidth);await shot('physical-crude-booking');
  // Contractual PV is unavailable in January; the authorized booked-facts path still opens operations.
- const january=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:')&&w.initialFrameIds.includes(f.id)).id;})()`);
+ const january=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith('2021-01-15T08:')&&w.initialFrameIds.includes(f.id));return {id:f.id,session:f.close?.session??null};})()`);
+ // The January close may belong to another session; the As of list offers it once that session is chosen (D328).
+ const chooseJanuary=async()=>{if(january.session){await set('#close-session',january.session);await wait(idle);}await set('#snapshot',january.id);await wait(idle);};
  const capFacts=()=>evaluate(`{if(!window.crudeFactPages){window.crudeFactPages=[];const original=window.fetch;window.fetch=(path,init)=>{if(String(path).endsWith('/trading/positions')&&init?.body){const body=JSON.parse(init.body);body.limit=2;window.crudeFactPages.push(body);return original(path,{...init,body:JSON.stringify(body)});}return original(path,init);};}}`);
  const openFacts=async()=>{await evaluate("window.crudeFactPages=[window.crudeFactPages.findLast(p=>p.offset===0)]");for(let page=0;page<20;page++){
   if(await evaluate("[...document.querySelectorAll('#crude-operation-facts button')].some(b=>b.dataset.tradeId===JSON.parse(sessionStorage.getItem('crude-browser-receipt')).tradeId)"))break;
   await click('#crude-facts-more');await wait(idle);
  }await evaluate("[...document.querySelectorAll('#crude-operation-facts button')].find(b=>b.dataset.tradeId===JSON.parse(sessionStorage.getItem('crude-browser-receipt')).tradeId).click()");await wait(operationsVisible+"&&"+idle);};
- await capFacts();await set('#snapshot',january);await wait(idle);await click('#nav-futures');await wait("document.querySelectorAll('#crude-operation-facts button').length>0&&"+idle);
+ await capFacts();await chooseJanuary();await click('#nav-futures');await wait("document.querySelectorAll('#crude-operation-facts button').length>0&&"+idle);
  await openFacts();
  await wait(operationsVisible+"&&"+idle);
  await check('operations beyond the first fact page remain reachable under one retained context',"window.crudeFactPages.some(p=>p.offset>0)&&window.crudeFactPages.every(p=>p.context.knowledgeMode==='retained')&&new Set(window.crudeFactPages.map(p=>p.context.contextId)).size===1","window.crudeFactPages.map(p=>({offset:p.offset,context:p.context}))");
@@ -50,7 +52,7 @@ export async function run(actions){
  await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/crude/operations/receipt')&&response.ok){sessionStorage.setItem('crude-browser-operation',JSON.stringify(JSON.parse(args[1].body)));throw new TypeError('Synthetic lost receipt response');}return response;};}`);
  await submit('#crude-operation-form');await wait(idle);
  await check('lost receipt response stays in the common pending command with immutable recovery',"!document.querySelector('#futures-pending').hidden&&document.querySelector('#crude-operation-quantity').disabled");
- await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-futures')&&"+idle);await capFacts();await set('#snapshot',january);await wait(idle);await click('#nav-futures');await wait(idle);
+ await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-futures')&&"+idle);await capFacts();await chooseJanuary();await click('#nav-futures');await wait(idle);
  await click('#futures-reconcile');await wait(idle);
  await openFacts();await wait(operationsVisible+"&&"+idle);
  await check('receipt status recovery reopens one accepted receipt with remaining contract volume',"document.querySelector('#futures-pending').hidden&&document.querySelector('#crude-operation-ledger').textContent.includes('browser-certified-receipt')&&document.querySelector('#crude-operation-ledger').textContent.includes('600')");
@@ -72,7 +74,7 @@ export async function run(actions){
  await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/crude/operations/payment/reverse')&&response.ok)throw new TypeError('Synthetic lost record correction response');return response;};}`);
  await submit('#crude-operation-form');await wait(idle);
  await check('lost record correction outcome retains the same common recovery controls',"!document.querySelector('#futures-pending').hidden&&document.querySelector('#crude-operation-paymentRecord').disabled");
- await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-futures')&&"+idle);await capFacts();await set('#snapshot',january);await wait(idle);await click('#nav-futures');await wait(idle);await click('#futures-reconcile');await wait(idle);
+ await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-futures')&&"+idle);await capFacts();await chooseJanuary();await click('#nav-futures');await wait(idle);await click('#futures-reconcile');await wait(idle);
  await openFacts();await wait(operationsVisible+"&&"+idle);
  await check('recovered payment correction retains history and restores the full invoice open balance',"document.querySelector('#futures-pending').hidden&&document.querySelector('#crude-operation-ledger').textContent.includes('browser-payment-correction')&&document.querySelector('#crude-operation-ledger').textContent.includes('Reversed')&&[...document.querySelectorAll('#crude-operation-ledger section')].find(s=>s.querySelector('h4').textContent==='Invoice balances').querySelector('tbody tr').children[4].textContent==='-28000'","({pending:!document.querySelector('#futures-pending').hidden,ledger:document.querySelector('#crude-operation-ledger').textContent})");
  await common('invoice_void','browser-invoice-void');await set('#crude-operation-effectiveAt','2021-01-08T12:00:00');await set('#crude-operation-recordPolicy','crude_record_correction_v1');await set('#crude-operation-invoiceRecord',await evaluate("document.querySelector('#crude-operation-invoiceRecord').options[1].value"));await submit('#crude-operation-form');await wait(idle);

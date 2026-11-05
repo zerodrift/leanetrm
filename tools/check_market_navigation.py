@@ -53,9 +53,12 @@ def run_checks(c, check, query, manifest):
                               'example', 'futuresConvention', 'initialFrameIds', 'frames', 'curveNames', 'curves','referenceDisplay','frameCatalog','live'}
           and navigation['live'] is None
           and navigation['kind'] == 'market_navigation' and navigation['kindsVersion'] == 'curve_kinds_v1'
-          # Built-in frames are recorded session closes (D328): each names its stored close and its session day.
-          and all(set(frame) == {'id', 'name', 'at','originCloseId','close'} and frame['originCloseId'] == frame['id']
-                  and frame['close']['session'] and frame['close']['businessDate'] for frame in navigation['frames']))
+          # Built-in frames are recorded session closes (D328): each names its stored close and its session day. A frame a
+          # fixture never records stays a working snapshot, with neither.
+          and all(set(frame) == {'id', 'name', 'at','originCloseId','close'} and (frame['originCloseId'] == frame['id']
+                  and frame['close']['session'] and frame['close']['businessDate'] or frame['originCloseId'] is None and frame['close'] is None)
+                  for frame in navigation['frames'])
+          and any(frame['close'] for frame in navigation['frames']))
     # PPA-only configured frames consume retained session capacity but are not listed here.
     check('ordinary navigation declares its bounded exact stored-close discovery policy',
           navigation['frameCatalog']=={'durableSelection':'exact_recorded_close_pins_v1',
