@@ -14,8 +14,8 @@ def run_checks(url, query, manifest):
     def session(code, calendar, cutoff):
         query(f"""INSERT INTO market_data.close_sessions VALUES('{catalog}','{code}','Synthetic {code}');
         INSERT INTO market_data.close_session_versions(catalog_id,code,version,state,generation,definition_revision_id,reference_catalog_id,reference_revision_id,
-         calendar_code,cutoff_local,effective_from,effective_to,actor_id,request_id)
-        VALUES('{catalog}','{code}',1,'published',1,'{revision}',{reference},'{calendar}','{cutoff}','2020-12-01','2021-12-01','{approver}','{uuid4()}');
+         calendar_code,cutoff_local,effective_from,effective_to,actor_id,request_id,request,publisher_id,publish_request_id)
+        VALUES('{catalog}','{code}',1,'published',1,'{revision}',{reference},'{calendar}','{cutoff}','2020-12-01','2021-12-01','{approver}','{uuid4()}','{{}}','{approver}','{uuid4()}');
         INSERT INTO market_data.close_session_curves VALUES('{catalog}','{code}',1,'{revision}','future');""")
 
     def instant(code, day):
@@ -69,7 +69,7 @@ def run_checks(url, query, manifest):
     VALUES('{grant}','{approver}','{tenant}','{workspace}','{catalog}','test_sql_london',clock_timestamp(),'9999-12-31',false,'{approver}','{uuid4()}');""")
     assert can_record('test_sql_london') == 't'
     assert can_record('test_sql_new_york') == 'f', 'A London grant recorded a New York close'
-    query(f"UPDATE security.close_session_grants SET revoked=true WHERE id='{grant}';")
+    query(f"UPDATE security.close_session_grants SET revoked=true,revoker_id='{approver}',revoke_request_id='{uuid4()}' WHERE id='{grant}';")
     assert can_record('test_sql_london') == 'f', 'A revoked grant recorded a close'
     print('PASS recording a close needs a live grant for that session', flush=True)
 

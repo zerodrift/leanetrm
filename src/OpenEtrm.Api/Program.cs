@@ -124,6 +124,10 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText=="curve_activation_conflict" => (409,p.MessageText,"The activation timeline or request changed. Reload or retry the exact original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("curve_activation_",StringComparison.Ordinal) => (422,p.MessageText,"Supply disjoint effective intervals and exact published outputs under the complete timeline policy."),
     PostgresException p when p.MessageText is "job_conflict" => (409,p.MessageText,"The job or request changed. Refresh or reconcile the original request."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="close_conflict" => (409,p.MessageText,"This close session, grant or request changed. Reload it or retry the exact original request."),
+    PostgresException p when p.SqlState=="42501" && p.MessageText is "close_denied" or "close_grant" => (403,p.MessageText=="close_grant"?"close_grant":"access_denied",
+        p.MessageText=="close_grant"?"Recording this session's close needs a grant for the session.":"The selected test identity cannot perform this operation."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("close_",StringComparison.Ordinal) => (422,p.MessageText,CloseSessions.Refusal(p.MessageText)),
     PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
     PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/jobs/pilot-close") => (422,"pilot_profile","Choose supported exact books, curves, sources, policies and schedule terms."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("pilot_",StringComparison.Ordinal) => (422,p.MessageText,"Choose complete explicit pilot close inputs, supported policies and an available exact anchor."),
@@ -454,6 +458,21 @@ api.MapMarketDates(database,(c,work)=>Locked(c,async session=>
     await RefreshFrames(session,c.RequestAborted);
     return await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>work(connection,Pin(session),session.VisibleFrames,session.FrameCatalog,ct),c.RequestAborted);
 }));
+api.MapGet("/close-sessions/catalog",(Func<HttpContext,Task<IResult>>)(c=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+    Results.Ok(await CloseSessions.Catalog(connection,database.Manifest.CatalogId,ct)))));
+api.MapPost("/close-sessions/save",(HttpContext c,CloseSessionSave body)=>DateOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>
+    Results.Ok(await CloseSessions.Save(connection,database,body,ct))));
+api.MapPost("/close-sessions/publish",(HttpContext c,CloseSessionPublish body)=>DateOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>
+    Results.Ok(await CloseSessions.Publish(connection,database.Manifest.CatalogId,body,ct))));
+Task<IResult> CloseGrantOperation(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> work)=>Locked(c,session=>
+{
+    c.Items["administration_attempted"]=true;
+    return database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>Results.Ok(await work(connection,ct)),c.RequestAborted,admission:Admission.Administration);
+});
+api.MapGet("/close-sessions/grants/list",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>
+    Results.Ok(await CloseSessions.Grants(connection,ct)),c.RequestAborted))));
+api.MapPost("/close-sessions/grants",(HttpContext c,CloseSessionGrant body)=>CloseGrantOperation(c,async(connection,ct)=>await CloseSessions.Grant(connection,database.Manifest.CatalogId,body,ct)));
+api.MapPost("/close-sessions/grants/revoke",(HttpContext c,CloseSessionRevoke body)=>CloseGrantOperation(c,async(connection,ct)=>await CloseSessions.Revoke(connection,body,ct)));
 api.MapPost("/market/closes/register",(HttpContext c,MarketCloseRegister body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"PublishMarketData",async(connection,ct)=>
         Results.Ok(await MarketCloses.Register(database,connection,Pin(session),Frame(session,body.SnapshotId),body,ct)),c.RequestAborted)));

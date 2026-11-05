@@ -942,6 +942,8 @@ def main():
             elif args.regional_closes_check:
                 from check_regional_closes_sql import run_checks as check_regional_closes_sql
                 check_regional_closes_sql(url,query,manifest)
+                from check_close_sessions import run_checks as check_close_sessions
+                check_close_sessions(url,query,manifest)
             elif args.pilot_close_check:
                 from check_pilot_close import run_checks as check_pilot_close
                 check_pilot_close(url,query,manifest,psql,app_env)

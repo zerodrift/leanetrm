@@ -20,8 +20,9 @@ CREATE TABLE market_data.close_session_versions(
  definition_revision_id uuid NOT NULL,reference_catalog_id uuid NOT NULL,reference_revision_id uuid NOT NULL,
  calendar_code ref_data.code NOT NULL,cutoff_local time NOT NULL CHECK(cutoff_local=date_trunc('minute',cutoff_local)),
  effective_from date NOT NULL,effective_to date NOT NULL CHECK(isfinite(effective_from) AND isfinite(effective_to) AND effective_from<effective_to),
- actor_id uuid NOT NULL REFERENCES security.principals(id),request_id uuid NOT NULL,
- PRIMARY KEY(catalog_id,code,version),UNIQUE(catalog_id,code,version,definition_revision_id),UNIQUE(catalog_id,actor_id,request_id),
+ actor_id uuid NOT NULL REFERENCES security.principals(id),request_id uuid NOT NULL,request jsonb NOT NULL,
+ publisher_id uuid REFERENCES security.principals(id),publish_request_id uuid,CHECK((state='published')=(publisher_id IS NOT NULL AND publish_request_id IS NOT NULL)),
+ PRIMARY KEY(catalog_id,code,version),UNIQUE(catalog_id,publisher_id,publish_request_id),UNIQUE(catalog_id,code,version,definition_revision_id),UNIQUE(catalog_id,actor_id,request_id),
  FOREIGN KEY(catalog_id,code) REFERENCES market_data.close_sessions(catalog_id,code),
  FOREIGN KEY(catalog_id,definition_revision_id,reference_catalog_id,reference_revision_id)
   REFERENCES market_data.revisions(catalog_id,id,reference_catalog_id,reference_revision_id),
@@ -38,6 +39,8 @@ CREATE TABLE security.close_session_grants(
  catalog_id uuid NOT NULL,session_code ref_data.code NOT NULL,
  granted_from ref_data.instant NOT NULL,granted_to timestamptz NOT NULL,revoked boolean NOT NULL,
  actor_id uuid NOT NULL REFERENCES security.principals(id),request_id uuid NOT NULL,UNIQUE(actor_id,request_id),
+ revoker_id uuid REFERENCES security.principals(id),revoke_request_id uuid,CHECK(revoked=(revoker_id IS NOT NULL AND revoke_request_id IS NOT NULL)),
+ UNIQUE(revoker_id,revoke_request_id),
  FOREIGN KEY(tenant_id,workspace_id,principal_id) REFERENCES security.workspace_memberships(tenant_id,workspace_id,principal_id),
  FOREIGN KEY(catalog_id,session_code) REFERENCES market_data.close_sessions(catalog_id,code),
  CHECK(isfinite(granted_to) AND granted_to<=TIMESTAMPTZ '9999-12-31 00:00:00+00' AND granted_from<granted_to)
@@ -114,12 +117,164 @@ CREATE FUNCTION security.can_record_close(catalog uuid,session text) RETURNS boo
   AND g.granted_from<=clock_timestamp() AND clock_timestamp()<g.granted_to);
 $$;
 
+-- A published session version and its curves never change; a draft changes only by being published.
+CREATE FUNCTION market_data.guard_close_session() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ IF TG_OP='UPDATE' AND TG_TABLE_NAME='close_session_versions' AND OLD.state='draft' AND NEW.state='published'
+ AND(to_jsonb(NEW)-ARRAY['state','generation','publisher_id','publish_request_id'])=(to_jsonb(OLD)-ARRAY['state','generation','publisher_id','publish_request_id'])
+ THEN RETURN NEW;END IF;
+ RAISE EXCEPTION 'close_session_immutable' USING ERRCODE='55000';
+END;$$;
+CREATE TRIGGER immutable_session BEFORE UPDATE OR DELETE ON market_data.close_session_versions FOR EACH ROW EXECUTE FUNCTION market_data.guard_close_session();
+CREATE TRIGGER immutable_session BEFORE UPDATE OR DELETE ON market_data.close_session_curves FOR EACH ROW EXECUTE FUNCTION market_data.guard_close_session();
+CREATE TRIGGER immutable_session BEFORE UPDATE OR DELETE ON market_data.close_sessions FOR EACH ROW EXECUTE FUNCTION market_data.guard_close_session();
+
+CREATE FUNCTION security.close_session_json(catalog uuid,session text,session_version integer) RETURNS jsonb
+ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+ SELECT jsonb_build_object('code',v.code,'name',s.name,'version',v.version,'state',v.state,'generation',v.generation,
+  'calendarCode',v.calendar_code,'clockCode',c.clock_code,'cutoff',to_char(v.cutoff_local,'HH24:MI'),
+  'curves',(SELECT jsonb_agg(k.curve_code ORDER BY k.curve_code COLLATE "C") FROM market_data.close_session_curves k
+   WHERE(k.catalog_id,k.code,k.version)=(v.catalog_id,v.code,v.version)),
+  'effectiveFrom',v.effective_from,'effectiveTo',v.effective_to)
+ FROM market_data.close_session_versions v JOIN market_data.close_sessions s USING(catalog_id,code)
+ JOIN ref_data.calendars c ON(c.catalog_id,c.revision_id,c.code)=(v.reference_catalog_id,v.reference_revision_id,v.calendar_code)
+ WHERE(v.catalog_id,v.code,v.version)=(catalog,session,session_version);
+$$;
+
+CREATE FUNCTION security.close_session_catalog(catalog uuid) RETURNS jsonb
+ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ IF NOT security.market_access(catalog,'ReadMarketData') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
+ RETURN coalesce((SELECT jsonb_agg(security.close_session_json(catalog,v.code,v.version) ORDER BY v.code COLLATE "C",v.version)
+  FROM market_data.close_session_versions v WHERE v.catalog_id=catalog),'[]'::jsonb);
+END;$$;
+
+-- Saves a new draft version of a session over the catalog's exact definition revision. A retried request returns its
+-- first outcome; the same request with other content is a conflict.
+CREATE FUNCTION security.save_close_session(catalog uuid,definition uuid,operation uuid,draft jsonb) RETURNS jsonb
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c security.request_contexts;r market_data.revisions;previous market_data.close_session_versions;next_version integer;
+ session text;cutoff time;curves text[];
+BEGIN
+ IF NOT security.market_access(catalog,'WriteMarketDefinitions') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
+ PERFORM pg_advisory_xact_lock(730849102);
+ SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ IF operation IS NULL OR operation='00000000-0000-0000-0000-000000000000' THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ SELECT * INTO previous FROM market_data.close_session_versions WHERE catalog_id=catalog AND actor_id=c.actor_id AND request_id=operation;
+ IF FOUND THEN
+  IF previous.request<>draft OR previous.definition_revision_id<>definition THEN RAISE EXCEPTION 'close_conflict' USING ERRCODE='P0001';END IF;
+  RETURN security.close_session_json(catalog,previous.code,previous.version);
+ END IF;
+ session=draft->>'code';
+ IF jsonb_typeof(draft) IS DISTINCT FROM 'object' OR session IS NULL OR session!~'^[a-z][a-z0-9_]{0,63}$'
+ OR jsonb_typeof(draft->'name') IS DISTINCT FROM 'string' OR length(btrim(draft->>'name')) NOT BETWEEN 1 AND 80
+ OR coalesce(draft->>'cutoff','')!~'^([01][0-9]|2[0-3]):[0-5][0-9]$' OR jsonb_typeof(draft->'curves') IS DISTINCT FROM 'array'
+ OR jsonb_array_length(draft->'curves') NOT BETWEEN 1 AND 512
+ OR coalesce(draft->>'effectiveFrom','')!~'^\d{4}-\d{2}-\d{2}$' OR coalesce(draft->>'effectiveTo','')!~'^\d{4}-\d{2}-\d{2}$'
+ OR(draft->>'effectiveFrom')::date>=(draft->>'effectiveTo')::date THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ SELECT array_agg(DISTINCT x) INTO curves FROM jsonb_array_elements_text(draft->'curves')x;
+ SELECT * INTO r FROM market_data.revisions WHERE(catalog_id,id)=(catalog,definition) AND state='sealed';
+ IF NOT FOUND OR cardinality(curves)<>jsonb_array_length(draft->'curves')
+ OR EXISTS(SELECT 1 FROM unnest(curves)k WHERE NOT EXISTS(SELECT 1 FROM market_data.curves m WHERE(m.catalog_id,m.revision_id,m.code)=(catalog,definition,k)))
+ OR NOT EXISTS(SELECT 1 FROM ref_data.calendars cal WHERE(cal.catalog_id,cal.revision_id,cal.code)=(r.reference_catalog_id,r.reference_revision_id,draft->>'calendarCode'))
+ THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ IF EXISTS(SELECT 1 FROM market_data.close_sessions s WHERE(s.catalog_id,s.code)=(catalog,session) AND s.name<>draft->>'name')
+ THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ INSERT INTO market_data.close_sessions VALUES(catalog,session,draft->>'name') ON CONFLICT DO NOTHING;
+ SELECT coalesce(max(version),0)+1 INTO next_version FROM market_data.close_session_versions WHERE(catalog_id,code)=(catalog,session);
+ INSERT INTO market_data.close_session_versions(catalog_id,code,version,state,generation,definition_revision_id,reference_catalog_id,reference_revision_id,
+  calendar_code,cutoff_local,effective_from,effective_to,actor_id,request_id,request)
+ VALUES(catalog,session,next_version,'draft',1,definition,r.reference_catalog_id,r.reference_revision_id,draft->>'calendarCode',(draft->>'cutoff')::time,
+  (draft->>'effectiveFrom')::date,(draft->>'effectiveTo')::date,c.actor_id,operation,draft);
+ INSERT INTO market_data.close_session_curves SELECT catalog,session,next_version,definition,k FROM unnest(curves)k;
+ IF NOT security.market_access(catalog,'WriteMarketDefinitions') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
+ RETURN security.close_session_json(catalog,session,next_version);
+END;$$;
+
+-- Publishes a draft at its expected generation. Published versions of one session never cover the same business day.
+CREATE FUNCTION security.publish_close_session(catalog uuid,operation uuid,session text,session_version integer,expected_generation integer) RETURNS jsonb
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c security.request_contexts;v market_data.close_session_versions;
+BEGIN
+ IF NOT security.market_access(catalog,'SealMarketDefinitions') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
+ PERFORM pg_advisory_xact_lock(730849102);
+ SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ SELECT * INTO v FROM market_data.close_session_versions s WHERE(s.catalog_id,s.code,s.version)=(catalog,session,session_version) FOR UPDATE;
+ IF NOT FOUND OR operation IS NULL THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ IF v.state='published' THEN
+  IF(v.publisher_id,v.publish_request_id)<>(c.actor_id,operation) OR v.generation<>expected_generation+1 THEN RAISE EXCEPTION 'close_conflict' USING ERRCODE='P0001';END IF;
+  RETURN security.close_session_json(catalog,session,session_version);
+ END IF;
+ IF v.generation<>expected_generation OR EXISTS(SELECT 1 FROM market_data.close_session_versions o WHERE(o.catalog_id,o.code)=(catalog,session) AND o.publisher_id=c.actor_id AND o.publish_request_id=operation)
+ THEN RAISE EXCEPTION 'close_conflict' USING ERRCODE='P0001';END IF;
+ IF EXISTS(SELECT 1 FROM market_data.close_session_versions o WHERE(o.catalog_id,o.code)=(catalog,session) AND o.state='published'
+  AND o.effective_from<v.effective_to AND v.effective_from<o.effective_to) THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ UPDATE market_data.close_session_versions SET state='published',generation=v.generation+1,publisher_id=c.actor_id,publish_request_id=operation
+ WHERE(catalog_id,code,version)=(catalog,session,session_version);
+ IF NOT security.market_access(catalog,'SealMarketDefinitions') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
+ RETURN security.close_session_json(catalog,session,session_version);
+END;$$;
+
+CREATE FUNCTION security.close_grant_json(g security.close_session_grants) RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT jsonb_build_object('id',g.id,'principalId',g.principal_id,'session',g.session_code,'grantedFrom',g.granted_from,'grantedTo',g.granted_to,'revoked',g.revoked);
+$$;
+CREATE FUNCTION security.require_close_administration() RETURNS security.request_contexts
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c security.request_contexts;
+BEGIN
+ IF NOT security.has_permission('ManageAccess') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
+ SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user AND administration;
+ IF NOT FOUND OR c.market_context_id IS NOT NULL THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
+ RETURN c;
+END;$$;
+-- Grants one workspace member the authority to record, and so replace, one session's closes.
+CREATE FUNCTION security.grant_close_session(catalog uuid,operation uuid,principal uuid,session text,granted_from timestamptz,granted_to timestamptz) RETURNS jsonb
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c security.request_contexts=security.require_close_administration();g security.close_session_grants;
+BEGIN
+ SELECT * INTO g FROM security.close_session_grants WHERE(actor_id,request_id)=(c.actor_id,operation);
+ IF FOUND THEN
+  IF(g.catalog_id,g.principal_id,g.session_code,g.granted_from,g.granted_to)<>(catalog,principal,session,granted_from,granted_to) THEN RAISE EXCEPTION 'close_conflict' USING ERRCODE='P0001';END IF;
+  RETURN security.close_grant_json(g);
+ END IF;
+ IF operation IS NULL OR NOT EXISTS(SELECT 1 FROM market_data.close_sessions s WHERE(s.catalog_id,s.code)=(catalog,session))
+ OR NOT EXISTS(SELECT 1 FROM security.workspace_memberships m WHERE(m.tenant_id,m.workspace_id,m.principal_id)=(c.tenant_id,c.workspace_id,principal) AND m.enabled)
+ OR NOT EXISTS(SELECT 1 FROM security.market_catalog_scopes m WHERE(m.tenant_id,m.workspace_id,m.catalog_id)=(c.tenant_id,c.workspace_id,catalog))
+ OR granted_from IS NULL OR granted_to IS NULL OR granted_from>=granted_to THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ INSERT INTO security.close_session_grants VALUES(gen_random_uuid(),principal,c.tenant_id,c.workspace_id,catalog,session,granted_from,granted_to,false,c.actor_id,operation,NULL,NULL)
+ RETURNING * INTO g;
+ RETURN security.close_grant_json(g);
+END;$$;
+CREATE FUNCTION security.revoke_close_session_grant(operation uuid,grant_id uuid) RETURNS jsonb
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c security.request_contexts=security.require_close_administration();g security.close_session_grants;
+BEGIN
+ SELECT * INTO g FROM security.close_session_grants WHERE id=grant_id AND(tenant_id,workspace_id)=(c.tenant_id,c.workspace_id) FOR UPDATE;
+ IF NOT FOUND OR operation IS NULL THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ IF g.revoked THEN
+  IF(g.revoker_id,g.revoke_request_id)<>(c.actor_id,operation) THEN RAISE EXCEPTION 'close_conflict' USING ERRCODE='P0001';END IF;
+  RETURN security.close_grant_json(g);
+ END IF;
+ UPDATE security.close_session_grants SET revoked=true,revoker_id=c.actor_id,revoke_request_id=operation WHERE id=grant_id RETURNING * INTO g;
+ RETURN security.close_grant_json(g);
+END;$$;
+CREATE FUNCTION security.close_session_grants() RETURNS jsonb
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c security.request_contexts;
+BEGIN
+ IF NOT security.has_permission('ManageAccess') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
+ SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ RETURN coalesce((SELECT jsonb_agg(security.close_grant_json(g) ORDER BY g.session_code,g.granted_from,g.id) FROM security.close_session_grants g
+  WHERE(g.tenant_id,g.workspace_id)=(c.tenant_id,c.workspace_id)),'[]'::jsonb);
+END;$$;
+
 DO $$DECLARE f record;BEGIN
  FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security'
- AND p.proname IN('close_session_instant','close_in_force','can_record_close') LOOP
+ AND p.proname IN('close_session_instant','close_in_force','can_record_close','close_session_json','close_session_catalog','save_close_session','publish_close_session',
+ 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants') LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f.signature);
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.signature);
-  IF f.proname<>'close_session_instant' THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;
+  IF f.proname NOT IN('close_session_instant','close_session_json','close_grant_json','require_close_administration') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;
  END LOOP;
 END$$;
 COMMIT;
