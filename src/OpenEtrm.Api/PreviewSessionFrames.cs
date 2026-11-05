@@ -16,7 +16,8 @@ public sealed partial class PreviewSession
     private Guid aliasNamespace=Guid.NewGuid();
     public FrameCatalogInfo FrameCatalog{get;private set;}=new("exact_recorded_close_pins_v1","preserved_session_plus_latest_visible_closes_v1",MaximumFrames,0,false);
     public ImmutableArray<InputFrame> PersistentFrames=>[..Frames.Values.Where(frame=>!discoveredFrames.Contains(frame.Id)&&!IsLiveFrame(frame.Id))];
-    public ImmutableArray<InputFrame> VisibleFrames=>[..Frames.Values.Where(frame=>frame.PpaBundle is null && frame.ContextId==MarketContext?.ContextId).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)];
+    // A replaced close stays resolvable for what was saved with it, but is never offered again (D319).
+    public ImmutableArray<InputFrame> VisibleFrames=>[..Frames.Values.Where(frame=>frame.PpaBundle is null && frame.ContextId==MarketContext?.ContextId && frame.Close?.ReplacedBy is null).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)];
     public ImmutableArray<InputFrame> ContextAliases(ScheduleContext? context)=>Live?.Frame is {} live&&live.ContextId==context?.ContextId?[live]:context is null?[]:
         [..Frames.Values.Where(frame=>discoveredFrames.Contains(frame.Id)&&frame.OriginCloseId is null&&frame.ContextId==context.ContextId).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)];
     public ImmutableArray<InputFrame> SelectContextAliases(PreviewData data,ScheduleContext context)

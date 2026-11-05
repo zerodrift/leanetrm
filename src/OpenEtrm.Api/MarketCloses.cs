@@ -16,6 +16,8 @@ public sealed record MarketCloseInfo(Guid Id,string Name,DateTimeOffset At,strin
 {
     public Guid RequestId{get;init;}
 }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record MarketCloseHistoryRequest([property:JsonRequired] string Session,[property:JsonRequired] DateOnly BusinessDate);
 public sealed record MarketCloseFrames(ImmutableArray<InputFrame> Frames,int Limit,bool HasMore);
 
 // Durable frames pin native observations and explicit membership. Registering a
@@ -56,6 +58,12 @@ public static class MarketCloses
         return new(id,reader.GetString(0),reader.GetFieldValue<DateTimeOffset>(1),reader.GetString(2),new(catalog,reader.GetGuid(3)),new(reader.GetGuid(4),reader.GetGuid(5)),
             reader.IsDBNull(6)?null:reader.GetGuid(6),reader.IsDBNull(7)?null:reader.GetGuid(7),reader.GetString(9),reader.GetInt32(10),
             reader.GetFieldValue<DateOnly>(11),reader.GetGuid(12) is var current&&current!=id?current:null){RequestId=reader.GetGuid(8)};
+    }
+    // A session business day's visible recorded closes, newest first: the close in force and the history it replaced.
+    public static async Task<JsonElement> History(NpgsqlConnection connection,Guid catalog,MarketCloseHistoryRequest request,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT security.close_history($1,$2,$3)::text",catalog,request.Session,request.BusinessDate);
+        return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
     public static async Task<MarketCloseFrames> Frames(NpgsqlConnection connection,Guid catalog,Guid definition,Guid? contextId,CancellationToken ct,int limit=128)
     {

@@ -325,10 +325,26 @@ BEGIN
  RETURN identity;
 END;$$;
 
+-- A session business day's visible recorded closes, newest first: the close in force and the history it replaced, with who
+-- recorded each and when. History is for reading; nothing here selects a replaced close.
+CREATE FUNCTION security.close_history(catalog uuid,session text,business_date date) RETURNS jsonb
+ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c security.request_contexts;current uuid=security.close_in_force(catalog,session,business_date);rows jsonb;
+BEGIN
+ SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('id',s.id,'name',s.name,'at',s.at,'recordedBy',m.display_name,
+  'recordedAt',security.checked_commit_time(s.publication_xid),'inForce',s.id=current) ORDER BY s.publication_order DESC),'[]'::jsonb) INTO rows
+ FROM market_data.market_closes s LEFT JOIN security.workspace_memberships m ON(m.tenant_id,m.workspace_id,m.principal_id)=(c.tenant_id,c.workspace_id,s.actor_id)
+ WHERE(s.catalog_id,s.session_code,s.business_date)=(catalog,session,close_history.business_date) AND security.market_close_visible(catalog,s.id);
+ RETURN jsonb_build_object('session',session,'businessDate',business_date,
+  'inForce',(SELECT r FROM jsonb_array_elements(rows)r WHERE(r->>'inForce')::boolean),
+  'replaced',coalesce((SELECT jsonb_agg(r) FROM jsonb_array_elements(rows)r WHERE NOT(r->>'inForce')::boolean),'[]'::jsonb));
+END;$$;
+
 DO $$DECLARE f record;BEGIN
  FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security'
  AND p.proname IN('close_session_instant','close_in_force','can_record_close','close_session_json','close_session_catalog','save_close_session','publish_close_session',
- 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close') LOOP
+ 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history') LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f.signature);
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.signature);
   IF f.proname NOT IN('close_session_instant','close_session_json','close_grant_json','require_close_administration') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;

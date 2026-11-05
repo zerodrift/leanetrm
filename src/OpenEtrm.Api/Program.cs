@@ -473,6 +473,11 @@ api.MapGet("/close-sessions/grants/list",(Func<HttpContext,Task<IResult>>)(c=>Lo
     Results.Ok(await CloseSessions.Grants(connection,ct)),c.RequestAborted))));
 api.MapPost("/close-sessions/grants",(HttpContext c,CloseSessionGrant body)=>CloseGrantOperation(c,async(connection,ct)=>await CloseSessions.Grant(connection,database.Manifest.CatalogId,body,ct)));
 api.MapPost("/close-sessions/grants/revoke",(HttpContext c,CloseSessionRevoke body)=>CloseGrantOperation(c,async(connection,ct)=>await CloseSessions.Revoke(connection,body,ct)));
+api.MapPost("/market/closes/history",(HttpContext c,MarketCloseHistoryRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    await Pin(session).Bind(connection,database.Manifest.CatalogId,ct);
+    return Results.Ok(await MarketCloses.History(connection,database.Manifest.CatalogId,body,ct));
+},c.RequestAborted)));
 api.MapPost("/market/closes/register",(HttpContext c,MarketCloseRegister body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"PublishMarketData",async(connection,ct)=>
         Results.Ok(await MarketCloses.Register(database,connection,Pin(session),Frame(session,body.SnapshotId),body,ct)),c.RequestAborted)));
@@ -928,7 +933,8 @@ object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalo
         return new {referenceRevision=source.Revision,definitionRevisionId=source.Definition};
     });
     return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
-        frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:context is null?session.InitialFrames:session.ContextAliases(context).Select(f=>f.Id).ToArray()};
+        frames=prior is null?[..session.VisibleFrames.Where(f=>f.Close is not null)]:ImmutableArray.Create(prior),
+        workingSnapshots=prior is null?[..session.VisibleFrames.Where(f=>f.Close is null)]:ImmutableArray<InputFrame>.Empty,frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:context is null?session.InitialFrames:session.ContextAliases(context).Select(f=>f.Id).ToArray()};
 }
 Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=>
 {
@@ -953,7 +959,7 @@ api.MapGet("/workspace/navigation",(Func<HttpContext,Task<IResult>>)(c=>Locked(c
     return Results.Ok(new MarketNavigation(Profile(session),session.MarketContext,read.navigation.DefinitionRevision,read.navigation.ReferenceRevision,
         database.Manifest.FuturesConvention,database.Manifest.Example,
         session.MarketContext is null?[..session.InitialFrames]:[..session.ContextAliases(session.MarketContext).Select(f=>f.Id)],
-        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary()});
+        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId,f.Close))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary()});
 })));
 api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {

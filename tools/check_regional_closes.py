@@ -11,6 +11,12 @@ def instant(value):
     return datetime.fromisoformat(value.replace('Z', '+00:00')).isoformat()
 
 
+def snapshot(who, at):
+    """A snapshot the session offers at an instant: a recorded close in force or a working snapshot."""
+    workspace = who.call('workspace')
+    return next(f for f in workspace['workingSnapshots'] + workspace['frames'] if instant(f['at']) == instant(at))
+
+
 def client(url, profile):
     value = PreviewClient(url); value.bootstrap(); value.call('profile', {'profile': profile}); return value
 
@@ -18,7 +24,7 @@ def client(url, profile):
 def run_checks(url, query, manifest):
     catalog, revision = manifest['catalogId'], manifest['revisionId']
     viewer, editor, approver, admin = (client(url, p) for p in ('viewer', 'editor', 'approver', 'admin'))
-    frame = next(f for f in approver.call('workspace')['frames'] if instant(f['at']) == instant('2020-12-18T16:00:00Z'))
+    frame = snapshot(approver, '2020-12-18T16:00:00Z')
     curves = sorted(frame['curveContracts'])
     publish(editor, approver, draft('test_utc_close', 'test_business', '16:00', curves))
     publish(editor, approver, draft('test_late_close', 'test_minus_18_days', '22:00', curves))
@@ -74,7 +80,7 @@ def run_checks(url, query, manifest):
     racers, results = [client(url, 'approver') for _ in range(2)], []
     def race(who):
         try:
-            own = next(f for f in who.call('workspace')['frames'] if instant(f['at']) == instant('2020-12-18T16:00:00Z') and 'close' not in f)
+            own = snapshot(who, '2020-12-18T16:00:00Z')
             results.append(record(who, 'test_utc_close', '2020-12-18', 'Synthetic race', snapshot=own['id']))
         except Exception as error: results.append(repr(error))
     threads = [threading.Thread(target=race, args=(who,)) for who in racers]
@@ -84,3 +90,30 @@ def run_checks(url, query, manifest):
     latest = max(results, key=lambda r: int(query(f"SELECT publication_order FROM market_data.market_closes WHERE id='{r['id']}';")))
     assert query(f"SELECT id FROM market_data.market_closes WHERE catalog_id='{catalog}' AND session_code='test_utc_close' AND business_date='2020-12-18' ORDER BY publication_order DESC LIMIT 1;") == latest['id']
     print('PASS concurrent recordings for one session day both succeed and the later one is in force', flush=True)
+
+    # Only the close in force is a choice: the calendar lists it once per business day and counts the closes it replaced.
+    replaced = sorted(r['id'] for r in [first, *results] if r['id'] != latest['id'])
+    dates = lambda who, session: who.call('market/dates', {'curve': None, 'timeZone': 'UTC', 'session': session})
+    utc = dates(viewer, 'test_utc_close')
+    day = next(d for d in utc['dates'] if d['date'] == '2020-12-18')
+    assert [f['id'] for f in day['frames']] == [latest['id']] and day['replaced'] == 2, day
+    assert day['frames'][0]['businessDate'] == '2020-12-18'
+    assert [f['id'] for d in dates(viewer, 'test_late_close')['dates'] if d['date'] == '2020-12-17' for f in d['frames']] == [late['id']]
+    viewer.call('market/dates', {'curve': None, 'timeZone': 'UTC'}, expected=400)
+    history = viewer.call('market/closes/history', {'session': 'test_utc_close', 'businessDate': '2020-12-18'})
+    assert history['inForce']['id'] == latest['id'] and sorted(c['id'] for c in history['replaced']) == replaced, history
+    assert all(c['recordedBy'] == 'Synthetic approver' and c['recordedAt'] for c in history['replaced']), history['replaced']
+    workspace = viewer.call('workspace')
+    listed = {f['id'] for f in workspace['frames']}
+    assert latest['id'] in listed and not listed & set(replaced), 'A replaced close is still offered as a close'
+    assert all('close' in f for f in workspace['frames']) and all('close' not in f for f in workspace['workingSnapshots'])
+    print('PASS the calendar and workspace offer only the close in force; replaced closes are history', flush=True)
+
+    # A replaced close is refused for new work, naming the close in force; the close in force is accepted.
+    viewer.call('workspace')
+    stale = viewer.call('evaluate', {'snapshotId': latest['id'], 'curve': 'future'})
+    assert stale['points'], stale
+    newer = record(approver, 'test_utc_close', '2020-12-18', 'Synthetic newer')
+    refused = viewer.call('evaluate', {'snapshotId': latest['id'], 'curve': 'future'}, expected=422)
+    assert refused['code'] == 'close_replaced' and newer['id'] in refused['message'], refused
+    print('PASS a close replaced after it was offered is refused for new work, naming the close in force', flush=True)
