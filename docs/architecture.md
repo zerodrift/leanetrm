@@ -1,5 +1,11 @@
 # Architecture and domain contracts
 
+D327 connects [native physical operations to the assistant](physical-workspace.md#physical-assistant-operations).
+Facility questions retain an explicit operating date and certified knowledge cutoff
+without inventing a pricing frame. Native authoring and quantity changes retain
+human review, current authority and retry receipts. Schema/runtime activation is
+separate from local qualification.
+
 D324 adds visible [delivery editor starting values](physical-workspace.md#starting-new-entries):
 sole required choices and native context-derived suggestions for new entries.
 Saved terms and explicit clears remain exact; calculations gain no input fallback.

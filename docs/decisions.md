@@ -2533,3 +2533,36 @@ Native modal dialogs host only the guide's presentation elements, retaining moda
 background inertness and human-only Review/Authorize. Checks use real pointer
 input at Review and synthetic unsaved forms; no new presentation vocabulary or
 business effects are introduced.
+
+## D327 — Contextual physical assistant operations
+
+Extend the existing delegated workspace adapter with native gas/crude setup and
+gas daily/facility quantity operations. Setup inspection includes the same field
+definitions as the editor and only contextual published terms; private drafts
+and arbitrary historical versions are not exposed as financial read context.
+Structural draft checks remain explicitly current-only. The native validators
+retain their editor/publisher permission rules. Crude valuation accepts an
+additive retained-context identity and requires that context's published binding.
+
+A facility question carries a canonical `businessDate` in its immutable page
+report. It participates in retry equality before capture. Current dated questions
+have no pricing frame and use the ordinary certified date-context capture,
+publication gate and operating budgets. Retained questions require the exact
+selected certificate and date. Financial tools still require an actual frame.
+Application-only working-read metadata permits the native allocation preview and
+new-ledger choices at a working question's captured context. It is never supplied
+by a request, never enables a historical question, and never reaches a write.
+
+Every command remains a proposal until a separate authenticated human reviews
+and authorizes its exact persisted payload. Native permission, ownership,
+reference integrity, expected-head and idempotency checks remain authoritative.
+Reviewed expertise uses existing immutable page guidance; conversation history
+is not verified knowledge or a substitute for missing financial terms. No new
+memory table, rule engine or numerical implementation is added.
+
+Dated questions cannot emit navigation or presentation plans. Facility targets
+are withheld until their full date-aware event/Go contract is qualified. Back
+from an older framed-answer move must restore a facility origin's explicit date
+and ledger without selecting a price close. Migration 0199 gates new admission
+and tool publication on `turns_v16`; retained request replay remains available.
+Hosted activation remains separate from local qualification.

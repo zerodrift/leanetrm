@@ -1202,7 +1202,7 @@ function pageState():PageState{
     case 'reference':return {page,...referenceSelection(shownReference)};
     case 'parties':return {page,kind:select('party-kind').value};
     case 'futures':return {page,...futures.report()};
-    case 'facilities':return {page};
+    case 'facilities':return {page,businessDate:$<HTMLInputElement>('date-context-on').value,facilityLedger:facilities.selected()};
     case 'jobs':return {page,job:jobs.shown()};
     case 'crude-setup':case 'gas-setup':case 'gas':case 'crude':return {page};
     case 'ppa':return {page,...ppa.shown()};
@@ -1218,6 +1218,8 @@ function pageState():PageState{
 function pageContext():PageContext{
   if(contextDirty)return {mode:'unapplied'};
   const chosen=select('snapshot').value,shown=chosen?navigation?.frames.find(f=>f.id===chosen):undefined,frameLabel=shown?instant(shown.at):null,view=historicalContext();
+  if(page==='facilities')return view?{mode:'retained',contextId:view.contextId!,effectiveOn:view.effectiveOn,knownAtLabel:instant(view.knownAt!),frameId:null,frameLabel:null}
+    :{mode:'current',businessDate:$<HTMLInputElement>('date-context-on').value,frameId:null,frameLabel:null};
   return view?{mode:'retained',contextId:view.contextId!,effectiveOn:view.effectiveOn,knownAtLabel:instant(view.knownAt!),frameId:shown?.id??null,frameLabel}
     :{mode:'current',frameId:shown?.id??null,frameLabel};
 }
@@ -1323,7 +1325,7 @@ async function openCurve(code:string,contractId:string|null){
 }
 // Selects knowledge and an As of frame, as a target pins them or a place showed them, before a page opens there. Working data's time
 // controls then show the frame's effective date at current knowledge, as returning to working data leaves them (D217).
-async function selectContext(knowledge:TargetContext|{mode:'current'|'retained';contextId:string|null;frameId:string|null}){
+async function selectContext(knowledge:TargetContext&{businessDate?:string}){
   if(knowledge.mode==='current'){if(contextDirty||historicalContext())await currentInputs();}
   else if(contextDirty||historicalContext()?.contextId!==knowledge.contextId)await selectRetained(knowledge.contextId!);
   const frame=knowledge.frameId??'';
@@ -1332,7 +1334,7 @@ async function selectContext(knowledge:TargetContext|{mode:'current'|'retained';
     renderFrames(frame);
     closeChanged();
   }
-  if(knowledge.mode==='current')await initializeContext();
+  if(knowledge.mode==='current'){if(knowledge.businessDate)await dateEditor.initialize(knowledge.businessDate);else await initializeContext();}
 }
 // A historical view selected again by its id, exactly as it was captured.
 async function selectRetained(contextId:string){
@@ -1344,7 +1346,8 @@ async function selectRetained(contextId:string){
 // Back restores the place a move left: its knowledge and frame, then its page and what that showed.
 async function restorePlace(origin:Place){
   const c=origin.context;
-  if(c.mode!=='unapplied')await selectContext(c.mode==='current'?{mode:'current',contextId:null,frameId:c.frameId}:{mode:'retained',contextId:c.contextId,frameId:c.frameId});
+  if(c.mode!=='unapplied')await selectContext(c.mode==='current'?{mode:'current',contextId:null,frameId:c.frameId,businessDate:c.businessDate}:{mode:'retained',contextId:c.contextId,frameId:c.frameId});
+  if(origin.page==='facilities'){await setPage('facilities');await facilities.load(origin.report.selection.ledgerId as string|null??'',false);return;}
   if(readPages.includes(origin.report.page))await showTarget(origin.report.page,origin.report.selection);else await showPage(origin.page);
 }
 function tableName(code:string){

@@ -101,6 +101,7 @@ def main():
     parser.add_argument('--provider-adapters-check',action='store_true',help='Qualify additional provider routing and billing through HTTP Test in an owned fixture')
     parser.add_argument('--assistant-browser-check',action='store_true',help='Run assistant settings and panel browser regressions with an owned provider fixture; requires --browser')
     parser.add_argument('--assistant-runtime-check',action='store_true',help='Run assistant turn, tool, stream and usage regressions without provider-administration scenarios')
+    parser.add_argument('--physical-assistant-check',action='store_true',help='Qualify contextual physical assistant reads and approved native writes in an owned fixture')
     parser.add_argument('--assistant-workspace-check',action='store_true',help='Qualify page operations, user-approved proposals and delegated page prompts in an owned fixture')
     parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider, model and price administration in an owned fixture')
     parser.add_argument('--blotter-loading-check',action='store_true',help='Run owned Blotter progress, cancellation and admission browser checks')
@@ -110,7 +111,7 @@ def main():
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
     if args.assistant_browser_check:args.browser_check=True
-    if args.assistant_workspace_check or args.assistant_runtime_check or args.assistant_browser_check:
+    if args.physical_assistant_check or args.assistant_workspace_check or args.assistant_runtime_check or args.assistant_browser_check:
         args.check=True
         if args.example!='standard':parser.error('Assistant checks require the standard fixture')
     if args.blotter_loading_check:
@@ -141,8 +142,8 @@ def main():
     if args.demo_instruments_check: args.check=True
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
     if args.gas_basis_demo_check: args.check=True
-    gas_demo=args.with_gas_basis_demo or args.gas_basis_demo_check
-    if gas_demo and (args.example!='standard' or any(name.endswith('_check') and value and name not in ('gas_basis_demo_check','browser_check') for name,value in vars(args).items()) or args.check and not args.gas_basis_demo_check or args.with_ppa or args.with_exchange or args.with_custom_curves):
+    gas_demo=args.with_gas_basis_demo or args.gas_basis_demo_check or args.physical_assistant_check
+    if gas_demo and (args.example!='standard' or any(name.endswith('_check') and value and name not in ('gas_basis_demo_check','physical_assistant_check','browser_check') for name,value in vars(args).items()) or args.check and not (args.gas_basis_demo_check or args.physical_assistant_check) or args.with_ppa or args.with_exchange or args.with_custom_curves):
         parser.error('Run the gas basis demo separately in the standard fixture; use --gas-basis-demo-check for verification')
     fixing_frames=gas_demo or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
@@ -368,7 +369,7 @@ def main():
             check_retained_side_schedules(query)
             from check_booked_side_programs import run_schema_checks as check_booked_program_schema
             check_booked_program_schema(query)
-        if args.physical_crude_check:
+        if args.physical_crude_check or args.physical_assistant_check:
             from crude_fixture import prepare as prepare_crude
             reference,market,manifest=prepare_crude(reference,market,manifest)
             if args.crude_setup_check:
@@ -467,7 +468,7 @@ def main():
         if args.example=='standard' and (gas_demo or not args.check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check):
             from factor_history_fixture import seed as seed_history
             seed_history(query,manifest)
-            if gas_demo:
+            if gas_demo and not args.physical_assistant_check:
                 from seed_gas_basis_demo import history_frames
                 history_frames(query,manifest)
         if args.hosted_check:
@@ -569,7 +570,7 @@ def main():
         frozen_dll=temporary/'api'/dll.name
         log=(temporary/'app.log').open('w')
         api_env=app_env
-        if args.assistant_check or args.provider_adapters_check or args.assistant_workspace_check or args.assistant_runtime_check or args.assistant_browser_check or args.exchange_check:
+        if args.physical_assistant_check or args.assistant_check or args.provider_adapters_check or args.assistant_workspace_check or args.assistant_runtime_check or args.assistant_browser_check or args.exchange_check:
             # Provider tests reach a loopback fake provider through the check endpoint, and every proxy
             # setting names a trap that no request may reach (docs/ai-assistant.md §5.2, §13).
             from fake_model_provider import FakeProvider,Trap
@@ -717,6 +718,13 @@ def main():
                     # Full-page recovery scenarios repeatedly reload facts and valuation for the accumulated fixture.
                     # Keep each action bounded separately from the complete booking, corrections and sales suite.
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--crude-setup' if args.crude_setup_check else '--physical-crude'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},check=True,timeout=900)
+            elif args.physical_assistant_check:
+                from check_physical_assistant import run_checks as check_physical_assistant
+                physical_assistant=check_physical_assistant(url,query,manifest,fake_provider,gas_demo_fixture)
+                if args.browser_check:
+                    target=temporary/'physical-assistant-browser.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'provider':fake_provider.control(),'facility':physical_assistant}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-assistant'],cwd=ROOT,env=env,check=True,timeout=300)
             elif args.gas_basis_demo_check:
                 from check_gas_basis_demo import run_checks as check_gas_demo
                 check_gas_demo(url,run_id,temporary,query,manifest)

@@ -11,10 +11,10 @@ const context='c1000000-0000-4000-8000-000000000001',frame='f1000000-0000-4000-8
 const open={pane:{details:true,charts:true},poppedOut:false},layout={pane:{details:true,charts:true},poppedOut:false};
 const blotter={mode:'trades',bookIds:[book],portfolioIds:[],groupBy:['contract'],measures:['lots']};
 
-test('identity-only dashboard, setup and volatility reports have usable Looking at labels',()=>{
+test('dashboard, setup and volatility reports retain their labels and supported read capabilities',()=>{
   for(const [page,label] of [['dashboard','Dashboard'],['gas-setup','Gas delivery setup'],['crude-setup','Crude delivery setup'],['vol-surfaces','Vol surfaces']]){
     const report=pageReport({page}),seen=lookingAt(report,{mode:'current',frameId:frame,frameLabel:'Synthetic close'},{curve:String,table:String});
-    assert.deepEqual(report.selection,{});assert.equal(seen.page,label);assert.equal(seen.askable,true);assert.equal(seen.supported,false);assert.match(seen.shows,/does not read this page/);
+    assert.deepEqual(report.selection,{});assert.equal(seen.page,label);assert.equal(seen.askable,true);assert.equal(seen.supported,page==='gas-setup'||page==='crude-setup');if(!seen.supported)assert.match(seen.shows,/does not read this page/);
   }
 });
 
@@ -369,4 +369,13 @@ test('an ask sends the Blotter report whole, its layout with it, and a kept ask 
 
 test('the dedicated risk directory is explicitly outside assistant reads',()=>{
  assert.deepEqual(pageReport({page:'risk'}),{page:'risk_jobs',selection:{}});
+});
+
+test('facility questions retain the selected operating date and ledger without borrowing a pricing frame',()=>{
+ const report=pageReport({page:'facilities',businessDate:'2026-11-05',facilityLedger:trade});
+ assert.deepEqual(report,{page:'facility_quantities',businessDate:'2026-11-05',selection:{ledgerId:trade}});
+ assert.deepEqual(askKnowledge({mode:'current',businessDate:'2026-11-05',frameId:null,frameLabel:null},report.page),{mode:'current',contextId:null,frameId:null});
+ assert.equal(askKnowledge({mode:'current',frameId:null,frameLabel:null},report.page),undefined);
+ assert.equal(webPage('gas_setup'),'gas-setup');
+ assert.equal(webPage('crude_setup'),'crude-setup');
 });

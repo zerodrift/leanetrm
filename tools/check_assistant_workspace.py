@@ -96,7 +96,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     admin.call(prompt_path + '/save', {**prompt, 'operationId': str(uuid4()), 'expectedVersion': 1, 'instructions': 'Synthetic next guidance.'})
     check('later prompt edits do not alter an admitted turn', query(f"SELECT version FROM assistant.turn_prompt_pins WHERE turn_id='{turn['id']}';") == '1')
 
-    for page in ('dashboard', 'crude_setup', 'vol_surfaces', 'facility_quantities'):
+    for page in ('dashboard', 'vol_surfaces'):
         admin.call(prompt_path + '/save', {'operationId': str(uuid4()), 'page': page, 'expectedVersion': 0, 'instructions': 'Synthetic identity-only guidance.'})
         identity_turn, identity_results, _ = ask([('read_page_digest', {}), ('read_current_page', {})], page=page)
         check(page + ' admits an empty report and pins guidance without inventing widget values',
@@ -104,6 +104,17 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
               and identity_results[0]['result']['text'].startswith('Page: ' + page + ' |')
               and identity_results[0]['result']['text'].endswith('Selection: {}')
               and identity_results[0]['result']['targets'] == [] and identity_results[1]['code'] == 'page_not_supported')
+    admin.call(prompt_path + '/save', {'operationId': str(uuid4()), 'page': 'crude_setup', 'expectedVersion': 0,
+                                      'instructions': 'Synthetic delivery guidance: use native contextual field definitions.'})
+    _, setup_results, _ = ask([('read_current_page', {})], page='crude_setup')
+    setup = setup_results[0]['directory']['data']
+    check('crude setup now reads contextual native definitions instead of an identity-only refusal',
+          bool(setup['fieldDescriptions']) and setup['versions'] == [] and setup['proposals'] == [])
+    missing_date = owner.call('assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None,
+        'agentId': agent['id'], 'version': 1, 'question': 'Inspect this facility.',
+        'pageReport': {'page': 'facility_quantities', 'selection': {}},
+        'knowledge': {'mode': 'current', 'contextId': None, 'frameId': frame['id']}}, expected=422)
+    check('facility questions require their operating date rather than borrowing a financial frame', missing_date['code'] == 'snapshot_missing')
     listed = admin.call(prompt_path)['pages']
     check('the entire API page catalog is accepted by SQL prompt admission', all(query(f"SELECT assistant.is_prompt_page('{p['id']}');") == 't' for p in listed))
 

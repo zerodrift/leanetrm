@@ -19,6 +19,7 @@ internal sealed class AssistantInvocation(PreviewSession session,Func<Npgsql.Npg
     public HashSet<string> Permissions {get;}=[];
     public HashSet<ReadAccess> Access {get;}=[];
     public Guid? ResultIdentity {get;init;}
+    public bool CapturedWorkingRead {get;init;}
     public TimeSpan? ReadLimit {get;init;}
     public Func<Npgsql.NpgsqlConnection,CancellationToken,Task<JsonElement>>? Outcome {get;init;}
     public Func<Npgsql.NpgsqlConnection,JsonElement,CancellationToken,Task>? RecordOutcome {get;init;}
@@ -132,6 +133,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         var parameters=schema["parameters"]!.AsObject();
         if(operation.Path=="reference/catalog")foreach(var name in new[]{"table","search","offset"})parameters[name]=new JsonObject{["type"]="string"};
         if(operation.Path=="reference/editor")foreach(var name in new[]{"table","code"})parameters[name]=new JsonObject{["type"]="string"};
+        if(operation.Path is "gas-setup/catalog" or "crude-setup/catalog")parameters["snapshotId"]=new JsonObject{["type"]="string",["format"]="uuid"};
         return schema;
     }
 
@@ -147,7 +149,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(turn.Pin.Operational)return null;
         var owner=await Reader(turn,ct);
         return await AsOwner(owner,()=>database.WithIdentity(owner.Profile,"ReadMarketData",async(connection,t)=>
-            (await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,turn.Pin.ContextId,t)).Context,ct),
+            turn.Pin.Exact((await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,turn.Pin.ContextId,t)).Context),ct),
             new AssistantInvocation(owner.Session){ReadLimit=turn.ReadLimit});
     }
 
@@ -186,6 +188,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
             "settings_ai"=>new[]{"ManageAgents","ManageModelProviders","ReadModelUsage","ManageAssistantPrompts"}.Any(held.Contains),
             "risk_jobs" or "blotter_risk" or "blotter_risk_lens"=>held.Contains("ReadTrades")&&held.Contains("RunScenario"),
             "blotter_new_trade" or "blotter_new_future" or "blotter_new_swap"=>held.Contains("ReadTrades"),
+            "facility_quantities"=>new[]{"ReadMarketData","ReadTrades","ReadFacilityQuantities"}.All(held.Contains),
             _=>held.Contains("ReadMarketData")
         };
     }
@@ -227,6 +230,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         var request=Input(input);
         var certificate=await Certificate(turn,ct);
         Validate(operation,request,certificate);
+        RequireFacilityContext(operation,request,certificate,false);
         DateTimeOffset? selectedCutoff=null;
         if(operation.CurrentOnly&&turn.PageReport.GetProperty("selection") is {} selection&&selection.TryGetProperty("operation",out var selectedOperation)&&
             selectedOperation.GetString()==id&&selection.TryGetProperty("inputJson",out var selectedInput))
@@ -242,10 +246,20 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(turn.Pin.Frame is {} frame)session.Frames.Add(frame.Id,operation.CurrentOnly?frame:frame with{ContextId=turn.Pin.ContextId});
         if(!operation.CurrentOnly)
             session.MarketContext=certificate;
-        var invocation=new AssistantInvocation(session){ReadLimit=turn.ReadLimit};
+        var invocation=new AssistantInvocation(session){ReadLimit=turn.ReadLimit,CapturedWorkingRead=turn.Pin.Working};
         var value=await Invoke(owner,invocation,operation,request,ct);
         return(new(){["operation"]=id,["data"]=value,["knowledge"]=operation.CurrentOnly?"current_operations_or_definitions":"pinned",
             ["cutoff"]=turn.Pin.Cutoff.ToString("O",CultureInfo.InvariantCulture),["selectedObservationCutoff"]=selectedCutoff?.ToString("O",CultureInfo.InvariantCulture)},[..invocation.Access]);
+    }
+
+    internal static void RequireFacilityContext(AssistantOperation operation,AssistantOperationInput request,ScheduleContext? certificate,bool command)
+    {
+        if(!operation.Path.StartsWith("facilities/quantities/",StringComparison.Ordinal)||operation.Path.EndsWith("/status",StringComparison.Ordinal))return;
+        if(certificate is null||request.Body?["context"] is not JsonObject context||
+            context["effectiveOn"]?.GetValue<string>()!=certificate.EffectiveOn||
+            context["knowledgeMode"]?.GetValue<string>()!=(command?"current":"retained")||
+            (command?context["retained"] is not null:context["retained"]?.Deserialize<ScheduleContext>(JsonSerializerOptions.Web)!=certificate))
+            throw new ToolRefusal("operation_context_mismatch");
     }
 
     internal static void RequirePin(JsonNode? value,TurnPin pin,bool currentOnly,DateTimeOffset? selectedCutoff=null)
@@ -272,7 +286,8 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(!turn.Pin.Working)throw new ToolRefusal("historical_read_only");
         var owner=await Reader(turn,ct);var permissions=await Permissions(owner,turn.ReadLimit,ct);
         if(!operation.Permissions.All(permissions.Contains))throw new PreviewDeniedException();
-        var request=Input(input);Validate(operation,request,await Certificate(turn,ct));
+        var request=Input(input);var certificate=await Certificate(turn,ct);Validate(operation,request,certificate);
+        RequireFacilityContext(operation,request,certificate,true);
         RequirePin(request.Body,turn.Pin,true);RequirePin(request.Parameters,turn.Pin,true);
         return new(){["status"]="awaiting_user_approval",["operation"]=id,["proposal"]=new JsonObject{["turnId"]=turn.TurnId.ToString(),["step"]=step},
             ["message"]="Prepared for review. No business change has been saved. The user must review and authorize this exact command in the application."};

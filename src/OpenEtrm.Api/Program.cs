@@ -978,7 +978,7 @@ api.MapGet("/crude-setup/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,
 {
  var view=ContextVersions.SnapshotId(c.Request.Query) is {} snapshotId?await PartyView(connection,session,snapshotId,ct):null;
  if(view is null&&session.MarketContext is not null)throw new MarketDataException("historical_read_only","Select a dated view to inspect crude setup.");
- return Results.Ok(await crudeSetupEditor.CatalogRead(connection,ct,view,ContextVersions.OptionalId(c.Request.Query,"proposalId")));
+ return Results.Ok(await crudeSetupEditor.CatalogRead(connection,ct,view,ContextVersions.OptionalId(c.Request.Query,"proposalId"),c.Features.Get<AssistantInvocation>() is not null));
 },c.RequestAborted))));
 api.MapPost("/crude-setup/save",(HttpContext c,CrudeSetupSaveRequest body)=>ReferenceMutation(c,"WriteMarketDefinitions",(connection,ct)=>crudeSetupEditor.Save(connection,body,ct)));
 api.MapPost("/crude-setup/validate",(HttpContext c,CrudeSetupVersionRequest body)=>Locked(c,session=>database.WithIdentity<IResult>(Profile(session),"ReadMarketData",async(connection,ct)=>
@@ -993,16 +993,17 @@ api.MapPost("/crude-setup/publish",(HttpContext c,CrudeSetupPublishRequest body)
 }));
 api.MapPost("/crude-setup/preview",(HttpContext c,CrudeSetupPreviewRequest body)=>Locked(c,session=>database.WithIdentity<IResult>(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
- if(body.KnowledgeMode=="context")
+ if(body.KnowledgeMode is "context" or "retained")
  {
   var view=await PartyView(connection,session,body.SnapshotId,ct);
+  if(body.KnowledgeMode=="retained"&&(session.MarketContext is null||body.ContextId!=session.MarketContext.ContextId)||body.KnowledgeMode=="context"&&body.ContextId is not null)throw PinnedContext.Missing();
   await view.Bind(connection,database.Manifest.CatalogId,ct);
   if(!(await CrudeSetupEditor.CurrentSetups(connection,database.Manifest.CatalogId,ct)).Contains(body.SetupId))
    throw new MarketDataException("crude_setup_context","Choose the published delivery binding resolved by the header context.");
   return Results.Ok(await crudeSetupEditor.Preview(connection,view.CalculationFrame,body,ct));
  }
  var pin=Pin(session,body.SnapshotId);
- if(body.KnowledgeMode!="current"||pin.Context is not null)throw new MarketDataException("crude_setup_input","Choose current working knowledge for delivery-mark preview.");
+ if(body.KnowledgeMode!="current"||pin.Context is not null||body.ContextId is not null)throw new MarketDataException("crude_setup_input","Choose current working knowledge for delivery-mark preview.");
  var frame=pin.RequireFrame();
  var context=(await knowledgeStore.Capture(connection,new(DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
  await PinnedContext.BindExact(connection,database.Manifest.CatalogId,context,ct);
@@ -1013,7 +1014,7 @@ api.MapGet("/gas-setup/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,se
 {
  var view=ContextVersions.SnapshotId(c.Request.Query) is {} snapshotId?await PartyView(connection,session,snapshotId,ct):null;
  if(view is null&&session.MarketContext is not null)throw new MarketDataException("historical_read_only","Select a dated view to inspect gas setup.");
- return Results.Ok(await gasSetupEditor.Catalog(connection,ct,view,ContextVersions.OptionalId(c.Request.Query,"proposalId")));
+ return Results.Ok(await gasSetupEditor.Catalog(connection,ct,view,ContextVersions.OptionalId(c.Request.Query,"proposalId"),c.Features.Get<AssistantInvocation>() is not null));
 },c.RequestAborted))));
 api.MapPost("/gas-setup/save",(HttpContext c,GasSetupSaveRequest body)=>ReferenceMutation(c,"WriteMarketDefinitions",(connection,ct)=>gasSetupEditor.Save(connection,body,ct)));
 api.MapPost("/gas-setup/validate",(HttpContext c,GasSetupValidateRequest body)=>ReferenceMutation(c,"ReadMarketData",(connection,ct)=>gasSetupEditor.Validate(connection,body,ct)));
@@ -1447,9 +1448,9 @@ api.MapPost("/gas/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(
 var gasDaily=new GasDailyQuantities(database);
 var facilityQuantities=new FacilityQuantityStore(database);
 api.MapPost("/facilities/quantities/preview",(HttpContext c,FacilityPreviewRequest body)=>Locked(c,session=>
- database.WithIdentity(Profile(session),"RecordFacilityQuantities",async(connection,ct)=>Results.Ok(await facilityQuantities.Preview(connection,body,session.MarketContext,ct)),c.RequestAborted)));
+ database.WithIdentity(Profile(session),"RecordFacilityQuantities",async(connection,ct)=>Results.Ok(await facilityQuantities.Preview(connection,body,session.MarketContext,ct,c.Features.Get<AssistantInvocation>()?.CapturedWorkingRead==true)),c.RequestAborted)));
 api.MapPost("/facilities/quantities/directory",(HttpContext c,FacilityDirectoryRequest body)=>Locked(c,session=>
- database.WithIdentity(Profile(session),"ReadFacilityQuantities",async(connection,ct)=>Results.Ok(await facilityQuantities.Directory(connection,body,session.MarketContext,ct)),c.RequestAborted)));
+ database.WithIdentity(Profile(session),"ReadFacilityQuantities",async(connection,ct)=>Results.Ok(await facilityQuantities.Directory(connection,body,session.MarketContext,ct,c.Features.Get<AssistantInvocation>()?.CapturedWorkingRead==true)),c.RequestAborted)));
 api.MapPost("/facilities/quantities/read",(HttpContext c,FacilityReadRequest body)=>Locked(c,session=>
  database.WithIdentity(Profile(session),"ReadFacilityQuantities",async(connection,ct)=>Results.Ok(await facilityQuantities.Read(connection,body,session.MarketContext,ct)),c.RequestAborted)));
 api.MapPost("/facilities/quantities/status",(HttpContext c,FacilityStatusRequest body)=>Locked(c,session=>
@@ -2001,10 +2002,12 @@ api.MapPost("/assistant/grants/grant",(HttpContext c,GrantRequest body)=>GrantCo
 api.MapPost("/assistant/grants/revoke",(HttpContext c,RevokeRequest body)=>GrantCommand(c,null,(connection,ct)=>AgentGrants.Revoke(connection,body,ct)));
 // Turns (§7.2, §7.4, §8). An ask pins the knowledge its page shows: current knowledge only while no historical context
 // is selected, a retained context only when it is the selected one, and a frame only of the session's current market
-// context. Working data is captured at its frame's date, so it needs one. Nothing else is pinned, and nothing falls back.
+// context. Financial questions capture the frame's date; facility questions name an independent operating date.
 var agentTurns=new AgentTurns(database,turnScope,agentWorker,turnWorker,new AgentTools(database,marketReads,scheduleReads,partyReads,tradeReads,app.Logger){Workspace=assistantWorkspace},app.Logger);
-(string Mode,Guid? Retained,InputFrame? Frame) Knowledge(PreviewSession session,AskKnowledge? knowledge,string page)
+(string Mode,Guid? Retained,InputFrame? Frame) Knowledge(PreviewSession session,AskKnowledge? knowledge,JsonElement report)
 {
+    var page=report.GetProperty("page").GetString()!;
+    var businessDate=PageReports.BusinessDate(report);
     var selected=session.MarketContext?.ContextId;
     var (mode,retained)=knowledge switch
     {
@@ -2014,13 +2017,18 @@ var agentTurns=new AgentTurns(database,turnScope,agentWorker,turnWorker,new Agen
     };
     var frame=knowledge.FrameId is {} chosen?Frame(session,chosen):null;
     if(frame is not null&&frame.ContextId!=retained)throw PinnedContext.Missing();
+    if(page=="facility_quantities")
+    {
+        if(frame is not null||businessDate is null||mode=="retained"&&session.MarketContext!.EffectiveOn!=businessDate.Value.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture))throw PinnedContext.Missing();
+        return(mode,retained,null);
+    }
     return mode=="current"&&frame is null
         ?PageReports.Operational(page)?("operational",null,null):throw PinnedContext.Missing():(mode,retained,frame);
 }
 api.MapPost("/assistant/turns/ask",(HttpContext c,AskRequest body)=>Locked(c,session=>
 {
     PageReports.Require(body.PageReport);
-    var (mode,retained,frame)=Knowledge(session,body.Knowledge,body.PageReport.GetProperty("page").GetString()!);
+    var (mode,retained,frame)=Knowledge(session,body.Knowledge,body.PageReport);
     c.Items["turn_attempted"]=true;
     return agentTurns.Ask(session,Profile(session),body,mode,retained,frame,c.RequestAborted,id=>assistantWorkspace.Register(id,session,c.User));
 }));

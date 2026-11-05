@@ -9,7 +9,7 @@ static class AssistantWorkspaceChecks
         foreach(var page in new[]{"dashboard","crude_setup","vol_surfaces","facility_quantities"})
         {
             PageReports.Require(JsonSerializer.SerializeToElement(new{page,selection=new{}}));
-            if(PageReports.Dispatch(JsonSerializer.SerializeToElement(new{page,selection=new{}})) is not null||PageReports.Opens(page))
+            if((page is "dashboard" or "vol_surfaces")&&(PageReports.Dispatch(JsonSerializer.SerializeToElement(new{page,selection=new{}})) is not null||PageReports.Opens(page)))
                 throw new Exception("An identity-only page gained a reader or navigation target.");
             foreach(var invalid in new[]{"{\"value\":\"918273\"}","{}"})
             foreach(var extra in invalid=="{}"?new[]{",\"layout\":{}",",\"view\":{}",",\"focus\":{}"}:new[]{""})
@@ -18,8 +18,9 @@ static class AssistantWorkspaceChecks
                 catch(OpenEtrm.MarketData.MarketDataException e) when(e.Code=="page_report_invalid"){}
             }
         }
+        BusinessDatePins();
         var pages=new[]{"risk_jobs","delivery_prices","interval_series","interval_curves","users_access","settings_ai",
-            "blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap"};
+            "blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","gas_setup","crude_setup","facility_quantities"};
         foreach(var page in pages)
         {
             PageReports.Require(JsonSerializer.SerializeToElement(new{page,selection=new{}}));
@@ -33,6 +34,11 @@ static class AssistantWorkspaceChecks
             try{AssistantOperations.RequireRead(operation);throw new Exception("A command entered the read path.");}
             catch(ToolRefusal e) when(e.Code=="approval_required"){}
         }
+        foreach(var id in new[]{"gas-setup.catalog_v1","crude-setup.catalog_v1","facilities.quantities.directory_v1","facilities.quantities.read_v1","gas.quantities.read_v1"})
+            if(AssistantOperations.RequireRead(id).CurrentOnly)throw new Exception("Physical reads must retain the question's exact context.");
+        foreach(var id in new[]{"gas-setup.save_v1","gas-setup.publish_v1","crude-setup.save_v1","crude-setup.publish_v1","facilities.quantities.record_v1","gas.quantities.record_v1"})
+            if(AssistantOperations.Find(id) is not {RequiresApproval:true,CurrentOnly:true})throw new Exception("Physical changes require working context and human approval.");
+        if(AssistantWorkspace.CanOpen("facility_quantities",["ReadMarketData","ReadTrades"]))throw new Exception("Facility navigation requires facility read authority.");
         foreach(var excluded in new[]{"futures.amend-preview_v1","swaps.preview_v1","swaps.scheduled-price_v1"})
             if(AssistantOperations.Find(excluded) is not null)
                 throw new Exception($"{excluded} cannot preserve this turn's financial context and must stay outside the catalog.");
@@ -80,5 +86,33 @@ static class AssistantWorkspaceChecks
             catch(ToolRefusal e) when(e.Code=="tool_arguments_invalid"){}
         }
         Console.WriteLine("PASS assistant workspace: page coverage, explicit operation catalog and mandatory write approval");
+    }
+
+    static void BusinessDatePins()
+    {
+        var catalog=Guid.NewGuid();var id=Guid.NewGuid();
+        var manifest=new PreviewManifest("local-synthetic-preview",catalog,Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),[],null);
+        var report=JsonSerializer.SerializeToElement(new{page="facility_quantities",businessDate="2021-01-15",selection=new{ledgerId=(Guid?)null}});
+        PageReports.Require(report);
+        var context=JsonSerializer.SerializeToElement(new{mode="current",contextId=id,frameId=(Guid?)null,cutoff="2026-11-05T12:00:00Z"});
+        var pin=TurnPin.From(context,JsonSerializer.SerializeToElement((object?)null),catalog,manifest,report);
+        var certificate=new ScheduleContext("2021-01-15",null,"2026-11-05T12:00:00Z",id);
+        if(!pin.Working||pin.Frame is not null||pin.Exact(certificate)!=certificate)throw new Exception("Facility questions require their explicit date and certified knowledge without a price close.");
+        try{pin.RequireFrame();throw new Exception("A facility date became a pricing frame.");}catch(OpenEtrm.MarketData.MarketDataException e)when(e.Code=="snapshot_missing"){}
+        try{pin.Exact(certificate with{EffectiveOn="2021-01-16"});throw new Exception("A different business date was accepted.");}catch(InvalidOperationException){}
+        foreach(var page in new[]{"gas_setup","crude_setup","curves"})
+        {
+            try{PageReports.Require(JsonSerializer.SerializeToElement(new{page,businessDate="2021-01-15",selection=new{}}));throw new Exception("Another page accepted a facility date.");}
+            catch(OpenEtrm.MarketData.MarketDataException e)when(e.Code=="page_report_invalid"){}
+        }
+        var operation=AssistantOperations.RequireRead("facilities.quantities.directory_v1");
+        foreach(var day in new[]{"2021-01-15","2021-01-16"})
+        {
+            var input=AssistantWorkspace.ParseInput(JsonSerializer.Serialize(new{body=new{context=new{effectiveOn=day,knowledgeMode="retained",retained=certificate,convention=FacilityQuantityStore.Convention}},parameters=new{}}));
+            var request=new AssistantOperationInput(JsonNode.Parse(input.GetProperty("body").GetRawText()),new JsonObject());
+            if(day==certificate.EffectiveOn)AssistantWorkspace.RequireFacilityContext(operation,request,certificate,false);
+            else try{AssistantWorkspace.RequireFacilityContext(operation,request,certificate,false);throw new Exception("A facility read changed the asked date.");}catch(ToolRefusal e)when(e.Code=="operation_context_mismatch"){}
+        }
+        Console.WriteLine("PASS facility questions: explicit operating date, exact certified cutoff and no inferred pricing frame");
     }
 }

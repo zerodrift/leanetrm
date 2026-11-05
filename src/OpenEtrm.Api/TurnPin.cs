@@ -17,10 +17,11 @@ public sealed class TurnPin
     public DateTimeOffset Cutoff {get;}
     public InputFrame? Frame {get;}
     public bool Operational {get;private init;}
+    public DateOnly? BusinessDate {get;private init;}
 
     // The record as start_turn answers it: the turn's context and its frame's pins, for this scope's catalog. A record the
     // worker cannot read is a defect, never a reason to read another context.
-    public static TurnPin From(JsonElement context,JsonElement pins,Guid catalog,PreviewManifest manifest)
+    public static TurnPin From(JsonElement context,JsonElement pins,Guid catalog,PreviewManifest manifest,JsonElement? pageReport=null)
     {
         try
         {
@@ -30,12 +31,13 @@ public sealed class TurnPin
                     context.GetProperty("frameId").ValueKind!=JsonValueKind.Null||pins.ValueKind!=JsonValueKind.Null)throw Unreadable();
                 return new(true,Guid.Empty,context.GetProperty("cutoff").GetDateTimeOffset(),null){Operational=true};
             }
+            var businessDate=pageReport is {} report?PageReports.BusinessDate(report):null;
             var working=context.GetProperty("mode").GetString() switch{"current"=>true,"retained"=>false,_=>throw Unreadable()};
             var id=context.GetProperty("contextId").GetGuid();
             var frameId=context.GetProperty("frameId") is {ValueKind:JsonValueKind.String} named?named.GetGuid():(Guid?)null;
             var frame=pins.ValueKind==JsonValueKind.Null?null:Rebuild(pins,working?null:id);
-            if(catalog!=manifest.CatalogId||frame?.Id!=frameId||working&&frame is null)throw Unreadable();
-            return new(working,id,context.GetProperty("cutoff").GetDateTimeOffset(),frame);
+            if(catalog!=manifest.CatalogId||frame?.Id!=frameId||businessDate is not null&&frame is not null||working&&frame is null&&businessDate is null)throw Unreadable();
+            return new(working,id,context.GetProperty("cutoff").GetDateTimeOffset(),frame){BusinessDate=businessDate};
         }
         catch(Exception e) when(e is KeyNotFoundException or FormatException or InvalidOperationException){throw Unreadable();}
     }
@@ -58,7 +60,7 @@ public sealed class TurnPin
 
     // The context a read binds, as the knowledge store reads it: exactly the record's, at its recorded cutoff.
     public ScheduleContext Exact(ScheduleContext stored)=>
-        stored.ContextId==ContextId&&stored.KnownAt is {} at&&SchedulePreview.ParseAt(at)==Cutoff?stored:throw Unreadable();
+        (BusinessDate is null||stored.EffectiveOn==BusinessDate.Value.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture))&&stored.ContextId==ContextId&&stored.KnownAt is {} at&&SchedulePreview.ParseAt(at)==Cutoff?stored:throw Unreadable();
 
     // The page views: working data as of the context its ask captured, a historical view at its retained context.
     public PinnedContext Page(ScheduleContext context)=>Working?PinnedContext.Rereading(Exact(context),RequireFrame()):PinnedContext.Retained(Exact(context),Frame);

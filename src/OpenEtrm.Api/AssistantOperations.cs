@@ -43,6 +43,20 @@ internal static class AssistantOperations
         Add("reference_data","SealReferenceData",true,"","reference/apply");
         Add("parties","ReadTradeParties|ReadMarketData",false,"parties/catalog");
         Add("parties","WriteTradeParties|ReadMarketData",true,"","parties/save");
+        Add("gas_setup","ReadMarketData",false,"!gas-setup/catalog");
+        Add("gas_setup","ReadMarketData",true,"gas-setup/validate");
+        Add("gas_setup","WriteMarketDefinitions",true,"","gas-setup/save");
+        Add("gas_setup","SealMarketDefinitions",true,"","gas-setup/publish");
+        Add("crude_setup","ReadMarketData",false,"!crude-setup/catalog crude-setup/preview");
+        Add("crude_setup","ReadMarketData",true,"crude-setup/validate");
+        Add("crude_setup","WriteMarketDefinitions",true,"","crude-setup/save");
+        Add("crude_setup","SealMarketDefinitions",true,"","crude-setup/publish");
+        Add("facility_quantities","ReadMarketData|ReadTrades|ReadFacilityQuantities",false,"facilities/quantities/directory facilities/quantities/read");
+        Add("facility_quantities","ReadMarketData|ReadTrades|ReadFacilityQuantities|RecordFacilityQuantities",false,"facilities/quantities/preview");
+        // The native record handler also checks command-specific limit/adoption capabilities.
+        Add("facility_quantities","ReadMarketData|ReadTrades|ReadFacilityQuantities",true,"facilities/quantities/status","facilities/quantities/record");
+        Add("blotter","ReadMarketData|ReadTrades",false,"gas/quantities/read gas/quantities/history");
+        Add("blotter","AmendTrade|ReadMarketData|ReadTrades",true,"gas/quantities/status","gas/quantities/record");
         Add("schedules","ReadMarketData",false,"!schedules !date-schedules date-schedules/preview date-schedules/resolve date-schedules/catalog date-schedules/contracts/preview date-schedules/contracts/resolve schedules/observation-contracts schedules/preview schedules/dates/preview schedules/expression schedules/contracts/preview");
         Add("schedules","WriteMarketDefinitions",true,"","date-schedules/save date-schedules/contracts/save");
         Add("schedules","SealMarketDefinitions",true,"","date-schedules/publish date-schedules/contracts/publish");

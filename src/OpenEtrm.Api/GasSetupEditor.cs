@@ -15,22 +15,22 @@ public sealed record GasSetupPublishRequest(Guid OperationId,Guid SetupId);
 public sealed class GasSetupEditor(PreviewDatabase database)
 {
  static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
- public async Task<object> Catalog(NpgsqlConnection c,CancellationToken ct,TradingView? view=null,Guid? proposalId=null)
+ public async Task<object> Catalog(NpgsqlConnection c,CancellationToken ct,TradingView? view=null,Guid? proposalId=null,bool contextOnly=false)
  {
   var catalog=database.Manifest.CatalogId;var revision=database.Manifest.GasMarket?.RevisionId??database.Manifest.RevisionId;
   async Task<System.Collections.Immutable.ImmutableArray<JsonElement>> Versions()=>await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM(SELECT id,state,base_setup_id,publication_order,configuration FROM market_data.gas_setup_versions WHERE(catalog_id,definition_revision_id)=($1,$2) ORDER BY publication_order DESC NULLS LAST,id LIMIT 50)v",[catalog,revision],ct);
   var working=view?.Working??true;
-  var versions=working?await Versions():[];
+  var versions=working&&!contextOnly?await Versions():[];
   JsonElement? proposal=null;
-  if(working&&proposalId is {} selected)
+  if(working&&!contextOnly&&proposalId is {} selected)
   {
    var rows=await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM market_data.gas_setup_versions v WHERE(catalog_id,definition_revision_id,id)=($1,$2,$3)",[catalog,revision,selected],ct);
    proposal=rows.Length==1?rows[0]:throw new MarketDataException("gas_setup_input","The exact saved proposal is unavailable under this context and current access.");
   }
-  var proposals=working&&proposalId is null?await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM market_data.gas_setup_versions v WHERE(catalog_id,definition_revision_id)=($1,$2) AND state='draft' ORDER BY id LIMIT 51",[catalog,revision],ct):[];
+  var proposals=working&&!contextOnly&&proposalId is null?await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM market_data.gas_setup_versions v WHERE(catalog_id,definition_revision_id)=($1,$2) AND state='draft' ORDER BY id LIMIT 51",[catalog,revision],ct):[];
   if(proposals.Length>50)throw new MarketDataException("gas_setup_input","The unpublished proposal review exceeds fifty entries. Read an exact proposal identity.");
   if(view is not null)await view.Bind(c,catalog,ct);
-  if(!working)
+  if(!working&&!contextOnly)
   {
    versions=await Versions();
    if(proposalId is {} historical)

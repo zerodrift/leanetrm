@@ -12,7 +12,7 @@ import {readPages,type Step,type Ending,type Usage,type TargetContext} from './a
 export type BlotterLayoutShown={pane:{details:boolean;charts:boolean};poppedOut:boolean};
 export type PivotCellFocus={keys:Record<string,unknown>;measure:string};
 export type PageFocus={tradeIds:string[];pivotCell:PivotCellFocus|null};
-export type PageReport={page:string;selection:Record<string,unknown>;layout?:BlotterLayoutShown;view?:BlotterDigestView;focus?:PageFocus};
+export type PageReport={page:string;selection:Record<string,unknown>;layout?:BlotterLayoutShown;view?:BlotterDigestView;focus?:PageFocus;businessDate?:string};
 export type BlotterDigestView=BlotterSelection&{primaryMeasure:string|null};
 export type BlotterSelection={mode:'trades'|'pivot';bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[]};
 export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas'|'physical_crude'|'physical_lng'|'futures_option';revision:number;reference:string};
@@ -27,10 +27,10 @@ export type PageState=(
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
-  |{page:'facilities'|'risk'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus};
+  |{page:'facilities'|'risk'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
-export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null}
+export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null;businessDate?:string}
   |{mode:'retained';contextId:string;effectiveOn:string;knownAtLabel:string;frameId:string|null;frameLabel:string|null}|{mode:'unapplied'};
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
@@ -48,6 +48,7 @@ const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'b
 // risk results the assistant does not read (D222), or the rows and totals it reads.
 export function pageReport(state:PageState):PageReport{
   switch(state.page){
+    case 'facilities':return {page:'facility_quantities',selection:state.businessDate?{ledgerId:state.facilityLedger??null}:{},...(state.businessDate?{businessDate:state.businessDate}:{})};
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
     case 'power':return {page:'power_tous',selection:{view:state.frame?'power_hours':'tou_products'}};
     case 'configuration':return {page:'contract_definitions',selection:{view:'contract_definitions',curve:null}};
@@ -83,14 +84,14 @@ export const lookingKey=({report,context}:{report:PageReport;context:PageContext
 
 // The knowledge an ask pins: working data only at a chosen As of frame, the selected historical view with or without one.
 export function askKnowledge(context:PageContext,page?:string){
-  if(context.mode==='unapplied'||context.mode==='current'&&!context.frameId&&!['users_access','settings_ai','jobs','risk_jobs','delivery_prices','interval_series'].includes(page??''))return undefined;
+  if(context.mode==='unapplied'||context.mode==='current'&&!context.frameId&&!(page==='facility_quantities'&&context.businessDate)&&!['users_access','settings_ai','jobs','risk_jobs','delivery_prices','interval_series'].includes(page??''))return undefined;
   return context.mode==='current'?{mode:'current',contextId:null,frameId:context.frameId}:{mode:'retained',contextId:context.contextId,frameId:context.frameId};
 }
 
-const pageNames:Record<string,string>={facility_quantities:'Facilities',curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
+const pageNames:Record<string,string>={gas_setup:'Gas delivery setup',crude_setup:'Crude delivery setup',facility_quantities:'Facilities',curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
   reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',blotter_new_ppa:'Blotter',blotter_new_gas:'Blotter',blotter_new_option:'Blotter',blotter_new_crude:'Blotter',blotter_new_lng:'Blotter',delivery_prices:'Delivery prices',
   custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs & Infrastructure',users_access:'Users & access',
-  gas_setup:'Gas delivery setup',crude_setup:'Crude delivery setup',risk_jobs:'Risk',settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',physical_crude:'Physical crude bookings',ppa:'PPA bookings',vol_surfaces:'Vol surfaces'};
+  risk_jobs:'Risk',settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',physical_crude:'Physical crude bookings',ppa:'PPA bookings',vol_surfaces:'Vol surfaces'};
 // The label catalog is checked against server admission by the owned browser fixture.
 export const reportedPages:readonly string[]=Object.freeze(Object.keys(pageNames));
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
@@ -128,13 +129,15 @@ function shows(report:PageReport,names:Names,trade?:string){
     case 'blotter_new_crude':return 'A new physical crude trade is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_option':return 'A new futures option is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_gas':return 'A new physical gas trade is being entered. The assistant does not read a trade being entered.';
-    default:return ['facility_quantities','dashboard','gas_setup','crude_setup','physical_gas','physical_crude','vol_surfaces'].includes(report.page)?'The assistant does not read this page.':'Authorized page operations, reads and previews. Changes require your authorization.';
+    case 'gas_setup':case 'crude_setup':return 'Published delivery setup and field definitions in the header context. Unsaved edits are not sent.';
+    case 'facility_quantities':return 'Facility quantities and allocations at the header operating date and knowledge cutoff. Unsaved edits are not sent.';
+    default:return ['dashboard','physical_gas','physical_crude','vol_surfaces'].includes(report.page)?'The assistant does not read this page.':'Authorized page operations, reads and previews. Changes require your authorization.';
   }
 }
 function contextLine(context:PageContext){
   if(context.mode==='unapplied')return 'Historical selection not applied · apply it to ask about it';
   const frame=context.frameLabel?`As of ${context.frameLabel}`:'';
-  if(context.mode==='current')return `Working data · ${frame||'choose an As of date to ask about it'}`;
+  if(context.mode==='current')return `Working data · ${context.businessDate?`Operating date ${context.businessDate}`:frame||'choose an As of date to ask about it'}`;
   return `Historical view · ${context.effectiveOn}, as known at ${context.knownAtLabel} · ${frame||'no As of date chosen'}`;
 }
 // Looking at's line for the Blotter's layout: its details and charts open or closed, and the window it is in.
@@ -162,7 +165,7 @@ export function changesContext(target:TargetContext,page:PageContext){
 // the person reviews: a proposed curve or a saved draft (D260).
 export const targetAction=(target:{live:boolean;changesContext:boolean;unsaved:boolean;review?:boolean})=>target.live&&!target.changesContext&&!target.unsaved&&!target.review?'move':'go';
 
-const webPages:Record<string,string>={curves:'market',contract_definitions:'configuration',schedules:'schedules',power_tous:'power',reference_data:'reference',
+const webPages:Record<string,string>={facility_quantities:'facilities',gas_setup:'gas-setup',crude_setup:'crude-setup',curves:'market',contract_definitions:'configuration',schedules:'schedules',power_tous:'power',reference_data:'reference',
   parties:'parties',blotter:'futures',custom_curves:'custom-curves',jobs:'jobs',risk_jobs:'risk',delivery_prices:'delivery',interval_series:'interval-series',
   interval_curves:'interval-curves',users_access:'admin',settings_ai:'ai',blotter_risk:'futures',blotter_risk_lens:'futures',blotter_new_trade:'futures',blotter_new_future:'futures',blotter_new_swap:'futures'};
 // The web page a target opens: only one the assistant reads.
@@ -287,7 +290,7 @@ export function keptAsk(stored:string|null){
     if(!exact(v,['operationId','path','body'])||!isUuid(v.operationId)||v.path!=='assistant/turns/ask'
       ||!exact(b,['conversationId','agentId','version','question','pageReport','knowledge'])||b.conversationId!==null&&!isUuid(b.conversationId)
       ||!isUuid(b.agentId)||!Number.isSafeInteger(b.version)||b.version<1||typeof b.question!=='string'||!b.question.trim()
-      ||!exact(b.pageReport,['page','selection',...['layout','view','focus'].filter(key=>Object.hasOwn(b.pageReport??{},key))])||!exact(k,['mode','contextId','frameId']))return undefined;
+      ||!exact(b.pageReport,['page','selection',...['layout','view','focus','businessDate'].filter(key=>Object.hasOwn(b.pageReport??{},key))])||!exact(k,['mode','contextId','frameId']))return undefined;
     return {operationId:v.operationId as string,path:v.path as string,body:b as Record<string,unknown>,uncertain:true};
   }catch{return undefined;/* Invalid browser state keeps no request. */}
 }

@@ -1,6 +1,6 @@
 # Facilities and delivery workspace
 
-Status: implemented and locally qualified D322–D324 delivery workspace. Hosted activation remains separate.
+Status: implemented and locally qualified D322–D324 delivery workspace and D327 native assistant operations. Hosted activation remains separate.
 
 **Operations → Facilities & delivery** combines the existing gas setup, crude
 setup and facility quantity workflows under one sidebar entry. Delivery setup
@@ -51,11 +51,11 @@ outcome is outside the current context, the UI confirms the receipt identity and
 restores contextual terms without opening the superseded configuration. Exact
 backend version/history operations remain available.
 
-The setup assistant reader remains subsequent work. The existing versioned page
-guidance and admitted conversation history provide separate reviewed guidance and
-history mechanisms; old turns are not verified financial expertise. A future
-setup reader must use these same native catalogs and definitions under current
-authority and the selected temporal context. No new memory table or automatic
+The D327 setup assistant reader uses these same native catalogs and definitions
+under current authority and the selected temporal context. **Settings → AI**
+provides Providers, Models & prices, Agents, Page prompts and Usage screens.
+Reviewed page guidance and admitted conversation history remain separate;
+old turns are not verified financial expertise. No new memory table or automatic
 promotion of conversation text into financial rules is introduced here.
 
 ### Starting new entries
@@ -155,3 +155,67 @@ months, futures/interval refusal and the native crude horizon. The same 20 gas
 and 22 combined workspace/crude browser checks passed, including native saves,
 publication/retry and source-based starting dates. Independent review has no
 outstanding material finding.
+
+## Physical assistant operations
+
+D327 exposes the native gas and crude setup catalogs, field definitions, structural
+checks and reviewed authoring/publication commands through the existing delegated
+workspace tools. Setup reads resolve published terms at the question's exact
+context and omit raw version history and private authoring proposals. Crude
+value preview retains the same managed valuation and exact source references.
+Unsaved browser edits are not treated as saved terms.
+
+Gas daily quantities use the ordinary deterministic selection policy and exact
+trade context. Facility directory, selected ledger and allocation preview use the
+header operating date and a certified knowledge cutoff. An immutable
+`page_report.businessDate` identifies a facility question without a price frame.
+A correction published after admission cannot enter that question's reads.
+Historical questions preserve their retained facts and cannot prepare writes or
+working allocation previews. Directory choices and working previews use an
+application-only marker under the same native permissions; writes receive no
+such exception.
+
+Save, publish, daily recording and facility commands require the existing separate
+human Review/Authorize action. Native validation, exact references, expected
+revisions, source authority and operation receipts govern execution and retries.
+A proposal or review alone persists no business change. Existing agent versions
+and grants are not automatically replaced or expanded.
+
+The existing versioned page-guidance facility accepts gas setup, crude setup and
+facility pages. Reviewed guidance can document supported terminology and
+procedures; source values still come from contextual native reads. Conversation
+history cannot approve itself as expertise or supply absent financial policies.
+
+Facility navigation targets and presentation plans from dated questions remain
+unavailable pending a qualified date-aware navigation event contract. Existing
+framed setup navigation remains available. Back from an older answer preserves
+the facility origin's explicit working date and selected ledger, with no price
+close inferred.
+
+The owned synthetic qualification runs with
+`tools/run_preview.py --physical-assistant-check --browser-check` and the installed
+stock database, pinned SDK and browser arguments. Its 29 business scenarios cover
+late corrections across admission, retained history, wrong-date refusal,
+conserved allocation previews, approved authoring and daily corrections,
+retry receipts and native permission parity. Six browser checks cover delayed
+older-answer navigation, explicit Go/Back and a facility question with no price
+frame. These establish the bounded local contract, not production activation or
+settlement-adjustment capability.
+
+### Late corrections and settlement adjustments
+
+Quantity/source and allocation revisions retain their effective period and their
+knowledge/publication identity. A later correction does not rewrite earlier
+certificates, accepted allocations or settled cash. The assistant can inspect the
+revisions and prepare supported operational corrections; automatic invoice
+adjustments are not implemented by this increment.
+
+For a future settlement-adjustment consumer, keep a small explicit cause
+classification: late actuals, quantity correction, allocation correction, price
+correction and fee correction. Whether the affected period or invoice is closed
+is a separate lifecycle fact; a late reading alone does not establish a
+prior-period accounting adjustment. Reuse governed reference-data conventions
+when that consumer is implemented. No new classification table or executable
+settlement policy is introduced here. Debit/credit adjustments must link the
+original determination, corrected inputs and explicit delta without overwriting
+historical settlement.

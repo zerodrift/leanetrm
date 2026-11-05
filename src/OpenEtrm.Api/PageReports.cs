@@ -35,8 +35,8 @@ static class PageReports
         // The inspected PPA is the Blotter's trade view of it; its target opens it in the Blotter.
         ["ppa"]=new("read_trades",["trades.trade_v1","trades.ppa_book_v1"],"PPA bookings",false),
         ["blotter_risk"]=Workspace("Blotter risk"),["blotter_risk_lens"]=Workspace("Blotter risk lens"),["blotter_new_trade"]=Workspace("New trade"),["blotter_new_future"]=Workspace("New futures trade"),["blotter_new_swap"]=Workspace("New swap"),["blotter_new_ppa"]=Unsupported("New PPA"),["blotter_new_gas"]=Unsupported("New physical gas trade"),["blotter_new_crude"]=Unsupported("New physical crude trade"),["blotter_new_lng"]=Unsupported("New physical LNG cargo"),["blotter_new_option"]=Unsupported("New futures option trade"),
-        ["dashboard"]=Unsupported("Dashboard"),["crude_setup"]=Unsupported("Crude delivery setup"),["vol_surfaces"]=Unsupported("Vol surfaces"),
-        ["facility_quantities"]=Unsupported("Facilities"),["gas_setup"]=Unsupported("Gas delivery setup"),["physical_gas"]=Unsupported("Physical gas bookings"),["physical_crude"]=Unsupported("Physical crude bookings"),["risk_jobs"]=Workspace("Risk"),["delivery_prices"]=Workspace("Delivery prices"),["interval_series"]=Workspace("Interval data"),
+        ["dashboard"]=Unsupported("Dashboard"),["vol_surfaces"]=Unsupported("Vol surfaces"),
+        ["facility_quantities"]=new("read_workspace_page",["workspace.page_v1"],"Facilities",false),["gas_setup"]=Workspace("Gas delivery setup"),["crude_setup"]=Workspace("Crude delivery setup"),["physical_gas"]=Unsupported("Physical gas bookings"),["physical_crude"]=Unsupported("Physical crude bookings"),["risk_jobs"]=Workspace("Risk"),["delivery_prices"]=Workspace("Delivery prices"),["interval_series"]=Workspace("Interval data"),
         ["interval_curves"]=Workspace("Hourly / sub-hourly curves"),["users_access"]=Workspace("Users & access"),["settings_ai"]=Workspace("AI settings")
     }.ToImmutableDictionary(StringComparer.Ordinal);
 
@@ -85,6 +85,17 @@ static class PageReports
         return null;
     }
 
+    // Only the facility page has a business date independent of a pricing frame. This immutable
+    // report member participates in ask retry equality before the knowledge context is captured.
+    internal static DateOnly? BusinessDate(JsonElement report)
+    {
+        if(!report.TryGetProperty("businessDate",out var date))return null;
+        if(report.GetProperty("page").GetString()!="facility_quantities"||date.ValueKind!=JsonValueKind.String||
+            !DateOnly.TryParseExact(date.GetString(),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,out var day))throw ToolInput.Invalid();
+        return day;
+    }
+
     static PageRead? Read(JsonElement report)
     {
         if(report.ValueKind!=JsonValueKind.Object)return null;
@@ -92,11 +103,12 @@ static class PageReports
         if(fields.Distinct().Count()!=fields.Length)return null;
         var hasView=report.TryGetProperty("view",out var digestView);
         var hasFocus=report.TryGetProperty("focus",out var focus);
-        var members=fields.Where(f=>f is not("view" or "focus")).Order(StringComparer.Ordinal).ToArray();
+        var members=fields.Where(f=>f is not("view" or "focus" or "businessDate")).Order(StringComparer.Ordinal).ToArray();
         var laid=members.SequenceEqual(["layout","page","selection"]);
         if(!laid&&!members.SequenceEqual(["page","selection"])||report.GetProperty("page") is not {ValueKind:JsonValueKind.String} named||!Pages.TryGetValue(named.GetString()!,out var page))
             return null;
         var id=named.GetString()!;
+        try{_=BusinessDate(report);}catch(ToolRefusal){return null;}
         if(hasFocus)
         {
             if(!BlotterPages.Contains(id))return null;
@@ -116,7 +128,12 @@ static class PageReports
             if(page.Tool=="read_workspace_page")
             {
                 _=new ToolInput(selection);
-                if(selection.EnumerateObject().Any())
+                if(id=="facility_quantities"&&selection.EnumerateObject().Any())
+                {
+                    var facility=new ToolInput(selection);facility.Exactly("ledgerId");
+                    if(facility.Has("ledgerId"))_=facility.Id("ledgerId");
+                }
+                else if(selection.EnumerateObject().Any())
                 {
                     var selected=AgentTools.Parse("read_page_operation",selection).Arguments as WorkspaceArguments;
                     var operation=selected?.Operation is {} code?AssistantOperations.Find(code):null;
