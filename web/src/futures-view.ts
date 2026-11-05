@@ -647,9 +647,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const open=async()=>{
       ran=true;
       try{opened=product==='futures'?await openFuture(next,signal):product==='swaps'?await openSwap(next,signal):await openAdditional(product,next);}
-      catch(error){if(current()&&sameMode(panel.current(),next))await panel.show(newTrade);throw error;}
+      catch(error){if(current())await panel.show(newTrade,signal);throw error;}
       signal?.throwIfAborted();if(!current())return;
-      if(opened&&sameMode(panel.current(),next))showForm();
+      if(sameMode(panel.current(),next)){if(opened)showForm();else await panel.show(newTrade,signal);}
     };
     if(inAction)await open();else await act(open);
     // A page that became busy while the person was asked does nothing: the panel is as it was, and the person is told, not left to wonder.
