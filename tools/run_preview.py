@@ -453,7 +453,7 @@ def main():
                 from check_swap_settlement_selection import prepare_daily
                 swap_market=prepare_daily(swap_market,swap_manifest)
             query(swap_market)
-            if args.connected_portfolio_check or args.valuation_status_check or args.with_custom_curves:
+            if args.connected_portfolio_check or args.valuation_status_check or args.live_calculation_check or args.with_custom_curves:
                 # The primary custom-curve fixture visits closes beyond the four standard weekdays.
                 # Its unrelated secondary bundle explicitly supplies no inputs there.
                 times={f['at'] for f in swap_manifest['frames']}

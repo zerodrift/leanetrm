@@ -6,8 +6,13 @@ import {idle} from './owned-browser.mjs';
 const forms={futures:{form:'#futures-new-trade',head:'New future'},options:{form:'#option-page',head:'New futures option'},swaps:{form:'#swap-editing',head:'New swap'},ppa:{form:'#ppa-page',head:'New PPA'},gas:{form:'#gas-page',head:'New physical gas trade'},crude:{form:'#crude-page',head:'New physical crude trade'},lng:{form:'#lng-page',head:'New physical LNG cargo'}};
 
 /** Presses New trade and waits for the panel to offer its switch. */
-export async function startNewTrade({click,wait}){
-  await wait("!!document.querySelector('#futures-new')&&!document.querySelector('#futures-new').disabled&&"+idle);
+export async function startNewTrade({click,wait,evaluate}){
+  try{await wait("!!document.querySelector('#futures-new')&&!document.querySelector('#futures-new').disabled&&"+idle);}
+  catch(error){
+    if(!evaluate)throw error;
+    const observed=await evaluate("({booking:document.querySelector('#new-trade-availability')?.textContent,snapshot:document.querySelector('#snapshot')?.value,session:document.querySelector('#close-session')?.value,error:document.querySelector('#error')?.textContent})");
+    throw Error(error.message+' · observed '+JSON.stringify(observed),{cause:error});
+  }
   await click('#futures-new');
   await wait("document.querySelector('#position-details').dataset.mode==='new'&&!!document.querySelector('#new-trade-product')&&"+idle);
 }
