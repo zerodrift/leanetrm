@@ -28,7 +28,7 @@ public static partial class CustomCurves
         var contextSourceStatus=new List<object>();
         if(pin.Frame is not null)
         {
-            var contextPin=await PreviewPin(connection,database,pin,ct);
+            var contextPin=await SelectedClose.Pin(connection,database,pin,ct);
             var certified=await store.Read(connection,ct);
             contextRecipes=ContextVersions.Latest(certified.Concat(pin.Context is null?recipes.Where(r=>r.State=="draft"):[]),r=>r.Id,r=>r.Version);
             contextSchedules=ContextVersions.Latest(await schedules.ReadAt(connection,contextPin.Context!,ct),v=>v.Id,v=>v.Version);

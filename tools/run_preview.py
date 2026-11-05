@@ -230,7 +230,7 @@ def main():
         else:
             from demo_date_plan import compile_plan
             date_plan=compile_plan(dotnet,dll,temporary) if not args.check else None
-            reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan)
+            reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             if args.lng_cargo_check and migration.name=='0176_lng_cargo_references.sql':
                 from check_lng_upgrade import run_checks as check_lng_upgrade

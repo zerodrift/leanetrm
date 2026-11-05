@@ -1,6 +1,5 @@
 import {displayDate,displayInstant,publicText} from './market-view.js';
 import {renderRegularTable} from './regular-table.js';
-import type {Context} from './date-editor.js';
 
 type Choice={field:string;code:string;label:string;supported:boolean;targetKind:string|null};
 type Quote={commodity:string;currency:string;unit:string;multiplier:string};
@@ -13,17 +12,18 @@ type Catalog={choices:Choice[];maximumContracts:number;references:References};
 type Mapping={id:string;version:number;state:string;definition:{code:string;name:string;contracts:unknown[]}};
 type Receipt={expression:string};
 type Position={position:number;label:string;start:string;end:string;lastTradingAt:string;futuresSeries:string|null;startReference:Receipt;endReference:Receipt;lastTradingReference:Receipt};
-type Preview={code:string;name:string;mapping:string;context:Context;terms:{currency:string;unit:string;multiplier:string;timeZone:string;intervalMinutes:number;
+type Preview={code:string;name:string;mapping:string;context:{effectiveOn:string};terms:{currency:string;unit:string;multiplier:string;timeZone:string;intervalMinutes:number;
   settlementKind:string;settlementIndex:string|null};contracts:Position[]};
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 
 const comingSoon=' · Coming soon';
 
 /**
- * The Curves step of Schedules & date mappings (D312): a curve names its reference terms, an exact published date mapping and how many
- * of its positions it carries. The server validates the definition and resolves its rolling contract window; this view only presents.
+ * Define a curve on Curves & prices (D318): a curve names its reference terms, an exact published date mapping and how many of its
+ * positions it carries. The server validates the definition and resolves its rolling contract window at the header's selected close;
+ * this view only presents.
  */
-export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=>Promise<void>,context:()=>Promise<Context>,zone:()=>string,isBusy:()=>boolean){
+export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=>Promise<void>,close:()=>string,zone:()=>string,isBusy:()=>boolean,leave:()=>void){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
   const element=el('div');element.className='card curve-definition-editor';
   const form=el('form'),result=el('div'),title=el('h3'),summary=el('p'),table=el('div');
@@ -66,8 +66,9 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
   const actions=el('div'),preview=el('button','Preview contracts'),save=el('button','Save draft'+comingSoon);
   actions.className='schedule-actions';preview.type='submit';save.type='button';save.id='curve-definition-save';save.className='secondary';save.disabled=true;save.dataset.ownControls='';
   actions.append(preview,save);form.append(actions);
-  const intro=el('p','Define a curve from a published date mapping. Preview resolves its contracts in the context chosen above; saving and publishing curve definitions are coming soon.');
-  intro.className='muted';element.append(el('h2','Curves'),intro,form,result);
+  const intro=el('p','Define a curve from a published date mapping (Settings › Schedules & date mappings). Preview resolves its contracts at the close selected above; saving and publishing curve definitions are coming soon.');
+  const back=el('button','‹ All markets');back.type='button';back.className='text-button';back.id='curve-definition-back';back.onclick=leave;
+  intro.className='muted';element.append(back,el('h2','Define a curve'),intro,form,result);
 
   // Only a futures curve names a futures product; the field is hidden, not disabled, since busy work re-enables page controls.
   const kindChanged=()=>{const future=value('kind')==='future',product=fields.get('product')!;product.parentElement!.hidden=!future;product.required=future;if(!future)product.value='';};
@@ -107,7 +108,7 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
       p.contracts.map(c=>[String(c.position),c.label,displayDate(c.start),displayDate(c.end),displayInstant(c.lastTradingAt,zone()),c.futuresSeries??'—',c.startReference.expression]),[0],isBusy);
     result.hidden=false;
   }
-  form.onsubmit=event=>{event.preventDefault();void run(async()=>{clear();const started=generation;const read=await api<Preview>('curve-definitions/preview',{definition:draft(),context:await context()});if(started===generation)show(read);});};
+  form.onsubmit=event=>{event.preventDefault();void run(async()=>{clear();const started=generation;const read=await api<Preview>('curve-definitions/preview',{definition:draft(),snapshotId:close()});if(started===generation)show(read);});};
   async function load(){
     const started=++generation;
     const [read,library]=await Promise.all([api<Catalog>('curve-definitions/catalog'),api<{contractDefinitions:Mapping[]}>('date-schedules')]);
@@ -116,9 +117,9 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
   }
 
   return {element,load,
-    // Reads the catalog whenever the tab is shown, so a mapping published meanwhile is listed; the schedule page alone reads none of it.
+    // Reads the catalog whenever the editor opens, so a mapping published meanwhile is listed.
     shown(){void run(load);},
-    // A changed market context makes the shown window and the pinned choices stale; the next showing reads them again.
+    // A changed close or market context makes the shown window and the pinned choices stale; the next opening reads them again.
     contextChanged(){generation++;clear();},
     reset(){generation++;catalog=undefined;mappings=[];form.reset();clear();},
     refresh(){if(shown)show(shown);}};

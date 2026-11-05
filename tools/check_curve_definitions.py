@@ -1,4 +1,4 @@
-"""D312 curve definition previews over a rolling date mapping in an owned synthetic preview."""
+"""D318 curve definition previews over a rolling date mapping in an owned synthetic preview."""
 import json
 from uuid import uuid4
 from preview_client import PreviewClient
@@ -9,6 +9,12 @@ def run_checks(url, query, manifest):
         value = PreviewClient(url); value.bootstrap(); value.call('profile', {'profile': profile}); return value
     editor, approver, viewer = (client(p) for p in ('editor', 'approver', 'viewer'))
     cat = manifest['catalogId']
+
+    def close(who, day):
+        """The one close the fixture records on a day, as the session lists it."""
+        frames = [f['id'] for f in who.call('workspace')['frames'] if f['at'].startswith(day + 'T')]
+        assert len(frames) == 1, (day, frames)
+        return frames[0]
 
     def context(day):
         return viewer.call('date-schedules/context', {'effectiveOn': day, 'knownAt': None, 'mode': 'current'})['context']
@@ -43,13 +49,15 @@ def run_checks(url, query, manifest):
                'settlementTarget': 'test_index_target', 'markRole': 'trader_mark'}
     curves_before = query(f"SELECT count(*) FROM market_data.curves WHERE catalog_id='{cat}';")
 
+    # A preview resolves its window at the close the header selects: its date, under the session's knowledge.
     def preview(definition, day='2021-01-15', who=viewer, expected=200):
-        return who.call('curve-definitions/preview', {'definition': definition, 'context': context(day)}, expected=expected)
+        return who.call('curve-definitions/preview', {'definition': definition, 'snapshotId': close(who, day)}, expected=expected)
 
     january = preview(future)
     assert [c['futuresSeries'] for c in january['contracts']] == ['test_gas_202102', 'test_gas_202103', 'test_gas_202104']
     assert [c['position'] for c in january['contracts']] == [1, 2, 3] and january['mapping'] == 'curve_months'
     assert january['terms']['timeZone'] == 'UTC' and january['terms']['currency'] == 'usd'
+    assert january['context']['effectiveOn'] == '2021-01-15', january['context']
     february = preview(future, '2021-02-15')
     assert [c['futuresSeries'] for c in february['contracts']] == ['test_gas_202103', 'test_gas_202104', 'test_gas_202105'], 'The window did not roll'
     assert february['contracts'][0]['start'] == '2021-03-01' and february['contracts'][2]['end'] == '2021-06-01'
@@ -67,18 +75,23 @@ def run_checks(url, query, manifest):
         ({**forward, 'interpolation': None}, 'curve_definition'),
     ]:
         assert preview(definition, expected=422)['code'] == code, (definition, code)
-    # The last mapping position resolves past the schedule's final occurrence, so a later window is refused rather than shortened.
-    assert preview(future, '2021-06-15', expected=422)['code'] == 'date_index'
-    viewer.call('curve-definitions/preview', {'definition': future, 'context': None}, expected=422)
-    # Under a selected historical context a preview reads its terms in that context and refuses any other.
-    selected = context('2021-01-15')
+    # At a close the published mapping does not cover there is no window; it is refused, not moved to another date.
+    early = preview(future, '2020-12-18', expected=422)
+    assert early['code'] == 'contract_dates', early
+    assert viewer.call('curve-definitions/preview', {'definition': future, 'snapshotId': None}, expected=422)['code'] == 'snapshot_missing'
+    assert viewer.call('curve-definitions/preview', {'definition': future, 'snapshotId': str(uuid4())}, expected=422)['code'] == 'snapshot_missing'
+    # Under a selected historical context a preview reads at that context's own close; it lists no close on another date, and a
+    # close another session lists is refused.
     historical = client('viewer')
+    selected = context('2021-01-15')
     historical.call('market/context/retained', {'contextId': selected['contextId'], 'selection': 'latest_correction'})
     terms = lambda preview: [(c['label'], c['start'], c['end'], c['lastTradingAt'], c['futuresSeries']) for c in preview['contracts']]
-    assert terms(historical.call('curve-definitions/preview', {'definition': future, 'context': selected})) == terms(january)
-    assert historical.call('curve-definitions/preview', {'definition': future, 'context': context('2021-01-16')}, expected=422)['code'] == 'schedule_context'
-    viewer.call('curve-definitions/preview', {'definition': {**future, 'contracts': {**future['contracts'], 'mappingId': str(uuid4())}},
-                                             'context': context('2021-01-15')}, expected=422)
-    viewer.call('curve-definitions/preview', {'definition': {**future, 'unexpected': 1}, 'context': context('2021-01-15')}, expected=400)
+    retained = preview(future, who=historical)
+    assert terms(retained) == terms(january) and retained['context']['contextId'] == selected['contextId'], retained['context']
+    assert not any(f['at'].startswith('2021-02-15T') for f in historical.call('workspace')['frames'])
+    assert historical.call('curve-definitions/preview', {'definition': future, 'snapshotId': close(viewer, '2021-02-15')},
+                           expected=422)['code'] == 'snapshot_missing'
+    preview({**future, 'contracts': {**future['contracts'], 'mappingId': str(uuid4())}}, expected=422)
+    viewer.call('curve-definitions/preview', {'definition': {**future, 'unexpected': 1}, 'snapshotId': close(viewer, '2021-01-15')}, expected=400)
     assert query(f"SELECT count(*) FROM market_data.curves WHERE catalog_id='{cat}';") == curves_before, 'A preview wrote a curve'
-    print('PASS curve definition previews validate terms and roll their contract window with the mapping context')
+    print('PASS curve definition previews validate terms and roll their contract window with the selected close')
