@@ -1,0 +1,86 @@
+"""D319 regional closes over HTTP: recording for a session business day, the close in force and replaced history."""
+import json
+from datetime import datetime
+import threading
+from uuid import uuid4
+from preview_client import PreviewClient
+from close_session_fixture import draft, grant, publish
+
+
+def instant(value):
+    return datetime.fromisoformat(value.replace('Z', '+00:00')).isoformat()
+
+
+def client(url, profile):
+    value = PreviewClient(url); value.bootstrap(); value.call('profile', {'profile': profile}); return value
+
+
+def run_checks(url, query, manifest):
+    catalog, revision = manifest['catalogId'], manifest['revisionId']
+    viewer, editor, approver, admin = (client(url, p) for p in ('viewer', 'editor', 'approver', 'admin'))
+    frame = next(f for f in approver.call('workspace')['frames'] if instant(f['at']) == instant('2020-12-18T16:00:00Z'))
+    curves = sorted(frame['curveContracts'])
+    publish(editor, approver, draft('test_utc_close', 'test_business', '16:00', curves))
+    publish(editor, approver, draft('test_late_close', 'test_minus_18_days', '22:00', curves))
+
+    def record(who, session, day, name='Synthetic regional close', expected=200, snapshot=frame['id']):
+        return who.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': snapshot, 'name': name,
+                                                   'session': session, 'businessDate': day}, expected=expected)
+
+    assert record(approver, 'test_utc_close', '2020-12-18', expected=403)['code'] == 'close_grant', 'Publishing authority alone recorded a close'
+    record(editor, 'test_utc_close', '2020-12-18', expected=403)
+    grant(admin, query, manifest, 'approver', 'test_utc_close')
+    body = {'requestId': str(uuid4()), 'snapshotId': frame['id'], 'name': 'Synthetic UTC close', 'session': 'test_utc_close', 'businessDate': '2020-12-18'}
+    first = approver.call('market/closes/register', body)
+    assert first == approver.call('market/closes/register', body), 'A retried recording created another close'
+    assert approver.call('market/closes/register', {**body, 'name': 'Different replay'}, expected=409)['code'] == 'pilot_close_conflict'
+    assert (first['session'], first['sessionVersion'], first['businessDate'], instant(first['at'])) == ('test_utc_close', 1, '2020-12-18', instant('2020-12-18T16:00:00Z')), first
+    assert first['replacedBy'] is None
+    print('PASS a close is recorded for a session business day at its cutoff, idempotently and only under a session grant', flush=True)
+
+    # The late session's 22:00 cutoff on 17 December is 16:00 UTC on 18 December: the business day stays 17 December.
+    assert record(approver, 'test_late_close', '2020-12-17', expected=403)['code'] == 'close_grant', 'One session grant recorded another session'
+    grant(admin, query, manifest, 'approver', 'test_late_close')
+    late = record(approver, 'test_late_close', '2020-12-17')
+    assert (late['businessDate'], instant(late['at'])) == ('2020-12-17', instant('2020-12-18T16:00:00Z')), late
+    for session, day, code in [('test_utc_close', '2020-12-17', 'close_session_instant'), ('test_utc_close', '2020-12-19', 'close_session'),
+                               ('test_utc_close', '2021-12-02', 'close_session')]:
+        assert record(approver, session, day, expected=422)['code'] == code, (session, day, code)
+    # Nobody holds a grant for a session that does not exist.
+    assert record(approver, 'not_a_session', '2020-12-18', expected=403)['code'] == 'close_grant'
+    approver.call('market/closes/register', {**body, 'requestId': str(uuid4()), 'unexpected': 1}, expected=400)
+    print('PASS a business day keeps its session date across UTC midnight; other days, instants and sessions are refused', flush=True)
+
+    # The frame must carry exactly the session's curves; the database names what is missing or extra.
+    series = dict(json.loads(query(f"SELECT json_agg(json_build_array(id,series_id))::text FROM market_data.observations WHERE catalog_id='{catalog}' AND id IN({','.join(repr(o) for o in frame['observationIds'])});")))
+    def register_sql(members, session='test_utc_close'):
+        pins = [{'seriesId': series[o], 'observationId': o, 'inputUse': 'variable'} for o in frame['observationIds']]
+        encoded = lambda value: "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
+        token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','approver','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
+        return query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');
+        DO $$BEGIN PERFORM security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic partial','{session}','2020-12-18','2020-12-18T16:00:00Z',{encoded(pins)},{encoded(members)});
+        RAISE EXCEPTION 'accepted';EXCEPTION WHEN SQLSTATE 'P0001' THEN DECLARE detail text;BEGIN GET STACKED DIAGNOSTICS detail=PG_EXCEPTION_DETAIL;
+        PERFORM set_config('openetrm.check_refusal',SQLERRM||'|'||detail,false);END;END$$;SELECT current_setting('openetrm.check_refusal');COMMIT;""").splitlines()[-1]
+    members = [{'curve': c, 'contractId': k, 'ordinal': n} for c in curves for n, k in enumerate(frame['curveContracts'][c])]
+    missing = register_sql([m for m in members if m['curve'] != 'future'])
+    assert 'close_incomplete' in missing and 'future' in missing, missing
+    publish(editor, approver, draft('test_narrow_close', 'test_business', '16:00', ['future']))
+    grant(admin, query, manifest, 'approver', 'test_narrow_close')
+    extra = register_sql(members, 'test_narrow_close')
+    assert 'close_outside_session' in extra and 'local_power' in extra, extra
+    print('PASS a close must carry exactly its session curves, naming those missing or extra', flush=True)
+
+    # Two recordings for one session and day race; the later publication is in force and both succeed.
+    racers, results = [client(url, 'approver') for _ in range(2)], []
+    def race(who):
+        try:
+            own = next(f for f in who.call('workspace')['frames'] if instant(f['at']) == instant('2020-12-18T16:00:00Z') and 'close' not in f)
+            results.append(record(who, 'test_utc_close', '2020-12-18', 'Synthetic race', snapshot=own['id']))
+        except Exception as error: results.append(repr(error))
+    threads = [threading.Thread(target=race, args=(who,)) for who in racers]
+    for thread in threads: thread.start()
+    for thread in threads: thread.join()
+    assert len(results) == 2 and all(isinstance(r, dict) for r in results) and len({r['id'] for r in results}) == 2, results
+    latest = max(results, key=lambda r: int(query(f"SELECT publication_order FROM market_data.market_closes WHERE id='{r['id']}';")))
+    assert query(f"SELECT id FROM market_data.market_closes WHERE catalog_id='{catalog}' AND session_code='test_utc_close' AND business_date='2020-12-18' ORDER BY publication_order DESC LIMIT 1;") == latest['id']
+    print('PASS concurrent recordings for one session day both succeed and the later one is in force', flush=True)

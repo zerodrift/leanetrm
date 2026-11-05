@@ -127,7 +127,7 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="close_conflict" => (409,p.MessageText,"This close session, grant or request changed. Reload it or retry the exact original request."),
     PostgresException p when p.SqlState=="42501" && p.MessageText is "close_denied" or "close_grant" => (403,p.MessageText=="close_grant"?"close_grant":"access_denied",
         p.MessageText=="close_grant"?"Recording this session's close needs a grant for the session.":"The selected test identity cannot perform this operation."),
-    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("close_",StringComparison.Ordinal) => (422,p.MessageText,CloseSessions.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("close_",StringComparison.Ordinal) => (422,p.MessageText,CloseSessions.Refusal(p.MessageText)+(string.IsNullOrEmpty(p.Detail)?"":" "+p.Detail)),
     PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
     PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/jobs/pilot-close") => (422,"pilot_profile","Choose supported exact books, curves, sources, policies and schedule terms."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("pilot_",StringComparison.Ordinal) => (422,p.MessageText,"Choose complete explicit pilot close inputs, supported policies and an available exact anchor."),

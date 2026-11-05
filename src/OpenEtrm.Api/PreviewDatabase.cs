@@ -34,6 +34,7 @@ public sealed record PreviewSequenceCoverage(string Curve, DateTimeOffset From, 
 public sealed record PreviewExample(DateTimeOffset At,string Curve);
 public sealed record PpaBundle(Guid DefinitionRevisionId,Guid ReferenceCatalogId,Guid ReferenceRevisionId);
 public sealed record PreviewSeedFrame(DateTimeOffset At, Guid[] ObservationIds, Dictionary<string,Guid[]> CurveContracts,Guid[]? FrozenObservationIds=null,PpaBundle? PpaBundle=null);
+public sealed record FrameClose(string Session,int SessionVersion,DateOnly BusinessDate,Guid? ReplacedBy);
 public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, ImmutableArray<Guid> ObservationIds,
     ImmutableDictionary<string,ImmutableArray<Guid>> CurveContracts,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? ContextId=null,
@@ -41,6 +42,10 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Guid? OriginCloseId{get;init;}
+    // The session and business day of a recorded close, and the close in force for them when it is not this one (D319).
+    // Working snapshots that were never recorded have none.
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public FrameClose? Close{get;init;}
     [System.Text.Json.Serialization.JsonIgnore]
     public Guid? OriginInputId{get;init;}
     public PpaBundle? PpaBundle{get;init;}
