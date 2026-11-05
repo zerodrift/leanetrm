@@ -14,7 +14,7 @@ export async function sideSession(url,profile='admin'){
 
 /** A real publication in the owned fixture, independent of the displayed selected pins. */
 export async function correctSyntheticBase(actor,value){
- const data=await actor.call('workspace'),selected=data.frames.find(f=>f.at.startsWith('2020-12-18')&&!f.originCloseId);
+ const data=await actor.call('workspace'),selected=data.frames.find(f=>f.at.startsWith('2020-12-18')&&data.initialFrameIds.includes(f.id));
  let fact=data.observations.find(o=>o.id==='70000000-0000-0000-0000-000000000001');
  while(data.observations.some(o=>o.corrects_id===fact.id))fact=data.observations.find(o=>o.corrects_id===fact.id);
  const picked=selected.observationIds.includes(fact.id)?selected:(await actor.call('select-observation',{snapshotId:selected.id,observationId:fact.id})).frame;

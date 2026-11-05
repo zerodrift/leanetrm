@@ -9,7 +9,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     await check('reload reopens the current page instead of the first permitted page',"!document.querySelector('#market-page').hidden&&document.querySelector('#futures-page').hidden");
     await open('#reference/interest_rate_definitions');
     await check('Reference data accepts the explicitly selected category catalog',"!document.querySelector('#reference-page').hidden&&document.querySelector('#error').hidden&&document.querySelector('#reference tbody tr')!==null");
-    const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&!f.originCloseId).id;})()");
+    const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
     await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
     await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
     const reads=()=>evaluate("window.__navigationReads.filter(r=>['/api/trading/workspace','/api/trading/workspace/stream','/api/trading/directory','/api/trading/positions'].includes(r.path)).length");

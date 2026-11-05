@@ -38,7 +38,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   try{
     // The Risk Analyst can read the Blotter and run risk, whose results turn the lens.
     await persona('risk');
-    const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&!f.originCloseId).id;})()");
+    const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
     await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
     await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`);
     // The rows in display order, read by scrolling the virtual grid through them.
