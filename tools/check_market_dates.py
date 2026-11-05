@@ -23,7 +23,7 @@ def run_checks(url,query=None,manifest=None):
     bridge=client.call('market/dates',{'session':SESSION,'curve':'bridge_basis','timeZone':'UTC'})
     assert {row['date'] for row in bridge['dates']}=={'2020-12-15','2020-12-16','2020-12-17','2020-12-18'}
     assert '2020-12-11' not in {row['date'] for row in bridge['dates']}
-    # Days are the session's business days in any display zone (D319); the zone formats their instants.
+    # Days are the session's business days in any display zone (D327); the zone formats their instants.
     tokyo=client.call('market/dates',{'session':SESSION,'curve':'ng_monthly','timeZone':'Asia/Tokyo'})
     shifted=next(row for row in tokyo['dates'] if row['date']=='2020-12-11')['frames']
     assert all(row['businessDate']=='2020-12-11' and row['at'].startswith('2020-12-11T16:00:00') for row in shifted)
@@ -164,7 +164,7 @@ def run_checks(url,query=None,manifest=None):
     changed=client.call('corrections',{'snapshotId':frame['id'],'observationId':chosen['id'],'value':chosen['value']})['frame']
     duplicate=client.call('market/dates',{'session':SESSION,'curve':'ng_monthly','timeZone':'UTC'})
     closes=next(row for row in duplicate['dates'] if row['date']=='2020-12-18')['frames']
-    # A correction is a working snapshot until it is recorded (D319): the day still offers only its close in force.
+    # A correction is a working snapshot until it is recorded (D327): the day still offers only its close in force.
     assert [row['id'] for row in closes]==[frame['id']] and changed['id'] not in {row['id'] for day in duplicate['dates'] for row in day['frames']}
     latest=client.call('market/dates',{'session':SESSION,'curve':'ng_monthly','timeZone':'UTC','maximumDates':1})
     assert latest['dates']==duplicate['dates'][-1:], 'The latest-date read must name the close in force.'

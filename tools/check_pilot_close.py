@@ -33,7 +33,7 @@ def run_checks(url, query, manifest,psql,environment):
     workspace=approver.call('workspace')
     snapshots=sorted(workspace['frames'],key=lambda f:f['at'])
     assert snapshots, 'The fixture must contain actual retained inputs'
-    # D319: the pilot records into a UTC 16:00 session that closes every calendar day, as its generator does.
+    # D327: the pilot records into a UTC 16:00 session that closes every calendar day, as its generator does.
     publish(editor,approver,draft('test_pilot_utc','test_utc_every_day','16:00',sorted(snapshots[0]['curveContracts'])))
     admin=client('admin')
     for login in ('approver','pilot_fixture_worker'):grant(admin,query,manifest,login,'test_pilot_utc')
@@ -73,7 +73,7 @@ def run_checks(url, query, manifest,psql,environment):
     assert result['id'] in {f['id'] for day in dates['dates'] for f in day['frames']}
     selected=max((saved for saved in full['frames'] if saved['id'] in full['initialFrameIds']),key=lambda saved:saved['at'])
     curve=next(iter(frame['curveContracts']));contract=frame['curveContracts'][curve][0]
-    # A close's history is its own session's (D319): pinned at the built-in close it omits the pilot session's close of the
+    # A close's history is its own session's (D327): pinned at the built-in close it omits the pilot session's close of the
     # same instant, and pinned at the pilot close it lists that close.
     history=fresh.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':selected['id'],'curve':curve,'contractId':contract})
     assert all(point['snapshotId']!=result['id'] for point in history['points']), 'History mixed another session\'s close'
@@ -84,7 +84,7 @@ def run_checks(url, query, manifest,psql,environment):
     exact=fresh.call('evaluate',{'snapshotId':result['id'],'curve':curve})
     point=next(point for point in exact['points'] if point['contractId']==contract)
     assert stored_point['value']==point['value'] and set(stored_point['observationIds'])==set(point['lineage'])
-    # Always latest (D319): the view captured before the close was recorded still reads it, as the close in force for its day.
+    # Always latest (D327): the view captured before the close was recorded still reads it, as the close in force for its day.
     assert result['id'] in {f.get('originCloseId') for f in earlier.call('workspace/navigation')['frames']}, 'A close in force was hidden by an earlier cutoff'
     current=fresh.call('market/context',{'effectiveOn':frame['at'][:10],'knownAt':None,'mode':'current','selection':'latest_correction'})
     retained=fresh.call('workspace/navigation')

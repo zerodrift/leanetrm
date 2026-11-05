@@ -21,7 +21,7 @@ public sealed record CloseSessionChoice([property:JsonRequired] string Session);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CloseSessionRevoke([property:JsonRequired] Guid RequestId,[property:JsonRequired] Guid GrantId);
 
-// D319 close sessions: versioned configuration of a regional close (calendar, its clock, local cutoff and exact curves) and
+// D327 close sessions: versioned configuration of a regional close (calendar, its clock, local cutoff and exact curves) and
 // the per-session grants that let a person record that session's closes. The database decides every rule.
 public static class CloseSessions
 {

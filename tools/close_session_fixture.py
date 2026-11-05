@@ -1,4 +1,4 @@
-"""Publish D319 close sessions and grants for owned synthetic checks."""
+"""Publish D327 close sessions and grants for owned synthetic checks."""
 import hashlib
 from uuid import uuid4
 from preview_client import PreviewClient

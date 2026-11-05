@@ -1,4 +1,4 @@
-// What the As-of control offers under the chosen close session (D319): that session's recorded closes, and every working
+// What the As-of control offers under the chosen close session (D327): that session's recorded closes, and every working
 // snapshot separately, since an unrecorded snapshot is working data, not a close. No session chosen offers no close; nothing
 // chooses one. A historical view offers the closes of its own business day.
 export type FrameClose={session:string;sessionVersion:number;businessDate:string;replacedBy:string|null};

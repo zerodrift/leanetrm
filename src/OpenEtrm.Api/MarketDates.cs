@@ -12,7 +12,7 @@ namespace OpenEtrm.Api;
 public sealed record MarketDatesRequest([property:JsonRequired] string? Curve,[property:JsonRequired] string TimeZone,[property:JsonRequired] string Session,
     RecipeDefinition? Definition=null,int? MaximumDates=null);
 public sealed record MarketDateFrame(Guid Id,DateTimeOffset At,string Name,string BusinessDate);
-// A session business day: its one close in force, and how many recorded closes it replaced (D319).
+// A session business day: its one close in force, and how many recorded closes it replaced (D327).
 public sealed record MarketDateChoice(string Date,ImmutableArray<MarketDateFrame> Frames,int Replaced);
 public sealed record UnavailableMarketDate(string Date,string Reason);
 public sealed record MarketDatesResponse(ScheduleContext? Context,string? Curve,string TimeZone,string SelectionPolicy,
@@ -46,7 +46,7 @@ public static class MarketDates
         if(frames.IsDefault||frames.Length>128||frames.Select(frame=>frame.Id).Distinct().Count()!=frames.Length)
             throw new MarketDataException("market_dates_input","Supply at most 128 distinct retained snapshot choices.");
         if(string.IsNullOrWhiteSpace(request.Session))throw new MarketDataException("market_dates_input","Choose a close session explicitly.");
-        // Only recorded closes of the named session are closes; a day lists the close in force alone (D319).
+        // Only recorded closes of the named session are closes; a day lists the close in force alone (D327).
         frames=[..frames.Where(frame=>frame.Close?.Session==request.Session&&frame.Close.ReplacedBy is null)];
         foreach(var frame in frames)_=pin.Require(frame);
         await pin.Bind(connection,database.Manifest.CatalogId,ct);

@@ -340,7 +340,7 @@ def run_correction_checks(query, manifest, c, frames):
     print('PASS composed fixing receipts: both slots retain original actuals on corrected replay; a fresh operation records corrected pins and direct subtype conversion rejects',flush=True)
     after=priced(seed)['monthly context']['knownAt']
     aliases=set()
-    # The built-in frame is a recorded close, which stays exact (D172, D319): a later correction reaches it only when a close
+    # The built-in frame is a recorded close, which stays exact (D172, D327): a later correction reaches it only when a close
     # carrying it is recorded, so both cutoffs read the original prices.
     for known,result in [(first['monthly context']['knownAt'],original),(after,original)]:
         c.call('market/context',{'effectiveOn':'2021-01-15','knownAt':known,'mode':'at','selection':'latest_correction'})

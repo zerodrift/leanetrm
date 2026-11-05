@@ -33,9 +33,9 @@ public sealed record PreviewSwapMarket(Guid RevisionId,PreviewSeedFrame[] Frames
 public sealed record PreviewSequenceCoverage(string Curve, DateTimeOffset From, DateTimeOffset To, DateTimeOffset ExampleAt);
 public sealed record PreviewExample(DateTimeOffset At,string Curve);
 public sealed record PpaBundle(Guid DefinitionRevisionId,Guid ReferenceCatalogId,Guid ReferenceRevisionId);
-// CloseId names the recorded close a built-in frame was seeded as (D319); such a frame is that close, not a working snapshot.
+// CloseId names the recorded close a built-in frame was seeded as (D327); such a frame is that close, not a working snapshot.
 public sealed record PreviewSeedFrame(DateTimeOffset At, Guid[] ObservationIds, Dictionary<string,Guid[]> CurveContracts,Guid[]? FrozenObservationIds=null,PpaBundle? PpaBundle=null,Guid? CloseId=null);
-// RecordedAfterCutoff says, under a historical context, that the close in force was recorded after its knowledge cutoff (D319).
+// RecordedAfterCutoff says, under a historical context, that the close in force was recorded after its knowledge cutoff (D327).
 public sealed record FrameClose(string Session,int SessionVersion,DateOnly BusinessDate,Guid? ReplacedBy,bool? RecordedAfterCutoff=null);
 public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, ImmutableArray<Guid> ObservationIds,
     ImmutableDictionary<string,ImmutableArray<Guid>> CurveContracts,
@@ -44,7 +44,7 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Guid? OriginCloseId{get;init;}
-    // The session and business day of a recorded close, and the close in force for them when it is not this one (D319).
+    // The session and business day of a recorded close, and the close in force for them when it is not this one (D327).
     // Working snapshots that were never recorded have none.
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public FrameClose? Close{get;init;}

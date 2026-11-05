@@ -552,7 +552,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await persona('admin');
   await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();const r=await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'context_risk_browser',name:'Synthetic context and risk account',kind:'human',roles:['trader','risk_analyst']})});if(!r.ok)throw Error(await r.text());})()`);
   await persona('context_risk_browser');
-  // A new account chooses its close session before it reads prices (D319).
+  // A new account chooses its close session before it reads prices (D327).
   await set('#close-session','demo_close_1600');await wait(idle);
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
   await runOnDesk();

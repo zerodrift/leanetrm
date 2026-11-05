@@ -433,7 +433,7 @@ PinnedContext Pin(PreviewSession session,Guid? frame=null)
     var selected=frame is {} id?Frame(session,id):null;
     return session.MarketContext is {} context?PinnedContext.Retained(context,selected):PinnedContext.Current(selected);
 }
-// An identity that could not discover the session's closes holds no market inputs: an unknown frame is then a denial (D319).
+// An identity that could not discover the session's closes holds no market inputs: an unknown frame is then a denial (D327).
 InputFrame PpaFrame(PreviewSession session,Guid id)=>session.Frames.GetValueOrDefault(id) is {} frame||session.HasDiscoveredFrames
     ?Pin(session).Require(session.Frames.GetValueOrDefault(id)):throw new PreviewDeniedException();
 InputFrame Frame(PreviewSession session,Guid id)
@@ -533,7 +533,7 @@ api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,async sessi
     // (docs/ai-assistant.md §7.2, §8).
     turnStreams.EndSession(session.Digest,left);
     turnWorker.EndSession(session.Digest);
-    // Closes are the identity's own discovery (D319): one that can read market data holds them at once; one that cannot holds none.
+    // Closes are the identity's own discovery (D327): one that can read market data holds them at once; one that cannot holds none.
     try{await RefreshFrames(session,c.RequestAborted);}catch(PreviewDeniedException){}
     return Results.Ok(new {profile=session.Profile});
 }));
@@ -945,7 +945,7 @@ object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalo
         return new {referenceRevision=source.Revision,definitionRevisionId=source.Definition};
     });
     return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
-        // Each offered frame names its recorded close; one without a close is a working snapshot (D319).
+        // Each offered frame names its recorded close; one without a close is a working snapshot (D327).
         frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:session.InitialFrameIds};
 }
 Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=>
@@ -1091,7 +1091,7 @@ api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async sessi
     // Current history includes initial inputs and every offered stored close;
     // unselected manual edits remain separate explicit input choices.
     var offered=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
-    // A close's history is its own session's closes (D319); other regions' closes at the same instants are not its samples.
+    // A close's history is its own session's closes (D327); other regions' closes at the same instants are not its samples.
     var frames=pin.Frame?.Close is {} pinned?offered.Where(frame=>frame.Close is null||frame.Close.Session==pinned.Session):offered;
     var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,policy,ct,
         session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null,

@@ -439,7 +439,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await persona('admin');
   await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();return await(await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'layout_browser',name:'Synthetic layout account',kind:'human',roles:['trader']})})).json();})()`);
   await persona('layout_browser');
-  // Nothing chooses a close session for a new account (D319): it shows no close until the person chooses one.
+  // Nothing chooses a close session for a new account (D327): it shows no close until the person chooses one.
   await check('a new account has no close session and no market date until it chooses one',"document.querySelector('#close-session').value===''&&document.querySelector('#snapshot').value===''");
   await set('#close-session','demo_close_1600');await wait(idle);
   await check('a new account starts on the Blotter at a market date, with none of the prior account\'s views',"document.querySelector('#snapshot').value!==''&&document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#blotter-saved').options.length===1&&document.querySelector('#blotter-name').value===''",

@@ -36,7 +36,7 @@ export function setupPilotClose(options:{api:<T>(path:string,body?:unknown)=>Pro
   const request=++generation,identity=options.identity();catalog=undefined;get('pilot-close-form').hidden=true;get('pilot-close-anchor-form').hidden=true;
   const [result,sessions]=await Promise.all([options.api<Catalog>('jobs/pilot-close/catalog'),options.api<{sessions:{code:string;name:string;state:string}[]}>('close-sessions/catalog')]);
   if(request!==generation||identity!==options.identity())return;
-  // A retained or generated close is recorded for a session chosen explicitly (D319).
+  // A retained or generated close is recorded for a session chosen explicitly (D327).
   const published=sessions.sessions.filter(s=>s.state==='published').map(s=>({value:s.code,label:s.name}));
   choices('session',published);choices('anchor-session',published);
   if(!result||!Array.isArray(result.valuationPolicyChoices)||!policies.every(p=>Array.isArray(result.policies?.[p])))throw Error('Pilot policies are incomplete. Reload before configuring a job.');

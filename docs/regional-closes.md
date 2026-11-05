@@ -1,6 +1,6 @@
 # Regional closes
 
-Status: D319, implemented locally and verified by the checks under
+Status: D327, implemented locally and verified by the checks under
 [Verification](#verification); not yet published or deployed. The owner decided
 the points listed below; calls marked *design call* await owner review. It
 refines D162 and D219 where they allow several selectable closes on one day.
@@ -260,7 +260,7 @@ decision):
 
 ## Implemented interfaces
 
-- Migration `0196_regional_closes.sql`: `market_data.close_sessions`,
+- Migration `0199_regional_closes.sql`: `market_data.close_sessions`,
   `close_session_versions` (each pins one definition revision and one reference
   calendar, whose clock is the session clock) and `close_session_curves`;
   `security.close_session_grants` (per principal); `presentation.close_session_choices`;

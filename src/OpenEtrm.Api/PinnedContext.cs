@@ -28,7 +28,7 @@ public sealed record PinnedContext
     public InputFrame RequireFrame()=>Frame??throw Missing();
     // A frame belongs to exactly one knowledge view; working frames carry no context.
     public InputFrame Require(InputFrame? frame)=>frame is not null && frame.ContextId==(rereading?null:Context?.ContextId)?frame:throw Missing();
-    // Binding a recorded close also requires it to be the close in force now: one replaced after it was offered is refused (D319).
+    // Binding a recorded close also requires it to be the close in force now: one replaced after it was offered is refused (D327).
     public async Task Bind(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
     {
         if(Context is not null)await BindExact(connection,catalog,Context,ct);

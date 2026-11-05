@@ -5,7 +5,7 @@ import type {LiveSelection} from './live-context.js';
 import {isCurveKind,kindsVersion,type CurveKind} from './curve-kinds.js';
 
 import type {FrameClose} from './close-sessions.js';
-// close names a recorded close's session and business day (D319); a working snapshot has none.
+// close names a recorded close's session and business day (D327); a working snapshot has none.
 export type FrameSummary={id:string;name:string;at:string;originCloseId?:string|null;close?:FrameClose|null};
 export type NavigationCategory={code:string;name:string};
 // A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it. Its kind is the backend's (D259).
